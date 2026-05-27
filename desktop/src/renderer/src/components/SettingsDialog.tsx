@@ -195,6 +195,7 @@ function LithoSection({
   const thicknessBounds = LITHO_SEGMENTER_BOUNDS.minimumLayerThicknessM
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
+  const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -208,13 +209,18 @@ function LithoSection({
     Number.isFinite(draft.drCompressionFactor) &&
     draft.drCompressionFactor >= drBounds.min &&
     draft.drCompressionFactor <= drBounds.max
-  const allValid = thicknessValid && gunsatValid && drValid
+  const snapValid =
+    Number.isFinite(draft.lithoSnapToleranceM) &&
+    draft.lithoSnapToleranceM >= snapBounds.min &&
+    draft.lithoSnapToleranceM <= snapBounds.max
+  const allValid = thicknessValid && gunsatValid && drValid && snapValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
     draft.gunsatKNm3 !== initial.gunsatKNm3 ||
     draft.drCompressionFactor !== initial.drCompressionFactor ||
-    draft.mergeSameLithology !== initial.mergeSameLithology
+    draft.mergeSameLithology !== initial.mergeSameLithology ||
+    draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM
 
   return (
     <SectionShell
@@ -269,6 +275,20 @@ function LithoSection({
         checked={draft.mergeSameLithology}
         onChange={v => setDraft({ ...draft, mergeSameLithology: v })}
         disabled={!hasProject}
+      />
+      <NumberRow
+        id="settings-litho-snap-tolerance"
+        label="Litho ↔ geological snap tolerance (m)"
+        hint={`Dragging a litho contact within ±this distance of a geological contact on the same investigation opens the snap prompt (snap litho / move geo / keep separate). Larger values catch near-misses more readily; smaller values let you place litho slightly off a geo boundary without nagging. Default ${LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM} m.`}
+        value={draft.lithoSnapToleranceM}
+        onChange={v => setDraft({ ...draft, lithoSnapToleranceM: v })}
+        bounds={snapBounds}
+        sliderMin={snapBounds.min}
+        sliderMax={1.0}
+        step={0.01}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!snapValid}
       />
 
       <SectionFooter
