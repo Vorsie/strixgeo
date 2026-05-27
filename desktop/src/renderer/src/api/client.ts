@@ -504,14 +504,6 @@ export interface AcceptLithoSuggestionsRequest {
   // formation so the ghost-accept finds it by key rather than duplicating
   // it (Bug 2 dogfeed 2026-05-26). Default false.
   create_formation_only?: boolean
-  // When true (default), the backend runs merge_adjacent_same_lithology on
-  // the input list before find-or-create, mirroring the segmenter's final
-  // pass.  Catches pending ghosts that drifted from the merged shape (user
-  // editing — split / insert / absorb — between Suggest and Accept).
-  // Frontend forwards the same value the user picked in Settings → "Merge
-  // same-lithology layers" so the Suggest and Accept halves of the flow
-  // share one rule.  Owner directive 2026-05-27 (#149).
-  merge_same_lithology?: boolean
 }
 
 export interface AcceptLithoSuggestionsResponse {
