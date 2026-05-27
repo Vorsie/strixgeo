@@ -129,6 +129,7 @@ function renderLayer(
     referenceFormations?: readonly GeologicalFormationResponse[]
     referenceContacts?: readonly FormationContactResponse[]
     bandFillOpacity?: number
+    perColumnBandsFromContacts?: boolean
   } = {},
 ) {
   return render(
@@ -154,6 +155,7 @@ function renderLayer(
         referenceFormations={extras.referenceFormations}
         referenceContacts={extras.referenceContacts}
         bandFillOpacity={extras.bandFillOpacity}
+        perColumnBandsFromContacts={extras.perColumnBandsFromContacts}
       />
     </svg>,
   )
@@ -1802,6 +1804,78 @@ describe('ContactsLayer', () => {
     const band = container.querySelector('[data-testid="formation-fill-f"]')
     expect(band).not.toBeNull()
     expect(band!.getAttribute('fill-opacity')).toBe('0.18')
+  })
+
+  it('PC1: renders per-column litho bands between adjacent contacts (debt #142 follow-up)', () => {
+    // Dogfeed 2026-05-27 — the post-#142 hide of accepted ghosts
+    // removed the colour fill on litho-axis CPT columns.  TIN-based
+    // formationFillBands need a built surface to produce geometry;
+    // on a litho-axis CPT without a built litho TIN the band cell is
+    // empty.  Per-column bands render a coloured rect between
+    // adjacent committed contacts on each investigation, sourcing
+    // colour from the formation's ``color`` field.  Independent of
+    // any TIN slice.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND', color: '#fbbf24' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY', color: '#64748b' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true },
+    )
+    // One band per adjacent-contact pair (here: 1 pair → 1 band).
+    const bands = container.querySelectorAll('[data-testid^="per-column-litho-band-"]')
+    expect(bands.length).toBe(1)
+    // The shallower contact's formation defines the band colour.
+    expect(bands[0].getAttribute('fill')).toBe('#fbbf24')
+  })
+
+  it('PC2: per-column bands are absent when the prop is off (default)', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      // perColumnBandsFromContacts omitted → false.
+    )
+    expect(
+      container.querySelectorAll('[data-testid^="per-column-litho-band-"]').length,
+    ).toBe(0)
+  })
+
+  it('PC3: per-column bands honour bandFillOpacity', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND', color: '#fbbf24' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY', color: '#64748b' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, bandFillOpacity: 0.55 },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('fill-opacity')).toBe('0.55')
   })
 
   it('honours bandFillOpacity prop — caller can boost the fill (debt #142 follow-up)', () => {
