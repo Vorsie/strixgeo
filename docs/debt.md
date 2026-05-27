@@ -3244,56 +3244,74 @@ endpoints + manual gesture + basic renderer support.
 confirms the boundary-click gesture is usable. Phase 3: before first
 external/paid distribution (backwards-compat re-arm trigger).
 
-## 134-A. Litho-geo snap tolerance configurable per-project (Tier G — deferred from #134)
+## 134-A. Litho-geo snap tolerance configurable per-project (Tier G) — RESOLVED 2026-05-27
 
 **What.** Move the ``LITHO_GEO_SNAP_TOLERANCE_M`` constant in
-``SectionsCanvas.tsx`` onto ``view_state.litho_segmenter.litho_snap_tolerance_m``
-(default 0.20 m) and add a number input to the litho-segmenter
-settings dialog next to ``minimum_layer_thickness_m`` and
-``merge_same_lithology``.
+``SectionsCanvas.tsx`` onto
+``view_state.litho_segmenter.litho_snap_tolerance_m`` and surface it
+in the litho-segmenter Settings section.
 
-**Why deferred.** Owner approved a drag-path MVP scope on
-2026-05-27 with the tolerance hard-coded.  The configurable field
-needs plumbing in client.ts (request/response types), the
-useGeologicalModel PATCH path that already writes the litho_segmenter
-bag, and the settings UI.
+**Resolution.** New ``lithoSnapToleranceM`` field on
+``LithoSegmenterPrefs`` (default 0.20 m, range 0.01-5.0 m).  Read +
+patch round-trip through ``readLithoSegmenterPrefs`` /
+``buildLithoSegmenterPatch`` with the same field-independent fallback
+as the other numeric keys.  ``SettingsDialog`` gained a NumberRow
+under "Litho segmenter" with hint copy explaining both directions
+(larger catches near-misses, smaller lets you place off a boundary
+without nagging).  ``SectionsCanvas`` retired the hard-coded constant
+and now reads from prefs via ``useMemo(project?.view_state)``.
 
-**When to revisit.** Next dogfeed session that calls out the
-20 cm tolerance as too tight or too loose.
+**Tests.** Five new cases in ``lithoSegmenterPrefs.test.ts`` (default,
+valid, low-out-of-bounds, high-out-of-bounds, non-numeric) plus the
+extended roundtrip + at-bounds tests covering the new field.
 
-## 134-B. Litho-geo snap visual indicator on the dragger (Tier G — deferred from #134)
+## 134-B. Litho-geo snap visual indicator on the dragger (Tier G) — RESOLVED 2026-05-27
 
-**What.** While a litho contact is being dragged, render a visual
-snap-zone indicator (similar to Slice 3's collapse-snap glyph but
-in a distinct colour) when the cursor lands within ±tolerance of any
-geological contact on the same investigation.  Telegraphs "the
-prompt will fire on release" so the user knows the gesture is
-about to engage a confirmation flow.
+**What.** Pre-release telegraph for the snap dialog: while a litho
+contact is being dragged, the drag readout indicates whether the
+post-release prompt will fire (i.e. the cursor is within ±tolerance
+of a geological contact on the same investigation).
 
-**Why deferred.** MVP shipped the post-release prompt; the pre-
-release telegraph is polish.  Needs the per-frame snap-zone check
-in ContactsLayer's drag handler + a new svg glyph next to the drag
-readout.
+**Resolution.** New optional ``geoSnapToleranceM`` prop on
+``ContactsLayer``.  When set (litho axis only) AND
+``referenceContacts`` is non-empty, the drag readout gains an extra
+amber "↦ snap on release: 12.34 m" line + a small amber dot at the
+cursor anchor whenever ``findGeoSnapCandidates`` returns ≥1
+candidate at the current drag depth.  Gated paths render unchanged
+when the prop is absent (geological axis or pre-Sync litho axis).
 
-**When to revisit.** When a dogfeed reports the prompt feels
-surprising (no pre-release hint).
+``SectionPanel`` forwards the prop on the litho axis only.
+``SectionsCanvas`` passes ``lithoSnapToleranceM`` from the prefs
+(same source as the existing drag-path post-release wrapper, so the
+in-flight indicator and the dialog stay in sync after tolerance edits).
 
-## 134-C. Litho-geo snap on the accept-litho-suggestions paths (Tier G — deferred from #134)
+## 134-C. Litho-geo snap on the accept-litho-suggestions paths (Tier G) — PARTIALLY RESOLVED 2026-05-27
 
-**What.** Extend the snap-prompt to fire when a litho suggestion
-is accepted (single accept + bulk Accept-all) — not only when an
-already-committed litho contact is dragged.  The original #134
-spec listed both triggers; the MVP only covered drag.
+**What.** Extend the snap-prompt to fire when a litho suggestion is
+accepted, not only when an already-committed litho contact is
+dragged.
 
-**Why deferred.** The accept paths run server-side
-(``accept_litho_suggestions.py``) and would need a richer response
-shape (return per-accept snap candidates so the client can prompt
-post-accept) OR a pre-accept client-side check that intercepts the
-gesture before it reaches the server.  Either approach is a wider
-change than the drag-path wrapper that landed.
+**Resolution (single-suggestion path).** ``handleAcceptLithoSuggestion``
+now returns ``Promise<AcceptLithoSuggestionsResponse | null>`` (was
+``Promise<void>``).  The ``sectionAwareAcceptLithoSuggestion`` wrapper
+in ``SectionsCanvas`` awaits the result, then runs the same
+``findGeoSnapCandidates`` check the drag path uses — at the accepted
+suggestion's ``depth_top_m`` against the geological backdrop on the
+same investigation.  When candidates exist, the existing
+``LithoGeoSnapDialog`` opens for the new contact id taken from
+``result.created_contact_ids[0]`` (upper-half on a straddle, single
+contact otherwise).
 
-**When to revisit.** When dogfeed shows users still producing
-slivers post-Accept-all despite the drag-path prompt working.
+15 test fixtures updated to satisfy the new return type.
+
+**Still open (filed as #134-C-bulk).** ``handleAcceptAllLithoSuggestions``
++ ``handleAcceptBulkLitho`` + ``handleAcceptAllBulkLitho`` accept N
+suggestions in one call; ``created_contact_ids`` is a flat list
+without 1:1 mapping to input suggestions (straddle splits muddle
+the index).  Surfacing N snap candidates would also need a queue UI
+to prompt them one at a time without flooding the user.  Owner
+directive: ship single-path first, revisit if bulk-path slivers
+become a dogfeed pain point.
 
 ## 135. Two correlation edges from one contact for lens topology — RESOLVED 2026-05-26
 
