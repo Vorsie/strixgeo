@@ -2025,6 +2025,38 @@ export default function SectionPanel({
               contactDragClampMinThicknessM={
                 axisMode === 'lithostratigraphic' ? 0.1 : undefined
               }
+              // Debt #151 — right-click on empty litho column → "Add
+              // new suggestion" routes through the existing picker
+              // (useContactPicker's handlePickCpt / handlePickBorehole
+              // sets pickContext, which opens the
+              // LithoCompositionPickerDialog mounted below).  Litho
+              // axis only — geological axis already has its own
+              // create-contact flows via ContactPickBar / BoreholeColumn.
+              onRequestAddLithoSuggestion={
+                axisMode === 'lithostratigraphic'
+                  ? (kind, anchorId, depth_m, anchorName, elevationM) => {
+                      if (kind === 'cpt') {
+                        handlePickCpt({
+                          kind: 'cpt',
+                          cptId: anchorId,
+                          cptName: anchorName,
+                          depth_m,
+                          elevationM,
+                          snapped: false,
+                        })
+                      } else {
+                        handlePickBorehole({
+                          kind: 'borehole',
+                          boreholeId: anchorId,
+                          boreholeName: anchorName,
+                          depth_m,
+                          elevationM,
+                          snapped: false,
+                        })
+                      }
+                    }
+                  : undefined
+              }
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
