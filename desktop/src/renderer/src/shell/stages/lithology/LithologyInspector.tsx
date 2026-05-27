@@ -48,6 +48,7 @@ import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import { lithoFormationColor } from '../../../utils/lithoConstants'
 import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
@@ -535,7 +536,9 @@ function LithoUnitRow({
     >
       <span
         className="h-3 w-3 flex-shrink-0 rounded-sm border border-border-subtle"
-        style={{ backgroundColor: f.color }}
+        // Backend stamps litho formations with grey placeholder (#145);
+        // override at presentation via the LITHOLOGY_COLORS table.
+        style={{ backgroundColor: lithoFormationColor(f) }}
         aria-hidden="true"
       />
       {/* Translate at the presentation boundary — a litho unit's stored
