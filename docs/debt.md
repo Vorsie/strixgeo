@@ -3453,11 +3453,42 @@ Need an exact dogfeed repro to pick the path:
    DevTools state for ``ghostsByAnchor`` so the ``edits`` Map and
    ``rejected`` Set are visible.
 
-**When to revisit.** When the user can provide the deterministic
-repro above. The fix is small (skip zero-thickness rejecteds in the
-bounds walk, OR scrub the edits Map on absorb) but the right one
-depends on which path the repro exposes.
-Filed from dogfeed session 2026-05-26.
+**Fresh repro (dogfeed 2026-05-27).** Owner reproduced the lock on
+a different scenario:
+
+> "dragged the sand layer up to absorb a silt layer that was between
+> the sand and the clay boundary, now i cant drag the upper contact
+> of the clay anymore"
+
+Sequence:
+1. Suggest all (CPT GEO-10/172-S3 per the image).
+2. Pending layer stack contained CLAY | SILT | SAND (CLAY on top,
+   SAND on bottom, SILT in between).
+3. Dragged the lower SAND's TOP edge UP through the SILT → SILT got
+   absorbed (chain-rejected) and SAND extended up to where the SILT
+   used to end.
+4. Tried to drag CLAY's TOP contact → frozen.
+
+This is the **across-the-merge boundary** variant of the candidate-2
+hypothesis: after absorb, ``edits[SAND_idx].depth_top_m`` extends up
+to CLAY's old bottom.  When walking ABOVE from CLAY for edge='top',
+``findVisibleNeighbourAbove`` skips no rejected layers (CLAY is at
+the top of the active region), so it lands on whatever pending or
+accepted neighbour sits above CLAY.  If THAT neighbour's
+``depth_top_m`` (or ``depth_base_m`` on a shared boundary read)
+equals CLAY's current top after the cascade, the upward bound
+collapses to ``own.topM``.  Need to inspect ``ghostsByAnchor`` post-
+absorb to confirm which edit is collapsing the bound.
+
+**When to revisit.** Next session — repro is now deterministic.  Fix
+candidates:
+* Validate ``edits`` Map post-absorb: drop entries whose top/base
+  collapse to their neighbour's matching edge.
+* Add a defensive ``boundsAboveM > own.topM`` (resp. ``boundsBelowM
+  < own.baseM``) check in ``boundFromNeighbour`` — when the computed
+  bound equals the current edge, fall back to the next neighbour
+  past it instead of locking the handle.
+Filed from dogfeed session 2026-05-26, refined 2026-05-27.
 
 ## 140. Accept-all-bulk silently auto-correlates → surprises user with amber edges (Tier G)
 
