@@ -1857,6 +1857,44 @@ describe('ContactsLayer', () => {
     ).toBe(0)
   })
 
+  it('PC3b: per-column bands prefer LITHOLOGY_COLORS via litho_main_soil_code (#142 follow-up)', () => {
+    // Backend ``accept_litho_suggestions.py`` creates litho formations
+    // with ``color="#9ca3af"`` (grey placeholder; "Phase 2 assigns per
+    // lithology" — never did).  Dogfeed 2026-05-27: CPT columns show
+    // grey bands because the formation.color is grey.  Override at the
+    // per-column-band layer: when the formation carries a
+    // ``litho_main_soil_code``, look up the lithology colour table for
+    // the real fill colour (ZAND → #fbbf24, KLEI → #6b7280, etc.).
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-zand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-klei' }),
+    ]
+    const formations = [
+      makeFormation({
+        id: 'f-zand',
+        name: 'ZAND',
+        color: '#9ca3af', // backend placeholder
+        litho_main_soil_code: 'ZAND',
+      }),
+      makeFormation({
+        id: 'f-klei',
+        name: 'KLEI',
+        color: '#9ca3af',
+        litho_main_soil_code: 'KLEI',
+      }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('fill')).toBe('#fbbf24')
+  })
+
   it('PC3: per-column bands honour bandFillOpacity', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-sand' }),
