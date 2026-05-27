@@ -290,6 +290,20 @@ interface Props {
     anchorId: string,
     depthM: number,
   ) => Promise<{ formationId: string } | null>
+  /** Debt #151 dogfeed refinement 2026-05-27 — wire the picker's
+   *  "Existing units" tab on the litho axis.  The default
+   *  ``onSelect`` flow goes through ``useContactPicker``'s
+   *  ``onCreateContact``, which is undefined on litho axis (left-click
+   *  doesn't open the picker — by design), so the existing-units
+   *  click silently does nothing.  This callback runs instead on the
+   *  litho axis: looks up the chosen formation by id and creates a
+   *  manual ghost using its ``litho_main_soil_code`` + admixtures. */
+  onLithoExistingUnitPick?: (
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+    depthM: number,
+    formationId: string,
+  ) => Promise<void>
   /** Per-project confidence-fade toggle (debt #94 follow-up).  When
    *  false, the low-confidence stroke opacity multiplier becomes 1.0
    *  so the uncertainty cue disappears.  Defaults to true. */
@@ -650,6 +664,7 @@ export default function SectionPanel({
   pulsingFormationIds,
   axisMode = 'geological',
   onManualLithoUnitCreate,
+  onLithoExistingUnitPick,
   showConfidenceFade = true,
   activeLithoModelId,
   onEditInGeologyStage,
@@ -1622,6 +1637,45 @@ export default function SectionPanel({
     })
   }, [contacts, contactGestureState, lithoGhostState, bulkLithoGhostState])
 
+  // Debt #151 dogfeed refinement 2026-05-27 — per-anchor pending
+  // ghost depth ranges fed into ContactsLayer so it can SPLIT the
+  // accepted band around an inserted ghost.  Pending only (accepted
+  // ghosts don't render anyway, rejected shouldn't carve).
+  const pendingGhostRangesByAnchorId = useMemo(() => {
+    const out = new Map<string, { depth_top_m: number; depth_base_m: number }[]>()
+    const pushRanges = (
+      anchorId: string,
+      suggestions: readonly LithoLayerSuggestion[],
+      accepted: ReadonlySet<number>,
+      rejected: ReadonlySet<number>,
+      edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>,
+    ) => {
+      const ranges = suggestions
+        .map((s, idx) => ({ s, idx }))
+        .filter(({ idx }) => !accepted.has(idx) && !rejected.has(idx))
+        .map(({ s, idx }) => ({
+          depth_top_m: edits.get(idx)?.depth_top_m ?? s.depth_top_m,
+          depth_base_m: edits.get(idx)?.depth_base_m ?? s.depth_base_m,
+        }))
+      if (ranges.length > 0) out.set(anchorId, ranges)
+    }
+    if (bulkLithoGhostState != null) {
+      for (const [anchorId, ghost] of bulkLithoGhostState.anchorGhosts) {
+        pushRanges(anchorId, ghost.suggestions, ghost.accepted, ghost.rejected, ghost.edits)
+      }
+    }
+    if (lithoGhostState != null) {
+      pushRanges(
+        lithoGhostState.investigationId,
+        lithoGhostState.suggestions,
+        lithoGhostState.acceptedIndices,
+        lithoGhostState.rejectedIndices,
+        lithoGhostState.edits ?? new Map(),
+      )
+    }
+    return out
+  }, [lithoGhostState, bulkLithoGhostState])
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -2018,6 +2072,13 @@ export default function SectionPanel({
               // column directly — independent of any TIN — so the
               // user always sees the lithology stack.
               perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
+              // Debt #151 dogfeed refinement 2026-05-27 — pending
+              // ghost ranges per anchor so the per-column band can
+              // SPLIT around the ghost (ghost visible on top, no
+              // colour mash-up underneath).  PENDING only — accepted
+              // ghost layers don't render via #142 and rejected ones
+              // shouldn't carve the band.
+              pendingGhostRangesByAnchorId={pendingGhostRangesByAnchorId}
               // Debt #152 — hard floor of 10 cm between adjacent litho
               // contacts now that cross-merge is off (commit 9d4a01db).
               // Geological axis keeps its cross-merge absorb gesture
@@ -2467,7 +2528,24 @@ export default function SectionPanel({
           // Always pass null so the no-context warning renders; the backend still
           // assigns the correct parent (owner decision: allow with warning).
           parentFormationName={null}
-          onSelect={handlePickerSelect}
+          // Debt #151 dogfeed refinement 2026-05-27 — route Existing
+          // Units click through ``onLithoExistingUnitPick`` (which
+          // creates a ghost from the existing formation's litho code +
+          // admixtures).  ``handlePickerSelect`` early-returns on the
+          // litho axis because ``onCreateContact`` is intentionally
+          // undefined there (left-click-on-CPT-data must NOT open the
+          // picker), so the previous wiring made the Existing Units
+          // tab silently no-op.
+          onSelect={async (formationId) => {
+            if (!pickContext || !onLithoExistingUnitPick) return
+            await onLithoExistingUnitPick(
+              pickContext.kind,
+              pickContext.anchorId,
+              pickContext.depth_m,
+              formationId,
+            )
+            cancelPicker()
+          }}
           onCreateLithoUnit={async (mainCode, admixtures) => {
             if (!pickContext || !onManualLithoUnitCreate) return null
             return onManualLithoUnitCreate(
