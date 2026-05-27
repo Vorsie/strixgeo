@@ -348,10 +348,20 @@ export default function LithologyInspector(): JSX.Element {
               data-testid="litho-committed-pill"
             >
               <span className="text-[11px] leading-snug text-text-secondary">
+                {/* Debt #147 — "unit" count is now distinct
+                    ``formation_id`` over THIS model's contacts (the
+                    units that actually have a placed contact here),
+                    not the project-scoped ``lithoFormations`` count
+                    (which includes orphan/shared vocabulary kept by
+                    the delete cascade and read as "this model has 30
+                    units" even on a freshly-created empty model).
+                    The pill still surfaces when either count is non-
+                    zero so the Clear button stays reachable for the
+                    orphan-formation recovery case. */}
                 {lithoContacts.length} contact
                 {lithoContacts.length === 1 ? '' : 's'},{' '}
-                {lithoFormations.length} unit
-                {lithoFormations.length === 1 ? '' : 's'}
+                {new Set(lithoContacts.map(c => c.formation_id)).size} unit
+                {new Set(lithoContacts.map(c => c.formation_id)).size === 1 ? '' : 's'}
               </span>
               <button
                 type="button"
