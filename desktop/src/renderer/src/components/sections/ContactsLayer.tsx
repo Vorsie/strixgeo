@@ -258,6 +258,17 @@ interface Props {
    *  unit" — the formation fill is now the only colour cue and needs
    *  to be visible against CPT traces. */
   bandFillOpacity?: number
+  /** Render a coloured fill between adjacent committed contacts on
+   *  EACH column (not the cross-column TIN slice).  Used on the
+   *  litho axis where the TIN-based ``formationFillBands`` are
+   *  typically absent (no built litho surface) and CPT columns
+   *  would otherwise show no lithology colour between contacts
+   *  (dogfeed 2026-05-27).  Each band's colour comes from the
+   *  shallower contact's ``formation_id`` looked up in
+   *  ``formations``.  Bands paint underneath every other section
+   *  element (contact lines, traces, labels) so the user reads
+   *  "colour fill = lithology, line = boundary". */
+  perColumnBandsFromContacts?: boolean
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -627,6 +638,7 @@ export default function ContactsLayer({
   referenceSurfacesByFormationId,
   referenceContacts,
   bandFillOpacity = 0.18,
+  perColumnBandsFromContacts = false,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -1392,6 +1404,54 @@ export default function ContactsLayer({
     if (!alongMToScreenX) return 0
     return Math.abs(alongMToScreenX(20) - alongMToScreenX(0))
   }, [alongMToScreenX])
+
+  // Debt #142 follow-up — per-column litho band geometry.  For each
+  // column on the litho axis (when ``perColumnBandsFromContacts`` is
+  // on), compute coloured rects between adjacent committed contacts.
+  // Independent of any TIN slice — the per-column visual is the
+  // litho stack you'd read off the column itself, not an
+  // interpolation across investigations (litho varies laterally;
+  // cross-column interpolation is not meaningful for litho data).
+  const perColumnLithoBands = useMemo(() => {
+    if (!perColumnBandsFromContacts) {
+      return [] as { key: string; x: number; y: number; width: number; height: number; color: string }[]
+    }
+    const colorById = new Map(formations.map(f => [f.id, f.color]))
+    const out: { key: string; x: number; y: number; width: number; height: number; color: string }[] = []
+    for (const col of placedColumns) {
+      const item = col.proj.item as { id: string; elevation_m: number | null }
+      if (item.elevation_m === null) continue
+      const surfaceLevel = item.elevation_m
+      const anchorId = item.id
+      const colContacts = contacts
+        .filter(c => (c.borehole_id ?? c.cpt_id) === anchorId)
+        .slice()
+        .sort((a, b) => a.depth_top_m - b.depth_top_m)
+      if (colContacts.length < 2) continue
+      const halfW = col.width / 2
+      const x = col.nudgedX - halfW
+      for (let i = 0; i < colContacts.length - 1; i++) {
+        const top = colContacts[i]
+        const bot = colContacts[i + 1]
+        const color = colorById.get(top.formation_id)
+        if (!color) continue
+        const yTop = levelToScreen(surfaceLevel - top.depth_top_m)
+        const yBot = levelToScreen(surfaceLevel - bot.depth_top_m)
+        const yMin = Math.min(yTop, yBot)
+        const height = Math.abs(yBot - yTop)
+        if (height <= 0) continue
+        out.push({
+          key: `${anchorId}-${top.id}`,
+          x,
+          y: yMin,
+          width: col.width,
+          height,
+          color,
+        })
+      }
+    }
+    return out
+  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen])
 
   const formationFillBands = useMemo(() => {
     if (polylines.length === 0) {
@@ -2471,6 +2531,25 @@ export default function ContactsLayer({
             />
           )}
         </g>
+      ))}
+      {/* Debt #142 follow-up — per-column litho bands.  Drawn even
+          earlier than the cross-column formationFillBands so on the
+          litho axis the user reads a per-column lithology stack
+          underneath everything else.  Empty list off the litho axis
+          (the prop is gated by the caller). */}
+      {perColumnLithoBands.map(band => (
+        <rect
+          key={`pc-litho-${band.key}`}
+          data-testid={`per-column-litho-band-${band.key}`}
+          x={band.x}
+          y={band.y}
+          width={band.width}
+          height={band.height}
+          fill={band.color}
+          fillOpacity={bandFillOpacity}
+          stroke="none"
+          pointerEvents="none"
+        />
       ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
