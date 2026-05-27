@@ -36,7 +36,7 @@ subdivision is built on top of it. Priority order:
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
-* **#149** — RESOLVED 2026-05-27 v2 (verbatim copy at accept-time — no merge, no split; the original framing was misleading and the first fix was reverted same day per owner directive "just copy the suggestion when user clicks accept all"). See [[feedback-litho-accept-verbatim-copy]]
+* **#149** — RESOLVED 2026-05-27 v3 (straddle-split retired too; one ghost = one contact regardless of geo-boundary crossings; parent_fid taken from ghost's TOP depth. v1 was the merge-on-accept attempt [reverted]; v2 disabled the merge; v3 disables the split. The verbatim-copy rule is now fully realized: N ghosts in → N contacts out). See [[feedback-litho-accept-verbatim-copy]]
 * **#153** — accept-all-bulk wall-clock is 5–10 s on the oudenaarde-shape project; per-investigation HTTP loop with N×project_formations SELECT + N×commit. Profile before optimising (combined endpoint vs caching vs parallel) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
@@ -3720,46 +3720,55 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27 v2
+## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27 v3
 
-**What.** Owner dogfeed 2026-05-27 originally framed this as "the
-accept path creates duplicate adjacent same-litho contacts that
-the suggestion-level merge would have collapsed."  On re-dogfeed
-later the same day (image #22 → image #23) the owner clarified:
-the user had explicitly split a merged SAND into two adjacent
-SAND ghosts via the Split-layer gesture, and the FIRST fix
-(accept-time ``merge_adjacent_same_lithology``) silently undid
-that intent — collapsing back to one big SAND on Accept.
+**What.** Owner dogfeed 2026-05-27 reported "double sand or silt
+units" appearing in the inspector after Accept-litho, even when
+the suggestion view showed a single merged SAND ghost.  The
+three-revision evolution:
+* v1 (shipped + reverted same day): added accept-time
+  ``merge_adjacent_same_lithology`` gated on the project toggle.
+  Owner re-dogfeed (image #22 → image #23) showed user-split SAND
+  ghosts being silently re-merged on Accept; reverted.
+* v2 (same day): removed the merge but kept the straddle-split.
+  Owner re-dogfeed showed double SAND units still appearing
+  because a single ghost crossing an Antropogeen → Quartair
+  boundary was auto-split into two contacts under two different
+  parent_fids — two units in the inspector, stacked atop each
+  other in the section.
+* **v3 (final).** Straddle-split also retired.  ``AcceptLithoSuggestions``
+  is now a strict 1:1 copy of the suggestion shape regardless of
+  geo-boundary crossings.
 
-**Resolution (v2 — supersedes v1).**
-``AcceptLithoSuggestions.execute`` is a verbatim copy of the
-suggestion shape.  ``merge_adjacent_same_lithology`` belongs to
-Suggest-time only.  N suggestions in → N contacts out (plus
-straddle splits, unchanged).  The owner directive: "if I have
-2 sand layers on top of each other in the suggestions, they
-should stay on the accepted — can't we just copy the suggestion
-when user clicks accept all?"
+**Resolution (v3).** ``_compute_straddle_splits`` early-returns
+the single-interval, no-boundaries branch.  The multi-boundary
+iteration block was deleted.  Each ghost becomes ONE contact;
+its ``parent_formation_id`` is the geo formation at the ghost's
+TOP depth (via ``_parent_fid_for_depth``).  If the engineer wants
+a ghost split at a geo boundary they use the Split-layer gesture
+manually before accepting.
 
-**Diff from v1 (reverted same day):** removed the
-``merge_same_lithology`` parameter from
-``AcceptLithoSuggestions.execute``, the
-``AcceptLithoSuggestionsRequest`` schema, and the four
-frontend accept handlers in ``useGeologicalModel.ts``.  The
-import of ``merge_adjacent_same_lithology`` from
-``litho_segmentation.py`` is also gone.
+``straddle_split_count`` and ``stale_tin_fallback_count`` on
+``AcceptLithoResult`` are kept on the response schema for API
+back-compat but always 0.  The frontend's "N straddle splits"
+warning toast and the "N stale-TIN fallback" pill never fire
+under the new rule (next cleanup pass can drop the fields
+entirely).
+
+**Owner directive 2026-05-27 (verbatim):** "how hard can it be
+to just take the merged litho's from suggestions and make them
+permanent".
 
 **Tests.** AC1 (two adjacent SAND ghosts → 2 contacts), AC2
-(one merged SAND ghost → 1 contact), AC3 (SAND/KLEI/SAND
-triple → 3 contacts) in
-``tests/unit/application/test_accept_litho_suggestions.py``.
-Together they pin the verbatim-copy contract — accept neither
-merges nor splits the input shape.
+(one merged SAND ghost → 1 contact), AC3 (SAND/KLEI/SAND triple
+→ 3 contacts) pin the no-merge half (v2).  A2 (ghost spanning
+boundary → 1 contact at top parent) and A3 (stale TIN no longer
+triggers fallback) pin the no-split half (v3).
 
 **Lesson.** The pending-ghost view IS the user's intent.  Any
-accept-time reshape silently undoes user editing
-(split / insert / absorb).  Filed as a feedback memory
-([[feedback-litho-accept-verbatim-copy]]) so this doesn't
-re-recur.
+accept-time reshape — merge OR split — silently undoes user
+editing or surprises with auto-generated units.  Memory:
+[[feedback-litho-accept-verbatim-copy]] (updated v3).
 
 ## 153. Accept-all-bulk wall-clock is 5–10 s on oudenaarde-shape projects (Tier G)
 
