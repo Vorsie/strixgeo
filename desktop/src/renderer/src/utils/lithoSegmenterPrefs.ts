@@ -41,6 +41,15 @@ export interface LithoSegmenterPrefs {
    *  signal returns at the right layer: the Geotech stage's future
    *  "Suggest packing split" gesture. CPT path only. */
   mergeSameLithology: boolean
+  /** Inclusive snap tolerance (metres) used by the litho↔geological
+   *  contact-drag prompt (debt #134).  When a litho contact is
+   *  dragged within ±tolerance of any geological contact on the
+   *  same investigation, the snap dialog opens and offers the
+   *  three resolution options (snap litho / move geo / keep
+   *  separate).  Same threshold drives the post-accept check
+   *  (#134-C).  Backend range: 0.01 – 5.0 m.  Default 0.20 m
+   *  matches the MVP that shipped 2026-05-27. */
+  lithoSnapToleranceM: number
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -48,12 +57,14 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   gunsatKNm3: 16.0,
   drCompressionFactor: 0.675,
   mergeSameLithology: true,
+  lithoSnapToleranceM: 0.20,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
   minimumLayerThicknessM: { min: 0.05, max: 10.0 },
   gunsatKNm3: { min: 8.0, max: 25.0 },
   drCompressionFactor: { min: 0.1, max: 2.0 },
+  lithoSnapToleranceM: { min: 0.01, max: 5.0 },
 } as const
 
 const VIEW_STATE_KEY = 'litho_segmenter'
@@ -109,6 +120,11 @@ export function readLithoSegmenterPrefs(
       typeof dict.merge_same_lithology === 'boolean'
         ? dict.merge_same_lithology
         : LITHO_SEGMENTER_DEFAULTS.mergeSameLithology,
+    lithoSnapToleranceM: readBoundedNumber(
+      dict.litho_snap_tolerance_m,
+      LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM,
+      LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
+    ),
   }
 }
 
@@ -127,6 +143,7 @@ export function buildLithoSegmenterPatch(
       gunsat_kNm3: prefs.gunsatKNm3,
       dr_compression_factor: prefs.drCompressionFactor,
       merge_same_lithology: prefs.mergeSameLithology,
+      litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
     },
   }
 }

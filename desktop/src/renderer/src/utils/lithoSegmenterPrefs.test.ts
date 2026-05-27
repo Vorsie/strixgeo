@@ -26,6 +26,7 @@ describe('readLithoSegmenterPrefs', () => {
           gunsat_kNm3: 18.0,
           dr_compression_factor: 0.6,
           merge_same_lithology: false,
+          litho_snap_tolerance_m: 0.30,
         },
       }),
     ).toEqual({
@@ -33,6 +34,7 @@ describe('readLithoSegmenterPrefs', () => {
       gunsatKNm3: 18.0,
       drCompressionFactor: 0.6,
       mergeSameLithology: false,
+      lithoSnapToleranceM: 0.30,
     })
   })
 
@@ -52,6 +54,7 @@ describe('readLithoSegmenterPrefs', () => {
       gunsatKNm3: 20.0,
       drCompressionFactor: 0.5,
       mergeSameLithology: true,
+      lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
     })
   })
 
@@ -103,6 +106,7 @@ describe('buildLithoSegmenterPatch', () => {
         gunsatKNm3: 17.5,
         drCompressionFactor: 0.7,
         mergeSameLithology: true,
+        lithoSnapToleranceM: 0.25,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -110,8 +114,51 @@ describe('buildLithoSegmenterPatch', () => {
         gunsat_kNm3: 17.5,
         dr_compression_factor: 0.7,
         merge_same_lithology: true,
+        litho_snap_tolerance_m: 0.25,
       },
     })
+  })
+})
+
+describe('readLithoSegmenterPrefs — lithoSnapToleranceM field', () => {
+  it('defaults to 0.20 m when the litho_snap_tolerance_m key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { minimum_layer_thickness_m: 0.15 },
+      }).lithoSnapToleranceM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
+  })
+
+  it('returns a valid stored value', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { litho_snap_tolerance_m: 0.5 },
+      }).lithoSnapToleranceM,
+    ).toBe(0.5)
+  })
+
+  it('falls back to default when out of bounds (too low)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { litho_snap_tolerance_m: 0.005 },
+      }).lithoSnapToleranceM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
+  })
+
+  it('falls back to default when out of bounds (too high)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { litho_snap_tolerance_m: 10.0 },
+      }).lithoSnapToleranceM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
+  })
+
+  it('falls back to default for non-numeric type', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { litho_snap_tolerance_m: 'fifty cm' },
+      }).lithoSnapToleranceM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
   })
 })
 
