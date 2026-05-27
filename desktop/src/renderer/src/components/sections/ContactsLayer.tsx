@@ -53,7 +53,7 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
-import { LITHOLOGY_COLORS } from '../../utils/lithoConstants'
+import { lithoFormationColor } from '../../utils/lithoConstants'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import {
   computeTriangleConfidence,
@@ -1417,18 +1417,11 @@ export default function ContactsLayer({
     if (!perColumnBandsFromContacts) {
       return [] as { key: string; x: number; y: number; width: number; height: number; color: string }[]
     }
-    // Litho formations are created by ``accept_litho_suggestions.py``
-    // with ``color="#9ca3af"`` (grey placeholder; the long-standing
-    // "Phase 2 assigns per lithology" comment never landed).  Override
-    // with the per-lithology colour table when the formation carries
-    // a ``litho_main_soil_code``; falls back to ``formation.color`` for
-    // mixed-source formations that don't have a litho code.
-    const colorById = new Map<string, string>()
-    for (const f of formations) {
-      const litho = f.litho_main_soil_code
-      const lithoColor = litho ? LITHOLOGY_COLORS[litho] : undefined
-      colorById.set(f.id, lithoColor ?? f.color)
-    }
+    // Backend stamps litho formations with grey placeholder (#145).
+    // ``lithoFormationColor`` overrides via the LITHOLOGY_COLORS table
+    // when a ``litho_main_soil_code`` is present; geological formations
+    // keep their stored ``color``.
+    const colorById = new Map(formations.map(f => [f.id, lithoFormationColor(f)]))
     const out: { key: string; x: number; y: number; width: number; height: number; color: string }[] = []
     for (const col of placedColumns) {
       const item = col.proj.item as { id: string; elevation_m: number | null }
@@ -1439,9 +1432,10 @@ export default function ContactsLayer({
         .filter(c => (c.borehole_id ?? c.cpt_id) === anchorId)
         .slice()
         .sort((a, b) => a.depth_top_m - b.depth_top_m)
-      if (colContacts.length < 2) continue
+      if (colContacts.length === 0) continue
       const halfW = col.width / 2
       const x = col.nudgedX - halfW
+      // Between-contact bands.
       for (let i = 0; i < colContacts.length - 1; i++) {
         const top = colContacts[i]
         const bot = colContacts[i + 1]
@@ -1460,6 +1454,33 @@ export default function ContactsLayer({
           height,
           color,
         })
+      }
+      // Dogfeed 2026-05-27: the deepest contact's formation continues
+      // from its ``depth_top_m`` down to the investigation's test
+      // bottom (CPT ``max_depth_m`` / borehole ``total_depth_m``).
+      // Without this the deepest litho unit had no rect — the user
+      // reported "bottom layer not rendered".
+      const last = colContacts[colContacts.length - 1]
+      const lastColor = colorById.get(last.formation_id)
+      const testBottomM =
+        col.kind === 'cpt'
+          ? col.proj.item.max_depth_m
+          : (col.proj.item as { total_depth_m: number | null }).total_depth_m
+      if (lastColor && testBottomM !== null && testBottomM > last.depth_top_m) {
+        const yTop = levelToScreen(surfaceLevel - last.depth_top_m)
+        const yBot = levelToScreen(surfaceLevel - testBottomM)
+        const yMin = Math.min(yTop, yBot)
+        const height = Math.abs(yBot - yTop)
+        if (height > 0) {
+          out.push({
+            key: `${anchorId}-${last.id}-bottom`,
+            x,
+            y: yMin,
+            width: col.width,
+            height,
+            color: lastColor,
+          })
+        }
       }
     }
     return out
