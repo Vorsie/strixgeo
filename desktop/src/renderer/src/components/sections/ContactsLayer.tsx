@@ -270,6 +270,16 @@ interface Props {
    *  element (contact lines, traces, labels) so the user reads
    *  "colour fill = lithology, line = boundary". */
   perColumnBandsFromContacts?: boolean
+  /** Minimum thickness (in metres) the drag will preserve from peer
+   *  contacts on the same anchor.  When set, a contact drag clamps at
+   *  ``next.depth_top_m - minThickness`` (below-bound) and
+   *  ``prev.depth_top_m + minThickness`` (above-bound).  Hard floor —
+   *  zero-thickness slivers become impossible, the user must
+   *  right-click → Delete an adjacent contact first.  Owner directive
+   *  2026-05-27 (debt #152), companion to the litho cross-merge
+   *  disable.  Leave undefined on the geological axis (cross-merge
+   *  there absorbs the dragger; clamping would prevent that working). */
+  contactDragClampMinThicknessM?: number
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -477,6 +487,15 @@ interface DragState {
    * Drives the contact's source / confidence on commit
    * (debt #22/#23). */
   currentSnapped: boolean
+  /** Latest cursor X/Y in client coords — drives the position of the
+   *  clamp popup (debt #152).  Mid-drag mousemove updates these. */
+  currentClientX: number
+  currentClientY: number
+  /** Direction the clamp is engaging (``'up'`` when the cursor wants
+   *  to go shallower than the above-neighbour bound, ``'down'`` for
+   *  the deeper-than-below-neighbour case).  ``null`` when the drag
+   *  is within bounds.  Drives the popup. */
+  currentClamped: 'up' | 'down' | null
   /** Target column when the cursor has crossed unambiguously into
    * another column's attraction band. ``null`` ⇒ stay on source.
    * Drives both the cross-column commit + the live preview render. */
@@ -640,6 +659,7 @@ export default function ContactsLayer({
   referenceContacts,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
+  contactDragClampMinThicknessM,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -1786,7 +1806,47 @@ export default function ContactsLayer({
       }
       const draggedSegY = d.startSegY + (e.clientY - d.startClientY)
       const rawDepth = (draggedSegY - surfaceY) / pxPerMetre
-      const clamped = Math.max(0, rawDepth)
+      const surfaceClamped = Math.max(0, rawDepth)
+
+      // Debt #152 — clamp at ±min-thickness from peer contacts on the
+      // target anchor when the prop is set (litho axis only).  Soft
+      // bounds: the dragger's STARTING depth is honoured even if it's
+      // already inside the clamp zone (legacy overlapping contacts),
+      // so the drag isn't auto-jerked on mousedown.
+      let clamped = surfaceClamped
+      let clampedDirection: 'up' | 'down' | null = null
+      if (contactDragClampMinThicknessM !== undefined) {
+        const dragger = contacts.find(c => c.id === d.contactId)
+        const startDepth = dragger?.depth_top_m ?? surfaceClamped
+        const referenceDepth =
+          depthAnchorId === d.anchorId ? startDepth : surfaceClamped
+        const peers = contacts
+          .filter(
+            c =>
+              (c.borehole_id ?? c.cpt_id) === depthAnchorId
+              && c.id !== d.contactId,
+          )
+          .sort((a, b) => a.depth_top_m - b.depth_top_m)
+        const above = peers
+          .filter(c => c.depth_top_m < referenceDepth)
+          .at(-1)
+        const below = peers.find(c => c.depth_top_m > referenceDepth)
+        const minThk = contactDragClampMinThicknessM
+        const rawAboveBound = above ? above.depth_top_m + minThk : 0
+        const rawBelowBound = below ? below.depth_top_m - minThk : Number.POSITIVE_INFINITY
+        // Soft bounds — never tighter than the dragger's own starting
+        // depth (legacy overlaps stay where they are).
+        const aboveBound = Math.min(rawAboveBound, startDepth)
+        const belowBound = Math.max(rawBelowBound, startDepth)
+        if (surfaceClamped < aboveBound) {
+          clamped = aboveBound
+          clampedDirection = 'up'
+        } else if (surfaceClamped > belowBound) {
+          clamped = belowBound
+          clampedDirection = 'down'
+        }
+      }
+
       // Pass d.contactId so the snap fn can suppress self-snap on the
       // dragger's own depth (debt #136).  On a cross-column drag
       // (depthAnchorId !== d.anchorId) the dragger's id won't appear
@@ -1801,6 +1861,9 @@ export default function ContactsLayer({
               currentDepthM: depth,
               currentSnapped: snapped,
               currentTargetCol: nextTargetCol,
+              currentClientX: e.clientX,
+              currentClientY: e.clientY,
+              currentClamped: clampedDirection,
             },
       )
     }
@@ -2103,6 +2166,9 @@ export default function ContactsLayer({
         currentDepthM: layer.originalDepthM,
         currentSnapped: false,
         currentTargetCol: null,
+        currentClientX: e.clientX,
+        currentClientY: e.clientY,
+        currentClamped: null,
         contactsInDrag,
         shiftHeld,
         color: layer.color,
@@ -3091,6 +3157,39 @@ export default function ContactsLayer({
           )
         })()}
     </g>
+
+    {/* Debt #152 — clamp popup.  Portalled to document.body so it can
+        be a positioned <div> hovering above the section, near the
+        cursor, while the drag is at the min-thickness clamp.  Fires
+        only when ``contactDragClampMinThicknessM`` is set (litho
+        axis) AND the cursor would commit past a peer's near-edge. */}
+    {drag !== null
+      && drag.currentClamped !== null
+      && createPortal(
+        <div
+          data-testid="contact-drag-clamp-popup"
+          style={{
+            position: 'fixed',
+            left: drag.currentClientX + 14,
+            top: drag.currentClientY + 14,
+            zIndex: 2147483647,
+            pointerEvents: 'none',
+            background: 'var(--color-surface-overlay, #1e293b)',
+            border: '1px solid var(--color-border-default, #334155)',
+            borderRadius: 4,
+            padding: '6px 10px',
+            fontSize: 11,
+            lineHeight: 1.35,
+            color: 'var(--color-text-primary, #e2e8f0)',
+            maxWidth: 240,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          }}
+        >
+          Can&apos;t move further — right-click and delete the adjacent
+          layer first, then drag to the next boundary.
+        </div>,
+        document.body,
+      )}
 
     {/* Contact context menu — portalled to document.body so it can be a
         <div> without being nested inside the SVG element. */}
