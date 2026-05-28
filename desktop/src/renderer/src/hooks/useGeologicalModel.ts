@@ -2756,8 +2756,10 @@ export function useGeologicalModel({
     if (!project || !model) return
     log.info('geology', `autoCorrelate entry model=${model.id}`)
     try {
+      // #163b: pass the user-tuned depth-match window from Settings.
+      const depthWindowM = readLithoSegmenterPrefs(project.view_state).autoCorrelateDepthWindowM
       // TODO Task 19: migrate to autoCorrelateContacts (contact-level).
-      const result = await api.geology.autoCorrelateContacts(project.id, model.id)
+      const result = await api.geology.autoCorrelateContacts(project.id, model.id, depthWindowM)
       log.success(
         'geology',
         `autoCorrelate ok edges_created=${result.edges_created} ` +

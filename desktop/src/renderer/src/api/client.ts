@@ -2298,10 +2298,11 @@ export const api = {
     autoCorrelateContacts: (
       projectId: string,
       modelId: string,
+      depthWindowM?: number | null,
     ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`,
-        {},
+        { base_depth_threshold_m: depthWindowM ?? null },
       ),
 
     // --- Accept correlations (#133 Phase 2) ------------------------------------

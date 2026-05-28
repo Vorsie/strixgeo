@@ -197,6 +197,7 @@ function LithoSection({
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
   const straddleBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
+  const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -218,7 +219,12 @@ function LithoSection({
     Number.isFinite(draft.straddleMinPieceThicknessM) &&
     draft.straddleMinPieceThicknessM >= straddleBounds.min &&
     draft.straddleMinPieceThicknessM <= straddleBounds.max
-  const allValid = thicknessValid && gunsatValid && drValid && snapValid && straddleValid
+  const autoCorrValid =
+    Number.isFinite(draft.autoCorrelateDepthWindowM) &&
+    draft.autoCorrelateDepthWindowM >= autoCorrBounds.min &&
+    draft.autoCorrelateDepthWindowM <= autoCorrBounds.max
+  const allValid =
+    thicknessValid && gunsatValid && drValid && snapValid && straddleValid && autoCorrValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
@@ -226,7 +232,8 @@ function LithoSection({
     draft.drCompressionFactor !== initial.drCompressionFactor ||
     draft.mergeSameLithology !== initial.mergeSameLithology ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
-    draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM
+    draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM ||
+    draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM
 
   return (
     <SectionShell
@@ -309,6 +316,20 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!straddleValid}
+      />
+      <NumberRow
+        id="settings-auto-correlate-depth-window"
+        label="Auto-correlate depth window (m)"
+        hint={`How far apart in depth two contacts on neighbouring tests may be and still auto-correlate (relaxed further by horizontal distance). Widen it to catch correlations across dipping beds; narrow it to reject loose matches. Auto-correlate only ever links adjacent tests, never across an intervening one. Range ${autoCorrBounds.min}–${autoCorrBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM} m.`}
+        value={draft.autoCorrelateDepthWindowM}
+        onChange={v => setDraft({ ...draft, autoCorrelateDepthWindowM: v })}
+        bounds={autoCorrBounds}
+        sliderMin={autoCorrBounds.min}
+        sliderMax={2.0}
+        step={0.05}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!autoCorrValid}
       />
 
       <SectionFooter

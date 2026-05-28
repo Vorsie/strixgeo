@@ -57,6 +57,15 @@ export interface LithoSegmenterPrefs {
    *  slivers that would be narrower than this threshold.  Backend
    *  range: 0.01 – 5.0 m.  Default 0.20 m. */
   straddleMinPieceThicknessM: number
+  /** Auto-correlate depth-match window (metres) at zero column
+   *  distance (debt #163b).  Two contacts on neighbouring tests are
+   *  eligible to correlate when their depth difference is below this
+   *  window (relaxed further by horizontal separation server-side).
+   *  Widen it to catch correlations across dipping beds; narrow it to
+   *  reject loose matches.  Maps to the backend
+   *  ``AutoCorrelateContactParams.base_depth_threshold_m`` (default
+   *  0.5 m).  Range: 0.05 – 5.0 m. */
+  autoCorrelateDepthWindowM: number
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -66,6 +75,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   mergeSameLithology: true,
   lithoSnapToleranceM: 0.20,
   straddleMinPieceThicknessM: 0.20,
+  autoCorrelateDepthWindowM: 0.5,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -74,6 +84,7 @@ export const LITHO_SEGMENTER_BOUNDS = {
   drCompressionFactor: { min: 0.1, max: 2.0 },
   lithoSnapToleranceM: { min: 0.01, max: 5.0 },
   straddleMinPieceThicknessM: { min: 0.01, max: 5.0 },
+  autoCorrelateDepthWindowM: { min: 0.05, max: 5.0 },
 } as const
 
 const VIEW_STATE_KEY = 'litho_segmenter'
@@ -139,6 +150,11 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM,
       LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
     ),
+    autoCorrelateDepthWindowM: readBoundedNumber(
+      dict.auto_correlate_depth_window_m,
+      LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM,
+      LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
+    ),
   }
 }
 
@@ -159,6 +175,7 @@ export function buildLithoSegmenterPatch(
       merge_same_lithology: prefs.mergeSameLithology,
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
       straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
+      auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
     },
   }
 }
