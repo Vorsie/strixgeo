@@ -138,6 +138,7 @@ function renderLayer(
       anchorName: string,
       elevationM: number,
     ) => void
+    onUnlinkLithoFromGeo?: (id: string) => Promise<void>
   } = {},
 ) {
   return render(
@@ -152,6 +153,7 @@ function renderLayer(
         plotBottom={50}
         onUpdateContactDepth={extras.onUpdateContactDepth}
         onDeleteContact={extras.onDeleteContact}
+        onUnlinkLithoFromGeo={extras.onUnlinkLithoFromGeo}
         onBatchUpdateContacts={extras.onBatchUpdateContacts}
         onBatchCreateContacts={extras.onBatchCreateContacts}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
@@ -2604,5 +2606,103 @@ describe('ContactsLayer', () => {
     )
     // No hit-path without the deep-link prop.
     expect(hitPaths.length).toBe(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // Litho↔geo unlink gesture (#162 Task 6)
+  // -------------------------------------------------------------------------
+
+  describe('unlink-from-geology context menu item', () => {
+    it('UG1 — menu item appears for a coupled contact and fires with the contact id', async () => {
+      // A coupled contact: parent_geo_contact_id is set.
+      const contact = makeContact({
+        id: 'c-coupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: 'geo-contact-99',
+      })
+      const handler = vi.fn().mockResolvedValue(undefined)
+      renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+        undefined,
+        { onDeleteContact: vi.fn(), onUnlinkLithoFromGeo: handler },
+      )
+
+      // Right-click the drag strip to open the context menu.
+      const strip = screen.getByTestId('contact-drag-strip')
+      fireEvent.contextMenu(strip)
+
+      // The "Unlink from geology" item must be present.
+      const unlinkItem = await screen.findByTestId('unlink-geo-menu-item')
+      expect(unlinkItem).toBeTruthy()
+
+      // Clicking it fires the handler with the contact id.
+      fireEvent.click(unlinkItem)
+      expect(handler).toHaveBeenCalledWith('c-coupled')
+    })
+
+    it('UG1b — menu item is absent when the contact is NOT coupled', async () => {
+      // Uncoupled contact: parent_geo_contact_id is null.
+      const contact = makeContact({
+        id: 'c-uncoupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: null,
+      })
+      const handler = vi.fn().mockResolvedValue(undefined)
+      renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+        undefined,
+        { onDeleteContact: vi.fn(), onUnlinkLithoFromGeo: handler },
+      )
+
+      // Right-click opens the menu.
+      const strip = screen.getByTestId('contact-drag-strip')
+      fireEvent.contextMenu(strip)
+
+      // The "Unlink from geology" item must NOT appear.
+      const unlinkItem = screen.queryByTestId('unlink-geo-menu-item')
+      expect(unlinkItem).toBeNull()
+    })
+  })
+
+  describe('coupling glyph (#162 Task 6)', () => {
+    it('UG2 — glyph renders for a coupled contact', () => {
+      const contact = makeContact({
+        id: 'c-linked',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: 'geo-abc',
+      })
+      const { container } = renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+      )
+      // Glyph must be present.
+      const glyph = container.querySelector('[data-testid="coupling-glyph-c-linked"]')
+      expect(glyph).toBeTruthy()
+    })
+
+    it('UG2b — glyph absent for an uncoupled contact', () => {
+      const contact = makeContact({
+        id: 'c-free',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: null,
+      })
+      const { container } = renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+      )
+      // No glyph.
+      const glyph = container.querySelector('[data-testid="coupling-glyph-c-free"]')
+      expect(glyph).toBeNull()
+    })
   })
 })
