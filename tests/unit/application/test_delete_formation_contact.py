@@ -43,6 +43,7 @@ def _geo_model(kind: str = "geological"):
 def _use_case(session: AsyncMock) -> DeleteFormationContact:
     uc = DeleteFormationContact(session)
     uc._repo = AsyncMock()
+    uc._sections = AsyncMock()
     return uc
 
 
@@ -65,6 +66,40 @@ async def test_delete_flips_surface_stale_for_preimage_pair() -> None:
     assert ok is True
     uc._repo.mark_surfaces_stale.assert_awaited_once_with([(MODEL, FORMATION)])
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_unseeds_contact_from_sections() -> None:
+    """A real delete removes the contact id from every section's seeded set.
+
+    Closes the seeded-array leak: the deleted contact must no longer be
+    seeded on any section, in the SAME transaction (before commit) so the
+    unseed is atomic with the delete.
+    """
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("geological")])
+    uc = _use_case(session)
+    uc._repo.delete_contact = AsyncMock(return_value=True)
+
+    ok = await uc.execute(CONTACT, project_id=PROJECT, model_id=MODEL)
+
+    assert ok is True
+    uc._sections.remove_seeded_contact_ids.assert_awaited_once_with(PROJECT, {CONTACT})
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_idempotent_delete_does_not_unseed() -> None:
+    """An already-gone contact does not touch any section's seeded set."""
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=_pre_contact())
+    uc = _use_case(session)
+    uc._repo.delete_contact = AsyncMock(return_value=False)
+
+    ok = await uc.execute(CONTACT, project_id=PROJECT, model_id=MODEL)
+
+    assert ok is False
+    uc._sections.remove_seeded_contact_ids.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.repositories.cross_section_repository import (
+    CrossSectionRepository,
+)
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -50,6 +53,7 @@ class DeleteFormationContact(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
         self._repo = GeologyRepository(session)
+        self._sections = CrossSectionRepository(session)
 
     async def execute(
         self,
@@ -109,6 +113,12 @@ class DeleteFormationContact(GroundModelLogger):
                     model_id=model_id,
                     prefer_section_id=None,
                 )
+
+            # Unseed the deleted contact from every section (explicit-content
+            # invariant has no remover otherwise — the id would stay seeded
+            # forever, bloating seeded_formation_contact_ids across delete
+            # cycles). Flush-only; the commit below covers it atomically.
+            await self._sections.remove_seeded_contact_ids(project_id, {contact_id})
 
         await self._session.commit()
         if ok:
