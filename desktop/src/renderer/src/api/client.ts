@@ -527,6 +527,54 @@ export interface AcceptLithoSuggestionsResponse {
   updated_section: CrossSectionResponse | null
 }
 
+// --- Batch accept (#153 lever) — all anchors in one transaction/commit ---
+
+export interface BatchAcceptLithoAnchor {
+  // Exactly one of cpt_id / borehole_id (XOR, backend-enforced).
+  cpt_id?: string | null
+  borehole_id?: string | null
+  suggestions: LithoLayerSuggestion[]
+}
+
+export interface BatchAcceptLithoSuggestionsRequest {
+  anchors: BatchAcceptLithoAnchor[]
+  // When provided, every accepted contact id across all anchors is unioned
+  // into this section's seeded set in ONE update (explicit-content invariant).
+  section_id?: string | null
+  // When true (default), the server runs recompute-all-absences once after the
+  // batch — the frontend no longer makes a separate recompute call.
+  run_inference?: boolean
+}
+
+export interface BatchAcceptLithoAnchorResult {
+  cpt_id: string | null
+  borehole_id: string | null
+  created_formation_ids: string[]
+  found_formation_ids: string[]
+  created_contact_ids: string[]
+  found_contact_ids: string[]
+  straddle_split_count: number
+  stale_tin_fallback_count: number
+  extrapolated_formation_ids: string[]
+  orphan_formation_ids: string[]
+  // Non-null when this anchor was skipped (ValueError); the rest committed.
+  error: string | null
+}
+
+export interface BatchAcceptLithoSuggestionsResponse {
+  anchors: BatchAcceptLithoAnchorResult[]
+  total_created_contacts: number
+  total_found_contacts: number
+  total_created_formations: number
+  total_straddle_splits: number
+  total_stale_tin_fallbacks: number
+  total_extrapolated_formations: number
+  total_orphan_formations: number
+  failed_anchor_count: number
+  inference_ran: boolean
+  updated_section: CrossSectionResponse | null
+}
+
 export interface LithoSuggestionResponse {
   investigation_type: 'cpt' | 'borehole'
   minimum_layer_thickness_m: number
@@ -1989,6 +2037,19 @@ export const api = {
     ): Promise<AcceptLithoSuggestionsResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/accept-litho-suggestions`,
+        body,
+      ),
+
+    // Batch accept (#153): all anchors in one transaction + one section seed +
+    // one inference recompute. Replaces the per-anchor accept loop + the
+    // separate recompute call for the bulk "accept all" flow.
+    batchAcceptLithoSuggestions: (
+      projectId: string,
+      modelId: string,
+      body: BatchAcceptLithoSuggestionsRequest,
+    ): Promise<BatchAcceptLithoSuggestionsResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/batch-accept-litho-suggestions`,
         body,
       ),
 
