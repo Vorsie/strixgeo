@@ -4527,16 +4527,11 @@ export function useGeologicalModel({
           (resp.inference_ran ? ' — inference updated.' : '.'),
       )
 
-      // #127 — auto-correlate after the bulk accept (separate call; #140).
-      try {
-        const acResult = await api.geology.autoCorrelateContacts(project.id, model.id)
-        log.info(
-          'geology',
-          `acceptAllBulkLitho auto-correlate ok edges_created=${acResult.edges_created} skipped=${acResult.edges_skipped_existing}`,
-        )
-      } catch (err) {
-        log.warn('geology', 'acceptAllBulkLitho auto-correlate failed (non-fatal)', err)
-      }
+      // #140 (owner directive 2026-05-28): auto-correlate is DECOUPLED from
+      // accept-all. Bulk accept no longer silently creates correlation edges —
+      // the user runs Auto-correlate explicitly from the correlation toolbar
+      // when they want it, so accepting suggestions never surprises them with
+      // amber edges. (handleAutoCorrelate remains the manual entry point.)
 
       // Debt #87: ONE aggregated warning naming the total units needing review.
       const aggSummary = formatAcceptParentSummary({

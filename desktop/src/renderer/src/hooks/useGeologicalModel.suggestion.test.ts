@@ -766,6 +766,10 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(bulkSubset(result).get('cpt-1')?.accepted.has(1)).toBe(true)
     expect(bulkSubset(result).get('cpt-2')?.accepted.has(0)).toBe(true)
     expect(bulkSubset(result).get('cpt-2')?.accepted.has(1)).toBe(true)
+    // #140 (owner directive 2026-05-28): accept-all no longer auto-correlates;
+    // the user runs Auto-correlate explicitly so accepting never surprises
+    // them with amber edges.
+    expect(geoApi.autoCorrelateContacts).not.toHaveBeenCalled()
   })
 
   it('B4 — handleEditBulkLitho overrides the layer depth at accept time', async () => {
