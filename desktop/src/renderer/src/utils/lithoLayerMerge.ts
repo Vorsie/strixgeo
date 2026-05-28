@@ -374,14 +374,6 @@ export function applyCrossMergeOnDrag(
       const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
       if (neighbourTop === null) break
       if (newTop <= neighbourTop) {
-        console.debug('[ghost-cross-merge]', {
-          action: 'absorb-up',
-          draggerIdx: idx,
-          neighbourIdx: i,
-          preTop,
-          newTop,
-          neighbourTop,
-        })
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
         return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'up')
@@ -401,14 +393,6 @@ export function applyCrossMergeOnDrag(
       const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
       if (neighbourBase === null) break
       if (newBase >= neighbourBase) {
-        console.debug('[ghost-cross-merge]', {
-          action: 'absorb-down',
-          draggerIdx: idx,
-          neighbourIdx: i,
-          preBase,
-          newBase,
-          neighbourBase,
-        })
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
         return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'down')
