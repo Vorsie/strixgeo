@@ -128,6 +128,7 @@ function makeStubContext(): ShellContextValue {
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
       handleUnlinkLithoFromGeo: noopAsync,
+      handleLinkLithoToGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,

@@ -1788,6 +1788,20 @@ export const api = {
         {},
       ),
 
+    // Establish a litho↔geo coupling on a single lithostratigraphic contact.
+    // Sets parent_geo_contact_id to the nearest geological contact within
+    // the snap tolerance and snaps geo→litho.  Returns null when no
+    // geological contact is within tolerance.
+    linkLithoToGeo: (
+      projectId: string,
+      modelId: string,
+      contactId: string,
+    ): Promise<FormationContactResponse | null> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}/link-geo`,
+        {},
+      ),
+
     // Clear ALL content from a lithostratigraphic model (debt #94 fix).
     // Removes contacts, correlation edges, TIN surfaces, and orphan litho
     // formations in one atomic backend call.

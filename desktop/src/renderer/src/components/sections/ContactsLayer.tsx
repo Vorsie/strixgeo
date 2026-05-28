@@ -107,6 +107,13 @@ interface Props {
    */
   onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
   /**
+   * Right-click → "Link to geology" menu item — fires only when the
+   * contact's ``parent_geo_contact_id`` is null (i.e. the contact is NOT
+   * yet coupled).  Establishes the coupling to the nearest geological
+   * contact within snap tolerance.  When absent the item is hidden.
+   */
+  onLinkLithoToGeo?: (contactId: string) => Promise<void>
+  /**
    * Right-click → "Extrapolate pinch-out…" menu item.
    *
    * Fires with the id, formation id, anchor kind, and anchor id of the
@@ -698,6 +705,7 @@ export default function ContactsLayer({
   onUpdateContactDepth,
   onDeleteContact,
   onUnlinkLithoFromGeo,
+  onLinkLithoToGeo,
   onPinchOutContact,
   onBatchUpdateContacts,
   onBatchCreateContacts,
@@ -3381,7 +3389,7 @@ export default function ContactsLayer({
                 handler is wired so the lines participate in pointer
                 events; without all three they stay fully
                 non-interactive. */}
-            {(onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onPinchOutContact) &&
+            {(onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -3397,7 +3405,7 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onUnlinkLithoFromGeo || onPinchOutContact || onEditInGeologyStage
+                    onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact || onEditInGeologyStage
                       ? e => {
                           e.preventDefault()
                           // Resolve the parent geological contact id so the
@@ -3873,6 +3881,17 @@ export default function ContactsLayer({
                 }
               : undefined
           }
+          onLinkLithoToGeo={
+            !contactMenu.isReferenceContact &&
+            !contactMenu.isCoupledToGeo &&
+            onLinkLithoToGeo
+              ? () => {
+                  const { contactId } = contactMenu
+                  setContactMenu(null)
+                  void onLinkLithoToGeo(contactId)
+                }
+              : undefined
+          }
           onPinchOut={
             !contactMenu.isReferenceContact && onPinchOutContact
               ? () => {
@@ -3991,6 +4010,11 @@ interface ContactContextMenuProps {
    * the coupling without deleting either contact.  When absent the item
    * is hidden. */
   onUnlinkLithoFromGeo?: () => void
+  /** Fired when the user picks "Link to geology" — only shown when
+   * the contact is NOT coupled (``parent_geo_contact_id == null``).
+   * Establishes the coupling to the nearest geological contact within
+   * snap tolerance.  When absent the item is hidden. */
+  onLinkLithoToGeo?: () => void
   /** Fired when the user picks "Extrapolate pinch-out…". When absent
    * the item is hidden. */
   onPinchOut?: () => void
@@ -4043,6 +4067,7 @@ function ContactContextMenu({
   onEditInGeologyStage,
   onDelete,
   onUnlinkLithoFromGeo,
+  onLinkLithoToGeo,
   onPinchOut,
   pinchOutDisabledReason,
   onClose,
@@ -4122,6 +4147,21 @@ function ContactContextMenu({
               {pinchOutDisabledReason}
             </span>
           )}
+        </button>
+      )}
+      {onLinkLithoToGeo && (
+        <button
+          type="button"
+          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+          onClick={e => {
+            e.nativeEvent.stopImmediatePropagation()
+            onLinkLithoToGeo()
+            onClose()
+          }}
+          role="menuitem"
+          data-testid="link-geo-menu-item"
+        >
+          Link to geology
         </button>
       )}
       {onUnlinkLithoFromGeo && (

@@ -305,6 +305,7 @@ function makeStubContext(overrides?: {
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
       handleUnlinkLithoFromGeo: noopAsync,
+      handleLinkLithoToGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,

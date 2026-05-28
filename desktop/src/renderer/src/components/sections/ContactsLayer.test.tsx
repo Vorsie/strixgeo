@@ -139,6 +139,7 @@ function renderLayer(
       elevationM: number,
     ) => void
     onUnlinkLithoFromGeo?: (id: string) => Promise<void>
+    onLinkLithoToGeo?: (id: string) => Promise<void>
   } = {},
 ) {
   return render(
@@ -154,6 +155,7 @@ function renderLayer(
         onUpdateContactDepth={extras.onUpdateContactDepth}
         onDeleteContact={extras.onDeleteContact}
         onUnlinkLithoFromGeo={extras.onUnlinkLithoFromGeo}
+        onLinkLithoToGeo={extras.onLinkLithoToGeo}
         onBatchUpdateContacts={extras.onBatchUpdateContacts}
         onBatchCreateContacts={extras.onBatchCreateContacts}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
@@ -2667,6 +2669,68 @@ describe('ContactsLayer', () => {
       // The "Unlink from geology" item must NOT appear.
       const unlinkItem = screen.queryByTestId('unlink-geo-menu-item')
       expect(unlinkItem).toBeNull()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Litho↔geo link gesture (#162 Slice 2) — inverse of unlink
+  // -------------------------------------------------------------------------
+
+  describe('link-to-geology context menu item', () => {
+    it('LG1 — menu item appears for an uncoupled contact and fires with the contact id', async () => {
+      // Uncoupled contact: parent_geo_contact_id is null — "Link to geology" must show.
+      const contact = makeContact({
+        id: 'c-uncoupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: null,
+      })
+      const handler = vi.fn().mockResolvedValue(undefined)
+      renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+        undefined,
+        { onDeleteContact: vi.fn(), onLinkLithoToGeo: handler },
+      )
+
+      // Right-click the drag strip to open the context menu.
+      const strip = screen.getByTestId('contact-drag-strip')
+      fireEvent.contextMenu(strip)
+
+      // The "Link to geology" item must be present.
+      const linkItem = await screen.findByTestId('link-geo-menu-item')
+      expect(linkItem).toBeTruthy()
+
+      // Clicking it fires the handler with the contact id.
+      fireEvent.click(linkItem)
+      expect(handler).toHaveBeenCalledWith('c-uncoupled')
+    })
+
+    it('LG1b — menu item is absent when the contact IS coupled', async () => {
+      // Coupled contact: parent_geo_contact_id is non-null — "Link to geology" must be hidden.
+      const contact = makeContact({
+        id: 'c-coupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: 'geo-contact-99',
+      })
+      const handler = vi.fn().mockResolvedValue(undefined)
+      renderLayer(
+        [contact],
+        [makeFormation()],
+        [makeBoreholePlaced('bh-1', 50)],
+        undefined,
+        { onDeleteContact: vi.fn(), onLinkLithoToGeo: handler },
+      )
+
+      // Right-click opens the menu.
+      const strip = screen.getByTestId('contact-drag-strip')
+      fireEvent.contextMenu(strip)
+
+      // The "Link to geology" item must NOT appear.
+      const linkItem = screen.queryByTestId('link-geo-menu-item')
+      expect(linkItem).toBeNull()
     })
   })
 

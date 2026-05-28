@@ -77,6 +77,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleUpdateContactDepth,
       handleDeleteContact,
       handleUnlinkLithoFromGeo,
+      handleLinkLithoToGeo,
       handleBatchUpdateContacts,
       handleBatchCreateContacts,
       handleAutoPopulateFromStratigraphy,
@@ -1685,6 +1686,7 @@ export default function SectionsCanvas(): JSX.Element {
           onUpdateContactDepth={handleLithoSnapAwareUpdateContactDepth}
           onDeleteContact={handleDeleteContact}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
+          onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           onBatchUpdateContacts={handleBatchUpdateContacts}
           onBatchCreateContacts={sectionAwareBatchCreateContacts}
           // Seed from stratigraphy: only available on the geological axis

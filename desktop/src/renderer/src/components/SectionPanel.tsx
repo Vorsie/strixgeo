@@ -228,6 +228,9 @@ interface Props {
   /** Break the litho↔geo coupling on a lithostratigraphic contact.
    * Forwarded straight to ContactsLayer; absent on the geological axis. */
   onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
+  /** Establish the litho↔geo coupling on an uncoupled lithostratigraphic contact.
+   * Forwarded straight to ContactsLayer; absent on the geological axis. */
+  onLinkLithoToGeo?: (contactId: string) => Promise<void>
   /** All-or-nothing batch update — fired by the section editor's
    * multi-drag (same-column depth shift) and cross-column re-anchor
    * (Alt+drag MOVE) flows. Forwarded straight to ContactsLayer;
@@ -651,6 +654,7 @@ export default function SectionPanel({
   onUpdateContactDepth,
   onDeleteContact,
   onUnlinkLithoFromGeo,
+  onLinkLithoToGeo,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   onAutoPopulateFromStratigraphy,
@@ -2151,6 +2155,7 @@ export default function SectionPanel({
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
               onUnlinkLithoFromGeo={onUnlinkLithoFromGeo}
+              onLinkLithoToGeo={onLinkLithoToGeo}
               onPinchOutContact={pinchOutGhostState?.onPreviewPinchOut}
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}

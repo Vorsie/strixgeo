@@ -263,6 +263,7 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
       handleUnlinkLithoFromGeo: noopAsync,
+      handleLinkLithoToGeo: noopAsync,
       handleAutoPopulateFromStratigraphy:
         o.handleAutoPopulateFromStratigraphy ?? noopAsync,
       handleSeedLithoFromParent: noopAsync,

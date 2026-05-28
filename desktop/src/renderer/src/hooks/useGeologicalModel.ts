@@ -292,6 +292,14 @@ export interface UseGeologicalModelResult {
    * Refetches litho contacts after the server commits so the glyph disappears.
    */
   handleUnlinkLithoFromGeo: (contactId: string) => Promise<void>
+  /** Establish a litho↔geo coupling on a single uncoupled lithostratigraphic contact.
+   *
+   * Sets ``parent_geo_contact_id`` to the nearest geological contact within
+   * the snap tolerance and snaps geo→litho depth.  Shows a toast and skips the
+   * refetch when no geological contact is within range (server returns null).
+   * Refetches litho contacts after the server commits so the glyph appears.
+   */
+  handleLinkLithoToGeo: (contactId: string) => Promise<void>
   /**
    * Seed the active geological model with contacts from borehole stratigraphy.
    * When called from the Sections stage, pass ``sectionId`` and
@@ -2096,6 +2104,46 @@ export function useGeologicalModel({
       } catch (err) {
         log.error('geology', `unlinkLithoFromGeo failed id=${contactId}`, err)
         toast('error', 'Could not unlink the contact from geology.')
+      }
+    },
+    [project, contacts, lithoContacts, refetchLithoContacts],
+  )
+
+  // Establish the litho↔geo coupling on a single uncoupled lithostratigraphic
+  // contact.  The backend finds the nearest geological contact within the
+  // snap tolerance, sets parent_geo_contact_id, and snaps geo→litho depth.
+  // Returns null (not an error) when no geological contact is in range —
+  // we toast and skip the refetch in that case.
+  const handleLinkLithoToGeo = useCallback(
+    async (contactId: string): Promise<void> => {
+      if (!project) return
+      const snapshot =
+        lithoContacts.find(c => c.id === contactId) ?? contacts.find(c => c.id === contactId)
+      if (!snapshot) return
+      const modelId = snapshot.model_id
+      log.debug('geology', `linkLithoToGeo entry id=${contactId}`)
+      try {
+        const result = await api.geology.linkLithoToGeo(project.id, modelId, contactId)
+        if (result == null) {
+          // No geological contact within tolerance — inform the user.
+          toast('warning', 'No geological contact within snap tolerance to link.')
+          log.warn('geology', `linkLithoToGeo no geo contact in range id=${contactId}`)
+          return
+        }
+        // Optimistic patch: apply the returned coupling locally so the glyph
+        // appears immediately, then refetch for server truth.
+        setLithoContacts(prev =>
+          prev.map(c =>
+            c.id === contactId
+              ? { ...c, parent_geo_contact_id: result.parent_geo_contact_id }
+              : c,
+          ),
+        )
+        refetchLithoContacts()
+        log.success('geology', `linkLithoToGeo ok id=${contactId}`)
+      } catch (err) {
+        log.error('geology', `linkLithoToGeo failed id=${contactId}`, err)
+        toast('error', 'Could not link the contact to geology.')
       }
     },
     [project, contacts, lithoContacts, refetchLithoContacts],
@@ -4961,6 +5009,7 @@ export function useGeologicalModel({
     handleBatchUpdateContacts,
     handleDeleteContact,
     handleUnlinkLithoFromGeo,
+    handleLinkLithoToGeo,
     handleAutoPopulateFromStratigraphy,
     handleSeedLithoFromParent,
     handleDedupeContacts,
