@@ -27,7 +27,7 @@ subdivision is built on top of it. Priority order:
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
 * **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
 * **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
-* **#140** — Accept-all-bulk silently auto-correlates → surprises user with amber edges (filed dogfeed 2026-05-27; needs design decision)
+* **#140** — RESOLVED 2026-05-28 (owner directive: decouple). Accept-all no longer fires auto-correlate — the `autoCorrelateContacts` call was removed from `handleAcceptAllBulkLitho`, so bulk accept never silently creates correlation edges / surprises the user with amber edges. Auto-correlate is now run only via the explicit toolbar action (`handleAutoCorrelate`, unchanged). B3 test pins that accept-all does not auto-correlate.
 * **#141** — RESOLVED 2026-05-27 (SplitToolbarButton — Correlate as primary verb, Auto-correlate + Accept correlations under the caret; amber-tint mode-on signal preserved on the primary)
 * **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
