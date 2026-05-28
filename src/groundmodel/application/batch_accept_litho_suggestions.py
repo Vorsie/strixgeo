@@ -142,6 +142,15 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         accept_uc = AcceptLithoSuggestions(self._session)
         outcomes: list[BatchAnchorOutcome] = []
 
+        # Load the shared state ONCE (#153 hoist): geology surfaces, the
+        # litho-formation lookup, and the existing-contact idempotency map are
+        # identical across anchors, so per-anchor re-loading + per-layer
+        # existence SELECTs are pure waste at batch scale.
+        batch_ctx = await accept_uc.build_batch_context(
+            project_id=project_id, litho_model_id=litho_model_id
+        )
+
+        any_created_formation = False
         for i, anchor in enumerate(anchors, start=1):
             anchor_label = anchor.cpt_id or anchor.borehole_id
             try:
@@ -151,11 +160,14 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                     suggestions=anchor.suggestions,
                     cpt_id=anchor.cpt_id,
                     borehole_id=anchor.borehole_id,
-                    # Seeding + inference are batched once by the caller.
+                    # Seeding + inference are batched once by the caller; the
+                    # shared context skips per-anchor loads + display-order.
                     section_id=None,
                     defer_inference=True,
                     commit=False,
+                    batch_ctx=batch_ctx,
                 )
+                any_created_formation = any_created_formation or bool(result.created_formation_ids)
                 outcomes.append(
                     BatchAnchorOutcome(
                         cpt_id=anchor.cpt_id,
@@ -182,7 +194,13 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                     )
                 )
 
-        # One commit for every accepted anchor.
+        # Display-order recompute runs ONCE for the whole batch (each accept
+        # deferred it via batch_ctx) — the per-anchor recompute scans the
+        # growing contact set, so N runs would be O(N²).
+        if any_created_formation:
+            await accept_uc._recompute_litho_display_orders(litho_model_id=litho_model_id)
+
+        # One commit for every accepted anchor (and the deferred contact INSERTs).
         await self._session.commit()
 
         succeeded = sum(1 for o in outcomes if o.result is not None)
