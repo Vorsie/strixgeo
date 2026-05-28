@@ -53,7 +53,6 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
-import { lithoFormationColor } from '../../utils/lithoConstants'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import {
   computeTriangleConfidence,
@@ -587,6 +586,16 @@ const APPROX_GLYPH_WIDTH_PX = 5
 // enough that the line is grabbable without precision aiming, narrow
 // enough that adjacent layers don't fight for the same pointer.
 const DRAG_HIT_HALF_HEIGHT_PX = 5
+// Litho contact boundary line colour (#143). A litho band is filled with
+// its lithology colour; drawing the boundary in that same colour made the
+// accepted contact vanish into the band. Near-black reads against every
+// lithology pastel. SVG hex literal — NOT a Tailwind token (this file
+// renders SVG attributes directly).
+const LITHO_CONTACT_LINE_COLOR = '#0f172a'
+// Light halo painted behind the litho contact line so it also reads on the
+// dark bands (KLEI blue-grey #6b7280, VEEN dark brown #92400e) where the
+// near-black line alone would muddy. Slightly wider than the line.
+const LITHO_CONTACT_HALO_COLOR = '#f8fafc'
 // Cursor-X hysteresis (px) outside a column's visual band before the
 // drag re-anchors onto a different column. Tight enough that crossing
 // to a neighbouring column is intentional; loose enough that minor
@@ -1563,11 +1572,10 @@ export default function ContactsLayer({
     if (!perColumnBandsFromContacts) {
       return [] as LithoBand[]
     }
-    // Backend stamps litho formations with grey placeholder (#145).
-    // ``lithoFormationColor`` overrides via the LITHOLOGY_COLORS table
-    // when a ``litho_main_soil_code`` is present; geological formations
-    // keep their stored ``color``.
-    const colorById = new Map(formations.map(f => [f.id, lithoFormationColor(f)]))
+    // Litho formations carry their lithology colour in the stored
+    // ``color`` (stamped at create + backfilled, #145); geological
+    // formations carry the user-chosen colour. Both read directly.
+    const colorById = new Map(formations.map(f => [f.id, f.color]))
     const nameById = new Map(formations.map(f => [f.id, f.name]))
     // Subtract pending-ghost depth ranges from a band's [top, base]
     // interval, producing zero or more sub-bands (debt #151 dogfeed
@@ -3178,6 +3186,12 @@ export default function ContactsLayer({
         const isDragged = drag !== null && drag.contactId === layer.contactId
         const isSelected = selection.has(layer.contactId)
         const isFocused = focusedContactIds?.has(layer.contactId) ?? false
+        // #143 — litho contacts get a high-contrast boundary (near-black +
+        // light halo) so the accepted contact reads against its own band;
+        // geological contacts keep the formation-coloured line.
+        const isLithoContact =
+          lithoFormationById.get(layer.formationId)?.litho_main_soil_code != null
+        const lineWidth = isDragged ? 2.5 : 1.75
         return (
           <g key={layer.key}>
             {/* Selection halo — drawn under the top segment so the
@@ -3252,18 +3266,36 @@ export default function ContactsLayer({
               )}
             {/* Top segment — only when the top sits inside the plot
                 area, otherwise the layer extends off the top edge
-                and the segment would draw on the chrome. */}
+                and the segment would draw on the chrome. Litho contacts
+                (#143) paint a light halo first, then a near-black line on
+                top, so the boundary reads against its own band fill. */}
             {layer.segY >= plotTop && layer.segY <= plotBottom && (
-              <line
-                x1={layer.segLeftX}
-                x2={layer.segRightX}
-                y1={layer.segY}
-                y2={layer.segY}
-                stroke={layer.color}
-                strokeWidth={isDragged ? 2.5 : 1.75}
-                strokeOpacity={0.95}
-                pointerEvents="none"
-              />
+              <>
+                {isLithoContact && (
+                  <line
+                    data-testid={`contact-line-halo-${layer.contactId}`}
+                    x1={layer.segLeftX}
+                    x2={layer.segRightX}
+                    y1={layer.segY}
+                    y2={layer.segY}
+                    stroke={LITHO_CONTACT_HALO_COLOR}
+                    strokeWidth={lineWidth + 2}
+                    strokeOpacity={0.6}
+                    pointerEvents="none"
+                  />
+                )}
+                <line
+                  data-testid={`contact-line-${layer.contactId}`}
+                  x1={layer.segLeftX}
+                  x2={layer.segRightX}
+                  y1={layer.segY}
+                  y2={layer.segY}
+                  stroke={isLithoContact ? LITHO_CONTACT_LINE_COLOR : layer.color}
+                  strokeWidth={lineWidth}
+                  strokeOpacity={0.95}
+                  pointerEvents="none"
+                />
+              </>
             )}
             {showLabel && (
               // The label truncates to the (often narrow) band width,
