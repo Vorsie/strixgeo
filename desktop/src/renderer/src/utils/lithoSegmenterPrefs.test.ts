@@ -27,6 +27,7 @@ describe('readLithoSegmenterPrefs', () => {
           dr_compression_factor: 0.6,
           merge_same_lithology: false,
           litho_snap_tolerance_m: 0.30,
+          straddle_min_piece_thickness_m: 0.40,
         },
       }),
     ).toEqual({
@@ -35,6 +36,7 @@ describe('readLithoSegmenterPrefs', () => {
       drCompressionFactor: 0.6,
       mergeSameLithology: false,
       lithoSnapToleranceM: 0.30,
+      straddleMinPieceThicknessM: 0.40,
     })
   })
 
@@ -55,6 +57,7 @@ describe('readLithoSegmenterPrefs', () => {
       drCompressionFactor: 0.5,
       mergeSameLithology: true,
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
+      straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
     })
   })
 
@@ -107,6 +110,7 @@ describe('buildLithoSegmenterPatch', () => {
         drCompressionFactor: 0.7,
         mergeSameLithology: true,
         lithoSnapToleranceM: 0.25,
+        straddleMinPieceThicknessM: 0.35,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -115,6 +119,7 @@ describe('buildLithoSegmenterPatch', () => {
         dr_compression_factor: 0.7,
         merge_same_lithology: true,
         litho_snap_tolerance_m: 0.25,
+        straddle_min_piece_thickness_m: 0.35,
       },
     })
   })
@@ -159,6 +164,48 @@ describe('readLithoSegmenterPrefs — lithoSnapToleranceM field', () => {
         litho_segmenter: { litho_snap_tolerance_m: 'fifty cm' },
       }).lithoSnapToleranceM,
     ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
+  })
+})
+
+describe('readLithoSegmenterPrefs — straddleMinPieceThicknessM field', () => {
+  it('defaults to 0.20 m when the straddle_min_piece_thickness_m key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { minimum_layer_thickness_m: 0.15 },
+      }).straddleMinPieceThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
+  })
+
+  it('returns a valid stored value', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { straddle_min_piece_thickness_m: 0.5 },
+      }).straddleMinPieceThicknessM,
+    ).toBe(0.5)
+  })
+
+  it('falls back to default when out of bounds (too low)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { straddle_min_piece_thickness_m: 0.005 },
+      }).straddleMinPieceThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
+  })
+
+  it('falls back to default when out of bounds (too high)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { straddle_min_piece_thickness_m: 10.0 },
+      }).straddleMinPieceThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
+  })
+
+  it('falls back to default for non-numeric type', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { straddle_min_piece_thickness_m: 'twenty cm' },
+      }).straddleMinPieceThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
   })
 })
 
