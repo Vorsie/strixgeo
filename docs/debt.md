@@ -30,16 +30,16 @@ subdivision is built on top of it. Priority order:
 * **#140** — RESOLVED 2026-05-28 (owner directive: decouple). Accept-all no longer fires auto-correlate — the `autoCorrelateContacts` call was removed from `handleAcceptAllBulkLitho`, so bulk accept never silently creates correlation edges / surprises the user with amber edges. Auto-correlate is now run only via the explicit toolbar action (`handleAutoCorrelate`, unchanged). B3 test pins that accept-all does not auto-correlate.
 * **#141** — RESOLVED 2026-05-27 (SplitToolbarButton — Correlate as primary verb, Auto-correlate + Accept correlations under the caret; amber-tint mode-on signal preserved on the primary)
 * **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
-* **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
+* **#143** — RESOLVED 2026-05-28. Litho contact boundary lines were drawn in the formation colour, so an accepted contact vanished into its own band (worse once #145 made band fill == formation colour). Fixed: litho contacts now paint a near-black line (`#0f172a`) over a light halo (`#f8fafc`) so the boundary reads against every lithology pastel incl. the dark KLEI/VEEN bands; geological contacts keep the formation-coloured line (no regression). Two vitest pins (litho near-black+halo / geological unchanged).
 * **#144** — RESOLVED 2026-05-28. The title was a misdiagnosis: every contact mutation already writes to the DB immediately by design (DB is the live source of truth, `.gmproj` is the snapshot — CLAUDE.md "Project files"). The real defect was that the four litho accept handlers (`handleAcceptLithoSuggestion`, `handleAcceptAllLithoSuggestions`, `handleAcceptBulkLitho`, `handleAcceptAllBulkLitho`) skipped the `addToSessionImports` session-imports manifest that `handleCreateContact`/seed/pinch-out all populate — so `projectDirty` never lit after an accept, the close/quit unsaved-changes prompt never fired, and the `.gmproj` on disk silently went stale (data safe in the DB, but the user's portable artefact out of sync with no warning). Fix: feed each accept's `created_contact_ids` / `created_formation_ids` into `addToSessionImports`, guarded on non-empty so found-only (re-accept) stays clean; `handleAcceptAllBulkLitho` aggregates across anchors into one call per kind. No staged-commit refactor (which the dogfeed title implied) was needed. D1/D2/D3 in `useGeologicalModel.suggestion.test.ts` pin it.
-* **#145** — backend litho-formation create stamps grey placeholder color — should use LITHOLOGY_COLORS at create time (filed dogfeed 2026-05-27)
-* **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
+* **#145** — RESOLVED 2026-05-28. `_create_litho_formation` stamped `color="#9ca3af"` (grey placeholder, "Phase 2 assigns" — never did). Fixed: added `LITHOLOGY_COLORS` + `LITHOLOGY_FALLBACK_COLOR` to `shared/constants/litho_constants.py` (mirrors the frontend table); the create now stamps `LITHOLOGY_COLORS.get(code, fallback)`. Backfill migration `11878f8a5732` stamps the lithology colour onto every legacy grey row by `litho_main_soil_code` — verified on the dev DB (78 litho formations: GRIND/ZAND/SILT/KLEI/VEEN all correct, zero grey left). Unit pin `test_c1`.
+* **#146** — RESOLVED 2026-05-28. Once #145 made the stored `formation.color` authoritative for litho units, the `lithoFormationColor` frontend override (2 call sites: `ContactsLayer` band map + `LithologyInspector` chip) became obsolete and was deleted — every read-side surface (section bands, labels, 3D viewer, exports, .gmproj) reads `formation.color` directly. `LITHOLOGY_COLORS`/`LITHOLOGY_LABELS` stay (ghost overlay still needs them at suggest-time, before a formation row exists); the table now carries a "keep byte-identical to the backend mirror" note. PC3b vitest reworked to pin the stored-colour read.
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
 * **#149** — OPEN; double SAND/SILT units after Accept-litho. v1 (accept-time same-litho merge) reverted; v2 (no merge, straddle kept) shipped but doubling persists; v3 (straddle-split also retired) reverted per owner directive "i want it to split on the geologic boundary but that is not what was happening here". The actual doubling cause is NOT straddle and NOT segmenter-merge drift — investigation pending. See [[feedback-litho-accept-verbatim-copy]]
 * **#153** — RESOLVED 2026-05-28 (accept-all-bulk wall-clock). PROFILED 2026-05-28 on oudenaarde (42-anchor corridor on Cross-section 1, 26 with suggestions, 479 layers, real backend HTTP). Findings: (a) per-anchor accept time is FLAT, not growing (growth ratio 0.85x at N=26) — the statically-traced O(N²) terms (per-call `list_formations`, `_recompute_litho_display_orders`) do NOT bite at realistic N; deprioritise the "cache list_formations" idea. (b) the dominant driver was the **seeded-array leak (#154)** — a bloated `seeded_formation_contact_ids` (~12k stale ids) ~3×'d per-anchor accept (≈140 ms bloated vs ≈50 ms clean) because each accept reads+unions+rewrites the full UUID[] and commits. Fixing #154 roughly halves the wall-clock. (c) post-#154 clean-array phase split: suggest 1.09 s (42 calls, separate "Suggest all" action) · accept-litho 1.34 s (26 calls, ~51 ms each = round-trip + DB + commit) · recompute-all-absences **1.24 s (one call — now the biggest single phase)** · auto-correlate 0.10 s → bulk-accept (accept+recompute+autocorr) ≈ 2.68 s. (d) recompute-all-absences OPTIMISED 2026-05-28 — query-level profile showed the per-absence UPSERT loop (400 round-trips / 212 ms) + per-(formation×section) redundant corridor/observation loads were the cost. Fixed by batching the UPSERT into one multi-row `INSERT…ON CONFLICT` and hoisting the per-section corridor/observation loads to once-per-section (cached across formations): **1015→377 ms, 756→274 queries** on the 13-formation × 2-section oudenaarde shape, outputs identical (written 400 / wedge 44). (e) RESOLVED 2026-05-28 — the last lever, the batch accept endpoint, shipped: `POST .../contacts/batch-accept-litho-suggestions` accepts all anchors in one transaction (one commit), seeds the section once with the aggregated contact ids, and runs the inference recompute once. `BatchAcceptLithoSuggestions` loops `AcceptLithoSuggestions(commit=False, defer_inference=True)`; the router aggregates + seeds + recomputes. Frontend `handleAcceptAllBulkLitho` now makes ONE `batchAcceptLithoSuggestions` call instead of N accepts + a separate recompute (auto-correlate stays separate, #140). Verified end-to-end on oudenaarde: 26 anchors → 553 contacts + 13 formations in a single 1.4 s call (incl. the recompute). Net: an N-anchor bulk accept dropped from N+2 calls / ~2N+1 commits to 1 call / 3 commits. All three contributors (seeded-array leak #154, recompute O(F×S) work, per-anchor round-trips/commits) now closed. (filed dogfeed 2026-05-27; profiled + optimised + batched 2026-05-28). Integration tests added (`test_batch_accept_litho.py` BT1-BT5: one-transaction + single-seed, idempotent re-accept, bad-anchor isolation, run_inference toggle, 422 guard; `test_recompute_all_absences.py` RA1-RA2: inferred-absence write + batched-UPSERT idempotency) — the recompute use cases now have their first direct coverage (closes part of the #116 gap). (f) FOLLOW-UP 2026-05-28 — owner dogfed and reported "only slightly faster". Re-profiled: the first batch endpoint batched the *transaction* (N commits→1, N round-trips→1) but NOT the per-anchor work, which on localhost is the real cost. Query profile of the accept loop (26 anchors) showed 926 queries / 754 ms dominated by a per-layer existence `SELECT` before every insert (~580), the project-formation list + geology surfaces re-loaded per anchor, and the display-order recompute (a growing full scan) run per anchor. Fixed with `BatchAcceptContext`: load geology surfaces + formation lookup once, answer contact find-or-create from an in-memory map (no existence SELECT) with the INSERT deferred to the batch flush, run display-order once. Result: accept loop **754→203 ms, 926→137 queries**; full batch endpoint end-to-end **1395→567 ms (~2.5×)**, outputs identical. **NOTE:** the running backend must be restarted to pick up all of this.
 * **#154** — RESOLVED 2026-05-28 (seeded-array leak: nothing ever removed ids from `cross_section.seeded_formation_contact_ids`. Every contact-create unioned ids in; delete + Clear-litho-model never pruned them, so the array grew unbounded across suggest→accept→delete cycles — live oudenaarde sections carried 11,960 / 18,884 seeded ids of which 99% referenced already-deleted contacts. Fix: `CrossSectionRepository.remove_seeded_contact_ids` (targeted, wired into `DeleteFormationContact`) + `prune_orphan_seeded_ids` (GC vs live project contacts, wired into `ClearLithoModel`), both flush-only so the unseed is atomic with the row removal. Verified on dev DB: Clear pruned Cross-section 1 12,557→124 and Cross-section 2 18,884→105. Stale-id rendering was always tolerated [filter-by-membership at the prop boundary] so nothing was visibly broken — the cost was the unbounded array re-write per accept, the main #153 contributor.)
-* **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
+* **#150** — REFRAMED 2026-05-28 → folded into **#131**. The original "grey + orange edges look weird" framing was a colour-token question, but the owner's clarified intent is a different feature: the correlation BAND between two correlated contacts should be split into the above/below lithology colours (a contact bounds exactly two lithologies — owner note 2026-05-28), with each end taking its own pair when the lithology differs across the gap (a lens), fading into each other across the middle. That is the lithology-coloured gradient ribbon — see #131, which now carries the spec. The cheap interim token fix is NOT being done; the ribbon redesign supersedes it.
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
 * **#152** — RESOLVED 2026-05-27 (hard 10 cm clamp + near-cursor popup on litho contact drag)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
@@ -3118,12 +3118,41 @@ agent discovered missing:
   wedge_tip_along_m`` column from the #118 + #101 work; it just isn't
   threaded into ``CorrelationEdgesOverlay``.
 
-**When to revisit.** Bundle with the next litho-UX pass — same component,
-same state path as the already-shipped half of #121. Owner directive
-gates the lens_id FK schema change (debt #131-a) since it's a small
-schema migration on a stable table; the prop-threading (#131-b) can
-ship independently as a frontend-only change once the absence data is
-available in the section view's loaded state.
+**Owner ribbon-colour spec (added 2026-05-28, folded in from #150).**
+Beyond the opacity/dash distinction above, the ribbon's FILL should
+encode the lithologies it separates:
+
+* The ribbon is split into the lithology colour **above** the contact
+  and the lithology colour **below** it. A contact bounds **exactly
+  two** lithologies (owner: "a layer contact can't have more than 2
+  lithologies") — so the split is always two-way, never N-way.
+* At the two ends (contact A on investigation 1, contact B on
+  investigation 2) the above/below pair may differ — that is a lens /
+  facies change across the gap. Each end takes its own pair.
+* The colours **fade into each other across the middle** of the
+  ribbon (a horizontal gradient from end-A's pair to end-B's pair),
+  so a lens reads as a smooth facies transition rather than a hard
+  seam.
+
+This is the substantive design piece (a gradient-filled ribbon with
+per-end lithology pairs), distinct from the lens-aware opacity/dash
+styling and the pinch-out taper above. Needs the above/below
+lithology at each contact — derivable from the per-investigation
+band stack already computed in ``buildBandMap`` (the band below a
+contact is the contact's own formation; the band above is the
+previous shallower contact's formation), so it likely does NOT need
+the ``lens_id`` FK that gates the opacity/dash variant. Brainstorm
+the rendering (SVG ``linearGradient`` per ribbon vs per-segment fill,
+interaction with the existing body chips, >0 vs faded when an end has
+no band above/below) before building.
+
+**When to revisit.** Next litho-UX pass — same component, same state
+path as the already-shipped half of #121. Owner directive gates the
+lens_id FK schema change (debt #131-a) since it's a small schema
+migration on a stable table; the prop-threading (#131-b) and the
+gradient-fill ribbon (#131-c, the #150 fold-in) can ship independently
+as frontend-only changes once the absence/band data is available in
+the section view's loaded state.
 
 ## 132. Correlation-graph-aware inference on uncorrelate (Tier G — Phase 5 design issue)
 
@@ -3646,23 +3675,29 @@ renders with the up-to-date enabled state.
 ``SectionsToolbar.tsx`` (collapse); ``SectionsToolbar.correlate.test.tsx``
 (adapt 12 test sites + new helper).
 
-## 143. Accepted litho contacts have low visibility on the litho axis (Tier E — polish)
+## 143. Accepted litho contacts have low visibility on the litho axis (Tier E) — RESOLVED 2026-05-28
 
 **What.** Owner dogfeed 2026-05-27: "the accepted litho contacts are
-a bit hard to see".  On the litho axis the committed-contact strip
-(painted by ``ContactsLayer``) blends into the litho-unit band
-fills, so the contact handle is easy to miss.
+a bit hard to see".  Root cause: ``ContactsLayer`` drew each litho
+contact's top-boundary line in ``layer.color`` (the formation
+colour) — identical to the band it bounds, so the line vanished into
+the fill.  #145 made this strictly worse (band fill == formation
+colour exactly).
 
-**Why deferred.** Needs a colour/contrast audit against the full
-litho-unit fill palette (lithology + admixture combinations) and a
-dark-mode check.  Likely fixes: bump ``strokeWidth`` on the contact
-strip, add a contrast halo, or introduce a dedicated litho-contact
-colour token.  Not a one-liner — multiple visual surfaces need to
-agree on the new contrast level so the contact is legible on every
-formation colour.
+**Resolution.** The per-layer top segment now branches on whether the
+formation is a litho unit (``litho_main_soil_code != null``):
 
-**When to revisit.** Next visual polish pass.
-Filed from dogfeed session 2026-05-27.
+* Litho contact → a light halo line (``#f8fafc``, width+2, opacity
+  0.6) painted first, then a near-black line (``#0f172a``) on top.
+  The near-black reads on the light pastels (ZAND/SILT/GRIND); the
+  halo carries the contrast on the dark bands (KLEI ``#6b7280``,
+  VEEN ``#92400e``) where near-black alone would muddy.
+* Geological contact → unchanged (formation-coloured line, no halo).
+
+Owner picked "black + thin light halo" from the visibility options.
+Two vitest pins: litho contact line is ``#0f172a`` + halo present;
+geological contact line stays ``formation.color`` + no halo.
+Constants ``LITHO_CONTACT_LINE_COLOR`` / ``LITHO_CONTACT_HALO_COLOR``.
 
 ## 144. Accept-all (litho) writes directly to DB — wire it through the dirty/manual-save model (Tier G)
 
@@ -3705,58 +3740,49 @@ through so the staged accept + the ghost-follows-contact-depth
 visual stay aligned.
 Filed from dogfeed session 2026-05-27.
 
-## 145. Backend litho-formation create stamps grey placeholder color (Tier E)
+## 145. Backend litho-formation create stamps grey placeholder color (Tier E) — RESOLVED 2026-05-28
 
-**What.** ``accept_litho_suggestions.py:978`` creates new
+**What.** ``_create_litho_formation`` created new
 ``GeologicalFormationOrm`` rows with ``color="#9ca3af"`` (neutral
-grey) and a comment ``# Phase 2 assigns per lithology`` that never
-landed.  Result: every litho formation stored in the DB carries the
-placeholder grey instead of the lithology-specific colour
-(``ZAND="#fbbf24"``, ``KLEI="#6b7280"``, ``SILT="#84cc16"``, etc.).
-The frontend now overrides at render time via the LITHOLOGY_COLORS
-lookup (commit 0cf4d005, debt #142 follow-up), but the DB row is
-still wrong — visible to any consumer that pulls ``color`` directly
-(exports, future external tools, the .gmproj bundle).
+grey) + a comment ``# Phase 2 assigns per lithology`` that never
+landed.  Every litho formation stored grey instead of its lithology
+colour, so any consumer reading ``color`` directly (exports, .gmproj
+bundle, the read-side surfaces in #146) showed grey.
 
-**Why deferred.** The frontend override is the user-facing fix; the
-backend correction needs:
-* Update ``_create_litho_formation`` to compute
-  ``color=LITHOLOGY_COLORS[litho_main_soil_code]`` at create
-  (lookup ported to ``litho_constants.py`` on the Python side or
-  read from a shared JSON).
-* A backfill migration that updates existing rows where
-  ``color='#9ca3af'`` and ``litho_main_soil_code`` is set.
-* Drop the stale ``lithoConstants.ts`` comment claiming the
-  backend already sets the colour at create.
+**Resolution.**
+* Added ``LITHOLOGY_COLORS: dict[str, str]`` + ``LITHOLOGY_FALLBACK_COLOR``
+  to ``shared/constants/litho_constants.py`` — the backend mirror of
+  the frontend ``lithoConstants.ts`` table (kept byte-identical; both
+  files carry a sync note).
+* ``_create_litho_formation`` now stamps
+  ``color=LITHOLOGY_COLORS.get(litho_main_soil_code, LITHOLOGY_FALLBACK_COLOR)``.
+* Backfill migration ``11878f8a5732`` stamps the lithology colour onto
+  every legacy grey row matched by ``litho_main_soil_code`` (one UPDATE
+  per base lithology; downgrade reverts only un-hand-edited rows).
+  Verified on the dev DB: 78 litho formations (GRIND 1 / ZAND 30 /
+  SILT 20 / KLEI 23 / VEEN 4) all carry the correct hex, zero grey.
+* Unit pin ``test_c1_created_litho_formation_uses_lithology_color``.
 
-**When to revisit.** Bundles for a real customer or an export that
-consumes ``color`` directly.  Until then the frontend override
-keeps the visual correct.
-Filed from dogfeed session 2026-05-27.
+## 146. Remaining grey surfaces post-#145 frontend override (Tier E) — RESOLVED 2026-05-28
 
-## 146. Remaining grey surfaces post-#145 frontend override (Tier E)
+**What.** Before #145, a frontend ``lithoFormationColor`` override
+patched the grey at two render sites (LithologyInspector chip +
+ContactsLayer per-column band) but every OTHER read-side surface
+(section labels, contact lines, 3D viewer, exports) read
+``formation.color`` directly and showed grey for litho units.
 
-**What.** ``lithoFormationColor`` is applied at the LithologyInspector
-chip + the ContactsLayer per-column band, but every OTHER read-side
-surface still pulls ``formation.color`` directly and shows grey for
-litho units:
-
-* Section text labels (SAND / SILT / CLAY rendered inside band rects).
-* Contact line strips on the section (the boundary itself reads grey;
-  the user explicitly suggested black would read better).
-* Future legend (not yet built — user predicted "will prolly be so
-  in the legend too once i make the model").
-* Geology3DViewer / litho 3D viewer formation colours.
-* Export pipeline (DXF, Plaxis colour attributes).
-
-**Why deferred.** Each consumer needs its own one-line override
-(``lithoFormationColor(formation)`` instead of ``formation.color``).
-Quick to do, but each surface needs a visual sanity check + a test
-pin.  Backend fix (#145) eventually obsoletes all of them.
-
-**When to revisit.** Sweep alongside #143 (accepted-contact visibility)
-on the next polish pass.
-Filed from dogfeed session 2026-05-27.
+**Resolution.** #145 made the stored ``formation.color`` authoritative
+for litho units (correct at create + backfilled), so the override
+became dead weight and was **deleted** rather than spread to the
+remaining surfaces.  Both call sites now read ``formation.color``
+directly; every other surface was already doing so, so they became
+correct automatically with no edit.  ``LITHOLOGY_COLORS`` /
+``LITHOLOGY_LABELS`` / ``LITHOLOGY_FALLBACK_COLOR`` stay in
+``lithoConstants.ts`` — the ghost-suggestion overlay still colours a
+layer from them BEFORE any formation row exists.  ``LITHOLOGY_COLORS``
+now carries a "keep byte-identical to the backend mirror" note.
+PC3b vitest reworked to pin the stored-colour read (was pinning the
+removed override).
 
 ## 148. Clear button leaves one unit + misleading toast (Tier G) — RESOLVED 2026-05-27
 
@@ -3939,23 +3965,29 @@ whether the cost is HTTP round-trip, SELECT, or commit.
 
 Filed from dogfeed session 2026-05-27.
 
-## 150. Correlation suggestions render in mixed grey + orange (Tier E)
+## 150. Correlation suggestions render in mixed grey + orange (Tier E) — REFRAMED 2026-05-28 → #131
 
-**What.** Owner dogfeed 2026-05-27: "correlation suggestions are
-grey or orange (weird)".  ``CorrelationEdgesOverlay`` uses
-``CONTACT_EDGE_COLOR`` (approved) vs ``UNAPPROVED_EDGE_COLOR=#f59e0b``
-(amber).  The mix reads as visual inconsistency when the user
-sees BOTH colours on the same section.
+**What (original).** Owner dogfeed 2026-05-27: "correlation
+suggestions are grey or orange (weird)".  ``CorrelationEdgesOverlay``
+uses ``CONTACT_EDGE_COLOR=#10b981`` (emerald, approved) vs
+``UNAPPROVED_EDGE_COLOR=#f59e0b`` (amber, pending).  The emerald at
+0.65 opacity reads as washed-out grey next to the amber.
 
-**Why deferred.** Design question: is the colour difference
-load-bearing (does it carry information the user needs to read
-at a glance)?  If yes, the contrast should be sharper (orange vs
-emerald, not orange vs grey).  If no, both should be the same
-colour.
+**Reframe (owner directive 2026-05-28).** Asked whether to sharpen the
+emerald/amber pair or unify, the owner described a different model
+entirely: the correlation BAND (ribbon) between two correlated
+contacts should be **split into the lithology colour above and below
+the contact**; a contact bounds **exactly two lithologies** (owner
+note "a layer contact can't have more than 2 lithologies"); when the
+above/below lithology differs between the two ends (a lens), each end
+takes its own colour pair and the colours **fade into each other
+across the middle** of the ribbon.
 
-**When to revisit.** Same UX polish pass as #141 (correlation
-toolbar dropdown).
-Filed from dogfeed session 2026-05-27.
+That is the lithology-coloured gradient correlation ribbon — a
+ribbon-rendering feature, not a colour-token swap. It supersedes the
+"sharpen vs unify the edge colour" question (the cheap interim fix is
+NOT being done). The spec now lives on **#131** (the lens-aware ribbon
+work), which this folds into.
 
 ## (end)
 
