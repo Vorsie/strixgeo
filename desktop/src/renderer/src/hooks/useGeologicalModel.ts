@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, DuplicateContactError } from '../api/client'
 import type {
   AcceptLithoSuggestionsResponse,
+  BatchAcceptLithoSuggestionsResponse,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -4396,27 +4397,26 @@ export function useGeologicalModel({
       // anchor has its own Accept-all-pending verb; this verb only
       // sweeps non-focused anchors.
       if (!project || !model || bulkGhostsByAnchor.size === 0) return
-      log.debug('geology', `acceptAllBulkLitho anchors=${bulkGhostsByAnchor.size}`)
-      const failures: string[] = []
-      let totalCommitted = 0
-      // Debt #87: aggregate across anchors so a single end-of-pass
-      // warning toast names the total count needing review (one toast,
-      // not N).
-      let totalExtrapolated = 0
-      let totalOrphan = 0
-      // Snapshot the Map entries so subsequent setState calls don't
-      // mutate what we're iterating.
+      log.debug('geology', `acceptAllBulkLitho anchors=${bulkGhostsByAnchor.size} (batch endpoint)`)
+      // Snapshot the Map entries so subsequent setState calls don't mutate
+      // what we iterate.
       const entries = Array.from(bulkGhostsByAnchor.entries())
-      // Accumulate one undo op per successfully-committed anchor so a
-      // single Ctrl+Z reverses the whole sweep (dogfeed 2026-05-22).
-      const collectedOps: AcceptLithoUndoOp[] = []
+
+      // Build one batch payload covering every anchor with pending layers.
+      // Each anchor keeps a single-accept-shaped ``body`` so the undo's
+      // reapply (which re-POSTs via the single endpoint) stays unchanged.
+      type AnchorPlan = {
+        anchorId: string
+        pendingIndices: number[]
+        body: AcceptLithoUndoOp['body']
+      }
+      const plans: AnchorPlan[] = []
       for (const [anchorId, ghost] of entries) {
         const pendingIndices = ghost.suggestions
           .map((_, i) => i)
           .filter(i => !ghost.rejected.has(i))
         if (pendingIndices.length === 0) continue
-        // Apply edits per index — depth + composition overrides
-        // (Phase 2 + Phase 2.5 / debt #72).
+        // Apply per-index edits — depth + composition overrides (#72).
         const pendingLayers = pendingIndices.map(i => {
           const raw = ghost.suggestions[i]
           const edit = ghost.edits.get(i)
@@ -4434,88 +4434,101 @@ export function useGeologicalModel({
               }
             : raw
         })
-        try {
-          const body = {
+        plans.push({
+          anchorId,
+          pendingIndices,
+          body: {
             ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
             section_id: sectionId ?? null,
             suggestions: pendingLayers,
-            // Skip the per-accept R7 inference pass — one bulk recompute
-            // runs after the full loop so inference is O(formations × sections)
-            // instead of O(N × formations × sections).
             defer_inference: true,
-          }
-          const result = await api.geology.acceptLithoSuggestions(
-            project.id,
-            model.id,
-            body,
-          )
-          totalCommitted += result.created_contact_ids.length + result.found_contact_ids.length
-          totalExtrapolated += result.extrapolated_formation_ids?.length ?? 0
-          totalOrphan += result.orphan_formation_ids?.length ?? 0
-          // Stale-TIN diagnostic: aggregate the response's count into
-          // the session counter so the inspector pill picks it up.
-          if (result.stale_tin_fallback_count > 0) {
-            setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
-          }
-          if (result.updated_section != null && onSectionUpdated != null) {
-            onSectionUpdated(result.updated_section)
-          }
-          // Mark all attempted indices accepted on this anchor
-          // (unified Map — debt #77).
-          setGhostsByAnchor(prev => {
-            const existing = prev.get(anchorId)
-            if (!existing) return prev
-            const nextAccepted = new Set(existing.accepted)
-            for (const i of pendingIndices) nextAccepted.add(i)
-            const next = new Map(prev)
-            next.set(anchorId, { ...existing, accepted: nextAccepted })
-            return next
-          })
-          collectedOps.push({
-            body,
-            createdContactIds: result.created_contact_ids.slice(),
-            createdFormationIds: result.created_formation_ids.slice(),
-            acceptedEntries: pendingIndices.map(i => ({ anchorId, idx: i })),
-          })
-        } catch (err) {
-          log.warn('geology', `acceptAllBulkLitho anchor=${anchorId} failed`, err)
-          failures.push(anchorId)
-        }
+          },
+        })
       }
-      log.debug(
-        'geology',
-        `acceptAllBulkLitho loop done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length} — running bulk inference recompute`,
-      )
-      // Single inference + wedge-tip pass for the whole batch (#129b).
-      // This replaces the N × per-accept R7 hook calls that caused
-      // 70–140 s hangs with 70 anchors.
-      const committedCount = entries.length - failures.length
+      if (plans.length === 0) return
+
+      // ONE call: all anchors committed in a single transaction, the section
+      // seeded once, and inference recomputed once — server-side (#153 batch
+      // lever). Replaces the per-anchor accept loop + the separate recompute
+      // call. Auto-correlate stays a separate call (its on-accept behaviour is
+      // still under review — #140).
+      let resp: BatchAcceptLithoSuggestionsResponse
       try {
-        const recomputeResult = await api.geology.recomputeAllAbsences(project.id, model.id)
-        log.success(
-          'geology',
-          `acceptAllBulkLitho recompute done formations=${recomputeResult.formations_processed} written=${recomputeResult.total_written} retracted=${recomputeResult.total_retracted}`,
-        )
-        toast(
-          'success',
-          `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'} — inference updated.`,
-        )
+        resp = await api.geology.batchAcceptLithoSuggestions(project.id, model.id, {
+          anchors: plans.map(p => ({
+            ...(p.body.cpt_id != null ? { cpt_id: p.body.cpt_id } : {}),
+            ...(p.body.borehole_id != null ? { borehole_id: p.body.borehole_id } : {}),
+            suggestions: p.body.suggestions,
+          })),
+          section_id: sectionId ?? null,
+          run_inference: true,
+        })
       } catch (err) {
-        log.warn('geology', 'acceptAllBulkLitho recompute-all-absences failed (non-fatal)', err)
-        toast(
-          'warning',
-          `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'} — inference recompute failed.`,
-        )
+        log.error('geology', 'acceptAllBulkLitho batch call failed', err)
+        toast('error', 'Could not accept litho layers.')
+        return
       }
+
+      // Index the per-anchor results by anchor id (= cpt_id or borehole_id).
+      const resultByAnchor = new Map(
+        resp.anchors.map(a => [(a.cpt_id ?? a.borehole_id) as string, a]),
+      )
+      if (resp.updated_section != null && onSectionUpdated != null) {
+        onSectionUpdated(resp.updated_section)
+      }
+      if (resp.total_stale_tin_fallbacks > 0) {
+        setLithoStaleTinSessionCount(c => c + resp.total_stale_tin_fallbacks)
+      }
+
+      // Mark accepted indices for every committed anchor in a single setState,
+      // and collect one undo op per committed anchor.
+      const collectedOps: AcceptLithoUndoOp[] = []
+      const acceptedByAnchor = new Map<string, number[]>()
+      const failures: string[] = []
+      for (const plan of plans) {
+        const r = resultByAnchor.get(plan.anchorId)
+        if (r == null || r.error != null) {
+          failures.push(plan.anchorId)
+          continue
+        }
+        acceptedByAnchor.set(plan.anchorId, plan.pendingIndices)
+        collectedOps.push({
+          body: plan.body,
+          createdContactIds: r.created_contact_ids.slice(),
+          createdFormationIds: r.created_formation_ids.slice(),
+          acceptedEntries: plan.pendingIndices.map(idx => ({ anchorId: plan.anchorId, idx })),
+        })
+      }
+      setGhostsByAnchor(prev => {
+        const next = new Map(prev)
+        let changed = false
+        for (const [anchorId, indices] of acceptedByAnchor) {
+          const existing = next.get(anchorId)
+          if (!existing) continue
+          const nextAccepted = new Set(existing.accepted)
+          for (const i of indices) nextAccepted.add(i)
+          next.set(anchorId, { ...existing, accepted: nextAccepted })
+          changed = true
+        }
+        return changed ? next : prev
+      })
+
+      const committedCount = plans.length - failures.length
       log.success(
         'geology',
-        `acceptAllBulkLitho done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length} extrapolated=${totalExtrapolated} orphan=${totalOrphan}`,
+        `acceptAllBulkLitho done anchors=${plans.length} committed=${committedCount} ` +
+          `contacts=${resp.total_created_contacts} failures=${failures.length} ` +
+          `inference_ran=${resp.inference_ran} extrapolated=${resp.total_extrapolated_formations} ` +
+          `orphan=${resp.total_orphan_formations}`,
       )
-      // #127 — fire auto-correlate after every bulk accept so the
-      // correlation graph stays up-to-date without a manual button press.
-      // Non-fatal: a failure here does not roll back the accepted contacts.
+      toast(
+        'success',
+        `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'}` +
+          (resp.inference_ran ? ' — inference updated.' : '.'),
+      )
+
+      // #127 — auto-correlate after the bulk accept (separate call; #140).
       try {
-        // TODO Task 19: migrate to autoCorrelateContacts (contact-level).
         const acResult = await api.geology.autoCorrelateContacts(project.id, model.id)
         log.info(
           'geology',
@@ -4524,28 +4537,25 @@ export function useGeologicalModel({
       } catch (err) {
         log.warn('geology', 'acceptAllBulkLitho auto-correlate failed (non-fatal)', err)
       }
-      // Debt #87: emit ONE aggregated warning when any anchor produced
-      // units needing review. Built via the same helper for wording parity.
+
+      // Debt #87: ONE aggregated warning naming the total units needing review.
       const aggSummary = formatAcceptParentSummary({
-        // Only the two lists drive the helper — empty everything else.
         created_formation_ids: [],
         found_formation_ids: [],
         created_contact_ids: [],
         found_contact_ids: [],
         straddle_split_count: 0,
         stale_tin_fallback_count: 0,
-        extrapolated_formation_ids: new Array(totalExtrapolated).fill(''),
-        orphan_formation_ids: new Array(totalOrphan).fill(''),
+        extrapolated_formation_ids: new Array(resp.total_extrapolated_formations).fill(''),
+        orphan_formation_ids: new Array(resp.total_orphan_formations).fill(''),
         updated_section: null,
       })
       if (aggSummary !== null) toast(aggSummary.kind, aggSummary.message)
       if (failures.length > 0) {
-        toast('error', `Accepted ${entries.length - failures.length}/${entries.length} — ${failures.length} failed.`)
+        toast('error', `Accepted ${committedCount}/${plans.length} — ${failures.length} failed.`)
       }
-      // Refetch once at the end — cheaper than once per anchor.
       refetchLithoContacts()
       refetchFormations()
-      // One undo entry for the whole multi-anchor sweep.
       pushAcceptLithoUndo(
         `Accept all litho layers (${collectedOps.length} investigation${
           collectedOps.length === 1 ? '' : 's'

@@ -56,6 +56,11 @@ vi.mock('../api/client', () => ({
       createContact: vi.fn(),
       suggestLitho: vi.fn(),
       acceptLithoSuggestions: vi.fn(),
+      batchAcceptLithoSuggestions: vi.fn(),
+      autoCorrelateContacts: vi.fn().mockResolvedValue({
+        edges_created: 0,
+        edges_skipped_existing: 0,
+      }),
       clearLithoModel: vi.fn(),
       // rarely-called methods — resolve empty so hooks don't throw
       updateFormation: vi.fn(),
@@ -678,17 +683,50 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(bulkSubset(result).get('cpt-1')?.accepted.has(0)).toBe(false)
   })
 
-  it('B3 — handleAcceptAllBulkLitho issues one call per anchor and skips rejected indices', async () => {
+  it('B3 — handleAcceptAllBulkLitho sends ONE batch call with all anchors, skipping rejected indices', async () => {
     geoApi.suggestLitho.mockResolvedValue({
       layers: [makeSuggestion('ZAND', 0.0), makeSuggestion('KLEI', 2.5)],
     })
-    geoApi.acceptLithoSuggestions.mockResolvedValue({
-      created_formation_ids: [],
-      found_formation_ids: [],
-      created_contact_ids: ['cid-1', 'cid-2'],
-      found_contact_ids: [],
-      straddle_split_count: 0,
-      stale_tin_fallback_count: 0,
+    // The batch endpoint echoes per-anchor results back so the hook can mark
+    // accepted indices + build undo ops.
+    geoApi.batchAcceptLithoSuggestions.mockResolvedValue({
+      anchors: [
+        {
+          cpt_id: 'cpt-1',
+          borehole_id: null,
+          created_formation_ids: [],
+          found_formation_ids: [],
+          created_contact_ids: ['cid-1'],
+          found_contact_ids: [],
+          straddle_split_count: 0,
+          stale_tin_fallback_count: 0,
+          extrapolated_formation_ids: [],
+          orphan_formation_ids: [],
+          error: null,
+        },
+        {
+          cpt_id: 'cpt-2',
+          borehole_id: null,
+          created_formation_ids: [],
+          found_formation_ids: [],
+          created_contact_ids: ['cid-2', 'cid-3'],
+          found_contact_ids: [],
+          straddle_split_count: 0,
+          stale_tin_fallback_count: 0,
+          extrapolated_formation_ids: [],
+          orphan_formation_ids: [],
+          error: null,
+        },
+      ],
+      total_created_contacts: 3,
+      total_found_contacts: 0,
+      total_created_formations: 0,
+      total_straddle_splits: 0,
+      total_stale_tin_fallbacks: 0,
+      total_extrapolated_formations: 0,
+      total_orphan_formations: 0,
+      failed_anchor_count: 0,
+      inference_ran: true,
       updated_section: null,
     })
     const { args } = makeArgs()
@@ -702,32 +740,32 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
         { kind: 'cpt', id: 'cpt-2', surfaceElevationM: 8 },
       ])
     })
-    // Reject layer 0 on cpt-1 — should be skipped in the bulk accept.
+    // Reject layer 0 on cpt-1 — should be skipped in the batch payload.
     await act(async () => {
       result.current.handleRejectBulkLitho('cpt-1', 0)
     })
     await act(async () => {
       await result.current.handleAcceptAllBulkLitho(null)
     })
-    // Two anchors × one or two pending layers per anchor → 2 calls total
-    // (one per anchor that has pending layers).
-    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledTimes(2)
-    // cpt-1 call carries only idx 1 (idx 0 was rejected).
-    const cpt1Call = geoApi.acceptLithoSuggestions.mock.calls.find(
-      (c: unknown[]) =>
-        (c[2] as { cpt_id?: string }).cpt_id === 'cpt-1',
-    )
-    expect(
-      (cpt1Call?.[2] as { suggestions: unknown[] }).suggestions,
-    ).toHaveLength(1)
-    // cpt-2 call carries both layers (nothing rejected).
-    const cpt2Call = geoApi.acceptLithoSuggestions.mock.calls.find(
-      (c: unknown[]) =>
-        (c[2] as { cpt_id?: string }).cpt_id === 'cpt-2',
-    )
-    expect(
-      (cpt2Call?.[2] as { suggestions: unknown[] }).suggestions,
-    ).toHaveLength(2)
+    // The whole bulk accept is ONE call (not one per anchor), and the legacy
+    // per-anchor endpoint is never touched.
+    expect(geoApi.batchAcceptLithoSuggestions).toHaveBeenCalledTimes(1)
+    expect(geoApi.acceptLithoSuggestions).not.toHaveBeenCalled()
+    const body = geoApi.batchAcceptLithoSuggestions.mock.calls[0][2] as {
+      anchors: { cpt_id?: string; suggestions: unknown[] }[]
+      run_inference?: boolean
+    }
+    expect(body.run_inference).toBe(true)
+    expect(body.anchors).toHaveLength(2)
+    // cpt-1 anchor carries only idx 1 (idx 0 rejected); cpt-2 carries both.
+    const cpt1 = body.anchors.find(a => a.cpt_id === 'cpt-1')
+    const cpt2 = body.anchors.find(a => a.cpt_id === 'cpt-2')
+    expect(cpt1?.suggestions).toHaveLength(1)
+    expect(cpt2?.suggestions).toHaveLength(2)
+    // Both anchors' pending indices are marked accepted from the response.
+    expect(bulkSubset(result).get('cpt-1')?.accepted.has(1)).toBe(true)
+    expect(bulkSubset(result).get('cpt-2')?.accepted.has(0)).toBe(true)
+    expect(bulkSubset(result).get('cpt-2')?.accepted.has(1)).toBe(true)
   })
 
   it('B4 — handleEditBulkLitho overrides the layer depth at accept time', async () => {
