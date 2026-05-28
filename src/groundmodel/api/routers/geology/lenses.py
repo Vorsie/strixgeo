@@ -44,8 +44,21 @@ from groundmodel.api.schemas.project.litho_lens import (
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,
 )
+from groundmodel.api.schemas.project.litho_lens_boundary import (
+    LensBoundaryNodeItem,
+    LensBoundaryResponse,
+    LensBoundaryWriteRequest,
+)
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_lens_metadata import DeleteLensMetadata
+from groundmodel.application.lens_boundary import (
+    BoundaryNode,
+    GetLensBoundary,
+    LensNoPrimarySectionError,
+    LensNotDetectedError,
+    LensNotFoundError,
+    SaveLensBoundary,
+)
 from groundmodel.application.name_lens_body import NameLensBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
@@ -271,6 +284,136 @@ async def delete_lens_metadata(
         model_id=model_id,
         lens_id=lens_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Lens boundary shape (#163f Slice 2)
+# ---------------------------------------------------------------------------
+
+
+def _boundary_response(state) -> LensBoundaryResponse:  # noqa: ANN001 — internal mapper
+    """Map a ``LensBoundaryState`` to the API response schema."""
+    return LensBoundaryResponse(
+        lens_id=state.lens_id,
+        content_key=state.content_key,
+        render_style=state.render_style,  # type: ignore[arg-type]
+        primary_section_id=state.primary_section_id,
+        upper_nodes=[
+            LensBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
+            for n in state.upper_nodes
+        ],
+        lower_nodes=[
+            LensBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
+            for n in state.lower_nodes
+        ],
+    )
+
+
+@router.get(
+    "/models/{model_id}/lenses/{lens_id}/boundary",
+    response_model=LensBoundaryResponse,
+)
+async def get_lens_boundary(
+    project_id: UUID,
+    model_id: UUID,
+    lens_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> LensBoundaryResponse:
+    """Return the user-authored boundary shape for a lens body (#163f).
+
+    Empty node lists + ``render_style='straight'`` when no custom shape is
+    stored (or the lens has no stable content key yet).
+
+    Parameters
+    ----------
+    project_id, model_id, lens_id : UUID
+        Scope + target.
+    session : AsyncSession
+        DB session.
+
+    Returns
+    -------
+    LensBoundaryResponse
+
+    Raises
+    ------
+    HTTPException(404)
+        When the lens is not found in the project + model scope.
+    """
+    try:
+        state = await GetLensBoundary(session).execute(
+            project_id=project_id, model_id=model_id, lens_id=lens_id
+        )
+    except LensNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "lens_not_found", "message": str(exc)},
+        ) from exc
+    return _boundary_response(state)
+
+
+@router.put(
+    "/models/{model_id}/lenses/{lens_id}/boundary",
+    response_model=LensBoundaryResponse,
+)
+async def put_lens_boundary(
+    project_id: UUID,
+    model_id: UUID,
+    lens_id: UUID,
+    request: LensBoundaryWriteRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LensBoundaryResponse:
+    """Full-replace the boundary shape for a lens body (#163f).
+
+    Sorts + re-indexes the node lists server-side. Persisted under the lens's
+    stable ``content_key`` so the shape survives a resolver re-detection.
+
+    Parameters
+    ----------
+    project_id, model_id, lens_id : UUID
+        Scope + target.
+    request : LensBoundaryWriteRequest
+        upper/lower nodes + render style.
+    session : AsyncSession
+        DB session.
+
+    Returns
+    -------
+    LensBoundaryResponse
+        The saved state.
+
+    Raises
+    ------
+    HTTPException(404)
+        Lens not found in scope.
+    HTTPException(422)
+        Lens has no content key (re-run correlation) or no primary section.
+    """
+    try:
+        state = await SaveLensBoundary(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            lens_id=lens_id,
+            upper_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.upper_nodes],
+            lower_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.lower_nodes],
+            render_style=request.render_style,
+        )
+    except LensNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "lens_not_found", "message": str(exc)},
+        ) from exc
+    except LensNotDetectedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "lens_not_detected", "message": str(exc)},
+        ) from exc
+    except LensNoPrimarySectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "no_primary_section", "message": str(exc)},
+        ) from exc
+    return _boundary_response(state)
 
 
 # ---------------------------------------------------------------------------
