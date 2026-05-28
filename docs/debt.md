@@ -4320,19 +4320,26 @@ Owner dogfeed 2026-05-28 (multiple). All pre-existing auto-correlate
 (#127/#133) behaviour — NOT introduced by the coupling work. Grouped here;
 each sub-item is independently shippable.
 
-* **(a) Adjacent-tests-only (the headline algorithm change).** Auto-correlate
-  currently draws edges that SKIP intervening tests (test 1 ↔ test 3 over
-  test 2), producing visual spaghetti. Owner wants it to draw correlations
-  **only between adjacent tests** along the section (1↔2, 2↔3, …); the chain
-  implies the rest, which matches how a geologist correlates between
-  neighbouring control points. Fix: in `AutoCorrelateContactEdges`, order
-  the section's investigations along the section line and only consider
-  consecutive pairs (not all-pairs). Big readability + correctness win.
-* **(b) Suggestion depth band may be too narrow.** The matching window that
-  decides whether two contacts correlate may be too tight, missing real
-  correlations across dipping beds. Widen it (and/or make it tolerance-aware
-  / dip-aware). Trade-off: too wide → false matches. Tune against a real
-  section; consider exposing as a Settings knob like the others.
+* **(a) Adjacent-tests-only (the headline algorithm change).** SHIPPED
+  2026-05-28. Auto-correlate ran model-wide (no section context — owner's
+  "along the section" framing didn't map to a 1-D order), and `_mnn_by_id`
+  keys on canonical contact ids not geometric sides, so skip-over diagonals
+  survived (test 1↔3 over test 2 = spaghetti). Owner directive: "just do all
+  and delete all spaghetties" → keep it model-wide. Fix: a
+  relative-neighbourhood-graph adjacency gate (`_relative_neighbourhood
+  _adjacency`) over the model's participating investigations — a pair A-B is
+  dropped if a third test lies in the RNG lune between them. For collinear
+  tests this is exactly the consecutive chain (1-2, 2-3, …); generalises to
+  a 2-D scatter, so it kills the spaghetti everywhere, not just per-section.
+  Computed once, group-agnostic. Pinned by the 4-collinear-tests unit test.
+* **(b) Depth-match window now user-tunable.** SHIPPED 2026-05-28. Exposed
+  the auto-correlate depth-match window as a Settings → Litho segmenter
+  NumberRow ("Auto-correlate depth window", default 0.5 m, range 0.05–5.0 m,
+  persisted in `view_state.litho_segmenter.auto_correlate_depth_window_m`).
+  `handleAutoCorrelate` reads it and passes it to the endpoint, which builds
+  `AutoCorrelateContactParams(base_depth_threshold_m=…)`. Widen to catch
+  correlations across dipping beds; narrow to reject loose matches. Dip-aware
+  auto-tuning stays future work — the knob is the pragmatic answer.
 * **(c) Results don't render until manual refresh (image #8).** SHIPPED
   2026-05-28. The guessed cause ("missing refetch in `useGeologicalModel`")
   was wrong — the contact-correlation edge state lives in `SectionsCanvas`,
@@ -4361,11 +4368,12 @@ each sub-item is independently shippable.
   body. Bigger than (a)-(e); needs its own design pass alongside the lens
   model.
 
-**Priority within #163:** (c) refresh SHIPPED 2026-05-28. (a) adjacent-only
-is now the highest-value remaining item (correctness + readability); (d)/(e)
-are UX; (b) is tuning; (f) is a feature needing design (pair with the lens
-work). Tier G (litho-finishing) since auto-correlate is part of the litho
-stage. Filed from dogfeed session 2026-05-28.
+**Priority within #163:** (a) adjacent-only + (b) depth-window knob + (c)
+refresh all SHIPPED 2026-05-28. Remaining: (d) enlarge correlation-endpoint
+grab target + (e) right-click-edge-to-delete (UX, pair them); (f)
+split-suggestion-into-2 for lenses (a feature needing design, pair with the
+lens work #131-a/#101). Tier G (litho-finishing) since auto-correlate is part
+of the litho stage. Filed from dogfeed session 2026-05-28.
 
 ## (end)
 
