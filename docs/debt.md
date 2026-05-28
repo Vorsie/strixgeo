@@ -4378,5 +4378,249 @@ pass alongside the lens work (#131-a lens_id / #101). Tier G (litho-finishing)
 since auto-correlate is part of the litho stage. Filed from dogfeed session
 2026-05-28.
 
+---
+
+# ═══ Overnight code-health audit (2026-05-28) ═══
+
+Filed from a four-agent read-only audit (backend duplication, frontend
+duplication, test+logging coverage, Playwright wiring) run 2026-05-28 night.
+These are **code-health / maintainability** items, not dogfeed bugs — none
+blocks the litho stage. They are NOT auto-implemented: the high-value ones are
+god-component splits + a generic-component extraction, exactly the multi-file
+refactors that want a human in the loop before execution. Ranked roughly by
+value within each area. Effort S/M/L.
+
+## 164. Generic `<ContextMenu>` — collapse 4 hand-rolled portalled menus (Tier E — frontend, M)
+
+**What.** Four near-identical portalled context menus re-implement positioned
+container + `itemStyle` button block + backdrop/Esc/outside-click dismiss +
+danger-item styling: `ColumnContextMenu.tsx:75-126`; `CorrelationEdgesOverlay.tsx`
+`BodyContextMenu` (573-639) + `EdgeContextMenu` (658-698, added 2026-05-28 for
+#163e — the `itemStyle` object + the `position:fixed inset:0 zIndex:9998`
+backdrop div are byte-identical to BodyContextMenu); `ContactsLayer.tsx`
+`ContactContextMenu` (4063-4197). **Why.** Past the extraction window (3+ copies).
+Dismiss correctness is re-derived per copy — `ContactContextMenu` needed
+`nativeEvent.stopImmediatePropagation`, the others lack it (latent bug). **Fix.**
+`components/ui/ContextMenu.tsx` taking `{x, y, items:[{label,onClick,danger?,
+disabled?,reason?,testid?}], header?, onClose, portal:'svg'|'body'}` —
+encapsulate backdrop+Esc+outside-click+stopImmediatePropagation once; the SVG
+`<foreignObject>` vs DOM-portal split becomes the `portal` prop. Subsumes the
+repeated `useDismissOnOutsideClick`-shaped effect. **Effort.** M.
+
+## 165. Generic `<ConfirmDialog>` + `Button` forwardRef — the named 4th copy has landed (Tier E — frontend, S+M)
+
+**What.** `DeleteContactConfirmDialog`, `UnsavedChangesDialog`,
+`ReCorrelateConfirmDialog`, `sections/CopyCompositionConfirmDialog` all repeat
+`cancelRef = useRef` + focus-on-open effect + a hand-styled plain `<button>` with
+a comment "Button.tsx doesn't forwardRef". `DeleteContactConfirmDialog.tsx:9-12`
+explicitly deferred extraction "when a 4th destructive confirm needs the same
+shape" — **that 4th now exists.** **Why.** The code's own extraction trigger has
+fired; cancel-focus a11y re-derived 4×. **Fix.** (a) Add `forwardRef` to
+`ui/Button.tsx` (kills the plain-`<button>` workaround everywhere — also unblocks
+`LithoGeoSnapDialog.tsx:165`, `PinchOutGhostOverlay.tsx:353`); (b) build
+`components/ui/ConfirmDialog.tsx` `{open,title,body,confirmLabel,variant,
+onConfirm,onCancel,busy}`. **Effort.** S (forwardRef) + M (rollout).
+
+## 165b. `.gitignore` e2e artifacts — SHIPPED 2026-05-28
+
+`desktop/tests/e2e/_results/` + root `.e2e-backend.err` (run artifacts) were
+untracked and at risk of accidental commit; added to `.gitignore`.
+
+## 166. Backend project-scope guard re-hand-rolled ~25× in `application/` (Tier E — backend, M; security-adjacent)
+
+**What.** The router layer extracts `get_in_project_or_404`
+(`api/routers/_helpers.py:70`, 70 sites), but the application layer re-hand-rolls
+`model = await session.get(...); if model is None or model.app_project_id !=
+project_id: raise ValueError(...)` at 25+ sites (`link_litho_to_geo.py:103`,
+`unlink_litho_from_geo.py:87`, `correlate_litho_contacts.py:130,271`,
+`accept_contact_correlations.py:117`, `accept_litho_suggestions.py:397,889`,
+`auto_correlate_contact_edges.py:115`, `create_formation_contact.py:134`,
+`upsert_formation_absence.py:134`, `name_lens_body.py:112`,
+`propagate_litho_admixtures.py:122`, the recompute_*_absences triad,
+`materialize_wedge_tips_for_formation.py:181`, `create_perpendicular_companion.py:149,156`,
+`build_section_snapshot.py:103,125`, `build_ground_model_snapshot.py:108`). **Why.**
+25+ copies of a *scope/security* check — a future tightening (e.g. also reject
+`archived_at`, or a soft-delete column) must touch 25 places; one miss is a
+cross-project data-leak. **Fix.** `application/scope_guard.py`:
+`load_scoped_or_raise(session, OrmClass, id, project_id, *, attr="app_project_id")`
+(pure async, no logger), raises `ValueError`. Replace the inline blocks. **Effort.** M.
+
+## 167. Litho-accept payload + created-rows-session-import duplicated 4× (Tier D — frontend, S; payload half of #111)
+
+**What.** `useGeologicalModel.ts:3997-4003, 4148-4153, 4437-4442, 4596-4601` build
+the same accept body `{...(cpt_id|borehole_id), section_id, suggestions,
+straddle_min_piece_thickness_m: readLithoSegmenterPrefs(...).straddle…,
+couple_tolerance_m: readLithoSegmenterPrefs(...).lithoSnap…}` (calls
+`readLithoSegmenterPrefs` twice per copy = 8 calls), and the
+`if (created_*_ids.length) addToSessionImports('formation'|'contact', ids)` block
+(`:4020-4023`) recurs across all four accept handlers + create/seed/pinch-out
+(the #144 fix replicated it). **Why.** A 5th segmenter knob = edit 4 sites; the
+session-import block is the #144 bug surface. **Fix.** `buildLithoAcceptBody(...)`
+(reads prefs once) + `recordCreatedRows(result)` helper in
+`utils/lithoSegmenterPrefs.ts` / a small `lithoAccept.ts`. Resolves the payload
+half of #111. **Effort.** S.
+
+## 168. Section SVG geometry split across 4 overlays + `levelToScreen` prop-drill (Tier D — frontend, M)
+
+**What.** `buildFillBand`/`_interpolatePolylineY` live in `sections/utils.ts:225-318`,
+but `ContactsLayer.tsx` (1235-1499), `CorrelationEdgesOverlay.tsx`,
+`LithoSuggestionGhostColumns.tsx`, `PinchOutGhostOverlay.tsx` each open-code their
+own contact→screen mapping + band-rect + inner-edge anchoring (PinchOutGhostOverlay
+doesn't use `levelToScreen` at all — a separate convention). `levelToScreen` is
+prop-drilled through `BoreholeColumn`/`ContactPickBar`/`ContactsLayer`/`ColumnGlyph`
+from `SectionPanel`; its inverse `oneMetreDownPx` is recomputed identically at
+`BoreholeColumn.tsx:183` + `ContactPickBar.tsx:125`; `surface - depth` open-coded
+in several places. **Why.** Band/seam geometry is the highest-churn surface (#131,
+#114); 4 conventions drift. **Fix.** `buildContactScreenMap` + `bandRectsFromContacts`
++ `depthToLevel` + `pxPerMetreAt` in `sections/utils.ts`; a `SectionViewportContext`
+(or shell-bus slice) carrying `{levelToScreen, screenToLevel, pxPerMetre}` so it's
+not threaded through 6 components. **Effort.** M.
+
+## 169. Plaxis 2D/3D exporters share 4 byte-identical methods (Tier D — backend, M; extends #110)
+
+**What.** `plaxis_exporter.py` (3D) + `plaxis_section_exporter.py` (2D) duplicate
+`_emit_imports_and_connect` (:167/:213), `_emit_materials` (:185/:227),
+`_material_variable_name` (:299/:340), `_py_str` (:316/:355); `export()` shares the
+header→imports→materials→layers→boreholes shape. **Why.** A Plaxis-API change edits
+both; the D-Sheet/GeoStudio exporters will copy a third time. **Fix.** A
+`PlaxisScriptBuilder` base/mixin in `exporters/` (alongside the #109 BaseExporter
+split); 2D/3D differ only in `_emit_boreholes` (1- vs 2-coord) + formation type.
+**Effort.** M.
+
+## 170. Litho-geo coupling helper extractions — kill the #162/#134 drift risk (Tier E — backend, S each)
+
+**What.** Several small but load-bearing blocks exist as verbatim twins, each a
+behaviour-drift risk in the coupling logic: (a) `_load_geo_contacts_at_inv`
+(`link_litho_to_geo.py:165-204`) ≡ `_load_geology_contacts_at_inv`
+(`accept_litho_suggestions.py:909-946`) — same query verbatim; (b)
+`_nearest_within_tolerance` (`link_litho_to_geo.py:243`) ≡ `_geo_contact_to_link`
+(`accept_litho_suggestions.py`) — the coupling-decision heart of #162, twice; (c)
+the `0.20 m` default repeated across 7 signatures under three names
+(`straddle_min_piece_thickness_m` / `couple_tolerance_m` / `tolerance_m`) that are
+*meant* to be one value (`accept_litho_suggestions.py:289,290,958`,
+`batch_accept_litho_suggestions.py:118,119`, `link_litho_to_geo.py:65`); (d) the
+`is_stale=True` surface flip implemented per-mutation-use-case with function-local
+`from sqlalchemy import update`. **Why.** A tolerance/tie-break fix lands in one
+path (auto-accept vs manual-link) → the exact #134/#162 drift class; one missed
+is-stale flip silently breaks the on-click-build UX contract. **Fix.**
+`litho_geo_helpers.py`: `load_contacts_at_investigation(...)` +
+`nearest_contact_within_tolerance(...)`; `LITHO_GEO_DEFAULT_TOLERANCE_M = 0.20` in
+a `litho_constants.py`; `GeologyRepository.mark_surface_stale(model_id,
+formation_id)` for all mutators. **Effort.** S each.
+
+## 171. Router-layer inline `HTTPException(404)` vs `get_in_project_or_404` inconsistency (Tier E — backend, S)
+
+**What.** `api/routers/geology/formations.py:346,524` + `lenses.py:263,334,403`
+raise `HTTPException(404)` inline while the sibling `contacts.py` uses
+`get_in_project_or_404` 22×. **Why.** Inconsistent guard surface; a scope-rule
+change misses the inline copies. **Fix.** Route through the helper. **Effort.** S.
+
+## 172. Shared `<AdmixtureRowsEditor>` for the two litho composition editors (Tier E — frontend, M)
+
+**What.** `LithoCompositionPickerDialog.tsx` (595 ln) + `LithoGhostCompositionEditor.tsx`
+(350 ln) both render a main-soil + admixture-row editor; the ghost editor's header
+(:5-15) calls itself a "simpler shape, no tabs" of the picker. Admixture-row
+add/remove/edit is duplicated. **Fix.** Extract `<AdmixtureRowsEditor>` (the shared
+list widget); the picker keeps its two-tab "existing units" chrome on top.
+**Effort.** M.
+
+## 173. Promote `NumberRow`/`CheckboxRow` out of SettingsDialog (Tier E — frontend, S)
+
+**What.** `SettingsDialog.tsx:550` (`NumberRow`) + `:627` (`CheckboxRow`) are file-local
+labelled-row wrappers (label+hint+control+bounds). `ui/NumericInput` exists but not
+the labelled rows. **Why.** Next settings/inspector form re-hand-rolls them.
+**Fix.** Move to `components/ui/` on second use (low urgency — one consumer today).
+**Effort.** S.
+
+## 174. Backend test gaps — mutation use cases + 3 exporters (Tier D — backend, M; extends #116)
+
+**What.** Zero-coverage, highest-risk first: **C1** `RebuildModelSurfaces`
+(`_reorder_by_age` carries #35 pin handling + #69 kind-scoping + orphan-stale
+pickup — a regression silently renumbers formations); **C2** `SectionPdfReportExporter`
+(ReportLab/matplotlib layout, user-facing); **C3** `GeoStudioExporter` +
+`DSheetExporter` (no tests, while Plaxis exporters are tested — exports are the
+handoff); **C4** `SuggestLithoContacts` use-case wiring (owns a cross-project scope
+guard + TAW conversion + observation-priority fallback — security-relevant,
+untested); **C5** `BuildSectionSnapshot`/`BuildGroundModelSnapshot` only indirect
+coverage (projection math feeds every exporter); **C6** lens/companion/wedge-tip
+mutation use cases (`create_perpendicular_companion`, `name_lens_body`,
+`delete_lens_metadata`, `upsert_formation_absence`, `materialize_wedge_tips_for_formation`
+— the skip-and-count branches at :478/:633 untested). **Fix.** A test per item
+(golden-output for exporters; integration for the guarded use cases). **Effort.** M.
+(Domain services — TIN, pinch-out geometry, Robertson, age-order, lens inference —
+are already well covered; this is the application/exporter layer.)
+
+## 175. Frontend test gaps — the state-machine + geometry hot spots (Tier D — frontend, M/L)
+
+**What.** **C7** `useGeologicalModel.ts` (5084 ln) has only narrow-slice tests; the
+four accept handlers + drag-commit + the #134 litho-geo snap cascade are not
+behaviourally pinned — this is where dogfeed #138/#149/#157/#159 live. **C8**
+`SectionsCanvas.tsx` (1992 ln) wheel-zoom anchor math (the #137 bug) + pan +
+drag-commit geometry untested — extract the transform math into a pure helper and
+pin it (land the #137 fix with a regression test). **C9** `useSections.ts`
+seed/draw/`applyUpdatedSection` path untested though the "nothing appears" bug has
+recurred 3× (memory). **C10** several `shell/stages/*` canvas tests are render-only
+("renders without crash") on interactive logic — audit each for ≥1 behavioural
+assertion, rename pure mounts to explicit "smoke". **Effort.** M (C8/C9/C10), L (C7,
+pairs with the #111/#175b split).
+
+## 176. Logging cleanups — exporter instrumentation + renderer `log` wrapper (Tier E, S)
+
+**What.** **L1** `SectionPdfReportExporter` has ~2 log calls in a multi-phase render
+pipeline — add INFO entry (section id, investigation count) + per-phase DEBUG +
+SUCCESS exit with byte size (DoD). **L2** `GeoStudioExporter`/`DSheetExporter` show
+no entry/exit logging — confirm + add, mirroring `PlaxisExporter`. **L3** raw
+`console.*` instead of the `[ui …]` `log` wrapper in `api/client.ts` (2),
+`useGeologicalModel.ts` (3), `LithoCompositionPickerDialog.tsx` (3),
+`utils/lithoLayerMerge.ts` (2 — pure util, should take a logger param or drop it
+per helper-hygiene), `ContactsLayer.tsx` (5). **L4** `client.ts` (2551 ln) doesn't
+import `log`; add one `log.error('api', method, url, status)` at the fetch-wrapper
+error boundary (one seam) per DoD "external calls log URL + status". **Positive:**
+backend use-case/parser logging is DoD-compliant (DOV importers log HTTP status +
+per-row `[i/total]`; no silent `except: pass` anywhere in `application/`); no empty
+`catch {}` in the renderer. **Effort.** S.
+
+## 177. Playwright e2e is NOT wired for code review (Tier D — testing, M)
+
+**Verdict from the audit:** Playwright IS installed (`@playwright/test ^1.60.0`),
+configured to drive **Electron** via `_electron.launch` (`desktop/playwright.config.ts`,
+`tests/e2e/helpers/electron_launch.ts`), with a solid 1060-line read-only pg
+assertion toolkit (`db_helper.ts`, guarded to `_integration`/`_test` DBs). The
+harness ran green on 2026-05-26. BUT it is not a review gate. Sub-findings: **(a)**
+pre-commit smoke (`.githooks/pre-commit:70-88`) runs `test:e2e:smoke` only when
+backend reachable on :8765 AND `out/main/index.js` exists — else it silently
+no-ops; and it never exports `E2E_FIXTURE_PROJECT_ID`, so even when it runs it
+SKIPS its own #129a /lenses-500 regression block. Reverting the #129a fix would not
+turn a commit red. **(b)** No single-command bootstrap — the full suite needs 5
+manual steps (build, backend, Postgres, fixture builder, env var); add
+`scripts/run-e2e.ps1` mirroring `run-integration-tests.ps1`. **(c)** ~⅓ of "e2e"
+specs drive the backend via `page.evaluate(fetch(...))` not UI gestures
+(`flow_bulk_accept` explicitly bypasses the toolbar) — they'd stay green if the
+React wiring broke; reclassify or promote the high-value ones to real UI paths.
+**(d)** 4 specs are permanently `test.skip(true, '…fixture .gmproj not yet wired')`
+— `flow_create_formation`, `flow_build_3d_model`, `flow_crossing_validator`,
+`flow_drag_reorder_formations` (all v1.0-gate features) — the launch helper only
+boots to the welcome screen; wire an "open project" path and un-stub. **Why.** Debt
+#128/#130 claim a regression net that, in the only automated context, doesn't run.
+**Effort.** M (bootstrap script + un-skip) — the rest is reclassification.
+
+## 178. God-component / large-file splits (Tier D — both, L; extends #111/#114)
+
+**What.** Files past readable size, confirmed by the audit: `useGeologicalModel.ts`
+5084 ln (~50 handlers — split into `useGeologicalContacts` / `useLithoModelLifecycle`
+/ `useLithoSuggestions` / `usePinchOut` behind a thin facade preserving
+`UseGeologicalModelResult`; seams already marked by comment banners),
+`ContactsLayer.tsx` 4198 ln (extract `ContactContextMenu` → #164, `useContactDrag`
+hook, `ContactBands` child), `SectionPanel.tsx` 2696 ln / **69 props** (route stable
+`geoModel`/`sections`/`coordinator` slices via `useShell()` in the leaf overlays
+instead of prop-threading — pairs with #168), `LithoSuggestionGhostColumns.tsx`
+2407 ln, `SectionsCanvas.tsx` 1992 ln, plus backend `accept_litho_suggestions.py`
+1582, `contacts.py` router 1566, `auto_populate_contacts_from_stratigraphy.py` 1565,
+`project_bundle.py` 1413. **Why.** Unreviewable, hard to test in isolation, every
+consumer re-renders on any handler-identity change; these are where the dogfeed
+bug cluster lives. **Fix.** Incremental extraction along the marked seams; do NOT
+big-bang. **When to revisit.** Take one split per quiet period; #164 (ContextMenu)
++ #167 (accept body) are the cheap first cuts that shrink two of them. **Effort.** L.
+
 ## (end)
 
