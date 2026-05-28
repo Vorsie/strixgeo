@@ -44,6 +44,12 @@ class AcceptLithoSuggestionsRequest(BaseModel):
         falls within this distance of a geological formation boundary, the
         split piece for that near-edge is suppressed.  Default 0.20 m.
         Range 0.01 – 5.0 m.
+    couple_tolerance_m : float
+        Litho↔geo coupling coincidence tolerance (#162).  A litho contact
+        within this distance of a geological contact on the same investigation
+        is linked and snapped to it.  Sourced from the frontend's
+        ``litho_snap_tolerance_m`` preference.  Default 0.20 m.
+        Range 0.01 – 5.0 m.
     """
 
     cpt_id: UUID | None = None
@@ -85,6 +91,18 @@ class AcceptLithoSuggestionsRequest(BaseModel):
             "falls within this distance of a geological formation boundary, the "
             "split piece for that near-edge is suppressed — avoiding sub-tolerance "
             "sliver contacts.  Default 0.20 m.  Range 0.01 – 5.0 m."
+        ),
+    )
+    couple_tolerance_m: float = Field(
+        default=0.20,
+        ge=0.01,
+        le=5.0,
+        description=(
+            "Litho↔geo coupling coincidence tolerance (#162).  A litho contact "
+            "within this distance of a geological contact on the same investigation "
+            "is linked and snapped to it, so moving one moves the other.  "
+            "Sourced from the frontend's litho_snap_tolerance_m preference.  "
+            "Default 0.20 m.  Range 0.01 – 5.0 m."
         ),
     )
 
