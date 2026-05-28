@@ -1,14 +1,18 @@
 // Shared lithology → display label + colour tables (#55, senior-review
-// S-2/C-1). Single source of truth: the ghost-suggestion overlay
-// renders a layer with LITHOLOGY_LABELS[token] / LITHOLOGY_COLORS[token],
-// and handleAcceptLithoSuggestion creates the formation with the SAME
-// name + colour. Two copies (the prior state) would let an accepted
-// layer's formation drift from what its ghost column showed — a
-// user-facing mismatch. Hex literals (SVG fill attribute / formation
-// colour column) — NOT Tailwind tokens.
+// S-2/C-1). The ghost-suggestion overlay renders a layer with
+// LITHOLOGY_LABELS[token] / LITHOLOGY_COLORS[token] BEFORE any formation
+// row exists; on accept the backend stamps the formation's stored colour
+// from the same lithology (debt #145), so accepted bands read
+// ``formation.color`` directly and never drift from their ghost.
+//
+// LITHOLOGY_COLORS MUST stay byte-identical to the backend mirror in
+// ``shared/constants/litho_constants.py`` (LITHOLOGY_COLORS) — the two
+// together are the single colour spec; a divergence would let a ghost
+// preview disagree with the accepted band. Hex literals (SVG fill
+// attribute / formation colour column) — NOT Tailwind tokens.
 //
 // Keys are the base-lithology tokens the Robertson segmenter emits
-// (domain/services/litho_constants.py BASE_LITHOLOGIES).
+// (shared/constants/litho_constants.py BASE_LITHOLOGIES).
 
 export const LITHOLOGY_COLORS: Record<string, string> = {
   GRIND: '#d97706', // amber / orange-brown — gravel
@@ -27,25 +31,9 @@ export const LITHOLOGY_LABELS: Record<string, string> = {
 }
 
 /** Fallback colour for an unrecognised lithology token (matches the
- * neutral-grey default used at formation create). */
+ * neutral-grey default used at formation create). Still used by the
+ * ghost-suggestion overlay, which colours a layer before any formation
+ * row exists. Once a suggestion is accepted the backend stamps the
+ * formation's ``color`` at create (debt #145), so read-side surfaces
+ * read ``formation.color`` directly — no presentation-layer override. */
 export const LITHOLOGY_FALLBACK_COLOR = '#9ca3af'
-
-/** Resolve a formation's display colour, honouring the lithology
- *  override.  Backend ``accept_litho_suggestions.py`` stamps litho
- *  formations with the grey placeholder ``#9ca3af``; until the
- *  backend (debt #145) computes the colour at create time, every
- *  read-side surface (inspector chips, section band fills, legend
- *  rows) needs to look up ``LITHOLOGY_COLORS[litho_main_soil_code]``
- *  instead.  Falls back to the stored ``color`` for geological
- *  formations (no ``litho_main_soil_code``) and for litho formations
- *  whose code isn't in the table. */
-export function lithoFormationColor(formation: {
-  color: string
-  litho_main_soil_code: string | null
-}): string {
-  if (formation.litho_main_soil_code) {
-    const c = LITHOLOGY_COLORS[formation.litho_main_soil_code]
-    if (c) return c
-  }
-  return formation.color
-}
