@@ -38,9 +38,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.materialize_wedge_tips_for_formation import (
     MaterializeWedgeTipsForFormation,
 )
+from groundmodel.application.recompute_formation_absences_for_body import (
+    load_corridor_investigations,
+    load_observation_layers,
+)
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
+    SectionInferenceData,
 )
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
@@ -175,6 +181,39 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
             )
 
         # ------------------------------------------------------------------
+        # 2b. Build the per-section inference cache ONCE (#153 hoist).
+        #     Corridor membership + observation layers are identical across
+        #     every formation for a given section, so computing them once here
+        #     and reusing across all F formations removes the O(F × sections)
+        #     redundant corridor/observation scans the per-formation path would
+        #     otherwise issue.
+        # ------------------------------------------------------------------
+        section_rows = list(
+            (
+                await self._session.execute(
+                    select(CrossSectionOrm)
+                    .where(CrossSectionOrm.app_project_id == project_id)
+                    .order_by(CrossSectionOrm.display_order)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        section_cache: dict[UUID, SectionInferenceData] = {}
+        for section in section_rows:
+            corridor = await load_corridor_investigations(
+                self._session, project_id=project_id, section=section
+            )
+            obs_layers = await load_observation_layers(
+                self._session, corridor_investigations=corridor
+            )
+            section_cache[section.id] = (section, corridor, obs_layers)
+        self.info(
+            f"RecomputeAllAbsencesForModel: built section cache for {len(section_cache)} "
+            f"section(s) — reused across {total} formation(s)"
+        )
+
+        # ------------------------------------------------------------------
         # 3. Run per-formation inference + wedge-tip materialisation, all in
         #    the same session (commit=False defers to the single commit below).
         # ------------------------------------------------------------------
@@ -197,6 +236,7 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
                     model_id=model_id,
                     formation_id=fid,
                     commit=False,
+                    section_cache=section_cache,
                 )
                 total_written += inf_result.total_written
                 total_retracted += inf_result.total_retracted
