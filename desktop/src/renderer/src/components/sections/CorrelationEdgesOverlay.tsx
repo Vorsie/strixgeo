@@ -400,8 +400,11 @@ export function buildContactScreenMap(
  * Returns
  * -------
  * Map<string, { above: string | null; below: string }>
- *     Keyed by contact id.  Contacts whose formation is missing from
- *     ``formationById`` are omitted.
+ *     Keyed by contact id.  Contacts whose OWN formation is missing from
+ *     ``formationById`` are omitted entirely.  When only the predecessor
+ *     (shallower) contact's formation is missing, the contact is still
+ *     included with ``above = null`` (rendered as if topmost — no above
+ *     stripe — rather than dropped).
  */
 export function contactStripeColors(
   contacts: readonly FormationContactResponse[],

@@ -626,6 +626,9 @@ describe('contactStripeColors', () => {
     )
     const result = contactStripeColors(contacts, formationById)
     expect(result.get('c3')).toEqual({ above: null, below: '#84cc16' })
+    // inv-1's deeper contact must take inv-1's shallower contact as its
+    // above — NOT inv-2's c3 — i.e. the per-investigation grouping holds.
+    expect(result.get('c2')).toEqual({ above: '#fbbf24', below: '#6b7280' })
   })
 
   it('SC4: contact whose formation is unknown is skipped', () => {
