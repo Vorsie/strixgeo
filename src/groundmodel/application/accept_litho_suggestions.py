@@ -166,6 +166,43 @@ class AcceptLithoResult:
     updated_section_id: UUID | None
 
 
+@dataclass
+class BatchAcceptContext:
+    """Shared, pre-loaded state for a multi-anchor batch accept (#153 hoist).
+
+    The single-accept path re-loads all of this on every call.  When a batch
+    accepts N anchors, the geology surfaces + the litho-formation lookup are
+    identical across anchors, the existing-contact set is loaded once instead of
+    one existence ``SELECT`` per layer, and the display-order recompute runs once
+    after the batch instead of per anchor.  ``BatchAcceptLithoSuggestions`` builds
+    this once and passes it to every ``AcceptLithoSuggestions.execute`` call.
+
+    The dicts are MUTATED as the batch proceeds (a formation/contact created for
+    anchor *k* is visible to anchor *k+1*), which also dedupes shared litho units
+    across anchors for free.
+
+    Attributes
+    ----------
+    geology_model_id : UUID | None
+        Parent geological model id (constant for the batch).
+    geology_surfaces : dict[UUID, FormationSurfaceOrm]
+        Cached geology TIN surfaces keyed by formation id (for straddle).
+    litho_formations : dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+        Find-or-create lookup keyed by
+        ``(parent_formation_id, litho_main_soil_code, canonical_sig)``.
+    existing_contacts : dict[tuple, UUID]
+        Existing contacts keyed by
+        ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)`` → id.
+        Lets ``_find_or_create_contact`` answer in memory instead of a per-layer
+        ``SELECT``.  Newly-created contacts are inserted here.
+    """
+
+    geology_model_id: UUID | None
+    geology_surfaces: dict[UUID, FormationSurfaceOrm]
+    litho_formations: dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+    existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
+
+
 class AcceptLithoSuggestions(GroundModelLogger):
     """Bulk idempotent use case: commit litho suggestions to the litho model.
 
@@ -203,6 +240,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         defer_inference: bool = False,
         create_formation_only: bool = False,
         commit: bool = True,
+        batch_ctx: BatchAcceptContext | None = None,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -256,6 +294,14 @@ class AcceptLithoSuggestions(GroundModelLogger):
             this call.  Pass ``False`` when a caller wraps multiple accepts in
             one transaction (``BatchAcceptLithoSuggestions``) and commits once
             after the whole batch — collapsing N per-anchor commits into one.
+        batch_ctx : BatchAcceptContext | None
+            Pre-loaded shared state for a batch accept (#153 hoist).  When
+            given: the geology surfaces + litho-formation lookup are reused
+            (not re-loaded), contact find-or-create answers from the in-memory
+            existing-contacts dict (no per-layer ``SELECT``), and the
+            display-order recompute is skipped (the batch caller runs it once
+            after all anchors).  ``None`` (default) is the self-loading
+            single-accept path.
 
         Returns
         -------
@@ -289,10 +335,15 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # insert / absorb) the user did before accepting.
 
         # --- Load litho model + resolve parent geology model id -------------
-        litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
-        if litho_model is None or litho_model.app_project_id != project_id:
-            raise ValueError(f"Litho model {litho_model_id} not found in project {project_id}")
-        geology_model_id: UUID | None = litho_model.parent_geological_model_id
+        # In batch mode the model was validated once when the context was built;
+        # reuse the resolved parent id instead of a per-anchor scope read.
+        if batch_ctx is not None:
+            geology_model_id: UUID | None = batch_ctx.geology_model_id
+        else:
+            litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
+            if litho_model is None or litho_model.app_project_id != project_id:
+                raise ValueError(f"Litho model {litho_model_id} not found in project {project_id}")
+            geology_model_id = litho_model.parent_geological_model_id
 
         # --- Load investigation x/y/elevation for straddle sampling ---------
         # project_id is threaded in to enforce investigation scope (VULN-10).
@@ -311,7 +362,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         # --- Load geology TIN surfaces (for straddle detection) -------------
         geology_surfaces: dict[UUID, FormationSurfaceOrm] = {}
-        if geology_model_id is not None:
+        if batch_ctx is not None:
+            # Constant across the batch — loaded once when the context was built.
+            geology_surfaces = batch_ctx.geology_surfaces
+        elif geology_model_id is not None:
             geology_surfaces = await self._load_geology_surfaces(geology_model_id)
             self.debug(
                 f"Loaded {len(geology_surfaces)} geology TIN surface(s) for straddle detection"
@@ -335,22 +389,16 @@ class AcceptLithoSuggestions(GroundModelLogger):
             )
 
         # --- Load all project formations for lookup --------------------------
-        project_formations = await self._repo.list_formations(project_id)
-        # Keyed by (parent_formation_id, litho_main_soil_code, canonical_sig)
-        litho_formations: dict[tuple[UUID | None, str, str], GeologicalFormationOrm] = {}
-        for f in project_formations:
-            if f.litho_main_soil_code is not None:
-                sig = _canonical_admixture_signature(
-                    tuple(
-                        Admixture(
-                            soil_code=a["soil_code"],
-                            amount=a.get("amount", ""),
-                            locally=a.get("locally", False),
-                        )
-                        for a in (f.litho_admixtures or [])
-                    )
-                )
-                litho_formations[(f.parent_formation_id, f.litho_main_soil_code, sig)] = f
+        # Keyed by (parent_formation_id, litho_main_soil_code, canonical_sig).
+        # In batch mode the lookup is shared + mutated across anchors (loaded
+        # once, and a unit created for one anchor is found by the next).
+        litho_formations: dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+        if batch_ctx is not None:
+            litho_formations = batch_ctx.litho_formations
+        else:
+            litho_formations = self._build_litho_formation_lookup(
+                await self._repo.list_formations(project_id)
+            )
 
         # --- Main loop: one contact per suggestion (or two per straddle) -----
         created_formation_ids: list[UUID] = []
@@ -445,6 +493,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         cpt_id=cpt_id,
                         confidence=sug.confidence.value.lower(),
                         source=sug.source,
+                        existing_contacts=batch_ctx.existing_contacts if batch_ctx else None,
                     )
                     if was_created:
                         created_contact_ids.append(contact_id)
@@ -479,7 +528,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # create_formation_only: new formation rows without contacts — their
         # final depth is unknown until the ghost-accept, so ordering is
         # deferred to that step.
-        if created_formation_ids and not create_formation_only:
+        # In batch mode the display-order recompute is deferred to a single
+        # pass after every anchor commits (the per-anchor recompute scans the
+        # whole — growing — contact set, so running it N times is O(N²)).
+        if created_formation_ids and not create_formation_only and batch_ctx is None:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
         # Trigger inference engine for every formation that received a new
@@ -627,6 +679,130 @@ class AcceptLithoSuggestions(GroundModelLogger):
         stmt = select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == geology_model_id)
         rows = list((await self._session.execute(stmt)).scalars().all())
         return {r.formation_id: r for r in rows}
+
+    def _build_litho_formation_lookup(
+        self,
+        project_formations: list[GeologicalFormationOrm],
+    ) -> dict[tuple[UUID | None, str, str], GeologicalFormationOrm]:
+        """Build the find-or-create lookup from a project's formation rows.
+
+        Keyed by ``(parent_formation_id, litho_main_soil_code,
+        canonical_admixture_signature)`` — geological (non-litho) rows are
+        skipped.  Shared by the single-accept load path and
+        :meth:`build_batch_context` so both index identically.
+
+        Parameters
+        ----------
+        project_formations : list[GeologicalFormationOrm]
+            All formation rows for the project.
+
+        Returns
+        -------
+        dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+            The find-or-create lookup.
+        """
+        lookup: dict[tuple[UUID | None, str, str], GeologicalFormationOrm] = {}
+        for f in project_formations:
+            if f.litho_main_soil_code is not None:
+                sig = _canonical_admixture_signature(
+                    tuple(
+                        Admixture(
+                            soil_code=a["soil_code"],
+                            amount=a.get("amount", ""),
+                            locally=a.get("locally", False),
+                        )
+                        for a in (f.litho_admixtures or [])
+                    )
+                )
+                lookup[(f.parent_formation_id, f.litho_main_soil_code, sig)] = f
+        return lookup
+
+    async def _load_existing_contacts(
+        self,
+        litho_model_id: UUID,
+    ) -> dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]:
+        """Load all contacts in a model as a find-or-create idempotency map.
+
+        Keyed by ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)``
+        → contact id, matching the key :meth:`_find_or_create_contact` uses.  A
+        batch loads this once instead of issuing one existence ``SELECT`` per
+        layer.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The lithostratigraphic model to load contacts for.
+
+        Returns
+        -------
+        dict
+            ``key → contact_id`` for every contact currently in the model.
+        """
+        rows = (
+            await self._session.execute(
+                select(
+                    FormationContactOrm.id,
+                    FormationContactOrm.formation_id,
+                    FormationContactOrm.depth_top_m,
+                    FormationContactOrm.borehole_id,
+                    FormationContactOrm.cpt_id,
+                ).where(FormationContactOrm.model_id == litho_model_id)
+            )
+        ).all()
+        return {
+            (litho_model_id, r.formation_id, r.depth_top_m, r.borehole_id, r.cpt_id): r.id
+            for r in rows
+        }
+
+    async def build_batch_context(
+        self,
+        *,
+        project_id: UUID,
+        litho_model_id: UUID,
+    ) -> BatchAcceptContext:
+        """Load the shared state a multi-anchor batch accept reuses (#153 hoist).
+
+        Reads, once: the parent geology model id (+ scope guard), the geology
+        TIN surfaces, the litho-formation find-or-create lookup, and the
+        existing-contact idempotency map.  Pass the result as ``batch_ctx`` to
+        each :meth:`execute` call so none of these is re-loaded per anchor.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Project scope guard.
+        litho_model_id : UUID
+            The lithostratigraphic model the batch writes into.
+
+        Returns
+        -------
+        BatchAcceptContext
+
+        Raises
+        ------
+        ValueError
+            When the litho model is missing / out of project.
+        """
+        litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
+        if litho_model is None or litho_model.app_project_id != project_id:
+            raise ValueError(f"Litho model {litho_model_id} not found in project {project_id}")
+        geology_model_id: UUID | None = litho_model.parent_geological_model_id
+
+        geology_surfaces: dict[UUID, FormationSurfaceOrm] = {}
+        if geology_model_id is not None:
+            geology_surfaces = await self._load_geology_surfaces(geology_model_id)
+
+        litho_formations = self._build_litho_formation_lookup(
+            await self._repo.list_formations(project_id)
+        )
+        existing_contacts = await self._load_existing_contacts(litho_model_id)
+
+        return BatchAcceptContext(
+            geology_model_id=geology_model_id,
+            geology_surfaces=geology_surfaces,
+            litho_formations=litho_formations,
+            existing_contacts=existing_contacts,
+        )
 
     async def _load_geology_contacts_at_inv(
         self,
@@ -1158,6 +1334,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         cpt_id: UUID | None,
         confidence: str,
         source: str,
+        existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
+        | None = None,
     ) -> tuple[UUID, bool]:
         """Idempotent contact find-or-create.
 
@@ -1175,6 +1353,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
             so the caller controls the value.  The bulk segmenter paths carry
             ``"cpt_robertson_2015"`` or ``"borehole_observation"``; the manual-
             pick path sends ``"manual_pick"``.
+        existing_contacts : dict | None
+            Batch mode (#153): a pre-loaded ``key → contact_id`` map for the
+            model, keyed by ``(model_id, formation_id, depth_top_m, borehole_id,
+            cpt_id)``.  When given, the idempotency check is answered in memory
+            (no per-layer ``SELECT``) and a newly-created contact's id is added
+            back to the map.  When ``None`` the single-accept path runs the
+            existence ``SELECT``.
 
         Returns
         -------
@@ -1182,36 +1367,40 @@ class AcceptLithoSuggestions(GroundModelLogger):
             ``(contact_id, was_created)`` — ``True`` when a new row was
             inserted, ``False`` when an existing row was found.
         """
-        # Check for an existing contact (idempotent path).
-        anchor_filter = (
-            FormationContactOrm.borehole_id == borehole_id
-            if borehole_id is not None
-            else FormationContactOrm.cpt_id == cpt_id
-        )
         # ``depth_top_m`` is part of the idempotency key. Without it, a
         # re-accept after a re-segmentation that moved the boundary (param
         # change, or a straddle re-split at a different geology-TIN depth)
         # would match the OLD contact on (model, formation, anchor) alone
         # and silently keep the stale depth (review B1). With it, the same
         # suggestion re-accepts as a no-op; a moved boundary creates a new
-        # contact. Phase 1 limitation: re-segmenting at new depths leaves
-        # the old contacts — Clear the litho axis before re-accepting to
-        # avoid accumulation (Phase 2 adds boundary-move reconciliation).
-        # Float match is safe for the idempotent path: an unchanged
+        # contact. Float match is safe for the idempotent path: an unchanged
         # suggestion yields a bit-identical depth from the same pipeline.
-        existing_stmt = select(FormationContactOrm.id).where(
-            FormationContactOrm.model_id == litho_model_id,
-            FormationContactOrm.formation_id == formation_id,
-            FormationContactOrm.depth_top_m == depth_top_m,
-            anchor_filter,
-        )
-        existing_id = (await self._session.execute(existing_stmt)).scalar_one_or_none()
-        if existing_id is not None:
-            self.trace(
-                f"  Contact already exists: {existing_id} "
-                f"(formation={formation_id}, depth={depth_top_m:.2f}m)"
+        key = (litho_model_id, formation_id, depth_top_m, borehole_id, cpt_id)
+
+        if existing_contacts is not None:
+            # In-memory idempotency check (batch mode).
+            hit = existing_contacts.get(key)
+            if hit is not None:
+                return hit, False
+        else:
+            anchor_filter = (
+                FormationContactOrm.borehole_id == borehole_id
+                if borehole_id is not None
+                else FormationContactOrm.cpt_id == cpt_id
             )
-            return existing_id, False
+            existing_stmt = select(FormationContactOrm.id).where(
+                FormationContactOrm.model_id == litho_model_id,
+                FormationContactOrm.formation_id == formation_id,
+                FormationContactOrm.depth_top_m == depth_top_m,
+                anchor_filter,
+            )
+            existing_id = (await self._session.execute(existing_stmt)).scalar_one_or_none()
+            if existing_id is not None:
+                self.trace(
+                    f"  Contact already exists: {existing_id} "
+                    f"(formation={formation_id}, depth={depth_top_m:.2f}m)"
+                )
+                return existing_id, False
 
         contact = FormationContactOrm(
             id=uuid7(),
@@ -1224,10 +1413,17 @@ class AcceptLithoSuggestions(GroundModelLogger):
             confidence=confidence,
         )
         self._session.add(contact)
-        await self._session.flush()
-        self.trace(
-            f"  Contact created: {contact.id} (formation={formation_id}, depth={depth_top_m:.2f}m)"
-        )
+        if existing_contacts is not None:
+            # Batch mode: defer the INSERT to the batch's single flush/commit
+            # (no per-contact round-trip) and record the new key for in-memory
+            # idempotency on later layers/anchors.
+            existing_contacts[key] = contact.id
+        else:
+            await self._session.flush()
+            self.trace(
+                f"  Contact created: {contact.id} "
+                f"(formation={formation_id}, depth={depth_top_m:.2f}m)"
+            )
         return contact.id, True
 
 
