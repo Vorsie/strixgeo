@@ -4333,12 +4333,15 @@ each sub-item is independently shippable.
   correlations across dipping beds. Widen it (and/or make it tolerance-aware
   / dip-aware). Trade-off: too wide → false matches. Tune against a real
   section; consider exposing as a Settings knob like the others.
-* **(c) Results don't render until manual refresh (image #8).** After
-  clicking auto-correlate the new edges/banners don't appear until the user
-  refreshes; they show after a reload. Frontend state bug — the
-  auto-correlate handler must refetch the contact-correlation edges + force
-  the overlay to re-render (mirror how accept/seed refetch). Likely a missing
-  `refetch`/`setState` after the auto-correlate call in `useGeologicalModel`.
+* **(c) Results don't render until manual refresh (image #8).** SHIPPED
+  2026-05-28. The guessed cause ("missing refetch in `useGeologicalModel`")
+  was wrong — the contact-correlation edge state lives in `SectionsCanvas`,
+  not the hook, so `handleAutoCorrelate` (fired from the sibling
+  `SectionsToolbar`) could not refetch it directly. Fix: a coordinator
+  refetch nonce (`correlationEdgesRefetchNonce`, same cross-boundary pattern
+  as `geoDeepLinkTarget`) — `handleAutoCorrelate` bumps it via the new
+  `requestCorrelationEdgesRefetch` arg on success, and `SectionsCanvas`
+  lists it in its edge-refetch effect deps. AC1/AC2 pin the hook contract.
 * **(d) Hard to grab a correlation endpoint to re-target (image #9).** The
   drag handle (`unapproved-handle-a/b`) is an 8 px square — hard to hit.
   Enlarge the hit target (a wider invisible grab rect around the endpoint),
@@ -4358,11 +4361,11 @@ each sub-item is independently shippable.
   body. Bigger than (a)-(e); needs its own design pass alongside the lens
   model.
 
-**Priority within #163:** (a) adjacent-only + (c) refresh are the highest
-value (correctness + "it looks broken"); (d)/(e) are UX; (b) is tuning;
-(f) is a feature needing design (pair with the lens work). Tier G
-(litho-finishing) since auto-correlate is part of the litho stage.
-Filed from dogfeed session 2026-05-28.
+**Priority within #163:** (c) refresh SHIPPED 2026-05-28. (a) adjacent-only
+is now the highest-value remaining item (correctness + readability); (d)/(e)
+are UX; (b) is tuning; (f) is a feature needing design (pair with the lens
+work). Tier G (litho-finishing) since auto-correlate is part of the litho
+stage. Filed from dogfeed session 2026-05-28.
 
 ## (end)
 
