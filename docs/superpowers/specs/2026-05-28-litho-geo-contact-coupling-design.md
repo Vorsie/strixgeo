@@ -25,28 +25,29 @@ geological model with within-formation litho detail.
 3. **Snap direction = geo follows litho.** At link time the litho boundary
    the engineer placed is authoritative; the geo contact moves to it (NOT
    litho-to-geo).
-4. **Materialize geo contacts where the geo model intersects.** If no geo
-   contact is within tolerance but the litho boundary sits at a geological
-   formation transition (a geo surface intersects the investigation there),
-   create a geo contact at the litho depth and link it. If the litho
-   boundary is mid-geo-formation, create nothing (keeps superposition /
-   the geo model coarse).
-5. **Auto-rebuild the geo model** after litho-driven geo contact
-   create/move.
+4. **Split litho at geo boundaries + link (NO geo contact creation).** When
+   an accepted litho ghost crosses a geological (stratigraphic) contact and
+   there is no litho contact already within tolerance of it, the existing
+   **straddle-split** creates a litho contact at that geo boundary depth
+   (the "split the sand layer into two units at the stratigraphic boundary"
+   behaviour) — and that split-created litho contact is **linked** to the
+   geological contact. No geological contact is ever created. The litho
+   model splits to honour the geo boundary because a litho unit cannot span
+   a geo formation boundary — that is the superposition point.
+5. **Auto-rebuild the geo model** after a litho-driven geo-contact *move*
+   (the snap-geo→litho case + bidirectional propagation move geo contacts;
+   nothing creates geo contacts).
 
-## ⚠ Interpretation to confirm in review
+## Corrected understanding (owner clarification 2026-05-28)
 
-The phrase "create a boundary where the geo model intersects too" is read
-here as: **only materialize a geo contact when the litho boundary lands
-(within tolerance) on a place where a geological formation SURFACE already
-intersects the investigation** — i.e. the litho boundary corresponds to a
-real geological formation transition that simply lacked an explicit contact
-at this investigation. A litho boundary that falls inside a single geo
-formation (no surface transition nearby) does NOT create a geo contact — it
-is a within-formation litho refinement, and forcing a geo boundary there
-would corrupt the coarser geological model and violate superposition. If
-the intent was instead "every litho boundary forces a geo boundary", this
-section is wrong — flag it.
+An earlier draft read "create a boundary where the geo model intersects" as
+"materialise a *geological* contact." **That was wrong.** The owner
+clarified: create a **litho** contact at the stratigraphic boundary (via the
+existing straddle-split) and link it to the *existing* geological contact.
+The geological model is never written-to by *creation* — only the
+snap-geo→litho move + bidirectional propagation move existing geo contacts.
+This makes coupling a strict superset of the #157 straddle behaviour: the
+split already happens; coupling adds the link (and the snap + rebuild).
 
 ## Tolerance
 
@@ -74,36 +75,40 @@ DB and the integration DB.
 belong to a `lithostratigraphic` model and the target to that model's
 parent `geological` model; reject self-links and cross-model links.
 
-## Auto-link + materialize on accept
+## Auto-link on accept (no geo-contact creation)
 
-In `AcceptLithoSuggestions` (and the batch path), after each litho contact
-is created/found, run a **couple step** per contact at depth `D` on
-investigation `I`:
+The straddle-split already runs in `AcceptLithoSuggestions`: a ghost
+crossing a geological boundary is split into litho contacts at the geo
+boundary depths. The geo contacts loaded for straddle detection are
+extended to carry their **contact id** (today: depth + formation id only),
+so each litho contact can find the geo contact it sits on.
 
-1. **Existing geo contact within tolerance** of `D` on `I` (nearest wins)
-   → set `parent_geo_contact_id`; move the geo contact's `depth_top_m` to
-   `D` (snap geo→litho). Mark that geo formation's surface stale.
-2. **Else, geo surface transition within tolerance** of `D` on `I` — i.e.
-   the TIN/contact-derived geological formation boundary depth at `I` is
-   within tolerance of `D` (the straddle machinery already computes these
-   boundary depths) → **create a geological contact** at depth `D` on `I`
-   for the formation that tops at that transition, in the parent geological
-   model; set `parent_geo_contact_id` to the new contact. Mark that geo
+After each litho contact is created/found, run a **couple step** for the
+contact at depth `D` on investigation `I`:
+
+1. **A straddle-split-created litho contact** sits exactly on a geo
+   boundary that came from a geological contact → set
+   `parent_geo_contact_id` to that geo contact (already coincident; no
+   snap).
+2. **A litho contact (e.g. the ghost top) within tolerance** of a geo
+   contact on `I` (nearest wins) → set `parent_geo_contact_id`; move the
+   **geo** contact's `depth_top_m` to `D` (snap geo→litho — the litho
+   boundary the engineer placed is authoritative); mark that geo
    formation's surface stale.
-3. **Else** (mid-geo-formation) → no link, no geo contact.
+3. **Else** (mid-geo-formation, no geo contact in range) → no link
+   (within-formation litho refinement; nothing is created).
 
-The geo contacts loaded for straddle detection are extended to carry their
-**contact id** (not just depth + formation id) so step 1 can link and
-step 2 knows the formation.
+No geological contact is ever created. The only geo writes are the snap
+moves in case 2.
 
-**Auto-rebuild:** once per accept (and once per batch accept), after the
-couple step, rebuild the parent geological model's stale surfaces
-(`RebuildModelSurfaces`, scoped to the formations touched). This is a
+**Auto-rebuild:** once per accept (and once per batch accept), if any geo
+contact was moved (case 2), rebuild the parent geological model's stale
+surfaces (`RebuildModelSurfaces`, scoped to the touched formations). A
 deliberate exception to the on-click-build rule (CLAUDE.md "On-click
-build") — justified because a litho-accept that mutates the geo model must
-leave it self-consistent immediately. Scope to touched formations + run
-once per (batch) accept to bound the cost (cf. the #153/#155 accept-perf
-work — do NOT rebuild per-contact).
+build") — a litho-accept that moved a geo contact must leave the geo model
+self-consistent immediately. Scope to touched formations + run once per
+(batch) accept to bound cost (cf. the #153/#155 accept-perf work — do NOT
+rebuild per-contact). If no geo contact moved, no rebuild.
 
 ## Bidirectional propagation (UpdateFormationContact)
 
@@ -144,21 +149,23 @@ this to `restore_project_bundle`.
 
 ## Slicing
 
-* **Slice 1 (this spec's core):** schema + migration; auto-link +
-  materialize-geo + snap geo→litho on accept; auto-rebuild; bidirectional
-  propagation + loop guard; unlink action + indicator; bundle restore
-  backfill. Delivers the sync + the superposition-consistent geo model.
+* **Slice 1 (this spec's core):** schema + migration; auto-link (straddle
+  contacts + ghost-top within tolerance) + snap geo→litho on accept;
+  auto-rebuild on geo move; bidirectional propagation + loop guard; unlink
+  action + indicator; bundle restore backfill. Delivers the sync. No geo
+  contact creation.
 * **Slice 2:** the explicit manual **"Link to geology…"** action for
   non-auto cases (auto-link covers the common path).
 
 ## Testing
 
 * **Schema/migration:** column present + nullable + SET NULL on geo delete.
-* **Accept couple step (unit, `_couple_*` helper, pure where possible):**
-  (a) existing geo contact in tolerance → link + geo snapped to litho;
-  (b) no geo contact but geo surface transition in tolerance → geo contact
-  materialized at litho depth + linked; (c) mid-geo-formation → no link, no
-  geo contact; (d) nearest-wins when two geo contacts are in range.
+* **Accept couple step (unit):**
+  (a) straddle-split-created litho contact on a geo boundary → linked to
+  that geo contact, no snap; (b) ghost-top litho contact within tolerance
+  of a geo contact → linked + geo snapped to litho depth; (c)
+  mid-geo-formation litho contact → no link, nothing created; (d)
+  nearest-wins when two geo contacts are in range.
 * **Bidirectional propagation (unit):** geo move → linked litho moves;
   litho move → linked geo moves + surface rebuilt; equal-depth → no-op
   (loop guard); unlinked contact → no propagation.
@@ -167,15 +174,17 @@ this to `restore_project_bundle`.
 * **Bundle:** save→wipe→restore round-trips the link (second-pass backfill).
 * **Frontend:** unlink context-menu item appears only on linked litho
   contacts; the link glyph renders; the handler hits the endpoint.
-* **Auto-rebuild:** an accept that materialses/moves a geo contact leaves
-  the geo surface non-stale (rebuilt once, scoped to touched formations).
+* **Auto-rebuild:** an accept that moves a geo contact (case 2) leaves the
+  geo surface non-stale (rebuilt once, scoped to touched formations); an
+  accept that moves nothing triggers no rebuild.
 
 ## Risks / consequences
 
-* **Litho stage now writes the geological model** (creates/moves/rebuilds
-  geo contacts + surfaces). Deliberate (owner). Blast radius bounded by the
-  0.20 m tolerance + the unlink valve + the materialize-only-at-real-geo-
-  transition rule.
+* **Litho stage now MOVES + rebuilds the geological model** (snap-geo→litho
+  on link + bidirectional propagation move existing geo contacts; surfaces
+  rebuild). It never CREATES geo contacts. Deliberate (owner). Blast radius
+  bounded by the 0.20 m tolerance + the unlink valve + linking only where a
+  geo contact already exists.
 * **Performance:** auto-rebuild adds geo-TIN recompute to accept. Scope to
   touched formations + once-per-batch (not per-contact) to stay within the
   #153/#155 budget.
