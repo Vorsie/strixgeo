@@ -284,8 +284,8 @@ function LithoSection({
       />
       <NumberRow
         id="settings-litho-snap-tolerance"
-        label="Litho ↔ geological snap tolerance (m)"
-        hint={`Dragging a litho contact within ±this distance of a geological contact on the same investigation opens the snap prompt (snap litho / move geo / keep separate). Larger values catch near-misses more readily; smaller values let you place litho slightly off a geo boundary without nagging. Default ${LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM} m.`}
+        label="Litho↔geology snap (m)"
+        hint={`Litho and geological boundaries within this distance are treated as the same surface — linked and snapped together, so moving one moves the other (#162). Also drives the drag-snap prompt (#134). Range 0.01–5.0 m.`}
         value={draft.lithoSnapToleranceM}
         onChange={v => setDraft({ ...draft, lithoSnapToleranceM: v })}
         bounds={snapBounds}
