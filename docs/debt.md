@@ -4229,10 +4229,36 @@ non-empty touched set. (3) propagation marks-stale instead of auto-rebuild
 sub-tolerance gap can't form. The #157 midpoint-guard stays as the
 no-geo-contact fallback.
 
-**Still open:** Slice 2 — an explicit manual "Link to geology…" action for
-non-auto cases (auto-link covers the common path). And the
-litho→geo-propagation auto-rebuild-vs-mark-stale choice is open for owner
-review (currently mark-stale to avoid per-drag whole-model recompute).
+**Slice 2 SHIPPED 2026-05-28** — manual "Link to geology" action. Backend
+`LinkLithoToGeo` use case + `POST .../contacts/{id}/link-geo` (links a litho
+contact to the nearest geo contact on its investigation within tolerance,
+snaps geo→litho, marks the geo surface stale — no auto-rebuild; returns null
+when none in range); 5 unit pins. Frontend: `linkLithoToGeo` client call +
+`handleLinkLithoToGeo` (toasts when null) + a "Link to geology" context-menu
+item shown on UNcoupled litho contacts (the inverse of "Unlink from
+geology"), threaded SectionPanel→SectionsCanvas→ContactsLayer; LG1/LG1b
+vitest pins. This is the link/unlink toggle the owner asked for ("to
+unlink/relink when necessary").
+
+**Drag/menu regression FIXED 2026-05-28** (commit `060436ea`). Coupling
+snapped litho contacts coincident with geo contacts, so the geological
+reference hit-strip (renders on top, `pointerEvents:all`, only a right-click
+handler) overlapped the litho drag-strip → it ate the mousedown (litho
+contact wouldn't drag) and the right-click (showed the geo "Edit in Geology
+stage" menu instead of the litho menu with Unlink). Fix: suppress the
+reference hit-strip wherever a litho contact is coupled to that exact geo
+contact — the litho strip then wins, and its menu already carries BOTH "Edit
+in Geology stage" and "Unlink", so nothing is lost. Vitest-pinned.
+
+**Auto-rebuild-vs-mark-stale RESOLVED 2026-05-28** (owner directive): drags
++ manual link/propagation moves mark the geo surface **stale** (rebuild on
+next explicit Build); only the **accept** path auto-rebuilds. Avoids a
+whole-model TIN recompute on every drag.
+
+**Still open (minor):** a `link-geo` endpoint integration test (the use case
+has 5 unit pins + the endpoint mirrors `unlink-geo` which has the CP4
+integration test; the gap is only the HTTP round-trip for link). Pick up in
+the fresh session.
 
 **Original entry (design rationale) below.**
 
@@ -4287,6 +4313,56 @@ natural moment to add the stored link. Design alongside #134 (snap) and
 #60 (seed) since all three are facets of the geo↔litho contact
 relationship.
 Filed from owner question, dogfeed session 2026-05-28.
+
+## 163. Auto-correlate refinements — adjacent-only, depth band, refresh, deletion, split (Tier G)
+
+Owner dogfeed 2026-05-28 (multiple). All pre-existing auto-correlate
+(#127/#133) behaviour — NOT introduced by the coupling work. Grouped here;
+each sub-item is independently shippable.
+
+* **(a) Adjacent-tests-only (the headline algorithm change).** Auto-correlate
+  currently draws edges that SKIP intervening tests (test 1 ↔ test 3 over
+  test 2), producing visual spaghetti. Owner wants it to draw correlations
+  **only between adjacent tests** along the section (1↔2, 2↔3, …); the chain
+  implies the rest, which matches how a geologist correlates between
+  neighbouring control points. Fix: in `AutoCorrelateContactEdges`, order
+  the section's investigations along the section line and only consider
+  consecutive pairs (not all-pairs). Big readability + correctness win.
+* **(b) Suggestion depth band may be too narrow.** The matching window that
+  decides whether two contacts correlate may be too tight, missing real
+  correlations across dipping beds. Widen it (and/or make it tolerance-aware
+  / dip-aware). Trade-off: too wide → false matches. Tune against a real
+  section; consider exposing as a Settings knob like the others.
+* **(c) Results don't render until manual refresh (image #8).** After
+  clicking auto-correlate the new edges/banners don't appear until the user
+  refreshes; they show after a reload. Frontend state bug — the
+  auto-correlate handler must refetch the contact-correlation edges + force
+  the overlay to re-render (mirror how accept/seed refetch). Likely a missing
+  `refetch`/`setState` after the auto-correlate call in `useGeologicalModel`.
+* **(d) Hard to grab a correlation endpoint to re-target (image #9).** The
+  drag handle (`unapproved-handle-a/b`) is an 8 px square — hard to hit.
+  Enlarge the hit target (a wider invisible grab rect around the endpoint),
+  or allow grabbing anywhere along the edge to drag the nearest endpoint.
+* **(e) Right-click anywhere on a suggested correlation → delete.** Today a
+  correlation can't be deleted by right-clicking the line/ribbon itself.
+  Add a hit target along the whole edge (the ribbon body) with a right-click
+  → "Delete correlation" (mirror the contact band-rclick → remove pattern,
+  #151). Pairs with (d).
+* **(f) Right-click a suggestion → "split suggestion into 2" for lenses.**
+  Owner wants to split one litho suggestion into two contacts that can be
+  dragged apart, to model a lens (a unit that pinches in/out between tests).
+  This is a lens-authoring gesture — relates to the deferred lens work
+  (#131-a lens_id, #101). Design the gesture: right-click a ghost/accepted
+  band → "Split into two" → creates two contacts at the band's top/base (or
+  at a chosen depth) that the user drags independently; the pair is a lens
+  body. Bigger than (a)-(e); needs its own design pass alongside the lens
+  model.
+
+**Priority within #163:** (a) adjacent-only + (c) refresh are the highest
+value (correctness + "it looks broken"); (d)/(e) are UX; (b) is tuning;
+(f) is a feature needing design (pair with the lens work). Tier G
+(litho-finishing) since auto-correlate is part of the litho stage.
+Filed from dogfeed session 2026-05-28.
 
 ## (end)
 
