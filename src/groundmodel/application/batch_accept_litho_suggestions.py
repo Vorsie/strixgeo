@@ -82,10 +82,16 @@ class BatchAcceptResult:
         Per-anchor outcomes in input order.
     committed : bool
         ``True`` once the single batch commit has run.
+    touched_geo_formation_ids : list[UUID]
+        Geological formation ids whose contacts were snapped by the coupling
+        step across all anchors.  Used by the router to trigger a single
+        ``RebuildModelSurfaces`` call on the parent geo model (#162 Task 4).
+        Empty when no geo contact was snapped.
     """
 
     outcomes: list[BatchAnchorOutcome] = field(default_factory=list)
     committed: bool = False
+    touched_geo_formation_ids: list[UUID] = field(default_factory=list)
 
 
 class BatchAcceptLithoSuggestions(GroundModelLogger):
@@ -110,6 +116,7 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         litho_model_id: UUID,
         anchors: list[BatchAcceptAnchorInput],
         straddle_min_piece_thickness_m: float = 0.20,
+        couple_tolerance_m: float = 0.20,
     ) -> BatchAcceptResult:
         """Accept every anchor's suggestions, then commit once.
 
@@ -132,16 +139,24 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         straddle_min_piece_thickness_m : float
             Straddle sliver guard (debt #157) forwarded to each inner
             ``AcceptLithoSuggestions.execute(...)`` call.  Default 0.20 m.
+        couple_tolerance_m : float
+            Depth window within which a litho contact top is linked to the
+            nearest geological contact and the geo contact is snapped to the
+            litho depth (#162).  Forwarded to every inner accept call.
+            Default 0.20 m (matches the single-accept default).
 
         Returns
         -------
         BatchAcceptResult
-            Per-anchor outcomes plus the committed flag.
+            Per-anchor outcomes, the committed flag, and the aggregated set of
+            geological formation ids whose contacts were snapped (used by the
+            router for a single post-batch geo-surface rebuild).
         """
         self.info(
             f"BatchAcceptLithoSuggestions.execute: litho_model={litho_model_id}, "
             f"{len(anchors)} anchor(s), "
-            f"straddle_min_piece_thickness_m={straddle_min_piece_thickness_m}"
+            f"straddle_min_piece_thickness_m={straddle_min_piece_thickness_m}, "
+            f"couple_tolerance_m={couple_tolerance_m}"
         )
 
         accept_uc = AcceptLithoSuggestions(self._session)
@@ -156,6 +171,11 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         )
 
         any_created_formation = False
+        # Aggregate geological formation ids snapped across all anchors (#162
+        # Task 4): the router uses this set to rebuild geo surfaces ONCE after
+        # the full batch rather than once per anchor.
+        all_touched_geo_formation_ids: set[UUID] = set()
+
         for i, anchor in enumerate(anchors, start=1):
             anchor_label = anchor.cpt_id or anchor.borehole_id
             try:
@@ -172,8 +192,10 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                     commit=False,
                     batch_ctx=batch_ctx,
                     straddle_min_piece_thickness_m=straddle_min_piece_thickness_m,
+                    couple_tolerance_m=couple_tolerance_m,
                 )
                 any_created_formation = any_created_formation or bool(result.created_formation_ids)
+                all_touched_geo_formation_ids.update(result.touched_geo_formation_ids)
                 outcomes.append(
                     BatchAnchorOutcome(
                         cpt_id=anchor.cpt_id,
@@ -185,7 +207,8 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                 self.debug(
                     f"[{i}/{len(anchors)}] anchor={anchor_label}: "
                     f"{len(result.created_contact_ids)} created, "
-                    f"{len(result.found_contact_ids)} found"
+                    f"{len(result.found_contact_ids)} found, "
+                    f"{len(result.touched_geo_formation_ids)} geo formation(s) snapped"
                 )
             except ValueError as exc:
                 # Raised before any mutation (XOR / scope guards) so the shared
@@ -212,6 +235,11 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         succeeded = sum(1 for o in outcomes if o.result is not None)
         failed = len(outcomes) - succeeded
         self.success(
-            f"BatchAcceptLithoSuggestions: committed {succeeded} anchor(s), {failed} skipped"
+            f"BatchAcceptLithoSuggestions: committed {succeeded} anchor(s), {failed} skipped, "
+            f"{len(all_touched_geo_formation_ids)} geo formation(s) snapped"
         )
-        return BatchAcceptResult(outcomes=outcomes, committed=True)
+        return BatchAcceptResult(
+            outcomes=outcomes,
+            committed=True,
+            touched_geo_formation_ids=sorted(all_touched_geo_formation_ids),
+        )
