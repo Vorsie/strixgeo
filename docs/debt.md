@@ -4031,7 +4031,29 @@ intended target with the owner (Sections stage vs a section-mode Geology
 stage) before wiring.
 Filed from dogfeed session 2026-05-28.
 
-## 157. Accepted litho units get thin slivers from straddle-split at geo boundaries (Tier G)
+## 157. Accepted litho units get thin slivers from straddle-split at geo boundaries (Tier G) — CORE + SETTINGS KNOB SHIPPED 2026-05-28
+
+**SHIPPED 2026-05-28 (lever b, the min-thickness guard).**
+`_compute_straddle_splits` now drops any geology boundary within
+`min_piece_thickness_m` of the ghost's top OR base (a sub-tolerance
+crossing → would leave a sliver), and assigns the whole ghost to the
+formation covering its **midpoint** (robust: a ghost 99% in the lower
+formation no longer mis-parents to the thin upper one). Boundaries clear
+of both edges still split. Threaded through `execute()` +
+`BatchAcceptLithoSuggestions` as `straddle_min_piece_thickness_m` and
+exposed as a per-project **Settings → Litho segmenter → "Sliver guard (m)"**
+NumberRow (`view_state.litho_segmenter.straddle_min_piece_thickness_m`,
+default 0.20 m, range 0.01–5.0 m), mirroring the #134-A snap-tolerance
+knob. AS1-AS3 unit pins + 8 Pydantic schema tests + frontend pref tests.
+**Caveats:** (1) preventive, not retroactive — slivers already in the DB
+persist until those anchors are re-accepted; no retroactive cleanup was
+written (re-accept is safer). (2) This is lever (b); lever (a)
+suggestion-stage snap was NOT done — the midpoint-assignment guard made it
+unnecessary for the sliver symptom. The deeper structural fix (couple
+coincident litho/geo boundaries so they can't drift apart) is **#162**.
+Dogfeed-confirmed working 2026-05-28.
+
+**Original entry (for context):**
 
 **What.** Owner dogfeed 2026-05-28: after merging adjacent litho units in
 the *suggestion* view and accepting, thin sliver units appear in the
@@ -4156,6 +4178,60 @@ zero-gap band for it).
 correlate use case + the gesture. Fold into the next correlation-gesture
 pass.
 Filed from dogfeed session 2026-05-28.
+
+## 162. Couple coincident litho ↔ geological contacts (Tier D — structural; the deeper #157 fix)
+
+**What.** Owner question 2026-05-28: "if a litho boundary is within 20 cm
+of a geological boundary, shouldn't we couple them automatically so that
+if one moves the other moves too?" The geological instinct is correct — a
+litho boundary coincident with a geological formation boundary IS the same
+physical surface (e.g. the top of Boom Klei is both a geo contact and the
+top of a litho unit), so they should move together rather than drift apart
+and produce slivers (#157).
+
+**Why NOT auto-couple-by-proximity (the analysis the owner asked for):**
+* **Implicit magic.** Auto-linking two contacts because they're <20 cm
+  apart silently creates a dependency the user didn't declare; later
+  moving one jumps the other unexpectedly. The #134 snap is deliberately
+  EXPLICIT (a prompt) for exactly this reason.
+* **Fragile trigger.** A proximity threshold as the coupling switch is
+  jumpy — 19 cm couples, 21 cm doesn't, dragging across the line
+  couples/decouples.
+* **Ambiguous direction.** geo→litho (parent drives child) is sound — the
+  litho model refines the geo substrate. litho→geo (a litho edit mutating
+  the upstream geological model) inverts the hierarchy and would surprise.
+
+**Recommended shape (if/when built):** an EXPLICIT, STORED, geo→litho
+contact link. When a litho contact is created from / snapped to a geo
+contact (via "Seed from geology" [#60] or a "keep linked" option on the
+#134 snap prompt), persist a nullable `parent_geo_contact_id` FK on
+`FormationContact`. A geo-contact move then propagates to its linked litho
+contacts (parent drives child); moving the litho contact does NOT
+auto-move the geo, but COULD offer "also move the geological boundary" as
+an explicit action. This is the #134 snap made durable + the contact-level
+analogue of the existing formation-level `parent_formation_id`.
+
+**Why this is the deeper #157 fix.** A coupled litho boundary literally
+tracks its geo boundary, so a sub-tolerance gap can never form → no
+slivers, structurally. #157's shipped midpoint-guard is the pragmatic
+"now" fix; #162 is the structural "eventually" fix that subsumes it. Only
+the SUBSET of litho boundaries the user declares coincident are coupled —
+most litho boundaries add detail WITHIN a geo formation and couple to
+nothing.
+
+**Why deferred.** Real feature: schema (`parent_geo_contact_id` FK +
+migration), propagation logic on geo-contact move, lifecycle (geo contact
+delete → unlink the orphan), `.gmproj` bundle round-trip, restore path,
+and UI to show/break the link. Phase-shaped, not a quick fix. The #157
+guard removes the immediate pain, so this can wait for a deliberate design
+pass.
+
+**When to revisit.** When slivers / litho-geo drift keep biting despite
+the #157 guard, OR when "Seed from geology" (#60) is revived — that's the
+natural moment to add the stored link. Design alongside #134 (snap) and
+#60 (seed) since all three are facets of the geo↔litho contact
+relationship.
+Filed from owner question, dogfeed session 2026-05-28.
 
 ## (end)
 
