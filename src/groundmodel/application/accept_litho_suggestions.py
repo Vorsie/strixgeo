@@ -68,6 +68,10 @@ from groundmodel.infrastructure.db.models.formation_surface_orm import Formation
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
+from groundmodel.shared.constants.litho_constants import (
+    LITHOLOGY_COLORS,
+    LITHOLOGY_FALLBACK_COLOR,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -1167,7 +1171,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
             id=uuid7(),
             app_project_id=project_id,
             name=name,
-            color="#9ca3af",  # neutral grey placeholder; Phase 2 assigns per lithology
+            # Stamp the lithology colour at create (#145) so the stored row is
+            # correct for every read-side consumer (section bands, 3D viewer,
+            # exports, .gmproj bundle) — no presentation-layer override needed.
+            # Falls back to neutral grey only for an unrecognised soil code.
+            color=LITHOLOGY_COLORS.get(litho_main_soil_code, LITHOLOGY_FALLBACK_COLOR),
             display_order=0,
             parent_formation_id=parent_formation_id,
             parent_extrapolated=parent_extrapolated,
