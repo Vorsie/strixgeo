@@ -202,6 +202,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         section_id: UUID | None = None,
         defer_inference: bool = False,
         create_formation_only: bool = False,
+        commit: bool = True,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -250,6 +251,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
             key rather than creating a duplicate (Bug 2 dogfeed 2026-05-26).
 
             Default ``False`` preserves the original per-accept behaviour.
+        commit : bool
+            When ``True`` (the default) the session is committed at the end of
+            this call.  Pass ``False`` when a caller wraps multiple accepts in
+            one transaction (``BatchAcceptLithoSuggestions``) and commits once
+            after the whole batch — collapsing N per-anchor commits into one.
 
         Returns
         -------
@@ -532,7 +538,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     commit=False,
                 )
 
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
         self.success(
             f"AcceptLithoSuggestions: litho_model={litho_model_id} — "
             f"{len(created_contact_ids)} contact(s) created, "
