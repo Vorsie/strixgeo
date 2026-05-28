@@ -1022,7 +1022,7 @@ export default function CorrelationEdgesOverlay({
                     fill="none"
                     stroke={UNAPPROVED_EDGE_COLOR}
                     strokeWidth={1.4}
-                    strokeDasharray="4 4"
+                    strokeDasharray={UNAPPROVED_EDGE_DASH}
                     pointerEvents="none"
                   />
                 )}

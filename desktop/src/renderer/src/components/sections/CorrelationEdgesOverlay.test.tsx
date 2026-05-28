@@ -491,6 +491,9 @@ describe('CorrelationEdgesOverlay', () => {
       levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
       contactEdges: [edge],
     })
+    // The above stripe must actually render here (both ends have ZAND
+    // above) — guard the gradient-stop assertions against a silent omit.
+    expect(screen.getByTestId('ribbon-above-e4')).not.toBeNull()
     const belowStops = container.querySelectorAll('#ribbon-below-grad-e4 stop')
     expect(belowStops[0].getAttribute('stop-color')).toBe('#6b7280') // KLEI (A)
     expect(belowStops[1].getAttribute('stop-color')).toBe('#84cc16') // SILT (B)
