@@ -350,3 +350,78 @@ async def test_cp3_geo_surface_rebuilt_after_coupling_snap(
         "After a coupling snap the parent geo model's surface for the touched "
         f"formation must be rebuilt (is_stale=False); got is_stale={stale_surface.is_stale}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CP4 — unlink-geo endpoint (#162 Task 6)
+# ---------------------------------------------------------------------------
+
+
+async def test_cp4_unlink_geo_clears_coupling(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Accept a coupled litho contact, then POST unlink-geo.
+
+    After the unlink the litho contact's ``parent_geo_contact_id`` must be
+    null (HTTP 200, response body carries the updated contact).
+
+    Steps
+    -----
+    1. Accept a litho suggestion within coupling tolerance (2.95 m vs geo at
+       3.0 m) — this creates a coupled contact.
+    2. POST unlink-geo on the created litho contact.
+    3. Assert HTTP 200 + response ``parent_geo_contact_id`` is null.
+    4. Re-query the DB to confirm the column is null in the persisted row.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    model_id = litho_mid
+
+    # Step 1 — accept within tolerance to produce a coupled contact.
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=2.95,
+        base=8.0,
+        lithology="KLEI",
+        borehole_id=bh_id,
+    )
+
+    # Find the created litho contact.
+    litho_rows = list(
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(FormationContactOrm.model_id == litho_mid)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(litho_rows) == 1, f"Expected 1 litho contact, got {len(litho_rows)}"
+    litho_contact = litho_rows[0]
+    assert litho_contact.parent_geo_contact_id is not None, (
+        "Pre-condition: litho contact must be coupled before the unlink test"
+    )
+
+    # Step 2 — POST unlink-geo.
+    unlink_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model_id}/contacts/{litho_contact.id}/unlink-geo"
+    )
+    assert unlink_resp.status_code == 200, unlink_resp.text
+
+    # Step 3 — response body has null parent_geo_contact_id.
+    body = unlink_resp.json()
+    assert body["parent_geo_contact_id"] is None, (
+        f"Response parent_geo_contact_id must be null after unlink; "
+        f"got {body['parent_geo_contact_id']}"
+    )
+
+    # Step 4 — DB row is persisted.
+    await db_session.refresh(litho_contact)
+    assert litho_contact.parent_geo_contact_id is None, (
+        "DB row must have parent_geo_contact_id=NULL after unlink"
+    )
