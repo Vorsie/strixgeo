@@ -147,6 +147,7 @@ function makeHook(options: {
       toast: vi.fn(),
       currentLumping: options.currentLumping ?? null,
       stageLumping,
+      requestCorrelationEdgesRefetch: vi.fn(),
     })),
     stageLumping,
   }

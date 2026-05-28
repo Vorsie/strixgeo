@@ -181,6 +181,7 @@ function makeArgs() {
       manifestFormationIds: undefined as Set<string> | undefined,
       currentLumping: null,
       stageLumping: vi.fn(),
+      requestCorrelationEdgesRefetch: vi.fn(),
     },
     toast,
   }

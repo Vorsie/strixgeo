@@ -291,6 +291,7 @@ function makeStubContext(): ShellContextValue {
       setHoveredTestId: vi.fn(),
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
+      correlationEdgesRefetchNonce: 0,
     },
   }
 }

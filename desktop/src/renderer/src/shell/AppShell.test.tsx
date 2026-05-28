@@ -71,6 +71,7 @@ function makeCtx(
       setView,
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
+      correlationEdgesRefetchNonce: 0,
     },
   } as unknown as ShellContextValue
   return { setSelectedId, setSelectedBoreholeId, setView, ctx }

@@ -261,6 +261,7 @@ function makeArgs() {
   const removeFromManifest = vi.fn()
   const addToSessionImports = vi.fn()
   const removeFromSessionImports = vi.fn()
+  const requestCorrelationEdgesRefetch = vi.fn()
   return {
     args: {
       project: TEST_PROJECT,
@@ -273,6 +274,7 @@ function makeArgs() {
       manifestFormationIds: undefined as Set<string> | undefined,
       currentLumping: null as import('../utils/projectFile').StratigraphyLumping | null,
       stageLumping: vi.fn(),
+      requestCorrelationEdgesRefetch,
     },
     toast,
   }
@@ -1206,5 +1208,49 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       'litho-model-1',
       'c-litho',
     )
+  })
+
+  // -------------------------------------------------------------------------
+  // #163c — after auto-correlate runs, the correlation edges/banners must
+  // appear without the user manually reloading or reselecting the section.
+  // The edge state lives in SectionsCanvas (a sibling of the toolbar that
+  // fires auto-correlate), so handleAutoCorrelate has to signal that view to
+  // refetch. The hook's half of that contract: a successful auto-correlate
+  // requests a correlation-edges refetch.
+  // -------------------------------------------------------------------------
+
+  it('AC1 — a successful auto-correlate requests a correlation-edges refetch', async () => {
+    geoApi.autoCorrelateContacts.mockResolvedValueOnce({
+      edges_created: 2,
+      edges_skipped_existing: 0,
+    })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    await act(async () => {
+      await result.current.handleAutoCorrelate()
+    })
+
+    expect(args.requestCorrelationEdgesRefetch).toHaveBeenCalled()
+  })
+
+  it('AC2 — a failed auto-correlate does NOT request a refetch', async () => {
+    geoApi.autoCorrelateContacts.mockRejectedValueOnce(new Error('boom'))
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    await act(async () => {
+      await result.current.handleAutoCorrelate()
+    })
+
+    expect(args.requestCorrelationEdgesRefetch).not.toHaveBeenCalled()
   })
 })

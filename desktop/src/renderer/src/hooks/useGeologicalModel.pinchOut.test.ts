@@ -117,6 +117,7 @@ function makeArgs() {
       manifestFormationIds: undefined as Set<string> | undefined,
       currentLumping: null as import('../utils/projectFile').StratigraphyLumping | null,
       stageLumping: vi.fn(),
+      requestCorrelationEdgesRefetch: vi.fn(),
     },
     toast,
   }

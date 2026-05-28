@@ -109,6 +109,7 @@ function makeCtx(overrides?: Partial<ShellContextValue>): ShellContextValue {
       setHoveredTestId: vi.fn(),
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
+      correlationEdgesRefetchNonce: 0,
     },
     mapState: {
       hiddenCptTypes: new Set(),
