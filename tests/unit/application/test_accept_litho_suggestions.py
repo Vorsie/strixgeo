@@ -1192,6 +1192,99 @@ def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
 
 
 # ---------------------------------------------------------------------------
+# AS1-AS3 — straddle-split sliver guard (#157). A geology boundary within
+# ``min_piece_thickness_m`` of the ghost's top or base is too close to an
+# edge to be a real crossing: splitting there would leave a sub-tolerance
+# sliver (same-lithology thin unit). The guard drops such boundaries and
+# assigns the whole ghost to the formation covering its MIDPOINT, so a
+# ghost that's 99% in the lower formation isn't mis-parented to the upper.
+# Boundaries clear of both edges still split (AS3, unchanged behaviour).
+# ---------------------------------------------------------------------------
+
+
+def test_as1_near_base_boundary_does_not_split_parent_is_upper() -> None:
+    """A boundary within tolerance of the ghost BASE → no split, parent=upper.
+
+    Ghost [0, 6]; geology boundary at 5.95 (within 0.20 m of base 6.0).
+    Splitting would leave a 5 cm lower sliver — suppressed. The ghost is
+    almost entirely in the UPPER formation (midpoint 3.0 sits above the
+    boundary), so the single interval is parented to UPPER.
+    """
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces={},
+        geology_contacts_at_inv=[
+            (0.0, UPPER_FORMATION_ID),
+            (5.95, LOWER_FORMATION_ID),
+        ],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+        min_piece_thickness_m=0.20,
+    )
+    assert result.intervals == [(0.0, UPPER_FORMATION_ID)]
+    assert result.stale_tin_fallback_count == 0
+
+
+def test_as2_near_top_boundary_does_not_split_parent_is_lower() -> None:
+    """A boundary within tolerance of the ghost TOP → no split, parent=lower.
+
+    Ghost [0, 6]; geology boundary at 0.05 (within 0.20 m of top 0.0).
+    Splitting would leave a 5 cm upper sliver — suppressed. The ghost is
+    almost entirely in the LOWER formation (midpoint 3.0 sits below the
+    boundary), so the single interval is parented to LOWER — NOT the upper
+    formation that ``depth_top`` alone would have selected.
+    """
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces={},
+        geology_contacts_at_inv=[
+            (0.0, UPPER_FORMATION_ID),
+            (0.05, LOWER_FORMATION_ID),
+        ],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+        min_piece_thickness_m=0.20,
+    )
+    assert result.intervals == [(0.0, LOWER_FORMATION_ID)]
+    assert result.stale_tin_fallback_count == 0
+
+
+def test_as3_clear_boundary_still_splits() -> None:
+    """A boundary clear of both edges still produces a two-interval split.
+
+    Ghost [0, 6]; geology boundary at 3.0 (well clear of both edges by more
+    than 0.20 m). The straddle-split is unchanged — upper + lower halves.
+    """
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces={},
+        geology_contacts_at_inv=[
+            (0.0, UPPER_FORMATION_ID),
+            (3.0, LOWER_FORMATION_ID),
+        ],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+        min_piece_thickness_m=0.20,
+    )
+    assert result.intervals == [
+        (0.0, UPPER_FORMATION_ID),
+        (3.0, LOWER_FORMATION_ID),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # BI1/BI2 — defer_inference=True batch-mode path (#129b)
 # ---------------------------------------------------------------------------
 

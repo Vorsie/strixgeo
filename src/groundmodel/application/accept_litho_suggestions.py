@@ -245,6 +245,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         create_formation_only: bool = False,
         commit: bool = True,
         batch_ctx: BatchAcceptContext | None = None,
+        straddle_min_piece_thickness_m: float = 0.20,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -430,6 +431,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 inv_y=inv_y,
                 inv_elevation_m=inv_elevation_m,
                 suggestion_index=idx,
+                min_piece_thickness_m=straddle_min_piece_thickness_m,
             )
             stale_tin_fallback_count += splits.stale_tin_fallback_count
             if len(splits.intervals) > 1:
@@ -853,6 +855,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         inv_y: float,
         inv_elevation_m: float | None,
         suggestion_index: int,
+        min_piece_thickness_m: float = 0.20,
     ) -> _StraddleResult:
         """Determine whether a suggestion straddles a geology boundary.
 
@@ -877,6 +880,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
             Investigation location for TIN sampling.
         suggestion_index : int
             0-based index within the suggestions list (for logging).
+        min_piece_thickness_m : float
+            Sliver guard (#157).  A geology boundary closer than this to the
+            ghost's top OR base is too near an edge to be a real crossing —
+            splitting there would leave a sub-tolerance same-lithology sliver.
+            Such boundaries are dropped and the whole ghost is assigned to the
+            geology formation covering its MIDPOINT.  Only boundaries clear of
+            both edges by this margin produce a split.  Default 0.20 m.
 
         Returns
         -------
@@ -918,7 +928,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
             lower_depth, lower_fid = contacts_sorted[i + 1]
             # The boundary is at lower_depth (the lower formation tops here).
             boundary_candidate = lower_depth
-            if top < boundary_candidate < base:
+            # Sliver guard (#157): require the boundary to clear BOTH edges by
+            # ``min_piece_thickness_m``.  A boundary within tolerance of the
+            # top or base would split off a sub-tolerance same-lithology sliver
+            # — drop it; the ghost is assigned to its midpoint formation below.
+            if top + min_piece_thickness_m < boundary_candidate < base - min_piece_thickness_m:
                 # Try TIN evaluation for the precise elevation-depth; fall back
                 # to depth ordering (debt #68).
                 tin_ok = False
@@ -963,9 +977,16 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 boundaries.append((boundary_candidate, upper_fid, lower_fid))
 
         if not boundaries:
-            # No boundary within [top, base] — determine parent from which
-            # geology formation contains this depth range.
-            parent_fid = self._parent_fid_for_depth(top, contacts_sorted)
+            # No meaningful boundary within [top, base] — determine parent from
+            # the geology formation covering the ghost's MIDPOINT (not its top).
+            # Midpoint is robust for the sliver-guard case (#157): when a
+            # near-top boundary was dropped, the ghost is mostly in the LOWER
+            # formation, and the midpoint correctly lands there — whereas
+            # ``top`` would mis-pick the thin upper formation.  For a genuine
+            # no-boundary ghost (fully inside one formation) top and midpoint
+            # resolve to the same formation, so this is behaviour-preserving.
+            mid = (top + base) / 2
+            parent_fid = self._parent_fid_for_depth(mid, contacts_sorted)
             extrapolated = False
             if parent_fid is None and geology_surfaces and inv_elevation_m is not None:
                 # Debt #87: contact-based lookup failed (no contacts at this
