@@ -191,3 +191,34 @@ async def test_ra2_recompute_is_idempotent(
 
     await RecomputeAllAbsencesForModel(db_session).execute(project_id=project.id, model_id=mid)
     assert await _absence_count(db_session, scenario["formation_id"]) == 1
+
+
+async def test_ra3_incremental_filter_scopes_to_requested_formations(
+    project: ProjectOrm,
+    scenario: dict,
+    db_session: AsyncSession,
+) -> None:
+    """RA3 (#155): only_formation_ids restricts recompute to the listed formations.
+
+    Filtering OUT the formation skips it (no absence written); filtering it IN
+    processes it (absence written). This is the incremental-recompute lever the
+    batch accept uses to re-infer only the formations it touched.
+    """
+    from uuid import uuid4
+
+    mid = scenario["litho_model_id"]
+    fid = scenario["formation_id"]
+
+    # Filtered to an unrelated id → the real formation is skipped.
+    res_skip = await RecomputeAllAbsencesForModel(db_session).execute(
+        project_id=project.id, model_id=mid, only_formation_ids=[uuid4()]
+    )
+    assert res_skip.formations_processed == 0
+    assert await _absence_count(db_session, fid) == 0
+
+    # Filtered to the real formation → it IS processed and its absence written.
+    res_hit = await RecomputeAllAbsencesForModel(db_session).execute(
+        project_id=project.id, model_id=mid, only_formation_ids=[fid]
+    )
+    assert res_hit.formations_processed == 1
+    assert await _absence_count(db_session, fid) == 1

@@ -109,6 +109,7 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
+        only_formation_ids: list[UUID] | None = None,
     ) -> RecomputeAllAbsencesResult:
         """Re-run inference for every formation with contacts in ``model_id``.
 
@@ -119,6 +120,14 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
         model_id : UUID
             The lithostratigraphic model to recompute.  Must be
             ``kind='lithostratigraphic'`` (``ValueError`` raised otherwise).
+        only_formation_ids : list[UUID] | None
+            Incremental recompute (#155): when given, only these formations are
+            re-inferred (intersected with the formations that actually have
+            contacts in the model), instead of the whole model.  A bulk accept
+            touches only the formations it created/found, so recomputing just
+            those — not every formation × every section — turns the per-accept
+            inference from O(model size) into O(accepted).  ``None`` (default)
+            recomputes every formation with contacts (full model).
 
         Returns
         -------
@@ -147,25 +156,28 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
             )
 
         # ------------------------------------------------------------------
-        # 2. Discover all unique formation ids that have contacts in this model.
-        #    Only these formations can have inferred absences.
+        # 2. Discover the unique formation ids that have contacts in this model.
+        #    Only these formations can have inferred absences.  When the caller
+        #    passes ``only_formation_ids`` (incremental recompute, #155) the
+        #    discovery is restricted to that set so a bulk accept re-infers only
+        #    the formations it touched, not the whole model.
         # ------------------------------------------------------------------
-        formation_id_rows = (
-            (
-                await self._session.execute(
-                    select(FormationContactOrm.formation_id)
-                    .where(FormationContactOrm.model_id == model_id)
-                    .distinct()
-                )
-            )
-            .scalars()
-            .all()
+        discover_stmt = (
+            select(FormationContactOrm.formation_id)
+            .where(FormationContactOrm.model_id == model_id)
+            .distinct()
         )
+        if only_formation_ids is not None:
+            discover_stmt = discover_stmt.where(
+                FormationContactOrm.formation_id.in_(only_formation_ids)
+            )
+        formation_id_rows = (await self._session.execute(discover_stmt)).scalars().all()
         formation_ids: list[UUID] = list(formation_id_rows)
         total = len(formation_ids)
 
         self.info(
             f"RecomputeAllAbsencesForModel: {total} formation(s) with contacts in model {model_id}"
+            + (f" (filtered to {len(only_formation_ids)} requested)" if only_formation_ids else "")
         )
 
         if total == 0:
