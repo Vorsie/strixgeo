@@ -151,3 +151,8 @@ uploads/
 # TypeScript incremental-build caches — local only, not source
 *.tsbuildinfo
 .superpowers/
+
+# Playwright e2e run artifacts — local only (#165b)
+desktop/tests/e2e/_results/
+*.e2e-backend.err
+.e2e-backend.err
