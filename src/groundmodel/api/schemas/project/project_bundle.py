@@ -129,6 +129,11 @@ _MAX_LITHO_LENSES_PER_BUNDLE = 10_000
 # with 500 investigations × 50 formations is the extreme upper bound, so
 # 25 000 rows caps the space while remaining well above reality.
 _MAX_FORMATION_ABSENCES_PER_BUNDLE = 25_000
+# One shape per lens body; capped at the lens ceiling.  Each shape carries a
+# small handful of boundary nodes — a generous global ceiling caps the DoS
+# surface (#112) while staying far above any real project (#163f).
+_MAX_LITHO_LENS_SHAPES_PER_BUNDLE = 10_000
+_MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE = 200_000
 
 
 class ProjectBundleRequest(BaseModel):
@@ -219,6 +224,17 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
+    # Lens boundary shapes + control nodes (#163f Slice 2).  Additive — absent
+    # in older bundles; default_factory=list. Restore order: shapes after
+    # geological_models (model_id FK), nodes after shapes (shape_id FK).
+    litho_lens_shapes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_LENS_SHAPES_PER_BUNDLE,
+    )
+    litho_lens_boundary_nodes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE,
+    )
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
     # On restore: stored as bundle metadata only; NEVER re-applied
@@ -250,6 +266,9 @@ class ProjectBundleResponse(BaseModel):
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
     # in bundles saved before this field shipped.
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
+    # Lens boundary shapes + control nodes (#163f Slice 2).  Additive.
+    litho_lens_shapes: list[dict[str, Any]] = Field(default_factory=list)
+    litho_lens_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None

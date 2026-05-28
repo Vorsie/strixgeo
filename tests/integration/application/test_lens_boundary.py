@@ -32,6 +32,7 @@ from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
 )
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.repositories.project_bundle import build_project_bundle
 
 KEY = "k-aaa|k-bbb|k-ccc"
 
@@ -232,6 +233,35 @@ async def test_save_rejects_lens_without_primary_section(
             lower_nodes=[],
             render_style="straight",
         )
+
+
+@pytest.mark.asyncio
+async def test_bundle_serialises_shape_and_content_key(
+    db_session: AsyncSession, scene: dict
+) -> None:
+    """build_project_bundle carries the lens content_key + the shape + nodes so
+    the shaped lens survives a .gmproj save/open round-trip (#163f)."""
+    proj, litho, lens = scene["project"], scene["litho"], scene["lens"]
+    await SaveLensBoundary(db_session).execute(
+        project_id=proj.id,
+        model_id=litho.id,
+        lens_id=lens.id,
+        upper_nodes=[BoundaryNode(10.0, 9.0)],
+        lower_nodes=[BoundaryNode(15.0, 2.0)],
+        render_style="blocky",
+    )
+    project_row = await db_session.get(type(proj), proj.id)
+    bundle = await build_project_bundle(db_session, project_row)
+
+    assert bundle["litho_lenses"], "lens row must be bundled"
+    assert bundle["litho_lenses"][0]["content_key"] == KEY
+    shapes = bundle["litho_lens_shapes"]
+    nodes = bundle["litho_lens_boundary_nodes"]
+    assert len(shapes) == 1
+    assert shapes[0]["content_key"] == KEY
+    assert shapes[0]["render_style"] == "blocky"
+    assert len(nodes) == 2
+    assert {n["boundary"] for n in nodes} == {"upper", "lower"}
 
 
 @pytest.mark.asyncio

@@ -126,6 +126,9 @@ export interface ProjectBundleResponse {
   litho_lenses?: Record<string, unknown>[]
   /** Formation absence records (Position 4). Absent in older bundles. */
   formation_absences?: Record<string, unknown>[]
+  /** Lens boundary shapes + control nodes (#163f Slice 2). Absent in older bundles. */
+  litho_lens_shapes?: Record<string, unknown>[]
+  litho_lens_boundary_nodes?: Record<string, unknown>[]
 }
 
 // Investigation-review response — per-(project, investigation) row:

@@ -264,6 +264,8 @@ async def restore_project(
             litho_lenses_payload=request.litho_lenses,
             formation_absences_payload=request.formation_absences,
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
+            litho_lens_shapes_payload=request.litho_lens_shapes,
+            litho_lens_boundary_nodes_payload=request.litho_lens_boundary_nodes,
         )
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.

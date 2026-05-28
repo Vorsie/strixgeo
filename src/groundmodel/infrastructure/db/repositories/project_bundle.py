@@ -66,7 +66,11 @@ from groundmodel.infrastructure.db.models.investigation_review_orm import (
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
+    LithoLensBoundaryNodeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
+from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
@@ -358,6 +362,19 @@ async def _build_project_bundle_impl(
         )
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
+    # Lens boundary shapes + nodes (#163f Slice 2). Scoped through
+    # geological_model (the shape carries model_id; nodes hang off the shape).
+    lens_shapes_stmt = (
+        select(LithoLensShapeOrm)
+        .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
+    lens_boundary_nodes_stmt = (
+        select(LithoLensBoundaryNodeOrm)
+        .join(LithoLensShapeOrm, LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id)
+        .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
@@ -369,6 +386,8 @@ async def _build_project_bundle_impl(
     lenses = (await session.execute(lenses_stmt)).scalars().all()
     absences = (await session.execute(absences_stmt)).scalars().all()
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
+    lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
+    lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
 
     # v3 bundle. Every per-project decision rides along — the .gmproj
     # is the user's anchor, the DB is just a cache.
@@ -395,6 +414,14 @@ async def _build_project_bundle_impl(
         # via the schema's default_factory=list.
         "litho_contact_correlation_edges": [
             _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
+        ],
+        # Lens boundary shapes + control nodes (#163f Slice 2). Shapes carry
+        # (model_id, content_key, render_style); nodes carry (shape_id,
+        # boundary, node_index, along_m, elevation_m). Additive — bundles saved
+        # before these existed open cleanly via default_factory=list.
+        "litho_lens_shapes": [_column_to_json(s, _SKIP_COLUMNS) for s in lens_shapes],
+        "litho_lens_boundary_nodes": [
+            _column_to_json(n, _SKIP_COLUMNS) for n in lens_boundary_nodes
         ],
     }
     logger.info(
@@ -573,6 +600,8 @@ async def _restore_project_bundle_impl(
     litho_lenses_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
+    litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
 ) -> ProjectOrm:
@@ -605,6 +634,8 @@ async def _restore_project_bundle_impl(
     litho_lenses_payload = litho_lenses_payload or []
     formation_absences_payload = formation_absences_payload or []
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
+    litho_lens_shapes_payload = litho_lens_shapes_payload or []
+    litho_lens_boundary_nodes_payload = litho_lens_boundary_nodes_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -1280,6 +1311,92 @@ async def _restore_project_bundle_impl(
             f"litho contact correlation edge(s) (model/contact not in project or missing FK)"
         )
 
+    # ---- Lens boundary shapes + nodes (#163f Slice 2) ----------------------
+    # Shapes restored AFTER geological_models (shape.model_id FK).  Nodes
+    # restored AFTER shapes (node.shape_id FK).  Idempotent by id; dangling
+    # FKs dropped with a warning, mirroring the sections above.
+    existing_shape_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLensShapeOrm.id)
+                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    valid_shape_ids: set[UUID] = set(existing_shape_ids)
+    new_lens_shapes = 0
+    dropped_lens_shapes = 0
+    for shape_payload in litho_lens_shapes_payload:
+        sid_raw = shape_payload.get("id")
+        mid_raw = shape_payload.get("model_id")
+        if sid_raw is None or mid_raw is None:
+            dropped_lens_shapes += 1
+            continue
+        sid = UUID(sid_raw) if isinstance(sid_raw, str) else sid_raw
+        mid = UUID(mid_raw) if isinstance(mid_raw, str) else mid_raw
+        if sid in existing_shape_ids:
+            valid_shape_ids.add(sid)
+            continue
+        if mid not in valid_model_ids_for_edges:
+            logger.warning(
+                f"restore_project_bundle({project_id}): lens shape {sid} → model {mid} "
+                f"not in this project — dropped (dangling FK)"
+            )
+            dropped_lens_shapes += 1
+            continue
+        session.add(LithoLensShapeOrm(**_apply_json_to_kwargs(LithoLensShapeOrm, shape_payload)))
+        valid_shape_ids.add(sid)
+        new_lens_shapes += 1
+
+    existing_node_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLensBoundaryNodeOrm.id)
+                .join(
+                    LithoLensShapeOrm,
+                    LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id,
+                )
+                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_lens_nodes = 0
+    dropped_lens_nodes = 0
+    for node_payload in litho_lens_boundary_nodes_payload:
+        nid_raw = node_payload.get("id")
+        shid_raw = node_payload.get("shape_id")
+        if nid_raw is None or shid_raw is None:
+            dropped_lens_nodes += 1
+            continue
+        nid = UUID(nid_raw) if isinstance(nid_raw, str) else nid_raw
+        shid = UUID(shid_raw) if isinstance(shid_raw, str) else shid_raw
+        if nid in existing_node_ids:
+            continue
+        if shid not in valid_shape_ids:
+            logger.warning(
+                f"restore_project_bundle({project_id}): lens boundary node {nid} → shape {shid} "
+                f"not in this project — dropped (dangling FK)"
+            )
+            dropped_lens_nodes += 1
+            continue
+        session.add(
+            LithoLensBoundaryNodeOrm(
+                **_apply_json_to_kwargs(LithoLensBoundaryNodeOrm, node_payload)
+            )
+        )
+        new_lens_nodes += 1
+    if dropped_lens_shapes or dropped_lens_nodes:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped_lens_shapes} lens shape(s) "
+            f"+ {dropped_lens_nodes} lens boundary node(s) (dangling FK)"
+        )
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
@@ -1345,6 +1462,8 @@ class ProjectBundleService(GroundModelLogger):
         litho_lenses_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+        litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
+        litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     ) -> ProjectOrm:
         """Idempotently materialise the project tree from a bundle.
 
@@ -1365,6 +1484,8 @@ class ProjectBundleService(GroundModelLogger):
             litho_lenses_payload,
             formation_absences_payload,
             litho_contact_correlation_edges_payload,
+            litho_lens_shapes_payload,
+            litho_lens_boundary_nodes_payload,
             logger=self,
         )
 
@@ -1395,6 +1516,8 @@ async def restore_project_bundle(
     litho_lenses_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
+    litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
     """Backwards-compat wrapper — see ``ProjectBundleService.restore``."""
     return await ProjectBundleService(session).restore(
@@ -1410,4 +1533,6 @@ async def restore_project_bundle(
         litho_lenses_payload,
         formation_absences_payload,
         litho_contact_correlation_edges_payload,
+        litho_lens_shapes_payload,
+        litho_lens_boundary_nodes_payload,
     )
