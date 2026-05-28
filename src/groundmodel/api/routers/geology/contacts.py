@@ -65,6 +65,7 @@ from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
 )
 from groundmodel.application.extrapolate_pinch_out import ExtrapolatePinchOut
+from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.application.recompute_all_absences_for_model import (
     RecomputeAllAbsencesForModel,
 )
@@ -1057,6 +1058,18 @@ async def accept_litho_suggestions(
         if updated is not None:
             updated_section_response = CrossSectionResponse.model_validate(updated)
 
+    # Auto-rebuild geo surfaces for formations whose contacts were snapped by
+    # the coupling step (#162 Task 4).  The snap directly mutates
+    # geo_contact.depth_top_m without going through UpdateFormationContact, so
+    # the normal mark_surfaces_stale+Build-on-click path doesn't fire.  We
+    # trigger the rebuild here — once per accept, scoped to the affected
+    # parent geo model — so the geo model stays self-consistent immediately.
+    # RebuildModelSurfaces.execute does not accept only_formation_ids scoping;
+    # it rebuilds the whole model.  Guarded on non-empty so no-coupling accepts
+    # (most accepts) pay zero extra cost.
+    if result.touched_geo_formation_ids and model.parent_geological_model_id is not None:
+        await RebuildModelSurfaces(session).execute(model.parent_geological_model_id)
+
     return AcceptLithoSuggestionsResponse(
         created_formation_ids=result.created_formation_ids,
         found_formation_ids=result.found_formation_ids,
@@ -1234,6 +1247,14 @@ async def batch_accept_litho_suggestions(
             only_formation_ids=list(affected_formation_ids),
         )
         inference_ran = True
+
+    # Auto-rebuild geo surfaces once for the whole batch (#162 Task 4): mirrors
+    # the single-accept path.  The batch use case already aggregated all
+    # touched_geo_formation_ids across anchors so this fires once, not per anchor.
+    # RebuildModelSurfaces.execute rebuilds the whole geo model (no
+    # only_formation_ids scoping); guarded on non-empty + parent present.
+    if batch_result.touched_geo_formation_ids and model.parent_geological_model_id is not None:
+        await RebuildModelSurfaces(session).execute(model.parent_geological_model_id)
 
     return BatchAcceptLithoSuggestionsResponse(
         anchors=anchor_results,
