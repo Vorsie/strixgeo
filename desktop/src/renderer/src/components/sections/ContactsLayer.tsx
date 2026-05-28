@@ -100,6 +100,13 @@ interface Props {
    * contact's hit-strip falls back to its drag-only behaviour. */
   onDeleteContact?: (contactId: string) => Promise<void>
   /**
+   * Right-click → "Unlink from geology" menu item — fires only when the
+   * contact's ``parent_geo_contact_id`` is non-null.  Nulls the coupling
+   * without moving / deleting either contact.  When absent the item is
+   * hidden.
+   */
+  onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
+  /**
    * Right-click → "Extrapolate pinch-out…" menu item.
    *
    * Fires with the id, formation id, anchor kind, and anchor id of the
@@ -690,6 +697,7 @@ export default function ContactsLayer({
   plotBottom,
   onUpdateContactDepth,
   onDeleteContact,
+  onUnlinkLithoFromGeo,
   onPinchOutContact,
   onBatchUpdateContacts,
   onBatchCreateContacts,
@@ -747,6 +755,10 @@ export default function ContactsLayer({
      * reference hit-strip because they are litho-litho boundaries, not
      * geological boundaries — see Bug 1 dogfeed 2026-05-26). */
     parentGeoContactId?: string | null
+    /** True when the contact carries a ``parent_geo_contact_id`` — i.e. it is
+     * directly coupled to a geological contact via the litho↔geo coupling
+     * (#162).  Gates the "Unlink from geology" menu item. */
+    isCoupledToGeo?: boolean
   } | null>(null)
 
   // Pending-delete confirmation state (debt #62 item 1). Set when the
@@ -3322,13 +3334,36 @@ export default function ContactsLayer({
                 {display}
               </text>
             )}
+            {/* Litho↔geo coupling glyph (#162) — a small chain-link icon
+                at the right edge of the contact line.  Shown only when the
+                contact carries a parent_geo_contact_id so the user can see
+                at a glance which accepted contacts are bound to the
+                geological surface.  pointerEvents="none" so it doesn't
+                interfere with drag / context-menu hit-testing. */}
+            {contacts.find(c => c.id === layer.contactId)?.parent_geo_contact_id != null &&
+              layer.segY >= plotTop &&
+              layer.segY <= plotBottom && (
+                <g
+                  transform={`translate(${layer.segRightX - 14}, ${layer.segY - 5})`}
+                  pointerEvents="none"
+                  data-testid={`coupling-glyph-${layer.contactId}`}
+                >
+                  {/* Chain-link icon: two rings joined by a bar — communicates
+                      "linked to geology" without text. Amber matches the
+                      litho accept colour palette. */}
+                  <rect x={0} y={3} width={14} height={4} rx={2} fill="#f59e0b" opacity={0.85} />
+                  <circle cx={3} cy={5} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.85} />
+                  <circle cx={11} cy={5} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.85} />
+                  <title>Coupled to geological contact — right-click to unlink</title>
+                </g>
+              )}
             {/* Transparent hit-strip — wider than the visible line so
                 the user can grab without precision aiming. Rendered
                 whenever either an edit OR a delete OR a pinch-out
                 handler is wired so the lines participate in pointer
                 events; without all three they stay fully
                 non-interactive. */}
-            {(onUpdateContactDepth || onDeleteContact || onPinchOutContact) &&
+            {(onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onPinchOutContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -3344,7 +3379,7 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onPinchOutContact || onEditInGeologyStage
+                    onDeleteContact || onUnlinkLithoFromGeo || onPinchOutContact || onEditInGeologyStage
                       ? e => {
                           e.preventDefault()
                           // Resolve the parent geological contact id so the
@@ -3361,6 +3396,13 @@ export default function ContactsLayer({
                               : null
                           // Portal-rendered menu uses position:fixed with
                           // viewport clientX/Y so no container-rect math.
+                          // Coupling check: look up the contact to see if it
+                          // has a parent_geo_contact_id (litho↔geo coupling
+                          // #162) so the "Unlink from geology" item can be
+                          // conditional without adding the field to LayerSlabData.
+                          const isCoupledToGeo =
+                            (contacts.find(c => c.id === layer.contactId)
+                              ?.parent_geo_contact_id ?? null) != null
                           setContactMenu({
                             clientX: e.clientX,
                             clientY: e.clientY,
@@ -3370,6 +3412,7 @@ export default function ContactsLayer({
                             anchorKind: layer.anchorKind,
                             anchorId: layer.anchorId,
                             parentGeoContactId,
+                            isCoupledToGeo,
                           })
                         }
                       : undefined
@@ -3801,6 +3844,17 @@ export default function ContactsLayer({
                 }
               : undefined
           }
+          onUnlinkLithoFromGeo={
+            !contactMenu.isReferenceContact &&
+            contactMenu.isCoupledToGeo &&
+            onUnlinkLithoFromGeo
+              ? () => {
+                  const { contactId } = contactMenu
+                  setContactMenu(null)
+                  void onUnlinkLithoFromGeo(contactId)
+                }
+              : undefined
+          }
           onPinchOut={
             !contactMenu.isReferenceContact && onPinchOutContact
               ? () => {
@@ -3914,6 +3968,11 @@ interface ContactContextMenuProps {
    * styled confirm dialog (DeleteContactConfirmDialog) —
    * ContactContextMenu itself does not add a second gate. */
   onDelete?: () => void
+  /** Fired when the user picks "Unlink from geology" — only shown when
+   * the contact is coupled (``parent_geo_contact_id != null``).  Nulls
+   * the coupling without deleting either contact.  When absent the item
+   * is hidden. */
+  onUnlinkLithoFromGeo?: () => void
   /** Fired when the user picks "Extrapolate pinch-out…". When absent
    * the item is hidden. */
   onPinchOut?: () => void
@@ -3965,6 +4024,7 @@ function ContactContextMenu({
   formationName,
   onEditInGeologyStage,
   onDelete,
+  onUnlinkLithoFromGeo,
   onPinchOut,
   pinchOutDisabledReason,
   onClose,
@@ -4044,6 +4104,21 @@ function ContactContextMenu({
               {pinchOutDisabledReason}
             </span>
           )}
+        </button>
+      )}
+      {onUnlinkLithoFromGeo && (
+        <button
+          type="button"
+          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+          onClick={e => {
+            e.nativeEvent.stopImmediatePropagation()
+            onUnlinkLithoFromGeo()
+            onClose()
+          }}
+          role="menuitem"
+          data-testid="unlink-geo-menu-item"
+        >
+          Unlink from geology
         </button>
       )}
       {onDelete && (
