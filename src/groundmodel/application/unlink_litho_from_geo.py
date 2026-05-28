@@ -92,5 +92,9 @@ class UnlinkLithoFromGeo(GroundModelLogger):
         contact.parent_geo_contact_id = None
 
         await self._session.commit()
+        # Refresh after commit so Pydantic's from_attributes serialisation can
+        # read scalar columns without triggering a lazy-load MissingGreenlet
+        # error (same pattern as CreateFormationContact).
+        await self._session.refresh(contact)
         self.success(f"UnlinkLithoFromGeo: contact {contact_id} unlinked from geo coupling")
         return contact
