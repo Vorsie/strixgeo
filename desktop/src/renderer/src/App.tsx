@@ -241,6 +241,18 @@ export default function App() {
     contactId: string
   } | null>(null)
 
+  // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
+  // SectionsToolbar via the geoModel slice, but the contact-correlation edge
+  // state lives in SectionsCanvas (a sibling). Bumping this nonce after a
+  // successful auto-correlate is the cross-boundary signal that tells the
+  // canvas to refetch its edges so the overlay updates without a manual
+  // section reselect. Soft coupling via the bus, same as geoDeepLinkTarget.
+  const [correlationEdgesRefetchNonce, setCorrelationEdgesRefetchNonce] =
+    useState(0)
+  const requestCorrelationEdgesRefetch = useCallback(() => {
+    setCorrelationEdgesRefetchNonce(n => n + 1)
+  }, [])
+
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
@@ -355,6 +367,7 @@ export default function App() {
     manifestFormationIds,
     currentLumping,
     stageLumping,
+    requestCorrelationEdgesRefetch,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
   // result is handed to the shell as `geoModel: geo` (below) — never a
@@ -903,6 +916,7 @@ export default function App() {
     projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
     geoDeepLinkTarget, setGeoDeepLinkTarget,
+    correlationEdgesRefetchNonce,
   })
 
   // ---------------------------------------------------------------------------

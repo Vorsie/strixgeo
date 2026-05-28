@@ -763,6 +763,10 @@ export interface UseGeologicalModelResult {
  *     in-memory and marks the project dirty (two-stage save model).
  *     Called by ``applyBoreholeFormationSelection`` after a successful
  *     apply so the alias map is persisted on the next File→Save.
+ * requestCorrelationEdgesRefetch
+ *     Coordinator signal fired after a successful ``handleAutoCorrelate``
+ *     so the Sections canvas refetches its contact-correlation edges
+ *     (#163c) — the edge state lives there, not in this hook.
  *
  * Returns
  * -------
@@ -780,6 +784,7 @@ export function useGeologicalModel({
   manifestFormationIds,
   currentLumping,
   stageLumping,
+  requestCorrelationEdgesRefetch,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -798,6 +803,15 @@ export function useGeologicalModel({
   currentLumping: StratigraphyLumping | null
   /** Stage a new lumping snapshot in-memory, marking the project dirty. */
   stageLumping: (lumping: StratigraphyLumping) => void
+  /**
+   * Coordinator signal that tells the Sections canvas to refetch its
+   * contact-correlation edges (#163c). ``handleAutoCorrelate`` persists
+   * edges server-side but the edge state lives in ``SectionsCanvas`` — a
+   * sibling of the toolbar that fires auto-correlate — so the handler
+   * cannot refetch it directly. Bumping this nonce after a successful
+   * auto-correlate makes the overlay refresh without a manual reload.
+   */
+  requestCorrelationEdgesRefetch: () => void
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -2749,8 +2763,12 @@ export function useGeologicalModel({
         `autoCorrelate ok edges_created=${result.edges_created} ` +
           `skipped=${result.edges_skipped_existing}`,
       )
-      // Refetch so correlation overlay + ordinal badges update.
+      // Refetch so ordinal badges update (formations re-resolved server-side).
       refetchFormations()
+      // #163c: the correlation-edge state lives in SectionsCanvas (a sibling
+      // of the toolbar that fired this), so signal it to refetch — otherwise
+      // the new edges/banners don't render until a manual section reselect.
+      requestCorrelationEdgesRefetch()
       if (result.edges_created === 0 && result.edges_skipped_existing === 0) {
         // No contacts with a valid litho code + parent formation — the model
         // is empty or has no correlatable units yet. Guide the user toward
@@ -2773,7 +2791,7 @@ export function useGeologicalModel({
       log.error('geology', 'autoCorrelate failed', err)
       toast('error', 'Auto-correlate failed — see console.')
     }
-  }, [project, refetchFormations, toast])
+  }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch])
 
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this

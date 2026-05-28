@@ -169,6 +169,20 @@ export interface Coordinator {
   setGeoDeepLinkTarget: (
     target: { sectionId: string; contactId: string } | null,
   ) => void
+  /**
+   * Monotonic nonce bumped after a successful auto-correlate (#163c).
+   *
+   * Written by ``handleAutoCorrelate`` (via the
+   * ``requestCorrelationEdgesRefetch`` callback wired in App.tsx) and read
+   * by ``SectionsCanvas``, which lists it in its contact-edge refetch
+   * effect deps. A change forces the canvas to re-GET its correlation
+   * edges so the overlay updates without a manual section reselect.
+   *
+   * Lives in Coordinator because it spans the toolbar/geoModel write path
+   * and the SectionsCanvas read path — the same cross-boundary rationale
+   * as ``geoDeepLinkTarget``.
+   */
+  correlationEdgesRefetchNonce: number
 }
 
 /**

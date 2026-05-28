@@ -168,6 +168,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleSelectBorehole,
       handleExportSectionDxf,
       setGeoDeepLinkTarget,
+      correlationEdgesRefetchNonce,
     },
     mapState: {
       hiddenCptTypes,
@@ -414,8 +415,10 @@ export default function SectionsCanvas(): JSX.Element {
     // reason: isLitho + activeLithoModel.id + selectedSectionId are the three
     // axes that require a re-fetch; refetchContactEdges captures project.id +
     // lithoModelId in its closure so they don't need to be listed here.
+    // correlationEdgesRefetchNonce (#163c) is bumped after a successful
+    // auto-correlate so the new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLitho, activeLithoModel?.id, selectedSectionId])
+  }, [isLitho, activeLithoModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
 
   const handleCreateContactCorrelation = useCallback(
     async (contactAId: string, contactBId: string): Promise<void> => {

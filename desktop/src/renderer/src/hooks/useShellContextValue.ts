@@ -140,6 +140,7 @@ export interface UseShellContextValueArgs {
   setHoveredTestId: ShellContextValue['coordinator']['setHoveredTestId']
   geoDeepLinkTarget: ShellContextValue['coordinator']['geoDeepLinkTarget']
   setGeoDeepLinkTarget: ShellContextValue['coordinator']['setGeoDeepLinkTarget']
+  correlationEdgesRefetchNonce: ShellContextValue['coordinator']['correlationEdgesRefetchNonce']
 }
 
 /**
@@ -189,6 +190,7 @@ export function useShellContextValue(
     handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
+    correlationEdgesRefetchNonce,
   } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
@@ -351,6 +353,7 @@ export function useShellContextValue(
       setHoveredTestId,
       geoDeepLinkTarget,
       setGeoDeepLinkTarget,
+      correlationEdgesRefetchNonce,
     },
   }),
   // Auto-derived dep array (debt #53, 2026-05-21). The prior shape was
