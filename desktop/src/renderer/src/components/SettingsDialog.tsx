@@ -196,6 +196,7 @@ function LithoSection({
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
+  const straddelBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -213,14 +214,19 @@ function LithoSection({
     Number.isFinite(draft.lithoSnapToleranceM) &&
     draft.lithoSnapToleranceM >= snapBounds.min &&
     draft.lithoSnapToleranceM <= snapBounds.max
-  const allValid = thicknessValid && gunsatValid && drValid && snapValid
+  const straddleValid =
+    Number.isFinite(draft.straddleMinPieceThicknessM) &&
+    draft.straddleMinPieceThicknessM >= straddelBounds.min &&
+    draft.straddleMinPieceThicknessM <= straddelBounds.max
+  const allValid = thicknessValid && gunsatValid && drValid && snapValid && straddleValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
     draft.gunsatKNm3 !== initial.gunsatKNm3 ||
     draft.drCompressionFactor !== initial.drCompressionFactor ||
     draft.mergeSameLithology !== initial.mergeSameLithology ||
-    draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM
+    draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
+    draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM
 
   return (
     <SectionShell
@@ -289,6 +295,20 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!snapValid}
+      />
+      <NumberRow
+        id="settings-straddle-min-piece-thickness"
+        label="Sliver guard (m)"
+        hint={`Litho boundaries within this distance of a geological boundary aren't split — suppresses thin sliver units on accept (#157). A suggestion whose top or base lands closer than this threshold to a formation contact is treated as touching the contact rather than straddling it. Range ${straddelBounds.min}–${straddelBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM} m.`}
+        value={draft.straddleMinPieceThicknessM}
+        onChange={v => setDraft({ ...draft, straddleMinPieceThicknessM: v })}
+        bounds={straddelBounds}
+        sliderMin={straddelBounds.min}
+        sliderMax={1.0}
+        step={0.01}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!straddleValid}
       />
 
       <SectionFooter
