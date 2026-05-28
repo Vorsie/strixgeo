@@ -1483,3 +1483,159 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
         )
     )
     assert count_guarded == 1, "alien-model_id edge must be dropped, not restored"
+
+
+# ---------------------------------------------------------------------------
+# parent_geo_contact_id round-trip (#162 Task 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_roundtrip_preserves_parent_geo_contact_id(
+    db_session: AsyncSession,
+) -> None:
+    """A litho contact's parent_geo_contact_id survives build → wipe → restore.
+
+    A litho contact carrying parent_geo_contact_id (pointing at a geo contact
+    in a different model) is bundled then restored onto a clean DB.  The column
+    must round-trip verbatim — NULL after restore would silently break the
+    litho↔geo coupling established by the user.
+
+    The restore is stressed by reversing the geological_models array so the
+    lithostratigraphic model (whose contact carries the self-referential FK) is
+    processed before the geological model (the FK target).  SQLAlchemy's
+    unit-of-work topological sort resolves the in-session dependency correctly
+    for plain FK columns on self-referential tables, so no manual backfill step
+    is required.  This test pins that the column is included by the
+    column-attr enumeration path and that no code strips it between build and
+    restore.
+    """
+    from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+
+    source = await _make_source_project(db_session)
+    bh = (await db_session.execute(select(_BH).where(_BH.app_project_id == source.id))).scalar_one()
+
+    # Two models: one geological, one lithostratigraphic.
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo backbone",
+        kind="geological",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho refinement",
+        kind="lithostratigraphic",
+        is_active=True,
+        excluded_borehole_ids=[],
+        parent_geological_model_id=geo_model.id,
+    )
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="KLEI unit",
+        color="#4a4a8a",
+        display_order=0,
+        lithology="KLEI",
+    )
+    db_session.add_all([geo_model, litho_model, formation])
+    await db_session.flush()
+
+    # One geo contact (the coupling target) and one litho contact that
+    # references the geo contact via parent_geo_contact_id.
+    geo_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=geo_model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    db_session.add(geo_contact)
+    await db_session.flush()
+
+    litho_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="high",
+        parent_geo_contact_id=geo_contact.id,
+    )
+    db_session.add(litho_contact)
+    await db_session.commit()
+
+    original_geo_contact_id = geo_contact.id
+    original_litho_contact_id = litho_contact.id
+
+    # ---- Build: parent_geo_contact_id appears in the bundled contacts -----
+    bundle = await build_project_bundle(db_session, source)
+
+    assert len(bundle["geological_models"]) == 2
+    by_kind = {m["kind"]: m for m in bundle["geological_models"]}
+    litho_contacts_in_bundle = by_kind["lithostratigraphic"]["contacts"]
+    assert len(litho_contacts_in_bundle) == 1, "litho model should carry one contact"
+    assert litho_contacts_in_bundle[0]["parent_geo_contact_id"] == str(original_geo_contact_id), (
+        "parent_geo_contact_id must be serialised into the bundle"
+    )
+
+    # ---- Wipe the DB (simulate opening on a fresh machine) ----------------
+    await db_session.execute(
+        delete(FormationContactOrm).where(
+            FormationContactOrm.model_id.in_([geo_model.id, litho_model.id])
+        )
+    )
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore with reversed model order (stress test) ---------------
+    #
+    # Put the lithostratigraphic model (whose contact carries
+    # parent_geo_contact_id) first so it is processed before the geological
+    # model (the FK target).  SQLAlchemy's unit-of-work handles the
+    # self-referential FK ordering at flush time, so no user-space backfill
+    # is needed — but the reversed order proves the column is not silently
+    # stripped or nulled somewhere in the restore path.
+    models_reversed = list(reversed(bundle["geological_models"]))
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        models_reversed,
+    )
+    await db_session.commit()
+
+    restored_litho_contact = (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.id == original_litho_contact_id)
+        )
+    ).scalar_one()
+
+    assert restored_litho_contact.parent_geo_contact_id == original_geo_contact_id, (
+        "parent_geo_contact_id must survive build → wipe → restore; "
+        "NULL here means the column was stripped somewhere in the round-trip"
+    )
