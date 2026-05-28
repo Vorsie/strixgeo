@@ -15,6 +15,8 @@
 //   CC1..CC9  Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out).
 //   CC10..CC10b  Delete-contact right-click gesture.
 //   CC11..CC12  Drag-to-retarget unapproved edge (#133 Phase 2+3 Task 26).
+//   CE-D1  Enlarged endpoint grab target fires onUnapprovedDragStart (#163d).
+//   CE-E1..E2  Right-click edge → Delete-correlation menu → onRequestDeleteEdge (#163e).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -528,6 +530,82 @@ describe('CorrelationEdgesOverlay', () => {
     expect(points).toContain('180,') //               B inner (left) edge
     expect(points).not.toContain('100,') //            not A centre
     expect(points).not.toContain('200,') //            not B centre
+  })
+
+  // CE-D1 (#163d): the endpoint grab target on a pending edge is hard to hit
+  // at 8 px — there must be an enlarged (transparent) grab area around each
+  // endpoint that still fires onUnapprovedDragStart with the right handle.
+  it('CE-D1: enlarged grab target around an endpoint fires onUnapprovedDragStart', () => {
+    const onUnapprovedDragStart = vi.fn()
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'eg', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge], onUnapprovedDragStart,
+    })
+    const grabA = screen.getByTestId('unapproved-grab-a-eg')
+    // The grab area is meaningfully bigger than the 8 px visible handle.
+    expect(Number(grabA.getAttribute('width'))).toBeGreaterThan(8)
+    fireEvent.mouseDown(grabA)
+    expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
+    expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('a')
+    onUnapprovedDragStart.mockClear()
+    fireEvent.mouseDown(screen.getByTestId('unapproved-grab-b-eg'))
+    expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('b')
+  })
+
+  // CE-E1 (#163e): right-clicking the edge ribbon opens a Delete-correlation
+  // menu; choosing it fires onRequestDeleteEdge with the edge.
+  it('CE-E1: right-click edge opens Delete menu and fires onRequestDeleteEdge', () => {
+    const onRequestDeleteEdge = vi.fn()
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'ed', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge], onRequestDeleteEdge,
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-hit-ed'))
+    fireEvent.click(screen.getByText(/Delete correlation/i, { selector: 'button' }))
+    expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
+    expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('ed')
+  })
+
+  // CE-E2 (#163e): no edge-delete hit target when onRequestDeleteEdge absent.
+  it('CE-E2: no edge-delete hit target when onRequestDeleteEdge is absent', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'ez', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    expect(screen.queryByTestId('edge-hit-ez')).toBeNull()
   })
 })
 
