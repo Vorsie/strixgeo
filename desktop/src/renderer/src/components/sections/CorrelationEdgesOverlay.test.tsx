@@ -501,6 +501,34 @@ describe('CorrelationEdgesOverlay', () => {
     expect(aboveStops[0].getAttribute('stop-color')).toBe('#fbbf24') // ZAND
     expect(aboveStops[1].getAttribute('stop-color')).toBe('#fbbf24') // ZAND
   })
+
+  // SR3: the ribbon anchors at each column's INNER edge (gap-spanning), not
+  // the column centre — so it bridges the gap rather than overlapping the
+  // litho columns (owner dogfeed 2026-05-28).
+  it('SR3: ribbon anchors at the inner column edges, not the centres', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e5', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    // Columns: centres 100 / 200, width 40 → inner edges at 120 (A right)
+    // and 180 (B left). The ribbon must use the edges, not the centres.
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const points = screen.getByTestId('ribbon-below-e5').getAttribute('points') ?? ''
+    expect(points.startsWith('120,')).toBe(true) // A inner (right) edge
+    expect(points).toContain('180,') //               B inner (left) edge
+    expect(points).not.toContain('100,') //            not A centre
+    expect(points).not.toContain('200,') //            not B centre
+  })
 })
 
 // ---------------------------------------------------------------------------

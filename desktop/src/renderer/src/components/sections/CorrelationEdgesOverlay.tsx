@@ -53,8 +53,10 @@ const UNAPPROVED_EDGE_COLOR = '#f59e0b'
 /** Dash pattern for unapproved edges — dashed to signal provisional state. */
 const UNAPPROVED_EDGE_DASH = '4 4'
 /** Half-height (px) of the seam ribbon above and below the boundary line
- *  (#131-c). Fixed regardless of zoom so the ribbon reads consistently. */
-const RIBBON_HALF_HEIGHT_PX = 12
+ *  (#131-c). Fixed regardless of zoom so the ribbon reads consistently.
+ *  Kept slim so stacked correlations don't occlude each other (owner
+ *  dogfeed 2026-05-28 — the original ±12 box read as too tall). */
+const RIBBON_HALF_HEIGHT_PX = 6
 /** Fill opacity for an approved (accepted) correlation ribbon. */
 const RIBBON_APPROVED_OPACITY = 0.9
 /** Fill opacity for a pending (unaccepted) correlation ribbon — faded so a
@@ -358,17 +360,20 @@ function bandRect(
  *
  * Returns
  * -------
- * Map<string, { x: number; topY: number }>
- *     Keyed by contact id.  Only contacts whose anchor column is on this
- *     section AND whose formation band exists in ``bandMap`` are included.
+ * Map<string, { x: number; topY: number; halfWidth: number }>
+ *     Keyed by contact id.  ``x`` is the column centre, ``halfWidth`` is
+ *     half the column's screen width (so the correlation ribbon can anchor
+ *     at the column's inner edge instead of its centre).  Only contacts
+ *     whose anchor column is on this section AND whose formation band
+ *     exists in ``bandMap`` are included.
  */
 export function buildContactScreenMap(
   contacts: readonly FormationContactResponse[],
   columns: readonly PlacedColumn[],
   bandMap: Map<string, Map<string, { topLevel: number; botLevel: number }>>,
   levelToScreen: (level: number) => number,
-): Map<string, { x: number; topY: number }> {
-  const result = new Map<string, { x: number; topY: number }>()
+): Map<string, { x: number; topY: number; halfWidth: number }> {
+  const result = new Map<string, { x: number; topY: number; halfWidth: number }>()
   for (const c of contacts) {
     const invId = anchorId(c)
     if (invId === null) continue
@@ -381,6 +386,7 @@ export function buildContactScreenMap(
     result.set(c.id, {
       x: col.nudgedX,
       topY: levelToScreen(band.topLevel),
+      halfWidth: col.width / 2,
     })
   }
   return result
@@ -944,6 +950,14 @@ export default function CorrelationEdgesOverlay({
             const approved = ce.user_approved
             const hs = DRAG_HANDLE_SIZE
             const H = RIBBON_HALF_HEIGHT_PX
+            // Anchor the ribbon at each column's INNER edge (the edge facing
+            // the other column) so it bridges only the gap between columns
+            // instead of running centre-to-centre over them (owner dogfeed
+            // 2026-05-28). topY is unchanged — the contact level is constant
+            // across the band, so the inner edge sits at the same depth.
+            const aLeftOfB = ptA.x <= ptB.x
+            const xA = aLeftOfB ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
+            const xB = aLeftOfB ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
             const stripesA = stripeColorsByContactId.get(ce.contact_a_id)
             const stripesB = stripeColorsByContactId.get(ce.contact_b_id)
             const aboveA = stripesA?.above ?? null
@@ -974,7 +988,7 @@ export default function CorrelationEdgesOverlay({
                     <linearGradient
                       id={`ribbon-above-grad-${ce.id}`}
                       gradientUnits="userSpaceOnUse"
-                      x1={ptA.x} y1={0} x2={ptB.x} y2={0}
+                      x1={xA} y1={0} x2={xB} y2={0}
                     >
                       <stop offset="0" stopColor={aboveA as string} />
                       <stop offset="1" stopColor={aboveB as string} />
@@ -984,7 +998,7 @@ export default function CorrelationEdgesOverlay({
                     <linearGradient
                       id={`ribbon-below-grad-${ce.id}`}
                       gradientUnits="userSpaceOnUse"
-                      x1={ptA.x} y1={0} x2={ptB.x} y2={0}
+                      x1={xA} y1={0} x2={xB} y2={0}
                     >
                       <stop offset="0" stopColor={belowA as string} />
                       <stop offset="1" stopColor={belowB as string} />
@@ -994,7 +1008,7 @@ export default function CorrelationEdgesOverlay({
                 {showAbove && (
                   <polygon
                     data-testid={`ribbon-above-${ce.id}`}
-                    points={`${ptA.x},${ptA.topY - H} ${ptB.x},${ptB.topY - H} ${ptB.x},${ptB.topY} ${ptA.x},${ptA.topY}`}
+                    points={`${xA},${ptA.topY - H} ${xB},${ptB.topY - H} ${xB},${ptB.topY} ${xA},${ptA.topY}`}
                     fill={`url(#ribbon-above-grad-${ce.id})`}
                     fillOpacity={fillOpacity}
                   />
@@ -1002,7 +1016,7 @@ export default function CorrelationEdgesOverlay({
                 {showBelow && (
                   <polygon
                     data-testid={`ribbon-below-${ce.id}`}
-                    points={`${ptA.x},${ptA.topY} ${ptB.x},${ptB.topY} ${ptB.x},${ptB.topY + H} ${ptA.x},${ptA.topY + H}`}
+                    points={`${xA},${ptA.topY} ${xB},${ptB.topY} ${xB},${ptB.topY + H} ${xA},${ptA.topY + H}`}
                     fill={`url(#ribbon-below-grad-${ce.id})`}
                     fillOpacity={fillOpacity}
                   />
@@ -1010,7 +1024,7 @@ export default function CorrelationEdgesOverlay({
                 {approved ? (
                   <line
                     data-testid={`ribbon-seam-${ce.id}`}
-                    x1={ptA.x} y1={ptA.topY} x2={ptB.x} y2={ptB.topY}
+                    x1={xA} y1={ptA.topY} x2={xB} y2={ptB.topY}
                     stroke={RIBBON_SEAM_COLOR}
                     strokeWidth={1.5}
                     pointerEvents="none"
@@ -1018,7 +1032,7 @@ export default function CorrelationEdgesOverlay({
                 ) : (
                   <polygon
                     data-testid={`ribbon-outline-${ce.id}`}
-                    points={`${ptA.x},${topY_A} ${ptB.x},${topY_B} ${ptB.x},${botY_B} ${ptA.x},${botY_A}`}
+                    points={`${xA},${topY_A} ${xB},${topY_B} ${xB},${botY_B} ${xA},${botY_A}`}
                     fill="none"
                     stroke={UNAPPROVED_EDGE_COLOR}
                     strokeWidth={1.4}
@@ -1032,7 +1046,7 @@ export default function CorrelationEdgesOverlay({
                   <>
                     <rect
                       data-testid={`unapproved-handle-a-${ce.id}`}
-                      x={ptA.x - hs / 2}
+                      x={xA - hs / 2}
                       y={ptA.topY - hs / 2}
                       width={hs}
                       height={hs}
@@ -1047,7 +1061,7 @@ export default function CorrelationEdgesOverlay({
                     />
                     <rect
                       data-testid={`unapproved-handle-b-${ce.id}`}
-                      x={ptB.x - hs / 2}
+                      x={xB - hs / 2}
                       y={ptB.topY - hs / 2}
                       width={hs}
                       height={hs}
