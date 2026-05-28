@@ -1765,6 +1765,20 @@ export const api = {
     ): Promise<void> =>
       del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
 
+    // Break the litho↔geo coupling on a single contact.  Nulls
+    // parent_geo_contact_id; does NOT move/delete either contact or
+    // rebuild surfaces (geometry is unchanged — only the coupling label
+    // is cleared).
+    unlinkLithoFromGeo: (
+      projectId: string,
+      modelId: string,
+      contactId: string,
+    ): Promise<FormationContactResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}/unlink-geo`,
+        {},
+      ),
+
     // Clear ALL content from a lithostratigraphic model (debt #94 fix).
     // Removes contacts, correlation edges, TIN surfaces, and orphan litho
     // formations in one atomic backend call.
