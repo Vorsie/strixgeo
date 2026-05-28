@@ -69,6 +69,140 @@ class RecomputeFormationAbsencesResult:
     skipped_no_data_count: int
 
 
+async def load_corridor_investigations(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    section: CrossSectionOrm,
+) -> list[tuple[UUID, str]]:
+    """Return ``(investigation_id, kind)`` pairs within a section's corridor.
+
+    Module-level so it can be called once per section by
+    ``RecomputeAllAbsencesForModel`` (which caches the result across all
+    formations) as well as by ``RecomputeFormationAbsencesForBody`` directly
+    (the single-body path used by the lens endpoint).  Extracted here on the
+    second caller per the project's "extract on second use" rule.
+
+    Uses the section's bounding box expanded by ``projection_buffer_m`` — the
+    corridor geometry mirrors ``BuildSectionSnapshot``.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope for the investigation queries.
+    section : CrossSectionOrm
+        The cross-section that defines the corridor.
+
+    Returns
+    -------
+    list[tuple[UUID, str]]
+        All ``(investigation_id, 'borehole'|'cpt')`` pairs in the corridor.
+    """
+    buf = section.projection_buffer_m
+    min_x = min(section.start_x, section.end_x) - buf
+    max_x = max(section.start_x, section.end_x) + buf
+    min_y = min(section.start_y, section.end_y) - buf
+    max_y = max(section.start_y, section.end_y) + buf
+
+    bh_rows = (
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(
+                    BoreholeOrm.app_project_id == project_id,
+                    BoreholeOrm.location_x.between(min_x, max_x),
+                    BoreholeOrm.location_y.between(min_y, max_y),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cpt_rows = (
+        (
+            await session.execute(
+                select(CptOrm.id).where(
+                    CptOrm.app_project_id == project_id,
+                    CptOrm.location_x.between(min_x, max_x),
+                    CptOrm.location_y.between(min_y, max_y),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [(inv_id, "borehole") for inv_id in bh_rows] + [(inv_id, "cpt") for inv_id in cpt_rows]
+
+
+async def load_observation_layers(
+    session: AsyncSession,
+    *,
+    corridor_investigations: list[tuple[UUID, str]],
+) -> list[ObservationLayerRecord]:
+    """Load observation-layer records for the borehole investigations in a corridor.
+
+    CPT Robertson-SBT layers are Phase 5; this covers boreholes only.  Module-
+    level for the same reason as :func:`load_corridor_investigations` — shared
+    by the cached recompute-all path and the direct single-body path.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    corridor_investigations : list[tuple[UUID, str]]
+        All corridor investigation pairs.
+
+    Returns
+    -------
+    list[ObservationLayerRecord]
+        Flattened observation-layer records for the corridor's boreholes.
+    """
+    borehole_ids = [inv_id for inv_id, kind in corridor_investigations if kind == "borehole"]
+    if not borehole_ids:
+        return []
+
+    obs_rows = (
+        await session.execute(
+            select(ObservationOrm.id, ObservationOrm.borehole_id).where(
+                ObservationOrm.borehole_id.in_(borehole_ids)
+            )
+        )
+    ).all()
+    if not obs_rows:
+        return []
+
+    obs_id_to_borehole: dict[UUID, UUID] = {r.id: r.borehole_id for r in obs_rows}
+    obs_ids = list(obs_id_to_borehole.keys())
+
+    layer_rows = (
+        await session.execute(
+            select(
+                ObservationLayerOrm.observation_id,
+                ObservationLayerOrm.top_m,
+                ObservationLayerOrm.base_m,
+                ObservationLayerOrm.main_soil_codes,
+            ).where(ObservationLayerOrm.observation_id.in_(obs_ids))
+        )
+    ).all()
+
+    records: list[ObservationLayerRecord] = []
+    for row in layer_rows:
+        borehole_id = obs_id_to_borehole.get(row.observation_id)
+        if borehole_id is None:
+            continue
+        records.append(
+            ObservationLayerRecord(
+                investigation_id=borehole_id,
+                investigation_kind="borehole",
+                top_m=row.top_m,
+                base_m=row.base_m,
+                main_soil_codes=row.main_soil_codes or [],
+            )
+        )
+    return records
+
+
 class RecomputeFormationAbsencesForBody(GroundModelLogger):
     """Run the inference engine for one body and apply the delta to the DB.
 
@@ -92,6 +226,8 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         body_ordinal: int,
         section_id: UUID,
         commit: bool = True,
+        corridor_investigations: list[tuple[UUID, str]] | None = None,
+        observation_layers: list[ObservationLayerRecord] | None = None,
     ) -> RecomputeFormationAbsencesResult:
         """Run inference and apply the absence delta.
 
@@ -114,6 +250,17 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
             transaction and will commit after orchestrating multiple
             inference runs in the same session (used by
             ``RecomputeFormationAbsencesForFormation``).
+        corridor_investigations : list[tuple[UUID, str]] | None
+            Pre-computed corridor membership for ``section_id``.  When given,
+            the internal corridor load is skipped — the corridor is identical
+            across every formation for a section, so ``RecomputeAllAbsencesForModel``
+            computes it once per section and passes it to every formation's
+            body call (the #153 hoist).  ``None`` (default) self-loads, the
+            behaviour the single-body lens path relies on.
+        observation_layers : list[ObservationLayerRecord] | None
+            Pre-computed observation layers for the corridor, paired with
+            ``corridor_investigations``.  Same caching rationale.  ``None``
+            self-loads.
 
         Returns
         -------
@@ -205,9 +352,10 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         #    buffer.  Use the section's bounding box + buffer as the corridor
         #    definition — same logic used by BuildSectionSnapshot.
         # ------------------------------------------------------------------
-        corridor_investigations = await self._load_corridor_investigations(
-            project_id=project_id, section=section
-        )
+        if corridor_investigations is None:
+            corridor_investigations = await load_corridor_investigations(
+                self._session, project_id=project_id, section=section
+            )
         self.debug(
             f"Corridor has {len(corridor_investigations)} investigations (section {section_id})"
         )
@@ -215,9 +363,10 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         # ------------------------------------------------------------------
         # 4. Load observation layers for corridor investigations.
         # ------------------------------------------------------------------
-        observation_layers = await self._load_observation_layers(
-            corridor_investigations=corridor_investigations
-        )
+        if observation_layers is None:
+            observation_layers = await load_observation_layers(
+                self._session, corridor_investigations=corridor_investigations
+            )
         self.debug(f"Loaded {len(observation_layers)} observation layers")
 
         # ------------------------------------------------------------------
@@ -275,37 +424,39 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         written_count = 0
         retracted_count = 0
 
-        # UPSERT to_write rows.  PostgreSQL INSERT ON CONFLICT DO UPDATE.
-        for i, absence in enumerate(result.to_write, start=1):
-            self.debug(
-                f"[{i}/{len(result.to_write)}] "
-                f"UPSERT absence: {absence.investigation_kind} "
-                f"{absence.investigation_id} source={absence.source}"
-            )
+        # UPSERT to_write rows in a SINGLE multi-row INSERT ... ON CONFLICT DO
+        # UPDATE rather than one round-trip per row.  Profiling (#153) showed
+        # the per-row loop was the dominant cost of recompute-all-absences:
+        # 400 absences = 400 awaited round-trips (~200 ms SQL + a comparable
+        # slice of asyncio overhead).  One batched statement collapses that to
+        # a single round-trip.  ``excluded.source`` references each proposed
+        # row's source; the ``where source == 'inferred'`` guard is preserved
+        # so a 'manual'/'observed' row that somehow lands in to_write is never
+        # demoted to 'inferred' (defense-in-depth).
+        if result.to_write:
             now = func.now()
-            stmt = (
-                pg_insert(FormationAbsenceOrm)
-                .values(
-                    id=uuid7(),
-                    formation_id=absence.formation_id,
-                    investigation_id=absence.investigation_id,
-                    investigation_kind=absence.investigation_kind,
-                    source=absence.source,
-                    created_at=now,
-                    updated_at=now,
-                )
-                .on_conflict_do_update(
-                    constraint="uq_formation_absence_formation_investigation",
-                    set_={"source": absence.source, "updated_at": func.now()},
-                    # Defense-in-depth: only overwrite when the existing row
-                    # is still inferred.  A 'manual' or 'observed' row that
-                    # somehow ends up in to_write (application-layer bug or
-                    # race) must NOT be silently demoted to 'inferred'.
-                    where=FormationAbsenceOrm.source == "inferred",
-                )
+            insert_stmt = pg_insert(FormationAbsenceOrm).values(
+                [
+                    {
+                        "id": uuid7(),
+                        "formation_id": absence.formation_id,
+                        "investigation_id": absence.investigation_id,
+                        "investigation_kind": absence.investigation_kind,
+                        "source": absence.source,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for absence in result.to_write
+                ]
             )
-            await self._session.execute(stmt)
-            written_count += 1
+            upsert_stmt = insert_stmt.on_conflict_do_update(
+                constraint="uq_formation_absence_formation_investigation",
+                set_={"source": insert_stmt.excluded.source, "updated_at": func.now()},
+                where=FormationAbsenceOrm.source == "inferred",
+            )
+            await self._session.execute(upsert_stmt)
+            written_count = len(result.to_write)
+            self.debug(f"Batched UPSERT of {written_count} inferred absence row(s)")
 
         # DELETE retracted rows.
         if result.to_retract:
@@ -329,138 +480,3 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
             retracted_count=retracted_count,
             skipped_no_data_count=len(result.skipped_no_data),
         )
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    async def _load_corridor_investigations(
-        self,
-        *,
-        project_id: UUID,
-        section: CrossSectionOrm,
-    ) -> list[tuple[UUID, str]]:
-        """Return ``(investigation_id, kind)`` pairs within the section corridor.
-
-        Uses the section's bounding box expanded by ``projection_buffer_m`` to
-        find in-corridor investigations.  The corridor geometry mirrors the
-        approach used by ``BuildSectionSnapshot`` — parallel strips on each
-        side of the section line.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Project scope for the investigation queries.
-        section : CrossSectionOrm
-            The cross-section that defines the corridor.
-
-        Returns
-        -------
-        list[tuple[UUID, str]]
-            All ``(investigation_id, 'borehole'|'cpt')`` pairs in the corridor.
-        """
-        buf = section.projection_buffer_m
-        # Bounding box of the section line expanded by the buffer.
-        min_x = min(section.start_x, section.end_x) - buf
-        max_x = max(section.start_x, section.end_x) + buf
-        min_y = min(section.start_y, section.end_y) - buf
-        max_y = max(section.start_y, section.end_y) + buf
-
-        bh_rows = (
-            (
-                await self._session.execute(
-                    select(BoreholeOrm.id).where(
-                        BoreholeOrm.app_project_id == project_id,
-                        BoreholeOrm.location_x.between(min_x, max_x),
-                        BoreholeOrm.location_y.between(min_y, max_y),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        cpt_rows = (
-            (
-                await self._session.execute(
-                    select(CptOrm.id).where(
-                        CptOrm.app_project_id == project_id,
-                        CptOrm.location_x.between(min_x, max_x),
-                        CptOrm.location_y.between(min_y, max_y),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        result: list[tuple[UUID, str]] = [(inv_id, "borehole") for inv_id in bh_rows] + [
-            (inv_id, "cpt") for inv_id in cpt_rows
-        ]
-        return result
-
-    async def _load_observation_layers(
-        self,
-        *,
-        corridor_investigations: list[tuple[UUID, str]],
-    ) -> list[ObservationLayerRecord]:
-        """Load ``ObservationLayerOrm`` rows for all borehole investigations in the corridor.
-
-        CPT Robertson-SBT layers are Phase 5; this method covers boreholes only.
-
-        Parameters
-        ----------
-        corridor_investigations : list[tuple[UUID, str]]
-            All corridor investigation pairs.
-
-        Returns
-        -------
-        list[ObservationLayerRecord]
-            Flattened list of observation-layer records for the corridor.
-        """
-        borehole_ids = [inv_id for inv_id, kind in corridor_investigations if kind == "borehole"]
-        if not borehole_ids:
-            return []
-
-        # Load observation ids for these boreholes.
-        obs_rows = (
-            await self._session.execute(
-                select(ObservationOrm.id, ObservationOrm.borehole_id).where(
-                    ObservationOrm.borehole_id.in_(borehole_ids)
-                )
-            )
-        ).all()
-
-        if not obs_rows:
-            return []
-
-        obs_id_to_borehole: dict[UUID, UUID] = {r.id: r.borehole_id for r in obs_rows}
-        obs_ids = list(obs_id_to_borehole.keys())
-
-        layer_rows = (
-            await self._session.execute(
-                select(
-                    ObservationLayerOrm.observation_id,
-                    ObservationLayerOrm.top_m,
-                    ObservationLayerOrm.base_m,
-                    ObservationLayerOrm.main_soil_codes,
-                ).where(ObservationLayerOrm.observation_id.in_(obs_ids))
-            )
-        ).all()
-
-        records: list[ObservationLayerRecord] = []
-        for row in layer_rows:
-            borehole_id = obs_id_to_borehole.get(row.observation_id)
-            if borehole_id is None:
-                continue
-            codes: list[str] = row.main_soil_codes or []
-            records.append(
-                ObservationLayerRecord(
-                    investigation_id=borehole_id,
-                    investigation_kind="borehole",
-                    top_m=row.top_m,
-                    base_m=row.base_m,
-                    main_soil_codes=codes,
-                )
-            )
-        return records
