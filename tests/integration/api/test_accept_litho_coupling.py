@@ -1,4 +1,4 @@
-"""Integration tests: litho↔geo contact coupling on accept (#162 Task 3).
+"""Integration tests: litho↔geo contact coupling on accept (#162 Task 3 + Task 4).
 
 Verifies that ``AcceptLithoSuggestions.execute`` links a newly-accepted litho
 contact to the nearest geological contact within ``couple_tolerance_m`` (default
@@ -11,6 +11,9 @@ CP1  Litho top within tolerance of a geo contact → ``parent_geo_contact_id``
      snapped to the litho depth.
 CP2  Litho top mid-formation, far from every geo contact → ``parent_geo_contact_id``
      is None (no spurious coupling).
+CP3  After a coupling snap, the parent geological model's surface for the
+     touched formation is rebuilt (``is_stale=False``) — once per accept,
+     not per contact (#162 Task 4).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------
@@ -269,4 +273,80 @@ async def test_cp2_mid_formation_litho_has_no_coupling(
     assert litho_contact.parent_geo_contact_id is None, (
         f"Litho contact at 1.0 m (2.0 m from geo contact at 3.0 m) must NOT be "
         f"coupled; got parent_geo_contact_id={litho_contact.parent_geo_contact_id}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CP3 — geo surface rebuilt after coupling snap (#162 Task 4)
+# ---------------------------------------------------------------------------
+
+
+async def test_cp3_geo_surface_rebuilt_after_coupling_snap(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """After a litho accept that snaps a geological contact, the parent geological
+    model's surface for the touched formation must be rebuilt (is_stale=False).
+
+    Setup:
+    - Geo contact at 3.0 m with a pre-existing surface row (is_stale=True to
+      simulate the state immediately after the snap mutates the contact's depth
+      and before the router triggers the rebuild).  We seed the surface as stale
+      so the test exercises the rebuild leg rather than the "no surface" case.
+    - Litho suggestion top at 2.95 m (delta 0.05 m, within 0.20 m tolerance)
+      → coupling fires, geo contact snapped, router should call
+      RebuildModelSurfaces on the parent geo model.
+
+    Expected:
+    - After the accept HTTP call, the FormationSurface row for (geo_model,
+      geo_formation) has is_stale=False (the rebuild cleared it).
+    - The surface row exists (created by the rebuild if it did not exist
+      beforehand, or refreshed if it was stale).
+    """
+    geo_model = stack["geo_model"]
+    geo_formation = stack["geo_formation"]
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+
+    # Pre-create a stale surface row for the geo formation so we can assert
+    # that the rebuild clears it.  Stale mirrors the state the contact-update
+    # path would leave behind (mark_surfaces_stale fires on every depth change).
+    stale_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=geo_model["id"],
+        formation_id=geo_formation["id"],
+        method="tin",
+        # Minimal valid geometry — the rebuild will replace this.
+        vertices=[
+            [149990.0, 199990.0, -3.0],
+            [150010.0, 199990.0, -3.0],
+            [150000.0, 200010.0, -3.0],
+        ],
+        triangles=[[0, 1, 2]],
+        source_contact_count=1,
+        source_contact_checksum=b"\x01" * 8,
+        is_stale=True,  # stale — rebuild must clear this
+    )
+    db_session.add(stale_surface)
+    await db_session.commit()
+
+    # Accept a litho suggestion within coupling tolerance (2.95 m vs geo at 3.0 m).
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=2.95,
+        base=8.0,
+        lithology="KLEI",
+        borehole_id=bh_id,
+    )
+
+    # The router must have called RebuildModelSurfaces on the parent geo model;
+    # that rebuilds (or upserts) the surface and sets is_stale=False.
+    await db_session.refresh(stale_surface)
+    assert stale_surface.is_stale is False, (
+        "After a coupling snap the parent geo model's surface for the touched "
+        f"formation must be rebuilt (is_stale=False); got is_stale={stale_surface.is_stale}"
     )
