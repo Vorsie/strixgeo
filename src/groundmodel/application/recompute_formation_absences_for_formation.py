@@ -32,9 +32,16 @@ from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
     RecomputeFormationAbsencesResult,
 )
+from groundmodel.domain.services.lens_inference import ObservationLayerRecord
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Per-section data the inference engine needs, computed once and reused across
+# every formation in a recompute-all pass (the #153 hoist): the section row,
+# its corridor investigations, and the corridor's observation layers.  Keyed by
+# section id in the cache ``RecomputeAllAbsencesForModel`` passes down.
+SectionInferenceData = tuple[CrossSectionOrm, list[tuple[UUID, str]], list[ObservationLayerRecord]]
 
 
 @dataclass
@@ -85,6 +92,7 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
         model_id: UUID,
         formation_id: UUID,
         commit: bool = True,
+        section_cache: dict[UUID, SectionInferenceData] | None = None,
     ) -> FormationAbsencesForFormationResult:
         """Re-run the inference engine for all sections relevant to this formation.
 
@@ -103,6 +111,15 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
             owns the transaction (e.g. inside ``CorrelateLithoUnits`` or
             ``UncorrelateLithoUnits`` where the edge mutation and the
             inference delta must be atomic).
+        section_cache : dict[UUID, SectionInferenceData] | None
+            Pre-computed per-section data (section row + corridor + observation
+            layers), keyed by section id.  When given, the per-section loads
+            are skipped — ``RecomputeAllAbsencesForModel`` builds this once and
+            reuses it across all formations (the #153 hoist), eliminating the
+            O(formations × sections) redundant corridor/observation scans.
+            ``None`` (default) loads sections itself and lets the body
+            self-load — the path used by per-formation callers
+            (``AcceptLithoSuggestions``, correlate/uncorrelate).
 
         Returns
         -------
@@ -141,12 +158,22 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
         #    handle filtering.  For v1.0 the number of sections is tiny
         #    (5–20 at most) so the O(sections) scan is negligible.
         # ------------------------------------------------------------------
-        sections = await self._load_project_sections(project_id=project_id)
+        # Each entry is (section, corridor_or_None, observation_layers_or_None).
+        # With a cache the per-section data is reused across formations; without
+        # it the body self-loads (corridor/obs = None).
+        if section_cache is not None:
+            entries: list[SectionInferenceData | tuple[CrossSectionOrm, None, None]] = list(
+                section_cache.values()
+            )
+        else:
+            sections = await self._load_project_sections(project_id=project_id)
+            entries = [(section, None, None) for section in sections]
         self.debug(
-            f"Found {len(sections)} section(s) in project {project_id} for absence recompute"
+            f"Found {len(entries)} section(s) in project {project_id} for absence recompute "
+            f"({'cached' if section_cache is not None else 'self-loaded'})"
         )
 
-        if not sections:
+        if not entries:
             self.info(
                 f"RecomputeFormationAbsencesForFormation: no sections in project {project_id} — "
                 "nothing to recompute"
@@ -170,8 +197,8 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
         total_skipped_no_data = 0
         sections_processed = 0
 
-        for i, section in enumerate(sections, start=1):
-            self.debug(f"[{i}/{len(sections)}] section={section.id} name={section.name!r}")
+        for i, (section, corridor, obs_layers) in enumerate(entries, start=1):
+            self.debug(f"[{i}/{len(entries)}] section={section.id} name={section.name!r}")
             try:
                 result: RecomputeFormationAbsencesResult = await body_uc.execute(
                     project_id=project_id,
@@ -180,13 +207,15 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
                     body_ordinal=0,
                     section_id=section.id,
                     commit=False,
+                    corridor_investigations=corridor,
+                    observation_layers=obs_layers,
                 )
                 total_written += result.written_count
                 total_retracted += result.retracted_count
                 total_skipped_no_data += result.skipped_no_data_count
                 sections_processed += 1
                 self.debug(
-                    f"[{i}/{len(sections)}] section={section.id}: "
+                    f"[{i}/{len(entries)}] section={section.id}: "
                     f"written={result.written_count} "
                     f"retracted={result.retracted_count} "
                     f"skipped={result.skipped_no_data_count}"
@@ -197,7 +226,7 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
                 # (e.g. section deleted mid-flight) should not prevent other
                 # sections from being updated.
                 self.warning(
-                    f"[{i}/{len(sections)}] section={section.id}: skipping due to ValueError: {exc}"
+                    f"[{i}/{len(entries)}] section={section.id}: skipping due to ValueError: {exc}"
                 )
 
         # ------------------------------------------------------------------
