@@ -281,6 +281,53 @@ async def test_a1_within_formation_creates_one_contact() -> None:
 
 
 # ---------------------------------------------------------------------------
+# C1 — created litho formation is stamped with its lithology colour (#145)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_c1_created_litho_formation_uses_lithology_color() -> None:
+    """A new litho formation carries its lithology colour, not the grey placeholder.
+
+    Rule (#145): accepting a KLEI suggestion that creates a new formation row
+    must stamp ``color = LITHOLOGY_COLORS["KLEI"]`` so the stored DB value is
+    correct for every read-side consumer — not the legacy ``#9ca3af`` grey
+    that the frontend then had to override at render time.
+    """
+    from groundmodel.shared.constants.litho_constants import (
+        LITHOLOGY_COLORS,
+        LITHOLOGY_FALLBACK_COLOR,
+    )
+
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],  # no existing contact → create formation
+    )
+    uc = _use_case(session)
+
+    suggestions = [_make_suggestion(0.0, 5.0, "KLEI")]
+    await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+    )
+
+    # Pick the created GeologicalFormationOrm out of the session.add calls
+    # (contacts are also added but carry no ``litho_main_soil_code``).
+    added_formations = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if getattr(call.args[0], "litho_main_soil_code", None) is not None
+        and hasattr(call.args[0], "color")
+    ]
+    assert len(added_formations) == 1
+    assert added_formations[0].color == LITHOLOGY_COLORS["KLEI"]
+    assert added_formations[0].color != LITHOLOGY_FALLBACK_COLOR
+
+
+# ---------------------------------------------------------------------------
 # A2 — straddle split: suggestion spans boundary between two geology formations
 # ---------------------------------------------------------------------------
 
