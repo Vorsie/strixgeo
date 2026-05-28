@@ -278,6 +278,12 @@ class UpdateFormationContact(GroundModelLogger):
             self.warning(f"Formation contact vanished mid-update: {contact_id}")
             return None
 
+        # Bidirectional depth propagation (#162): keep coupled geo↔litho
+        # contacts in sync.  Only runs on the depth-only change path.
+        if is_depth_only:
+            new_depth = float(patch["depth_top_m"])
+            await self._propagate_coupled_depth(updated, new_depth)
+
         # On-click build pivot: mark stale rather than recompute. The
         # post-update formation is always affected; the pre-update
         # formation is also affected when the patch flipped formation_id
@@ -300,3 +306,85 @@ class UpdateFormationContact(GroundModelLogger):
             f"formation_id={getattr(updated, 'formation_id', '?')}"
         )
         return updated
+
+    async def _propagate_coupled_depth(
+        self,
+        updated_contact: FormationContactOrm,
+        new_depth: float,
+    ) -> None:
+        """Propagate a depth change to the coupled partner contact.
+
+        Keeps geo↔litho coupled contacts in sync: moving either end moves
+        the other.  Direct session writes only — never re-enters
+        ``UpdateFormationContact.execute`` to avoid cross-merge and
+        re-propagation.
+
+        **Loop guard:** only writes a target whose ``depth_top_m`` already
+        differs from ``new_depth``.  Equal depth → skip.  This terminates
+        the cycle: geo→litho sets litho=new; if litho's own execute fires,
+        it sees geo already at ``new_depth`` and skips, stopping the cycle.
+
+        When a geo contact is updated as a result of a litho move, the geo
+        formation's surface is marked stale so the TIN remains consistent.
+
+        Parameters
+        ----------
+        updated_contact : FormationContactOrm
+            The contact that was just written by ``update_contact``.
+        new_depth : float
+            The depth value that was applied to ``updated_contact``.
+        """
+        parent_id = getattr(updated_contact, "parent_geo_contact_id", None)
+
+        if parent_id is not None:
+            # ---- LITHO → GEO path ----
+            # The updated contact is a litho contact.  Sync its geo parent.
+            self.debug(
+                f"propagate litho→geo: litho {getattr(updated_contact, 'id', '?')} "
+                f"→ geo {parent_id} (new_depth={new_depth}m)"
+            )
+            geo_contact = await self._session.get(FormationContactOrm, parent_id)
+            if geo_contact is None:
+                self.debug(f"propagate litho→geo: geo parent {parent_id} not found — skip")
+                return
+            if geo_contact.depth_top_m == new_depth:
+                # Loop guard: geo already at target depth — nothing to write.
+                self.debug(f"propagate litho→geo: geo {parent_id} already at {new_depth}m — skip")
+                return
+            geo_contact.depth_top_m = new_depth
+            # Mark the geo formation's surface stale so the TIN is rebuilt
+            # on the next explicit "Build" action.
+            await self._repo.mark_surfaces_stale([(geo_contact.model_id, geo_contact.formation_id)])
+            self.success(f"propagate litho→geo: geo contact {parent_id} depth set to {new_depth}m")
+        else:
+            # ---- GEO → LITHO path ----
+            # The updated contact is a geo contact (or an uncoupled litho
+            # contact).  Find all litho children that point at it.
+            self.debug(
+                f"propagate geo→litho: geo {getattr(updated_contact, 'id', '?')} "
+                f"(new_depth={new_depth}m) — scanning for coupled litho children"
+            )
+            contact_id = getattr(updated_contact, "id", None)
+            if contact_id is None:
+                # No id available — cannot look up children; skip propagation.
+                self.debug("propagate geo→litho: updated_contact has no id — skip")
+                return
+            children_stmt = select(FormationContactOrm).where(
+                FormationContactOrm.parent_geo_contact_id == contact_id
+            )
+            children = (await self._session.execute(children_stmt)).scalars().all()
+            written = 0
+            for child in children:
+                if child.depth_top_m == new_depth:
+                    # Loop guard: already at target depth — skip.
+                    self.debug(
+                        f"propagate geo→litho: litho {child.id} already at {new_depth}m — skip"
+                    )
+                    continue
+                child.depth_top_m = new_depth
+                written += 1
+                self.debug(f"propagate geo→litho: litho {child.id} depth set to {new_depth}m")
+            if written:
+                self.success(
+                    f"propagate geo→litho: {written} litho child(ren) depth set to {new_depth}m"
+                )
