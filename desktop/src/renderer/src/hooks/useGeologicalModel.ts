@@ -285,6 +285,13 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   handleBatchUpdateContacts: (updates: readonly FormationContactBatchUpdateEntry[]) => Promise<void>
   handleDeleteContact: (contactId: string) => Promise<void>
+  /** Break the litho↔geo coupling on a single lithostratigraphic contact.
+   *
+   * Nulls ``parent_geo_contact_id`` — does NOT move/delete either contact or
+   * rebuild surfaces (geometry is unchanged; only the coupling label is cleared).
+   * Refetches litho contacts after the server commits so the glyph disappears.
+   */
+  handleUnlinkLithoFromGeo: (contactId: string) => Promise<void>
   /**
    * Seed the active geological model with contacts from borehole stratigraphy.
    * When called from the Sections stage, pass ``sectionId`` and
@@ -2063,6 +2070,35 @@ export function useGeologicalModel({
       lithoContacts,
       pushUndo,
     ],
+  )
+
+  // Break the litho↔geo coupling on a single lithostratigraphic contact.
+  // Nulls parent_geo_contact_id.  Does NOT touch the geo contact or rebuild
+  // surfaces — geometry is unchanged, only the coupling label is cleared.
+  // Refetches litho contacts so the link glyph disappears without a page reload.
+  const handleUnlinkLithoFromGeo = useCallback(
+    async (contactId: string): Promise<void> => {
+      if (!project) return
+      const snapshot =
+        lithoContacts.find(c => c.id === contactId) ?? contacts.find(c => c.id === contactId)
+      if (!snapshot) return
+      const modelId = snapshot.model_id
+      log.debug('geology', `unlinkLithoFromGeo entry id=${contactId}`)
+      try {
+        await api.geology.unlinkLithoFromGeo(project.id, modelId, contactId)
+        // Optimistic patch: null the coupling locally so the glyph
+        // disappears immediately, then refetch for server truth.
+        setLithoContacts(prev =>
+          prev.map(c => (c.id === contactId ? { ...c, parent_geo_contact_id: null } : c)),
+        )
+        refetchLithoContacts()
+        log.success('geology', `unlinkLithoFromGeo ok id=${contactId}`)
+      } catch (err) {
+        log.error('geology', `unlinkLithoFromGeo failed id=${contactId}`, err)
+        toast('error', 'Could not unlink the contact from geology.')
+      }
+    },
+    [project, contacts, lithoContacts, refetchLithoContacts],
   )
 
   // Auto-populate the active model with contacts derived from
@@ -4920,6 +4956,7 @@ export function useGeologicalModel({
     handleBatchCreateContacts,
     handleBatchUpdateContacts,
     handleDeleteContact,
+    handleUnlinkLithoFromGeo,
     handleAutoPopulateFromStratigraphy,
     handleSeedLithoFromParent,
     handleDedupeContacts,
