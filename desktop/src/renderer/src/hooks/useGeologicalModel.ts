@@ -3905,6 +3905,16 @@ export function useGeologicalModel({
           `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
         )
 
+        // Debt #144: an accept writes to the DB immediately (like every
+        // other contact mutation) but used to skip the session-imports
+        // manifest, so the amber dirty flag never lit and the .gmproj
+        // went silently stale on close. Record the created rows the same
+        // way handleCreateContact does so projectDirty + the unsaved-
+        // changes prompt + the File → Save bundle write all fire.
+        if (result.created_formation_ids.length > 0)
+          addToSessionImports('formation', result.created_formation_ids)
+        if (result.created_contact_ids.length > 0)
+          addToSessionImports('contact', result.created_contact_ids)
         // Debt #87: surface a warning toast when any created unit needs
         // engineer review (TIN-extrapolated parent or fully unassigned).
         const summary = formatAcceptParentSummary(result)
@@ -3991,6 +4001,7 @@ export function useGeologicalModel({
       refetchFormations,
       toast,
       pushAcceptLithoUndo,
+      addToSessionImports,
     ],
   )
 
@@ -4042,6 +4053,12 @@ export function useGeologicalModel({
           'geology',
           `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count} stale_tin_fallback=${result.stale_tin_fallback_count}`,
         )
+        // Debt #144: record created rows in the session-imports manifest so
+        // accept-all lights the dirty flag (see acceptLithoSuggestion site above).
+        if (result.created_formation_ids.length > 0)
+          addToSessionImports('formation', result.created_formation_ids)
+        if (result.created_contact_ids.length > 0)
+          addToSessionImports('contact', result.created_contact_ids)
         // Debt #87: see acceptLithoSuggestion site above.
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
@@ -4120,6 +4137,7 @@ export function useGeologicalModel({
       refetchFormations,
       toast,
       pushAcceptLithoUndo,
+      addToSessionImports,
     ],
   )
 
@@ -4322,6 +4340,12 @@ export function useGeologicalModel({
           'geology',
           `acceptBulkLitho ok anchor=${anchorId} idx=${idx} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
+        // Debt #144: record created rows in the session-imports manifest so
+        // the accept lights the dirty flag (see handleAcceptLithoSuggestion).
+        if (result.created_formation_ids.length > 0)
+          addToSessionImports('formation', result.created_formation_ids)
+        if (result.created_contact_ids.length > 0)
+          addToSessionImports('contact', result.created_contact_ids)
         // Debt #87: warn when this single bulk accept produced any unit
         // needing review.
         const summary = formatAcceptParentSummary(result)
@@ -4377,6 +4401,7 @@ export function useGeologicalModel({
       refetchFormations,
       toast,
       pushAcceptLithoUndo,
+      addToSessionImports,
     ],
   )
 
@@ -4485,6 +4510,11 @@ export function useGeologicalModel({
       const collectedOps: AcceptLithoUndoOp[] = []
       const acceptedByAnchor = new Map<string, number[]>()
       const failures: string[] = []
+      // Debt #144: aggregate every committed anchor's created rows so the
+      // whole bulk accept marks the project dirty in two manifest calls
+      // (one per kind), not N. Mirrors the single-accept handlers.
+      const createdContactIdsAll: string[] = []
+      const createdFormationIdsAll: string[] = []
       for (const plan of plans) {
         const r = resultByAnchor.get(plan.anchorId)
         if (r == null || r.error != null) {
@@ -4492,6 +4522,8 @@ export function useGeologicalModel({
           continue
         }
         acceptedByAnchor.set(plan.anchorId, plan.pendingIndices)
+        createdContactIdsAll.push(...r.created_contact_ids)
+        createdFormationIdsAll.push(...r.created_formation_ids)
         collectedOps.push({
           body: plan.body,
           createdContactIds: r.created_contact_ids.slice(),
@@ -4499,6 +4531,10 @@ export function useGeologicalModel({
           acceptedEntries: plan.pendingIndices.map(idx => ({ anchorId: plan.anchorId, idx })),
         })
       }
+      if (createdFormationIdsAll.length > 0)
+        addToSessionImports('formation', createdFormationIdsAll)
+      if (createdContactIdsAll.length > 0)
+        addToSessionImports('contact', createdContactIdsAll)
       setGhostsByAnchor(prev => {
         const next = new Map(prev)
         let changed = false
@@ -4571,6 +4607,7 @@ export function useGeologicalModel({
       refetchFormations,
       toast,
       pushAcceptLithoUndo,
+      addToSessionImports,
     ],
   )
 
