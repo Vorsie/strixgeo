@@ -20,6 +20,26 @@ from groundmodel.application.clear_litho_model import ClearLithoModel, ClearLith
 PROJECT_ID: UUID = uuid4()
 MODEL_ID: UUID = uuid4()
 
+
+@pytest.fixture(autouse=True)
+def _stub_sections(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Stub ``CrossSectionRepository`` so the seeded-array prune stays inert.
+
+    Clear runs ``prune_orphan_seeded_ids`` to sweep stale seeded ids after the
+    deletes.  The delete-count tests below must remain about the bulk-DELETE
+    statements only, so the prune is replaced with an ``AsyncMock`` here and
+    exercised by its own test (``test_clear_prunes_orphan_seeded_ids``).
+    ``raising=False`` keeps the fixture valid before the import lands (TDD red).
+    """
+    instance = AsyncMock()
+    monkeypatch.setattr(
+        "groundmodel.application.clear_litho_model.CrossSectionRepository",
+        MagicMock(return_value=instance),
+        raising=False,
+    )
+    return instance
+
+
 # Three litho formation ids that the model's contacts point at.
 F1: UUID = uuid4()
 F2: UUID = uuid4()
@@ -176,3 +196,29 @@ async def test_geological_formations_not_touched() -> None:
     # Only 4 execute calls: candidate-fid SELECT + 3 DELETEs (no survivor
     # SELECT or formation DELETE because candidate_fids was empty).
     assert session.execute.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_clear_prunes_orphan_seeded_ids(_stub_sections: AsyncMock) -> None:
+    """After the deletes, Clear sweeps every section's stale seeded ids.
+
+    This is the "clean slate on clear" rule: the contacts the clear just
+    deleted (and any historical debris from earlier suggest→accept→delete
+    cycles) must be removed from ``seeded_formation_contact_ids``.  The prune
+    runs in the same session as the deletes (the caller commits once).
+    """
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=_make_execute_side_effects(
+            candidate_fids=[F1, F2],
+            n_contacts=4,
+            n_edges=1,
+            n_surfaces=2,
+            surviving_fids=[],
+            n_formations=2,
+        )
+    )
+    uc = ClearLithoModel(session)
+    await uc.execute(PROJECT_ID, MODEL_ID)
+
+    _stub_sections.prune_orphan_seeded_ids.assert_awaited_once_with(PROJECT_ID)

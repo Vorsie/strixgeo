@@ -51,6 +51,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.repositories.cross_section_repository import (
+    CrossSectionRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -194,10 +197,18 @@ class ClearLithoModel(GroundModelLogger):
                     f"kept_shared={len(still_referenced & candidate_fids)}"
                 )
 
+        # Sweep stale seeded ids off the project's sections. The contacts just
+        # deleted (and any debris from earlier suggest→accept→delete cycles)
+        # are now orphaned references in seeded_formation_contact_ids; prune
+        # them so a cleared model genuinely resets the sections to a clean
+        # slate. Flush-only — the caller's commit covers it.
+        pruned = await CrossSectionRepository(self._session).prune_orphan_seeded_ids(project_id)
+
         self.success(
             f"clear_litho_model ok model_id={model_id} "
             f"contacts={n_contacts} edges={n_edges} "
-            f"surfaces={n_surfaces} formations={n_formations}"
+            f"surfaces={n_surfaces} formations={n_formations} "
+            f"seeded_ids_pruned={pruned}"
         )
         return ClearLithoModelResult(
             contacts=n_contacts,
