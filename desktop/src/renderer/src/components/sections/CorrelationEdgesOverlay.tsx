@@ -46,17 +46,23 @@ const CONTACT_EDGE_COLOR = '#10b981'
 /** Stroke width for contact-level edges — slightly thicker than body
  *  edges so the two overlay types read distinctly when both are present. */
 const CONTACT_EDGE_WIDTH = 1.8
-/** Dash pattern for contact-level edges — solid (no dash) so they
- *  contrast visually with the dashed formation-level lines. */
-const CONTACT_EDGE_DASH = 'none'
-/** Ambient opacity for contact-level edges (same policy as body edges). */
-const CONTACT_EDGE_OPACITY = 0.65
 /** Stroke colour for unapproved (pending) contact-level edges — amber-500.
  *  Distinct from the solid emerald of approved edges so the user can see
  *  at a glance which edges still need to be accepted. */
 const UNAPPROVED_EDGE_COLOR = '#f59e0b'
 /** Dash pattern for unapproved edges — dashed to signal provisional state. */
 const UNAPPROVED_EDGE_DASH = '4 4'
+/** Half-height (px) of the seam ribbon above and below the boundary line
+ *  (#131-c). Fixed regardless of zoom so the ribbon reads consistently. */
+const RIBBON_HALF_HEIGHT_PX = 12
+/** Fill opacity for an approved (accepted) correlation ribbon. */
+const RIBBON_APPROVED_OPACITY = 0.9
+/** Fill opacity for a pending (unaccepted) correlation ribbon — faded so a
+ *  section full of auto-proposed edges stays readable. */
+const RIBBON_PENDING_OPACITY = 0.32
+/** Near-black seam line through an approved ribbon (matches the #143 litho
+ *  contact line so the boundary reads against the lithology fills). */
+const RIBBON_SEAM_COLOR = '#0f172a'
 /** Hit target height around each contact top-boundary line (±px), used
  *  as the clickable rect height when contactCorrelateMode is active. */
 const CONTACT_HIT_HEIGHT = 12
@@ -719,6 +725,14 @@ export default function CorrelationEdgesOverlay({
     [contacts, placedColumns, bandMap, levelToScreen],
   )
 
+  // Above/below lithology colour per contact, for the gradient ribbon
+  // (#131-c). Re-derived only when the contacts or the formation lookup
+  // change.
+  const stripeColorsByContactId = useMemo(
+    () => contactStripeColors(contacts, formationById),
+    [contacts, formationById],
+  )
+
   // Destructure contactGestureState with safe defaults so the render
   // block can use these without repeated optional-chain guards.
   const {
@@ -913,13 +927,14 @@ export default function CorrelationEdgesOverlay({
         </g>
       )}
 
-      {/* Contact-level correlation edges (#133 Phase 1).
-          Point-to-point solid emerald lines between the topY of each
-          correlated contact's band.  Distinct from the formation-level
-          dashed blue lines so both overlay types are readable when active
-          simultaneously.  Each line renders from contact_a's column
-          nudgedX at its band topY to contact_b's equivalent.
-          Absent when ``contactEdges`` is undefined (no regression). */}
+      {/* Contact-level correlation ribbons (#131-c). Each edge renders a
+          seam ribbon straddling the correlated boundary: a top stripe in
+          the lithology ABOVE the contact and a bottom stripe in the
+          lithology BELOW, each a horizontal gradient from contact A's
+          colour to contact B's (so a lens reads as a colour fade). The
+          above stripe is omitted when either end is the topmost contact
+          (no lithology above). Approved → solid + near-black seam line;
+          pending → faded + dashed amber outline + drag handles. */}
       {contactEdges && contactEdges.length > 0 && (
         <g data-testid="contact-edges-overlay">
           {contactEdges.map(ce => {
@@ -928,23 +943,91 @@ export default function CorrelationEdgesOverlay({
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
             const hs = DRAG_HANDLE_SIZE
+            const H = RIBBON_HALF_HEIGHT_PX
+            const stripesA = stripeColorsByContactId.get(ce.contact_a_id)
+            const stripesB = stripeColorsByContactId.get(ce.contact_b_id)
+            const aboveA = stripesA?.above ?? null
+            const aboveB = stripesB?.above ?? null
+            const belowA = stripesA?.below ?? null
+            const belowB = stripesB?.below ?? null
+            // Above stripe only when BOTH ends have a lithology above —
+            // a one-sided gradient that fades into nothing is omitted.
+            const showAbove = aboveA !== null && aboveB !== null
+            const showBelow = belowA !== null && belowB !== null
+            const fillOpacity = approved ? RIBBON_APPROVED_OPACITY : RIBBON_PENDING_OPACITY
+            // Perimeter for the pending dashed outline — wraps whichever
+            // stripes are present (top edge sits at −H only when the above
+            // stripe shows, otherwise at the seam line).
+            const topY_A = showAbove ? ptA.topY - H : ptA.topY
+            const topY_B = showAbove ? ptB.topY - H : ptB.topY
+            const botY_A = showBelow ? ptA.topY + H : ptA.topY
+            const botY_B = showBelow ? ptB.topY + H : ptB.topY
             return (
-              <g key={`contact-edge-${ce.id}`} pointerEvents="none">
-                <line
-                  data-testid={`contact-edge-${ce.id}`}
-                  data-approved={approved ? 'true' : 'false'}
-                  x1={ptA.x}
-                  y1={ptA.topY}
-                  x2={ptB.x}
-                  y2={ptB.topY}
-                  stroke={approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR}
-                  strokeWidth={CONTACT_EDGE_WIDTH}
-                  strokeDasharray={approved ? CONTACT_EDGE_DASH : UNAPPROVED_EDGE_DASH}
-                  opacity={CONTACT_EDGE_OPACITY}
-                  pointerEvents="none"
-                />
-                {/* Grab handles — only on unapproved edges, visible + interactive
-                    so the user can drag an endpoint to a different contact. */}
+              <g
+                key={`ribbon-${ce.id}`}
+                data-testid={`ribbon-${ce.id}`}
+                data-approved={approved ? 'true' : 'false'}
+                pointerEvents="none"
+              >
+                <defs>
+                  {showAbove && (
+                    <linearGradient
+                      id={`ribbon-above-grad-${ce.id}`}
+                      gradientUnits="userSpaceOnUse"
+                      x1={ptA.x} y1={0} x2={ptB.x} y2={0}
+                    >
+                      <stop offset="0" stopColor={aboveA as string} />
+                      <stop offset="1" stopColor={aboveB as string} />
+                    </linearGradient>
+                  )}
+                  {showBelow && (
+                    <linearGradient
+                      id={`ribbon-below-grad-${ce.id}`}
+                      gradientUnits="userSpaceOnUse"
+                      x1={ptA.x} y1={0} x2={ptB.x} y2={0}
+                    >
+                      <stop offset="0" stopColor={belowA as string} />
+                      <stop offset="1" stopColor={belowB as string} />
+                    </linearGradient>
+                  )}
+                </defs>
+                {showAbove && (
+                  <polygon
+                    data-testid={`ribbon-above-${ce.id}`}
+                    points={`${ptA.x},${ptA.topY - H} ${ptB.x},${ptB.topY - H} ${ptB.x},${ptB.topY} ${ptA.x},${ptA.topY}`}
+                    fill={`url(#ribbon-above-grad-${ce.id})`}
+                    fillOpacity={fillOpacity}
+                  />
+                )}
+                {showBelow && (
+                  <polygon
+                    data-testid={`ribbon-below-${ce.id}`}
+                    points={`${ptA.x},${ptA.topY} ${ptB.x},${ptB.topY} ${ptB.x},${ptB.topY + H} ${ptA.x},${ptA.topY + H}`}
+                    fill={`url(#ribbon-below-grad-${ce.id})`}
+                    fillOpacity={fillOpacity}
+                  />
+                )}
+                {approved ? (
+                  <line
+                    data-testid={`ribbon-seam-${ce.id}`}
+                    x1={ptA.x} y1={ptA.topY} x2={ptB.x} y2={ptB.topY}
+                    stroke={RIBBON_SEAM_COLOR}
+                    strokeWidth={1.5}
+                    pointerEvents="none"
+                  />
+                ) : (
+                  <polygon
+                    data-testid={`ribbon-outline-${ce.id}`}
+                    points={`${ptA.x},${topY_A} ${ptB.x},${topY_B} ${ptB.x},${botY_B} ${ptA.x},${botY_A}`}
+                    fill="none"
+                    stroke={UNAPPROVED_EDGE_COLOR}
+                    strokeWidth={1.4}
+                    strokeDasharray="4 4"
+                    pointerEvents="none"
+                  />
+                )}
+                {/* Grab handles — only on pending edges, interactive so the
+                    user can drag an endpoint to a different contact. */}
                 {!approved && onUnapprovedDragStart && (
                   <>
                     <rect

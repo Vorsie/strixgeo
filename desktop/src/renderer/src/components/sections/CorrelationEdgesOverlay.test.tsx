@@ -400,65 +400,103 @@ describe('CorrelationEdgesOverlay', () => {
     expect(screen.queryByText(/mark as lens/i)).toBeNull()
   })
 
-  // CC8: approved contact edge renders with data-approved="true".
-  // Approved edges draw solid emerald; this test pins the attribute only —
-  // the visual difference (stroke colour) is verified by the colour constants.
-  it('CC8: approved contact edge renders with data-approved="true"', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
+  // CC8: approved contact edge renders a ribbon group with data-approved="true"
+  // and a near-black seam line.
+  it('CC8: approved contact edge renders ribbon with data-approved="true"', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
     const contacts = [
       makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e1',
-      contact_a_id: 'ca',
-      contact_b_id: 'cb',
-      model_id: 'm1',
-      source: 'manual',
-      user_approved: true,
-      created_at: '2026-01-01T00:00:00Z',
+      id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
-      contacts,
-      formations: [fA],
+      contacts, formations: [fA],
       placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
       contactEdges: [edge],
     })
-    const line = screen.getByTestId('contact-edge-e1')
-    expect(line.getAttribute('data-approved')).toBe('true')
+    expect(screen.getByTestId('ribbon-e1').getAttribute('data-approved')).toBe('true')
+    expect(screen.getByTestId('ribbon-seam-e1')).not.toBeNull()
+    expect(screen.queryByTestId('ribbon-outline-e1')).toBeNull()
   })
 
-  // CC9: unapproved contact edge renders with data-approved="false".
-  // Unapproved edges draw dashed amber; this test pins the attribute.
-  it('CC9: unapproved contact edge renders with data-approved="false"', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
+  // CC9: unapproved contact edge renders a faded ribbon with a dashed amber
+  // outline and data-approved="false".
+  it('CC9: unapproved contact edge renders ribbon with data-approved="false"', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
     const contacts = [
       makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e2',
-      contact_a_id: 'ca',
-      contact_b_id: 'cb',
-      model_id: 'm1',
-      source: 'auto',
-      user_approved: false,
-      created_at: '2026-01-01T00:00:00Z',
+      id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
-      contacts,
-      formations: [fA],
+      contacts, formations: [fA],
       placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
       contactEdges: [edge],
     })
-    const line = screen.getByTestId('contact-edge-e2')
-    expect(line.getAttribute('data-approved')).toBe('false')
+    expect(screen.getByTestId('ribbon-e2').getAttribute('data-approved')).toBe('false')
+    const outline = screen.getByTestId('ribbon-outline-e2')
+    expect(outline.getAttribute('stroke')).toBe('#f59e0b')
+    expect(outline.getAttribute('stroke-dasharray')).toBe('4 4')
+    expect(screen.queryByTestId('ribbon-seam-e2')).toBeNull()
+  })
+
+  // SR1: topmost-contact edge omits the above stripe (only below renders).
+  it('SR1: topmost contacts omit the above stripe', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e3', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    expect(screen.queryByTestId('ribbon-above-e3')).toBeNull()
+    expect(screen.getByTestId('ribbon-below-e3')).not.toBeNull()
+  })
+
+  // SR2: a lens (below lithology differs across ends) yields different
+  // below-gradient stops; the above gradient (same ZAND both ends) is equal.
+  it('SR2: lens edge has differing below-gradient stops, equal above stops', () => {
+    const fZand = { ...makeFormation('f-zand', 'Zand', null), color: '#fbbf24' }
+    const fKlei = { ...makeFormation('f-klei', 'Klei', null), color: '#6b7280' }
+    const fSilt = { ...makeFormation('f-silt', 'Silt', null), color: '#84cc16' }
+    const contacts = [
+      makeContact('za', 'f-zand', 'inv-A', 'cpt', 0),
+      makeContact('ka', 'f-klei', 'inv-A', 'cpt', 2),
+      makeContact('zb', 'f-zand', 'inv-B', 'cpt', 0),
+      makeContact('sb', 'f-silt', 'inv-B', 'cpt', 2),
+    ]
+    const edge = {
+      id: 'e4', contact_a_id: 'ka', contact_b_id: 'sb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    const { container } = renderOverlay({
+      contacts, formations: [fZand, fKlei, fSilt],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const belowStops = container.querySelectorAll('#ribbon-below-grad-e4 stop')
+    expect(belowStops[0].getAttribute('stop-color')).toBe('#6b7280') // KLEI (A)
+    expect(belowStops[1].getAttribute('stop-color')).toBe('#84cc16') // SILT (B)
+    const aboveStops = container.querySelectorAll('#ribbon-above-grad-e4 stop')
+    expect(aboveStops[0].getAttribute('stop-color')).toBe('#fbbf24') // ZAND
+    expect(aboveStops[1].getAttribute('stop-color')).toBe('#fbbf24') // ZAND
   })
 })
 
