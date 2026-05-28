@@ -19,7 +19,11 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
+from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
+    LithoLensBoundaryNodeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
+from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
@@ -46,6 +50,8 @@ __all__ = [
     "InvestigationReviewOrm",
     "FormationAbsenceOrm",
     "LithoLensOrm",
+    "LithoLensBoundaryNodeOrm",
+    "LithoLensShapeOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
     "OrganicContentOrm",

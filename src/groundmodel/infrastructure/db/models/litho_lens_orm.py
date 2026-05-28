@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -98,6 +98,14 @@ class LithoLensOrm(Base):
     # 0-based ordinal assigned by the correlation resolver.  Two distinct
     # clay drapes within the same formation have ordinal 0 and 1 respectively.
     body_ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Stable content key (#163f) — the sorted hash of the body's three
+    # defining contact ids, stamped by DetectLithoLenses.  Unlike
+    # ``body_ordinal`` (volatile), this survives a resolver re-run, so a
+    # user-authored boundary shape (``litho_lens_shape``) joins to the lens
+    # by this key and is not lost when the ordinal shifts.  Nullable for rows
+    # created before the shaping feature / not yet re-detected.
+    content_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Optional human label.  UI falls back to a derived name when null
     # ("Lens 1 in <formation>").
