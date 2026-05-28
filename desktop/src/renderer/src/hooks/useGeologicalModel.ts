@@ -3894,6 +3894,7 @@ export function useGeologicalModel({
           ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: [layer],
+          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4043,6 +4044,7 @@ export function useGeologicalModel({
           ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: pendingLayers,
+          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4330,6 +4332,7 @@ export function useGeologicalModel({
           ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: [layer],
+          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4487,6 +4490,7 @@ export function useGeologicalModel({
           })),
           section_id: sectionId ?? null,
           run_inference: true,
+          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
         })
       } catch (err) {
         log.error('geology', 'acceptAllBulkLitho batch call failed', err)
