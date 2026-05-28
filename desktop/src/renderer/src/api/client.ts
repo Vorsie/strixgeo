@@ -512,6 +512,11 @@ export interface AcceptLithoSuggestionsRequest {
   // falls within this distance of a geological formation boundary, the
   // split piece is suppressed. Default 0.20 m. Range 0.01–5.0 m.
   straddle_min_piece_thickness_m?: number
+  // Litho↔geo coupling coincidence tolerance (#162). A litho contact
+  // within this distance of a geological contact on the same investigation
+  // is linked and snapped to it. Sourced from litho_snap_tolerance_m pref.
+  // Default 0.20 m. Range 0.01–5.0 m.
+  couple_tolerance_m?: number
 }
 
 export interface AcceptLithoSuggestionsResponse {
@@ -555,6 +560,10 @@ export interface BatchAcceptLithoSuggestionsRequest {
   // Straddle sliver guard (debt #157). Forwarded to every per-anchor accept.
   // Default 0.20 m. Range 0.01–5.0 m.
   straddle_min_piece_thickness_m?: number
+  // Litho↔geo coupling coincidence tolerance (#162). Forwarded to every
+  // per-anchor accept. Sourced from litho_snap_tolerance_m pref.
+  // Default 0.20 m. Range 0.01–5.0 m.
+  couple_tolerance_m?: number
 }
 
 export interface BatchAcceptLithoAnchorResult {
