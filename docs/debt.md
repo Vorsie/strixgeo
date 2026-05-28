@@ -4349,15 +4349,19 @@ each sub-item is independently shippable.
   as `geoDeepLinkTarget`) — `handleAutoCorrelate` bumps it via the new
   `requestCorrelationEdgesRefetch` arg on success, and `SectionsCanvas`
   lists it in its edge-refetch effect deps. AC1/AC2 pin the hook contract.
-* **(d) Hard to grab a correlation endpoint to re-target (image #9).** The
-  drag handle (`unapproved-handle-a/b`) is an 8 px square — hard to hit.
-  Enlarge the hit target (a wider invisible grab rect around the endpoint),
-  or allow grabbing anywhere along the edge to drag the nearest endpoint.
-* **(e) Right-click anywhere on a suggested correlation → delete.** Today a
-  correlation can't be deleted by right-clicking the line/ribbon itself.
-  Add a hit target along the whole edge (the ribbon body) with a right-click
-  → "Delete correlation" (mirror the contact band-rclick → remove pattern,
-  #151). Pairs with (d).
+* **(d) Hard to grab a correlation endpoint to re-target (image #9).**
+  SHIPPED 2026-05-28. Each pending endpoint now has a 22 px transparent grab
+  rect (`unapproved-grab-a/b`) around the 8 px visible handle
+  (`DRAG_HANDLE_HIT_SIZE`), so the drag target is comfortable to hit without
+  changing the affordance. CE-D1 pins it.
+* **(e) Right-click anywhere on a correlation → delete.** SHIPPED 2026-05-28.
+  A transparent wide hit band (`edge-hit-<id>`, `EDGE_HIT_STROKE_WIDTH`) runs
+  along every edge seam; right-click opens a one-item "Delete correlation"
+  menu (`EdgeContextMenu`, mirrors the band-rclick → remove pattern #151) and
+  fires the new `onRequestDeleteEdge` prop → SectionsCanvas reuses
+  `handleDeleteContactCorrelation` (optimistic remove + DELETE + refetch). The
+  hit band renders below the grab handles so endpoint drags still win
+  mousedown. CE-E1/E2 pin it.
 * **(f) Right-click a suggestion → "split suggestion into 2" for lenses.**
   Owner wants to split one litho suggestion into two contacts that can be
   dragged apart, to model a lens (a unit that pinches in/out between tests).
@@ -4368,12 +4372,11 @@ each sub-item is independently shippable.
   body. Bigger than (a)-(e); needs its own design pass alongside the lens
   model.
 
-**Priority within #163:** (a) adjacent-only + (b) depth-window knob + (c)
-refresh all SHIPPED 2026-05-28. Remaining: (d) enlarge correlation-endpoint
-grab target + (e) right-click-edge-to-delete (UX, pair them); (f)
-split-suggestion-into-2 for lenses (a feature needing design, pair with the
-lens work #131-a/#101). Tier G (litho-finishing) since auto-correlate is part
-of the litho stage. Filed from dogfeed session 2026-05-28.
+**Priority within #163:** (a)+(b)+(c)+(d)+(e) all SHIPPED 2026-05-28. Only
+(f) split-suggestion-into-2 for lenses remains — a feature needing a design
+pass alongside the lens work (#131-a lens_id / #101). Tier G (litho-finishing)
+since auto-correlate is part of the litho stage. Filed from dogfeed session
+2026-05-28.
 
 ## (end)
 
