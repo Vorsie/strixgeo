@@ -36,6 +36,11 @@ class BatchAcceptLithoSuggestionsRequest(BaseModel):
         Straddle sliver guard forwarded to each per-anchor
         ``AcceptLithoSuggestions.execute(...)`` call (debt #157).  Default
         0.20 m.  Range 0.01 – 5.0 m.
+    couple_tolerance_m : float
+        Litho↔geo coupling coincidence tolerance (#162).  Forwarded verbatim
+        to each per-anchor ``AcceptLithoSuggestions.execute(...)`` call.
+        Sourced from the frontend's ``litho_snap_tolerance_m`` preference.
+        Default 0.20 m.  Range 0.01 – 5.0 m.
     """
 
     anchors: list[BatchAcceptLithoAnchor] = Field(default_factory=list)
@@ -48,6 +53,17 @@ class BatchAcceptLithoSuggestionsRequest(BaseModel):
         description=(
             "Straddle sliver guard (debt #157).  Forwarded verbatim to each "
             "per-anchor AcceptLithoSuggestions.execute call.  "
+            "Default 0.20 m.  Range 0.01 – 5.0 m."
+        ),
+    )
+    couple_tolerance_m: float = Field(
+        default=0.20,
+        ge=0.01,
+        le=5.0,
+        description=(
+            "Litho↔geo coupling coincidence tolerance (#162).  Forwarded verbatim "
+            "to each per-anchor AcceptLithoSuggestions.execute call.  "
+            "Sourced from the frontend's litho_snap_tolerance_m preference.  "
             "Default 0.20 m.  Range 0.01 – 5.0 m."
         ),
     )
