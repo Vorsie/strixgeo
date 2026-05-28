@@ -88,6 +88,13 @@ const CHIP_HALO_WIDTH = 2
 /** Size of the drag-grab handles rendered at each endpoint of an
  *  unapproved edge so the user can re-target it (#133 Phase 2+3). */
 const DRAG_HANDLE_SIZE = 8
+/** Size of the enlarged (transparent) grab target around each endpoint
+ *  handle (#163d). The visible 8 px square was too small to hit reliably;
+ *  this widens the clickable area without changing the affordance. */
+const DRAG_HANDLE_HIT_SIZE = 22
+/** Stroke width of the invisible right-click hit band drawn along each
+ *  correlation edge (#163e) — wide enough to grab the diagonal seam. */
+const EDGE_HIT_STROKE_WIDTH = 14
 
 // ---------------------------------------------------------------------------
 // Types
@@ -217,6 +224,14 @@ interface Props {
     /** Current cursor Y in **viewport** coords (from mousemove clientY). */
     cursorViewportY: number
   }
+  /**
+   * Fired when the user picks "Delete correlation" from the edge's
+   * right-click menu (#163e).  The caller (SectionsCanvas) removes the
+   * edge (optimistic local removal + DELETE + refetch).  Absent = no
+   * right-click-delete affordance is rendered (read-only / tests that
+   * don't need it).
+   */
+  onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +639,65 @@ function BodyContextMenu({
 }
 
 // ---------------------------------------------------------------------------
+// EdgeContextMenu — right-click on a correlation edge (#163e)
+// ---------------------------------------------------------------------------
+
+interface EdgeContextMenuState {
+  x: number
+  y: number
+  edge: LithoContactCorrelationEdge
+}
+
+interface EdgeContextMenuProps {
+  menu: EdgeContextMenuState
+  /** Deletes this correlation edge (caller owns the DELETE + refetch). */
+  onDelete: () => void
+  onClose: () => void
+}
+
+function EdgeContextMenu({ menu, onDelete, onClose }: EdgeContextMenuProps): JSX.Element {
+  const itemStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    padding: '6px 12px',
+    textAlign: 'left',
+    fontSize: 12,
+    color: 'var(--color-text-danger, #f87171)',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+  }
+  return (
+    <foreignObject x={menu.x} y={menu.y} width={200} height={48} style={{ overflow: 'visible' }}>
+      <div
+        data-testid="edge-context-menu"
+        style={{
+          position: 'absolute',
+          background: 'var(--color-surface-overlay, #1e293b)',
+          border: '1px solid var(--color-border-default, #334155)',
+          borderRadius: 6,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          zIndex: 9999,
+          minWidth: 180,
+        }}
+      >
+        <button type="button" style={itemStyle} onClick={onDelete}>
+          Delete correlation
+        </button>
+      </div>
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+        onClick={onClose}
+        onContextMenu={e => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+    </foreignObject>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -673,6 +747,7 @@ export default function CorrelationEdgesOverlay({
   contactGestureState,
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
+  onRequestDeleteEdge,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
@@ -684,6 +759,10 @@ export default function CorrelationEdgesOverlay({
 
   /** Hovered body ordinal (debt #100). null = no hover; chip halos hidden. */
   const [hoveredBodyOrdinal, setHoveredBodyOrdinal] = useState<number | null>(null)
+
+  /** Edge-level right-click menu (#163e) — opened by right-clicking a
+   *  correlation edge's hit band; carries the edge to delete. */
+  const [edgeContextMenu, setEdgeContextMenu] = useState<EdgeContextMenuState | null>(null)
 
   // State for the admixture editor modal opened from the body chip context menu.
   const [admixEditorState, setAdmixEditorState] = useState<{
@@ -1040,10 +1119,63 @@ export default function CorrelationEdgesOverlay({
                     pointerEvents="none"
                   />
                 )}
+                {/* Right-click hit band along the edge (#163e). Transparent
+                    wide stroke so a right-click anywhere on the seam opens the
+                    Delete-correlation menu. Rendered BEFORE the grab handles so
+                    the handles win mousedown at the endpoints. */}
+                {onRequestDeleteEdge && (
+                  <line
+                    data-testid={`edge-hit-${ce.id}`}
+                    x1={xA}
+                    y1={ptA.topY}
+                    x2={xB}
+                    y2={ptB.topY}
+                    stroke="transparent"
+                    strokeWidth={EDGE_HIT_STROKE_WIDTH}
+                    style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
+                    onContextMenu={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setEdgeContextMenu({
+                        x: (xA + xB) / 2,
+                        y: (ptA.topY + ptB.topY) / 2,
+                        edge: ce,
+                      })
+                    }}
+                  />
+                )}
                 {/* Grab handles — only on pending edges, interactive so the
-                    user can drag an endpoint to a different contact. */}
+                    user can drag an endpoint to a different contact. Each
+                    visible square sits inside a larger transparent hit rect
+                    (#163d) so the grab target is comfortable to hit. */}
                 {!approved && onUnapprovedDragStart && (
                   <>
+                    <rect
+                      data-testid={`unapproved-grab-a-${ce.id}`}
+                      x={xA - DRAG_HANDLE_HIT_SIZE / 2}
+                      y={ptA.topY - DRAG_HANDLE_HIT_SIZE / 2}
+                      width={DRAG_HANDLE_HIT_SIZE}
+                      height={DRAG_HANDLE_HIT_SIZE}
+                      fill="transparent"
+                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                      onMouseDown={e => {
+                        e.stopPropagation()
+                        onUnapprovedDragStart(e, ce, 'a')
+                      }}
+                    />
+                    <rect
+                      data-testid={`unapproved-grab-b-${ce.id}`}
+                      x={xB - DRAG_HANDLE_HIT_SIZE / 2}
+                      y={ptB.topY - DRAG_HANDLE_HIT_SIZE / 2}
+                      width={DRAG_HANDLE_HIT_SIZE}
+                      height={DRAG_HANDLE_HIT_SIZE}
+                      fill="transparent"
+                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                      onMouseDown={e => {
+                        e.stopPropagation()
+                        onUnapprovedDragStart(e, ce, 'b')
+                      }}
+                    />
                     <rect
                       data-testid={`unapproved-handle-a-${ce.id}`}
                       x={xA - hs / 2}
@@ -1213,6 +1345,19 @@ export default function CorrelationEdgesOverlay({
               : undefined
           }
           onClose={() => setBodyContextMenu(null)}
+        />
+      )}
+
+      {/* Edge-level context menu — right-click on a correlation edge (#163e). */}
+      {edgeContextMenu && onRequestDeleteEdge && (
+        <EdgeContextMenu
+          menu={edgeContextMenu}
+          onDelete={() => {
+            const { edge } = edgeContextMenu
+            setEdgeContextMenu(null)
+            onRequestDeleteEdge(edge)
+          }}
+          onClose={() => setEdgeContextMenu(null)}
         />
       )}
 
