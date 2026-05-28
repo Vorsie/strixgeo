@@ -65,6 +65,7 @@ from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
 )
 from groundmodel.application.extrapolate_pinch_out import ExtrapolatePinchOut
+from groundmodel.application.link_litho_to_geo import LinkLithoToGeo
 from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.application.recompute_all_absences_for_model import (
     RecomputeAllAbsencesForModel,
@@ -428,6 +429,82 @@ async def unlink_geo_from_contact(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
     if contact is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    return contact
+
+
+@router.post(
+    "/models/{model_id}/contacts/{contact_id}/link-geo",
+    response_model=FormationContactResponse,
+    responses={
+        200: {"description": "Linked successfully or no geo contact within tolerance (null body)."},
+    },
+)
+async def link_geo_to_contact(
+    project_id: UUID,
+    model_id: UUID,
+    contact_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> FormationContactOrm | None:
+    """Link a lithostratigraphic contact to the nearest geological contact.
+
+    Manual inverse of the auto-link that fires on accept (#162).  Lets the
+    user reconnect a litho contact when the auto-link was wrong or missing.
+
+    Picks the geo contact on the same investigation whose ``depth_top_m`` is
+    nearest to the litho contact's ``depth_top_m`` and within
+    ``couple_tolerance_m`` (0.20 m default).  If found:
+
+    - ``parent_geo_contact_id`` is set on the litho contact.
+    - The geo contact's depth is snapped to the litho depth.
+    - The geo formation's surface is marked stale (NOT rebuilt — rebuild
+      happens on the next explicit "Build 3D model" action).
+
+    Returns the updated litho contact (HTTP 200), or ``null`` in the response
+    body when no geo contact is within tolerance.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological (lithostratigraphic) model — must belong to ``project_id``.
+    contact_id : UUID
+        Lithostratigraphic contact to link.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    FormationContactOrm | None
+        The updated litho contact (HTTP 200), or ``None`` when no geo
+        contact is within tolerance.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the contact or model is not found, or when the contact does
+        not belong to the model / project.
+    """
+    # Two-stage scope guard mirrors unlink_geo_from_contact.
+    await get_in_project_or_404(
+        session.get(FormationContactOrm, contact_id),
+        model_id,
+        detail="Contact not found",
+        project_attr="model_id",
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Contact not found",
+    )
+    try:
+        contact = await LinkLithoToGeo(session).execute(
+            project_id=project_id,
+            contact_id=contact_id,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    # None = no geo contact within tolerance — return null body, still 200.
     return contact
 
 
