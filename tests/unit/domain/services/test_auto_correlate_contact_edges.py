@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from groundmodel.domain.services.auto_correlate_contact_edges import (
+    AutoCorrelateContactParams,
     ContactRecord,
     InvestigationLocation,
     auto_correlate_contact_edges,
@@ -152,6 +153,67 @@ def test_distance_gate_rejects_far_pairs() -> None:
         InvestigationLocation(_uid(11), 300.0, 0.0),
     ]
     assert auto_correlate_contact_edges(contacts, locations) == []
+
+
+def test_adjacent_only_keeps_consecutive_chain_not_skip_over_diagonals() -> None:
+    """#163a — auto-correlate links only adjacent tests along the line.
+
+    Four tests strung out collinearly (0, 50, 100, 150 m) with one
+    boundary signature.  Depths alternate (5.0, 5.45, 5.0, 5.45) so the
+    perfect-residual matches are the SKIP-OVER pairs T1-T3 and T2-T4 —
+    exactly the "spaghetti" the owner sees: edges that jump over the
+    neighbouring test.  The rule: a correlation may only join tests that
+    are geometrically adjacent, so the result must be the consecutive
+    chain (T1-T2, T2-T3, T3-T4) and never the skip-over diagonals.
+    """
+    contacts = [
+        _make_contact(1, 10, 5.00, 99, "ZAND", "KLEI"),
+        _make_contact(2, 11, 5.45, 99, "ZAND", "KLEI"),
+        _make_contact(3, 12, 5.00, 99, "ZAND", "KLEI"),
+        _make_contact(4, 13, 5.45, 99, "ZAND", "KLEI"),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+        InvestigationLocation(_uid(12), 100.0, 0.0),
+        InvestigationLocation(_uid(13), 150.0, 0.0),
+    ]
+    pairs = {
+        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    # Consecutive chain only.
+    assert (_uid(1), _uid(2)) in pairs
+    assert (_uid(2), _uid(3)) in pairs
+    assert (_uid(3), _uid(4)) in pairs
+    # The skip-over diagonals (jump over the neighbour) must be gone.
+    assert (_uid(1), _uid(3)) not in pairs
+    assert (_uid(2), _uid(4)) not in pairs
+    assert (_uid(1), _uid(4)) not in pairs
+    assert len(pairs) == 3
+
+
+def test_depth_window_param_widens_what_correlates() -> None:
+    """#163b — the depth-match window is user-tunable.
+
+    Two contacts on neighbouring tests 50 m apart with a 0.8 m depth
+    residual.  The default window (~0.6 m at this distance) rejects the
+    pair; a widened ``base_depth_threshold_m=1.0`` accepts it — the knob
+    the Settings control feeds.
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
+        _make_contact(2, 11, 5.8, 99, "ZAND", "KLEI"),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+    ]
+    # Default window is too tight for a 0.8 m residual.
+    assert auto_correlate_contact_edges(contacts, locations) == []
+    # Widened window lets the pair through.
+    widened = AutoCorrelateContactParams(base_depth_threshold_m=1.0)
+    result = auto_correlate_contact_edges(contacts, locations, widened)
+    assert {(_uid(1), _uid(2))} == {(c.contact_a_id, c.contact_b_id) for c in result}
 
 
 def test_mnn_tie_breaking_picks_exactly_one() -> None:
