@@ -50,6 +50,13 @@ export interface LithoSegmenterPrefs {
    *  (#134-C).  Backend range: 0.01 – 5.0 m.  Default 0.20 m
    *  matches the MVP that shipped 2026-05-27. */
   lithoSnapToleranceM: number
+  /** Straddle sliver guard (metres) for the accept flow (debt #157).
+   *  When a CPT suggestion's top or base falls within this distance
+   *  of a geological formation boundary, the straddle split is
+   *  suppressed for that near-edge piece — avoiding sub-tolerance
+   *  slivers that would be narrower than this threshold.  Backend
+   *  range: 0.01 – 5.0 m.  Default 0.20 m. */
+  straddleMinPieceThicknessM: number
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -58,6 +65,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   drCompressionFactor: 0.675,
   mergeSameLithology: true,
   lithoSnapToleranceM: 0.20,
+  straddleMinPieceThicknessM: 0.20,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -65,6 +73,7 @@ export const LITHO_SEGMENTER_BOUNDS = {
   gunsatKNm3: { min: 8.0, max: 25.0 },
   drCompressionFactor: { min: 0.1, max: 2.0 },
   lithoSnapToleranceM: { min: 0.01, max: 5.0 },
+  straddleMinPieceThicknessM: { min: 0.01, max: 5.0 },
 } as const
 
 const VIEW_STATE_KEY = 'litho_segmenter'
@@ -125,6 +134,11 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM,
       LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
     ),
+    straddleMinPieceThicknessM: readBoundedNumber(
+      dict.straddle_min_piece_thickness_m,
+      LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM,
+      LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
+    ),
   }
 }
 
@@ -144,6 +158,7 @@ export function buildLithoSegmenterPatch(
       dr_compression_factor: prefs.drCompressionFactor,
       merge_same_lithology: prefs.mergeSameLithology,
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
+      straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
     },
   }
 }
