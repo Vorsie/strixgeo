@@ -12,6 +12,7 @@ repo's concern; their CRUD will land alongside the editor.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -190,3 +193,125 @@ class CrossSectionRepository(GroundModelLogger):
                 f"seeded set not updated ({type(exc).__name__}): {exc!r}"
             )
             return None
+
+    async def _rewrite_sections(
+        self,
+        app_project_id: UUID,
+        keep: Callable[[UUID], bool],
+    ) -> int:
+        """Rewrite every project section's seeded set, keeping only ids passing ``keep``.
+
+        Flush-only (no commit): the caller owns the transaction. This is the
+        symmetric counterpart to :meth:`union_seeded_contact_ids` — that method
+        is the single write path that ADDS ids (post-commit, non-fatal); this is
+        the single write path that REMOVES them, run inside the caller's
+        delete/clear transaction so the unseed is atomic with the row removal.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            Project whose sections are swept.
+        keep : Callable[[UUID], bool]
+            Predicate run per seeded id — ``True`` keeps the id, ``False`` drops
+            it. The list order of surviving ids is preserved.
+
+        Returns
+        -------
+        int
+            Total number of seeded ids removed across all of the project's
+            sections.
+        """
+        sections = await self.list_all(app_project_id)
+        removed_total = 0
+        for section in sections:
+            seeded = section.seeded_formation_contact_ids or []
+            kept = [cid for cid in seeded if keep(cid)]
+            if len(kept) != len(seeded):
+                removed_total += len(seeded) - len(kept)
+                await self.update(section.id, {"seeded_formation_contact_ids": kept})
+        return removed_total
+
+    async def remove_seeded_contact_ids(
+        self,
+        app_project_id: UUID,
+        contact_ids: set[UUID],
+    ) -> int:
+        """Remove specific contact ids from every project section's seeded set.
+
+        Targeted unseed for the single-contact delete path: a deleted contact
+        must no longer be seeded on any section (closes the seeded-array leak).
+        Flush-only — the caller commits.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            Project whose sections are swept.
+        contact_ids : set[UUID]
+            Contact ids to drop from every section's seeded set. Empty set is a
+            no-op.
+
+        Returns
+        -------
+        int
+            Total number of seeded entries removed across all sections.
+        """
+        if not contact_ids:
+            return 0
+        removed = await self._rewrite_sections(app_project_id, lambda cid: cid not in contact_ids)
+        if removed:
+            self.info(
+                f"remove_seeded_contact_ids: pruned {removed} seeded entr(ies) for "
+                f"{len(contact_ids)} deleted contact(s) in project {app_project_id}"
+            )
+        return removed
+
+    async def prune_orphan_seeded_ids(self, app_project_id: UUID) -> int:
+        """Drop every seeded id that no longer references a live contact.
+
+        Garbage-collection sweep for the clear-litho-model path: after a clear
+        the model's contacts are gone, and historical suggest→accept→delete
+        cycles may have left thousands of stale ids seeded on the project's
+        sections. This removes any seeded id whose contact no longer exists in
+        ANY model of the project, while preserving ids that still reference a
+        live contact (including live geological contacts). Flush-only — the
+        caller commits.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            Project whose sections are swept.
+
+        Returns
+        -------
+        int
+            Total number of stale seeded entries removed across all sections.
+        """
+        live = await self._live_contact_ids(app_project_id)
+        pruned = await self._rewrite_sections(app_project_id, lambda cid: cid in live)
+        if pruned:
+            self.info(
+                f"prune_orphan_seeded_ids: removed {pruned} stale seeded entr(ies) "
+                f"in project {app_project_id} ({len(live)} live contact(s) retained)"
+            )
+        return pruned
+
+    async def _live_contact_ids(self, app_project_id: UUID) -> set[UUID]:
+        """Return the ids of every contact that exists in any model of the project.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            Project to scope the contact set to.
+
+        Returns
+        -------
+        set[UUID]
+            All ``FormationContact.id`` values whose owning model belongs to
+            the project — the set of ids that are legitimately seedable.
+        """
+        stmt = (
+            select(FormationContactOrm.id)
+            .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
+            .where(GeologicalModelOrm.app_project_id == app_project_id)
+        )
+        return set((await self._session.execute(stmt)).scalars().all())
