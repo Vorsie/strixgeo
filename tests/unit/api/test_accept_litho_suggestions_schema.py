@@ -102,3 +102,61 @@ def test_batch_accept_request_straddle_rejects_above_maximum() -> None:
     """Values above 5.0 m are rejected on the batch schema."""
     with pytest.raises(ValidationError, match="straddle_min_piece_thickness_m"):
         BatchAcceptLithoSuggestionsRequest(anchors=[], straddle_min_piece_thickness_m=6.0)
+
+
+# ---------------------------------------------------------------------------
+# AcceptLithoSuggestionsRequest — couple_tolerance_m (#162)
+# ---------------------------------------------------------------------------
+
+
+def test_accept_request_couple_tolerance_defaults_to_020() -> None:
+    """``couple_tolerance_m`` defaults to 0.20 when absent."""
+    req = AcceptLithoSuggestionsRequest(**_accept_kwargs())
+    assert req.couple_tolerance_m == pytest.approx(0.20)
+
+
+def test_accept_request_couple_tolerance_accepts_valid_value() -> None:
+    """A valid in-range value is accepted verbatim."""
+    req = AcceptLithoSuggestionsRequest(**_accept_kwargs(couple_tolerance_m=0.50))
+    assert req.couple_tolerance_m == pytest.approx(0.50)
+
+
+def test_accept_request_couple_tolerance_rejects_below_minimum() -> None:
+    """Values below 0.01 m are rejected (ge=0.01)."""
+    with pytest.raises(ValidationError, match="couple_tolerance_m"):
+        AcceptLithoSuggestionsRequest(**_accept_kwargs(couple_tolerance_m=0.0))
+
+
+def test_accept_request_couple_tolerance_rejects_above_maximum() -> None:
+    """Values above 5.0 m are rejected (le=5.0)."""
+    with pytest.raises(ValidationError, match="couple_tolerance_m"):
+        AcceptLithoSuggestionsRequest(**_accept_kwargs(couple_tolerance_m=6.0))
+
+
+# ---------------------------------------------------------------------------
+# BatchAcceptLithoSuggestionsRequest — couple_tolerance_m (#162)
+# ---------------------------------------------------------------------------
+
+
+def test_batch_accept_request_couple_tolerance_defaults_to_020() -> None:
+    """``couple_tolerance_m`` defaults to 0.20 on the batch schema."""
+    req = BatchAcceptLithoSuggestionsRequest(anchors=[])
+    assert req.couple_tolerance_m == pytest.approx(0.20)
+
+
+def test_batch_accept_request_couple_tolerance_accepts_valid_value() -> None:
+    """A valid in-range value is accepted verbatim on the batch schema."""
+    req = BatchAcceptLithoSuggestionsRequest(anchors=[], couple_tolerance_m=0.50)
+    assert req.couple_tolerance_m == pytest.approx(0.50)
+
+
+def test_batch_accept_request_couple_tolerance_rejects_below_minimum() -> None:
+    """Values below 0.01 m are rejected on the batch schema."""
+    with pytest.raises(ValidationError, match="couple_tolerance_m"):
+        BatchAcceptLithoSuggestionsRequest(anchors=[], couple_tolerance_m=0.0)
+
+
+def test_batch_accept_request_couple_tolerance_rejects_above_maximum() -> None:
+    """Values above 5.0 m are rejected on the batch schema."""
+    with pytest.raises(ValidationError, match="couple_tolerance_m"):
+        BatchAcceptLithoSuggestionsRequest(anchors=[], couple_tolerance_m=6.0)
