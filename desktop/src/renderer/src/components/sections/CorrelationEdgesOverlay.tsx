@@ -380,6 +380,56 @@ export function buildContactScreenMap(
   return result
 }
 
+/**
+ * Resolve the lithology colour above and below each contact, for the
+ * gradient correlation ribbon (#131-c).
+ *
+ * A contact marks the TOP of its formation, so the colour BELOW the
+ * contact is its own formation's colour, and the colour ABOVE is the
+ * next-shallower contact's formation colour on the same investigation
+ * (``null`` when the contact is the topmost — only the ground surface is
+ * above it).  Contacts grouped by investigation and sorted shallow-first.
+ *
+ * Parameters
+ * ----------
+ * contacts
+ *     Section-filtered litho contacts.
+ * formationById
+ *     Formation lookup (id → formation), for the ``color`` field.
+ *
+ * Returns
+ * -------
+ * Map<string, { above: string | null; below: string }>
+ *     Keyed by contact id.  Contacts whose formation is missing from
+ *     ``formationById`` are omitted.
+ */
+export function contactStripeColors(
+  contacts: readonly FormationContactResponse[],
+  formationById: ReadonlyMap<string, GeologicalFormationResponse>,
+): Map<string, { above: string | null; below: string }> {
+  const byInvest = new Map<string, FormationContactResponse[]>()
+  for (const c of contacts) {
+    const inv = anchorId(c)
+    if (inv === null) continue
+    const bucket = byInvest.get(inv)
+    if (bucket) bucket.push(c)
+    else byInvest.set(inv, [c])
+  }
+  const result = new Map<string, { above: string | null; below: string }>()
+  for (const [, list] of byInvest) {
+    const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+    for (let i = 0; i < sorted.length; i += 1) {
+      const c = sorted[i]
+      const below = formationById.get(c.formation_id)?.color
+      if (below === undefined) continue
+      const prev = i > 0 ? sorted[i - 1] : null
+      const above = prev ? (formationById.get(prev.formation_id)?.color ?? null) : null
+      result.set(c.id, { above, below })
+    }
+  }
+  return result
+}
+
 // ---------------------------------------------------------------------------
 // BodyChip sub-component
 // ---------------------------------------------------------------------------

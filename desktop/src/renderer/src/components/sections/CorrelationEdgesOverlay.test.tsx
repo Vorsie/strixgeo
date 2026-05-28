@@ -19,7 +19,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import CorrelationEdgesOverlay, { buildBandMap } from './CorrelationEdgesOverlay'
+import CorrelationEdgesOverlay, { buildBandMap, contactStripeColors } from './CorrelationEdgesOverlay'
 import type { ContactGestureState } from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
@@ -579,6 +579,59 @@ describe('buildBandMap', () => {
     const f2Band = bands.get('f2')!
     // Deepest: closes at investigation bottom = 5 − 10 = −5.
     expect(f2Band.botLevel).toBeCloseTo(-5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// contactStripeColors — above/below lithology colour per contact (#131-c)
+// ---------------------------------------------------------------------------
+describe('contactStripeColors', () => {
+  function fmt(id: string, color: string): GeologicalFormationResponse {
+    return { ...makeFormation(id, id, null), color, litho_main_soil_code: 'ZAND' }
+  }
+  function byId(...fs: GeologicalFormationResponse[]) {
+    return new Map(fs.map(f => [f.id, f]))
+  }
+
+  it('SC1: below = own formation colour, above = next-shallower formation colour', () => {
+    const contacts = [
+      makeContact('c-zand', 'f-zand', 'inv-1', 'cpt', 0),
+      makeContact('c-klei', 'f-klei', 'inv-1', 'cpt', 2),
+    ]
+    const formationById = byId(fmt('f-zand', '#fbbf24'), fmt('f-klei', '#6b7280'))
+    const result = contactStripeColors(contacts, formationById)
+    expect(result.get('c-klei')).toEqual({ above: '#fbbf24', below: '#6b7280' })
+  })
+
+  it('SC2: topmost contact has no above (null)', () => {
+    const contacts = [
+      makeContact('c-zand', 'f-zand', 'inv-1', 'cpt', 0),
+      makeContact('c-klei', 'f-klei', 'inv-1', 'cpt', 2),
+    ]
+    const formationById = byId(fmt('f-zand', '#fbbf24'), fmt('f-klei', '#6b7280'))
+    const result = contactStripeColors(contacts, formationById)
+    expect(result.get('c-zand')).toEqual({ above: null, below: '#fbbf24' })
+  })
+
+  it('SC3: investigations do not bleed into each other ordering', () => {
+    const contacts = [
+      makeContact('c1', 'f-zand', 'inv-1', 'cpt', 0),
+      makeContact('c2', 'f-klei', 'inv-1', 'cpt', 2),
+      makeContact('c3', 'f-silt', 'inv-2', 'cpt', 3),
+    ]
+    const formationById = byId(
+      fmt('f-zand', '#fbbf24'),
+      fmt('f-klei', '#6b7280'),
+      fmt('f-silt', '#84cc16'),
+    )
+    const result = contactStripeColors(contacts, formationById)
+    expect(result.get('c3')).toEqual({ above: null, below: '#84cc16' })
+  })
+
+  it('SC4: contact whose formation is unknown is skipped', () => {
+    const contacts = [makeContact('c-missing', 'f-gone', 'inv-1', 'cpt', 0)]
+    const result = contactStripeColors(contacts, new Map())
+    expect(result.has('c-missing')).toBe(false)
   })
 })
 
