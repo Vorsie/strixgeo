@@ -49,13 +49,28 @@ snap-geo→litho move + bidirectional propagation move existing geo contacts.
 This makes coupling a strict superset of the #157 straddle behaviour: the
 split already happens; coupling adds the link (and the snap + rebuild).
 
-## Tolerance
+## Tolerance — the existing snap-tolerance Settings knob
 
-Reuse the existing litho↔geo snap tolerance
+Coupling's coincidence threshold IS the existing
 `view_state.litho_segmenter.litho_snap_tolerance_m` (default 0.20 m, the
-#134 knob) as the coincidence threshold. (Distinct from the #157
-`straddle_min_piece_thickness_m`, which governs sliver suppression; the two
-defaults happen to match but are independent knobs.)
+#134 knob) — "boundaries within this distance are the same surface". No new
+knob. Two consequences for the Settings UI:
+
+* `useGeologicalModel`'s couple step reads
+  `readLithoSegmenterPrefs(project.view_state).lithoSnapToleranceM` and
+  passes it to the accept/link calls (mirror how `straddleMinPieceThicknessM`
+  is threaded for #157).
+* **Relabel the existing Settings → Litho segmenter snap-tolerance
+  NumberRow** so it's clear it now governs the litho↔geo *coupling*: e.g.
+  label "Litho↔geology snap (m)" with a hint like "Litho and geological
+  boundaries within this distance are treated as the same surface — linked
+  and snapped together, so moving one moves the other (#162). Also drives
+  the drag-snap prompt (#134). Range 0.01–5.0 m." Keep the value/state
+  wiring unchanged; only the copy changes.
+
+(Distinct from the #157 `straddle_min_piece_thickness_m` "Sliver guard"
+knob, which governs straddle-split sliver suppression; the two defaults
+match but they are independent knobs with independent labels.)
 
 ## Schema
 
@@ -202,3 +217,6 @@ this to `restore_project_bundle`.
 * `infrastructure/db/repositories/project_bundle.py` (restore backfill).
 * `desktop/.../api/client.ts`, `hooks/useGeologicalModel.ts`,
   `components/sections/ContactsLayer.tsx` (unlink action + glyph).
+* `desktop/.../components/SettingsDialog.tsx` (relabel the existing
+  snap-tolerance NumberRow to make clear it governs litho↔geo coupling).
+  No new pref field — coupling reads the existing `lithoSnapToleranceM`.
