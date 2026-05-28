@@ -28,6 +28,7 @@ describe('readLithoSegmenterPrefs', () => {
           merge_same_lithology: false,
           litho_snap_tolerance_m: 0.30,
           straddle_min_piece_thickness_m: 0.40,
+          auto_correlate_depth_window_m: 1.2,
         },
       }),
     ).toEqual({
@@ -37,6 +38,7 @@ describe('readLithoSegmenterPrefs', () => {
       mergeSameLithology: false,
       lithoSnapToleranceM: 0.30,
       straddleMinPieceThicknessM: 0.40,
+      autoCorrelateDepthWindowM: 1.2,
     })
   })
 
@@ -58,6 +60,7 @@ describe('readLithoSegmenterPrefs', () => {
       mergeSameLithology: true,
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
       straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
+      autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
     })
   })
 
@@ -111,6 +114,7 @@ describe('buildLithoSegmenterPatch', () => {
         mergeSameLithology: true,
         lithoSnapToleranceM: 0.25,
         straddleMinPieceThicknessM: 0.35,
+        autoCorrelateDepthWindowM: 0.8,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -120,6 +124,7 @@ describe('buildLithoSegmenterPatch', () => {
         merge_same_lithology: true,
         litho_snap_tolerance_m: 0.25,
         straddle_min_piece_thickness_m: 0.35,
+        auto_correlate_depth_window_m: 0.8,
       },
     })
   })
@@ -206,6 +211,37 @@ describe('readLithoSegmenterPrefs — straddleMinPieceThicknessM field', () => {
         litho_segmenter: { straddle_min_piece_thickness_m: 'twenty cm' },
       }).straddleMinPieceThicknessM,
     ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
+  })
+})
+
+describe('readLithoSegmenterPrefs — autoCorrelateDepthWindowM field (#163b)', () => {
+  it('defaults to 0.5 m when the auto_correlate_depth_window_m key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { minimum_layer_thickness_m: 0.15 },
+      }).autoCorrelateDepthWindowM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM)
+  })
+
+  it('returns a valid stored value', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { auto_correlate_depth_window_m: 1.5 },
+      }).autoCorrelateDepthWindowM,
+    ).toBe(1.5)
+  })
+
+  it('falls back to default when out of bounds (too low / too high)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { auto_correlate_depth_window_m: 0.01 },
+      }).autoCorrelateDepthWindowM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM)
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { auto_correlate_depth_window_m: 10.0 },
+      }).autoCorrelateDepthWindowM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM)
   })
 })
 
