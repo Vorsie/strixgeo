@@ -230,6 +230,50 @@ describe('ContactsLayer', () => {
     }
   })
 
+  // #143 — litho contact boundary lines must read against their own band.
+  // A litho band is filled with the formation's lithology colour; drawing
+  // the boundary line in that same colour makes the accepted contact
+  // disappear into the band. Litho contacts get a near-black line + a
+  // light halo (so it also reads on the dark KLEI/VEEN bands); geological
+  // contacts keep the formation-coloured line.
+  describe('litho contact line visibility (#143)', () => {
+    it('draws a litho contact boundary in near-black with a light halo, not the band colour', () => {
+      const lithoFormation = makeFormation({
+        id: 'f-litho',
+        litho_main_soil_code: 'KLEI',
+        color: '#6b7280', // blue-grey clay — identical to the band fill
+      })
+      const contacts = [
+        makeContact({ id: 'c-1', formation_id: 'f-litho', borehole_id: 'bh-1', depth_top_m: 3 }),
+      ]
+      const { container } = renderLayer(contacts, [lithoFormation], [makeBoreholePlaced('bh-1', 50)])
+      const line = container.querySelector('[data-testid="contact-line-c-1"]')
+      expect(line).not.toBeNull()
+      // Not drawn in the band colour — that is exactly what made it vanish.
+      expect(line!.getAttribute('stroke')).not.toBe('#6b7280')
+      expect(line!.getAttribute('stroke')).toBe('#0f172a')
+      // Light halo behind the line so it reads on the dark bands too.
+      const halo = container.querySelector('[data-testid="contact-line-halo-c-1"]')
+      expect(halo).not.toBeNull()
+      expect(halo!.getAttribute('stroke')).toBe('#f8fafc')
+    })
+
+    it('leaves a geological contact line in the formation colour, with no halo', () => {
+      const geoFormation = makeFormation({
+        id: 'f-geo',
+        litho_main_soil_code: null,
+        color: '#ff8800',
+      })
+      const contacts = [
+        makeContact({ id: 'c-1', formation_id: 'f-geo', borehole_id: 'bh-1', depth_top_m: 3 }),
+      ]
+      const { container } = renderLayer(contacts, [geoFormation], [makeBoreholePlaced('bh-1', 50)])
+      const line = container.querySelector('[data-testid="contact-line-c-1"]')
+      expect(line!.getAttribute('stroke')).toBe('#ff8800')
+      expect(container.querySelector('[data-testid="contact-line-halo-c-1"]')).toBeNull()
+    })
+  })
+
   it('renders the formation name once per anchored layer', () => {
     // Two boreholes, each carrying one contact (so each anchor
     // gets one layer that extends to total_depth_m=30). Short
@@ -2199,14 +2243,12 @@ describe('ContactsLayer', () => {
     expect(bands[0].getAttribute('fill')).toBe('#fbbf24')
   })
 
-  it('PC3b: per-column bands prefer LITHOLOGY_COLORS via litho_main_soil_code (#142 follow-up)', () => {
-    // Backend ``accept_litho_suggestions.py`` creates litho formations
-    // with ``color="#9ca3af"`` (grey placeholder; "Phase 2 assigns per
-    // lithology" — never did).  Dogfeed 2026-05-27: CPT columns show
-    // grey bands because the formation.color is grey.  Override at the
-    // per-column-band layer: when the formation carries a
-    // ``litho_main_soil_code``, look up the lithology colour table for
-    // the real fill colour (ZAND → #fbbf24, KLEI → #6b7280, etc.).
+  it('PC3b: per-column bands read the stored litho formation colour (#145)', () => {
+    // The backend now stamps the lithology colour onto the formation's
+    // ``color`` at create + backfills legacy grey rows (#145), so the
+    // per-column band reads ``formation.color`` directly — no
+    // presentation-layer override (the earlier #142 override was removed
+    // in #146 once the stored value became authoritative).
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 0, formation_id: 'f-zand' }),
       makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-klei' }),
@@ -2215,13 +2257,13 @@ describe('ContactsLayer', () => {
       makeFormation({
         id: 'f-zand',
         name: 'ZAND',
-        color: '#9ca3af', // backend placeholder
+        color: '#fbbf24', // lithology colour stamped at create
         litho_main_soil_code: 'ZAND',
       }),
       makeFormation({
         id: 'f-klei',
         name: 'KLEI',
-        color: '#9ca3af',
+        color: '#6b7280',
         litho_main_soil_code: 'KLEI',
       }),
     ]
