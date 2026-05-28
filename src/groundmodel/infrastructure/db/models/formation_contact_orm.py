@@ -100,6 +100,7 @@ class FormationContactOrm(Base):
             unique=True,
             postgresql_where=text("cpt_id IS NOT NULL"),
         ),
+        Index("idx_formation_contact_parent_geo", "parent_geo_contact_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -169,6 +170,18 @@ class FormationContactOrm(Base):
     observation_layer_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("observation_layer.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Litho↔geo coupling (#162). Set on a LITHOSTRATIGRAPHIC contact,
+    # pointing at the GEOLOGICAL contact it is the same physical surface
+    # as. SET NULL on delete → deleting the geo contact auto-unlinks its
+    # litho children at the DB layer (the unlink lifecycle is free).
+    # NULL = not coupled. Self-referential FK (both rows live in
+    # formation_contact).
+    parent_geo_contact_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("formation_contact.id", ondelete="SET NULL"),
         nullable=True,
     )
 

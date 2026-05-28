@@ -29,6 +29,10 @@ class FormationContactResponse(BaseModel):
     confidence: str
     observation_id: UUID | None
     observation_layer_id: UUID | None
+    # Litho↔geo coupling (#162): set on a lithostratigraphic contact,
+    # pointing at the geological contact it is the same physical surface as.
+    # NULL = not coupled (default for all existing contacts).
+    parent_geo_contact_id: UUID | None = None
     notes: str | None
     created_at: datetime
     updated_at: datetime

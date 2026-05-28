@@ -411,6 +411,10 @@ export interface FormationContactResponse {
   confidence: ContactConfidence
   observation_id: string | null
   observation_layer_id: string | null
+  // Litho↔geo coupling (#162): set on a lithostratigraphic contact,
+  // pointing at the geological contact it is the same physical surface as.
+  // null = not coupled (default for all existing contacts).
+  parent_geo_contact_id?: string | null
   notes: string | null
   created_at: string
   updated_at: string
