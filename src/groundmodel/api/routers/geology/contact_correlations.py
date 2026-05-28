@@ -41,6 +41,7 @@ from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas im
     AcceptContactCorrelationsResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.auto_schemas import (
+    AutoCorrelateContactRequest,
     AutoCorrelateContactResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.lens_companion_schemas import (
@@ -63,6 +64,9 @@ from groundmodel.application.correlate_litho_contacts import (
 )
 from groundmodel.application.materialise_lens_companions import MaterialiseLensCompanions
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
+from groundmodel.domain.services.auto_correlate_contact_edges import (
+    AutoCorrelateContactParams,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -268,6 +272,7 @@ async def list_contact_correlations(
 async def auto_correlate_contact(
     project_id: UUID,
     model_id: UUID,
+    body: AutoCorrelateContactRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> AutoCorrelateContactResponse:
     """Run the contact-level auto-correlate algorithm for a model.
@@ -282,6 +287,10 @@ async def auto_correlate_contact(
         Owning project (path param).
     model_id : UUID
         The lithostratigraphic model (path param).
+    body : AutoCorrelateContactRequest | None
+        Optional tunables.  ``base_depth_threshold_m`` overrides the
+        depth-match window (the Settings knob, #163b); omitted/``None``
+        uses the algorithm default.
 
     Returns
     -------
@@ -300,8 +309,13 @@ async def auto_correlate_contact(
         project_id,
         detail="Geological model not found",
     )
+    # Build params only when the caller tuned the depth window; otherwise
+    # let the use case apply its own defaults.
+    params: AutoCorrelateContactParams | None = None
+    if body is not None and body.base_depth_threshold_m is not None:
+        params = AutoCorrelateContactParams(base_depth_threshold_m=body.base_depth_threshold_m)
     result = await AutoCorrelateContactEdges(session).execute(
-        project_id=project_id, model_id=model_id
+        project_id=project_id, model_id=model_id, params=params
     )
     return AutoCorrelateContactResponse(
         edges_created=result.edges_created,
