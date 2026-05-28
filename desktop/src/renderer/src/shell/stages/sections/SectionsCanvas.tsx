@@ -1777,6 +1777,13 @@ export default function SectionsCanvas(): JSX.Element {
           contactGestureState={contactGestureState}
           onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
           unapprovedEdgeDrag={unapprovedEdgeDrag}
+          // #163e: right-click a correlation edge → "Delete correlation".
+          // Reuses the existing optimistic-remove + DELETE + refetch handler.
+          onRequestDeleteEdge={
+            isLitho
+              ? edge => void handleDeleteContactCorrelation(edge.contact_a_id, edge.contact_b_id)
+              : undefined
+          }
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on

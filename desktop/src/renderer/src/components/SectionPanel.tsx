@@ -633,6 +633,12 @@ interface Props {
     cursorViewportX: number
     cursorViewportY: number
   }
+  /**
+   * Fired when the user picks "Delete correlation" from a correlation
+   * edge's right-click menu (#163e). Forwarded verbatim to
+   * ``CorrelationEdgesOverlay``. Absent = no right-click-delete affordance.
+   */
+  onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
 }
 
 export default function SectionPanel({
@@ -689,6 +695,7 @@ export default function SectionPanel({
   contactGestureState,
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
+  onRequestDeleteEdge,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2365,6 +2372,7 @@ export default function SectionPanel({
                 contactGestureState={contactGestureState}
                 onUnapprovedDragStart={onUnapprovedDragStart}
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
+                onRequestDeleteEdge={onRequestDeleteEdge}
               />
             )}
 
