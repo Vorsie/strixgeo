@@ -26,6 +26,7 @@ import pytest
 from groundmodel.application.accept_litho_suggestions import (
     AcceptLithoSuggestions,
     _canonical_admixture_signature,
+    _geo_contact_to_link,
 )
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.value_objects.admixture import Admixture
@@ -338,8 +339,8 @@ async def test_a2_straddle_split_creates_two_contacts() -> None:
     # Two geology contacts at investigation: UPPER_FORMATION tops at 0.0m,
     # LOWER_FORMATION tops at 3.0m.  Suggestion is [0.0, 6.0] → straddle at 3.0m.
     geo_contacts = [
-        SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID),
-        SimpleNamespace(depth_top_m=3.0, formation_id=LOWER_FORMATION_ID),
+        SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID, id=CONTACT_A_ID),
+        SimpleNamespace(depth_top_m=3.0, formation_id=LOWER_FORMATION_ID, id=CONTACT_B_ID),
     ]
     session = _make_session(
         surface_rows=[],  # no TIN → depth-order fallback
@@ -381,8 +382,8 @@ async def test_a3_stale_tin_fallback_warns_and_still_splits() -> None:
         triangles=[],
     )
     geo_contacts = [
-        SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID),
-        SimpleNamespace(depth_top_m=4.0, formation_id=LOWER_FORMATION_ID),
+        SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID, id=CONTACT_A_ID),
+        SimpleNamespace(depth_top_m=4.0, formation_id=LOWER_FORMATION_ID, id=CONTACT_B_ID),
     ]
 
     # _load_geology_surfaces returns keyed dict — patch scalars result.
@@ -1178,10 +1179,12 @@ def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
     }
     uc = _bare_use_case()
     suggestion = _make_suggestion(2.0, 4.0, "KLEI")
+    # Contact id is irrelevant for straddle tests — a sentinel uuid is fine.
+    sentinel_cid = uuid4()
     result = uc._compute_straddle_splits(
         suggestion=suggestion,
         geology_surfaces=surfaces,
-        geology_contacts_at_inv=[(0.0, upper_fid)],
+        geology_contacts_at_inv=[(0.0, upper_fid, sentinel_cid)],
         inv_x=100.0,
         inv_y=200.0,
         inv_elevation_m=10.0,
@@ -1216,8 +1219,8 @@ def test_as1_near_base_boundary_does_not_split_parent_is_upper() -> None:
         suggestion=suggestion,
         geology_surfaces={},
         geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID),
-            (5.95, LOWER_FORMATION_ID),
+            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
+            (5.95, LOWER_FORMATION_ID, CONTACT_B_ID),
         ],
         inv_x=100.0,
         inv_y=200.0,
@@ -1244,8 +1247,8 @@ def test_as2_near_top_boundary_does_not_split_parent_is_lower() -> None:
         suggestion=suggestion,
         geology_surfaces={},
         geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID),
-            (0.05, LOWER_FORMATION_ID),
+            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
+            (0.05, LOWER_FORMATION_ID, CONTACT_B_ID),
         ],
         inv_x=100.0,
         inv_y=200.0,
@@ -1269,8 +1272,8 @@ def test_as3_clear_boundary_still_splits() -> None:
         suggestion=suggestion,
         geology_surfaces={},
         geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID),
-            (3.0, LOWER_FORMATION_ID),
+            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
+            (3.0, LOWER_FORMATION_ID, CONTACT_B_ID),
         ],
         inv_x=100.0,
         inv_y=200.0,
@@ -1471,3 +1474,35 @@ async def test_ac3_non_adjacent_same_litho_stays_separate() -> None:
 
     assert len(result.created_contact_ids) == 3
     assert len(result.created_formation_ids) == 2
+
+
+# ---------------------------------------------------------------------------
+# CL1-CL4 — _geo_contact_to_link pure resolver (#162 Task 3)
+#
+# Picks the geo contact nearest to a litho contact's depth and within
+# ``tolerance_m``.  Returns None when no geo contact is within tolerance.
+# ---------------------------------------------------------------------------
+
+
+def test_cl1_exact_geo_boundary_links() -> None:
+    """Exact depth match → the geo contact at that depth is returned."""
+    geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
+    assert _geo_contact_to_link(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID
+
+
+def test_cl2_within_tolerance_links_nearest() -> None:
+    """Depth within tolerance → the nearest geo contact is returned."""
+    geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
+    assert _geo_contact_to_link(2.9, geo, tolerance_m=0.20) == CONTACT_B_ID
+
+
+def test_cl3_mid_formation_no_link() -> None:
+    """Depth mid-formation, outside tolerance of every geo contact → None."""
+    geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
+    assert _geo_contact_to_link(1.5, geo, tolerance_m=0.20) is None
+
+
+def test_cl4_nearest_wins() -> None:
+    """Two geo contacts within tolerance → the closer one wins."""
+    geo = [(2.85, UPPER_FORMATION_ID, CONTACT_A_ID), (3.05, LOWER_FORMATION_ID, CONTACT_B_ID)]
+    assert _geo_contact_to_link(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID

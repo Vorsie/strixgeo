@@ -45,7 +45,7 @@ this use case returns.  The caller must forward ``applyUpdatedSection``
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import select
@@ -73,6 +73,41 @@ from groundmodel.shared.constants.litho_constants import (
     LITHOLOGY_FALLBACK_COLOR,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _geo_contact_to_link(
+    litho_depth_m: float,
+    geo_contacts_at_inv: list[tuple[float, UUID, UUID]],
+    tolerance_m: float,
+) -> UUID | None:
+    """Return the geological contact id a litho contact at ``litho_depth_m``
+    should couple to, or None (#162).
+
+    Picks the geo contact whose depth is nearest ``litho_depth_m`` and within
+    ``tolerance_m``. Entries are ``(depth_m, formation_id, contact_id)``.
+
+    Parameters
+    ----------
+    litho_depth_m : float
+        The litho contact's ``depth_top_m``.
+    geo_contacts_at_inv : list[tuple[float, UUID, UUID]]
+        Geological contacts at the same investigation:
+        ``[(depth_top_m, formation_id, contact_id), ...]``.
+    tolerance_m : float
+        Maximum allowed depth difference for linking.
+
+    Returns
+    -------
+    UUID | None
+        The geo contact id to link to, or ``None`` when no contact is within
+        ``tolerance_m``.
+    """
+    best: tuple[float, UUID] | None = None
+    for depth, _fid, contact_id in geo_contacts_at_inv:
+        d = abs(depth - litho_depth_m)
+        if d <= tolerance_m and (best is None or d < best[0]):
+            best = (d, contact_id)
+    return best[1] if best is not None else None
 
 
 def _canonical_admixture_signature(admixtures: tuple[Admixture, ...]) -> str:
@@ -157,6 +192,11 @@ class AcceptLithoResult:
     updated_section_id : UUID | None
         The section whose seeded set was updated, or ``None`` when no
         ``section_id`` was provided.
+    touched_geo_formation_ids : list[UUID]
+        Geological formation ids whose geo contacts were snapped to a litho
+        depth during this accept (#162 Task 3).  Sorted.  Empty when no
+        coupling occurred.  Task 4 consumes this to trigger a surface rebuild
+        for every affected geo formation.
     """
 
     created_formation_ids: list[UUID]
@@ -168,6 +208,7 @@ class AcceptLithoResult:
     extrapolated_formation_ids: list[UUID]
     orphan_formation_ids: list[UUID]
     updated_section_id: UUID | None
+    touched_geo_formation_ids: list[UUID] = field(default_factory=list)
 
 
 @dataclass
@@ -246,6 +287,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         commit: bool = True,
         batch_ctx: BatchAcceptContext | None = None,
         straddle_min_piece_thickness_m: float = 0.20,
+        couple_tolerance_m: float = 0.20,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -307,6 +349,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
             display-order recompute is skipped (the batch caller runs it once
             after all anchors).  ``None`` (default) is the self-loading
             single-accept path.
+        couple_tolerance_m : float
+            Maximum depth difference (metres) for linking a litho contact to a
+            geological contact at the same investigation (#162 Task 3).  When the
+            nearest geo contact is within this tolerance, the litho contact's
+            ``parent_geo_contact_id`` is set and the geo contact snaps to the
+            litho depth.  Default 0.20 m.  Task 7 will expose this in Settings.
 
         Returns
         -------
@@ -383,8 +431,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         # --- Load existing geology contacts at this investigation (fallback) -
         # Used when a TIN is stale / absent to approximate formation boundaries
-        # from depth-ordered contacts (debt #68).
-        geology_contacts_at_inv: list[tuple[float, UUID]] = []
+        # from depth-ordered contacts (debt #68) and for litho↔geo coupling
+        # (#162 Task 3).  Each entry is (depth_top_m, formation_id, contact_id).
+        geology_contacts_at_inv: list[tuple[float, UUID, UUID]] = []
         if geology_model_id is not None:
             geology_contacts_at_inv = await self._load_geology_contacts_at_inv(
                 geology_model_id, cpt_id=cpt_id, borehole_id=borehole_id
@@ -414,6 +463,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         orphan_formation_ids: list[UUID] = []
         straddle_split_count = 0
         stale_tin_fallback_count = 0
+        # Geo formations whose contacts were snapped during coupling (#162 T3).
+        touched_geo_formation_ids_set: set[UUID] = set()
 
         for idx, sug in enumerate(suggestions):
             self.debug(
@@ -506,6 +557,48 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     else:
                         found_contact_ids.append(contact_id)
 
+                    # Litho↔geo coupling (#162 Task 3): link the litho contact
+                    # to the nearest geo contact within couple_tolerance_m and
+                    # snap the geo contact's depth to match the litho depth.
+                    # Only new contacts are coupled — re-accepts that found an
+                    # existing contact leave its existing coupling unchanged so
+                    # a re-accept never silently snaps a geo contact a second
+                    # time if the litho depth has since been dragged.
+                    if was_created and geology_contacts_at_inv:
+                        geo_contact_id = _geo_contact_to_link(
+                            interval_top, geology_contacts_at_inv, couple_tolerance_m
+                        )
+                        if geo_contact_id is not None:
+                            litho_contact = await self._session.get(FormationContactOrm, contact_id)
+                            if litho_contact is not None:
+                                litho_contact.parent_geo_contact_id = geo_contact_id
+                                geo_contact = await self._session.get(
+                                    FormationContactOrm, geo_contact_id
+                                )
+                                if (
+                                    geo_contact is not None
+                                    and geo_contact.depth_top_m != interval_top
+                                ):
+                                    # Geo follows litho: snap the geological
+                                    # contact's depth to the litho boundary so
+                                    # both levels agree at the same physical
+                                    # surface (#162).
+                                    old_geo_depth = geo_contact.depth_top_m
+                                    geo_contact.depth_top_m = interval_top
+                                    touched_geo_formation_ids_set.add(geo_contact.formation_id)
+                                    self.debug(
+                                        f"  Coupled litho contact {contact_id} → "
+                                        f"geo contact {geo_contact_id} "
+                                        f"(snapped geo depth {old_geo_depth:.3f}m → "
+                                        f"{interval_top:.3f}m, "
+                                        f"geo formation {geo_contact.formation_id})"
+                                    )
+                                else:
+                                    self.debug(
+                                        f"  Coupled litho contact {contact_id} → "
+                                        f"geo contact {geo_contact_id} (depths already match)"
+                                    )
+
         # Stale-flag surfaces for affected (litho_model, formation) pairs.
         # Skipped when create_formation_only=True — no contacts were created
         # so no surface geometry changed.
@@ -596,6 +689,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     commit=False,
                 )
 
+        touched_geo_formation_ids = sorted(touched_geo_formation_ids_set)
         if commit:
             await self._session.commit()
         self.success(
@@ -605,7 +699,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"{straddle_split_count} straddle split(s), "
             f"{stale_tin_fallback_count} stale-TIN fallback(s), "
             f"{len(extrapolated_formation_ids)} extrapolated parent(s), "
-            f"{len(orphan_formation_ids)} orphan(s)"
+            f"{len(orphan_formation_ids)} orphan(s), "
+            f"{len(touched_geo_formation_ids)} geo formation(s) snapped"
         )
 
         return AcceptLithoResult(
@@ -618,6 +713,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             extrapolated_formation_ids=extrapolated_formation_ids,
             orphan_formation_ids=orphan_formation_ids,
             updated_section_id=section_id,
+            touched_geo_formation_ids=touched_geo_formation_ids,
         )
 
     # ------------------------------------------------------------------
@@ -816,10 +912,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         *,
         cpt_id: UUID | None,
         borehole_id: UUID | None,
-    ) -> list[tuple[float, UUID]]:
+    ) -> list[tuple[float, UUID, UUID]]:
         """Load depth-ordered contacts for an investigation in the geology model.
 
-        Used as stale-TIN fallback for straddle detection (debt #68).
+        Used as stale-TIN fallback for straddle detection (debt #68) and as the
+        source list for litho↔geo coupling (#162 Task 3).
 
         Parameters
         ----------
@@ -829,12 +926,15 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         Returns
         -------
-        list[tuple[float, UUID]]
-            ``[(depth_top_m, formation_id), ...]`` ordered ascending by depth.
+        list[tuple[float, UUID, UUID]]
+            ``[(depth_top_m, formation_id, contact_id), ...]`` ordered ascending
+            by depth.
         """
-        stmt = select(FormationContactOrm.depth_top_m, FormationContactOrm.formation_id).where(
-            FormationContactOrm.model_id == geology_model_id
-        )
+        stmt = select(
+            FormationContactOrm.depth_top_m,
+            FormationContactOrm.formation_id,
+            FormationContactOrm.id,
+        ).where(FormationContactOrm.model_id == geology_model_id)
 
         if borehole_id is not None:
             stmt = stmt.where(FormationContactOrm.borehole_id == borehole_id)
@@ -843,14 +943,14 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         stmt = stmt.order_by(FormationContactOrm.depth_top_m)
         rows = (await self._session.execute(stmt)).all()
-        return [(row.depth_top_m, row.formation_id) for row in rows]
+        return [(row.depth_top_m, row.formation_id, row.id) for row in rows]
 
     def _compute_straddle_splits(
         self,
         *,
         suggestion: LithoLayerSuggestion,
         geology_surfaces: dict[UUID, FormationSurfaceOrm],
-        geology_contacts_at_inv: list[tuple[float, UUID]],
+        geology_contacts_at_inv: list[tuple[float, UUID, UUID]],
         inv_x: float,
         inv_y: float,
         inv_elevation_m: float | None,
@@ -873,9 +973,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
             The suggestion to evaluate.
         geology_surfaces : dict[UUID, FormationSurfaceOrm]
             Cached TIN surfaces keyed by geology formation id.
-        geology_contacts_at_inv : list[tuple[float, UUID]]
+        geology_contacts_at_inv : list[tuple[float, UUID, UUID]]
             Depth-ordered contacts from the parent geology model at this
-            investigation (used as stale-TIN fallback).
+            investigation (used as stale-TIN fallback and for coupling).
+            Each entry is ``(depth_top_m, formation_id, contact_id)``.
         inv_x, inv_y : float
             Investigation location for TIN sampling.
         suggestion_index : int
@@ -915,6 +1016,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # Sort geology contacts by depth to establish formation order at inv.
         # Each contact is "formation X tops at depth D" — sorted ascending we
         # get the stratigraphic column for this investigation.
+        # Entries are (depth_top_m, formation_id, contact_id); sort on [0].
         contacts_sorted = sorted(geology_contacts_at_inv, key=lambda c: c[0])
 
         # For each consecutive pair of geology contacts, their boundary falls
@@ -924,8 +1026,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # Boundary is the depth at which a lower (older) formation begins,
         # i.e. the depth_top_m of the LOWER formation's contact.
         for i in range(len(contacts_sorted) - 1):
-            upper_depth, upper_fid = contacts_sorted[i]
-            lower_depth, lower_fid = contacts_sorted[i + 1]
+            upper_depth, upper_fid, _upper_cid = contacts_sorted[i]
+            lower_depth, lower_fid, _lower_cid = contacts_sorted[i + 1]
             # The boundary is at lower_depth (the lower formation tops here).
             boundary_candidate = lower_depth
             # Sliver guard (#157): require the boundary to clear BOTH edges by
@@ -1038,7 +1140,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
     @staticmethod
     def _parent_fid_for_depth(
         depth_m: float,
-        contacts_sorted: list[tuple[float, UUID]],
+        contacts_sorted: list[tuple[float, UUID, UUID]],
     ) -> UUID | None:
         """Return the formation id that contains ``depth_m``.
 
@@ -1049,8 +1151,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         ----------
         depth_m : float
             Depth below ground surface to classify.
-        contacts_sorted : list[tuple[float, UUID]]
-            Depth-ascending ``(depth_top_m, formation_id)`` pairs.
+        contacts_sorted : list[tuple[float, UUID, UUID]]
+            Depth-ascending ``(depth_top_m, formation_id, contact_id)`` triples.
 
         Returns
         -------
@@ -1058,7 +1160,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             Formation id, or ``None`` when ``contacts_sorted`` is empty.
         """
         best_fid: UUID | None = None
-        for d, fid in contacts_sorted:
+        for d, fid, _cid in contacts_sorted:
             if d <= depth_m:
                 best_fid = fid
             else:

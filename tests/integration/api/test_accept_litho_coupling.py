@@ -1,0 +1,272 @@
+"""Integration tests: litho↔geo contact coupling on accept (#162 Task 3).
+
+Verifies that ``AcceptLithoSuggestions.execute`` links a newly-accepted litho
+contact to the nearest geological contact within ``couple_tolerance_m`` (default
+0.20 m) and snaps the geo contact's depth to the litho depth.
+
+Test cases
+----------
+CP1  Litho top within tolerance of a geo contact → ``parent_geo_contact_id``
+     is set on the litho contact AND the geo contact's ``depth_top_m`` is
+     snapped to the litho depth.
+CP2  Litho top mid-formation, far from every geo contact → ``parent_geo_contact_id``
+     is None (no spurious coupling).
+"""
+
+from __future__ import annotations
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def project(db_session: AsyncSession) -> ProjectOrm:
+    """Bare active project for coupling tests."""
+    proj = ProjectOrm(id=uuid7(), name="litho-geo coupling test", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    return proj
+
+
+@pytest_asyncio.fixture
+async def stack(db_session: AsyncSession, project: ProjectOrm, async_client: AsyncClient) -> dict:
+    """Create the full geo/litho stack, a borehole, and one geological contact at 3.0 m.
+
+    Returns a dict with keys:
+        geo_model, litho_model, geo_formation, borehole, geo_contact
+    """
+    # Geological model + one formation.
+    geo_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models",
+        json={"name": "Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model = geo_resp.json()
+
+    geo_f_resp = await async_client.post(
+        f"/projects/{project.id}/geology/formations",
+        json={"name": "Boom Klei", "color": "#888", "display_order": 0},
+    )
+    assert geo_f_resp.status_code == 201, geo_f_resp.text
+    geo_formation = geo_f_resp.json()
+
+    # Litho model — child of the geological model.
+    litho_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models",
+        json={
+            "name": "Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model = litho_resp.json()
+
+    # Borehole used as the contact anchor.
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-coupling",
+        app_project_id=project.id,
+        project_id="TEST",
+        test_id="CP-001",
+        location_x=150000.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=30.0,
+    )
+    db_session.add(bh)
+    await db_session.commit()
+
+    # Geological contact at 3.0 m (the coupling target).
+    geo_contact_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{geo_model['id']}/contacts",
+        json={
+            "formation_id": geo_formation["id"],
+            "depth_top_m": 3.0,
+            "borehole_id": str(bh.id),
+            "source": "manual_pick",
+            "confidence": "high",
+        },
+    )
+    assert geo_contact_resp.status_code == 201, geo_contact_resp.text
+    geo_contact = geo_contact_resp.json()
+
+    return {
+        "geo_model": geo_model,
+        "litho_model": litho_model,
+        "geo_formation": geo_formation,
+        "borehole": bh,
+        "geo_contact": geo_contact,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _accept(
+    client: AsyncClient,
+    project_id,  # noqa: ANN001
+    litho_model_id: str,
+    *,
+    top: float,
+    base: float,
+    lithology: str,
+    borehole_id: str,
+) -> dict:
+    """POST accept-litho-suggestions for a single layer; assert 200."""
+    resp = await client.post(
+        f"/projects/{project_id}/geology/models/{litho_model_id}/contacts/accept-litho-suggestions",
+        json={
+            "borehole_id": borehole_id,
+            "suggestions": [
+                {
+                    "depth_top_m": top,
+                    "depth_base_m": base,
+                    "suggested_lithology": lithology,
+                    "confidence": "high",
+                    "source": "borehole_observation",
+                    "suggested_admixtures": [],
+                }
+            ],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# CP1 — litho top within tolerance → coupled + geo contact snapped
+# ---------------------------------------------------------------------------
+
+
+async def test_cp1_litho_within_tolerance_couples_and_snaps(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A litho contact accepted within couple_tolerance_m (0.20 m) of a geological
+    contact on the same borehole must be linked and the geo contact snapped.
+
+    Setup: geo contact at 3.0 m.  Litho suggestion top at 2.95 m (delta 0.05 m,
+    within 0.20 m tolerance).
+
+    Expected:
+    - The created litho contact has ``parent_geo_contact_id`` == geo contact id.
+    - The geological contact's ``depth_top_m`` is snapped from 3.0 → 2.95 m.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    geo_contact_id = stack["geo_contact"]["id"]
+
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=2.95,
+        base=8.0,
+        lithology="KLEI",
+        borehole_id=bh_id,
+    )
+
+    # Re-query the litho contact.
+    litho_rows = list(
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == stack["litho_model"]["id"]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(litho_rows) == 1, f"Expected 1 litho contact, got {len(litho_rows)}"
+    litho_contact = litho_rows[0]
+
+    assert litho_contact.parent_geo_contact_id is not None, (
+        "Litho contact accepted within couple_tolerance_m must have parent_geo_contact_id set"
+    )
+    assert str(litho_contact.parent_geo_contact_id) == geo_contact_id, (
+        f"parent_geo_contact_id {litho_contact.parent_geo_contact_id} "
+        f"does not match the geological contact {geo_contact_id}"
+    )
+
+    # Re-query the geo contact to verify the snap.
+    geo_row = (
+        await db_session.execute(
+            select(FormationContactOrm).where(
+                FormationContactOrm.id == litho_contact.parent_geo_contact_id
+            )
+        )
+    ).scalar_one_or_none()
+    assert geo_row is not None
+    assert geo_row.depth_top_m == pytest.approx(2.95, abs=1e-6), (
+        f"Geo contact depth should have been snapped from 3.0 → 2.95 m, got {geo_row.depth_top_m}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CP2 — litho top mid-formation → no coupling
+# ---------------------------------------------------------------------------
+
+
+async def test_cp2_mid_formation_litho_has_no_coupling(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A litho contact accepted far from every geological contact (mid-formation)
+    must have ``parent_geo_contact_id = None`` — no spurious link.
+
+    Setup: geo contact at 3.0 m.  Litho suggestion top at 1.0 m (delta 2.0 m,
+    well outside 0.20 m tolerance).
+
+    Expected: ``parent_geo_contact_id`` is None.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=1.0,
+        base=2.5,
+        lithology="ZAND",
+        borehole_id=bh_id,
+    )
+
+    litho_rows = list(
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == stack["litho_model"]["id"]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(litho_rows) == 1, f"Expected 1 litho contact, got {len(litho_rows)}"
+    litho_contact = litho_rows[0]
+
+    assert litho_contact.parent_geo_contact_id is None, (
+        f"Litho contact at 1.0 m (2.0 m from geo contact at 3.0 m) must NOT be "
+        f"coupled; got parent_geo_contact_id={litho_contact.parent_geo_contact_id}"
+    )
