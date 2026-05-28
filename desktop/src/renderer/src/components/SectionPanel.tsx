@@ -225,6 +225,9 @@ interface Props {
    * it. Caller deletes the row and prunes the local contacts
    * state so the overlay updates without a refetch. */
   onDeleteContact?: (contactId: string) => Promise<void>
+  /** Break the litho↔geo coupling on a lithostratigraphic contact.
+   * Forwarded straight to ContactsLayer; absent on the geological axis. */
+  onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
   /** All-or-nothing batch update — fired by the section editor's
    * multi-drag (same-column depth shift) and cross-column re-anchor
    * (Alt+drag MOVE) flows. Forwarded straight to ContactsLayer;
@@ -647,6 +650,7 @@ export default function SectionPanel({
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
+  onUnlinkLithoFromGeo,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   onAutoPopulateFromStratigraphy,
@@ -2146,6 +2150,7 @@ export default function SectionPanel({
               plotBottom={MARGIN.top + plotHeight}
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
+              onUnlinkLithoFromGeo={onUnlinkLithoFromGeo}
               onPinchOutContact={pinchOutGhostState?.onPreviewPinchOut}
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}
