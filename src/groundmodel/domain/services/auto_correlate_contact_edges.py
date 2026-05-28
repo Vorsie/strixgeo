@@ -15,11 +15,15 @@ Algorithm
    the third element ensures we only match horizons that have the same
    lithology above AND below.  ``litho_below_code`` is ``None`` for the
    deepest contact on a column; nulls match only against nulls.
-2. Per column-pair within ``MAX_COLUMN_DISTANCE_M``: pair contacts whose
-   ``|depth_A - depth_B| < BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR · column_distance``.
-3. Mutual-nearest-neighbour disambiguation via the shared ``_mnn_by_id``
+2. Restrict candidate column-pairs to relative-neighbourhood-graph
+   neighbours (#163a) so an edge never jumps over an intervening test.
+   For collinear tests this is the consecutive chain (1-2, 2-3, ...).
+3. Per adjacent column-pair within ``MAX_COLUMN_DISTANCE_M``: pair contacts
+   whose ``|depth_A - depth_B| < BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR ·
+   column_distance``.
+4. Mutual-nearest-neighbour disambiguation via the shared ``_mnn_by_id``
    generic core.
-4. Emit canonical-ordered ``(contact_a_id, contact_b_id)`` candidates.
+5. Emit canonical-ordered ``(contact_a_id, contact_b_id)`` candidates.
 
 No Theil-Sen dip transfer — see spec for the trade-off discussion.
 """
@@ -168,6 +172,61 @@ def _dist(a: InvestigationLocation, b: InvestigationLocation) -> float:
     return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
 
 
+def _relative_neighbourhood_adjacency(
+    investigation_ids: set[UUID],
+    loc_by_id: dict[UUID, InvestigationLocation],
+    max_distance_m: float,
+) -> set[frozenset[UUID]]:
+    """Relative-neighbourhood-graph adjacency over investigation locations.
+
+    Two investigations A and B are adjacent iff no third investigation C
+    lies in the RNG "lune": ``dist(A, C) < dist(A, B)`` AND
+    ``dist(B, C) < dist(A, B)``.  For tests strung along a line this reduces
+    to consecutive neighbours (1-2, 2-3, ...) — a non-adjacent pair (1-3) is
+    rejected because the in-between test sits in the lune.  Generalises the
+    "only correlate adjacent tests" rule to a 2-D scatter so auto-correlate
+    never draws an edge that jumps over an intervening test (#163a).
+
+    Only pairs within ``max_distance_m`` are returned (farther pairs are
+    pruned downstream anyway), but every located investigation — including
+    ones beyond ``max_distance_m`` from the pair — acts as a potential
+    blocker ``C``.
+
+    Parameters
+    ----------
+    investigation_ids : set[UUID]
+        Investigations participating in the model (those carrying contacts).
+    loc_by_id : dict[UUID, InvestigationLocation]
+        Location lookup; investigations without a location are skipped.
+    max_distance_m : float
+        Upper bound on edge length to even consider (mirrors the pair gate).
+
+    Returns
+    -------
+    set[frozenset[UUID]]
+        Canonical unordered adjacent investigation pairs.
+    """
+    located = [iid for iid in investigation_ids if iid in loc_by_id]
+    adjacency: set[frozenset[UUID]] = set()
+    for i in range(len(located)):
+        for j in range(i + 1, len(located)):
+            a_id, b_id = located[i], located[j]
+            loc_a, loc_b = loc_by_id[a_id], loc_by_id[b_id]
+            d_ab = _dist(loc_a, loc_b)
+            if d_ab > max_distance_m:
+                continue
+            blocked = any(
+                c_id != a_id
+                and c_id != b_id
+                and _dist(loc_a, loc_by_id[c_id]) < d_ab
+                and _dist(loc_b, loc_by_id[c_id]) < d_ab
+                for c_id in located
+            )
+            if not blocked:
+                adjacency.add(frozenset((a_id, b_id)))
+    return adjacency
+
+
 def auto_correlate_contact_edges(
     contacts: list[ContactRecord],
     locations: list[InvestigationLocation],
@@ -193,6 +252,16 @@ def auto_correlate_contact_edges(
     p = params or AutoCorrelateContactParams()
     loc_by_id = {loc.investigation_id: loc for loc in locations}
 
+    # Adjacency gate (#163a): restrict candidate column-pairs to
+    # relative-neighbourhood-graph neighbours so auto-correlate never links
+    # two tests with a third test between them ("spaghetti").  Computed once
+    # over the model's participating investigations — it is a property of the
+    # physical test layout, independent of the boundary-signature grouping.
+    participant_ids = {c.investigation_id for c in contacts}
+    adjacency = _relative_neighbourhood_adjacency(
+        participant_ids, loc_by_id, p.max_column_distance_m
+    )
+
     # Group by boundary signature: same parent geology, same lithology
     # above the contact, same lithology below.  The three-tuple key
     # encodes the full "is this the same horizon?" predicate at the
@@ -217,6 +286,9 @@ def auto_correlate_contact_edges(
         for i in range(len(inv_ids)):
             for j in range(i + 1, len(inv_ids)):
                 inv_a, inv_b = inv_ids[i], inv_ids[j]
+                # #163a: only correlate geometrically-adjacent tests.
+                if frozenset((inv_a, inv_b)) not in adjacency:
+                    continue
                 loc_a, loc_b = loc_by_id.get(inv_a), loc_by_id.get(inv_b)
                 if loc_a is None or loc_b is None:
                     continue
