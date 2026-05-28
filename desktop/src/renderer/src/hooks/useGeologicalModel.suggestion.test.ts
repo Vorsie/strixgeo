@@ -897,6 +897,143 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(args.pushUndo).not.toHaveBeenCalled()
   })
 
+  // -------------------------------------------------------------------------
+  // #144 — accepting a litho suggestion must mark the project dirty, exactly
+  // like creating a contact does (handleCreateContact → addToSessionImports).
+  // Every contact mutation writes to the DB immediately; the dirty flag +
+  // unsaved-changes prompt + .gmproj write are gated on the session-imports
+  // manifest. Accept used to skip that manifest, so a stack of accepted
+  // layers left the amber flag dark and the .gmproj silently stale on close.
+  // -------------------------------------------------------------------------
+
+  it('D1 — single accept records the created contact + formation ids in the session-imports manifest', async () => {
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({
+        created_formation_ids: ['form-zand'],
+        created_contact_ids: ['c-zand'],
+      }),
+    )
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+    await act(async () => {
+      await result.current.handleAcceptLithoSuggestion(0)
+    })
+
+    // The newly created rows go into the manifest so projectDirty lights up.
+    expect(args.addToSessionImports).toHaveBeenCalledWith('formation', ['form-zand'])
+    expect(args.addToSessionImports).toHaveBeenCalledWith('contact', ['c-zand'])
+  })
+
+  it('D2 — accepting an already-committed (found-only) layer does NOT dirty-mark', async () => {
+    // Nothing was created, so there is nothing new for the .gmproj to miss;
+    // the manifest must stay untouched (mirrors S9's no-undo semantics).
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({
+        created_formation_ids: [],
+        created_contact_ids: [],
+        found_formation_ids: ['form-existing'],
+        found_contact_ids: ['c-existing'],
+      }),
+    )
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+    await act(async () => {
+      await result.current.handleAcceptLithoSuggestion(0)
+    })
+
+    expect(args.addToSessionImports).not.toHaveBeenCalled()
+  })
+
+  it('D3 — accept-all-bulk records every committed anchor created id in the manifest', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0), makeSuggestion('KLEI', 2.5)],
+    })
+    geoApi.batchAcceptLithoSuggestions.mockResolvedValue({
+      anchors: [
+        {
+          cpt_id: 'cpt-1',
+          borehole_id: null,
+          created_formation_ids: ['fid-1'],
+          found_formation_ids: [],
+          created_contact_ids: ['cid-1'],
+          found_contact_ids: [],
+          straddle_split_count: 0,
+          stale_tin_fallback_count: 0,
+          extrapolated_formation_ids: [],
+          orphan_formation_ids: [],
+          error: null,
+        },
+        {
+          cpt_id: 'cpt-2',
+          borehole_id: null,
+          created_formation_ids: [],
+          found_formation_ids: [],
+          created_contact_ids: ['cid-2', 'cid-3'],
+          found_contact_ids: [],
+          straddle_split_count: 0,
+          stale_tin_fallback_count: 0,
+          extrapolated_formation_ids: [],
+          orphan_formation_ids: [],
+          error: null,
+        },
+      ],
+      total_created_contacts: 3,
+      total_found_contacts: 0,
+      total_created_formations: 1,
+      total_straddle_splits: 0,
+      total_stale_tin_fallbacks: 0,
+      total_extrapolated_formations: 0,
+      total_orphan_formations: 0,
+      failed_anchor_count: 0,
+      inference_ran: true,
+      updated_section: null,
+    })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'cpt-2', surfaceElevationM: 8 },
+      ])
+    })
+    await act(async () => {
+      await result.current.handleAcceptAllBulkLitho(null)
+    })
+
+    // Every committed anchor's created contacts + formations land in the
+    // manifest — aggregated across anchors, not per-anchor.
+    expect(args.addToSessionImports).toHaveBeenCalledWith(
+      'contact',
+      expect.arrayContaining(['cid-1', 'cid-2', 'cid-3']),
+    )
+    expect(args.addToSessionImports).toHaveBeenCalledWith(
+      'formation',
+      expect.arrayContaining(['fid-1']),
+    )
+  })
+
   it('S10 — handleStripLithoAdmixtures clears admixtures on matching ghosts', async () => {
     const suggestions: LithoLayerSuggestion[] = [
       makeSuggestion('ZAND', 0.0, {
