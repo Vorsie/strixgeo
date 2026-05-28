@@ -77,6 +77,7 @@ from groundmodel.application.suggest_litho_contacts import (
     InvestigationNotFoundError,
     SuggestLithoContacts,
 )
+from groundmodel.application.unlink_litho_from_geo import UnlinkLithoFromGeo
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import (
     UpdateFormationContactsBatch,
@@ -361,6 +362,73 @@ async def delete_contact(
         project_id=project_id,
         model_id=model_id,
     )
+
+
+@router.post(
+    "/models/{model_id}/contacts/{contact_id}/unlink-geo",
+    response_model=FormationContactResponse,
+)
+async def unlink_geo_from_contact(
+    project_id: UUID,
+    model_id: UUID,
+    contact_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> FormationContactOrm:
+    """Break the litho↔geo coupling on a single lithostratigraphic contact.
+
+    Nulls ``parent_geo_contact_id`` on the contact.  The geological
+    contact is not moved or deleted — this is purely a relationship
+    removal.  Surfaces are NOT rebuilt (the contact geometry is unchanged;
+    only the coupling label is cleared).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model — must belong to ``project_id``.
+    contact_id : UUID
+        Lithostratigraphic contact to unlink.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    FormationContactOrm
+        The updated contact row with ``parent_geo_contact_id`` set to None
+        (HTTP 200).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the contact or model is not found, or when the contact does
+        not belong to the model / project.
+    """
+    # Two-stage scope guard (mirrors delete_contact): first confirm the
+    # contact's model_id matches the URL model_id, then confirm the model
+    # belongs to the project.  Single 404 either way — don't leak which
+    # boundary the caller hit.
+    await get_in_project_or_404(
+        session.get(FormationContactOrm, contact_id),
+        model_id,
+        detail="Contact not found",
+        project_attr="model_id",
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Contact not found",
+    )
+    try:
+        contact = await UnlinkLithoFromGeo(session).execute(
+            project_id=project_id,
+            contact_id=contact_id,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    if contact is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    return contact
 
 
 @router.put(
