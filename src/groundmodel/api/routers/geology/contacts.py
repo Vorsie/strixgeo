@@ -1155,6 +1155,9 @@ async def batch_accept_litho_suggestions(
     # section ONCE (one array rewrite instead of one per anchor).
     anchor_results: list[BatchAcceptLithoAnchorResult] = []
     all_contact_ids: set[UUID] = set()
+    # Formations this batch touched — drives the incremental recompute (#155)
+    # so inference re-runs only for affected formations, not the whole model.
+    affected_formation_ids: set[UUID] = set()
     totals = {
         "created_contacts": 0,
         "found_contacts": 0,
@@ -1179,6 +1182,8 @@ async def batch_accept_litho_suggestions(
             continue
         all_contact_ids.update(r.created_contact_ids)
         all_contact_ids.update(r.found_contact_ids)
+        affected_formation_ids.update(r.created_formation_ids)
+        affected_formation_ids.update(r.found_formation_ids)
         totals["created_contacts"] += len(r.created_contact_ids)
         totals["found_contacts"] += len(r.found_contact_ids)
         totals["created_formations"] += len(r.created_formation_ids)
@@ -1214,12 +1219,17 @@ async def batch_accept_litho_suggestions(
         if updated is not None:
             updated_section_response = CrossSectionResponse.model_validate(updated)
 
-    # One inference recompute for the whole batch (the batched equivalent of the
-    # frontend's post-loop recompute-all-absences call).
+    # One INCREMENTAL inference recompute for the whole batch (#155): only the
+    # formations this accept touched, not every formation in the model. On an
+    # established model the accept touches a handful of formations while the
+    # model may hold dozens, so this turns the per-accept inference from
+    # O(model size) into O(accepted) — the dominant cost on real projects.
     inference_ran = False
-    if request.run_inference and totals["created_contacts"] + totals["found_contacts"] > 0:
+    if request.run_inference and affected_formation_ids:
         await RecomputeAllAbsencesForModel(session).execute(
-            project_id=project_id, model_id=model_id
+            project_id=project_id,
+            model_id=model_id,
+            only_formation_ids=list(affected_formation_ids),
         )
         inference_ran = True
 
