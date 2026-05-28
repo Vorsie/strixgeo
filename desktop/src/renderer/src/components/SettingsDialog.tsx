@@ -196,7 +196,7 @@ function LithoSection({
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
-  const straddelBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
+  const straddleBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -216,8 +216,8 @@ function LithoSection({
     draft.lithoSnapToleranceM <= snapBounds.max
   const straddleValid =
     Number.isFinite(draft.straddleMinPieceThicknessM) &&
-    draft.straddleMinPieceThicknessM >= straddelBounds.min &&
-    draft.straddleMinPieceThicknessM <= straddelBounds.max
+    draft.straddleMinPieceThicknessM >= straddleBounds.min &&
+    draft.straddleMinPieceThicknessM <= straddleBounds.max
   const allValid = thicknessValid && gunsatValid && drValid && snapValid && straddleValid
 
   const dirty =
@@ -299,11 +299,11 @@ function LithoSection({
       <NumberRow
         id="settings-straddle-min-piece-thickness"
         label="Sliver guard (m)"
-        hint={`Litho boundaries within this distance of a geological boundary aren't split — suppresses thin sliver units on accept (#157). A suggestion whose top or base lands closer than this threshold to a formation contact is treated as touching the contact rather than straddling it. Range ${straddelBounds.min}–${straddelBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM} m.`}
+        hint={`Litho boundaries within this distance of a geological boundary aren't split — suppresses thin sliver units on accept (#157). A suggestion whose top or base lands closer than this threshold to a formation contact is treated as touching the contact rather than straddling it. Range ${straddleBounds.min}–${straddleBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM} m.`}
         value={draft.straddleMinPieceThicknessM}
         onChange={v => setDraft({ ...draft, straddleMinPieceThicknessM: v })}
-        bounds={straddelBounds}
-        sliderMin={straddelBounds.min}
+        bounds={straddleBounds}
+        sliderMin={straddleBounds.min}
         sliderMax={1.0}
         step={0.01}
         unit="m"
