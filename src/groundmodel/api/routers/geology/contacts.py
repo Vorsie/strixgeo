@@ -36,6 +36,9 @@ from groundmodel.api.schemas.project.formation_contact import (
 from groundmodel.api.schemas.project.litho_suggestion import (
     AcceptLithoSuggestionsRequest,
     AcceptLithoSuggestionsResponse,
+    BatchAcceptLithoAnchorResult,
+    BatchAcceptLithoSuggestionsRequest,
+    BatchAcceptLithoSuggestionsResponse,
     LithoLayerSuggestionItem,
     LithoSuggestionRequest,
     LithoSuggestionResponse,
@@ -44,6 +47,10 @@ from groundmodel.application.accept_litho_suggestions import AcceptLithoSuggesti
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     AutoPopulateContactsFromStratigraphy,
     build_formal_informal_bridge,
+)
+from groundmodel.application.batch_accept_litho_suggestions import (
+    BatchAcceptAnchorInput,
+    BatchAcceptLithoSuggestions,
 )
 from groundmodel.application.clear_litho_model import ClearLithoModel
 from groundmodel.application.create_formation_contact import (
@@ -58,6 +65,9 @@ from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
 )
 from groundmodel.application.extrapolate_pinch_out import ExtrapolatePinchOut
+from groundmodel.application.recompute_all_absences_for_model import (
+    RecomputeAllAbsencesForModel,
+)
 from groundmodel.application.seed_litho_from_geological_model import (
     SeedLithoFromGeologicalModel,
 )
@@ -94,6 +104,43 @@ logger = LoggerFactory.get_logger(__name__)
 # No prefix here — the package __init__ mounts this on the shared
 # ``/projects/{project_id}/geology`` parent router (paths unchanged).
 router = APIRouter()
+
+
+def _to_domain_suggestions(
+    items: list[LithoLayerSuggestionItem],
+) -> list[LithoLayerSuggestion]:
+    """Convert API suggestion items into domain ``LithoLayerSuggestion`` objects.
+
+    Shared by the single-accept and batch-accept handlers (extracted on the
+    second copy) so both decode the wire shape identically.
+
+    Parameters
+    ----------
+    items : list[LithoLayerSuggestionItem]
+        Suggestion items from an accept request body.
+
+    Returns
+    -------
+    list[LithoLayerSuggestion]
+        Domain suggestions ready for the accept use case.
+    """
+    return [
+        LithoLayerSuggestion(
+            depth_top_m=item.depth_top_m,
+            depth_base_m=item.depth_base_m,
+            suggested_lithology=item.suggested_lithology,
+            suggested_nad_class=item.suggested_nad_class,
+            mean_qc_mpa=item.mean_qc_mpa,
+            dr_pct=item.dr_pct,
+            confidence=SuggestionConfidence(item.confidence.value),
+            source=item.source,
+            suggested_admixtures=tuple(
+                Admixture(soil_code=adm.soil_code, amount=adm.amount, locally=adm.locally)
+                for adm in item.suggested_admixtures
+            ),
+        )
+        for item in items
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -975,29 +1022,7 @@ async def accept_litho_suggestions(
 
     # Convert API suggestion items back to domain objects so the use case
     # can operate on typed data rather than raw dicts.
-    domain_suggestions: list[LithoLayerSuggestion] = []
-    for item in request.suggestions:
-        admixtures = tuple(
-            Admixture(
-                soil_code=adm.soil_code,
-                amount=adm.amount,
-                locally=adm.locally,
-            )
-            for adm in item.suggested_admixtures
-        )
-        domain_suggestions.append(
-            LithoLayerSuggestion(
-                depth_top_m=item.depth_top_m,
-                depth_base_m=item.depth_base_m,
-                suggested_lithology=item.suggested_lithology,
-                suggested_nad_class=item.suggested_nad_class,
-                mean_qc_mpa=item.mean_qc_mpa,
-                dr_pct=item.dr_pct,
-                confidence=SuggestionConfidence(item.confidence.value),
-                source=item.source,
-                suggested_admixtures=admixtures,
-            )
-        )
+    domain_suggestions = _to_domain_suggestions(request.suggestions)
 
     try:
         result = await AcceptLithoSuggestions(session).execute(
@@ -1040,6 +1065,175 @@ async def accept_litho_suggestions(
         stale_tin_fallback_count=result.stale_tin_fallback_count,
         extrapolated_formation_ids=result.extrapolated_formation_ids,
         orphan_formation_ids=result.orphan_formation_ids,
+        updated_section=updated_section_response,
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/batch-accept-litho-suggestions",
+    response_model=BatchAcceptLithoSuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def batch_accept_litho_suggestions(
+    project_id: UUID,
+    model_id: UUID,
+    request: BatchAcceptLithoSuggestionsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> BatchAcceptLithoSuggestionsResponse:
+    """Accept many anchors' litho suggestions in one transaction (#153 batch lever).
+
+    The single-accept endpoint commits once per anchor, so the frontend's
+    "accept all" cost one HTTP round-trip + one commit per investigation.  This
+    endpoint accepts every anchor in a single transaction (one commit), seeds
+    the section once with the aggregated contact ids, and runs the inference
+    recompute once — collapsing an N-anchor bulk accept from ``N + 2`` calls to
+    a single call.
+
+    Per-anchor ``ValueError`` (bad investigation id, etc.) is reported in that
+    anchor's ``error`` field; the rest of the batch still commits.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Lithostratigraphic model — must be ``kind='lithostratigraphic'`` and
+        belong to ``project_id``.
+    request : BatchAcceptLithoSuggestionsRequest
+        The per-anchor suggestion lists plus an optional shared ``section_id``
+        and the ``run_inference`` flag.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    BatchAcceptLithoSuggestionsResponse
+        Per-anchor results, aggregate counts, the updated section, and whether
+        inference ran.
+
+    Raises
+    ------
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'``.
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    if model.kind != "lithostratigraphic":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": (
+                    f"Model {model_id} has kind='{model.kind}'; "
+                    "batch-accept-litho-suggestions requires kind='lithostratigraphic'"
+                ),
+            },
+        )
+
+    # Convert each anchor's suggestion items to domain objects.
+    anchor_inputs = [
+        BatchAcceptAnchorInput(
+            suggestions=_to_domain_suggestions(anchor.suggestions),
+            cpt_id=anchor.cpt_id,
+            borehole_id=anchor.borehole_id,
+        )
+        for anchor in request.anchors
+    ]
+
+    batch_result = await BatchAcceptLithoSuggestions(session).execute(
+        project_id=project_id,
+        litho_model_id=model_id,
+        anchors=anchor_inputs,
+    )
+
+    # Aggregate the created/found contact ids across all anchors and seed the
+    # section ONCE (one array rewrite instead of one per anchor).
+    anchor_results: list[BatchAcceptLithoAnchorResult] = []
+    all_contact_ids: set[UUID] = set()
+    totals = {
+        "created_contacts": 0,
+        "found_contacts": 0,
+        "created_formations": 0,
+        "straddle": 0,
+        "stale_tin": 0,
+        "extrapolated": 0,
+        "orphan": 0,
+        "failed": 0,
+    }
+    for outcome in batch_result.outcomes:
+        r = outcome.result
+        if r is None:
+            totals["failed"] += 1
+            anchor_results.append(
+                BatchAcceptLithoAnchorResult(
+                    cpt_id=outcome.cpt_id,
+                    borehole_id=outcome.borehole_id,
+                    error=outcome.error,
+                )
+            )
+            continue
+        all_contact_ids.update(r.created_contact_ids)
+        all_contact_ids.update(r.found_contact_ids)
+        totals["created_contacts"] += len(r.created_contact_ids)
+        totals["found_contacts"] += len(r.found_contact_ids)
+        totals["created_formations"] += len(r.created_formation_ids)
+        totals["straddle"] += r.straddle_split_count
+        totals["stale_tin"] += r.stale_tin_fallback_count
+        totals["extrapolated"] += len(r.extrapolated_formation_ids)
+        totals["orphan"] += len(r.orphan_formation_ids)
+        anchor_results.append(
+            BatchAcceptLithoAnchorResult(
+                cpt_id=outcome.cpt_id,
+                borehole_id=outcome.borehole_id,
+                created_formation_ids=r.created_formation_ids,
+                found_formation_ids=r.found_formation_ids,
+                created_contact_ids=r.created_contact_ids,
+                found_contact_ids=r.found_contact_ids,
+                straddle_split_count=r.straddle_split_count,
+                stale_tin_fallback_count=r.stale_tin_fallback_count,
+                extrapolated_formation_ids=r.extrapolated_formation_ids,
+                orphan_formation_ids=r.orphan_formation_ids,
+            )
+        )
+
+    # Explicit-content invariant: union every accepted contact id into the
+    # section in a single update (mirrors the single-accept seed, batched).
+    updated_section_response = None
+    if request.section_id is not None and all_contact_ids:
+        updated = await CrossSectionRepository(session).union_seeded_contact_ids(
+            request.section_id,
+            project_id,
+            all_contact_ids,
+            operation="BatchAcceptLithoSuggestions",
+        )
+        if updated is not None:
+            updated_section_response = CrossSectionResponse.model_validate(updated)
+
+    # One inference recompute for the whole batch (the batched equivalent of the
+    # frontend's post-loop recompute-all-absences call).
+    inference_ran = False
+    if request.run_inference and totals["created_contacts"] + totals["found_contacts"] > 0:
+        await RecomputeAllAbsencesForModel(session).execute(
+            project_id=project_id, model_id=model_id
+        )
+        inference_ran = True
+
+    return BatchAcceptLithoSuggestionsResponse(
+        anchors=anchor_results,
+        total_created_contacts=totals["created_contacts"],
+        total_found_contacts=totals["found_contacts"],
+        total_created_formations=totals["created_formations"],
+        total_straddle_splits=totals["straddle"],
+        total_stale_tin_fallbacks=totals["stale_tin"],
+        total_extrapolated_formations=totals["extrapolated"],
+        total_orphan_formations=totals["orphan"],
+        failed_anchor_count=totals["failed"],
+        inference_ran=inference_ran,
         updated_section=updated_section_response,
     )
 
