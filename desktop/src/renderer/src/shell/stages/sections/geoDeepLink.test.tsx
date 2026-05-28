@@ -1,20 +1,20 @@
-// Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
+﻿// Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
 //
-// GD1 — right-click on a reference (geological backdrop) contact hit-strip
-//        in the litho section view → the contact context menu opens with the
+// GD1 â€” right-click on a reference (geological backdrop) contact hit-strip
+//        in the litho section view â†’ the contact context menu opens with the
 //        "Edit in Geology stage" item present.
 //
-// GD2 — clicking "Edit in Geology stage" calls the onEditInGeologyStage
+// GD2 â€” clicking "Edit in Geology stage" calls the onEditInGeologyStage
 //        callback with the correct contactId + formationId args, and the
 //        menu does NOT show Delete / Pinch-out for reference contacts.
 //
-// GD3 — GeologyInspector mounts with a non-null ``geoDeepLinkTarget`` →
+// GD3 â€” GeologyInspector mounts with a non-null ``geoDeepLinkTarget`` â†’
 //        ``handleFocusContacts`` is called with the contact id.
 //
-// GD4 — GeologyInspector calls ``setGeoDeepLinkTarget(null)`` after
+// GD4 â€” GeologyInspector calls ``setGeoDeepLinkTarget(null)`` after
 //        consuming the payload so a re-mount does not re-fire the focus.
 //
-// GD5 — Reference-contact hit-strips render AFTER (on top of) active
+// GD5 â€” Reference-contact hit-strips render AFTER (on top of) active
 //        litho-contact drag strips in SVG DOM order (Slice D z-order fix,
 //        dogfeed 2026-05-25).  The strips must be topmost so right-click
 //        on a geological contact position wins over any overlapping litho
@@ -27,7 +27,7 @@ import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// GD1 / GD2  — ContactsLayer ref-contact hit-strip + menu item
+// GD1 / GD2  â€” ContactsLayer ref-contact hit-strip + menu item
 // ---------------------------------------------------------------------------
 
 import ContactsLayer from '../../../components/sections/ContactsLayer'
@@ -112,7 +112,7 @@ function renderContactsLayer(
   )
 }
 
-describe('GD1 — right-click reference contact shows "Edit in Geology stage" menu item', () => {
+describe('GD1 â€” right-click reference contact shows "Edit in Geology stage" menu item', () => {
   afterEach(() => {
     cleanup()
   })
@@ -158,7 +158,7 @@ describe('GD1 — right-click reference contact shows "Edit in Geology stage" me
       plotBottom: 400,
       referenceContacts: [makeContact(contactId, formationId, anchorId)],
       referenceFormations: [makeFormation(formationId, 'Boom Klei')],
-      // onEditInGeologyStage absent — hit-strips must not render
+      // onEditInGeologyStage absent â€” hit-strips must not render
     })
 
     const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
@@ -166,7 +166,7 @@ describe('GD1 — right-click reference contact shows "Edit in Geology stage" me
   })
 })
 
-describe('GD2 — clicking "Edit in Geology stage" calls the callback with correct args', () => {
+describe('GD2 â€” clicking "Edit in Geology stage" calls the callback with correct args', () => {
   afterEach(() => {
     cleanup()
   })
@@ -230,10 +230,10 @@ describe('GD2 — clicking "Edit in Geology stage" calls the callback with corre
 })
 
 // ---------------------------------------------------------------------------
-// GD5 — ref-contact strip DOM order (z-order fix, Slice D dogfeed 2026-05-25)
+// GD5 â€” ref-contact strip DOM order (z-order fix, Slice D dogfeed 2026-05-25)
 // ---------------------------------------------------------------------------
 
-describe('GD5 — reference-contact strips are topmost in SVG DOM (render after active strips)', () => {
+describe('GD5 â€” reference-contact strips are topmost in SVG DOM (render after active strips)', () => {
   afterEach(() => {
     cleanup()
   })
@@ -279,7 +279,7 @@ describe('GD5 — reference-contact strips are topmost in SVG DOM (render after 
     // DOM order check: the ref strip must come AFTER (i.e. on top of) the
     // active strip.  Node.compareDocumentPosition returns a bitmask;
     // DOCUMENT_POSITION_FOLLOWING (4) means `activeStrip` precedes `refStrip`
-    // in document order — which is what we want.
+    // in document order â€” which is what we want.
     const position = activeStrip!.compareDocumentPosition(refStrip!)
     // Bitmask bit 4 = DOCUMENT_POSITION_FOLLOWING: refStrip is after activeStrip.
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -287,7 +287,7 @@ describe('GD5 — reference-contact strips are topmost in SVG DOM (render after 
 })
 
 // ---------------------------------------------------------------------------
-// GD6 — "Edit in Geology stage" on litho contact when parent geo contact exists
+// GD6 â€” "Edit in Geology stage" on litho contact when parent geo contact exists
 //
 // Regression for dogfeed Bug 1 (2026-05-26): right-clicking a NON-TOPMOST
 // litho contact (i.e. a litho-litho boundary within a geological formation)
@@ -298,7 +298,7 @@ describe('GD5 — reference-contact strips are topmost in SVG DOM (render after 
 // boundaries silently had no geological context menu.
 // ---------------------------------------------------------------------------
 
-describe('GD6 — litho contact right-click shows geo-deep-link when parent geo contact exists', () => {
+describe('GD6 â€” litho contact right-click shows geo-deep-link when parent geo contact exists', () => {
   afterEach(() => {
     cleanup()
   })
@@ -324,7 +324,7 @@ describe('GD6 — litho contact right-click shows geo-deep-link when parent geo 
     const lithoContact = makeContact(lithoContactId, lithoFormationId, anchorId)
     lithoContact.depth_top_m = 3
 
-    // Reference geological contact at 1 m (topmost geo boundary) — different
+    // Reference geological contact at 1 m (topmost geo boundary) â€” different
     // depth so it is a truly separate strip.  The litho contact at 3 m is
     // BELOW this geological boundary, making it a litho-litho boundary.
     const geoContact = makeContact(geoContactId, geoFormationId, anchorId)
@@ -350,7 +350,7 @@ describe('GD6 — litho contact right-click shows geo-deep-link when parent geo 
     const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')
     expect(activeStrip).not.toBeNull()
 
-    // Right-click the litho contact strip → menu must include the geo deep-link item.
+    // Right-click the litho contact strip â†’ menu must include the geo deep-link item.
     fireEvent.contextMenu(activeStrip!)
     const menuItem = screen.getByTestId('geo-deep-link-menu-item')
     expect(menuItem).toBeTruthy()
@@ -433,7 +433,7 @@ describe('GD6 — litho contact right-click shows geo-deep-link when parent geo 
 })
 
 // ---------------------------------------------------------------------------
-// GD3 / GD4  — GeologyInspector payload consumer + clear
+// GD3 / GD4  â€” GeologyInspector payload consumer + clear
 // ---------------------------------------------------------------------------
 
 import { ShellContext } from '../../ShellContext'
@@ -577,6 +577,7 @@ function makeStubContext(overrides?: {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -743,7 +744,7 @@ function makeStubContext(overrides?: {
   }
 }
 
-describe('GD3 — GeologyInspector consumes geoDeepLinkTarget on mount', () => {
+describe('GD3 â€” GeologyInspector consumes geoDeepLinkTarget on mount', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
@@ -786,7 +787,7 @@ describe('GD3 — GeologyInspector consumes geoDeepLinkTarget on mount', () => {
   })
 })
 
-describe('GD4 — GeologyInspector clears payload after first apply', () => {
+describe('GD4 â€” GeologyInspector clears payload after first apply', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
@@ -815,3 +816,4 @@ describe('GD4 — GeologyInspector clears payload after first apply', () => {
     expect(setGeoDeepLinkTarget).toHaveBeenCalledWith(null)
   })
 })
+

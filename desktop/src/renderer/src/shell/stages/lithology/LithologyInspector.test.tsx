@@ -1,4 +1,4 @@
-// Behavioral net for LithologyInspector.
+﻿// Behavioral net for LithologyInspector.
 //
 // Claims pinned here (Slice C, #55 peer-stage scaffolding):
 //   I1  When activeGeologicalModel is null: guidance to create a
@@ -13,7 +13,7 @@
 //       Units without a parent_formation_id appear in an "Unassigned"
 //       group at the bottom.
 //
-// Claims pinned here (Phase-2 Slice 2 — ordinal display + lock + RO-3):
+// Claims pinned here (Phase-2 Slice 2 â€” ordinal display + lock + RO-3):
 //   S1  Ordinal badge renders "body N" when instance_ordinal is set and
 //       "body ?" when null.
 //   S2  Lock toggle button PATCHes instance_ordinal_locked and refetches
@@ -23,11 +23,11 @@
 //   S4  RO-3 amber stale badge is ABSENT after a resolve synchronises the
 //       baseline, when nothing is locked, or when the edge set is
 //       unchanged. (The badge-PRESENT happy path is not reachable through
-//       this component's public surface — it is unit-tested directly on
+//       this component's public surface â€” it is unit-tested directly on
 //       the extracted pure predicate in ordinalStaleness.test.ts; review
 //       SF-1.)
 //
-// Pattern: render LithologyInspector inside a ShellContext.Provider —
+// Pattern: render LithologyInspector inside a ShellContext.Provider â€”
 // same approach as SectionsToolbar.axis.test.tsx.  ModelKindPicker and
 // api are mocked so network calls do not bleed into these tests.
 
@@ -69,7 +69,7 @@ vi.mock('../../../utils/log', () => ({
 // TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on accept.
 const mockListContactCorrelations = vi.fn<() => Promise<LithoContactCorrelationEdge[]>>()
 const mockUpdateFormation = vi.fn<() => Promise<GeologicalFormationResponse>>()
-// listLenses: returns an empty lens list by default — keeps existing tests
+// listLenses: returns an empty lens list by default â€” keeps existing tests
 // isolated; individual tests can override via mockListLenses.mockResolvedValue.
 const mockListLenses = vi.fn<() => Promise<[]>>()
 
@@ -142,7 +142,7 @@ function makeFormation(
     regional_ref: null,
     description: null,
     pinned_order: false,
-    // Phase 1 litho-builder fields — null on geological-model rows.
+    // Phase 1 litho-builder fields â€” null on geological-model rows.
     parent_formation_id: null,
     litho_main_soil_code: null,
     litho_admixtures: null,
@@ -315,6 +315,7 @@ function makeCtx(overrides: {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -491,7 +492,7 @@ beforeEach(() => {
   // TODO Task 19+21: resolveLithoInstances removed; resolved on accept.
   mockListContactCorrelations.mockResolvedValue([])
   mockUpdateFormation.mockResolvedValue(makeFormation('f-a', 'Zand'))
-  // Default: no lenses — keeps existing tests isolated.
+  // Default: no lenses â€” keeps existing tests isolated.
   mockListLenses.mockResolvedValue([])
 })
 
@@ -502,22 +503,22 @@ afterEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Slice C / #55 tests (I1–I4)
+// Slice C / #55 tests (I1â€“I4)
 // ---------------------------------------------------------------------------
 
 describe('LithologyInspector (Slice C, #55)', () => {
-  // I1: no geological model → guidance to create one; no ModelKindPicker.
-  it('I1 — no geological model: shows "create a geological model first" guidance', () => {
+  // I1: no geological model â†’ guidance to create one; no ModelKindPicker.
+  it('I1 â€” no geological model: shows "create a geological model first" guidance', () => {
     const ctx = makeCtx({ activeGeologicalModel: null })
     renderInspector(ctx)
 
     expect(screen.getByText(/create a geological model first/i)).toBeInTheDocument()
-    // ModelKindPicker should NOT render — the geological model gate fires first.
+    // ModelKindPicker should NOT render â€” the geological model gate fires first.
     expect(screen.queryByTestId('model-kind-picker')).not.toBeInTheDocument()
   })
 
-  // I2: litho model active + formations + contacts → roster with correct counts.
-  it('I2 — litho model + 2 formations + 3 contacts → roster with per-formation counts', () => {
+  // I2: litho model active + formations + contacts â†’ roster with correct counts.
+  it('I2 â€” litho model + 2 formations + 3 contacts â†’ roster with per-formation counts', () => {
     const formA = makeFormation('f-a', 'Zand')
     const formB = makeFormation('f-b', 'Klei')
     const contacts = [
@@ -546,8 +547,8 @@ describe('LithologyInspector (Slice C, #55)', () => {
     ).toBeInTheDocument()
   })
 
-  // I3a: lithoStaleSurfaceCount > 0 → stale banner renders with correct count.
-  it('I3a — stale banner renders when lithoStaleSurfaceCount > 0', () => {
+  // I3a: lithoStaleSurfaceCount > 0 â†’ stale banner renders with correct count.
+  it('I3a â€” stale banner renders when lithoStaleSurfaceCount > 0', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleSurfaceCount: 2,
@@ -560,8 +561,8 @@ describe('LithologyInspector (Slice C, #55)', () => {
     expect(banner).toHaveTextContent(/build on sections/i)
   })
 
-  // I3b: lithoStaleSurfaceCount === 0 → no stale banner.
-  it('I3b — stale banner is absent when lithoStaleSurfaceCount is 0', () => {
+  // I3b: lithoStaleSurfaceCount === 0 â†’ no stale banner.
+  it('I3b â€” stale banner is absent when lithoStaleSurfaceCount is 0', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleSurfaceCount: 0,
@@ -572,7 +573,7 @@ describe('LithologyInspector (Slice C, #55)', () => {
   })
 
   // I4: litho formations grouped under geological parent ordered by display_order.
-  it('I4 — litho roster is grouped under geological parents ordered ascending by display_order', () => {
+  it('I4 â€” litho roster is grouped under geological parents ordered ascending by display_order', () => {
     const tertiair = makeFormation('geo-t', 'Tertiair', { display_order: 0 })
     const kwartair = makeFormation('geo-k', 'Kwartair', { display_order: 1 })
 
@@ -628,13 +629,13 @@ describe('LithologyInspector (Slice C, #55)', () => {
 // Slice 5 / debt #67 tests (I5)
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', () => {
+describe('LithologyInspector (Slice 5 / debt #67 â€” parent_formation_name)', () => {
   // I5: roster group heading uses parent_formation_name (server-resolved)
   //     when present, rather than requiring the geo-join hit.
-  it('I5 — group label uses parent_formation_name when set, falls back to geo-join name', () => {
+  it('I5 â€” group label uses parent_formation_name when set, falls back to geo-join name', () => {
     // Geological formation whose name differs from what a litho unit reports
     // as parent_formation_name (simulates a display-name that differs from the
-    // raw ORM row name returned via the geoFormations join — e.g. DOV canonical
+    // raw ORM row name returned via the geoFormations join â€” e.g. DOV canonical
     // name vs project shortname).
     const geoParent = makeFormation('geo-p', 'Boom Klei (geo join)', { display_order: 0 })
 
@@ -658,10 +659,10 @@ describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', ()
     expect(screen.queryByText('Boom Klei (geo join)')).not.toBeInTheDocument()
   })
 
-  it('I5b — group label falls back to geo-join name when parent_formation_name is null', () => {
+  it('I5b â€” group label falls back to geo-join name when parent_formation_name is null', () => {
     const geoParent = makeFormation('geo-q', 'Diest Zand', { display_order: 0 })
 
-    // Litho unit with no server-resolved parent name (null → fallback to join).
+    // Litho unit with no server-resolved parent name (null â†’ fallback to join).
     const lithoNoResolvedName = makeFormation('lf-2', 'Zand', {
       parent_formation_id: 'geo-q',
       parent_formation_name: null,
@@ -681,12 +682,12 @@ describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', ()
 })
 
 // ---------------------------------------------------------------------------
-// Phase-2 Slice 2 tests (S1–S4)
+// Phase-2 Slice 2 tests (S1â€“S4)
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () => {
+describe('LithologyInspector (Phase-2 Slice 2 â€” ordinal + lock + RO-3)', () => {
   // S1: ordinal badge renders "body N" when instance_ordinal is set, "body ?" otherwise.
-  it('S1a — ordinal badge shows "body N" when instance_ordinal is a number', () => {
+  it('S1a â€” ordinal badge shows "body N" when instance_ordinal is a number', () => {
     const f = makeFormation('f-a', 'Zand', { instance_ordinal: 2 })
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -698,7 +699,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     expect(screen.getByTestId('ordinal-badge-f-a')).toHaveTextContent('body 2')
   })
 
-  it('S1b — ordinal badge shows "body ?" when instance_ordinal is null', () => {
+  it('S1b â€” ordinal badge shows "body ?" when instance_ordinal is null', () => {
     const f = makeFormation('f-a', 'Zand', { instance_ordinal: null })
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -711,7 +712,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   })
 
   // S2: lock toggle PATCHes instance_ordinal_locked and calls refetchFormations.
-  it('S2 — lock toggle calls updateFormation with instance_ordinal_locked and refetchFormations', async () => {
+  it('S2 â€” lock toggle calls updateFormation with instance_ordinal_locked and refetchFormations', async () => {
     const refetchFormations = vi.fn()
     const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: false })
     const ctx = makeCtx({
@@ -742,7 +743,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   // S3: Resolve button calls refetchFormations and listContactCorrelations.
   // TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on
   // accept. The Resolve button now just refetches formations + contact edges.
-  it('S3 — Resolve instances button calls refetchFormations and listContactCorrelations', async () => {
+  it('S3 â€” Resolve instances button calls refetchFormations and listContactCorrelations', async () => {
     const refetchFormations = vi.fn()
     mockListContactCorrelations.mockResolvedValue([])
 
@@ -768,30 +769,30 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   // S4a: RO-3 amber badge is ABSENT once a resolve has synchronised the
   // baseline (currentEdgeCount === lastResolvedEdgeCount). The badge-PRESENT
   // branch is NOT reachable through this component's public surface (driving
-  // an edge-count divergence mid-render requires no external trigger) — it
+  // an edge-count divergence mid-render requires no external trigger) â€” it
   // is unit-tested directly on the extracted pure predicate in
   // ordinalStaleness.test.ts (review SF-1). This test pins the in-sync
   // (absent) behaviour at the component level.
-  it('S4a — amber stale badge is absent after a resolve synchronises the baseline', async () => {
+  it('S4a â€” amber stale badge is absent after a resolve synchronises the baseline', async () => {
     // First resolve returns 0 edges (sets baseline = 0).
     // Second listCorrelations call (post-resolve refresh) returns 0 edges too.
     // Afterwards, the live state is manipulated: we re-render with 1 edge
     // already in correlationEdges by making the component refetch again with
-    // a new model id — simpler approach: use a two-render strategy.
+    // a new model id â€” simpler approach: use a two-render strategy.
     //
     // Simplest reliable scenario:
-    //   1. Mount with 1 edge → baseline = 1 (S4c-like, badge absent).
-    //   2. Resolve: post-resolve listCorrelations returns 0 edges → baseline resets to 0.
-    //   3. Live edge count is 0 (same as baseline) → still no badge.
+    //   1. Mount with 1 edge â†’ baseline = 1 (S4c-like, badge absent).
+    //   2. Resolve: post-resolve listCorrelations returns 0 edges â†’ baseline resets to 0.
+    //   3. Live edge count is 0 (same as baseline) â†’ still no badge.
     //
     // The REAL S4a scenario requires the component's live edge count to diverge
     // from the baseline BETWEEN resolves.  The component only re-fetches on:
     //   (a) model change, (b) explicit Resolve.
-    // So: mount → baseline=0 (empty). Then use two back-to-back resolves:
-    //   resolve-1: post-resolve fetch returns 0 → baseline stays 0.
+    // So: mount â†’ baseline=0 (empty). Then use two back-to-back resolves:
+    //   resolve-1: post-resolve fetch returns 0 â†’ baseline stays 0.
     //   Now mock listCorrelations to return [e-1] from this point on.
     //   resolve-2: resolveLithoInstances is called, then post-resolve fetch
-    //     returns [e-1] → baseline = 1. currentEdgeCount = 1. No badge (1===1).
+    //     returns [e-1] â†’ baseline = 1. currentEdgeCount = 1. No badge (1===1).
     //
     // The only way to get badge=true without a new model mount is to have the
     // CURRENT edge state update independently of the resolve cycle.  Since
@@ -815,13 +816,13 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     })
     renderInspector(ctx)
 
-    // Wait for the initial edge fetch to settle (0 edges → baseline = 0).
+    // Wait for the initial edge fetch to settle (0 edges â†’ baseline = 0).
     await waitFor(() => {
       expect(mockListContactCorrelations).toHaveBeenCalled()
     })
 
-    // Click Resolve → post-resolve fetch returns 0.
-    // baseline updated to 0. currentEdgeCount = 0. 0 === 0 → badge absent.
+    // Click Resolve â†’ post-resolve fetch returns 0.
+    // baseline updated to 0. currentEdgeCount = 0. 0 === 0 â†’ badge absent.
     await act(async () => {
       fireEvent.click(screen.getByTestId('resolve-instances-btn'))
     })
@@ -835,7 +836,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   })
 
   // S4b: RO-3 amber badge is absent when no formations are locked.
-  it('S4b — amber stale badge is absent when no formations are locked', async () => {
+  it('S4b â€” amber stale badge is absent when no formations are locked', async () => {
     mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
 
     // Formation is NOT locked even though there are edges.
@@ -855,9 +856,9 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   })
 
   // S4c: RO-3 amber badge is absent when edge count matches the resolved baseline.
-  it('S4c — amber stale badge is absent when edge count unchanged since last resolve', async () => {
-    // Mount with 1 edge → lastResolvedEdgeCount = 1.
-    // currentEdgeCount = 1 → equal → no badge.
+  it('S4c â€” amber stale badge is absent when edge count unchanged since last resolve', async () => {
+    // Mount with 1 edge â†’ lastResolvedEdgeCount = 1.
+    // currentEdgeCount = 1 â†’ equal â†’ no badge.
     mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
 
     const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: true })
@@ -872,16 +873,16 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
       expect(mockListContactCorrelations).toHaveBeenCalled()
     })
 
-    // lastResolvedEdgeCount === currentEdgeCount (both 1) → badge absent.
+    // lastResolvedEdgeCount === currentEdgeCount (both 1) â†’ badge absent.
     expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
   })
 })
 
 // ---------------------------------------------------------------------------
-// Debt #87 — parent-review badge + ConfirmParentDialog flow
+// Debt #87 â€” parent-review badge + ConfirmParentDialog flow
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (debt #87 — parent review)', () => {
+describe('LithologyInspector (debt #87 â€” parent review)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListContactCorrelations.mockResolvedValue([])
@@ -892,7 +893,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
   })
 
   // P1: rows without parent_extrapolated AND with a parent are NOT badged.
-  it('P1 — clean rows do not render the parent-review dot', async () => {
+  it('P1 â€” clean rows do not render the parent-review dot', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -913,7 +914,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
   })
 
   // P2: parent_extrapolated rows render the dot AND open the dialog.
-  it('P2 — extrapolated rows render the dot and open the confirm dialog', async () => {
+  it('P2 â€” extrapolated rows render the dot and open the confirm dialog', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -935,7 +936,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
   })
 
   // P3: submitting the dialog PATCHes parent_extrapolated=false + parent_formation_id.
-  it('P3 — Confirm submits parent_extrapolated=false + the chosen parent id', async () => {
+  it('P3 â€” Confirm submits parent_extrapolated=false + the chosen parent id', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -960,12 +961,12 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
     )
   })
 
-  // Stale-TIN diagnostic — debt: AcceptLithoSuggestions' straddle-split
+  // Stale-TIN diagnostic â€” debt: AcceptLithoSuggestions' straddle-split
   // path can fall back to depth-ordered contacts when the geology TIN is
   // stale/absent. The session counter accumulates that across accepts;
   // the inspector pill surfaces it so the engineer sees "rebuild geology
   // for precision" without digging into logs.
-  it('T1 — stale-TIN pill renders when lithoStaleTinSessionCount > 0 with the right count', () => {
+  it('T1 â€” stale-TIN pill renders when lithoStaleTinSessionCount > 0 with the right count', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleTinSessionCount: 3,
@@ -977,7 +978,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
     expect(pill).toHaveTextContent(/rebuild geology for precision/i)
   })
 
-  it('T2 — stale-TIN pill is absent when count is 0', () => {
+  it('T2 â€” stale-TIN pill is absent when count is 0', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleTinSessionCount: 0,
@@ -986,7 +987,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
     expect(screen.queryByTestId('litho-stale-tin-pill')).not.toBeInTheDocument()
   })
 
-  it('T3 — singular wording when count is exactly 1', () => {
+  it('T3 â€” singular wording when count is exactly 1', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleTinSessionCount: 1,
@@ -998,10 +999,10 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Debt #94 — committed-contacts pill + wipe confirm flow
+// Debt #94 â€” committed-contacts pill + wipe confirm flow
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
+describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListContactCorrelations.mockResolvedValue([])
@@ -1012,7 +1013,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W1: pill is absent when BOTH contacts AND formations are empty.
-  it('W1 — clear-model pill is absent when lithoContacts and lithoFormations are both empty', () => {
+  it('W1 â€” clear-model pill is absent when lithoContacts and lithoFormations are both empty', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
@@ -1024,7 +1025,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
 
   // W1b: pill IS visible when contacts are empty but litho formations remain
   // (the "orphan units" broken state the old contact-only wipe left behind).
-  it('W1b — clear-model pill is visible when lithoFormations.length > 0 even if contacts are empty', async () => {
+  it('W1b â€” clear-model pill is visible when lithoFormations.length > 0 even if contacts are empty', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
@@ -1036,7 +1037,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W2: pill renders and shows contact + unit counts when contacts exist.
-  it('W2 — clear-model pill renders with correct counts when lithoContacts.length > 0', async () => {
+  it('W2 â€” clear-model pill renders with correct counts when lithoContacts.length > 0', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-a'), makeContact('c3', 'f-b')],
@@ -1050,7 +1051,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W3: singular wording for both when exactly one contact + one formation.
-  it('W3 — pill uses singular wording when lithoContacts.length is 1 and lithoFormations.length is 1', async () => {
+  it('W3 â€” pill uses singular wording when lithoContacts.length is 1 and lithoFormations.length is 1', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a')],
@@ -1063,7 +1064,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W4: clicking the Wipe button opens the confirm dialog.
-  it('W4 — clicking the Wipe button opens the confirm dialog', async () => {
+  it('W4 â€” clicking the Wipe button opens the confirm dialog', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-b')],
@@ -1079,7 +1080,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W5: clicking Cancel in the confirm dialog closes it without calling the handler.
-  it('W5 — Cancel closes the dialog without invoking handleClearLithoModel', async () => {
+  it('W5 â€” Cancel closes the dialog without invoking handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -1110,7 +1111,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   // vocabulary still carries formation rows from a sibling/old
   // model.  The Clear-pill stays visible (orphan-recovery affordance)
   // but the roster honours the "0 contacts, 0 units" pill exactly.
-  it('CM1 — roster is empty when active model has 0 contacts even if lithoFormations is populated', () => {
+  it('CM1 â€” roster is empty when active model has 0 contacts even if lithoFormations is populated', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [
@@ -1132,7 +1133,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
 
   // CM2: roster shows ONLY formations with at least one contact in
   // the active model, even if other formations exist in the project.
-  it('CM2 — roster filters lithoFormations down to those referenced by contacts', () => {
+  it('CM2 â€” roster filters lithoFormations down to those referenced by contacts', () => {
     const used = makeFormation('used', 'Used Zand')
     const orphan = makeFormation('orphan', 'Orphan Klei')
     const ctx = makeCtx({
@@ -1147,7 +1148,7 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W6: confirming the dialog calls handleClearLithoModel.
-  it('W6 — confirming the dialog calls handleClearLithoModel', async () => {
+  it('W6 â€” confirming the dialog calls handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -1171,3 +1172,4 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
     })
   })
 })
+

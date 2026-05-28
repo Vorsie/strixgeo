@@ -1,9 +1,9 @@
-// Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
+﻿// Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
 //
 // Claims pinned here:
-//   C1  When no litho surfaces exist (empty map or all vertices=[]) →
+//   C1  When no litho surfaces exist (empty map or all vertices=[]) â†’
 //       EmptyState renders; Geology3DViewer does NOT mount.
-//   C2  When at least one litho surface has vertices → Geology3DViewer
+//   C2  When at least one litho surface has vertices â†’ Geology3DViewer
 //       mounts; EmptyState does NOT render.
 //
 // Geology3DViewer is mocked as a bare <div data-testid="geology-3d-viewer">
@@ -26,12 +26,12 @@ import LithologyCanvas from './LithologyCanvas'
 // Module mocks
 // ---------------------------------------------------------------------------
 
-// Geology3DViewer imports Cesium and WebGL — mock it as a sentinel div.
+// Geology3DViewer imports Cesium and WebGL â€” mock it as a sentinel div.
 vi.mock('../geology/Geology3DViewer', () => ({
   default: () => <div data-testid="geology-3d-viewer" />,
 }))
 
-// api.geology.buildGroundSurface — resolve empty so the canvas never hangs.
+// api.geology.buildGroundSurface â€” resolve empty so the canvas never hangs.
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
   return {
@@ -214,6 +214,7 @@ function makeCtx(overrides: {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -395,10 +396,10 @@ afterEach(() => {
 })
 
 describe('LithologyCanvas (Slice D, #55)', () => {
-  // C1: No built surfaces → EmptyState renders; Geology3DViewer absent.
-  it('C1 — no litho surfaces: shows guided EmptyState, no Geology3DViewer', () => {
+  // C1: No built surfaces â†’ EmptyState renders; Geology3DViewer absent.
+  it('C1 â€” no litho surfaces: shows guided EmptyState, no Geology3DViewer', () => {
     const ctx = makeCtx({
-      // Empty map — no surfaces built yet.
+      // Empty map â€” no surfaces built yet.
       lithoSurfacesByFormationId: new Map(),
     })
     renderCanvas(ctx)
@@ -408,8 +409,8 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     expect(screen.getByText(/place contacts, open the sections stage/i)).toBeInTheDocument()
   })
 
-  // C1b: Surface map with vertices=[] → still EmptyState (stale surface, no geometry).
-  it('C1b — surface with empty vertices: shows EmptyState (no geometry to render)', () => {
+  // C1b: Surface map with vertices=[] â†’ still EmptyState (stale surface, no geometry).
+  it('C1b â€” surface with empty vertices: shows EmptyState (no geometry to render)', () => {
     const surfMap = new Map([['f-stale', makeSurface('f-stale', false)]])
     const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
     renderCanvas(ctx)
@@ -417,8 +418,8 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     expect(screen.queryByTestId('geology-3d-viewer')).not.toBeInTheDocument()
   })
 
-  // C2: At least one surface with vertices → Geology3DViewer mounts; EmptyState absent.
-  it('C2 — surface with vertices: Geology3DViewer mounts', () => {
+  // C2: At least one surface with vertices â†’ Geology3DViewer mounts; EmptyState absent.
+  it('C2 â€” surface with vertices: Geology3DViewer mounts', () => {
     const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
     const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
     renderCanvas(ctx)
@@ -426,3 +427,4 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     expect(screen.getByTestId('geology-3d-viewer')).toBeInTheDocument()
   })
 })
+

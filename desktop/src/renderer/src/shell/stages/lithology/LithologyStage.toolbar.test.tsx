@@ -1,4 +1,4 @@
-// Behavioral net for LithologyToolbar (Phase 1 litho accept flow).
+﻿// Behavioral net for LithologyToolbar (Phase 1 litho accept flow).
 //
 // "Build litho" was moved from SectionsToolbar to LithologyToolbar so
 // it lives beside the model-management surface, not the section editor.
@@ -29,7 +29,7 @@ import type {
 import LithologyStage from './LithologyStage'
 
 // ---------------------------------------------------------------------------
-// Module mocks — LithologyCanvas and Geology3DViewer bring Cesium/Leaflet
+// Module mocks â€” LithologyCanvas and Geology3DViewer bring Cesium/Leaflet
 // ---------------------------------------------------------------------------
 
 vi.mock('./LithologyCanvas', () => ({
@@ -215,6 +215,7 @@ function makeCtx(overrides: {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -399,14 +400,14 @@ afterEach(() => {
 
 describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
   // BL1: Build litho renders when a litho model is active.
-  it('BL1 — Build litho button renders when a litho model is active', () => {
+  it('BL1 â€” Build litho button renders when a litho model is active', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
     renderToolbar(ctx)
     expect(screen.getByRole('button', { name: /build litho/i })).toBeInTheDocument()
   })
 
   // BL2: LithologyToolbar returns null (no buttons) when no litho model.
-  it('BL2 — toolbar renders nothing when no litho model is active', () => {
+  it('BL2 â€” toolbar renders nothing when no litho model is active', () => {
     const ctx = makeCtx({ activeLithoModel: null })
     const { container } = renderToolbar(ctx)
     expect(container.firstChild).toBeNull()
@@ -415,7 +416,7 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
   // BL3: Clicking Build litho calls handleRebuildLithoSurfaces.
   // Debt #94: Build is gated on contact presence, so the test fixture
   // seeds one contact for the click to fire.
-  it('BL3 — clicking Build litho calls handleRebuildLithoSurfaces', async () => {
+  it('BL3 â€” clicking Build litho calls handleRebuildLithoSurfaces', async () => {
     const rebuild = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -452,7 +453,7 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
 
   // BL3b (Debt #94): Build litho is DISABLED when the active litho
   // model has zero contacts; tooltip points to the cross-section view.
-  it('BL3b — Build litho is disabled with cross-section hint when no contacts', () => {
+  it('BL3b â€” Build litho is disabled with cross-section hint when no contacts', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
@@ -464,27 +465,27 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
   })
 
   // BL4: When lithoStaleSurfaceCount > 0, the label shows the count.
-  it('BL4 — stale count appears in button label when > 0', () => {
+  it('BL4 â€” stale count appears in button label when > 0', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoStaleSurfaceCount: 3,
     })
     renderToolbar(ctx)
-    // Label: "Build litho · 3 stale" — getByRole matches any containing text.
+    // Label: "Build litho Â· 3 stale" â€” getByRole matches any containing text.
     expect(screen.getByRole('button', { name: /build litho.*3 stale/i })).toBeInTheDocument()
   })
 })
 
 describe('LithologyToolbar Reset camera button', () => {
   // BL5a: Reset camera absent when no litho surfaces have vertices.
-  it('BL5a — Reset camera absent when no built litho surfaces exist', () => {
+  it('BL5a â€” Reset camera absent when no built litho surfaces exist', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
     renderToolbar(ctx)
     expect(screen.queryByRole('button', { name: /reset camera/i })).not.toBeInTheDocument()
   })
 
   // BL5b: Reset camera present when at least one surface has vertices.
-  it('BL5b — Reset camera present when a built litho surface exists', () => {
+  it('BL5b â€” Reset camera present when a built litho surface exists', () => {
     const surfaces = new Map([['f-1', makeSurface('f-1', true)]])
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -494,3 +495,4 @@ describe('LithologyToolbar Reset camera button', () => {
     expect(screen.getByRole('button', { name: /reset camera/i })).toBeInTheDocument()
   })
 })
+

@@ -1,9 +1,9 @@
-// Behaviour + smoke test for the Export stage canvas (debt #30).
+﻿// Behaviour + smoke test for the Export stage canvas (debt #30).
 //
 // Mirrors GeologyStage.test.tsx's stub-ShellContext approach. Covers:
 //   * smoke render with no prerequisites (both cards show guidance)
-//   * no active model → guidance points at the Geology stage, no buttons
-//   * model + sections → picker + both export buttons render, and clicking
+//   * no active model â†’ guidance points at the Geology stage, no buttons
+//   * model + sections â†’ picker + both export buttons render, and clicking
 //     them calls the shared bus handlers with the right arguments
 //
 // The point of debt #30 is that the spine no longer dead-ends at "coming
@@ -127,6 +127,7 @@ function makeStubContext(): ShellContextValue {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,
@@ -317,7 +318,7 @@ const ACTIVE_MODEL = {
 const SECTION_A = {
   id: 'sec-1',
   app_project_id: 'proj-1',
-  name: 'Quay 7 — A–A',
+  name: 'Quay 7 â€” Aâ€“A',
   x1: 0,
   y1: 0,
   x2: 100,
@@ -363,13 +364,13 @@ describe('Export stage canvas (debt #30)', () => {
     renderCanvas(ctx)
     // Plaxis 3D only needs a model.
     expect(screen.getByRole('button', { name: /export plaxis 3d/i })).toBeTruthy()
-    // DXF still blocked — guidance points at the Sections stage.
+    // DXF still blocked â€” guidance points at the Sections stage.
     expect(screen.getByText(/Sections/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /export dxf/i })).toBeNull()
   })
 
   // Each section-scoped export shares one busy flag (clicking one
-  // disables the others until it settles — correct UX). Render fresh
+  // disables the others until it settles â€” correct UX). Render fresh
   // per action so the assertions don't fight that busy state.
   function readyCtx() {
     const ctx = makeStubContext()
@@ -385,7 +386,7 @@ describe('Export stage canvas (debt #30)', () => {
     ctx.coordinator.handleExportSectionDxf = exportDxf
     renderCanvas(ctx)
     fireEvent.click(screen.getByRole('button', { name: /export dxf/i }))
-    expect(exportDxf).toHaveBeenCalledWith('proj-1', 'sec-1', 'Quay 7 — A–A', 'model-1')
+    expect(exportDxf).toHaveBeenCalledWith('proj-1', 'sec-1', 'Quay 7 â€” Aâ€“A', 'model-1')
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
@@ -395,12 +396,12 @@ describe('Export stage canvas (debt #30)', () => {
     ctx.coordinator.handleExportSectionPlaxis2d = exportPlaxis2d
     renderCanvas(ctx)
     // The /plaxis 2d/ regex must NOT match the model-wide "Export
-    // Plaxis 3D" button — distinct target, distinct bus handler.
+    // Plaxis 3D" button â€” distinct target, distinct bus handler.
     fireEvent.click(screen.getByRole('button', { name: /export plaxis 2d/i }))
     expect(exportPlaxis2d).toHaveBeenCalledWith(
       'proj-1',
       'sec-1',
-      'Quay 7 — A–A',
+      'Quay 7 â€” Aâ€“A',
       'model-1',
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
@@ -416,3 +417,4 @@ describe('Export stage canvas (debt #30)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
+

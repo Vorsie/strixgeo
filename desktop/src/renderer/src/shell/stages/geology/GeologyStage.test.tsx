@@ -1,9 +1,9 @@
-// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
+﻿// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
 //
 // Mirrors SectionsStage.test.tsx.  Mounts the two Geology zone components with
 // a stub ShellContext to catch:
-//   * TDZ crashes (in particular the reorderFormations → visibleFormations
-//     ordering constraint documented in geology-stage-architecture.md §8.1 Risk 3)
+//   * TDZ crashes (in particular the reorderFormations â†’ visibleFormations
+//     ordering constraint documented in geology-stage-architecture.md Â§8.1 Risk 3)
 //   * Missing imports
 //   * Render-time throws from stale deps or bad JSX
 //
@@ -157,6 +157,7 @@ function makeStubContext(): ShellContextValue {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -356,8 +357,8 @@ describe('Geology stage (smoke)', () => {
   })
 
   it('GeologyInspector renders without throwing (TDZ check)', () => {
-    // This test exercises the reorderFormations → visibleFormations ordering
-    // constraint from geology-stage-architecture.md §8.1 Risk 3.  If TDZ
+    // This test exercises the reorderFormations â†’ visibleFormations ordering
+    // constraint from geology-stage-architecture.md Â§8.1 Risk 3.  If TDZ
     // fires, React will throw during the render phase and consoleError will
     // receive the error.
     const ctx = makeStubContext()
@@ -436,7 +437,7 @@ describe('Geology stage (smoke)', () => {
         updated_at: '2026-01-01T00:00:00Z',
       },
     ]
-    // manifest is empty → visibleFormations is empty on the bus
+    // manifest is empty â†’ visibleFormations is empty on the bus
     ctx.geoModel.visibleFormations = []
     ctx.coordinator.manifestFormationIds = new Set()
     render(
@@ -445,13 +446,13 @@ describe('Geology stage (smoke)', () => {
       </ShellContext.Provider>,
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
-    // Formation must NOT appear — the bus visible list is empty.
+    // Formation must NOT appear â€” the bus visible list is empty.
     expect(screen.queryByText('Boom Klei')).toBeNull()
   })
 
   // C-3: initial discover carries the persisted alias map so the dialog
   // opens already-consistent (no ~300 ms wrong-state window).
-  describe('GeologyToolbar handleFillFromBoreholes — initial discover carries persisted map', () => {
+  describe('GeologyToolbar handleFillFromBoreholes â€” initial discover carries persisted map', () => {
     it('calls discoverBoreholeFormations WITHOUT a map when currentLumping is null', async () => {
       const ctx = makeStubContext()
       // A borehole is required for the Fill button to be enabled.
@@ -474,7 +475,7 @@ describe('Geology stage (smoke)', () => {
           n_field_log_intervals: null,
         },
       ]
-      // currentLumping is null → no map passed
+      // currentLumping is null â†’ no map passed
       ctx.lifecycle.currentLumping = null
       const discoverSpy = vi.fn().mockResolvedValue({ candidates: [], collisions: [] })
       ctx.geoModel.discoverBoreholeFormations = discoverSpy
@@ -644,7 +645,7 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     pinned_order: false,
     lithology: null,
     nad_class: null,
-    // Phase 1 litho-builder fields — null on geological-model rows.
+    // Phase 1 litho-builder fields â€” null on geological-model rows.
     parent_formation_id: null,
     litho_main_soil_code: null,
     litho_admixtures: null,
@@ -677,7 +678,7 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     updated_at: '2026-01-01T00:00:00Z',
   })
 
-  it('B7-geo — on geological axis all visible formations are shown', () => {
+  it('B7-geo â€” on geological axis all visible formations are shown', () => {
     const ctx = makeStubContext()
     const f1 = makeFormation('f-1', 'Formation A', 0)
     const f2 = makeFormation('f-2', 'Formation B', 1)
@@ -695,7 +696,7 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     expect(screen.getByText('Formation B')).toBeTruthy()
   })
 
-  it('B7-litho — on litho axis only formations with ≥1 litho contact are shown', () => {
+  it('B7-litho â€” on litho axis only formations with â‰¥1 litho contact are shown', () => {
     const ctx = makeStubContext()
     const f1 = makeFormation('f-1', 'Formation A', 0) // has a litho contact
     const f2 = makeFormation('f-2', 'Formation B', 1) // no litho contact
@@ -713,7 +714,7 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     expect(screen.queryByText('Formation B')).toBeNull()
   })
 
-  it('B7-litho-empty — on litho axis with no contacts the list is empty', () => {
+  it('B7-litho-empty â€” on litho axis with no contacts the list is empty', () => {
     const ctx = makeStubContext()
     const f1 = makeFormation('f-1', 'Formation A', 0)
     ctx.geoModel.visibleFormations = [f1]
@@ -729,3 +730,4 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     expect(screen.queryByText('Formation A')).toBeNull()
   })
 })
+

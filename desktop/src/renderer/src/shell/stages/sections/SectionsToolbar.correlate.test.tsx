@@ -1,8 +1,8 @@
-// Behavioral net for the Slice-4 Correlate toolbar button in SectionsToolbar.
+﻿// Behavioral net for the Slice-4 Correlate toolbar button in SectionsToolbar.
 //
 // Claims pinned here:
 //   CT1  Correlate button is HIDDEN when the section axis is geological
-//        (isLitho = false → the whole {isLitho && …} block is absent).
+//        (isLitho = false â†’ the whole {isLitho && â€¦} block is absent).
 //   CT2  Correlate button is DISABLED when activeLithoModel is null, even
 //        when the axis is lithostratigraphic.
 //   CT3  Correlate button is DISABLED when no section is selected
@@ -10,20 +10,20 @@
 //   CT4  When activeLithoModel is set AND a section is selected, the button
 //        is enabled. Clicking it calls enterCorrelateMode.
 //   CT5  When correlateMode is true, the button label spells out the
-//        next-step action ("Correlate · click 2 bands") and clicking
+//        next-step action ("Correlate Â· click 2 bands") and clicking
 //        it calls exitCorrelateMode. The label was changed from
-//        "Correlating…" on 2026-05-20 because users mistook the
+//        "Correlatingâ€¦" on 2026-05-20 because users mistook the
 //        spinner-style phrasing for "work in progress, please wait"
 //        instead of "click bands to proceed".
 //   CT6  Switching the axis from lithostratigraphic back to geological
-//        invokes setSectionModelAxis('geological') — the toolbar delegates
+//        invokes setSectionModelAxis('geological') â€” the toolbar delegates
 //        clearing correlate mode to the useSections axis-switch wrapper.
 //
-//   Auto-correlate pre-check (Slice 4 Half-A) — handleAutoCorrelateWithCheck:
-//   ACW1 0 existing auto edges → fires handleAutoCorrelate immediately (no dialog).
-//   ACW2 N>0 existing auto edges → opens ReCorrelateConfirmDialog instead of
+//   Auto-correlate pre-check (Slice 4 Half-A) â€” handleAutoCorrelateWithCheck:
+//   ACW1 0 existing auto edges â†’ fires handleAutoCorrelate immediately (no dialog).
+//   ACW2 N>0 existing auto edges â†’ opens ReCorrelateConfirmDialog instead of
 //        firing immediately.
-//   ACW3 listCorrelations API error → toasts an error, does NOT open dialog,
+//   ACW3 listCorrelations API error â†’ toasts an error, does NOT open dialog,
 //        does NOT fire handleAutoCorrelate.
 
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
@@ -44,7 +44,7 @@ import SectionsToolbar from './SectionsToolbar'
 // Module mocks
 // ---------------------------------------------------------------------------
 
-// vi.mock is hoisted — the factory must NOT reference top-level `const`
+// vi.mock is hoisted â€” the factory must NOT reference top-level `const`
 // variables declared in the test module (TDZ). All mock functions are
 // created inside the factory so they are available at hoist time.
 // The ACW tests override them per-call with .mockResolvedValueOnce().
@@ -56,7 +56,7 @@ vi.mock('../../../api/client', async () => {
     api: {
       geology: {
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
-        // Default: empty list → ACW1 branch (no dialog). ACW tests override
+        // Default: empty list â†’ ACW1 branch (no dialog). ACW tests override
         // with .mockResolvedValueOnce() via the imported api object.
         // TODO Task 19: renamed from listCorrelations to listContactCorrelations.
         listContactCorrelations: vi.fn().mockResolvedValue([]),
@@ -138,7 +138,7 @@ function makeCtx(overrides: {
   selectedSectionId?: string | null
   /** Section row's seeded_formation_contact_ids. Defaults to ['c-1'] when
    *  ``selectedSectionId`` is set so existing CT4/CT5 stay enabled with
-   *  the new debt-#139 gate (button needs ≥1 litho contact on section). */
+   *  the new debt-#139 gate (button needs â‰¥1 litho contact on section). */
   sectionSeededContactIds?: string[]
   /** Active litho model contacts. Defaults to ``[{ id: 'c-1', ... }]`` so the
    *  default intersection with sectionSeededContactIds yields one hit. */
@@ -282,6 +282,7 @@ function makeCtx(overrides: {
       handleBatchCreateContacts: noopAsync,
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
+      handleUnlinkLithoFromGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
       handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
@@ -463,16 +464,16 @@ function renderWith(ctx: ShellContextValue) {
   )
 }
 
-// Helper — open the SplitToolbarButton's caret so the Auto-correlate +
+// Helper â€” open the SplitToolbarButton's caret so the Auto-correlate +
 // Accept-correlations items render into the portalled menu and become
 // queryable by their testids.  Used by every test that asserts state
-// on those items (debt #141 — three buttons collapsed into one slot).
+// on those items (debt #141 â€” three buttons collapsed into one slot).
 function openCorrelateCaret(): void {
   fireEvent.click(screen.getByTestId('correlate-mode-caret'))
 }
 
 // ---------------------------------------------------------------------------
-// Tests — Correlate mode button (CT1–CT6)
+// Tests â€” Correlate mode button (CT1â€“CT6)
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar Correlate button (Slice 4)', () => {
@@ -553,7 +554,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
 
-  // Debt #139 — entering correlate mode on a section with zero litho
+  // Debt #139 â€” entering correlate mode on a section with zero litho
   // contacts produces no clickable hit-rects (CorrelationEdgesOverlay
   // only renders gesture rects when contacts.length > 0).  Gate the
   // toolbar button so the failure mode is discoverable.
@@ -563,7 +564,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
-        // Section selected but no contacts seeded → nothing to correlate.
+        // Section selected but no contacts seeded â†’ nothing to correlate.
         sectionSeededContactIds: [],
         lithoContacts: [],
       }),
@@ -577,7 +578,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
   })
 
   it('CT7b: Correlate button disabled when model has contacts but NONE on this section', () => {
-    // Litho model has a contact, but the section did not seed it — the
+    // Litho model has a contact, but the section did not seed it â€” the
     // explicit-content invariant hides it from this view, so correlate
     // mode would still find nothing clickable.
     renderWith(
@@ -613,7 +614,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
 
-  // Debt #139 dogfeed follow-up (2026-05-27) — owner asked for the
+  // Debt #139 dogfeed follow-up (2026-05-27) â€” owner asked for the
   // Auto-correlate + Accept-correlations buttons to share the
   // Correlate button's "no litho contacts on section" gate.  All three
   // correlation verbs are contextually scoped to "this section", so
@@ -684,18 +685,18 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests — Auto-correlate pre-check (Slice 4 Half-A — ACW1–ACW3)
+// Tests â€” Auto-correlate pre-check (Slice 4 Half-A â€” ACW1â€“ACW3)
 //
 // handleAutoCorrelateWithCheck:
-//   1. GET listCorrelations → count source='auto' edges.
-//   2. autoCount === 0 → fire handleAutoCorrelate immediately (no dialog).
-//   3. autoCount > 0  → open ReCorrelateConfirmDialog.
+//   1. GET listCorrelations â†’ count source='auto' edges.
+//   2. autoCount === 0 â†’ fire handleAutoCorrelate immediately (no dialog).
+//   3. autoCount > 0  â†’ open ReCorrelateConfirmDialog.
 //
 // WHY these tests: the CT tests above only cover the "Correlate mode" toggle
 // button. handleAutoCorrelateWithCheck was never exercised by any Vitest test
 // before ACW1-ACW3 were added (dogfeed 2026-05-25 regression anchor). The
 // dialog wiring is correct in code but the missing tests left the pre-check
-// path un-anchored — any refactor that broke the source='auto' filter or
+// path un-anchored â€” any refactor that broke the source='auto' filter or
 // accidentally swapped the zero-branch logic would have been invisible.
 // ---------------------------------------------------------------------------
 
@@ -703,8 +704,8 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
-  it('ACW1: 0 auto edges → fires handleAutoCorrelate immediately, no dialog', async () => {
-    // listCorrelations returns [] → autoCount = 0 → immediate fire.
+  it('ACW1: 0 auto edges â†’ fires handleAutoCorrelate immediately, no dialog', async () => {
+    // listCorrelations returns [] â†’ autoCount = 0 â†’ immediate fire.
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([])
     const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
 
@@ -727,7 +728,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
   })
 
   it('ACW1b: manual-only edges (source=manual) are NOT counted as auto edges', async () => {
-    // A manual edge must not trigger the dialog — only source='auto' counts.
+    // A manual edge must not trigger the dialog â€” only source='auto' counts.
     // TODO Task 19: updated to LithoContactCorrelationEdge.
     const manualEdge: LithoContactCorrelationEdge = {
       id: 'edge-manual-1',
@@ -754,13 +755,13 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     const btn = screen.getByTestId('litho-auto-correlate')
     await act(async () => { fireEvent.click(btn) })
 
-    // Manual edges do not trigger the dialog — fires immediately.
+    // Manual edges do not trigger the dialog â€” fires immediately.
     expect(handleAutoCorrelate).toHaveBeenCalledOnce()
     expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
   })
 
-  it('ACW2: N>0 auto edges → dialog opens, handleAutoCorrelate NOT yet called', async () => {
-    // listCorrelations returns 3 auto edges → autoCount = 3 → dialog opens.
+  it('ACW2: N>0 auto edges â†’ dialog opens, handleAutoCorrelate NOT yet called', async () => {
+    // listCorrelations returns 3 auto edges â†’ autoCount = 3 â†’ dialog opens.
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([
       makeAutoEdge('edge-auto-1'),
       makeAutoEdge('edge-auto-2'),
@@ -783,14 +784,14 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 
     // Dialog must be visible.
     expect(screen.getByTestId('re-correlate-confirm-dialog')).not.toBeNull()
-    // handleAutoCorrelate must NOT have fired yet — that's the dialog's job.
+    // handleAutoCorrelate must NOT have fired yet â€” that's the dialog's job.
     expect(handleAutoCorrelate).not.toHaveBeenCalled()
     // Dialog shows the edge count.
     expect(screen.getByText('3')).not.toBeNull()
   })
 
-  it('ACW3: listCorrelations error → toast error, no dialog, handleAutoCorrelate not called', async () => {
-    // Pre-check fails → toast error, clean up, no dialog.
+  it('ACW3: listCorrelations error â†’ toast error, no dialog, handleAutoCorrelate not called', async () => {
+    // Pre-check fails â†’ toast error, clean up, no dialog.
     vi.mocked(api.geology.listContactCorrelations).mockRejectedValueOnce(new Error('network failure'))
     const handleAutoCorrelate = vi.fn()
     const toast = vi.fn()
@@ -821,7 +822,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests — Accept correlations button (S5 — Task 19)
+// Tests â€” Accept correlations button (S5 â€” Task 19)
 //
 // handleAcceptCorrelations (litho-accept-correlations):
 //   S5-1  Button present when axis=lithostratigraphic + model + section.
@@ -829,7 +830,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 //   S5-3  Button disabled when no section selected.
 //   S5-4  Clicking the button calls acceptContactCorrelations with
 //         (projectId, modelId, sectionId) and toasts on success.
-//   S5-5  API error → toasts an error, button re-enables.
+//   S5-5  API error â†’ toasts an error, button re-enables.
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar Accept correlations button (Task 19)', () => {
@@ -901,7 +902,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
     expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('3'))
   })
 
-  it('S5-5: API error → toasts error, item re-enables after flight', async () => {
+  it('S5-5: API error â†’ toasts error, item re-enables after flight', async () => {
     vi.mocked(api.geology.acceptContactCorrelations).mockRejectedValueOnce(new Error('server error'))
     const toast = vi.fn()
 
@@ -926,15 +927,15 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests — Materialise lens companions button (M1 — Task 20)
+// Tests â€” Materialise lens companions button (M1 â€” Task 20)
 //
 // handleMaterialiseLensCompanions (litho-materialise-lens-companions):
 //   M1-1  Button present + enabled on litho axis with model + section.
 //   M1-2  Clicking calls materialiseLensCompanions(projectId, modelId) and
 //         toasts the four-counter breakdown on success.
-//   M1-3  API error → toasts an error, button re-enables.
+//   M1-3  API error â†’ toasts an error, button re-enables.
 //   M1-4  Button disabled when no section selected (mirrors the Accept
-//         button's pragmatic gate — see SectionsToolbar comment).
+//         button's pragmatic gate â€” see SectionsToolbar comment).
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
@@ -987,7 +988,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     expect(btn).not.toBeDisabled()
   })
 
-  it('M1-3: API error → toasts error, button re-enables', async () => {
+  it('M1-3: API error â†’ toasts error, button re-enables', async () => {
     vi.mocked(api.geology.materialiseLensCompanions).mockRejectedValueOnce(new Error('server error'))
     const toast = vi.fn()
 
@@ -1018,3 +1019,4 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     expect(screen.getByTestId('litho-materialise-lens-companions')).toBeDisabled()
   })
 })
+
