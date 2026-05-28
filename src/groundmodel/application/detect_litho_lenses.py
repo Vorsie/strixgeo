@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -27,6 +27,7 @@ from groundmodel.domain.services.detect_lenses_from_graph import (
     ContactStackEntry,
     detect_lenses_from_graph,
 )
+from groundmodel.domain.services.lens_identity import lens_content_key
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -36,6 +37,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
+from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -224,6 +226,9 @@ class DetectLithoLenses(GroundModelLogger):
         # 6. Upsert lens rows for every valid candidate.                      #
         # ------------------------------------------------------------------ #
         target_set: set[tuple[UUID, int]] = set()
+        # Stable content keys of every live lens body — drives the orphan
+        # sweep of litho_lens_shape rows in step 8 (#163f carry-forward).
+        live_content_keys: set[str] = set()
         lenses_created = 0
         lenses_skipped_unresolved_ordinal = 0
 
@@ -238,6 +243,12 @@ class DetectLithoLenses(GroundModelLogger):
                 continue
 
             target_set.add((c.formation_id, ordinal))
+            # The stable identity of this body — survives ordinal shifts so a
+            # user-authored boundary shape (litho_lens_shape) re-links by it.
+            content_key = lens_content_key(
+                c.contact_above_id, c.contact_below_id, c.target_contact_id
+            )
+            live_content_keys.add(content_key)
 
             primary_sid = _resolve_primary(c.source_investigation_id, c.target_investigation_id)
 
@@ -257,17 +268,22 @@ class DetectLithoLenses(GroundModelLogger):
                         formation_id=c.formation_id,
                         body_ordinal=ordinal,
                         primary_section_id=primary_sid,
+                        content_key=content_key,
                     )
                 )
                 lenses_created += 1
                 self.debug(
                     f"DetectLithoLenses: created lens row "
-                    f"formation={c.formation_id} ordinal={ordinal}"
+                    f"formation={c.formation_id} ordinal={ordinal} key={content_key}"
                 )
             else:
                 # Upgrade primary_section_id if we now have one and it was null.
                 if existing.primary_section_id is None and primary_sid is not None:
                     existing.primary_section_id = primary_sid
+                # Keep the content key current (it may have been null on rows
+                # created before this feature, or the defining contacts changed).
+                if existing.content_key != content_key:
+                    existing.content_key = content_key
 
         # ------------------------------------------------------------------ #
         # 7. Reconcile: delete stale lens rows whose body left the target set. #
@@ -291,6 +307,34 @@ class DetectLithoLenses(GroundModelLogger):
                     f"DetectLithoLenses: removed stale lens row "
                     f"formation={lens.formation_id} ordinal={lens.body_ordinal}"
                 )
+
+        # ------------------------------------------------------------------ #
+        # 8. Orphan-sweep lens shapes (#163f): a litho_lens_shape whose         #
+        #    content_key no longer matches any live lens body had its          #
+        #    defining contacts deleted or un-correlated — its boundary nodes   #
+        #    are meaningless, so drop it (CASCADE wipes the nodes). A shape     #
+        #    whose key IS live survives untouched — the carry-forward.         #
+        # ------------------------------------------------------------------ #
+        shapes_removed = 0
+        shape_rows = (
+            (
+                await self._session.execute(
+                    select(LithoLensShapeOrm).where(LithoLensShapeOrm.model_id == model_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        orphan_keys = [s.content_key for s in shape_rows if s.content_key not in live_content_keys]
+        if orphan_keys:
+            await self._session.execute(
+                delete(LithoLensShapeOrm).where(
+                    LithoLensShapeOrm.model_id == model_id,
+                    LithoLensShapeOrm.content_key.in_(orphan_keys),
+                )
+            )
+            shapes_removed = len(orphan_keys)
+            self.debug(f"DetectLithoLenses: swept {shapes_removed} orphan lens shape(s)")
 
         # Flush — the caller commits the outer transaction.
         await self._session.flush()
