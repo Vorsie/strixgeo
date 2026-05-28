@@ -58,11 +58,14 @@ subdivision is built on top of it. Priority order:
 
   **Fix direction (deferred):** make recompute **incremental** — only recompute the formations touched by the just-accepted contacts, and only the sections those contacts lie on (the batch already knows the created/found formation ids + the `section_id`). That turns O(model) back into O(accepted). Alternative: defer inference to an explicit "refresh inference" action / background pass instead of synchronously in every accept (UX trade-off: section absences/wedge-tips would lag until refresh). Frontend follow-ups: coalesce the suggest fan-out into one `setState` after all anchors (one render, not N), and confirm the post-accept refetch isn't re-pulling the entire model. **IMPLEMENTED 2026-05-28 (primary lever):** incremental recompute shipped — `RecomputeAllAbsencesForModel.execute(only_formation_ids=...)` re-infers only the formations a batch accept touched (created+found across anchors), wired through the batch endpoint. Turns per-accept inference from O(model size) into O(touched). Measured on a synthetic 30-formation model: full recompute 301 ms vs incremental 50 ms for 5 touched (**6×, exactly proportional to formations processed**). RA3 integration test pins the scoping. So a re-accept onto an established model now recomputes a handful of formations instead of all — the dominant ~3 s cost on real projects drops proportionally to the touched/total ratio. **STILL OPEN (secondary levers):** (1) frontend — `handleSuggestAllLitho` does a `setGhostsByAnchor` per anchor (N section re-renders of the accumulating ghost columns, O(N²) render); coalesce to one setState. (2) section-scoping — incremental recompute still processes affected formations × ALL sections; could further scope to the sections whose corridor contains the accepted investigations. (3) the suggest phase (N segment calls) is now the larger backend chunk on a fresh accept. **When to revisit:** re-profile a real large project after the frontend reload to confirm the felt improvement, then pick up the frontend render lever if still slow. (filed dogfeed 2026-05-28; root-caused + primary lever shipped same day)
 
+* **#157** — thin slivers in accepted litho from straddle-split at geo boundaries (likely same root as #149; snap litho→geo + min-sliver-thickness guard — owner dogfeed 2026-05-28)
+* **#159** — drag-lock after deleting an accepted litho unit (can't drag the lower contact up into the freed space; #138/#99 family — owner dogfeed 2026-05-28)
+
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #137, #155
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #137, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -3988,6 +3991,113 @@ ribbon-rendering feature, not a colour-token swap. It supersedes the
 "sharpen vs unify the edge colour" question (the cheap interim fix is
 NOT being done). The spec now lives on **#131** (the lens-aware ribbon
 work), which this folds into.
+
+## 156. "Edit in Geology stage" deep-link lands on the 3D viewer + "contact not found" (Tier E)
+
+**What.** Owner dogfeed 2026-05-28: right-clicking a *geological*
+(reference) contact on the litho axis → "Edit in geological stage" lands
+on the **Geology stage 3D Cesium viewer** (the globe) and fires "Couldn't
+find the contact in the current project" twice. The geological model is
+edited on **cross-sections**, not the 3D viewer, so the deep-link should
+open the section view with that contact focused — not the globe.
+
+**Root-cause hypothesis.** The `onEditInGeologyStage` handler navigates to
+the Geology stage (whose default surface is the 3D viewer) and then tries
+to focus the resolved `parentGeoContactId` (from
+`refGeoContactByAnchorAndFormation` in `ContactsLayer`). The focus lookup
+misses (→ the double toast), and the landing surface is wrong. Two things
+to fix: (a) route the deep-link to the **Sections** stage with the
+relevant section open (or the Geology stage's section-editing context),
+not the 3D viewer; (b) pass a contact id the target view can actually
+resolve (the double "not found" suggests the id is unresolved or the
+target's loaded contact set doesn't include it).
+
+**When to revisit.** Next litho/geology navigation pass. Confirm the
+intended target with the owner (Sections stage vs a section-mode Geology
+stage) before wiring.
+Filed from dogfeed session 2026-05-28.
+
+## 157. Accepted litho units get thin slivers from straddle-split at geo boundaries (Tier G)
+
+**What.** Owner dogfeed 2026-05-28: after merging adjacent litho units in
+the *suggestion* view and accepting, thin sliver units appear in the
+accepted model (e.g. a ~10 cm SAND sliver wedged between CLAY and SAND).
+The owner's read is correct: the suggestion merge **is** preserved as one
+ghost, but `AcceptLithoSuggestions` **straddle-splits** each ghost at the
+geological formation boundaries it crosses (the three-level model assigns
+each interval to its geo parent). When a litho ghost boundary sits a few
+cm off a geo boundary, the split leaves a sub-tolerance sliver.
+
+**Almost certainly the same mechanism as #149** (the "double SAND/SILT
+units after accept" reports): a merged ghost straddling a geo boundary →
+two units, the thinner reading as a sliver / the pair reading as a
+"double". Treat #157 and #149 as one root cause.
+
+**Fix direction (owner asked "would suggestion-stage snap help?" — yes).**
+Two complementary levers:
+* **(a) Snap the litho boundary to a near geo boundary before the split**
+  — the owner's suggestion-stage snap idea, applied to the straddle-split
+  input. If the ghost boundary is within tolerance of a geo boundary,
+  align them so the split produces no sliver. Reuses the #134 litho-geo
+  snap tolerance (`view_state.litho_segmenter.litho_snap_tolerance_m`,
+  default 0.20 m).
+* **(b) Minimum-sliver-thickness guard** — when a straddle-split would
+  create a segment thinner than the tolerance, absorb it into the adjacent
+  segment instead of emitting it. A safety net for the cases (a) misses.
+
+Recommendation: do both — snap is the principled fix, the min-thickness
+floor is the backstop. **Decide the snap direction** (move litho to geo,
+the common case, vs move geo to litho) with the owner; default to
+litho→geo since the geo model is the substrate.
+
+**When to revisit.** This is litho-finishing (Tier G), above the geotech
+gate — slivers make the accepted model visibly wrong. Pair with the #149
+investigation; they likely close together.
+Filed from dogfeed session 2026-05-28.
+
+## 158. Thin litho bands/slivers are hard to click — expand the hit target (Tier E)
+
+**What.** Owner dogfeed 2026-05-28: thin litho bands (incl. the #157
+slivers) are hard to click for select/right-click — the band rect is a
+tiny target, made worse by the #137 zoom bug (pan-and-zoom dance to get
+close). Request: make the click pointer "more sensitive."
+
+**Fix direction.** Give thin bands a **minimum hit-height** that exceeds
+their visual height (expand the invisible click-capture rect beyond the
+band for bands below ~N px), or route a click near a boundary to the
+nearest band. Mind the interaction with #152's contact-drag hit-strips
+(`DRAG_HIT_HALF_HEIGHT_PX = 5`) and the band right-click menu (#151) so
+the expanded targets don't fight each other. Lower priority than #157
+(which *reduces the number of slivers* and so reduces how often this
+bites).
+
+**When to revisit.** Polish pass, ideally after #157 lands (fewer slivers
+to click).
+Filed from dogfeed session 2026-05-28.
+
+## 159. Drag-lock after deleting an accepted litho unit (Tier G)
+
+**What.** Owner dogfeed 2026-05-28: after removing an accepted litho unit,
+the contact below it can no longer be dragged **up** into the space the
+deleted unit occupied — the drag feels locked at the deleted unit's old
+boundary. Same family as #138 (drag-lock after merge) and #99 (drag-clamp
+through rejected layers); this is a fresh, more deterministic repro
+(delete-then-drag-up).
+
+**Root-cause hypothesis.** #152's drag clamp
+(`contactDragClampMinThicknessM` + soft bounds that respect the dragger's
+start depth) computes the upper bound from the neighbouring contact. After
+a delete, either (a) the clamp still references the deleted unit's stale
+boundary (a cached contacts array / rejected-stub not pruned), or (b) the
+soft floor is pinned to the dragged contact's pre-delete start depth so
+the freed space above isn't recognised. Investigate whether the contacts
+list / clamp bounds refresh synchronously after a litho delete (cf. the
+#147 stale-state-on-model-switch class).
+
+**When to revisit.** Litho-finishing (Tier G). Good candidate to pin with
+the #138/#99 investigation — capture the exact contact set before/after
+the delete and watch the clamp bounds.
+Filed from dogfeed session 2026-05-28.
 
 ## (end)
 
