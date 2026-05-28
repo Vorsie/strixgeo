@@ -2563,6 +2563,20 @@ export default function ContactsLayer({
         segY: number
       }[]
     }
+    // Build a set of geo contact ids that a litho contact is currently coupled
+    // to (#162).  A coupled litho contact is coincident with its geo contact
+    // (the accept flow snaps them together) so the reference strip would sit
+    // exactly on top of the litho drag-strip — it would eat the mousedown
+    // (no drag) and the right-click (shows the geo menu instead of the litho
+    // menu with "Unlink from geology").  Suppressing the strip loses nothing:
+    // the litho contact's own strip already handles drag AND its context menu
+    // already offers both "Edit in Geology stage" and "Unlink from geology".
+    const coupledGeoIds = new Set<string>()
+    for (const c of contacts) {
+      if (c.parent_geo_contact_id != null) {
+        coupledGeoIds.add(c.parent_geo_contact_id)
+      }
+    }
     // Pre-index placed columns by anchor id for O(1) lookup.
     const colByAnchorId = new Map<string, PlacedColumn>()
     for (const col of placedColumns) {
@@ -2586,6 +2600,9 @@ export default function ContactsLayer({
       segY: number
     }[] = []
     for (const c of referenceContacts) {
+      // Suppress the strip when a litho contact is coupled to this geo contact
+      // — the litho contact's drag-strip already covers drag + the full menu.
+      if (coupledGeoIds.has(c.id)) continue
       // Only anchor-backed contacts — synthetic lens tips have no column.
       const anchorId = c.borehole_id ?? c.cpt_id
       if (!anchorId) continue
@@ -2612,6 +2629,7 @@ export default function ContactsLayer({
     }
     return out
   }, [
+    contacts,
     onEditInGeologyStage,
     referenceContacts,
     referenceFormations,

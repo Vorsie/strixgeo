@@ -2705,4 +2705,153 @@ describe('ContactsLayer', () => {
       expect(glyph).toBeNull()
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Reference hit-strip suppression when litho contact is coupled (#162)
+  // -------------------------------------------------------------------------
+
+  describe('reference hit-strip suppression for coupled litho contacts (#162)', () => {
+    it('RS1 — reference hit-strip is suppressed when a litho contact is coupled to that geo contact', () => {
+      // A coupled litho contact whose parent_geo_contact_id == the reference
+      // contact's id.  The reference strip must NOT render — the litho
+      // contact's own drag-strip (contact-drag-strip) already handles drag
+      // AND its context menu offers "Unlink from geology", so the reference
+      // strip would only eat pointer events.
+      const geoId = 'geo-ref-1'
+      const lithoContact = makeContact({
+        id: 'c-coupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: geoId,
+      })
+      const geoRefContact = makeContact({
+        id: geoId,
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        model_id: 'geo-model',
+        formation_id: 'geo-f',
+      })
+      const geoFormation = makeFormation({ id: 'geo-f' })
+      const onEditInGeologyStage = vi.fn()
+
+      const { container } = render(
+        <svg>
+          <ContactsLayer
+            contacts={[lithoContact]}
+            formations={[makeFormation()]}
+            placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+            levelToScreen={flipped}
+            plotTop={0}
+            plotBottom={50}
+            referenceFormations={[geoFormation]}
+            referenceContacts={[geoRefContact]}
+            onEditInGeologyStage={onEditInGeologyStage}
+            onDeleteContact={vi.fn().mockResolvedValue(undefined)}
+            onUnlinkLithoFromGeo={vi.fn().mockResolvedValue(undefined)}
+          />
+        </svg>,
+      )
+
+      // The reference strip for geoId must NOT be rendered (suppressed because
+      // lithoContact is coupled to it).
+      const refStrip = container.querySelector(`[data-testid="ref-contact-drag-strip"][data-contact-id="${geoId}"]`)
+      expect(refStrip).toBeNull()
+
+      // The litho contact's own drag strip must still be present.
+      const lithoStrip = container.querySelector('[data-testid="contact-drag-strip"]')
+      expect(lithoStrip).not.toBeNull()
+    })
+
+    it('RS1b — "Unlink from geology" menu item is reachable on the litho strip when reference strip is suppressed', async () => {
+      // Confirm that suppressing the reference strip does not lose the ability
+      // to right-click the coupled litho contact and pick "Unlink from geology".
+      const geoId = 'geo-ref-2'
+      const lithoContact = makeContact({
+        id: 'c-coupled-2',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: geoId,
+      })
+      const geoRefContact = makeContact({
+        id: geoId,
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        model_id: 'geo-model',
+        formation_id: 'geo-f',
+      })
+      const geoFormation = makeFormation({ id: 'geo-f' })
+      const unlinkHandler = vi.fn().mockResolvedValue(undefined)
+
+      render(
+        <svg>
+          <ContactsLayer
+            contacts={[lithoContact]}
+            formations={[makeFormation()]}
+            placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+            levelToScreen={flipped}
+            plotTop={0}
+            plotBottom={50}
+            referenceFormations={[geoFormation]}
+            referenceContacts={[geoRefContact]}
+            onEditInGeologyStage={vi.fn()}
+            onDeleteContact={vi.fn().mockResolvedValue(undefined)}
+            onUnlinkLithoFromGeo={unlinkHandler}
+          />
+        </svg>,
+      )
+
+      // Right-click the litho contact's drag strip.
+      const lithoStrip = screen.getByTestId('contact-drag-strip')
+      fireEvent.contextMenu(lithoStrip)
+
+      // "Unlink from geology" must be in the menu.
+      const unlinkItem = await screen.findByTestId('unlink-geo-menu-item')
+      expect(unlinkItem).toBeTruthy()
+
+      fireEvent.click(unlinkItem)
+      expect(unlinkHandler).toHaveBeenCalledWith('c-coupled-2')
+    })
+
+    it('RS2 — reference hit-strip is still rendered for an UNCOUPLED reference contact', () => {
+      // Control case: an uncoupled reference contact (not linked to any litho
+      // contact) must still render its hit-strip so the user can right-click
+      // it for "Edit in Geology stage".
+      const geoId = 'geo-ref-3'
+      const lithoContact = makeContact({
+        id: 'c-uncoupled',
+        borehole_id: 'bh-1',
+        depth_top_m: 1,
+        parent_geo_contact_id: null,   // different contact — not coupled to geoId
+      })
+      const geoRefContact = makeContact({
+        id: geoId,
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        model_id: 'geo-model',
+        formation_id: 'geo-f',
+      })
+      const geoFormation = makeFormation({ id: 'geo-f' })
+
+      const { container } = render(
+        <svg>
+          <ContactsLayer
+            contacts={[lithoContact]}
+            formations={[makeFormation()]}
+            placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+            levelToScreen={flipped}
+            plotTop={0}
+            plotBottom={50}
+            referenceFormations={[geoFormation]}
+            referenceContacts={[geoRefContact]}
+            onEditInGeologyStage={vi.fn()}
+            onDeleteContact={vi.fn().mockResolvedValue(undefined)}
+          />
+        </svg>,
+      )
+
+      // Reference strip must be present — not suppressed.
+      const refStrip = container.querySelector(`[data-testid="ref-contact-drag-strip"][data-contact-id="${geoId}"]`)
+      expect(refStrip).not.toBeNull()
+    })
+  })
 })
