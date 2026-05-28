@@ -4179,7 +4179,62 @@ correlate use case + the gesture. Fold into the next correlation-gesture
 pass.
 Filed from dogfeed session 2026-05-28.
 
-## 162. Couple coincident litho ↔ geological contacts (Tier D — structural; the deeper #157 fix)
+## 162. Couple coincident litho ↔ geological contacts (Tier D — structural; the deeper #157 fix) — SHIPPED 2026-05-28 (Slice 1)
+
+**SHIPPED 2026-05-28 (Slice 1 — the full coupling behaviour).** Spec +
+plan: `docs/superpowers/specs/2026-05-28-litho-geo-contact-coupling-design.md`
++ `docs/superpowers/plans/2026-05-28-litho-geo-contact-coupling.md`. Built
+subagent-driven, 8 tasks:
+* **Schema:** nullable self-FK `formation_contact.parent_geo_contact_id`
+  (litho→geo) `ondelete=SET NULL` → unlink-on-geo-delete is free at the DB
+  layer. Migration `a6a91e68f15a`. Exposed on the contact response schema
+  (Py + TS).
+* **Accept couple-step:** `_geo_contact_to_link` (nearest geo contact within
+  `couple_tolerance_m`); on accept a litho contact within tolerance of a geo
+  contact links to it and **snaps the geo contact to the litho depth**
+  (geo follows litho — the placed boundary is authoritative). No geological
+  contact is ever created; the existing straddle-split already makes the
+  litho contacts at geo boundaries, coupling adds the link. Touched geo
+  formations are reported up.
+* **Auto-rebuild:** after an accept that moved a geo contact, the parent geo
+  model's surfaces rebuild once (whole-model — `RebuildModelSurfaces` has no
+  formation scoping; gated on a non-empty touched set so a no-coupling accept
+  pays nothing; once per batch).
+* **Bidirectional propagation** in `UpdateFormationContact`: moving either
+  coupled contact moves its partner, with an equal-depth **loop guard** and
+  direct repo writes (no use-case re-entry / cross-merge). litho→geo
+  propagation marks the geo surface **stale** (rebuild on next Build) rather
+  than auto-rebuilding — consistent with the normal contact-edit path,
+  avoids a whole-model TIN recompute per drag.
+* **Unlink valve:** `UnlinkLithoFromGeo` use case + `POST
+  .../contacts/{id}/unlink-geo` + a context-menu "Unlink from geology" item
+  (shown only on coupled litho contacts) + a coupling glyph on coupled
+  contacts.
+* **Tolerance knob:** coupling reads the existing
+  `litho_snap_tolerance_m` pref (no new knob); the Settings → Litho
+  segmenter snap-tolerance NumberRow was relabelled "Litho↔geology snap (m)"
+  to make clear it governs coupling.
+
+**Implementation deviations from the plan (all benign):** (1) the bundle
+restore second-pass backfill turned out **unnecessary** — SQLAlchemy's
+unit-of-work topologically sorts self-referential FK inserts, so
+`parent_geo_contact_id` round-trips as-is (verified by a reversed-order
+round-trip test); no `project_bundle.py` change. (2) `RebuildModelSurfaces`
+has no `only_formation_ids` scoping → whole-model rebuild, gated on a
+non-empty touched set. (3) propagation marks-stale instead of auto-rebuild
+(above).
+
+**Relationship to #157:** for the coincident case, coupling subsumes the
+#157 sliver guard — a linked litho boundary tracks its geo boundary so a
+sub-tolerance gap can't form. The #157 midpoint-guard stays as the
+no-geo-contact fallback.
+
+**Still open:** Slice 2 — an explicit manual "Link to geology…" action for
+non-auto cases (auto-link covers the common path). And the
+litho→geo-propagation auto-rebuild-vs-mark-stale choice is open for owner
+review (currently mark-stale to avoid per-drag whole-model recompute).
+
+**Original entry (design rationale) below.**
 
 **What.** Owner question 2026-05-28: "if a litho boundary is within 20 cm
 of a geological boundary, shouldn't we couple them automatically so that
