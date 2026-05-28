@@ -4099,5 +4099,49 @@ the #138/#99 investigation — capture the exact contact set before/after
 the delete and watch the clamp bounds.
 Filed from dogfeed session 2026-05-28.
 
+## 160. Two-stage save for litho accepts + pending discard-on-close (Tier D — deferred big refactor)
+
+**What.** Owner dogfeed 2026-05-28 (re-raised, with a wink): "if i close,
+non-accepted lithos [should be discarded] and accepted lithos should also
+be dirty and only persist if the user saved." I.e. the full two-stage
+save (see ``memory/project_two_stage_save_model.md``) applied to litho:
+accepted contacts/units stay *reversible in-memory* and only land in the
+DB + ``.gmproj`` on File → Save; pending suggestions are dropped on close
+without saving.
+
+**Why this is bigger than #144.** #144 (RESOLVED) only made accept flows
+mark the project *dirty* (the amber flag + the unsaved-changes prompt fire).
+The architecture is still **DB-is-the-live-source-of-truth**: every contact
+mutation (accept, drag, delete, correlate) writes to the DB immediately.
+True two-stage save means a STAGED commit layer — accepts buffered
+in-memory, flushed on save, replayable from the bundle on reopen — which
+touches the application use cases, the section bus, the lifecycle dirty
+bag, and the restore path (exactly the deferred scope #144's entry called
+out). Substantial; spans every layer.
+
+**When to revisit.** When the owner decides reversibility-until-save is
+worth the cross-layer refactor — likely alongside a broader "undo stack
+for the section editor" effort. Pair with #144's deferred staged-commit
+notes. Not a v1.0 gate (the data is safe in the DB today; the gap is
+"accepts aren't undoable by closing without saving").
+Filed from dogfeed session 2026-05-28.
+
+## 161. Manual correlation can create a self-loop contact edge (Tier E — minor)
+
+**What.** Owner dogfeed 2026-05-28: after a manual "Correlate" the resolver
+logged ``_run_resolver: skipped 0 orphan + 1 self-loop contact edge(s)``.
+A self-loop = an edge whose two contacts resolve to the same node in the
+body graph (most likely two contacts on the **same** investigation, which
+isn't a valid cross-investigation correlation). The resolver guards against
+it (skips it), so it's non-fatal, but the edge shouldn't be creatable: the
+correlate gesture / ``CorrelateLithoContacts`` should reject a same-
+investigation pair up front (and the ribbon would render a degenerate
+zero-gap band for it).
+
+**When to revisit.** Cheap guard — add a same-anchor rejection in the
+correlate use case + the gesture. Fold into the next correlation-gesture
+pass.
+Filed from dogfeed session 2026-05-28.
+
 ## (end)
 
