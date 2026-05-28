@@ -42,6 +42,27 @@ BASE_LITHOLOGIES: dict[BaseLithology, tuple[str, str]] = {
     "VEEN": ("Veen", "Peat"),
 }
 
+#: Base-lithology → display colour (SVG/CSS hex). Single source of truth
+#: shared with the frontend ``lithoConstants.ts`` LITHOLOGY_COLORS table —
+#: the two MUST stay byte-identical so a stored formation colour matches
+#: what the ghost-suggestion overlay rendered before it was accepted.
+#: Stamped onto ``geological_formation.color`` at litho-formation create
+#: (``accept_litho_suggestions._create_litho_formation``) so the DB row is
+#: correct for every read-side consumer (section bands, 3D viewer, exports,
+#: .gmproj bundle) without a presentation-layer override.
+LITHOLOGY_COLORS: dict[str, str] = {
+    "GRIND": "#d97706",  # amber / orange-brown — gravel
+    "ZAND": "#fbbf24",  # yellow — sand
+    "SILT": "#84cc16",  # lime-green — silt
+    "KLEI": "#6b7280",  # blue-grey — clay
+    "VEEN": "#92400e",  # dark brown — peat
+}
+
+#: Fallback colour for an unrecognised lithology token (neutral grey).
+#: A litho formation whose ``litho_main_soil_code`` is not one of the five
+#: base lithologies falls back to this rather than carrying no colour.
+LITHOLOGY_FALLBACK_COLOR = "#9ca3af"
+
 #: Admixture qualifiers (the ``bijmenging`` axis) — informational
 #: suggestions for the editor; not a stored field in v1.
 ADMIXTURE_QUALIFIERS: tuple[str, ...] = (
