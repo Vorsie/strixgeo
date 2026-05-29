@@ -58,6 +58,7 @@ from groundmodel.application.materialize_wedge_tips_for_formation import (
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
 )
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
 from groundmodel.domain.value_objects.admixture import Admixture
@@ -393,9 +394,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
         if batch_ctx is not None:
             geology_model_id: UUID | None = batch_ctx.geology_model_id
         else:
-            litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
-            if litho_model is None or litho_model.app_project_id != project_id:
-                raise ValueError(f"Litho model {litho_model_id} not found in project {project_id}")
+            litho_model = await load_scoped_or_raise(
+                self._session, GeologicalModelOrm, litho_model_id, project_id, label="Litho model"
+            )
             geology_model_id = litho_model.parent_geological_model_id
 
         # --- Load investigation x/y/elevation for straddle sampling ---------
@@ -752,14 +753,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
             different project.
         """
         if cpt_id is not None:
-            row = await self._session.get(CptOrm, cpt_id)
-            if row is None or row.app_project_id != project_id:
-                raise ValueError(f"CPT {cpt_id} not found in project {project_id}")
+            row = await load_scoped_or_raise(self._session, CptOrm, cpt_id, project_id, label="CPT")
             return row.location_x, row.location_y, row.elevation_m
         else:
-            row = await self._session.get(BoreholeOrm, borehole_id)
-            if row is None or row.app_project_id != project_id:
-                raise ValueError(f"Borehole {borehole_id} not found in project {project_id}")
+            row = await load_scoped_or_raise(
+                self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
+            )
             return row.location_x, row.location_y, row.elevation_m
 
     async def _load_geology_surfaces(
@@ -885,9 +884,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
         ValueError
             When the litho model is missing / out of project.
         """
-        litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
-        if litho_model is None or litho_model.app_project_id != project_id:
-            raise ValueError(f"Litho model {litho_model_id} not found in project {project_id}")
+        litho_model = await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, litho_model_id, project_id, label="Litho model"
+        )
         geology_model_id: UUID | None = litho_model.parent_geological_model_id
 
         geology_surfaces: dict[UUID, FormationSurfaceOrm] = {}
