@@ -140,6 +140,7 @@ function renderLayer(
     ) => void
     onUnlinkLithoFromGeo?: (id: string) => Promise<void>
     onLinkLithoToGeo?: (id: string) => Promise<void>
+    renderFormationSurfaces?: boolean
   } = {},
 ) {
   return render(
@@ -170,6 +171,7 @@ function renderLayer(
         perColumnBandsFromContacts={extras.perColumnBandsFromContacts}
         contactDragClampMinThicknessM={extras.contactDragClampMinThicknessM}
         onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
+        renderFormationSurfaces={extras.renderFormationSurfaces}
       />
     </svg>,
   )
@@ -1616,6 +1618,105 @@ describe('ContactsLayer', () => {
     expect(
       container.querySelector('[data-testid="formation-polyline-f"]'),
     ).toBeNull()
+  })
+
+  // -------------------------------------------------------------------------
+  // renderFormationSurfaces gate (#159-followup, owner dogfeed 2026-05-29).
+  // The active model's cross-column formation surfaces (TIN slice +
+  // connect-the-dots) group BY FORMATION, auto-joining same-lithology
+  // contacts across columns regardless of the explicit correlation graph.
+  // Correct on the geological axis; clutter on the litho axis (a real
+  // section produced 13 spurious connect-the-dots lines). SectionPanel
+  // passes renderFormationSurfaces=false on the litho axis.
+  // -------------------------------------------------------------------------
+
+  it('FS1 — suppresses active-model surfaces (slice + connect-the-dots) when renderFormationSurfaces=false', () => {
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 2 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 3 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 3 }),
+    ]
+    // A TIN slice bounded short of bh-3 → both renderers would normally
+    // fire (slice for bh-1/2, connect-the-dots extrapolation to bh-3).
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [50, -2, 9],
+        [25, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 50),
+        makeBoreholePlaced('bh-3', 100),
+      ],
+      undefined,
+      {
+        renderFormationSurfaces: false,
+        surfacesByFormationId: new Map([['f', surface]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    // Both active-model surface renderers are gated off.
+    expect(container.querySelector('[data-testid="formation-surface-f"]')).toBeNull()
+    expect(container.querySelector('[data-testid="formation-polyline-f"]')).toBeNull()
+  })
+
+  it('FS2 — renders active-model surfaces by default (geological axis unchanged)', () => {
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 2 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 3 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 3 }),
+    ]
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [50, -2, 9],
+        [25, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 50),
+        makeBoreholePlaced('bh-3', 100),
+      ],
+      undefined,
+      {
+        // renderFormationSurfaces omitted → defaults true.
+        surfacesByFormationId: new Map([['f', surface]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    expect(container.querySelector('[data-testid="formation-surface-f"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="formation-polyline-f"]')).not.toBeNull()
   })
 
   it('fill band reaches anchors beyond a trim-shaved TIN slice', () => {
