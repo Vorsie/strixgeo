@@ -727,6 +727,12 @@ export interface UseGeologicalModelResult {
    * Promise<void>
    */
   handleAutoCorrelate: () => Promise<void>
+  /**
+   * Clear all unapproved (auto) correlation suggestions for the active litho
+   * model without re-running auto-correlate (#179). Keeps approved manual
+   * correlations. Reversible via Auto-correlate.
+   */
+  handleClearSuggestions: () => Promise<void>
 }
 
 /**
@@ -2794,6 +2800,31 @@ export function useGeologicalModel({
       toast('error', 'Auto-correlate failed — see console.')
     }
   }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch])
+
+  // #179 — Clear suggestions: remove all unapproved (auto) correlation edges
+  // for the model without re-running auto-correlate. Approved manual
+  // correlations are kept (the backend deletes user_approved=false only).
+  // Reversible: re-run Auto-correlate to regenerate them. Mirrors
+  // handleAutoCorrelate's sibling-refetch signal (#163c).
+  const handleClearSuggestions = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.info('geology', `clearSuggestions entry model=${model.id}`)
+    try {
+      const result = await api.geology.deleteAutoCorrelations(project.id, model.id)
+      log.success('geology', `clearSuggestions ok deleted=${result.deleted}`)
+      requestCorrelationEdgesRefetch()
+      toast(
+        'success',
+        result.deleted === 0
+          ? 'No correlation suggestions to clear.'
+          : `Cleared ${result.deleted} correlation suggestion${result.deleted === 1 ? '' : 's'}.`,
+      )
+    } catch (err) {
+      log.error('geology', 'clearSuggestions failed', err)
+      toast('error', 'Could not clear suggestions — see console.')
+    }
+  }, [project, toast, requestCorrelationEdgesRefetch])
 
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this
@@ -5080,5 +5111,6 @@ export function useGeologicalModel({
     handleLoadBackdropSurfaces,
     handleClearLithoModel,
     handleAutoCorrelate,
+    handleClearSuggestions,
   }
 }

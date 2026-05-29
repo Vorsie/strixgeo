@@ -628,6 +628,7 @@ function makeStubContext(overrides?: {
       lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
+      handleClearSuggestions: noopAsync,
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
     },

@@ -333,6 +333,7 @@ function makeCtx(overrides: {
       lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
+      handleClearSuggestions: noopAsync,
     },
     sections: {
       sections: overrides.selectedSectionId

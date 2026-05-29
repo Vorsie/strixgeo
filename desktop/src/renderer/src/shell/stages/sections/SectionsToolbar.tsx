@@ -70,6 +70,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleStripLithoAdmixtures,
       handleReseedLithoAdmixtures,
       handleAutoCorrelate,
+      handleClearSuggestions,
       // Debt #92 "new tests" filter: scope the Suggest split-button's
       // "for new tests" item to anchors not yet in the active litho
       // model's contact set. Build / Dedupe / Sync moved with their
@@ -868,6 +869,25 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'litho-accept-correlations',
               },
             ]}
+          />
+          {/* Clear suggestions (#179) — its own button, NOT a Correlate caret
+              item: it's gated only on the model (not on section contacts), so
+              the user can clear model-wide / off-section stale suggestions even
+              when the current section has none (the dogfeed case). Reversible
+              via Auto-correlate. */}
+          <ToolbarButton
+            icon={<Trash2 size={13} />}
+            label="Clear suggestions"
+            onClick={() => {
+              void handleClearSuggestions()
+            }}
+            disabled={!activeLithoModel}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.'
+            }
+            testid="litho-clear-suggestions"
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
               operation that creates perpendicular companion sections for
