@@ -1599,8 +1599,18 @@ export const api = {
     // ``id`` is in the URL; the body is the same shape ``bundle()``
     // returned. Always 200 — existing rows return as-is, missing rows
     // are inserted. The .gmproj file is the user's anchor.
-    restore: (id: string, body: ProjectBundleResponse): Promise<ProjectResponse> =>
-      post(`/projects/${id}/restore`, body),
+    //
+    // ``replace=true`` (revert-to-last-save, #160): the project's child
+    // collections are wiped before the insert in one transaction, so the
+    // project ends up matching the bundle EXACTLY — session creates,
+    // mutations, AND deletes are all reverted. Used by the "Don't Save"
+    // close-flow branch.
+    restore: (
+      id: string,
+      body: ProjectBundleResponse,
+      replace = false,
+    ): Promise<ProjectResponse> =>
+      post(`/projects/${id}/restore${replace ? '?replace=true' : ''}`, body),
 
     // Shallow-merge a patch into ``project.view_state`` (project-level
     // toggle bag: DEM overlay, hidden-by-type sets, …). Each TOP-LEVEL
