@@ -10,14 +10,17 @@ all side effects.
 
 Algorithm
 ---------
-1. Group contacts by boundary signature
-   ``(parent_formation_id, litho_main_soil_code, litho_below_code)`` —
-   the third element ensures we only match horizons that have the same
-   lithology above AND below.  ``litho_below_code`` is ``None`` for the
-   deepest contact on a column; nulls match only against nulls.
-2. Restrict candidate column-pairs to relative-neighbourhood-graph
-   neighbours (#163a) so an edge never jumps over an intervening test.
-   For collinear tests this is the consecutive chain (1-2, 2-3, ...).
+1. Group contacts by MAIN LITHOLOGY (``litho_main_soil_code``) — silt
+   correlates to silt, sand to sand, clay to clay.  The lateral constraint is
+   carried entirely by the adjacency gate + depth window + MNN below, NOT by
+   the geological parent or the unit below (dogfeed 2026-05-29: the older
+   ``(parent, above, below)`` triple blocked obvious same-lithology
+   correlations whenever a column had an extra interbed or a boundary-edge
+   parent mis-assignment).
+2. Restrict candidate column-pairs to the adjacency gate.  The application
+   passes SECTION-ALONG-ORDER adjacency (consecutive columns on the section);
+   the model-wide fallback is the relative-neighbourhood graph (#163a) so an
+   edge never jumps over an intervening test.
 3. Per adjacent column-pair within ``MAX_COLUMN_DISTANCE_M``: pair contacts
    whose ``|depth_A - depth_B| < BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR ·
    column_distance``.
@@ -278,16 +281,23 @@ def auto_correlate_contact_edges(
             participant_ids, loc_by_id, p.max_column_distance_m
         )
 
-    # Group by boundary signature: same parent geology, same lithology
-    # above the contact, same lithology below.  The three-tuple key
-    # encodes the full "is this the same horizon?" predicate at the
-    # contact level — peer to the formation-level (parent, code) grouping
-    # in #127 but tightened by including ``litho_below_code`` so a
-    # ZAND→KLEI top is not paired with a ZAND→SILT top.
-    groups: dict[tuple[UUID | None, str, str | None], list[ContactRecord]] = {}
+    # Group by MAIN LITHOLOGY only.  For a lithostratigraphic correlation the
+    # thing being correlated is the lithology of the unit the contact tops —
+    # silt-to-silt, sand-to-sand, clay-to-clay between adjacent columns, in
+    # depth order.  The earlier (parent_formation_id, above, below) triple was
+    # too strict: it ALSO demanded the geological parent and the unit BELOW
+    # match, so two beds of identical lithology failed to correlate whenever a
+    # column had one extra interbed (different below-code) or the parent was
+    # mis-assigned at a boundary (dogfeed 2026-05-29 — a SILT/ZAND in Holoceen
+    # vs the same SILT/ZAND tagged Antropogeen, and a ZAND/KLEI vs ZAND/SILT
+    # sand, both blocked despite matching lithology).  The lateral constraints
+    # now come entirely from the adjacency gate (section-along-order or RNG),
+    # the depth window, and the per-pair MNN reduction — not from the parent or
+    # the neighbour lithology.  ``parent_formation_id`` / ``litho_below_code``
+    # remain on ``ContactRecord`` for provenance but no longer gate pairing.
+    groups: dict[str, list[ContactRecord]] = {}
     for c in contacts:
-        key = (c.parent_formation_id, c.litho_main_soil_code, c.litho_below_code)
-        groups.setdefault(key, []).append(c)
+        groups.setdefault(c.litho_main_soil_code, []).append(c)
 
     out: list[ContactCorrelationCandidate] = []
 
