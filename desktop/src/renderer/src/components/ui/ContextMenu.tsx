@@ -141,7 +141,12 @@ export default function ContextMenu(props: Props): JSX.Element {
         y={props.y}
         width={props.width}
         height={props.height}
-        style={{ overflow: 'visible' }}
+        // pointerEvents:'auto' is REQUIRED: this menu is mounted inside the
+        // section overlays' root <g style="pointer-events:none">, which the
+        // foreignObject's HTML buttons would otherwise inherit — leaving the
+        // menu visible but unclickable (the cursor falls through to the canvas
+        // pan). Re-enabling here cascades to the buttons (dogfeed 2026-05-29).
+        style={{ overflow: 'visible', pointerEvents: 'auto' }}
       >
         <div
           data-testid={testid}
