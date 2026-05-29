@@ -182,7 +182,8 @@ export default function SectionsToolbar(): JSX.Element {
       const autoCount = edges.filter((e: { source: string }) => e.source === 'auto').length
       if (autoCount === 0) {
         // No existing auto edges — fire immediately (no dialog for first-time users).
-        await handleAutoCorrelate()
+        // Pass the section so adjacency follows its column order, not map-plane RNG.
+        await handleAutoCorrelate(selectedSectionId)
       } else {
         // Existing auto edges found — ask the user what to do.
         // autoCorrelating stays true while the dialog is open so the button
@@ -225,7 +226,7 @@ export default function SectionsToolbar(): JSX.Element {
         'success',
         `Cleared ${del.deleted} auto edge${del.deleted === 1 ? '' : 's'}; re-running…`,
       )
-      await handleAutoCorrelate()
+      await handleAutoCorrelate(selectedSectionId)
     } catch (err) {
       log.error('sections', 'reCorrelate failed', err)
       toast('error', 'Re-correlate failed — see console.')
