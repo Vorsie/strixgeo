@@ -516,10 +516,10 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(screen.queryByRole('button', { name: /split layer/i })).toBeNull()
   })
 
-  it('G15 — pending layer rect keeps pointer cursor', () => {
+  it('G15 — pending layer rect uses the grab cursor (move-both body drag, #163)', () => {
     const { container } = renderGhost([makeSuggestion()])
     const rect = container.querySelector('rect')
-    expect((rect as SVGRectElement).style.cursor).toBe('pointer')
+    expect((rect as SVGRectElement).style.cursor).toBe('grab')
     // pointerEvents not explicitly set on the inline style for pending
     // layers — it falls back to the SVG default (auto), so clicks
     // still register.
@@ -2189,29 +2189,18 @@ describe('computeMoveBothEdits (middle-dot move-both)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 3-dot grab handle (#163 Slice 1) — hover-gated dots at column centre
+// Band-body move-both drag + edge-strip boundary drags (#163 dogfeed 2026-05-29)
 // ---------------------------------------------------------------------------
+// The 3-dot handles were replaced: the user grabs the visible band geometry.
 //
-//   HD1  dots are hidden by default and appear on hover (when onEdit wired).
-//   HD2  middle dot mousedown→mouseup moves the WHOLE layer (onEdit carries
-//        BOTH depth_top_m and depth_base_m).
-//   HD3  top dot reuses the single-edge drag (onEdit carries depth_top_m only).
+//   HD2   pressing the band BODY and dragging moves the WHOLE layer (onEdit
+//         carries BOTH depth_top_m and depth_base_m).
+//   HD2b  the band follows the cursor live during a body drag (preview).
+//   HD2c  a plain click on the body (no drag past threshold) stays inert.
+//   HD3   the top edge-strip drags only the top boundary (depth_top_m only).
 
-describe('three-dot grab handle (#163 Slice 1)', () => {
-  it('HD1 — grab dots are hidden until the band is hovered', () => {
-    const { container } = renderGhost(
-      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
-      { onEdit: vi.fn() },
-    )
-    expect(container.querySelector('[data-testid="litho-grab-dots-0"]')).toBeNull()
-    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
-    expect(container.querySelector('[data-testid="litho-grab-dots-0"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="litho-grab-top-0"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="litho-grab-middle-0"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="litho-grab-bottom-0"]')).not.toBeNull()
-  })
-
-  it('HD2 — middle dot drag moves the whole layer (both edges in one onEdit)', () => {
+describe('band-body move-both drag (#163 dogfeed)', () => {
+  it('HD2 — pressing the band body and dragging moves the whole layer (both edges)', () => {
     const onEdit = vi.fn()
     const { container } = renderGhost(
       [
@@ -2220,23 +2209,20 @@ describe('three-dot grab handle (#163 Slice 1)', () => {
       ],
       { onEdit },
     )
-    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
-    const mid = container.querySelector('[data-testid="litho-grab-middle-0"]')
-    expect(mid).not.toBeNull()
-    // pxPerM = 100 → 100 px down = +1.0 m. Layer [0,2] → [1,3].
-    // The move-both delta now comes from the mousemove (live preview), so a
-    // real drag fires mousedown → mousemove → mouseup.
-    fireEvent.mouseDown(mid!, { clientY: 100 })
+    const band = container.querySelector('[data-testid="litho-band-fill-0"]')
+    expect(band).not.toBeNull()
+    // pxPerM = 100 → 100 px down = +1.0 m. Layer [0,2] → [1,3]. The 100 px move
+    // is well past the start threshold, so it promotes from click to drag.
+    fireEvent.mouseDown(band!, { clientY: 100 })
     fireEvent.mouseMove(document, { clientY: 200 })
     fireEvent.mouseUp(document)
-    // The dragged layer's edit carries BOTH edges (the move-both signature).
     const own = onEdit.mock.calls.find(c => c[0] === 0)
     expect(own).toBeTruthy()
     expect(own![1].depth_top_m).toBeCloseTo(1.0, 5)
     expect(own![1].depth_base_m).toBeCloseTo(3.0, 5)
   })
 
-  it('HD2b — the band follows the cursor live during a middle-dot drag (preview)', () => {
+  it('HD2b — the band follows the cursor live during a body drag (preview)', () => {
     const { container } = renderGhost(
       [
         makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
@@ -2244,30 +2230,41 @@ describe('three-dot grab handle (#163 Slice 1)', () => {
       ],
       { onEdit: vi.fn() },
     )
-    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
-    const midCy = (): number =>
+    const bandY = (): number =>
       Number(
-        (container.querySelector('[data-testid="litho-grab-middle-0"]') as SVGCircleElement).getAttribute(
-          'cy',
+        (container.querySelector('[data-testid="litho-band-fill-0"]') as SVGRectElement).getAttribute(
+          'y',
         ),
       )
-    fireEvent.mouseDown(container.querySelector('[data-testid="litho-grab-middle-0"]')!, {
+    const before = bandY()
+    fireEvent.mouseDown(container.querySelector('[data-testid="litho-band-fill-0"]')!, {
       clientY: 100,
     })
-    const before = midCy()
     // Dragging down (no mouseup yet) must move the band live, not snap on release.
     fireEvent.mouseMove(document, { clientY: 150 })
-    expect(midCy()).toBeGreaterThan(before)
+    expect(bandY()).toBeGreaterThan(before)
   })
 
-  it('HD3 — top dot reuses the single-edge drag (depth_top_m only)', () => {
+  it('HD2c — a plain click on the body (no drag) does not move the layer', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost([makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })], { onEdit })
+    fireEvent.mouseDown(container.querySelector('[data-testid="litho-band-fill-0"]')!, {
+      clientY: 100,
+    })
+    // 1 px < threshold → stays pending → no commit (preserves inert-click +
+    // double-click-accept).
+    fireEvent.mouseMove(document, { clientY: 101 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('HD3 — dragging the top edge-strip moves only the top (depth_top_m only)', () => {
     const onEdit = vi.fn()
     const { container } = renderGhost(
       [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
       { onEdit },
     )
-    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
-    const top = container.querySelector('[data-testid="litho-grab-top-0"]')
+    const top = container.querySelector('[data-testid="litho-drag-top-0"]')
     expect(top).not.toBeNull()
     fireEvent.mouseDown(top!, { clientY: 100 })
     fireEvent.mouseMove(document, { clientY: 200 })
