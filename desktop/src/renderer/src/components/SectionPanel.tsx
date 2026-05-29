@@ -663,6 +663,8 @@ interface Props {
     lowerNodes: LensBoundaryNode[],
     style: LensRenderStyle,
   ) => void
+  /** Right-click a wedge → dissolve the lens by deleting its defining edges. */
+  onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
 }
 
 export default function SectionPanel({
@@ -723,6 +725,7 @@ export default function SectionPanel({
   lenses,
   lensBoundaries,
   onSaveLensShape,
+  onDeleteLens,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2500,6 +2503,7 @@ export default function SectionPanel({
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
                 onSaveLensShape={onSaveLensShape}
+                onDeleteLens={onDeleteLens}
               />
             )}
 
