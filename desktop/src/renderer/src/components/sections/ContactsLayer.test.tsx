@@ -2917,5 +2917,58 @@ describe('ContactsLayer', () => {
       const refStrip = container.querySelector(`[data-testid="ref-contact-drag-strip"][data-contact-id="${geoId}"]`)
       expect(refStrip).not.toBeNull()
     })
+
+    it('RS3 — reference hit-strip is suppressed when a litho contact is COINCIDENT (same depth) but NOT coupled (#159)', () => {
+      // The #159 drag-lock: after the litho-geo snap dialog ("Snap litho"
+      // or "Move geo") the litho contact and the geological contact sit at
+      // the SAME depth on the SAME anchor, but parent_geo_contact_id is
+      // NOT set (only explicit "Link to geology" / accept-couple set it).
+      // The reference strip is painted on top of the litho drag-strip and
+      // eats the hover + mousedown — the two-ended drag cursor never shows
+      // and the litho contact can no longer be grabbed. Suppressing the
+      // coincident reference strip restores the drag (the litho contact's
+      // own menu still offers "Edit in Geology stage").
+      const geoId = 'geo-ref-4'
+      const lithoContact = makeContact({
+        id: 'c-coincident',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        parent_geo_contact_id: null, // coincident but NOT coupled
+      })
+      const geoRefContact = makeContact({
+        id: geoId,
+        borehole_id: 'bh-1',
+        depth_top_m: 3, // same depth + same anchor as the litho contact
+        model_id: 'geo-model',
+        formation_id: 'geo-f',
+      })
+      const geoFormation = makeFormation({ id: 'geo-f' })
+
+      const { container } = render(
+        <svg>
+          <ContactsLayer
+            contacts={[lithoContact]}
+            formations={[makeFormation()]}
+            placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+            levelToScreen={flipped}
+            plotTop={0}
+            plotBottom={50}
+            referenceFormations={[geoFormation]}
+            referenceContacts={[geoRefContact]}
+            onEditInGeologyStage={vi.fn()}
+            onDeleteContact={vi.fn().mockResolvedValue(undefined)}
+          />
+        </svg>,
+      )
+
+      // The coincident reference strip must be suppressed so it cannot eat
+      // the litho contact's drag.
+      const refStrip = container.querySelector(`[data-testid="ref-contact-drag-strip"][data-contact-id="${geoId}"]`)
+      expect(refStrip).toBeNull()
+
+      // The litho contact's own drag-strip must remain grabbable.
+      const lithoStrip = container.querySelector('[data-testid="contact-drag-strip"]')
+      expect(lithoStrip).not.toBeNull()
+    })
   })
 })
