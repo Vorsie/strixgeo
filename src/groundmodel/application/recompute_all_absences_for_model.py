@@ -46,6 +46,7 @@ from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
     SectionInferenceData,
 )
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -145,9 +146,9 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
         # ------------------------------------------------------------------
         # 1. Scope guard + kind guard.
         # ------------------------------------------------------------------
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
+        model = await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
+        )
 
         if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
             raise ValueError(
