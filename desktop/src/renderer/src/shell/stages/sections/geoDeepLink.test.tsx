@@ -230,19 +230,28 @@ describe('GD2 â€” clicking "Edit in Geology stage" calls the callback with 
 })
 
 // ---------------------------------------------------------------------------
-// GD5 â€” ref-contact strip DOM order (z-order fix, Slice D dogfeed 2026-05-25)
+// GD5 â€” coincident reference strip is SUPPRESSED, not topmost (#159 supersedes
+// the Slice-D 2026-05-25 z-order fix).
 // ---------------------------------------------------------------------------
+//
+// The original GD5 placed a litho contact and a reference contact at the same
+// depth and asserted the reference strip rendered LAST (on top) "so it
+// receives the right-click first".  That very behaviour was the #159
+// drag-lock: the topmost reference strip ate the litho contact's hover +
+// mousedown, so the two-ended drag cursor never appeared.  The corrected
+// contract is to SUPPRESS the coincident reference strip so the litho
+// contact's own drag-strip wins; the geo-deep-link stays reachable from the
+// litho contact's own context menu (covered by GD1-GD4).
 
-describe('GD5 â€” reference-contact strips are topmost in SVG DOM (render after active strips)', () => {
+describe('GD5 â€” coincident reference strip is suppressed so the litho contact stays draggable (#159)', () => {
   afterEach(() => {
     cleanup()
   })
 
-  it('ref-contact-drag-strip appears after contact-drag-strip in the DOM when both exist', () => {
+  it('suppresses the ref-contact-drag-strip when a litho contact sits at the same anchor + depth', () => {
     // Arrange: one active litho contact AND one reference (geological) contact
-    // at the same anchor + same depth so both strips would be placed at the
-    // same SVG Y position.  The ref strip MUST be later in DOM order so SVG's
-    // paint order (later = on top) lets it receive the right-click first.
+    // at the same anchor + same depth.  The reference strip must NOT render —
+    // otherwise it would sit on top of the litho drag-strip and lock the drag.
     const onEditInGeologyStage = vi.fn()
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
     const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
@@ -252,7 +261,7 @@ describe('GD5 â€” reference-contact strips are topmost in SVG DOM (render a
 
     const lithoContact = makeContact('litho-contact-1', lithoFormationId, anchorId)
     const refContact = makeContact('ref-contact-1', geoFormationId, anchorId)
-    // Place both at depth 2 m so they map to the same segY.
+    // Place both at depth 2 m so they map to the same segY (coincident).
     lithoContact.depth_top_m = 2
     refContact.depth_top_m = 2
 
@@ -273,16 +282,9 @@ describe('GD5 â€” reference-contact strips are topmost in SVG DOM (render a
     const refStrip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
     const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')
 
-    expect(refStrip).not.toBeNull()
+    // The coincident reference strip is suppressed; the litho drag-strip wins.
+    expect(refStrip).toBeNull()
     expect(activeStrip).not.toBeNull()
-
-    // DOM order check: the ref strip must come AFTER (i.e. on top of) the
-    // active strip.  Node.compareDocumentPosition returns a bitmask;
-    // DOCUMENT_POSITION_FOLLOWING (4) means `activeStrip` precedes `refStrip`
-    // in document order â€” which is what we want.
-    const position = activeStrip!.compareDocumentPosition(refStrip!)
-    // Bitmask bit 4 = DOCUMENT_POSITION_FOLLOWING: refStrip is after activeStrip.
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
