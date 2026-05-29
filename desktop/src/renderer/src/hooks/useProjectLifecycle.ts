@@ -40,8 +40,9 @@ export interface UseProjectLifecycleResult {
   handleCloseProjectRequest: () => void
   /** "Save and close" branch from the unsaved-changes dialog. */
   handleUnsavedSave: () => Promise<void>
-  /** "Discard" branch — rolls back + closes. */
-  handleUnsavedDiscard: () => void
+  /** "Discard" branch — reverts the DB to the last save (replace-restore)
+   *  or, for a never-saved project, deletes session creates; then closes. */
+  handleUnsavedDiscard: () => Promise<void>
   /** "Cancel" branch — aborts the close / quit. */
   handleUnsavedCancel: () => void
   /**
@@ -165,6 +166,9 @@ export function useProjectLifecycle({
   activeGeologicalModel,
   stageLumping,
   currentLumping,
+  hasUnsavedMutations,
+  setHasUnsavedMutations,
+  revertToLastSaved,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -193,6 +197,15 @@ export function useProjectLifecycle({
   activeGeologicalModel: ActiveModel | null
   stageLumping: (lumping: StratigraphyLumping) => void
   currentLumping: StratigraphyLumping | null
+  // Two-stage save / dirty (#160). ``hasUnsavedMutations`` is true when a
+  // geology mutation (depth drag, delete, batch) touched a pre-existing row
+  // this session. It is OR'd into ``projectDirty`` and cleared via
+  // ``setHasUnsavedMutations`` on save / discard. ``revertToLastSaved``
+  // replace-restores the DB from the .gmproj file (returns false for a
+  // never-saved project, where the caller deletes the session creates).
+  hasUnsavedMutations: boolean
+  setHasUnsavedMutations: (v: boolean) => void
+  revertToLastSaved: () => Promise<boolean>
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -221,6 +234,7 @@ export function useProjectLifecycle({
 
   const projectDirty =
     metadataDirty ||
+    hasUnsavedMutations ||
     sessionImportCptIds.size > 0 ||
     sessionImportBoreholeIds.size > 0 ||
     sessionImportFormationIds.size > 0 ||
@@ -239,23 +253,32 @@ export function useProjectLifecycle({
   // explicitly via "Build 3D model" in the Geology toolbar (or the
   // Sections toolbar). Dedupe's auto-recompute is unaffected (it is
   // a build-shaped intent, not a File → Save concern).
-  const saveProject = useCallback(async (): Promise<boolean> => {
-    const ok = await saveMetadata()
-    if (!ok) return false
+  // Empty every session-import tracking set. Shared by saveProject (commit
+  // → clean) and the revert branch of handleUnsavedDiscard (replace-restore
+  // already wiped the created rows; just clear the tracking so the next open
+  // starts clean). Does NOT touch the DB — see discardSessionImports for the
+  // never-saved path that DB-deletes the session creates.
+  const resetSessionImportSets = useCallback(() => {
     setSessionImportCptIds(new Set())
     setSessionImportBoreholeIds(new Set())
     setSessionImportFormationIds(new Set())
     setSessionImportSectionIds(new Set())
     setSessionImportContactIds(new Set())
-    return true
   }, [
-    saveMetadata,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
     setSessionImportFormationIds,
     setSessionImportSectionIds,
     setSessionImportContactIds,
   ])
+
+  const saveProject = useCallback(async (): Promise<boolean> => {
+    const ok = await saveMetadata()
+    if (!ok) return false
+    resetSessionImportSets()
+    setHasUnsavedMutations(false)
+    return true
+  }, [saveMetadata, resetSessionImportSets, setHasUnsavedMutations])
 
   // Discard rollback — drops the session-imported IDs from the
   // manifest so they disappear from view. The DB rows stay (DOV
@@ -383,20 +406,39 @@ export function useProjectLifecycle({
     }
   }, [saveProject, closeProject, unsavedDialogMode])
 
-  // Discard: drop in-memory metadata edits + roll back session imports
-  // (move them into the project-local removed set so DB rows stay put
-  // for fast re-import) + close. The .gmproj file is untouched on disk;
-  // reopening the file restores the saved state.
-  const handleUnsavedDiscard = useCallback(() => {
+  // Discard ("Don't Save"): revert every session change, then close.
+  //
+  // Two-stage save (#160): for a SAVED project the .gmproj on disk is the
+  // last-saved snapshot, so we replace-restore the DB from it — undoing
+  // session creates, MUTATIONS (depth drags, deletes), and re-adding deleted
+  // rows. The session-import tracking sets are then just cleared (the rows
+  // they pointed at are already gone). For a NEVER-SAVED project there is no
+  // file to revert to, so we fall back to discardSessionImports, which
+  // DB-deletes the session-created rows. Either way the mutations flag is
+  // cleared and the project closes. The .gmproj file is never touched.
+  const handleUnsavedDiscard = useCallback(async () => {
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
-    discardSessionImports()
+    const reverted = await revertToLastSaved()
+    if (reverted) {
+      resetSessionImportSets()
+    } else {
+      discardSessionImports()
+    }
+    setHasUnsavedMutations(false)
     if (unsavedDialogMode === 'quit-app') {
       void window.electron.notifyQuitDecision(true)
     } else {
       closeProject()
     }
-  }, [discardSessionImports, closeProject, unsavedDialogMode])
+  }, [
+    revertToLastSaved,
+    resetSessionImportSets,
+    discardSessionImports,
+    setHasUnsavedMutations,
+    closeProject,
+    unsavedDialogMode,
+  ])
 
   // Cancel from the unsaved-drafts dialog. In quit-app mode that means
   // 'don't exit the app'; we tell main to abort the close.
