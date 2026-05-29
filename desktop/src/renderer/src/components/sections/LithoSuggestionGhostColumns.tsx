@@ -17,7 +17,7 @@
  * collision with existing overlays.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
@@ -53,15 +53,6 @@ const GHOST_OPACITY_ACCEPTED = 0.85
 const GHOST_OPACITY_REJECTED = 0.2
 const LABEL_FONT_SIZE = 9
 const HEADER_FONT_SIZE = 8
-/** Pixels the cursor must move before a band-body press becomes a move-both
- *  drag (below this it stays a plain click / double-click). */
-const MOVE_BOTH_DRAG_THRESHOLD_PX = 3
-/** How far OUTSIDE the band each edge-drag zone extends past its boundary
- *  line. Generous so a press just above the top line / just below the base
- *  line still grabs the boundary instead of falling through to the
- *  contact-pick bar underneath (which would place a committed contact —
- *  dogfeed 2026-05-29). */
-const EDGE_OUTER_GRAB_PX = 8
 
 function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
@@ -763,24 +754,21 @@ export default function LithoSuggestionGhostColumns({
     absorbPending: 'up' | 'down' | null
   } | null>(null)
 
-  // #163 (dogfeed 2026-05-29) — "move whole layer" drag, started by pressing
-  // the band BODY (the middle) and dragging. Replaces the invisible 3-dot
-  // handles: the user grabs the visible band instead of hunting for a dot.
-  // ``pending`` is true until the cursor has moved past a small threshold —
-  // while pending the band does NOT preview or commit, so a plain click stays
-  // inert and double-click-accept / shift-reject still work. Carries the
-  // mousedown clientY; on mouseup the clamped move commits via
-  // computeMoveBothEdits. Separate from ``drag`` (the single-edge line drag)
-  // so the move-both path doesn't touch the cross-merge mouseup.
+  // #163 Slice 1 — 3-dot grab handle. Which suggestion is hovered/selected
+  // (shows its grab dots); null = none. Dots render at the column centre so
+  // they don't collide with the geo↔litho coupling dots at the band edges.
+  const [hoveredHandleIdx, setHoveredHandleIdx] = useState<number | null>(null)
+
+  // #163 Slice 1 — middle-dot "move whole layer" drag. Carries the dragged
+  // suggestion + the mousedown clientY; on mouseup the clamped move commits
+  // via computeMoveBothEdits. Separate from ``drag`` (the single-edge line
+  // drag) so the move-both path doesn't touch the cross-merge mouseup.
   const [moveBothDrag, setMoveBothDrag] = useState<{
     idx: number
     initialClientY: number
     /** Live cursor delta in metres (updated on mousemove) so the band can
-     *  follow the cursor during the drag (live preview). 0 while pending. */
+     *  follow the cursor during the drag (live preview). */
     currentDeltaM: number
-    /** True until the drag passes the start threshold (distinguishes a
-     *  layer-move drag from a plain click / double-click). */
-    pending: boolean
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -1174,22 +1162,15 @@ export default function LithoSuggestionGhostColumns({
   useEffect(() => {
     if (moveBothDrag === null) return
     function handleMove(e: MouseEvent): void {
-      setMoveBothDrag(md => {
-        if (md === null) return md
-        const movedPx = Math.abs(e.clientY - md.initialClientY)
-        // Stay pending (no preview, no commit) until the drag passes the
-        // threshold — keeps a plain click / double-click inert.
-        const pending = md.pending && movedPx < MOVE_BOTH_DRAG_THRESHOLD_PX
-        return {
-          ...md,
-          pending,
-          currentDeltaM: pending ? 0 : (e.clientY - md.initialClientY) / pxPerM,
-        }
-      })
+      setMoveBothDrag(md =>
+        md === null
+          ? md
+          : { ...md, currentDeltaM: (e.clientY - md.initialClientY) / pxPerM },
+      )
     }
     function handleUp(): void {
       setMoveBothDrag(md => {
-        if (md !== null && !md.pending && onEdit) {
+        if (md !== null && onEdit) {
           const { topM, baseM, clampedDeltaM } = computeMoveBothEdits(
             md.idx,
             suggestions,
@@ -1221,24 +1202,6 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mouseup', handleUp)
     }
   }, [moveBothDrag, pxPerM, onEdit, suggestions, edits, acceptedIndices, rejectedIndices])
-
-  // Press the band BODY and drag to move the whole layer (#163 dogfeed
-  // 2026-05-29 — replaces the 3-dot middle handle). Plain left-button only;
-  // Alt is the copy gesture, Shift is reject, and a click without drag stays
-  // inert (handled by the ``pending`` flag in the move-both effect above).
-  const startMoveBothFromBody = useCallback(
-    (layerIdx: number, e: React.MouseEvent): void => {
-      if (e.button !== 0 || e.altKey || e.shiftKey) return
-      e.stopPropagation()
-      setMoveBothDrag({
-        idx: layerIdx,
-        initialClientY: e.clientY,
-        currentDeltaM: 0,
-        pending: true,
-      })
-    },
-    [],
-  )
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
@@ -1539,13 +1502,6 @@ export default function LithoSuggestionGhostColumns({
           plotTop,
           Math.min(plotBottom, levelToScreen(surfaceElevationM - baseM)),
         )
-        // Single-edge drag zones (#163 dogfeed 2026-05-29): a generous band
-        // near each boundary drags JUST that edge; the middle gap drags both.
-        // Capped at 40% of the band height so a middle (move-both) zone always
-        // remains, and at 24 px so tall bands don't make the whole band a
-        // resize zone. The old 6 px strips were too small to hit, so presses
-        // aimed at an edge landed on the body (move-both) instead.
-        const edgeZoneH = Math.min((baseY - topY) * 0.4, 24)
         const accepted = acceptedIndices.has(idx)
         const rejected = rejectedIndices.has(idx)
         // Debt #142 — once a layer is accepted, the committed
@@ -1578,6 +1534,10 @@ export default function LithoSuggestionGhostColumns({
           <g
             key={`${idx}-${rawLayer.suggested_lithology}-${rawLayer.depth_top_m}`}
             data-testid={`litho-band-group-${idx}`}
+            onMouseEnter={() => setHoveredHandleIdx(idx)}
+            onMouseLeave={() =>
+              setHoveredHandleIdx(cur => (cur === idx ? null : cur))
+            }
           >
             <LithoSuggestionLayer
               layer={effective}
@@ -1614,20 +1574,17 @@ export default function LithoSuggestionGhostColumns({
                 copyDrag?.hoverTarget?.anchorId === investigationId &&
                 copyDrag?.hoverTarget?.idx === idx
               }
-              onBodyDragStart={dragHandlesEnabled ? startMoveBothFromBody : undefined}
               formationNameById={formationNameById}
             />
             {dragHandlesEnabled && (
               <>
-                {/* Top-edge zone — drag moves only this layer's TOP. Spans
-                    from EDGE_OUTER_GRAB_PX above the top line down
-                    ``edgeZoneH`` into the band so a press near the line grabs
-                    the boundary instead of the pick-bar (dogfeed 2026-05-29). */}
+                {/* Top-edge handle — drag moves only this layer's TOP.
+                    6 px tall hit zone centred on the top edge. */}
                 <rect
                   x={left}
-                  y={topY - EDGE_OUTER_GRAB_PX}
+                  y={topY - 3}
                   width={ghostWidth}
-                  height={edgeZoneH + EDGE_OUTER_GRAB_PX}
+                  height={6}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-top-${idx}`}
@@ -1656,15 +1613,12 @@ export default function LithoSuggestionGhostColumns({
                     })
                   }}
                 />
-                {/* Base-edge zone — drag moves only this layer's BASE. Spans
-                    ``edgeZoneH`` up from the base line to EDGE_OUTER_GRAB_PX
-                    below it, so a press just below the line grabs the boundary
-                    rather than the pick-bar (which would place a contact). */}
+                {/* Base-edge handle — drag moves only this layer's BASE. */}
                 <rect
                   x={left}
-                  y={baseY - edgeZoneH}
+                  y={baseY - 3}
                   width={ghostWidth}
-                  height={edgeZoneH + EDGE_OUTER_GRAB_PX}
+                  height={6}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-base-${idx}`}
@@ -1695,6 +1649,101 @@ export default function LithoSuggestionGhostColumns({
                 />
               </>
             )}
+            {/* #163 Slice 1 — three grab dots at the column CENTRE (not the
+                edges, so they don't collide with the geo↔litho coupling dots).
+                Shown on hover/while dragging this layer. Top/bottom reuse the
+                existing single-edge drag; the middle moves the whole layer via
+                the move-both path. */}
+            {dragHandlesEnabled &&
+              (hoveredHandleIdx === idx ||
+                drag?.idx === idx ||
+                moveBothDrag?.idx === idx) && (
+                <g data-testid={`litho-grab-dots-${idx}`} style={{ pointerEvents: 'auto' }}>
+                  <circle
+                    data-testid={`litho-grab-top-${idx}`}
+                    cx={left + ghostWidth / 2}
+                    cy={topY}
+                    r={5}
+                    fill="#f59e0b"
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                    style={{ cursor: 'ns-resize' }}
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const bounds = computeDragBounds(
+                        'top',
+                        idx,
+                        suggestions,
+                        edits,
+                        acceptedIndices,
+                        rejectedIndices,
+                      )
+                      setDrag({
+                        idx,
+                        edge: 'top',
+                        initialClientY: e.clientY,
+                        initialDepthM: topM,
+                        currentDepthM: topM,
+                        ...bounds,
+                        snapped: false,
+                        snapTargetM: null,
+                        collapseChainOnRelease: [],
+                        absorbPending: null,
+                      })
+                    }}
+                  />
+                  <circle
+                    data-testid={`litho-grab-middle-${idx}`}
+                    cx={left + ghostWidth / 2}
+                    cy={(topY + baseY) / 2}
+                    r={5}
+                    fill="#f59e0b"
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                    style={{ cursor: 'move' }}
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      setMoveBothDrag({ idx, initialClientY: e.clientY, currentDeltaM: 0 })
+                    }}
+                  />
+                  <circle
+                    data-testid={`litho-grab-bottom-${idx}`}
+                    cx={left + ghostWidth / 2}
+                    cy={baseY}
+                    r={5}
+                    fill="#f59e0b"
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                    style={{ cursor: 'ns-resize' }}
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const bounds = computeDragBounds(
+                        'base',
+                        idx,
+                        suggestions,
+                        edits,
+                        acceptedIndices,
+                        rejectedIndices,
+                      )
+                      setDrag({
+                        idx,
+                        edge: 'base',
+                        initialClientY: e.clientY,
+                        initialDepthM: baseM,
+                        currentDepthM: baseM,
+                        ...bounds,
+                        snapped: false,
+                        snapTargetM: null,
+                        collapseChainOnRelease: [],
+                        absorbPending: null,
+                      })
+                    }}
+                  />
+                </g>
+              )}
             {/* Debt #85 boundary hit-strip — 6 px tall transparent rect
                 centred on the shared boundary between this layer and
                 the next pending one. Right-click opens the boundary
@@ -2174,7 +2223,6 @@ function LithoSuggestionLayer({
   onUnreject,
   onRequestContextMenu,
   onCopyMouseDown,
-  onBodyDragStart,
   isCopyHoverTarget,
   formationNameById,
   hatchPatternId,
@@ -2213,10 +2261,6 @@ function LithoSuggestionLayer({
    * parent's ``copyDragJustEndedRef``.
    */
   onCopyMouseDown?: (idx: number, clientX: number, clientY: number) => void
-  /** Press the band BODY and drag to move the whole layer (#163 dogfeed
-   *  2026-05-29). Fired on a plain (non-Alt, non-Shift) left mousedown; the
-   *  parent applies a small threshold so a click stays inert. */
-  onBodyDragStart?: (idx: number, e: React.MouseEvent) => void
   /** True when a copy-drag is hovering this rect — renders an amber
    *  outline so the user sees a valid drop target. */
   isCopyHoverTarget?: boolean
@@ -2380,15 +2424,14 @@ function LithoSuggestionLayer({
         // Accepted / rejected layers let clicks pass through to the
         // ContactPickBar underneath so the user can place a NEW
         // contact at a different depth without first dismissing the
-        // accepted ghost (dogfeed bug 2026-05-20). Pending layers use a
-        // ``grab`` cursor to hint the press-and-drag "move whole layer"
-        // gesture; double-click still accepts, shift-click rejects.
+        // accepted ghost (dogfeed bug 2026-05-20). Pending layers
+        // keep cursor=pointer + click handler so accept/reject still
+        // works.
         style={
           accepted || rejected
             ? { cursor: 'default', pointerEvents: 'none' }
-            : { cursor: 'grab' }
+            : { cursor: 'pointer' }
         }
-        data-testid={accepted || rejected ? undefined : `litho-band-fill-${idx}`}
         // Debt #86: pending-layer rects stamp anchor+idx so cross-column
         // Alt-drag hit-tests via document.elementsFromPoint can resolve
         // the drop target. Stamped even when onCopyMouseDown is not
@@ -2397,20 +2440,14 @@ function LithoSuggestionLayer({
         data-litho-anchor-id={accepted || rejected ? undefined : anchorId}
         data-litho-idx={accepted || rejected ? undefined : idx}
         onMouseDown={
-          accepted || rejected
-            ? undefined
-            : e => {
-                // Alt = copy-composition drag (#86); plain press = move-both
-                // body drag (#163). Shift/right handled by click handlers.
-                if (e.altKey) {
-                  if (onCopyMouseDown === undefined) return
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onCopyMouseDown(idx, e.clientX, e.clientY)
-                  return
-                }
-                onBodyDragStart?.(idx, e)
+          onCopyMouseDown !== undefined && !accepted && !rejected
+            ? e => {
+                if (!e.altKey) return
+                e.preventDefault()
+                e.stopPropagation()
+                onCopyMouseDown(idx, e.clientX, e.clientY)
               }
+            : undefined
         }
         onClick={accepted || rejected ? undefined : handleClick}
         onDoubleClick={accepted || rejected ? undefined : handleDoubleClick}
