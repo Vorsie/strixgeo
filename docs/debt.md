@@ -4498,32 +4498,30 @@ site). Resolves the payload half of #111 (the bypassed-`_updateGhostEntry` half
 stays under #111). Full suite 1446 green; tsc clean. Per-file commits on develop
 2026-05-29.
 
-## 168. Section SVG geometry split across 4 overlays + `levelToScreen` prop-drill (Tier D — frontend, M; PARTIAL)
+## 168. Section SVG geometry — RESOLVED 2026-05-29 (shared depth axis; rest declined after investigation)
 
-**Slice 1 SHIPPED 2026-05-29 — shared depth axis.** `depthAxisAtSurface(levelToScreen,
-surfaceElevationM)` in `sections/utils.ts` returns `{surfaceY, pxPerMetreDown,
-depthAtY, yAtDepth}`, sampling the rate at the surface exactly as the old inline
-code did (byte-identical). Replaced the duplicated `oneMetreDownPx` / `surfaceY`
-/ `depthAtY` blocks in `BoreholeColumn` + `ContactPickBar`. Tests DA1–DA3; full
-suite green.
+Shipped the one genuine dedup: `depthAxisAtSurface(levelToScreen, surfaceElevationM)`
+in `sections/utils.ts` → `{surfaceY, pxPerMetreDown, depthAtY, yAtDepth}`, sampling
+the rate at the surface exactly as the old inline code did (byte-identical). Replaced
+the duplicated `oneMetreDownPx` / `surfaceY` / `depthAtY` blocks in `BoreholeColumn`
++ `ContactPickBar`. Tests DA1–DA3; full suite green.
 
-**Remaining (deferred — needs visual verification, NOT done blind).** Two invasive
-pieces left, both on the highest-churn / most-dogfed surface (#131/#137/#157/#162):
-- **`buildContactScreenMap` + `bandRectsFromContacts`.** The 4 overlays' contact→screen
-  mapping is NOT a clean shared function — in `ContactsLayer` it's entangled with
-  TIN-slice confidence, polyline interpolation, and extrapolation-range logic;
-  `CorrelationEdgesOverlay` / `LithoSuggestionGhostColumns` / `PinchOutGhostOverlay`
-  each layer their own concerns (ribbons, ghost columns, wedges; PinchOutGhostOverlay
-  doesn't use `levelToScreen` at all). Teasing the genuinely-shared band-rect math
-  out from the overlay-specific render needs a dogfeed pass to confirm no pixel drift.
-- **`SectionViewportContext`** carrying `{levelToScreen, screenToLevel, pxPerMetre}`
-  to stop prop-drilling through `BoreholeColumn`/`ContactPickBar`/`ContactsLayer`/
-  `ColumnGlyph`. Rewiring prop-passing across 6 components risks hook-ordering / TDZ
-  (CLAUDE.md TDZ rule) that unit tests won't catch — wants a human-in-the-loop pass.
-
-**When to revisit.** Next time the band/seam geometry is being edited anyway (so the
-change rides a dogfeed cycle), or when the owner can smoke the section editor after.
-**Effort.** M (remaining).
+**The other two proposed pieces were investigated and declined (owner-confirmed
+2026-05-29):**
+- **`buildContactScreenMap` + `bandRectsFromContacts` relocation — not a real dedup.**
+  `buildContactScreenMap` + `bandRect` already exist (exported from
+  `CorrelationEdgesOverlay`), built for the correlation-ribbon anchoring, and have
+  **no other consumer**. The other overlays don't open-code *the same* mapping —
+  `LithoSuggestionGhostColumns` maps suggestion depth-ranges, `ContactsLayer` renders
+  TIN slices + contact lines, `PinchOutGhostOverlay` doesn't use `levelToScreen` at
+  all. Moving the helper to `utils.ts` would be pre-abstraction for a 2nd consumer
+  that doesn't exist (against the repo's "wait for the second use" rule).
+- **`SectionViewportContext` — behaviour-neutral churn.** `levelToScreen` is passed as
+  a prop in ~dozens of unit-test sites (`BoreholeColumn`/`ColumnGlyph`/`ContactPickBar`/
+  `ContactsLayer` tests). Moving it into a context forces rewriting all of them (+ TDZ
+  risk on the 6-component rewire) for zero functional gain, and "no backwards-compat
+  shims" rules out an optional-prop-with-context-fallback. The prop-drill is mild;
+  not worth the cost.
 
 ## 169. Plaxis 2D/3D exporters share 4 byte-identical methods (Tier D — backend, M; extends #110)
 
