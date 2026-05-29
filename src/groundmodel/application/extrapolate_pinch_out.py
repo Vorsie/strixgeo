@@ -39,6 +39,7 @@ from groundmodel.application.pinch_out_constants import (
     PINCH_OUT_CONFIDENCE,
     PINCH_OUT_SOURCE,
 )
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.pinch_out_geometry import compute_pinch_tip
 from groundmodel.domain.services.tin_surface import (
     TinSurface,
@@ -190,9 +191,9 @@ class ExtrapolatePinchOut(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 1. Load section line.                                               #
         # ------------------------------------------------------------------ #
-        section = await self._session.get(CrossSectionOrm, section_id)
-        if section is None or section.app_project_id != project_id:
-            raise ValueError(f"Cross-section {section_id} not found in project {project_id}")
+        section = await load_scoped_or_raise(
+            self._session, CrossSectionOrm, section_id, project_id, label="Cross-section"
+        )
         section_line = SectionLine2D(
             start_x=section.start_x,
             start_y=section.start_y,
