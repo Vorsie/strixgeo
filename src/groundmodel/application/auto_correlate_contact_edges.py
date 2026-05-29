@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
     ContactRecord,
@@ -111,9 +112,9 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         self.info(f"AutoCorrelateContactEdges.execute: model={model_id} project={project_id}")
 
         # 1. Scope guard.
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
+        )
 
         # 2. Load all contacts with their formation's litho info.
         contacts_stmt = (
