@@ -63,6 +63,7 @@ class LensCandidate:
 def detect_lenses_from_graph(
     edges: list[ContactEdge],
     stacks: list[ContactStack],
+    max_lens_thickness_m: float | None = None,
 ) -> list[LensCandidate]:
     """Detect lens bodies from the user-approved contact-edge graph.
 
@@ -74,6 +75,13 @@ def detect_lenses_from_graph(
     stacks : list[ContactStack]
         Per-investigation depth-sorted contact stacks.  Each contact_id in
         ``edges`` must appear in exactly one stack.
+    max_lens_thickness_m : float | None
+        Degeneracy guard (dogfeed 2026-05-29).  When set, a candidate whose
+        body is thicker than this (``depth_below - depth_above`` on the source
+        investigation) is rejected as a spurious detection — a real lens is a
+        thin body enclosed within a continuous unit, whereas a loose/marginal
+        correlation can make the detector treat a near-whole-column span as a
+        "lens" pinching to a point.  ``None`` (default) disables the guard.
 
     Returns
     -------
@@ -124,8 +132,18 @@ def detect_lenses_from_graph(
             source_neigh.sort()  # by depth ascending
             # Adjacent pairs: (i, i+1) — yields N-1 stacked lens candidates.
             for k in range(len(source_neigh) - 1):
-                _, cid_above, fid_above = source_neigh[k]
-                _, cid_below, _ = source_neigh[k + 1]
+                depth_above, cid_above, fid_above = source_neigh[k]
+                depth_below, cid_below, _ = source_neigh[k + 1]
+
+                # Degeneracy guard: a lens whose body is thicker than the
+                # configured maximum is almost certainly a spurious detection
+                # (a near-whole-column "lens" born from a loose correlation),
+                # not a real thin enclosed body — skip it.  None = guard off.
+                if (
+                    max_lens_thickness_m is not None
+                    and depth_below - depth_above > max_lens_thickness_m
+                ):
+                    continue
 
                 # The lens body is the formation living between these two
                 # contacts on the source investigation.  Strix convention:
