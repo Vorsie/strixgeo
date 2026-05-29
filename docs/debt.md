@@ -3549,6 +3549,18 @@ is declared above the warp memo); the linear inverse is the no-anchors
 fallback, so spacing=1 behaviour is byte-identical. Commits on develop
 2026-05-29.
 
+**Residual (OPEN, Tier E — low priority).** Owner dogfeed 2026-05-29 after the
+fix: zoom in close-spaced / heavily-nudged litho mode is "still a bit to the
+right" — a small offset, not the full pre-fix drift. The warp inversion fixed
+the gross error; a sub-column residual remains, most likely because
+collision-nudge anchors are sampled at column centres so the inverse is
+piecewise-linear between anchors and a cursor landing mid-segment maps
+slightly off. **Why deferred:** the main bug is gone; the residual is cosmetic
+and does not lose the user's place. **When to revisit:** if the offset grows
+noticeable at extreme spacing, or bundle with any future `warpAnchors`
+density/interpolation change. No root cause confirmed — needs a measured
+repro (cursor X vs landed-feature X at spacing < 0.5 with collisions).
+
 ## 138. Drag-lock after litho merge — handle becomes immovable (Tier G — needs repro)
 
 **What.** After merging two same-lithology layers on a litho ghost
@@ -4353,18 +4365,27 @@ each sub-item is independently shippable.
   `requestCorrelationEdgesRefetch` arg on success, and `SectionsCanvas`
   lists it in its edge-refetch effect deps. AC1/AC2 pin the hook contract.
 * **(d) Hard to grab a correlation endpoint to re-target (image #9).**
-  SHIPPED 2026-05-28. Each pending endpoint now has a 22 px transparent grab
-  rect (`unapproved-grab-a/b`) around the 8 px visible handle
-  (`DRAG_HANDLE_HIT_SIZE`), so the drag target is comfortable to hit without
-  changing the affordance. CE-D1 pins it.
-* **(e) Right-click anywhere on a correlation → delete.** SHIPPED 2026-05-28.
-  A transparent wide hit band (`edge-hit-<id>`, `EDGE_HIT_STROKE_WIDTH`) runs
-  along every edge seam; right-click opens a one-item "Delete correlation"
-  menu (`EdgeContextMenu`, mirrors the band-rclick → remove pattern #151) and
-  fires the new `onRequestDeleteEdge` prop → SectionsCanvas reuses
-  `handleDeleteContactCorrelation` (optimistic remove + DELETE + refetch). The
-  hit band renders below the grab handles so endpoint drags still win
-  mousedown. CE-E1/E2 pin it.
+  SHIPPED 2026-05-28, then **REDESIGNED 2026-05-29** (task #31 — supersedes
+  the 22 px endpoint-handle approach). The tiny endpoint handles
+  (`unapproved-grab-a/b` rects + `DRAG_HANDLE_SIZE`/`DRAG_HANDLE_HIT_SIZE`)
+  are gone. The whole seam is now grabbable as two transparent
+  midpoint-split line zones (`edge-grab-a/b`, `EDGE_DRAG_HIT_WIDTH = 18`,
+  inset at the contacts so contact-drag still wins there). Each half drags
+  its NEARER endpoint. The drag MODEL also changed: plain left-drag retargets
+  the grabbed end; **Ctrl/Cmd-drag leaves the original edge and creates
+  another from the same anchor to the drop** ("create an extra boundary where
+  I drag to") → forms a wedge when the drop is the layer's other boundary
+  (1↔2 → DetectLithoLenses). Replaces the earlier same-investigation
+  lens-split heuristic with an explicit modifier. CE-D1/CC11/CC12 pin the
+  zones; the drag commit itself (window mousemove/up + `elementsFromPoint`)
+  is dogfeed-verified, not unit-tested. Commits on develop 2026-05-29.
+* **(e) Right-click anywhere on a correlation → delete.** SHIPPED 2026-05-28,
+  adjusted 2026-05-29 by the (d) redesign. `onRequestDeleteEdge` +
+  `EdgeContextMenu` unchanged; the right-click hit target now lives on the
+  `edge-grab-a/b` zones for UNAPPROVED edges and on the full-ribbon
+  `edge-hit-<id>` polygon (`EDGE_HIT_STROKE_WIDTH`) for APPROVED edges (which
+  have no grab zones). SectionsCanvas reuses `handleDeleteContactCorrelation`
+  (optimistic remove + DELETE + refetch). CE-E1/E2/E3 pin it.
 * **(f) Right-click a suggestion → "split suggestion into 2" for lenses.**
   Owner wants to split one litho suggestion into two contacts that can be
   dragged apart, to model a lens (a unit that pinches in/out between tests).
@@ -4375,9 +4396,13 @@ each sub-item is independently shippable.
   body. Bigger than (a)-(e); needs its own design pass alongside the lens
   model.
 
-**Priority within #163:** (a)+(b)+(c)+(d)+(e) all SHIPPED 2026-05-28. Only
-(f) split-suggestion-into-2 for lenses remains — a feature needing a design
-pass alongside the lens work (#131-a lens_id / #101). Tier G (litho-finishing)
+**Priority within #163:** (a)+(b)+(c) SHIPPED 2026-05-28; (d)+(e) SHIPPED
+2026-05-28 then redesigned 2026-05-29 (whole-seam grab + Ctrl-drag, task #31).
+Only (f) split-suggestion-into-2 for lenses remains — a feature needing a
+design pass alongside the lens work (#131-a lens_id / #101). Note the
+2026-05-29 Ctrl-drag now offers a complementary drag-based lens path (anchor →
+both boundaries), so (f) is no longer the ONLY route to a lens — its remaining
+value is splitting a single suggestion in place. Tier G (litho-finishing)
 since auto-correlate is part of the litho stage. Filed from dogfeed session
 2026-05-28.
 
