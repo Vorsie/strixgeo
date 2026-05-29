@@ -4622,7 +4622,18 @@ bug cluster lives. **Fix.** Incremental extraction along the marked seams; do NO
 big-bang. **When to revisit.** Take one split per quiet period; #164 (ContextMenu)
 + #167 (accept body) are the cheap first cuts that shrink two of them. **Effort.** L.
 
-## 179. No "Clear suggestions" — stale auto-correlation edges can't be removed/overwritten from the UI (Tier G — dogfeed 2026-05-29)
+## 179. No "Clear suggestions" — stale auto-correlation edges can't be removed/overwritten from the UI (Tier G — dogfeed 2026-05-29) — SHIPPED 2026-05-29
+
+**SHIPPED.** Root cause was deeper than a missing button: the contact-level
+bulk-delete endpoint never existed (the formation-level one was removed in #133
+Phase 3), so the frontend's `deleteAutoCorrelations` 405'd and re-correlate's
+"delete + regenerate" silently no-op'd. Fix: new `DELETE
+/contact-correlations/auto` (removes `user_approved=false` only, keeps approved
+manual; 3 integration tests) + a "Clear suggestions" toolbar button
+(`handleClearSuggestions` → endpoint → #163c refetch nonce), gated on the model
+only (not section contacts) so off-section/model-wide suggestions are clearable.
+Original gap description retained below.
+
 
 **What.** A litho model accumulates unapproved `source='auto'` correlation edges
 (dogfeed 2026-05-29: model "qdfv" had **204** of them, none orphaned). The user
