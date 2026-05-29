@@ -293,8 +293,30 @@ export interface LithoLensListItem {
   body_ordinal: number
   name: string | null
   primary_section_id: string | null
+  /** Stable identity of the lens body (#163f) — sorted hash of its 3 defining
+   *  contact ids. Lets the frontend derive the wedge + join to the boundary
+   *  shape. Null on rows not re-detected since the shaping feature shipped. */
+  content_key: string | null
   created_at: string
   updated_at: string
+}
+
+// #163f: one control node on a lens boundary (section-local).
+export interface LensBoundaryNode {
+  along_m: number
+  elevation_m: number
+}
+
+export type LensRenderStyle = 'straight' | 'blocky' | 'rounded'
+
+// #163f: GET/PUT .../lenses/{id}/boundary payload — the user-authored shape.
+export interface LensBoundaryResponse {
+  lens_id: string
+  content_key: string | null
+  render_style: LensRenderStyle
+  primary_section_id: string | null
+  upper_nodes: LensBoundaryNode[]
+  lower_nodes: LensBoundaryNode[]
 }
 
 // Phase-2 Slice 3: one edge in the litho correlation graph.
@@ -2199,6 +2221,30 @@ export const api = {
       modelId: string,
     ): Promise<LithoLensListItem[]> =>
       get(`/projects/${projectId}/geology/models/${modelId}/lenses`),
+
+    // #163f: read the user-authored boundary shape for a lens body.
+    // Empty node lists + 'straight' when no custom shape is stored.
+    getLensBoundary: (
+      projectId: string,
+      modelId: string,
+      lensId: string,
+    ): Promise<LensBoundaryResponse> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/boundary`),
+
+    // #163f: full-replace the boundary shape (nodes + render style). The
+    // server sorts + re-indexes the node lists. 422 if the lens has no
+    // content_key (re-correlate) or no primary section.
+    saveLensBoundary: (
+      projectId: string,
+      modelId: string,
+      lensId: string,
+      body: {
+        upper_nodes: LensBoundaryNode[]
+        lower_nodes: LensBoundaryNode[]
+        render_style: LensRenderStyle
+      },
+    ): Promise<LensBoundaryResponse> =>
+      put(`/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/boundary`, body),
 
     // Upsert the human label for a lens body identified by
     // (formation_id, body_ordinal).  Creates a LithoLensOrm row on first

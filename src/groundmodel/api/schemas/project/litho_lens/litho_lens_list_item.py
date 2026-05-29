@@ -31,6 +31,11 @@ class LithoLensListItem(BaseModel):
         Optional human label.  UI falls back to a derived label when null.
     primary_section_id : UUID | None
         The section from which the naming gesture was invoked.
+    content_key : str | None
+        Stable identity of the lens body (sorted hash of its three defining
+        contact ids, #163f). Lets the frontend derive the wedge geometry +
+        join to the user-authored boundary shape. Null on rows not yet
+        re-detected since the shaping feature shipped.
     created_at : datetime
         Row creation timestamp.
     updated_at : datetime
@@ -46,5 +51,6 @@ class LithoLensListItem(BaseModel):
     body_ordinal: int
     name: str | None
     primary_section_id: UUID | None
+    content_key: str | None
     created_at: datetime
     updated_at: datetime
