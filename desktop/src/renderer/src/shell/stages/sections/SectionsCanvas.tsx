@@ -667,10 +667,11 @@ export default function SectionsCanvas(): JSX.Element {
     draggedContactId: string
     /** Investigation id of the anchor contact (used to reject same-investigation drops). */
     anchorInvestigationId: string | null
-    /** Investigation id of the DRAGGED contact. When the drop lands on a
-     *  different contact on THIS same investigation (the layer's other
-     *  boundary), the gesture is a lens-split, not a retarget (#31). */
-    draggedInvestigationId: string | null
+    /** True when Ctrl/Cmd was held at drag start: LEAVE the original edge and
+     *  CREATE a new one to the drop (the "create an extra boundary" gesture —
+     *  forms a lens when the drop is the layer's other boundary). False = plain
+     *  drag = retarget the grabbed end (#31). */
+    duplicate: boolean
     /** Current cursor X in viewport coords (updated on mousemove). */
     cursorViewportX: number
     /** Current cursor Y in viewport coords (updated on mousemove). */
@@ -688,16 +689,16 @@ export default function SectionsCanvas(): JSX.Element {
       e.preventDefault()
       const draggedContactId = handle === 'a' ? edge.contact_a_id : edge.contact_b_id
       const anchorContactId = handle === 'a' ? edge.contact_b_id : edge.contact_a_id
-      // Resolve anchor + dragged investigation ids. Anchor id blocks
-      // same-investigation-as-anchor drops; dragged id detects the lens-split
-      // gesture (drop on the layer's other boundary on the dragged test).
+      // Resolve anchor investigation id to block same-investigation-as-anchor
+      // drops. Ctrl/Cmd at drag start selects "leave + create another"
+      // (duplicate → lens) vs plain "retarget the grabbed end".
       const anchorContact = lithoContacts.find(c => c.id === anchorContactId)
       const anchorInvestigationId = anchorContact?.cpt_id ?? anchorContact?.borehole_id ?? null
-      const draggedContact = lithoContacts.find(c => c.id === draggedContactId)
-      const draggedInvestigationId = draggedContact?.cpt_id ?? draggedContact?.borehole_id ?? null
+      const duplicate = e.ctrlKey || e.metaKey
       log.debug(
         'section',
-        `edgeDrag: start edge=${edge.id} handle=${handle} dragged=${draggedContactId} anchor=${anchorContactId}`,
+        `edgeDrag: start edge=${edge.id} handle=${handle} dragged=${draggedContactId} ` +
+          `anchor=${anchorContactId} duplicate=${duplicate}`,
       )
       setEdgeDrag({
         edge,
@@ -705,7 +706,7 @@ export default function SectionsCanvas(): JSX.Element {
         anchorContactId,
         draggedContactId,
         anchorInvestigationId,
-        draggedInvestigationId,
+        duplicate,
         cursorViewportX: e.clientX,
         cursorViewportY: e.clientY,
       })
@@ -788,22 +789,17 @@ export default function SectionsCanvas(): JSX.Element {
       const capturedDrag = edgeDrag
       setEdgeDrag(null)
 
-      // Lens-split (#31): the drop landed on a DIFFERENT contact on the SAME
-      // investigation as the dragged endpoint — i.e. the layer's OTHER
-      // boundary. Instead of retargeting, keep + approve the original edge AND
-      // add an approved twin from the same anchor, so the anchor connects to
-      // BOTH boundaries (1↔2) and DetectLithoLenses materialises a wedge.
+      // Ctrl/Cmd-drag (#31): LEAVE the original edge and CREATE another from
+      // the same anchor to the drop — "create an extra boundary where I drag
+      // to". When the drop is the layer's OTHER boundary (anchor now connects
+      // to both → 1↔2), DetectLithoLenses materialises a wedge.
       // ``createContactCorrelation`` is idempotent (re-creating an existing
       // unapproved edge would NOT approve it), so delete the original first
-      // then create both fresh — both auto-approve. Works in both directions
-      // (drag the top boundary onto the base, or the base onto the top).
-      if (
-        capturedDrag.draggedInvestigationId !== null &&
-        dropInvestigationId === capturedDrag.draggedInvestigationId
-      ) {
+      // then create both fresh — both auto-approve. Direction-agnostic.
+      if (capturedDrag.duplicate) {
         log.info(
           'section',
-          `edgeDrag: lens-split edge=${capturedDrag.edge.id} anchor=${capturedDrag.anchorContactId} ↔ ` +
+          `edgeDrag: duplicate edge=${capturedDrag.edge.id} anchor=${capturedDrag.anchorContactId} ↔ ` +
             `{${capturedDrag.draggedContactId}, ${dropContactId}}`,
         )
         try {
@@ -833,11 +829,11 @@ export default function SectionsCanvas(): JSX.Element {
           )
           await refetchContactEdges()
           void refetchLensData()
-          log.success('section', 'edgeDrag: lens created (anchor ↔ both boundaries)')
-          toast('success', 'Lens created — layer pinches out toward the neighbour.')
+          log.success('section', 'edgeDrag: extra correlation created (anchor ↔ both targets)')
+          toast('success', 'Correlation added — a wedge forms when it spans the layer.')
         } catch (err) {
-          log.warn('section', 'edgeDrag: lens-split failed', err)
-          toast('error', 'Could not create the lens — try again.')
+          log.warn('section', 'edgeDrag: duplicate-create failed', err)
+          toast('error', 'Could not create the correlation — try again.')
           void refetchContactEdges()
           void refetchLensData()
         }
