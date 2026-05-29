@@ -47,6 +47,11 @@ import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
+import {
+  buildLithoAcceptBody,
+  lithoAcceptTuningParams,
+  recordCreatedRows,
+} from '../utils/lithoAccept'
 import { readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
@@ -4025,13 +4030,13 @@ export function useGeologicalModel({
         // path stays clean for the bulk-segmenter suggest-and-accept
         // flow where restoration is not needed — adjacent suggestions
         // already tile the column.)
-        const body = {
-          ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
-          section_id: sectionId ?? null,
+        const body = buildLithoAcceptBody({
+          anchorKind,
+          anchorId,
+          sectionId,
           suggestions: [layer],
-          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
-          couple_tolerance_m: readLithoSegmenterPrefs(project.view_state).lithoSnapToleranceM,
-        }
+          viewState: project.view_state,
+        })
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
           model.id,
@@ -4042,16 +4047,10 @@ export function useGeologicalModel({
           `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
         )
 
-        // Debt #144: an accept writes to the DB immediately (like every
-        // other contact mutation) but used to skip the session-imports
-        // manifest, so the amber dirty flag never lit and the .gmproj
-        // went silently stale on close. Record the created rows the same
-        // way handleCreateContact does so projectDirty + the unsaved-
-        // changes prompt + the File → Save bundle write all fire.
-        if (result.created_formation_ids.length > 0)
-          addToSessionImports('formation', result.created_formation_ids)
-        if (result.created_contact_ids.length > 0)
-          addToSessionImports('contact', result.created_contact_ids)
+        // Debt #144: an accept writes to the DB immediately but must also
+        // land its created rows in the session-imports manifest, or the amber
+        // dirty flag never lights and the .gmproj goes silently stale on close.
+        recordCreatedRows(addToSessionImports, result)
         // Debt #87: surface a warning toast when any created unit needs
         // engineer review (TIN-extrapolated parent or fully unassigned).
         const summary = formatAcceptParentSummary(result)
@@ -4176,13 +4175,13 @@ export function useGeologicalModel({
         `acceptAllLithoSuggestions ${pendingLayers.length}/${layers.length} layers sectionId=${sectionId ?? 'none'}`,
       )
       try {
-        const body = {
-          ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
-          section_id: sectionId ?? null,
+        const body = buildLithoAcceptBody({
+          anchorKind,
+          anchorId,
+          sectionId,
           suggestions: pendingLayers,
-          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
-          couple_tolerance_m: readLithoSegmenterPrefs(project.view_state).lithoSnapToleranceM,
-        }
+          viewState: project.view_state,
+        })
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
           model.id,
@@ -4192,12 +4191,8 @@ export function useGeologicalModel({
           'geology',
           `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count} stale_tin_fallback=${result.stale_tin_fallback_count}`,
         )
-        // Debt #144: record created rows in the session-imports manifest so
-        // accept-all lights the dirty flag (see acceptLithoSuggestion site above).
-        if (result.created_formation_ids.length > 0)
-          addToSessionImports('formation', result.created_formation_ids)
-        if (result.created_contact_ids.length > 0)
-          addToSessionImports('contact', result.created_contact_ids)
+        // Debt #144: record created rows so accept-all lights the dirty flag.
+        recordCreatedRows(addToSessionImports, result)
         // Debt #87: see acceptLithoSuggestion site above.
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
@@ -4465,13 +4460,13 @@ export function useGeologicalModel({
           }
         : raw
       try {
-        const body = {
-          ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
-          section_id: sectionId ?? null,
+        const body = buildLithoAcceptBody({
+          anchorKind: ghost.kind,
+          anchorId,
+          sectionId,
           suggestions: [layer],
-          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
-          couple_tolerance_m: readLithoSegmenterPrefs(project.view_state).lithoSnapToleranceM,
-        }
+          viewState: project.view_state,
+        })
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
           model.id,
@@ -4481,12 +4476,8 @@ export function useGeologicalModel({
           'geology',
           `acceptBulkLitho ok anchor=${anchorId} idx=${idx} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
-        // Debt #144: record created rows in the session-imports manifest so
-        // the accept lights the dirty flag (see handleAcceptLithoSuggestion).
-        if (result.created_formation_ids.length > 0)
-          addToSessionImports('formation', result.created_formation_ids)
-        if (result.created_contact_ids.length > 0)
-          addToSessionImports('contact', result.created_contact_ids)
+        // Debt #144: record created rows so this bulk accept lights the dirty flag.
+        recordCreatedRows(addToSessionImports, result)
         // Debt #87: warn when this single bulk accept produced any unit
         // needing review.
         const summary = formatAcceptParentSummary(result)
@@ -4628,8 +4619,7 @@ export function useGeologicalModel({
           })),
           section_id: sectionId ?? null,
           run_inference: true,
-          straddle_min_piece_thickness_m: readLithoSegmenterPrefs(project.view_state).straddleMinPieceThicknessM,
-          couple_tolerance_m: readLithoSegmenterPrefs(project.view_state).lithoSnapToleranceM,
+          ...lithoAcceptTuningParams(project.view_state),
         })
       } catch (err) {
         log.error('geology', 'acceptAllBulkLitho batch call failed', err)
@@ -4674,10 +4664,10 @@ export function useGeologicalModel({
           acceptedEntries: plan.pendingIndices.map(idx => ({ anchorId: plan.anchorId, idx })),
         })
       }
-      if (createdFormationIdsAll.length > 0)
-        addToSessionImports('formation', createdFormationIdsAll)
-      if (createdContactIdsAll.length > 0)
-        addToSessionImports('contact', createdContactIdsAll)
+      recordCreatedRows(addToSessionImports, {
+        created_formation_ids: createdFormationIdsAll,
+        created_contact_ids: createdContactIdsAll,
+      })
       setGhostsByAnchor(prev => {
         const next = new Map(prev)
         let changed = false
