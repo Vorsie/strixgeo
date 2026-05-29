@@ -92,9 +92,15 @@ const DRAG_HANDLE_SIZE = 8
  *  handle (#163d). The visible 8 px square was too small to hit reliably;
  *  this widens the clickable area without changing the affordance. */
 const DRAG_HANDLE_HIT_SIZE = 22
-/** Stroke width of the invisible right-click hit band drawn along each
- *  correlation edge (#163e) — wide enough to grab the diagonal seam. */
+/** Minimum half-height of the invisible right-click hit band drawn over each
+ *  correlation edge (#163e) — used when the ribbon has no lithology stripes
+ *  and would otherwise collapse to a zero-height seam. */
 const EDGE_HIT_STROKE_WIDTH = 14
+
+/** Horizontal inset (px) at each end of the right-click hit band so a
+ *  left-drag of the committed contact at either column endpoint still wins
+ *  over the band (dogfeed 2026-05-29). */
+const EDGE_HIT_END_INSET = 6
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1119,31 +1125,44 @@ export default function CorrelationEdgesOverlay({
                     pointerEvents="none"
                   />
                 )}
-                {/* Right-click hit band along the edge (#163e). Transparent
-                    wide stroke so a right-click anywhere on the seam opens the
-                    Delete-correlation menu. Rendered BEFORE the grab handles so
-                    the handles win mousedown at the endpoints. */}
-                {onRequestDeleteEdge && (
-                  <line
-                    data-testid={`edge-hit-${ce.id}`}
-                    x1={xA}
-                    y1={ptA.topY}
-                    x2={xB}
-                    y2={ptB.topY}
-                    stroke="transparent"
-                    strokeWidth={EDGE_HIT_STROKE_WIDTH}
-                    style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
-                    onContextMenu={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      setEdgeContextMenu({
-                        x: (xA + xB) / 2,
-                        y: (ptA.topY + ptB.topY) / 2,
-                        edge: ce,
-                      })
-                    }}
-                  />
-                )}
+                {/* Right-click hit band over the edge (#163e + dogfeed
+                    2026-05-29). A transparent polygon covering the WHOLE
+                    visible ribbon — not just the thin seam — so right-clicking
+                    the coloured band the user actually sees opens the
+                    Delete-correlation menu. Approved edges have no grab handles,
+                    so the band was the only affordance yet only its 14 px seam
+                    was hittable ("can't delete accepted correlation"). Inset
+                    horizontally at each end so a left-drag of the committed
+                    contact at either column still wins. Rendered BEFORE the grab
+                    handles so the handles keep mousedown at the endpoints. */}
+                {onRequestDeleteEdge &&
+                  (() => {
+                    const half = EDGE_HIT_STROKE_WIDTH / 2
+                    const hTopA = Math.min(topY_A, ptA.topY - half)
+                    const hBotA = Math.max(botY_A, ptA.topY + half)
+                    const hTopB = Math.min(topY_B, ptB.topY - half)
+                    const hBotB = Math.max(botY_B, ptB.topY + half)
+                    const dir = Math.sign(xB - xA) || 1
+                    const hxA = xA + EDGE_HIT_END_INSET * dir
+                    const hxB = xB - EDGE_HIT_END_INSET * dir
+                    return (
+                      <polygon
+                        data-testid={`edge-hit-${ce.id}`}
+                        points={`${hxA},${hTopA} ${hxB},${hTopB} ${hxB},${hBotB} ${hxA},${hBotA}`}
+                        fill="transparent"
+                        style={{ pointerEvents: 'fill', cursor: 'context-menu' }}
+                        onContextMenu={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setEdgeContextMenu({
+                            x: (xA + xB) / 2,
+                            y: (ptA.topY + ptB.topY) / 2,
+                            edge: ce,
+                          })
+                        }}
+                      />
+                    )
+                  })()}
                 {/* Grab handles — only on pending edges, interactive so the
                     user can drag an endpoint to a different contact. Each
                     visible square sits inside a larger transparent hit rect
