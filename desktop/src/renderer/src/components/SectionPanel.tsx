@@ -2262,6 +2262,13 @@ export default function SectionPanel({
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
               surfacesByFormationId={surfacesByFormationId}
+              // The user's placed contacts are the single source of truth on
+              // the section: draw the active surface as a chord through every
+              // pick rather than a TIN slice along the section line (which
+              // diverges from off-line investigations' actual contact depth —
+              // dogfeed 2026-05-29). The backdrop already does this via
+              // referenceContacts; this brings the active surface in line.
+              surfaceThroughPicks
               referenceFormations={referenceFormations}
               referenceSurfacesByFormationId={referenceSurfacesByFormationId}
               referenceContacts={referenceContacts}
