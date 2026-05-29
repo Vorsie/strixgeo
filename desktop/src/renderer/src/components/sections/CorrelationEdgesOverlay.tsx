@@ -74,6 +74,11 @@ const CONTACT_ARM_COLOR = '#34d399'
 /** Lens-candidate marker colour (amber) — an enclosed contact that correlates
  *  to neither neighbour, i.e. a layer that pinches out rather than continues. */
 const LENS_CANDIDATE_COLOR = '#f59e0b'
+/** Correlate-select reach (px) around each boundary.  A click within this of a
+ *  boundary arms it; the MIDDLE of a band taller than 2× this is inert, so a
+ *  mid-band click never arms a far boundary (dogfeed 2026-05-29).  Thin bands
+ *  (≤ 2× this) are split at their midpoint with no inert gap. */
+const CONTACT_SELECT_NEAR_PX = 14
 /** Chip background (dark slate-blue, matches the prior edge badge). */
 const CHIP_BG = '#1e3a5f'
 /** Chip foreground (off-white). */
@@ -1300,9 +1305,15 @@ export default function CorrelationEdgesOverlay({
             const top = band ? band.topY : pt.topY - CONTACT_HIT_HEIGHT / 2
             const bot = band ? band.botY : pt.topY + CONTACT_HIT_HEIGHT / 2
             const mid = (top + bot) / 2
-            // Lower-half target: the next-deeper contact's top (the boundary
+            // Lower-zone target: the next-deeper contact's top (the boundary
             // below).  Deepest band (no next) → this contact (its only edge).
             const lowerId = nextDeeperContactId.get(c.id) ?? c.id
+            // Near-boundary zones (dogfeed 2026-05-29): a click within
+            // CONTACT_SELECT_NEAR_PX of a boundary arms it; the MIDDLE of a band
+            // taller than 2×NEAR is inert, so a mid-band click never arms a far
+            // boundary.  Thin bands collapse to a midpoint split (no inert gap).
+            const topEnd = Math.min(top + CONTACT_SELECT_NEAR_PX, mid)
+            const botStart = Math.max(bot - CONTACT_SELECT_NEAR_PX, mid)
             return (
               <g key={`contact-hit-${c.id}`}>
                 {/* Visible indicator line when this contact's boundary is armed */}
@@ -1317,14 +1328,14 @@ export default function CorrelationEdgesOverlay({
                     pointerEvents="none"
                   />
                 )}
-                {/* Upper half → THIS contact (the band's top boundary). */}
+                {/* Upper zone (near the TOP boundary) → arms THIS contact. */}
                 <rect
                   data-testid={`contact-hit-${c.id}`}
                   data-contact-id={c.id}
                   x={pt.x - hw}
                   y={top}
                   width={hw * 2}
-                  height={Math.max(0, mid - top)}
+                  height={Math.max(0, topEnd - top)}
                   fill="transparent"
                   stroke={isArmed ? CONTACT_ARM_COLOR : 'transparent'}
                   strokeWidth={isArmed ? 1 : 0}
@@ -1336,14 +1347,29 @@ export default function CorrelationEdgesOverlay({
                   }}
                   onClick={() => handleCorrelateClick(c.id, invId)}
                 />
-                {/* Lower half → the boundary BELOW (next-deeper contact). */}
+                {/* Inert middle (only when the band is taller than 2×NEAR):
+                    captures the click — so it neither arms a far boundary nor
+                    falls through to the band fill — but does nothing. */}
+                {botStart > topEnd && (
+                  <rect
+                    data-testid={`contact-hit-${c.id}-mid`}
+                    x={pt.x - hw}
+                    y={topEnd}
+                    width={hw * 2}
+                    height={botStart - topEnd}
+                    fill="transparent"
+                    style={{ cursor: 'default', pointerEvents: 'all' }}
+                    onClick={e => e.stopPropagation()}
+                  />
+                )}
+                {/* Lower zone (near the BOTTOM boundary) → arms the next-deeper. */}
                 <rect
                   data-testid={`contact-hit-${c.id}-low`}
                   data-contact-id={lowerId}
                   x={pt.x - hw}
-                  y={mid}
+                  y={botStart}
                   width={hw * 2}
-                  height={Math.max(0, bot - mid)}
+                  height={Math.max(0, bot - botStart)}
                   fill="transparent"
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
                   onContextMenu={e => {
