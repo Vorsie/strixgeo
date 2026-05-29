@@ -276,6 +276,28 @@ interface Props {
    *  dots lines on a litho section).  Defaults to true (geological axis
    *  unchanged); SectionPanel passes false on the litho axis. */
   renderFormationSurfaces?: boolean
+  /** Render the active formation surface as a polyline through the
+   *  on-section investigations' PLACED contacts (a chord through each
+   *  pick) instead of slicing the cached TIN against the section line.
+   *
+   *  Why: investigations are projected onto the section from their
+   *  perpendicular offset, but a TIN slice samples the surface AT the
+   *  section line — so for an off-line investigation the slice elevation
+   *  at the projected X diverges from the user's actual contact depth
+   *  (≈1 m for a 17 m-off borehole on a dipping surface; dogfeed
+   *  2026-05-29).  The user's placed boundaries are the single source of
+   *  truth on the section, so the line must pass exactly through them.
+   *
+   *  Implementation: when true, ``slicedPolylines`` returns empty, which
+   *  cascades correctly — the slice line is not drawn, the connect-the-
+   *  dots skip-range is empty (so the contact polyline draws through
+   *  every pick), and ``formationFillBands`` falls back to the anchor
+   *  geometry while still reading staleness from ``surfacesByFormationId``
+   *  (the faded-stale fill cue survives).  The contact polyline is
+   *  restyled by surface state so a BUILT model still reads as solid,
+   *  not as the dashed "unbuilt" fallback.  Defaults to false (legacy
+   *  TIN-slice render); SectionPanel passes true for the active surface. */
+  surfaceThroughPicks?: boolean
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -742,6 +764,7 @@ export default function ContactsLayer({
   referenceSurfacesByFormationId,
   referenceContacts,
   renderFormationSurfaces = true,
+  surfaceThroughPicks = false,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   pendingGhostRangesByAnchorId,
@@ -1197,7 +1220,13 @@ export default function ContactsLayer({
   // PATCH lands. The connect-the-dots fallback retains the live
   // preview because that's the only render available for sparse data.
   const slicedPolylines = useMemo(() => {
-    if (!surfacesByFormationId || !sectionLine || !alongMToScreenX) {
+    // surfaceThroughPicks short-circuits the whole slice subsystem: an
+    // empty result cascades through every consumer — the slice line isn't
+    // drawn, slicedXRangeByFormationId is empty (so the contact polyline
+    // draws through every pick), and formationFillBands falls back to the
+    // anchor geometry. surfacesByFormationId stays wired so the fill's
+    // stale cue + the polyline restyle below still read surface state.
+    if (surfaceThroughPicks || !surfacesByFormationId || !sectionLine || !alongMToScreenX) {
       return [] as {
         formationId: string
         color: string
@@ -1293,6 +1322,7 @@ export default function ContactsLayer({
     }
     return out
   }, [
+    surfaceThroughPicks,
     surfacesByFormationId,
     sectionLine,
     alongMToScreenX,
@@ -3203,14 +3233,30 @@ export default function ContactsLayer({
           // emit any `L`?)
           if (!path.includes('L')) return null
         }
+        // In surfaceThroughPicks mode this polyline IS the surface line
+        // (the slice render is suppressed), so it must carry the slice's
+        // built/stale semantics: a built surface reads solid like the old
+        // slice (0.7, no dash), a stale one dashed + faded (0.35, '6 3').
+        // Without a surface row it stays the dashed connect-the-dots
+        // fallback (0.55, '4 3'). When surfaceThroughPicks is false the
+        // styling is unchanged (legacy fallback) so existing behaviour and
+        // the slice render are untouched.
+        const polySurface = surfaceThroughPicks
+          ? surfacesByFormationId?.get(line.formationId)
+          : undefined
+        const polyBuilt = polySurface !== undefined && polySurface.triangles.length > 0
+        const polyStale = polySurface?.is_stale === true
+        const polyStrokeWidth = polyBuilt ? 1.25 : 1
+        const polyStrokeOpacity = polyBuilt ? (polyStale ? 0.35 : 0.7) : 0.55
+        const polyDash = polyBuilt ? (polyStale ? '6 3' : undefined) : '4 3'
         return (
           <path
             key={`poly-${line.formationId}`}
             d={path}
             stroke={line.color}
-            strokeWidth={1}
-            strokeOpacity={0.55}
-            strokeDasharray="4 3"
+            strokeWidth={polyStrokeWidth}
+            strokeOpacity={polyStrokeOpacity}
+            strokeDasharray={polyDash}
             fill="none"
             pointerEvents="none"
             data-testid={`formation-polyline-${line.formationId}`}
