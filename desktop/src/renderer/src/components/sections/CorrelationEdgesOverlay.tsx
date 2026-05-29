@@ -801,6 +801,30 @@ export default function CorrelationEdgesOverlay({
     return out
   }, [contacts, contactEdges])
 
+  // contact id → the next-deeper contact's id on the same column (the boundary
+  // BELOW this band).  Drives the lower-half correlate hit-zone so clicking the
+  // bottom of a band arms the bottom boundary, not the band's top (dogfeed
+  // 2026-05-29: full-band targets armed the top, so clicking a unit's bottom
+  // edge selected its top edge).
+  const nextDeeperContactId = useMemo(() => {
+    const byInv = new Map<string, FormationContactResponse[]>()
+    for (const c of contacts) {
+      const inv = anchorId(c)
+      if (inv === null) continue
+      const bucket = byInv.get(inv)
+      if (bucket) bucket.push(c)
+      else byInv.set(inv, [c])
+    }
+    const out = new Map<string, string>()
+    for (const list of byInv.values()) {
+      const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+      for (let i = 0; i < sorted.length - 1; i += 1) {
+        out.set(sorted[i].id, sorted[i + 1].id)
+      }
+    }
+    return out
+  }, [contacts])
+
   // Destructure contactGestureState with safe defaults so the render
   // block can use these without repeated optional-chain guards.
   const {
@@ -819,6 +843,42 @@ export default function CorrelationEdgesOverlay({
     onClearArmedContact: () => {},
     onContactCorrelate: async (_a: string, _b: string) => {},
     onRequestDeleteContact: undefined,
+  }
+
+  // Lens-aware correlate state machine (debt #135), parameterised by the
+  // CLICKED contact so the upper/lower half-zones of a band can target
+  // different boundaries (dogfeed 2026-05-29).  ``clickedTestId`` is the
+  // clicked contact's investigation (same for both halves of a band).
+  const handleCorrelateClick = (clickedId: string, clickedTestId: string | null): void => {
+    if (armedContactId === clickedId) {
+      // a) Click on the armed boundary → disarm.
+      onClearArmedContact()
+      return
+    }
+    if (armedContactId === null) {
+      // b) Nothing armed → arm this boundary.
+      onArmContact(clickedId)
+      return
+    }
+    const armedContact = contacts.find(x => x.id === armedContactId)
+    const armedTestId = armedContact ? anchorId(armedContact) : null
+    if (armedTestId !== null && clickedTestId === armedTestId) {
+      // c) Click in the source's own investigation → re-arm here.
+      onArmContact(clickedId)
+      return
+    }
+    if (lastTargetTestId !== null && clickedTestId !== null && clickedTestId === lastTargetTestId) {
+      // d) Lens-pinch-out: another click in the same target investigation.
+      void onContactCorrelate(armedContactId, clickedId)
+      return
+    }
+    if (lastTargetTestId === null) {
+      // e) First edge of this arm-cycle → fire correlation.
+      void onContactCorrelate(armedContactId, clickedId)
+      return
+    }
+    // f) Third unrelated investigation → conservative: re-arm here.
+    onArmContact(clickedId)
   }
 
   // Per-band chip data (debt #100). One chip per (investigation × formation)
@@ -1230,11 +1290,22 @@ export default function CorrelationEdgesOverlay({
             const band = invId
               ? bandRect(invId, c.formation_id, bandMap, levelToScreen, plotTop, plotBottom, hw)
               : null
-            const rectY = band ? band.topY : pt.topY - CONTACT_HIT_HEIGHT / 2
-            const rectH = band ? band.botY - band.topY : CONTACT_HIT_HEIGHT
+            // Split the band into an UPPER half (arms THIS contact = the
+            // band's top boundary) and a LOWER half (arms the boundary BELOW =
+            // the next-deeper contact).  Clicking near a boundary thus arms the
+            // NEAREST one, while the whole band stays clickable (dogfeed
+            // 2026-05-29: full-band targets armed the top, so clicking a unit's
+            // bottom edge wrongly selected its top edge).  No band geometry →
+            // a single thin strip centred on the line.
+            const top = band ? band.topY : pt.topY - CONTACT_HIT_HEIGHT / 2
+            const bot = band ? band.botY : pt.topY + CONTACT_HIT_HEIGHT / 2
+            const mid = (top + bot) / 2
+            // Lower-half target: the next-deeper contact's top (the boundary
+            // below).  Deepest band (no next) → this contact (its only edge).
+            const lowerId = nextDeeperContactId.get(c.id) ?? c.id
             return (
               <g key={`contact-hit-${c.id}`}>
-                {/* Visible indicator line when this contact is armed */}
+                {/* Visible indicator line when this contact's boundary is armed */}
                 {isArmed && (
                   <line
                     x1={pt.x - hw}
@@ -1246,14 +1317,14 @@ export default function CorrelationEdgesOverlay({
                     pointerEvents="none"
                   />
                 )}
-                {/* Invisible click-capture rect */}
+                {/* Upper half → THIS contact (the band's top boundary). */}
                 <rect
                   data-testid={`contact-hit-${c.id}`}
                   data-contact-id={c.id}
                   x={pt.x - hw}
-                  y={rectY}
+                  y={top}
                   width={hw * 2}
-                  height={rectH}
+                  height={Math.max(0, mid - top)}
                   fill="transparent"
                   stroke={isArmed ? CONTACT_ARM_COLOR : 'transparent'}
                   strokeWidth={isArmed ? 1 : 0}
@@ -1263,61 +1334,23 @@ export default function CorrelationEdgesOverlay({
                     e.preventDefault()
                     onRequestDeleteContact?.(c.id)
                   }}
-                  onClick={() => {
-                    // Lens-aware state machine (debt #135).  After the first
-                    // successful correlation in an arm-cycle the source stays
-                    // armed and ``lastTargetTestId`` carries the target's
-                    // investigation.  A subsequent click on a different
-                    // contact in the SAME target investigation fires a second
-                    // edge from the same source — the lens-pinch-out gesture.
-                    // Clicks elsewhere clear the sticky state instead of
-                    // auto-firing across unrelated tests.
-                    if (isArmed) {
-                      // a) Click on the armed source → disarm everything.
-                      onClearArmedContact()
-                      return
-                    }
-                    if (armedContactId === null) {
-                      // b) Nothing armed → arm this contact.
-                      onArmContact(c.id)
-                      return
-                    }
-                    // Source is armed and the click is on some other contact.
-                    const clickedTestId = anchorId(c)
-                    const armedContact = contacts.find(x => x.id === armedContactId)
-                    const armedTestId = armedContact ? anchorId(armedContact) : null
-                    if (armedTestId !== null && clickedTestId === armedTestId) {
-                      // c) Click in the source's own investigation → re-arm
-                      //    to this contact (start a new gesture from here).
-                      //    Also clears the sticky lens window.
-                      onArmContact(c.id)
-                      return
-                    }
-                    if (
-                      lastTargetTestId !== null &&
-                      clickedTestId !== null &&
-                      clickedTestId === lastTargetTestId
-                    ) {
-                      // d) Lens-pinch-out: another click in the same target
-                      //    investigation while the source is still armed.
-                      //    Generalises to N≥2 clicks (stacked lenses).
-                      void onContactCorrelate(armedContactId, c.id)
-                      return
-                    }
-                    if (lastTargetTestId === null) {
-                      // e) First edge of this arm-cycle → fire correlation.
-                      //    SectionsCanvas will keep the source armed and
-                      //    record ``lastTargetTestId`` on success.
-                      void onContactCorrelate(armedContactId, c.id)
-                      return
-                    }
-                    // f) Click in some third investigation (neither source's
-                    //    nor the last-target's) → conservative: do NOT
-                    //    auto-fire across an unrelated test.  Clear sticky
-                    //    + re-arm to this contact so the user can start a
-                    //    fresh gesture from here.
-                    onArmContact(c.id)
+                  onClick={() => handleCorrelateClick(c.id, invId)}
+                />
+                {/* Lower half → the boundary BELOW (next-deeper contact). */}
+                <rect
+                  data-testid={`contact-hit-${c.id}-low`}
+                  data-contact-id={lowerId}
+                  x={pt.x - hw}
+                  y={mid}
+                  width={hw * 2}
+                  height={Math.max(0, bot - mid)}
+                  fill="transparent"
+                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onContextMenu={e => {
+                    e.preventDefault()
+                    onRequestDeleteContact?.(lowerId)
                   }}
+                  onClick={() => handleCorrelateClick(lowerId, invId)}
                 />
               </g>
             )
