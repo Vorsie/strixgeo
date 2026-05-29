@@ -21,6 +21,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.resolve_litho_instances import (
     CorrelationEdge,
     connected_formation_ids,
@@ -118,9 +119,9 @@ class PropagateLithoAdmixtures(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 1. Guard: model exists + belongs to project + is litho kind.         #
         # ------------------------------------------------------------------ #
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Model {model_id} not found in project {project_id}")
+        model = await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Model"
+        )
         if model.kind != "lithostratigraphic":
             raise ValueError(
                 f"Model {model_id} is kind '{model.kind}'; "
@@ -130,9 +131,9 @@ class PropagateLithoAdmixtures(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 2. Guard: seed formation exists + belongs to project.                #
         # ------------------------------------------------------------------ #
-        seed = await self._session.get(GeologicalFormationOrm, seed_formation_id)
-        if seed is None or seed.app_project_id != project_id:
-            raise ValueError(f"Formation {seed_formation_id} not found in project {project_id}")
+        seed = await load_scoped_or_raise(
+            self._session, GeologicalFormationOrm, seed_formation_id, project_id, label="Formation"
+        )
         if seed.litho_main_soil_code is None:
             raise ValueError(
                 f"Formation {seed_formation_id} has no litho_main_soil_code; "
