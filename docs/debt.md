@@ -65,7 +65,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #137, #155, #156, #158
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -3520,31 +3520,34 @@ shape to work so the user can express the lens topology that
 auto-correlate is expected to also produce.
 Filed from dogfeed session 2026-05-26.
 
-## 137. Section wheel zoom anchors to the right of the cursor in litho mode (Tier E — UX bug)
+## 137. Section wheel zoom drifts off the cursor when columns are packed/nudged — RESOLVED 2026-05-29
 
-**What.** In the Sections stage with ``axisMode === 'lithostratigraphic'``,
-ctrl+wheel / wheel zoom (``SectionPanel.handleWheel``) anchors the zoom to
-a screen point to the right of the cursor instead of the cursor itself.
-The same handler works correctly in geological-axis mode. The bug was
-present in geology mode previously and got fixed; the litho-axis variant
-slipped through.
+**What.** In the Sections stage, wheel-zoom (``SectionPanel.handleWheel``)
+anchored on a point offset from the cursor. The symptom shows up "to the
+right" / drifting, most visibly in litho mode where the Spacing slider is
+used and columns are dense.
 
-**Why deferred.** Root cause is likely in
-``SectionPanel.tsx`` line 845: ``containerRef.current?.querySelector('svg')``
-returns the FIRST ``<svg>`` descendant. If a child component renders a
-nested ``<svg>`` BEFORE the main section svg in document order (a
-portal, foreignObject, or a per-column inline svg), ``rect.left`` from
-that wrong svg is smaller than the main svg's left edge, so
-``px = clientX - rect.left`` over-estimates and ``worldX`` lands further
-right than the cursor — exactly the "zooms to the right" symptom.
-Needs an in-app DOM probe to identify the stray svg, then a stable
-selector (e.g. ``[data-section-svg]`` on the main svg) plus the
-``querySelector`` change. Hasn't been verified by repro yet.
+**Root cause (the earlier stray-``<svg>`` hypothesis was WRONG).** The main
+chart ``<svg>`` IS the first descendant of the container, so
+``querySelector('svg')`` returns the right element — ``rect.left`` was never
+the problem. The actual cause: the section has TWO horizontal mappings. The
+linear ``xToScreen`` (viewport along-distance ↔ screen px) and a piecewise
+**warp** (``warpedXToScreen`` via ``warpAnchors``) that moves each column from
+its true projected X toward a packed position (the Spacing slider lerp) plus
+collision nudges. Columns/bands/DEM are drawn at the WARPED position, but
+``handleWheel`` inverted only the LINEAR map to find the world point under the
+cursor — so whenever spacing < 1 or columns collided, the feature under the
+mouse sat at a warped X the zoom was blind to, and content drifted while
+zooming. At spacing=1 with no collisions the two maps coincide, which is why
+it "worked" by default and read as a litho-only bug.
 
-**When to revisit.** Whenever the section wheel-zoom interaction is
-next touched, OR when a second dogfeed report confirms it. Cheap once
-the stray svg is identified.
-Filed from dogfeed session 2026-05-26.
+**Fix.** Invert the warp instead: pure helper
+``sections/sectionWarp.ts::warpedScreenXToAlong(px, anchors, scaleH, fallback)``
+(unit-tested — identity / packed / round-trip / extrapolation). ``handleWheel``
+calls it with the live ``warpAnchors`` (bridged via a ref because the handler
+is declared above the warp memo); the linear inverse is the no-anchors
+fallback, so spacing=1 behaviour is byte-identical. Commits on develop
+2026-05-29.
 
 ## 138. Drag-lock after litho merge — handle becomes immovable (Tier G — needs repro)
 
