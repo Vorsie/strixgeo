@@ -86,17 +86,15 @@ const CHIP_INSET = 2
 const CHIP_MIN_BAND_HEIGHT = CHIP_HEIGHT + 2 * CHIP_INSET
 /** Halo stroke width (the "this body is hovered" ring). */
 const CHIP_HALO_WIDTH = 2
-/** Size of the drag-grab handles rendered at each endpoint of an
- *  unapproved edge so the user can re-target it (#133 Phase 2+3). */
-const DRAG_HANDLE_SIZE = 8
-/** Size of the enlarged (transparent) grab target around each endpoint
- *  handle (#163d). The visible 8 px square was too small to hit reliably;
- *  this widens the clickable area without changing the affordance. */
-const DRAG_HANDLE_HIT_SIZE = 22
 /** Minimum half-height of the invisible right-click hit band drawn over each
  *  correlation edge (#163e) — used when the ribbon has no lithology stripes
  *  and would otherwise collapse to a zero-height seam. */
 const EDGE_HIT_STROKE_WIDTH = 14
+/** Stroke width (px) of each grabbable half-seam zone (#31). Wider than the
+ *  1.4px visible seam so the edge is an easy drag target, but kept modest so it
+ *  doesn't blanket the bands above/below. The seam is split at its midpoint so
+ *  each half drags its nearer endpoint. */
+const EDGE_DRAG_HIT_WIDTH = 18
 
 /** Horizontal inset (px) at each end of the right-click hit band so a
  *  left-drag of the committed contact at either column endpoint still wins
@@ -974,7 +972,6 @@ export default function CorrelationEdgesOverlay({
             const ptB = contactScreenMap.get(ce.contact_b_id)
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
-            const hs = DRAG_HANDLE_SIZE
             const H = RIBBON_HALF_HEIGHT_PX
             // Anchor the ribbon at each column's INNER edge (the edge facing
             // the other column) so it bridges only the gap between columns
@@ -1066,112 +1063,97 @@ export default function CorrelationEdgesOverlay({
                     pointerEvents="none"
                   />
                 )}
-                {/* Right-click hit band over the edge (#163e). A transparent
-                    polygon covering the WHOLE visible ribbon — not just the thin
-                    seam — so right-clicking the coloured band the user actually
-                    sees opens the Delete-correlation menu. Approved edges have no
-                    grab handles, so the band is the only affordance. Inset
-                    horizontally at each end so a left-drag of the committed
-                    contact at either column still wins. Rendered BEFORE the grab
-                    handles so the handles keep mousedown at the endpoints. */}
-                {onRequestDeleteEdge &&
-                  (() => {
-                    const half = EDGE_HIT_STROKE_WIDTH / 2
-                    const hTopA = Math.min(topY_A, ptA.topY - half)
-                    const hBotA = Math.max(botY_A, ptA.topY + half)
-                    const hTopB = Math.min(topY_B, ptB.topY - half)
-                    const hBotB = Math.max(botY_B, ptB.topY + half)
+                {/* Seam interaction (#31). The seam is split at its midpoint
+                    into two grabbable half-zones so each half drags its NEARER
+                    endpoint: left-drag = retarget that end; Ctrl/Cmd-drag =
+                    leave the edge + create another (→ wedge when dropped on the
+                    layer's other boundary). Right-click opens the delete menu.
+                    The zones are EDGE_DRAG_HIT_WIDTH wide (an easy target, no
+                    more tiny handles) and inset at the contacts so a contact
+                    drag still wins there. Approved edges aren't draggable —
+                    they keep a delete-only hit band over the visible ribbon. */}
+                {(() => {
+                  const openDeleteMenu = (e: React.MouseEvent<SVGElement>): void => {
+                    if (!onRequestDeleteEdge) return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    // Render the menu AT the cursor, not the edge midpoint.
+                    const svg = e.currentTarget.ownerSVGElement
+                    const r = svg?.getBoundingClientRect()
+                    setEdgeContextMenu({
+                      x: r ? e.clientX - r.left : (xA + xB) / 2,
+                      y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
+                      edge: ce,
+                    })
+                  }
+                  const canDrag = !approved && onUnapprovedDragStart !== undefined
+                  if (canDrag) {
                     const dir = Math.sign(xB - xA) || 1
-                    const hxA = xA + EDGE_HIT_END_INSET * dir
-                    const hxB = xB - EDGE_HIT_END_INSET * dir
+                    const slope = xB !== xA ? (ptB.topY - ptA.topY) / (xB - xA) : 0
+                    const aX = xA + EDGE_HIT_END_INSET * dir
+                    const aY = ptA.topY + (aX - xA) * slope
+                    const bX = xB - EDGE_HIT_END_INSET * dir
+                    const bY = ptB.topY + (bX - xB) * slope
+                    const midX = (xA + xB) / 2
+                    const midY = (ptA.topY + ptB.topY) / 2
                     return (
-                      <polygon
-                        data-testid={`edge-hit-${ce.id}`}
-                        points={`${hxA},${hTopA} ${hxB},${hTopB} ${hxB},${hBotB} ${hxA},${hBotA}`}
-                        fill="transparent"
-                        style={{ pointerEvents: 'fill', cursor: 'context-menu' }}
-                        onContextMenu={e => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          // Render the menu AT the cursor, not the edge
-                          // midpoint — a long diagonal seam put the menu far
-                          // from the pointer (dogfeed 2026-05-29). Convert the
-                          // viewport click to SVG-local coords.
-                          const svg = e.currentTarget.ownerSVGElement
-                          const r = svg?.getBoundingClientRect()
-                          setEdgeContextMenu({
-                            x: r ? e.clientX - r.left : (xA + xB) / 2,
-                            y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
-                            edge: ce,
-                          })
-                        }}
-                      />
+                      <>
+                        <line
+                          data-testid={`edge-grab-a-${ce.id}`}
+                          x1={aX}
+                          y1={aY}
+                          x2={midX}
+                          y2={midY}
+                          stroke="transparent"
+                          strokeWidth={EDGE_DRAG_HIT_WIDTH}
+                          strokeLinecap="round"
+                          style={{ pointerEvents: 'stroke', cursor: 'grab' }}
+                          onMouseDown={e => {
+                            if (e.button !== 0) return
+                            e.stopPropagation()
+                            onUnapprovedDragStart!(e, ce, 'a')
+                          }}
+                          onContextMenu={openDeleteMenu}
+                        />
+                        <line
+                          data-testid={`edge-grab-b-${ce.id}`}
+                          x1={midX}
+                          y1={midY}
+                          x2={bX}
+                          y2={bY}
+                          stroke="transparent"
+                          strokeWidth={EDGE_DRAG_HIT_WIDTH}
+                          strokeLinecap="round"
+                          style={{ pointerEvents: 'stroke', cursor: 'grab' }}
+                          onMouseDown={e => {
+                            if (e.button !== 0) return
+                            e.stopPropagation()
+                            onUnapprovedDragStart!(e, ce, 'b')
+                          }}
+                          onContextMenu={openDeleteMenu}
+                        />
+                      </>
                     )
-                  })()}
-                {/* Grab handles — only on pending edges, interactive so the
-                    user can drag an endpoint to a different contact. Each
-                    visible square sits inside a larger transparent hit rect
-                    (#163d) so the grab target is comfortable to hit. */}
-                {!approved && onUnapprovedDragStart && (
-                  <>
-                    <rect
-                      data-testid={`unapproved-grab-a-${ce.id}`}
-                      x={xA - DRAG_HANDLE_HIT_SIZE / 2}
-                      y={ptA.topY - DRAG_HANDLE_HIT_SIZE / 2}
-                      width={DRAG_HANDLE_HIT_SIZE}
-                      height={DRAG_HANDLE_HIT_SIZE}
+                  }
+                  if (!onRequestDeleteEdge) return null
+                  const half = EDGE_HIT_STROKE_WIDTH / 2
+                  const hTopA = Math.min(topY_A, ptA.topY - half)
+                  const hBotA = Math.max(botY_A, ptA.topY + half)
+                  const hTopB = Math.min(topY_B, ptB.topY - half)
+                  const hBotB = Math.max(botY_B, ptB.topY + half)
+                  const dir = Math.sign(xB - xA) || 1
+                  const hxA = xA + EDGE_HIT_END_INSET * dir
+                  const hxB = xB - EDGE_HIT_END_INSET * dir
+                  return (
+                    <polygon
+                      data-testid={`edge-hit-${ce.id}`}
+                      points={`${hxA},${hTopA} ${hxB},${hTopB} ${hxB},${hBotB} ${hxA},${hBotA}`}
                       fill="transparent"
-                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
-                      onMouseDown={e => {
-                        e.stopPropagation()
-                        onUnapprovedDragStart(e, ce, 'a')
-                      }}
+                      style={{ pointerEvents: 'fill', cursor: 'context-menu' }}
+                      onContextMenu={openDeleteMenu}
                     />
-                    <rect
-                      data-testid={`unapproved-grab-b-${ce.id}`}
-                      x={xB - DRAG_HANDLE_HIT_SIZE / 2}
-                      y={ptB.topY - DRAG_HANDLE_HIT_SIZE / 2}
-                      width={DRAG_HANDLE_HIT_SIZE}
-                      height={DRAG_HANDLE_HIT_SIZE}
-                      fill="transparent"
-                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
-                      onMouseDown={e => {
-                        e.stopPropagation()
-                        onUnapprovedDragStart(e, ce, 'b')
-                      }}
-                    />
-                    <rect
-                      data-testid={`unapproved-handle-a-${ce.id}`}
-                      x={xA - hs / 2}
-                      y={ptA.topY - hs / 2}
-                      width={hs}
-                      height={hs}
-                      rx={2}
-                      fill={UNAPPROVED_EDGE_COLOR}
-                      opacity={0.85}
-                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
-                      onMouseDown={e => {
-                        e.stopPropagation()
-                        onUnapprovedDragStart(e, ce, 'a')
-                      }}
-                    />
-                    <rect
-                      data-testid={`unapproved-handle-b-${ce.id}`}
-                      x={xB - hs / 2}
-                      y={ptB.topY - hs / 2}
-                      width={hs}
-                      height={hs}
-                      rx={2}
-                      fill={UNAPPROVED_EDGE_COLOR}
-                      opacity={0.85}
-                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
-                      onMouseDown={e => {
-                        e.stopPropagation()
-                        onUnapprovedDragStart(e, ce, 'b')
-                      }}
-                    />
-                  </>
-                )}
+                  )
+                })()}
               </g>
             )
           })}
