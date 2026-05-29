@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -15,9 +17,17 @@ class AutoCorrelateContactRequest(BaseModel):
         Settings "Auto-correlate depth window" knob (#163b).  ``None``
         falls back to the algorithm default (``BASE_DEPTH_THRESHOLD_M``).
         Bounded 0.05–5.0 m to mirror the frontend control.
+    section_id : UUID | None
+        When supplied, adjacency is gated to consecutive columns ALONG this
+        section (left-to-right along-distance order) instead of the model-wide
+        map-plane relative-neighbourhood graph.  This makes correlations follow
+        the section's column order — the user's mental model — rather than
+        true-2D proximity, which crosses columns for off-line investigations
+        (dogfeed 2026-05-29).  ``None`` keeps the model-wide RNG behaviour.
     """
 
     base_depth_threshold_m: float | None = Field(default=None, ge=0.05, le=5.0)
+    section_id: UUID | None = Field(default=None)
 
 
 class DeleteAutoCorrelationsResponse(BaseModel):
