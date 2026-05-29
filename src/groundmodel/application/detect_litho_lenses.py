@@ -38,7 +38,41 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Default cap (metres) on a detected lens body's thickness when the project
+# has not set its own ``litho_segmenter.max_lens_thickness_m``.  5 m is well
+# above a typical thin lens but below the near-whole-column spans that loose
+# correlations spuriously produce (dogfeed 2026-05-29).  The setting (or 0 =
+# off) overrides this; see ``_resolve_max_lens_thickness``.
+LENS_MAX_THICKNESS_DEFAULT_M: float = 5.0
+
+
+def _resolve_max_lens_thickness(view_state: dict[str, object] | None) -> float | None:
+    """Read the lens degeneracy-guard threshold from a project's view_state.
+
+    Parameters
+    ----------
+    view_state : dict[str, object] | None
+        The project's ``view_state`` JSONB bag (or ``None``).
+
+    Returns
+    -------
+    float | None
+        ``litho_segmenter.max_lens_thickness_m`` when set to a positive value;
+        ``None`` (guard disabled) when the setting is ``0`` / non-positive;
+        :data:`LENS_MAX_THICKNESS_DEFAULT_M` when the setting is absent.
+    """
+    seg = (view_state or {}).get("litho_segmenter") if isinstance(view_state, dict) else None
+    raw = seg.get("max_lens_thickness_m") if isinstance(seg, dict) else None
+    if raw is None:
+        return LENS_MAX_THICKNESS_DEFAULT_M
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return LENS_MAX_THICKNESS_DEFAULT_M
+    return None if val <= 0 else val
 
 
 @dataclass
@@ -164,9 +198,16 @@ class DetectLithoLenses(GroundModelLogger):
         )
 
         # ------------------------------------------------------------------ #
-        # 3. Run the pure-domain detector.                                    #
+        # 3. Run the pure-domain detector (with the project's degeneracy guard).#
         # ------------------------------------------------------------------ #
-        candidates = detect_lenses_from_graph(edges, stacks)
+        view_state = (
+            await self._session.execute(
+                select(ProjectOrm.view_state).where(ProjectOrm.id == project_id)
+            )
+        ).scalar_one_or_none()
+        max_lens_thickness_m = _resolve_max_lens_thickness(view_state)
+        self.debug(f"DetectLithoLenses: max_lens_thickness_m={max_lens_thickness_m} (None = off)")
+        candidates = detect_lenses_from_graph(edges, stacks, max_lens_thickness_m)
         self.debug(f"DetectLithoLenses: {len(candidates)} candidate(s) from domain algorithm")
 
         # ------------------------------------------------------------------ #
