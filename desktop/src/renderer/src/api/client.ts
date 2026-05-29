@@ -2354,14 +2354,19 @@ export const api = {
     // Run the contact-level bottom-up dip-transfer algorithm across the whole
     // model.  Inserts net-new contact-level edges with source='auto'.
     // Idempotent: edges_created=0 means nothing new.
+    // sectionId gates adjacency to consecutive columns ALONG that section
+    // (the user's left-to-right order); null/omitted uses model-wide map-plane
+    // RNG, which crosses columns for off-line investigations (dogfeed
+    // 2026-05-29).
     autoCorrelateContacts: (
       projectId: string,
       modelId: string,
       depthWindowM?: number | null,
+      sectionId?: string | null,
     ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`,
-        { base_depth_threshold_m: depthWindowM ?? null },
+        { base_depth_threshold_m: depthWindowM ?? null, section_id: sectionId ?? null },
       ),
 
     // --- Accept correlations (#133 Phase 2) ------------------------------------
