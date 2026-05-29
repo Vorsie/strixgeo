@@ -30,6 +30,9 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
@@ -364,14 +367,8 @@ async def test_bundle_carries_geological_formations_models_contacts(
     db_session: AsyncSession,
 ) -> None:
     """Build + restore round-trips geological vocabulary + models + contacts."""
-    from groundmodel.infrastructure.db.models.formation_contact_orm import (
-        FormationContactOrm,
-    )
     from groundmodel.infrastructure.db.models.geological_formation_orm import (
         GeologicalFormationOrm,
-    )
-    from groundmodel.infrastructure.db.models.geological_model_orm import (
-        GeologicalModelOrm,
     )
 
     source = await _make_source_project(db_session)
@@ -564,9 +561,6 @@ async def test_restore_skips_geology_when_payload_omits_it(
 
     # Project + CPT + borehole came back. No geology rows for this
     # project (none were in the payload).
-    from groundmodel.infrastructure.db.models.geological_formation_orm import (
-        GeologicalFormationOrm,
-    )
 
     formations_after = (
         (
@@ -751,9 +745,6 @@ async def test_restore_skips_sections_when_payload_omits_them(
 
 async def test_bundle_carries_geotechnical_units(db_session: AsyncSession) -> None:
     """Build + restore round-trips geotechnical units alongside their parent formation."""
-    from groundmodel.infrastructure.db.models.geological_formation_orm import (
-        GeologicalFormationOrm,
-    )
     from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
         GeotechnicalUnitOrm,
     )
@@ -902,12 +893,6 @@ async def test_bundle_round_trips_kind_parent_lithology_nad_class(
     and S6: a bundled model with an unknown ``kind`` restores coerced to
     'geological' (never silently mis-behaving in the crossing validator).
     """
-    from groundmodel.infrastructure.db.models.geological_formation_orm import (
-        GeologicalFormationOrm,
-    )
-    from groundmodel.infrastructure.db.models.geological_model_orm import (
-        GeologicalModelOrm,
-    )
 
     source = await _make_source_project(db_session)
     geo = GeologicalModelOrm(
@@ -1026,12 +1011,6 @@ async def test_restore_caps_oversized_surface_tin_blobs(
     from groundmodel.infrastructure.db.models.formation_surface_orm import (
         FormationSurfaceOrm,
     )
-    from groundmodel.infrastructure.db.models.geological_formation_orm import (
-        GeologicalFormationOrm,
-    )
-    from groundmodel.infrastructure.db.models.geological_model_orm import (
-        GeologicalModelOrm,
-    )
 
     source = await _make_source_project(db_session)
     f_big = GeologicalFormationOrm(
@@ -1149,9 +1128,6 @@ async def test_bundle_carries_formation_absences(db_session: AsyncSession) -> No
     from uuid6 import uuid7 as _u
 
     from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
-    from groundmodel.infrastructure.db.models.geological_formation_orm import (
-        GeologicalFormationOrm,
-    )
 
     source = await _make_source_project(db_session)
 
@@ -1291,11 +1267,9 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     outside the project is silently dropped (bundle-injection guard).
     """
     from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH
-    from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
     from groundmodel.infrastructure.db.models.geological_formation_orm import (
         GeologicalFormationOrm,
     )
-    from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
     from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
         LithoContactCorrelationEdgeOrm,
     )
@@ -1510,13 +1484,9 @@ async def test_bundle_roundtrip_preserves_parent_geo_contact_id(
     restore.
     """
     from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH
-    from groundmodel.infrastructure.db.models.formation_contact_orm import (
-        FormationContactOrm,
-    )
     from groundmodel.infrastructure.db.models.geological_formation_orm import (
         GeologicalFormationOrm,
     )
-    from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 
     source = await _make_source_project(db_session)
     bh = (await db_session.execute(select(_BH).where(_BH.app_project_id == source.id))).scalar_one()
@@ -1639,3 +1609,147 @@ async def test_bundle_roundtrip_preserves_parent_geo_contact_id(
         "parent_geo_contact_id must survive build → wipe → restore; "
         "NULL here means the column was stripped somewhere in the round-trip"
     )
+
+
+async def test_replace_restore_reverts_mutations_creates_and_deletes(
+    db_session: AsyncSession,
+) -> None:
+    """``replace=True`` reverts the project to the bundle EXACTLY (debt #160).
+
+    A save-then-mutate-then-revert cycle: snapshot the bundle, then mutate a
+    contact depth, add a new contact, and rename the CPT, then replace-restore
+    from the snapshot. Every change must be undone — mutation reverted, created
+    row gone, renamed field back.
+
+    Also exercises the RESTRICT-ordered ``geological_model`` wipe: a litho model
+    pins its geological parent via ``parent_geological_model_id``
+    (``ON DELETE RESTRICT``), so the wipe must delete child models (by ``kind``)
+    before the backbone, or the DELETE raises.
+    """
+    source = await _make_source_project(db_session)
+    project_id = source.id
+
+    cpt = (
+        (await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .first()
+    )
+    assert cpt is not None
+
+    # A geological backbone + a litho child (RESTRICT parent link) + a
+    # formation + one contact on the litho model.
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Geo backbone",
+        kind="geological",
+        is_active=True,
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Litho",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
+    )
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="ZAND",
+        code="Z",
+        color="#ddcc88",
+        display_order=0,
+    )
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=formation.id,
+        cpt_id=cpt.id,
+        depth_top_m=3.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add_all([geo_model, litho_model, formation, contact])
+    await db_session.commit()
+    contact_id = contact.id
+    geo_model_id = geo_model.id
+
+    # SAVE point — snapshot the bundle the user would persist to .gmproj.
+    snapshot = await build_project_bundle(db_session, source)
+
+    # MUTATE after save: change the contact depth, add a contact, rename CPT.
+    contact.depth_top_m = 9.0
+    cpt.name = "MUTATED"
+    added_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=formation.id,
+        cpt_id=cpt.id,
+        depth_top_m=5.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(added_contact)
+    await db_session.commit()
+    added_contact_id = added_contact.id
+
+    # Avoid SAWarning on identity-map replacement when the wipe deletes rows
+    # the session still tracks (expire_on_commit=False).
+    db_session.expunge_all()
+
+    # REVERT — replace-restore from the snapshot.
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        snapshot["project"],
+        snapshot["cpts"],
+        snapshot["boreholes"],
+        snapshot["geological_formations"],
+        snapshot["geological_models"],
+        snapshot["cross_sections"],
+        snapshot["investigation_reviews"],
+        geotechnical_units_payload=snapshot["geotechnical_units"],
+        litho_lenses_payload=snapshot["litho_lenses"],
+        formation_absences_payload=snapshot["formation_absences"],
+        litho_contact_correlation_edges_payload=snapshot["litho_contact_correlation_edges"],
+        litho_lens_shapes_payload=snapshot["litho_lens_shapes"],
+        litho_lens_boundary_nodes_payload=snapshot["litho_lens_boundary_nodes"],
+        replace=True,
+    )
+    await db_session.commit()
+
+    # Mutation reverted — the contact is back at its saved depth.
+    reverted = (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.id == contact_id)
+        )
+    ).scalar_one()
+    assert reverted.depth_top_m == 3.0
+
+    # Create reverted — the post-save contact is gone.
+    assert (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.id == added_contact_id)
+        )
+    ).scalar_one_or_none() is None
+
+    # Mutation reverted on the CPT — name back to the saved value.
+    cpt_after = (
+        await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == project_id))
+    ).scalar_one()
+    assert cpt_after.name == "CPT-1"
+
+    # RESTRICT-ordered model wipe + re-insert succeeded: both models are back
+    # and the litho child still pins its geological parent.
+    models = list(
+        (
+            await db_session.execute(
+                select(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {m.kind for m in models} == {"geological", "lithostratigraphic"}
+    litho_after = next(m for m in models if m.kind == "lithostratigraphic")
+    assert litho_after.parent_geological_model_id == geo_model_id
