@@ -189,4 +189,24 @@ describe('LensWedgeOverlay', () => {
     })
     expect(queryByTestId('lens-wedge-L1')).toBeNull()
   })
+
+  it('LW6 — right-click the wedge fill dissolves the lens via onDeleteLens', () => {
+    // The fill is the delete affordance; it reports the three defining contact
+    // ids (above, below, target) so the caller can delete the two edges that
+    // make the body a lens (dogfeed 2026-05-29).
+    const onDeleteLens = vi.fn()
+    const { getByTestId } = renderOverlay({ onDeleteLens })
+    fireEvent.contextMenu(getByTestId('lens-wedge-fill-L1'))
+    expect(onDeleteLens).toHaveBeenCalledTimes(1)
+    // above = cs-top (3 m), below = cs-base (7 m), target/pinch = ct.
+    expect(onDeleteLens).toHaveBeenCalledWith('cs-top', 'cs-base', 'ct')
+  })
+
+  it('LW7 — fill is inert (no pointer events) when onDeleteLens is absent', () => {
+    const { getByTestId } = renderOverlay()
+    // Read-only: the fill must not capture the context menu.
+    expect(getByTestId('lens-wedge-fill-L1').getAttribute('style')).toContain(
+      'pointer-events: none',
+    )
+  })
 })
