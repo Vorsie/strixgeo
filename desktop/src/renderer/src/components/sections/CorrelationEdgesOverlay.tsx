@@ -1095,9 +1095,15 @@ export default function CorrelationEdgesOverlay({
                         onContextMenu={e => {
                           e.preventDefault()
                           e.stopPropagation()
+                          // Render the menu AT the cursor, not the edge
+                          // midpoint — a long diagonal seam put the menu far
+                          // from the pointer (dogfeed 2026-05-29). Convert the
+                          // viewport click to SVG-local coords.
+                          const svg = e.currentTarget.ownerSVGElement
+                          const r = svg?.getBoundingClientRect()
                           setEdgeContextMenu({
-                            x: (xA + xB) / 2,
-                            y: (ptA.topY + ptB.topY) / 2,
+                            x: r ? e.clientX - r.left : (xA + xB) / 2,
+                            y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
                             edge: ce,
                           })
                         }}
