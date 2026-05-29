@@ -147,6 +147,7 @@ function makeCtx(overrides: {
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
   handleAutoCorrelate?: () => Promise<void>
+  handleClearSuggestions?: () => Promise<void>
   toast?: () => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
@@ -333,7 +334,7 @@ function makeCtx(overrides: {
       lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
-      handleClearSuggestions: noopAsync,
+      handleClearSuggestions: overrides.handleClearSuggestions ?? noopAsync,
     },
     sections: {
       sections: overrides.selectedSectionId
@@ -507,16 +508,23 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     expect(btn).toBeDisabled()
   })
 
-  it('CT3: Correlate button disabled when no section selected', () => {
+  it('CT3: Correlate primary does NOT enter mode when no section selected', () => {
+    // With "Clear correlation suggestions" now a caret item gated only on the
+    // model, the caret always has an enabled item when a model exists, so the
+    // disabled primary becomes a "click for options" caret-fallback rather
+    // than fully inert. The #139 protection that matters is preserved: a click
+    // must NOT enter correlate mode (it opens the options menu instead).
+    const enterCorrelateMode = vi.fn()
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: null,
+        enterCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: 'Correlate' })
-    expect(btn).toBeDisabled()
+    fireEvent.click(screen.getByTestId('correlate-mode'))
+    expect(enterCorrelateMode).not.toHaveBeenCalled()
   })
 
   it('CT4: enabled with litho model + section; click calls enterCorrelateMode', () => {
@@ -561,7 +569,10 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
   // contacts produces no clickable hit-rects (CorrelationEdgesOverlay
   // only renders gesture rects when contacts.length > 0).  Gate the
   // toolbar button so the failure mode is discoverable.
-  it('CT7: Correlate button disabled when section has 0 litho contacts', () => {
+  it('CT7: Correlate primary does NOT enter mode when section has 0 litho contacts', () => {
+    // Caret-fallback (see CT3): a click opens options instead of entering a
+    // correlate mode that would find nothing clickable (#139 protection).
+    const enterCorrelateMode = vi.fn()
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -570,29 +581,51 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         // Section selected but no contacts seeded â†’ nothing to correlate.
         sectionSeededContactIds: [],
         lithoContacts: [],
+        enterCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: 'Correlate' })
-    expect(btn).toBeDisabled()
-    expect(btn).toHaveAttribute(
-      'title',
-      expect.stringMatching(/accept litho suggestions/i),
-    )
+    fireEvent.click(screen.getByTestId('correlate-mode'))
+    expect(enterCorrelateMode).not.toHaveBeenCalled()
   })
 
-  it('CT7b: Correlate button disabled when model has contacts but NONE on this section', () => {
+  it('CT7b: Correlate primary does NOT enter mode when model has contacts but NONE on this section', () => {
     // Litho model has a contact, but the section did not seed it â€” the
     // explicit-content invariant hides it from this view, so correlate
     // mode would still find nothing clickable.
+    const enterCorrelateMode = vi.fn()
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
         sectionSeededContactIds: [],
+        enterCorrelateMode,
       }),
     )
-    expect(screen.getByRole('button', { name: 'Correlate' })).toBeDisabled()
+    fireEvent.click(screen.getByTestId('correlate-mode'))
+    expect(enterCorrelateMode).not.toHaveBeenCalled()
+  })
+
+  it('CT-CLR: Clear correlation suggestions is a caret item, enabled with a model, and clears', () => {
+    // Moved under the Correlate caret (dogfeed 2026-05-29). Gated on the model
+    // only, so it stays enabled even when the section has 0 contacts.
+    const handleClearSuggestions = vi.fn()
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        sectionSeededContactIds: [],
+        lithoContacts: [],
+        handleClearSuggestions,
+      }),
+    )
+    openCorrelateCaret()
+    const clear = screen.getByTestId('litho-clear-suggestions')
+    expect(clear).not.toBeDisabled()
+    expect(clear.textContent).toMatch(/clear correlation suggestions/i)
+    fireEvent.click(clear)
+    expect(handleClearSuggestions).toHaveBeenCalledOnce()
   })
 
   it('CT8: still clickable to EXIT when correlateMode is already on, even with 0 contacts', () => {
