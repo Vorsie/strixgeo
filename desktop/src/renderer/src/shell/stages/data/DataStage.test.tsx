@@ -184,6 +184,7 @@ function makeStubContext(): ShellContextValue {
       handleClearSuggestions: noopAsync,
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
+      markMutated: vi.fn(),
     },
     sections: {
       sections: [],

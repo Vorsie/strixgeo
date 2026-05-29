@@ -196,6 +196,7 @@ function makeCtx(overrides: {
       handleClearSuggestions: noopAsync,
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
+      markMutated: vi.fn(),
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
       formations: [],
