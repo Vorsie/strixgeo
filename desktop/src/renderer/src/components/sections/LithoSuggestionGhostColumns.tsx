@@ -397,6 +397,50 @@ export function computeDragBounds(
   }
 }
 
+/**
+ * Clamp + apply a "move the whole layer" drag — the middle grab dot (#163
+ * Slice 1).  Translates BOTH the top and base edges of suggestion ``idx`` by
+ * the same delta (thickness preserved), clamped so the band cannot push past
+ * its visible neighbours: the top stops at the above-neighbour's far edge (or
+ * ground), the base at the below-neighbour's far edge (or the test bottom).
+ *
+ * Reuses ``computeDragBounds`` so the dot's clamp matches the boundary
+ * line-drag — no second, divergent clamp implementation.
+ *
+ * Parameters
+ * ----------
+ * idx
+ *     The suggestion being moved.
+ * suggestions, edits, acceptedIndices, rejectedIndices
+ *     Live ghost state (same inputs as ``computeDragBounds``).
+ * requestedDeltaM
+ *     Desired vertical move in metres (positive = deeper / down).
+ *
+ * Returns
+ * -------
+ * { topM, baseM, clampedDeltaM }
+ *     The new clamped top + base depths and the delta actually applied.
+ */
+export function computeMoveBothEdits(
+  idx: number,
+  suggestions: readonly LithoLayerSuggestion[],
+  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+  requestedDeltaM: number,
+): { topM: number; baseM: number; clampedDeltaM: number } {
+  const own = effectiveDepths(suggestions, edits, idx)
+  const topBounds = computeDragBounds('top', idx, suggestions, edits, acceptedIndices, rejectedIndices)
+  const baseBounds = computeDragBounds('base', idx, suggestions, edits, acceptedIndices, rejectedIndices)
+  // Room upward (≤ 0): the top edge may rise until the above-neighbour's
+  // far edge.  Room downward (≥ 0): the base edge may sink until the
+  // below-neighbour's far edge.
+  const minDelta = topBounds.boundsAboveM - own.topM
+  const maxDelta = baseBounds.boundsBelowM - own.baseM
+  const clampedDeltaM = Math.max(minDelta, Math.min(maxDelta, requestedDeltaM))
+  return { topM: own.topM + clampedDeltaM, baseM: own.baseM + clampedDeltaM, clampedDeltaM }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import type { PlacedColumn } from './utils'
-import LithoSuggestionGhostColumns from './LithoSuggestionGhostColumns'
+import LithoSuggestionGhostColumns, { computeMoveBothEdits } from './LithoSuggestionGhostColumns'
 
 // ---------------------------------------------------------------------------
 // Factories
@@ -2142,5 +2142,48 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(rect!.getAttribute('fill')).not.toBe('transparent')
     const fillOpacity = Number(rect!.getAttribute('fill-opacity'))
     expect(fillOpacity).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeMoveBothEdits — the middle-dot "move whole layer" clamp (#163 Slice 1)
+// ---------------------------------------------------------------------------
+//
+//   MB1  moving the band within free space translates both edges by the
+//        full requested delta (thickness preserved).
+//   MB2  moving down is clamped at the below-neighbour's far edge (the band
+//        can collapse the neighbour to zero but not push past it).
+//   MB3  moving up is clamped at the above-neighbour's far edge / ground.
+
+describe('computeMoveBothEdits (middle-dot move-both)', () => {
+  // Three stacked pending layers: [0-2] [2-4] [4-6]. Move the middle (idx 1).
+  const stack: LithoLayerSuggestion[] = [
+    makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+    makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+    makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+  ]
+  const empty = new Set<number>()
+
+  it('MB1 — translates both edges by the full delta when there is room', () => {
+    const r = computeMoveBothEdits(1, stack, undefined, empty, empty, 1)
+    expect(r.clampedDeltaM).toBe(1)
+    expect(r.topM).toBe(3)
+    expect(r.baseM).toBe(5)
+  })
+
+  it('MB2 — clamps downward at the below-neighbour far edge (base 4 → 6 max)', () => {
+    const r = computeMoveBothEdits(1, stack, undefined, empty, empty, 5)
+    // max down delta = below-neighbour base (6) − own base (4) = 2.
+    expect(r.clampedDeltaM).toBe(2)
+    expect(r.topM).toBe(4)
+    expect(r.baseM).toBe(6)
+  })
+
+  it('MB3 — clamps upward at the above-neighbour far edge / ground (top 2 → 0)', () => {
+    const r = computeMoveBothEdits(1, stack, undefined, empty, empty, -5)
+    // max up delta = above-neighbour top (0) − own top (2) = -2.
+    expect(r.clampedDeltaM).toBe(-2)
+    expect(r.topM).toBe(0)
+    expect(r.baseM).toBe(2)
   })
 })
