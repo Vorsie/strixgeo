@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
@@ -108,13 +109,12 @@ class NameLensBody(GroundModelLogger):
         # ------------------------------------------------------------------
         # Scope guards.
         # ------------------------------------------------------------------
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
-
-        formation = await self._session.get(GeologicalFormationOrm, formation_id)
-        if formation is None or formation.app_project_id != project_id:
-            raise ValueError(f"Formation {formation_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
+        )
+        await load_scoped_or_raise(
+            self._session, GeologicalFormationOrm, formation_id, project_id, label="Formation"
+        )
 
         # ------------------------------------------------------------------
         # Check for an existing metadata row for this (model, formation, ordinal).
