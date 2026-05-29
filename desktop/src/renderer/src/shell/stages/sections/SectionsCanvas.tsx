@@ -79,6 +79,9 @@ export default function SectionsCanvas(): JSX.Element {
       handleCreateContact,
       handleUpdateContactDepth,
       handleDeleteContact,
+      // #160: flag section-local mutations (correlation create/delete,
+      // lens-shape edits) dirty so a close-without-save reverts them.
+      markMutated,
       handleUnlinkLithoFromGeo,
       handleLinkLithoToGeo,
       handleBatchUpdateContacts,
@@ -485,12 +488,13 @@ export default function SectionsCanvas(): JSX.Element {
           next.set(lensId, saved)
           return next
         })
+        markMutated()
       } catch (err) {
         log.warn('section', 'handleSaveLensShape: saveLensBoundary failed', err)
         toast('error', 'Could not save lens shape — see console.')
       }
     },
-    [activeLithoModel, project.id, toast],
+    [activeLithoModel, project.id, toast, markMutated],
   )
 
   const handleCreateContactCorrelation = useCallback(
@@ -509,6 +513,7 @@ export default function SectionsCanvas(): JSX.Element {
           selectedSectionId,
         )
         await refetchContactEdges()
+        markMutated()
         // Lens-aware gesture (debt #135): keep ``armedContactId`` set after
         // a successful correlation and record the target's investigation in
         // ``lastTargetTestId``.  A subsequent click on another contact in
@@ -538,7 +543,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the boundary correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated],
   )
 
   const handleDeleteContactCorrelation = useCallback(
@@ -567,6 +572,7 @@ export default function SectionsCanvas(): JSX.Element {
           selectedSectionId,
         )
         await refetchContactEdges()
+        markMutated()
         log.success(
           'section',
           `contact-uncorrelate: edge ${contactAId} ↔ ${contactBId} removed`,
@@ -580,7 +586,7 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchContactEdges()
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated],
   )
 
   // Right-click "Delete contact" gesture from the section overlay.
@@ -829,6 +835,7 @@ export default function SectionsCanvas(): JSX.Element {
           )
           await refetchContactEdges()
           void refetchLensData()
+          markMutated()
           log.success('section', 'edgeDrag: extra correlation created (anchor ↔ both targets)')
           toast('success', 'Correlation added — a wedge forms when it spans the layer.')
         } catch (err) {
@@ -866,6 +873,7 @@ export default function SectionsCanvas(): JSX.Element {
         )
         // 3. Refetch so the section reflects the re-targeted edge.
         await refetchContactEdges()
+        markMutated()
         log.success(
           'section',
           `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} ↔ ${dropContactId}`,
@@ -886,8 +894,9 @@ export default function SectionsCanvas(): JSX.Element {
       window.removeEventListener('mouseup', handleMouseUp)
     }
     // reason: edgeDrag is the live drag object that drives both handlers;
-    //   lithoContacts, activeLithoModel, project.id, selectedSectionId, and the
-    //   api/log/toast refs are all stable or captured in the same closure.
+    //   lithoContacts, activeLithoModel, project.id, selectedSectionId, the
+    //   api/log/toast refs, and markMutated (a stable App useCallback) are all
+    //   stable or captured in the same closure.
     //   The cleanup fn removes both listeners with the SAME named function
     //   references captured in this closure, which is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
