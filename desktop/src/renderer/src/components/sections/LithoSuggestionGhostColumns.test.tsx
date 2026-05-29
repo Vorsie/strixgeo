@@ -2224,13 +2224,40 @@ describe('three-dot grab handle (#163 Slice 1)', () => {
     const mid = container.querySelector('[data-testid="litho-grab-middle-0"]')
     expect(mid).not.toBeNull()
     // pxPerM = 100 → 100 px down = +1.0 m. Layer [0,2] → [1,3].
+    // The move-both delta now comes from the mousemove (live preview), so a
+    // real drag fires mousedown → mousemove → mouseup.
     fireEvent.mouseDown(mid!, { clientY: 100 })
-    fireEvent.mouseUp(document, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 200 })
+    fireEvent.mouseUp(document)
     // The dragged layer's edit carries BOTH edges (the move-both signature).
     const own = onEdit.mock.calls.find(c => c[0] === 0)
     expect(own).toBeTruthy()
     expect(own![1].depth_top_m).toBeCloseTo(1.0, 5)
     expect(own![1].depth_base_m).toBeCloseTo(3.0, 5)
+  })
+
+  it('HD2b — the band follows the cursor live during a middle-dot drag (preview)', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit: vi.fn() },
+    )
+    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
+    const midCy = (): number =>
+      Number(
+        (container.querySelector('[data-testid="litho-grab-middle-0"]') as SVGCircleElement).getAttribute(
+          'cy',
+        ),
+      )
+    fireEvent.mouseDown(container.querySelector('[data-testid="litho-grab-middle-0"]')!, {
+      clientY: 100,
+    })
+    const before = midCy()
+    // Dragging down (no mouseup yet) must move the band live, not snap on release.
+    fireEvent.mouseMove(document, { clientY: 150 })
+    expect(midCy()).toBeGreaterThan(before)
   })
 
   it('HD3 — top dot reuses the single-edge drag (depth_top_m only)', () => {

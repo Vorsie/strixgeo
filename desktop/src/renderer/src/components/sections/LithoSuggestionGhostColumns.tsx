@@ -766,6 +766,9 @@ export default function LithoSuggestionGhostColumns({
   const [moveBothDrag, setMoveBothDrag] = useState<{
     idx: number
     initialClientY: number
+    /** Live cursor delta in metres (updated on mousemove) so the band can
+     *  follow the cursor during the drag (live preview). */
+    currentDeltaM: number
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -1150,42 +1153,54 @@ export default function LithoSuggestionGhostColumns({
   // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
   }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, rejectedIndices])
 
-  // #163 Slice 1 — middle-dot "move whole layer" drag. On mouseup, translate
-  // both edges of the dragged suggestion by the clamped delta (computeMoveBoth
-  // Edits) and follow the shared boundaries on the visible pending neighbours
-  // (idx-1 base ← new top; idx+1 top ← new base). Commit-on-release: the band
-  // snaps to the final position on mouseup (live preview is a polish follow-up,
-  // #163-handle). Isolated from the single-edge ``drag`` cross-merge path.
+  // #163 Slice 1 — middle-dot "move whole layer" drag. Mousemove tracks the
+  // cursor delta so the band follows live (preview, applied in the render
+  // block below); mouseup commits the clamped move via computeMoveBothEdits +
+  // follows the shared boundaries on the visible pending neighbours (idx-1
+  // base ← new top; idx+1 top ← new base). Isolated from the single-edge
+  // ``drag`` cross-merge path.
   useEffect(() => {
     if (moveBothDrag === null) return
-    function handleUp(e: MouseEvent): void {
-      const md = moveBothDrag
-      if (md === null) return
-      const deltaM = (e.clientY - md.initialClientY) / pxPerM
-      const { topM, baseM, clampedDeltaM } = computeMoveBothEdits(
-        md.idx,
-        suggestions,
-        edits,
-        acceptedIndices,
-        rejectedIndices,
-        deltaM,
+    function handleMove(e: MouseEvent): void {
+      setMoveBothDrag(md =>
+        md === null
+          ? md
+          : { ...md, currentDeltaM: (e.clientY - md.initialClientY) / pxPerM },
       )
-      if (onEdit && clampedDeltaM !== 0) {
-        onEdit(md.idx, { depth_top_m: topM, depth_base_m: baseM })
-        // Shared-boundary follow on visible pending neighbours.
-        const aboveIdx = nearestVisibleIndexAbove(md.idx, rejectedIndices)
-        if (aboveIdx !== null && !acceptedIndices.has(aboveIdx)) {
-          onEdit(aboveIdx, { depth_base_m: topM, _propagateOnly: true })
-        }
-        const belowIdx = nearestVisibleIndexBelow(md.idx, suggestions.length, rejectedIndices)
-        if (belowIdx !== null && !acceptedIndices.has(belowIdx)) {
-          onEdit(belowIdx, { depth_top_m: baseM, _propagateOnly: true })
-        }
-      }
-      setMoveBothDrag(null)
     }
+    function handleUp(): void {
+      setMoveBothDrag(md => {
+        if (md !== null && onEdit) {
+          const { topM, baseM, clampedDeltaM } = computeMoveBothEdits(
+            md.idx,
+            suggestions,
+            edits,
+            acceptedIndices,
+            rejectedIndices,
+            md.currentDeltaM,
+          )
+          if (clampedDeltaM !== 0) {
+            onEdit(md.idx, { depth_top_m: topM, depth_base_m: baseM })
+            // Shared-boundary follow on visible pending neighbours.
+            const aboveIdx = nearestVisibleIndexAbove(md.idx, rejectedIndices)
+            if (aboveIdx !== null && !acceptedIndices.has(aboveIdx)) {
+              onEdit(aboveIdx, { depth_base_m: topM, _propagateOnly: true })
+            }
+            const belowIdx = nearestVisibleIndexBelow(md.idx, suggestions.length, rejectedIndices)
+            if (belowIdx !== null && !acceptedIndices.has(belowIdx)) {
+              onEdit(belowIdx, { depth_top_m: baseM, _propagateOnly: true })
+            }
+          }
+        }
+        return null
+      })
+    }
+    document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
-    return () => document.removeEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
   }, [moveBothDrag, pxPerM, onEdit, suggestions, edits, acceptedIndices, rejectedIndices])
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
@@ -1347,6 +1362,20 @@ export default function LithoSuggestionGhostColumns({
   // sibling ghost-column instances (single-anchor + bulk) don't
   // collide on the same SVG-wide id.
   const hatchPatternId = `litho-pending-hatch-${investigationId}`
+  // #163 Slice 1 — precompute the clamped move-both preview once so the
+  // render loop can offset the dragged band + its shared-boundary neighbours
+  // live as the middle dot is dragged.
+  const moveBothPreview =
+    moveBothDrag !== null
+      ? computeMoveBothEdits(
+          moveBothDrag.idx,
+          suggestions,
+          edits,
+          acceptedIndices,
+          rejectedIndices,
+          moveBothDrag.currentDeltaM,
+        )
+      : null
   return (
     <>
     <g data-testid="litho-suggestion-ghosts">
@@ -1422,6 +1451,25 @@ export default function LithoSuggestionGhostColumns({
               nearestVisibleIndexAbove(drag.idx, rejectedIndices) === idx
             ) {
               baseM = drag.currentDepthM
+            }
+          }
+        }
+        // #163 Slice 1 — middle-dot move-both live preview. The dragged band
+        // follows the cursor (both edges); the shared-boundary neighbours
+        // follow the same way the commit propagates (above.base ← new top,
+        // below.top ← new base).
+        if (moveBothDrag !== null && moveBothPreview !== null) {
+          if (moveBothDrag.idx === idx) {
+            topM = moveBothPreview.topM
+            baseM = moveBothPreview.baseM
+          } else if (!acceptedIndices.has(idx) && !rejectedIndices.has(idx)) {
+            if (nearestVisibleIndexAbove(moveBothDrag.idx, rejectedIndices) === idx) {
+              baseM = moveBothPreview.topM
+            }
+            if (
+              nearestVisibleIndexBelow(moveBothDrag.idx, suggestions.length, rejectedIndices) === idx
+            ) {
+              topM = moveBothPreview.baseM
             }
           }
         }
@@ -1657,7 +1705,7 @@ export default function LithoSuggestionGhostColumns({
                     onMouseDown={e => {
                       e.stopPropagation()
                       e.preventDefault()
-                      setMoveBothDrag({ idx, initialClientY: e.clientY })
+                      setMoveBothDrag({ idx, initialClientY: e.clientY, currentDeltaM: 0 })
                     }}
                   />
                   <circle
