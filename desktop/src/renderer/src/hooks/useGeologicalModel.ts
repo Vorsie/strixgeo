@@ -290,6 +290,11 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   handleBatchUpdateContacts: (updates: readonly FormationContactBatchUpdateEntry[]) => Promise<void>
   handleDeleteContact: (contactId: string) => Promise<void>
+  /** Mark the project dirty after a geology mutation (#160). Re-exported from
+   *  the injected coordinator dep so bus consumers (SectionsCanvas) can flag
+   *  section-local mutations — correlation create/delete, lens-shape edits —
+   *  that don't go through this hook's own handlers. */
+  markMutated: () => void
   /** Break the litho↔geo coupling on a single lithostratigraphic contact.
    *
    * Nulls ``parent_geo_contact_id`` — does NOT move/delete either contact or
@@ -2156,13 +2161,14 @@ export function useGeologicalModel({
           prev.map(c => (c.id === contactId ? { ...c, parent_geo_contact_id: null } : c)),
         )
         refetchLithoContacts()
+        markMutated()
         log.success('geology', `unlinkLithoFromGeo ok id=${contactId}`)
       } catch (err) {
         log.error('geology', `unlinkLithoFromGeo failed id=${contactId}`, err)
         toast('error', 'Could not unlink the contact from geology.')
       }
     },
-    [project, contacts, lithoContacts, refetchLithoContacts],
+    [project, contacts, lithoContacts, refetchLithoContacts, markMutated],
   )
 
   // Establish the litho↔geo coupling on a single uncoupled lithostratigraphic
@@ -2196,13 +2202,16 @@ export function useGeologicalModel({
           ),
         )
         refetchLithoContacts()
+        // Coupling established (result != null only) — a real edit. The
+        // no-geo-in-range branch returned above without mutating.
+        markMutated()
         log.success('geology', `linkLithoToGeo ok id=${contactId}`)
       } catch (err) {
         log.error('geology', `linkLithoToGeo failed id=${contactId}`, err)
         toast('error', 'Could not link the contact to geology.')
       }
     },
-    [project, contacts, lithoContacts, refetchLithoContacts],
+    [project, contacts, lithoContacts, refetchLithoContacts, markMutated],
   )
 
   // Auto-populate the active model with contacts derived from
@@ -2492,6 +2501,8 @@ export function useGeologicalModel({
       if (result.duplicates_removed === 0) {
         toast('success', 'Already clean — no duplicates found.')
       } else {
+        // Rows were deleted — mark dirty so a close-without-save reverts.
+        markMutated()
         toast(
           'success',
           `Removed ${result.duplicates_removed} duplicate ` +
@@ -2506,7 +2517,7 @@ export function useGeologicalModel({
       toast('error', 'Could not run the cleanup — see console.')
       return 0
     }
-  }, [project, activeGeologicalModel])
+  }, [project, activeGeologicalModel, markMutated])
 
   // Manual escape hatch — force-recompute every formation's TIN
   // cache. The auto-recompute hooks attached to every contact-
@@ -2637,6 +2648,8 @@ export function useGeologicalModel({
         await api.geology.updateModel(project.id, activeGeologicalModel.id, {
           excluded_borehole_ids: nextExcluded,
         })
+        // Model membership changed — mark dirty so it reverts on close.
+        markMutated()
         const projectId = project.id
         const modelId = activeGeologicalModel.id
         const beforeList = previousExcluded.slice()
@@ -2677,7 +2690,7 @@ export function useGeologicalModel({
         )
       }
     },
-    [project, activeGeologicalModel, pushUndo],
+    [project, activeGeologicalModel, pushUndo, markMutated],
   )
 
   const staleSurfaceCount = useMemo(
@@ -2772,6 +2785,8 @@ export function useGeologicalModel({
       setFocusedSuggestAnchorId(null)
       setLithoStaleTinSessionCount(0)
       const total = result.contacts + result.formations
+      // Rows were deleted — mark dirty so a close-without-save reverts.
+      if (total > 0) markMutated()
       log.success(
         'geology',
         `clearLithoModel ok contacts=${result.contacts} edges=${result.edges} ` +
@@ -2788,7 +2803,7 @@ export function useGeologicalModel({
       log.error('geology', 'clearLithoModel failed', err)
       toast('error', 'Could not clear litho model — see console.')
     }
-  }, [project, refetchLithoContacts, refetchFormations, refetchLithoSurfaces, toast])
+  }, [project, refetchLithoContacts, refetchFormations, refetchLithoSurfaces, toast, markMutated])
 
   // #127 — auto-correlate: fire the domain algorithm across the model,
   // persist net-new edges with source='auto', re-run the resolver, and
@@ -2807,6 +2822,8 @@ export function useGeologicalModel({
         `autoCorrelate ok edges_created=${result.edges_created} ` +
           `skipped=${result.edges_skipped_existing}`,
       )
+      // New edges persisted — mark dirty so a close-without-save reverts.
+      if (result.edges_created > 0) markMutated()
       // Refetch so ordinal badges update (formations re-resolved server-side).
       refetchFormations()
       // #163c: the correlation-edge state lives in SectionsCanvas (a sibling
@@ -2835,7 +2852,7 @@ export function useGeologicalModel({
       log.error('geology', 'autoCorrelate failed', err)
       toast('error', 'Auto-correlate failed — see console.')
     }
-  }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch])
+  }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch, markMutated])
 
   // #179 — Clear suggestions: remove all unapproved (auto) correlation edges
   // for the model without re-running auto-correlate. Approved manual
@@ -2849,6 +2866,8 @@ export function useGeologicalModel({
     try {
       const result = await api.geology.deleteAutoCorrelations(project.id, model.id)
       log.success('geology', `clearSuggestions ok deleted=${result.deleted}`)
+      // Edges deleted — mark dirty so a close-without-save reverts.
+      if (result.deleted > 0) markMutated()
       requestCorrelationEdgesRefetch()
       toast(
         'success',
@@ -2860,7 +2879,7 @@ export function useGeologicalModel({
       log.error('geology', 'clearSuggestions failed', err)
       toast('error', 'Could not clear suggestions — see console.')
     }
-  }, [project, toast, requestCorrelationEdgesRefetch])
+  }, [project, toast, requestCorrelationEdgesRefetch, markMutated])
 
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this
@@ -3101,6 +3120,7 @@ export function useGeologicalModel({
       setSurfacesByFormationId(new Map())
       removeFromManifest('formation', deletedFormationIds)
       removeFromSessionImports('formation', deletedFormationIds)
+      markMutated()
       log.success('geology', `handleDeleteModel ok model=${modelId}`)
     } catch (err) {
       log.error('geology', `handleDeleteModel failed model=${modelId}`, err)
@@ -3112,6 +3132,7 @@ export function useGeologicalModel({
     formations,
     removeFromManifest,
     removeFromSessionImports,
+    markMutated,
   ])
 
   // #55 model-kind picker — create a lithostratigraphic model under
@@ -3188,6 +3209,7 @@ export function useGeologicalModel({
         // a freshly-created new model.  Refetch formations so the
         // local vocabulary reflects what's actually in the DB.
         refetchFormations()
+        markMutated()
         log.success('geology', `deleted litho model ${modelId}`)
       } catch (err) {
         log.error('geology', `handleDeleteLithoModel failed ${modelId}`, err)
@@ -3201,7 +3223,7 @@ export function useGeologicalModel({
         throw err
       }
     },
-    [project, refreshModels, refetchFormations, toast],
+    [project, refreshModels, refetchFormations, toast, markMutated],
   )
 
   // Slice 2, #55: create a formation contact on the LITHO model.
@@ -5080,6 +5102,7 @@ export function useGeologicalModel({
     handleBatchCreateContacts,
     handleBatchUpdateContacts,
     handleDeleteContact,
+    markMutated,
     handleUnlinkLithoFromGeo,
     handleLinkLithoToGeo,
     handleAutoPopulateFromStratigraphy,
