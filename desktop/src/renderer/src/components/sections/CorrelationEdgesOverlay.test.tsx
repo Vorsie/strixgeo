@@ -532,10 +532,10 @@ describe('CorrelationEdgesOverlay', () => {
     expect(points).not.toContain('200,') //            not B centre
   })
 
-  // CE-D1 (#163d): the endpoint grab target on a pending edge is hard to hit
-  // at 8 px — there must be an enlarged (transparent) grab area around each
-  // endpoint that still fires onUnapprovedDragStart with the right handle.
-  it('CE-D1: enlarged grab target around an endpoint fires onUnapprovedDragStart', () => {
+  // CE-D1 (#31): the whole seam is grabbable, split at its midpoint into two
+  // generous transparent zones (no tiny endpoint handles). Each half is wider
+  // than the old 8 px handle and fires onUnapprovedDragStart for its end.
+  it('CE-D1: midpoint-split grab zones fire onUnapprovedDragStart per end', () => {
     const onUnapprovedDragStart = vi.fn()
     const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
     const contacts = [
@@ -552,19 +552,19 @@ describe('CorrelationEdgesOverlay', () => {
       levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
       contactEdges: [edge], onUnapprovedDragStart,
     })
-    const grabA = screen.getByTestId('unapproved-grab-a-eg')
-    // The grab area is meaningfully bigger than the 8 px visible handle.
-    expect(Number(grabA.getAttribute('width'))).toBeGreaterThan(8)
+    const grabA = screen.getByTestId('edge-grab-a-eg')
+    // The grab zone is meaningfully bigger than the old 8 px visible handle.
+    expect(Number(grabA.getAttribute('stroke-width'))).toBeGreaterThan(8)
     fireEvent.mouseDown(grabA)
     expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
     expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('a')
     onUnapprovedDragStart.mockClear()
-    fireEvent.mouseDown(screen.getByTestId('unapproved-grab-b-eg'))
+    fireEvent.mouseDown(screen.getByTestId('edge-grab-b-eg'))
     expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('b')
   })
 
-  // CE-E1 (#163e): right-clicking the edge ribbon opens a Delete-correlation
-  // menu; choosing it fires onRequestDeleteEdge with the edge.
+  // CE-E1 (#163e / #31): right-clicking a draggable (unapproved) seam zone
+  // opens the Delete-correlation menu; choosing it fires onRequestDeleteEdge.
   it('CE-E1: right-click edge opens Delete menu and fires onRequestDeleteEdge', () => {
     const onRequestDeleteEdge = vi.fn()
     const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
@@ -580,9 +580,9 @@ describe('CorrelationEdgesOverlay', () => {
       contacts, formations: [fA],
       placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
-      contactEdges: [edge], onRequestDeleteEdge,
+      contactEdges: [edge], onRequestDeleteEdge, onUnapprovedDragStart: vi.fn(),
     })
-    fireEvent.contextMenu(screen.getByTestId('edge-hit-ed'))
+    fireEvent.contextMenu(screen.getByTestId('edge-grab-a-ed'))
     fireEvent.click(screen.getByText(/Delete correlation/i, { selector: 'button' }))
     expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
     expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('ed')
@@ -1024,8 +1024,10 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(() => fireEvent.contextMenu(screen.getByTestId('contact-hit-ca'))).not.toThrow()
   })
 
-  // CC11: unapproved edge renders both grab handles when onUnapprovedDragStart is provided.
-  it('CC11: unapproved edge renders both grab handles', () => {
+  // CC11 (#31): an unapproved edge renders two midpoint-split grab zones (the
+  // whole seam is grabbable now — no tiny endpoint handles). Each half drags
+  // its nearer endpoint.
+  it('CC11: unapproved edge renders both grab zones', () => {
     const edge: LithoContactCorrelationEdge = {
       id: 'e-unapproved',
       contact_a_id: 'ca',
@@ -1045,13 +1047,13 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactEdges: [edge],
       onUnapprovedDragStart: vi.fn(),
     })
-    expect(screen.getByTestId('unapproved-handle-a-e-unapproved')).not.toBeNull()
-    expect(screen.getByTestId('unapproved-handle-b-e-unapproved')).not.toBeNull()
+    expect(screen.getByTestId('edge-grab-a-e-unapproved')).not.toBeNull()
+    expect(screen.getByTestId('edge-grab-b-e-unapproved')).not.toBeNull()
   })
 
-  // CC12: mousedown on a grab handle fires onUnapprovedDragStart with
-  // (event, edge, 'a' | 'b') and does NOT fire for approved edges.
-  it('CC12: mousedown on grab handle fires onUnapprovedDragStart(e, edge, handle)', () => {
+  // CC12 (#31): mousedown on a grab zone fires onUnapprovedDragStart with
+  // (event, edge, 'a' | 'b') — the 'a' half drags endpoint A, 'b' half drags B.
+  it('CC12: mousedown on grab zone fires onUnapprovedDragStart(e, edge, handle)', () => {
     const onUnapprovedDragStart = vi.fn()
     const edge: LithoContactCorrelationEdge = {
       id: 'e-unapproved-2',
@@ -1072,7 +1074,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactEdges: [edge],
       onUnapprovedDragStart,
     })
-    fireEvent.mouseDown(screen.getByTestId('unapproved-handle-a-e-unapproved-2'))
+    fireEvent.mouseDown(screen.getByTestId('edge-grab-a-e-unapproved-2'))
     expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
     const [_e, calledEdge, calledHandle] = onUnapprovedDragStart.mock.calls[0] as [
       React.MouseEvent,
@@ -1084,7 +1086,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
 
     // Mousedown on the 'b' handle fires with handle='b'.
     onUnapprovedDragStart.mockClear()
-    fireEvent.mouseDown(screen.getByTestId('unapproved-handle-b-e-unapproved-2'))
+    fireEvent.mouseDown(screen.getByTestId('edge-grab-b-e-unapproved-2'))
     expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
     expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('b')
   })
