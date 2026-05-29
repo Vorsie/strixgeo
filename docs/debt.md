@@ -4498,21 +4498,32 @@ site). Resolves the payload half of #111 (the bypassed-`_updateGhostEntry` half
 stays under #111). Full suite 1446 green; tsc clean. Per-file commits on develop
 2026-05-29.
 
-## 168. Section SVG geometry split across 4 overlays + `levelToScreen` prop-drill (Tier D — frontend, M)
+## 168. Section SVG geometry split across 4 overlays + `levelToScreen` prop-drill (Tier D — frontend, M; PARTIAL)
 
-**What.** `buildFillBand`/`_interpolatePolylineY` live in `sections/utils.ts:225-318`,
-but `ContactsLayer.tsx` (1235-1499), `CorrelationEdgesOverlay.tsx`,
-`LithoSuggestionGhostColumns.tsx`, `PinchOutGhostOverlay.tsx` each open-code their
-own contact→screen mapping + band-rect + inner-edge anchoring (PinchOutGhostOverlay
-doesn't use `levelToScreen` at all — a separate convention). `levelToScreen` is
-prop-drilled through `BoreholeColumn`/`ContactPickBar`/`ContactsLayer`/`ColumnGlyph`
-from `SectionPanel`; its inverse `oneMetreDownPx` is recomputed identically at
-`BoreholeColumn.tsx:183` + `ContactPickBar.tsx:125`; `surface - depth` open-coded
-in several places. **Why.** Band/seam geometry is the highest-churn surface (#131,
-#114); 4 conventions drift. **Fix.** `buildContactScreenMap` + `bandRectsFromContacts`
-+ `depthToLevel` + `pxPerMetreAt` in `sections/utils.ts`; a `SectionViewportContext`
-(or shell-bus slice) carrying `{levelToScreen, screenToLevel, pxPerMetre}` so it's
-not threaded through 6 components. **Effort.** M.
+**Slice 1 SHIPPED 2026-05-29 — shared depth axis.** `depthAxisAtSurface(levelToScreen,
+surfaceElevationM)` in `sections/utils.ts` returns `{surfaceY, pxPerMetreDown,
+depthAtY, yAtDepth}`, sampling the rate at the surface exactly as the old inline
+code did (byte-identical). Replaced the duplicated `oneMetreDownPx` / `surfaceY`
+/ `depthAtY` blocks in `BoreholeColumn` + `ContactPickBar`. Tests DA1–DA3; full
+suite green.
+
+**Remaining (deferred — needs visual verification, NOT done blind).** Two invasive
+pieces left, both on the highest-churn / most-dogfed surface (#131/#137/#157/#162):
+- **`buildContactScreenMap` + `bandRectsFromContacts`.** The 4 overlays' contact→screen
+  mapping is NOT a clean shared function — in `ContactsLayer` it's entangled with
+  TIN-slice confidence, polyline interpolation, and extrapolation-range logic;
+  `CorrelationEdgesOverlay` / `LithoSuggestionGhostColumns` / `PinchOutGhostOverlay`
+  each layer their own concerns (ribbons, ghost columns, wedges; PinchOutGhostOverlay
+  doesn't use `levelToScreen` at all). Teasing the genuinely-shared band-rect math
+  out from the overlay-specific render needs a dogfeed pass to confirm no pixel drift.
+- **`SectionViewportContext`** carrying `{levelToScreen, screenToLevel, pxPerMetre}`
+  to stop prop-drilling through `BoreholeColumn`/`ContactPickBar`/`ContactsLayer`/
+  `ColumnGlyph`. Rewiring prop-passing across 6 components risks hook-ordering / TDZ
+  (CLAUDE.md TDZ rule) that unit tests won't catch — wants a human-in-the-loop pass.
+
+**When to revisit.** Next time the band/seam geometry is being edited anyway (so the
+change rides a dogfeed cycle), or when the owner can smoke the section editor after.
+**Effort.** M (remaining).
 
 ## 169. Plaxis 2D/3D exporters share 4 byte-identical methods (Tier D — backend, M; extends #110)
 
