@@ -4126,28 +4126,40 @@ bites).
 to click).
 Filed from dogfeed session 2026-05-28.
 
-## 159. Drag-lock after deleting an accepted litho unit (Tier G)
+## 159. Drag-lock after deleting an accepted litho unit — RESOLVED 2026-05-29
 
 **What.** Owner dogfeed 2026-05-28: after removing an accepted litho unit,
-the contact below it can no longer be dragged **up** into the space the
-deleted unit occupied — the drag feels locked at the deleted unit's old
-boundary. Same family as #138 (drag-lock after merge) and #99 (drag-clamp
-through rejected layers); this is a fresh, more deterministic repro
-(delete-then-drag-up).
+the contact below it can no longer be dragged **up** — the two-ended drag
+cursor stops appearing and the contact is locked in place.
 
-**Root-cause hypothesis.** #152's drag clamp
-(`contactDragClampMinThicknessM` + soft bounds that respect the dragger's
-start depth) computes the upper bound from the neighbouring contact. After
-a delete, either (a) the clamp still references the deleted unit's stale
-boundary (a cached contacts array / rejected-stub not pruned), or (b) the
-soft floor is pinned to the dragged contact's pre-delete start depth so
-the freed space above isn't recognised. Investigate whether the contacts
-list / clamp bounds refresh synchronously after a litho delete (cf. the
-#147 stale-state-on-model-switch class).
+**Root cause (not the clamp).** The original #152-clamp hypothesis was
+DISPROVEN by a live repro: a guarded clamp diagnostic never fired, and the
+deleted contact is pruned from every array the clamp reads. The real cause
+is a **hit-strip overlap on the litho axis**. Each geological contact gets
+an invisible reference hit-strip (`referenceContactHitStrips`, right-click →
+"Edit in Geology stage"), rendered AFTER the litho drag-strips so it paints
+on top with `pointer-events: all`. That strip was suppressed only when a
+litho contact was **coupled** (`parent_geo_contact_id`) to the geo contact.
+But the #134 litho-geo snap dialog ("Snap litho" / "Move geo") leaves the
+litho and geo contacts at the **same depth without coupling them** — so the
+reference strip sat exactly on top of the litho drag-strip and ate its
+hover + mousedown. The deletion in the original repro was incidental; the
+trigger is litho/geo coincidence.
 
-**When to revisit.** Litho-finishing (Tier G). Good candidate to pin with
-the #138/#99 investigation — capture the exact contact set before/after
-the delete and watch the clamp bounds.
+**Fix.** `referenceContactHitStrips` now also suppresses a reference strip
+when a litho contact on the same anchor is **coincident** (within
+`REFERENCE_COINCIDENCE_EPSILON_M` = 1 cm), not only when coupled — same
+rationale as the coupled case (the litho contact's own strip handles drag,
+its menu still offers "Edit in Geology stage"). RS3 (ContactsLayer.test)
+pins the coincident-uncoupled case; RS2 (the 2 m-apart control) still keeps
+its strip. GD5 reworked: the old Slice-D z-order assertion (ref strip on
+top of a coincident litho contact) encoded this very bug and now asserts
+suppression. Commits 58236f87 / 1466bac8 / 049915df on develop.
+
+**Note.** The milder pixel-overlap variant (litho/geo *near but not
+exactly* coincident, ~5–15 cm at low zoom) is intentionally NOT covered —
+the 1 cm epsilon targets the snap-produced exact coincidence. Widen if
+dogfeed reports it.
 Filed from dogfeed session 2026-05-28.
 
 ## 160. Two-stage save for litho accepts + pending discard-on-close (Tier D — deferred big refactor)
