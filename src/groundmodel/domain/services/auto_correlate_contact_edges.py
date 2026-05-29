@@ -233,6 +233,7 @@ def auto_correlate_contact_edges(
     contacts: list[ContactRecord],
     locations: list[InvestigationLocation],
     params: AutoCorrelateContactParams | None = None,
+    adjacency: set[frozenset[UUID]] | None = None,
 ) -> list[ContactCorrelationCandidate]:
     """Run the contact-level auto-correlate algorithm.
 
@@ -244,6 +245,17 @@ def auto_correlate_contact_edges(
         Locations for every investigation referenced by ``contacts``.
     params : AutoCorrelateContactParams | None
         Algorithm tunables; defaults via the constants module.
+    adjacency : set[frozenset[UUID]] | None
+        Pre-computed adjacency gate — the set of investigation pairs eligible
+        to correlate.  When ``None`` (default) the function falls back to the
+        model-wide relative-neighbourhood graph in TRUE map (x, y) space.  The
+        section workflow passes SECTION-ALONG-ORDER adjacency instead (each
+        in-corridor column paired only with its immediate along-section
+        neighbours), because RNG neighbours in map space do NOT match the
+        section's left-to-right column order for off-line investigations — a
+        map-plane-adjacent pair renders as a CROSSING ribbon on the section
+        (dogfeed 2026-05-29: the anti-spaghetti gate produced section
+        spaghetti).  See ``AutoCorrelateContactEdges`` for the section gate.
 
     Returns
     -------
@@ -254,15 +266,17 @@ def auto_correlate_contact_edges(
     p = params or AutoCorrelateContactParams()
     loc_by_id = {loc.investigation_id: loc for loc in locations}
 
-    # Adjacency gate (#163a): restrict candidate column-pairs to
-    # relative-neighbourhood-graph neighbours so auto-correlate never links
-    # two tests with a third test between them ("spaghetti").  Computed once
-    # over the model's participating investigations — it is a property of the
-    # physical test layout, independent of the boundary-signature grouping.
-    participant_ids = {c.investigation_id for c in contacts}
-    adjacency = _relative_neighbourhood_adjacency(
-        participant_ids, loc_by_id, p.max_column_distance_m
-    )
+    # Adjacency gate (#163a): restrict candidate column-pairs so auto-correlate
+    # never links two tests with a third test between them ("spaghetti").  The
+    # caller may supply the gate (section-along-order); otherwise we compute the
+    # model-wide relative-neighbourhood graph over the participating
+    # investigations as the default (a property of the physical test layout,
+    # independent of the boundary-signature grouping).
+    if adjacency is None:
+        participant_ids = {c.investigation_id for c in contacts}
+        adjacency = _relative_neighbourhood_adjacency(
+            participant_ids, loc_by_id, p.max_column_distance_m
+        )
 
     # Group by boundary signature: same parent geology, same lithology
     # above the contact, same lithology below.  The three-tuple key
