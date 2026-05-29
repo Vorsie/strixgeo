@@ -9,6 +9,7 @@
 // FR4 — disabled buttons carry disabled:opacity-40.
 
 import { render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import Button from './Button'
@@ -45,5 +46,18 @@ describe('Button', () => {
     render(<Button disabled>Disabled</Button>)
     const btn = screen.getByRole('button', { name: /Disabled/ })
     expect(btn.className).toContain('disabled:opacity-40')
+  })
+
+  it('FR5 — forwards a ref to the underlying <button> (#165)', () => {
+    // Confirm dialogs need a ref on the Cancel button for default-focus;
+    // without forwardRef they fell back to a hand-styled plain <button>.
+    const ref = createRef<HTMLButtonElement>()
+    render(
+      <Button ref={ref} variant="secondary">
+        Cancel
+      </Button>,
+    )
+    expect(ref.current).toBeInstanceOf(HTMLButtonElement)
+    expect(ref.current?.textContent).toBe('Cancel')
   })
 })
