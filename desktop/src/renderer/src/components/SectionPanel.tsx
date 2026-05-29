@@ -40,8 +40,12 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  LensBoundaryNode,
+  LensBoundaryResponse,
+  LensRenderStyle,
   LithoContactCorrelationEdge,
   LithoLayerSuggestion,
+  LithoLensListItem,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
@@ -74,7 +78,11 @@ import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
+import LensWedgeOverlay from './sections/LensWedgeOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
+
+/** Stable empty map so the LensWedgeOverlay prop identity doesn't churn. */
+const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, LensBoundaryResponse> = new Map()
 import PinchOutGhostOverlay, {
   PinchOutConfirmPanel,
 } from './sections/PinchOutGhostOverlay'
@@ -639,6 +647,21 @@ interface Props {
    * ``CorrelationEdgesOverlay``. Absent = no right-click-delete affordance.
    */
   onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
+  /**
+   * Detected lens bodies for the active litho model (#163f Slice 2). When
+   * present, rendered as shapeable wedges by ``LensWedgeOverlay``. Absent =
+   * no lens wedges.
+   */
+  lenses?: readonly LithoLensListItem[]
+  /** Stored boundary shape per lens id (render style + control nodes). */
+  lensBoundaries?: ReadonlyMap<string, LensBoundaryResponse>
+  /** Full-replace a lens's boundary shape after a ghost-node drag/add. */
+  onSaveLensShape?: (
+    lensId: string,
+    upperNodes: LensBoundaryNode[],
+    lowerNodes: LensBoundaryNode[],
+    style: LensRenderStyle,
+  ) => void
 }
 
 export default function SectionPanel({
@@ -696,6 +719,9 @@ export default function SectionPanel({
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
+  lenses,
+  lensBoundaries,
+  onSaveLensShape,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -772,6 +798,18 @@ export default function SectionPanel({
   )
   const levelToScreen = useCallback(
     (level: number) => MARGIN.top + (effLevelMax - level) * scaleV,
+    [effLevelMax, scaleV],
+  )
+  // Inverses of the forward transforms (#163f) — used by LensWedgeOverlay to
+  // map a dragged ghost node's screen position back to section-local
+  // (along_m, elevation_m). Must invert the SAME forward transform used to
+  // render so render + commit stay consistent.
+  const screenXToAlong = useCallback(
+    (x: number) => (x - MARGIN.left) / scaleH + viewport.xMin,
+    [viewport.xMin, scaleH],
+  )
+  const screenToLevel = useCallback(
+    (y: number) => effLevelMax - (y - MARGIN.top) / scaleV,
     [effLevelMax, scaleV],
   )
 
@@ -2373,6 +2411,25 @@ export default function SectionPanel({
                 onUnapprovedDragStart={onUnapprovedDragStart}
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
                 onRequestDeleteEdge={onRequestDeleteEdge}
+              />
+            )}
+            {/* Lens wedges (#163f Slice 2) — detected lenses rendered as
+                shapeable tapering wedges with draggable ghost nodes. Litho
+                axis only; isolated from CorrelationEdgesOverlay. */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
+              <LensWedgeOverlay
+                lenses={lenses}
+                boundariesByLensId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
+                contacts={correlateContacts}
+                placedColumns={visibleColumns}
+                contactEdges={contactEdges ?? []}
+                alongToScreenX={xToScreen}
+                levelToScreen={levelToScreen}
+                screenXToAlong={screenXToAlong}
+                screenToLevel={screenToLevel}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                onSaveLensShape={onSaveLensShape}
               />
             )}
 

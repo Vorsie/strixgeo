@@ -27,6 +27,9 @@ import { Loader2, Route } from 'lucide-react'
 import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
+  LensBoundaryNode,
+  LensBoundaryResponse,
+  LensRenderStyle,
   LithoContactCorrelationEdge,
   LithoLensListItem,
 } from '../../../api/client'
@@ -419,6 +422,76 @@ export default function SectionsCanvas(): JSX.Element {
     // auto-correlate so the new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLitho, activeLithoModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
+
+  // #163f Slice 2 — detected lenses + their boundary shapes for LensWedge
+  // Overlay. Mirrors the contact-edge fetch (same nonce trigger: lenses are
+  // derived from approved edges, so they refresh whenever edges do).
+  const [lensList, setLensList] = useState<LithoLensListItem[]>([])
+  const [lensBoundaries, setLensBoundaries] = useState<
+    ReadonlyMap<string, LensBoundaryResponse>
+  >(new Map())
+
+  const refetchLensData = useCallback(async () => {
+    if (lithoModelId === null) {
+      setLensList([])
+      setLensBoundaries(new Map())
+      return
+    }
+    try {
+      const list = await api.geology.listLenses(project.id, lithoModelId)
+      setLensList(list)
+      // Fetch each lens's stored boundary (style + nodes). N small GETs; lenses
+      // are few. A batch endpoint is a future optimisation if N grows.
+      const entries = await Promise.all(
+        list.map(
+          async l =>
+            [l.id, await api.geology.getLensBoundary(project.id, lithoModelId, l.id)] as const,
+        ),
+      )
+      setLensBoundaries(new Map(entries))
+    } catch (err) {
+      log.warn('section', 'refetchLensData: listLenses/getLensBoundary failed', err)
+    }
+  }, [lithoModelId, project.id])
+
+  useEffect(() => {
+    if (!isLitho) {
+      setLensList([])
+      setLensBoundaries(new Map())
+      return
+    }
+    void refetchLensData()
+    // reason: same axes as the edge fetch; refetchLensData captures project.id +
+    // lithoModelId in its closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLitho, activeLithoModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
+
+  const handleSaveLensShape = useCallback(
+    async (
+      lensId: string,
+      upperNodes: LensBoundaryNode[],
+      lowerNodes: LensBoundaryNode[],
+      style: LensRenderStyle,
+    ): Promise<void> => {
+      if (!activeLithoModel) return
+      try {
+        const saved = await api.geology.saveLensBoundary(project.id, activeLithoModel.id, lensId, {
+          upper_nodes: upperNodes,
+          lower_nodes: lowerNodes,
+          render_style: style,
+        })
+        setLensBoundaries(prev => {
+          const next = new Map(prev)
+          next.set(lensId, saved)
+          return next
+        })
+      } catch (err) {
+        log.warn('section', 'handleSaveLensShape: saveLensBoundary failed', err)
+        toast('error', 'Could not save lens shape — see console.')
+      }
+    },
+    [activeLithoModel, project.id, toast],
+  )
 
   const handleCreateContactCorrelation = useCallback(
     async (contactAId: string, contactBId: string): Promise<void> => {
@@ -1784,6 +1857,10 @@ export default function SectionsCanvas(): JSX.Element {
               ? edge => void handleDeleteContactCorrelation(edge.contact_a_id, edge.contact_b_id)
               : undefined
           }
+          // #163f Slice 2 — lens wedges + shaping (litho axis only).
+          lenses={isLitho ? lensList : undefined}
+          lensBoundaries={lensBoundaries}
+          onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
