@@ -317,6 +317,45 @@ export function buildFillBand(
   return path
 }
 
+/** A column's surface-anchored depth ↔ screen-Y conversions (#168). */
+export interface SectionDepthAxis {
+  /** Screen Y of the column's surface (depth 0). */
+  surfaceY: number
+  /** Downward pixels per metre below the surface (positive: deeper = larger Y). */
+  pxPerMetreDown: number
+  /** Depth (m below surface) at a screen Y. Returns 0 for a degenerate axis. */
+  depthAtY: (y: number) => number
+  /** Screen Y of a depth (m below surface). */
+  yAtDepth: (depthM: number) => number
+}
+
+/**
+ * Build the depth ↔ screen-Y axis for one column from the section's
+ * ``levelToScreen`` transform and the column's surface elevation.
+ *
+ * Centralises the ``oneMetreDownPx`` / ``surfaceY`` / ``depthAtY`` math that
+ * ``BoreholeColumn`` and ``ContactPickBar`` each hand-rolled identically.
+ * Samples the rate at the surface (``s`` vs ``s − 1``) exactly as those sites
+ * did, so the result is byte-identical.
+ *
+ * @param levelToScreen - Section level → screen Y (linear).
+ * @param surfaceElevationM - The column's surface elevation (mTAW).
+ * @returns The column's depth axis (surfaceY, rate, and both conversions).
+ */
+export function depthAxisAtSurface(
+  levelToScreen: (level: number) => number,
+  surfaceElevationM: number,
+): SectionDepthAxis {
+  const surfaceY = levelToScreen(surfaceElevationM)
+  const pxPerMetreDown = levelToScreen(surfaceElevationM - 1) - surfaceY
+  return {
+    surfaceY,
+    pxPerMetreDown,
+    depthAtY: (y: number) => (pxPerMetreDown === 0 ? 0 : (y - surfaceY) / pxPerMetreDown),
+    yAtDepth: (depthM: number) => surfaceY + depthM * pxPerMetreDown,
+  }
+}
+
 /** Euclidean length of the section line, computed once from
  * endpoints. */
 export function sectionLengthM(section: CrossSectionResponse): number {
