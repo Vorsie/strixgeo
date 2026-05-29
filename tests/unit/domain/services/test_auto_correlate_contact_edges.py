@@ -111,8 +111,14 @@ def test_happy_path_three_columns_two_boundaries_each() -> None:
     assert len(result) == 4
 
 
-def test_boundary_signature_filter_rejects_different_below_litho() -> None:
-    """Two contacts with same above-lithology but different below-lithology don't pair."""
+def test_below_litho_no_longer_gates_pairing() -> None:
+    """Same main lithology pairs regardless of the unit below (#163 dogfeed 2026-05-29).
+
+    Two ZAND contacts whose below-lithology differs (KLEI vs SILT).  The old
+    (parent, above, below) signature blocked this; the lithology-only key
+    correlates them — the user's "silt-sand" case where one column has an extra
+    interbed below the sand.
+    """
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
         _make_contact(2, 11, 5.0, 99, "ZAND", "SILT"),
@@ -121,11 +127,19 @@ def test_boundary_signature_filter_rejects_different_below_litho() -> None:
         InvestigationLocation(_uid(10), 0.0, 0.0),
         InvestigationLocation(_uid(11), 50.0, 0.0),
     ]
-    assert auto_correlate_contact_edges(contacts, locations) == []
+    result = auto_correlate_contact_edges(contacts, locations)
+    assert len(result) == 1
+    pair = result[0]
+    assert {pair.contact_a_id, pair.contact_b_id} == {_uid(1), _uid(2)}
 
 
-def test_null_below_litho_matches_only_other_nulls() -> None:
-    """A deepest-contact (below=None) pairs only with another deepest-contact, not a ZAND→KLEI."""
+def test_below_litho_does_not_restrict_same_lithology() -> None:
+    """below=None no longer gates pairing — main-lithology grouping ignores it.
+
+    Previously a deepest contact (below=None) paired only with another
+    below=None; now the ZAND chain links purely by adjacency (10-11, 11-12;
+    10-12 blocked by 11) regardless of the below-code.
+    """
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", None),
         _make_contact(2, 11, 5.1, 99, "ZAND", None),
@@ -136,10 +150,34 @@ def test_null_below_litho_matches_only_other_nulls() -> None:
         InvestigationLocation(_uid(11), 50.0, 0.0),
         InvestigationLocation(_uid(12), 100.0, 0.0),
     ]
+    pairs = {
+        frozenset((c.contact_a_id, c.contact_b_id))
+        for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    assert frozenset((_uid(1), _uid(2))) in pairs
+    assert frozenset((_uid(2), _uid(3))) in pairs
+    assert len(pairs) == 2
+
+
+def test_different_parent_same_lithology_still_correlates() -> None:
+    """Same main lithology pairs even when the geological parent differs.
+
+    The user's "2nd silt" case (#163 dogfeed 2026-05-29): identical SILT
+    lithology, but one unit is parented to Holoceen and the other — mis-assigned
+    at a boundary — to Antropogeen.  The old (parent, ...) key blocked it; the
+    lithology-only key correlates them.
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 77, "SILT", "ZAND"),
+        _make_contact(2, 11, 5.0, 88, "SILT", "ZAND"),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+    ]
     result = auto_correlate_contact_edges(contacts, locations)
     assert len(result) == 1
-    pair = result[0]
-    assert {pair.contact_a_id, pair.contact_b_id} == {_uid(1), _uid(2)}
+    assert {result[0].contact_a_id, result[0].contact_b_id} == {_uid(1), _uid(2)}
 
 
 def test_distance_gate_rejects_far_pairs() -> None:
