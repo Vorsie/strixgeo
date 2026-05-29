@@ -71,6 +71,9 @@ const RIBBON_SEAM_COLOR = '#0f172a'
 const CONTACT_HIT_HEIGHT = 12
 /** Stroke colour for armed contact boundary line. */
 const CONTACT_ARM_COLOR = '#34d399'
+/** Lens-candidate marker colour (amber) — an enclosed contact that correlates
+ *  to neither neighbour, i.e. a layer that pinches out rather than continues. */
+const LENS_CANDIDATE_COLOR = '#f59e0b'
 /** Chip background (dark slate-blue, matches the prior edge badge). */
 const CHIP_BG = '#1e3a5f'
 /** Chip foreground (off-white). */
@@ -763,6 +766,41 @@ export default function CorrelationEdgesOverlay({
     [contacts, formationById],
   )
 
+  // Lens candidates (dogfeed 2026-05-29): a contact with NO correlation edge on
+  // either neighbour, but ENCLOSED by correlated contacts above AND below on
+  // its own column, is a stranded layer — a lens that pinches out, not a
+  // continuous horizon (the conceptual "no-target middle layer" case).  Mark it
+  // so the user reaches for the lens / pinch-out path rather than trying — and
+  // failing — to correlate it.  A non-enclosed un-correlated contact is just
+  // not-yet-processed, not a lens, so it is NOT flagged.
+  const lensCandidateIds = useMemo(() => {
+    const correlated = new Set<string>()
+    for (const e of contactEdges ?? []) {
+      correlated.add(e.contact_a_id)
+      correlated.add(e.contact_b_id)
+    }
+    const byInv = new Map<string, FormationContactResponse[]>()
+    for (const c of contacts) {
+      const inv = anchorId(c)
+      if (inv === null) continue
+      const bucket = byInv.get(inv)
+      if (bucket) bucket.push(c)
+      else byInv.set(inv, [c])
+    }
+    const out = new Set<string>()
+    for (const list of byInv.values()) {
+      const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+      for (let i = 0; i < sorted.length; i += 1) {
+        const c = sorted[i]
+        if (correlated.has(c.id)) continue
+        const hasAbove = sorted.slice(0, i).some(x => correlated.has(x.id))
+        const hasBelow = sorted.slice(i + 1).some(x => correlated.has(x.id))
+        if (hasAbove && hasBelow) out.add(c.id)
+      }
+    }
+    return out
+  }, [contacts, contactEdges])
+
   // Destructure contactGestureState with safe defaults so the render
   // block can use these without repeated optional-chain guards.
   const {
@@ -1281,6 +1319,35 @@ export default function CorrelationEdgesOverlay({
                     onArmContact(c.id)
                   }}
                 />
+              </g>
+            )
+          })}
+        </g>
+      )}
+
+      {/* Lens-candidate markers (dogfeed 2026-05-29): enclosed contacts with no
+          correlation on either neighbour — amber diamonds telling the user to
+          pinch out, not correlate. Correlate-mode only so the normal view stays
+          clean; purely visual (pointer-events none) — the band hit-rect beneath
+          still owns clicks. */}
+      {contactCorrelateMode && lensCandidateIds.size > 0 && (
+        <g data-testid="lens-candidate-markers" style={{ pointerEvents: 'none' }}>
+          {[...lensCandidateIds].map(id => {
+            const pt = contactScreenMap.get(id)
+            if (!pt) return null
+            const s = 5
+            return (
+              <g key={`lens-cand-${id}`} data-testid={`lens-candidate-${id}`}>
+                <path
+                  d={`M ${pt.x} ${pt.topY - s} L ${pt.x + s} ${pt.topY} L ${pt.x} ${pt.topY + s} L ${pt.x - s} ${pt.topY} Z`}
+                  fill="none"
+                  stroke={LENS_CANDIDATE_COLOR}
+                  strokeWidth={1.6}
+                />
+                <title>
+                  Lens candidate — no correlation on either neighbour. Pinch it out
+                  rather than correlate it.
+                </title>
               </g>
             )
           })}
