@@ -18,6 +18,7 @@ import {
   buildFillBand,
   collectSnapDepths,
   columnsBetween,
+  depthAxisAtSurface,
 } from './utils'
 
 function placedAt(x: number, id: string): PlacedColumn {
@@ -290,5 +291,40 @@ describe('buildFillBand — coloured band with pinch-out + floor handling', () =
 
   it('returns empty string when the top polyline is empty', () => {
     expect(buildFillBand([], [[{ x: 0, y: 0 }]], 50)).toBe('')
+  })
+})
+
+describe('depthAxisAtSurface — #168 shared depth↔screen axis', () => {
+  // A flipped section transform: deeper level → larger screen Y.
+  // levelToScreen(level) = top + (effLevelMax - level) * scaleV.
+  const top = 20
+  const scaleV = 8 // px per metre
+  const effLevelMax = 10
+  const levelToScreen = (level: number): number => top + (effLevelMax - level) * scaleV
+
+  it('DA1 — surfaceY + pxPerMetreDown match the hand-rolled sites', () => {
+    const surfaceElevationM = 5
+    const axis = depthAxisAtSurface(levelToScreen, surfaceElevationM)
+    expect(axis.surfaceY).toBe(levelToScreen(surfaceElevationM))
+    // Identical to the old oneMetreDownPx = levelToScreen(s-1) - levelToScreen(s).
+    expect(axis.pxPerMetreDown).toBe(
+      levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM),
+    )
+    expect(axis.pxPerMetreDown).toBe(scaleV)
+  })
+
+  it('DA2 — depthAtY is the inverse of yAtDepth', () => {
+    const axis = depthAxisAtSurface(levelToScreen, 5)
+    for (const depth of [0, 2.5, 9]) {
+      expect(axis.depthAtY(axis.yAtDepth(depth))).toBeCloseTo(depth, 6)
+    }
+    // depth 0 maps to the surface Y.
+    expect(axis.yAtDepth(0)).toBe(axis.surfaceY)
+  })
+
+  it('DA3 — degenerate axis (zero rate) returns depth 0 instead of dividing by zero', () => {
+    const axis = depthAxisAtSurface(() => 42, 5)
+    expect(axis.pxPerMetreDown).toBe(0)
+    expect(axis.depthAtY(100)).toBe(0)
   })
 })
