@@ -43,7 +43,7 @@ import {
   type BoreholeChannels,
 } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
-import { collectSnapDepths } from './utils'
+import { collectSnapDepths, depthAxisAtSurface } from './utils'
 
 // Which observation types render with patterned soil fills (DOV
 // codes drive the pattern) vs. solid card-style fills with a text
@@ -172,18 +172,15 @@ export default function BoreholeColumn({
   // Band Y extent in screen coords — surface at top, depth =
   // total_depth_m at bottom (clamped to the plot area). Used by the
   // click-to-place overlay to constrain the pickable region.
-  const surfaceY = levelToScreen(surfaceElevationM)
+  // Shared surface-anchored depth axis (#168): surfaceY + Y→depth inverse.
+  const axis = depthAxisAtSurface(levelToScreen, surfaceElevationM)
+  const surfaceY = axis.surfaceY
   const bottomY = levelToScreen(
     surfaceElevationM - (detail.total_depth_m ?? Number.POSITIVE_INFINITY),
   )
   const bandTopY = Math.max(plotTop, Math.min(plotBottom, surfaceY))
   const bandBottomY = Math.max(plotTop, Math.min(plotBottom, bottomY))
-  // Derive inverse Y → depth via the local px-per-metre rate.
-  const oneMetreDownPx =
-    levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM)
-  function depthAtY(y: number): number {
-    return oneMetreDownPx === 0 ? 0 : (y - surfaceY) / oneMetreDownPx
-  }
+  const depthAtY = axis.depthAtY
 
   function snapDepth(
     rawDepth: number,
