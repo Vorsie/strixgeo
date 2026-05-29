@@ -883,6 +883,24 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).toHaveBeenCalledWith('cb1')
   })
 
+  it('CE-HIT-LOW: clicking the lower half arms the boundary BELOW (next-deeper contact)', () => {
+    // cb1 (inv-B, 2 m) has cb2 (5 m) below it. cb1's lower half arms cb2, so
+    // clicking a unit's BOTTOM edge selects the bottom boundary — not the top
+    // (dogfeed 2026-05-29 regression: full-band targets armed the top).
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cb1-low'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cb2')
+  })
+
   it('CC2: clicking armed source again → onClearArmedContact', () => {
     const gesture = makeContactGestureState({ armedContactId: 'ca' })
     renderOverlay({
