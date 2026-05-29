@@ -667,6 +667,10 @@ export default function SectionsCanvas(): JSX.Element {
     draggedContactId: string
     /** Investigation id of the anchor contact (used to reject same-investigation drops). */
     anchorInvestigationId: string | null
+    /** Investigation id of the DRAGGED contact. When the drop lands on a
+     *  different contact on THIS same investigation (the layer's other
+     *  boundary), the gesture is a lens-split, not a retarget (#31). */
+    draggedInvestigationId: string | null
     /** Current cursor X in viewport coords (updated on mousemove). */
     cursorViewportX: number
     /** Current cursor Y in viewport coords (updated on mousemove). */
@@ -684,9 +688,13 @@ export default function SectionsCanvas(): JSX.Element {
       e.preventDefault()
       const draggedContactId = handle === 'a' ? edge.contact_a_id : edge.contact_b_id
       const anchorContactId = handle === 'a' ? edge.contact_b_id : edge.contact_a_id
-      // Resolve anchor investigation id to block same-investigation drops.
+      // Resolve anchor + dragged investigation ids. Anchor id blocks
+      // same-investigation-as-anchor drops; dragged id detects the lens-split
+      // gesture (drop on the layer's other boundary on the dragged test).
       const anchorContact = lithoContacts.find(c => c.id === anchorContactId)
       const anchorInvestigationId = anchorContact?.cpt_id ?? anchorContact?.borehole_id ?? null
+      const draggedContact = lithoContacts.find(c => c.id === draggedContactId)
+      const draggedInvestigationId = draggedContact?.cpt_id ?? draggedContact?.borehole_id ?? null
       log.debug(
         'section',
         `edgeDrag: start edge=${edge.id} handle=${handle} dragged=${draggedContactId} anchor=${anchorContactId}`,
@@ -697,6 +705,7 @@ export default function SectionsCanvas(): JSX.Element {
         anchorContactId,
         draggedContactId,
         anchorInvestigationId,
+        draggedInvestigationId,
         cursorViewportX: e.clientX,
         cursorViewportY: e.clientY,
       })
@@ -775,15 +784,71 @@ export default function SectionsCanvas(): JSX.Element {
         return
       }
 
-      log.info(
-        'section',
-        `edgeDrag: retarget edge=${edgeDrag.edge.id} ` +
-          `${edgeDrag.draggedContactId} → ${dropContactId} (anchor=${edgeDrag.anchorContactId})`,
-      )
-
       // Clear drag state immediately so the UI feels responsive.
       const capturedDrag = edgeDrag
       setEdgeDrag(null)
+
+      // Lens-split (#31): the drop landed on a DIFFERENT contact on the SAME
+      // investigation as the dragged endpoint — i.e. the layer's OTHER
+      // boundary. Instead of retargeting, keep + approve the original edge AND
+      // add an approved twin from the same anchor, so the anchor connects to
+      // BOTH boundaries (1↔2) and DetectLithoLenses materialises a wedge.
+      // ``createContactCorrelation`` is idempotent (re-creating an existing
+      // unapproved edge would NOT approve it), so delete the original first
+      // then create both fresh — both auto-approve. Works in both directions
+      // (drag the top boundary onto the base, or the base onto the top).
+      if (
+        capturedDrag.draggedInvestigationId !== null &&
+        dropInvestigationId === capturedDrag.draggedInvestigationId
+      ) {
+        log.info(
+          'section',
+          `edgeDrag: lens-split edge=${capturedDrag.edge.id} anchor=${capturedDrag.anchorContactId} ↔ ` +
+            `{${capturedDrag.draggedContactId}, ${dropContactId}}`,
+        )
+        try {
+          await api.geology.deleteContactCorrelation(
+            project.id,
+            capturedDrag.edge.model_id,
+            capturedDrag.edge.contact_a_id,
+            capturedDrag.edge.contact_b_id,
+            selectedSectionId,
+          )
+          // Re-create the original (now approved) + the twin to the dropped
+          // boundary. The second create completes the 1↔2 and triggers the
+          // lens materialisation server-side.
+          await api.geology.createContactCorrelation(
+            project.id,
+            capturedDrag.edge.model_id,
+            capturedDrag.anchorContactId,
+            capturedDrag.draggedContactId,
+            selectedSectionId,
+          )
+          await api.geology.createContactCorrelation(
+            project.id,
+            capturedDrag.edge.model_id,
+            capturedDrag.anchorContactId,
+            dropContactId,
+            selectedSectionId,
+          )
+          await refetchContactEdges()
+          void refetchLensData()
+          log.success('section', 'edgeDrag: lens created (anchor ↔ both boundaries)')
+          toast('success', 'Lens created — layer pinches out toward the neighbour.')
+        } catch (err) {
+          log.warn('section', 'edgeDrag: lens-split failed', err)
+          toast('error', 'Could not create the lens — try again.')
+          void refetchContactEdges()
+          void refetchLensData()
+        }
+        return
+      }
+
+      log.info(
+        'section',
+        `edgeDrag: retarget edge=${capturedDrag.edge.id} ` +
+          `${capturedDrag.draggedContactId} → ${dropContactId} (anchor=${capturedDrag.anchorContactId})`,
+      )
 
       try {
         // 1. Delete the original edge.
