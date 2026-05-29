@@ -133,6 +133,13 @@ interface UseProjectActions {
   applyViewStatePatch: (patch: Record<string, unknown>) => Promise<boolean>
   /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
   saveProject: () => Promise<boolean>
+  /** Revert the DB to the last-saved .gmproj file (replace-restore, #160):
+   *  re-read + parse the file and POST it to ``/restore?replace=true`` so the
+   *  project's children match the file EXACTLY — session creates, mutations,
+   *  and deletes are all undone. Backs the "Don't Save" close-flow branch.
+   *  Returns false (no-op) when there is no project or no file path (a
+   *  never-saved project — the caller falls back to deleting session creates). */
+  revertToLastSaved: () => Promise<boolean>
   /** Deep-duplicate the current project (DB + all CPTs/boreholes), write a
    * new .gmproj at a user-chosen path, and switch the hook to point at the
    * new project. Returns the duplicate on success, null on cancel/error. */
@@ -659,6 +666,55 @@ export function useProject(): UseProject {
     currentLumping,
   ])
 
+  // Revert-to-last-save (#160). Re-read the .gmproj file (the canonical
+  // last-saved snapshot) and POST it to /restore?replace=true so the DB's
+  // child collections are wiped + re-inserted to match the file EXACTLY —
+  // undoing every session create, mutation, AND delete. Backs the close-
+  // flow "Don't Save" branch: closing reverts the DB so the next open of
+  // this project is clean. The file on disk is never touched.
+  //
+  // Returns false (no-op) when there is no project or no file path: a
+  // never-saved project has no snapshot to revert to, so the caller falls
+  // back to deleting the session-created rows instead.
+  const revertToLastSaved = useCallback(async (): Promise<boolean> => {
+    if (project === null || filePath === null) return false
+    try {
+      const raw = await window.electron.readProjectFile(filePath)
+      const parsed = parseProjectFile(raw)
+      if (parsed === null) {
+        log.error('project', `revertToLastSaved: unrecognisable .gmproj at ${filePath}`)
+        return false
+      }
+      // Pass the full v3 collection set (incl. the litho_* arrays the
+      // 404→restore path historically omitted) so the revert is complete.
+      await api.project.restore(
+        project.id,
+        {
+          format_version: parsed.format_version,
+          project: parsed.project,
+          cpts: parsed.cpts,
+          boreholes: parsed.boreholes,
+          geological_formations: parsed.geological_formations,
+          geotechnical_units: parsed.geotechnical_units,
+          geological_models: parsed.geological_models,
+          cross_sections: parsed.cross_sections,
+          investigation_reviews: parsed.investigation_reviews,
+          litho_lenses: parsed.litho_lenses,
+          formation_absences: parsed.formation_absences,
+          litho_contact_correlation_edges: parsed.litho_contact_correlation_edges,
+          litho_lens_shapes: parsed.litho_lens_shapes,
+          litho_lens_boundary_nodes: parsed.litho_lens_boundary_nodes,
+        },
+        true,
+      )
+      log.success('project', `reverted ${project.name} to last save (${filePath})`)
+      return true
+    } catch (err) {
+      log.error('project', `revertToLastSaved failed for ${filePath}`, err)
+      return false
+    }
+  }, [project, filePath])
+
   // Revert in-memory changes back to the last-saved snapshot. Useful
   // for explicit "Revert" UX (not wired today) and as a building block
   // for the unsaved-changes dialog's Discard path.
@@ -820,6 +876,7 @@ export function useProject(): UseProject {
     applyMetadataDraft,
     applyViewStatePatch,
     saveProject,
+    revertToLastSaved,
     saveAsProject,
     discardEdits,
     archiveCurrent,
