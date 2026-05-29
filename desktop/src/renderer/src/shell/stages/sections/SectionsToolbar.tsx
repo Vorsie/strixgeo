@@ -868,26 +868,27 @@ export default function SectionsToolbar(): JSX.Element {
                           : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
                 testid: 'litho-accept-correlations',
               },
+              {
+                // Clear correlation suggestions (#179, moved under the
+                // Correlate caret per dogfeed 2026-05-29). Gated only on the
+                // model — NOT on section contacts — so the user can clear
+                // model-wide / off-section stale suggestions even when the
+                // current section has none. Because this item stays enabled
+                // when the section has 0 contacts, the Correlate primary then
+                // acts as a caret-fallback (opens this menu) rather than being
+                // fully disabled. Reversible via Auto-correlate.
+                icon: <Trash2 size={13} />,
+                label: 'Clear correlation suggestions',
+                onClick: () => {
+                  void handleClearSuggestions()
+                },
+                disabled: !activeLithoModel,
+                title: !activeLithoModel
+                  ? 'Create a lithostratigraphic model first'
+                  : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.',
+                testid: 'litho-clear-suggestions',
+              },
             ]}
-          />
-          {/* Clear suggestions (#179) — its own button, NOT a Correlate caret
-              item: it's gated only on the model (not on section contacts), so
-              the user can clear model-wide / off-section stale suggestions even
-              when the current section has none (the dogfeed case). Reversible
-              via Auto-correlate. */}
-          <ToolbarButton
-            icon={<Trash2 size={13} />}
-            label="Clear suggestions"
-            onClick={() => {
-              void handleClearSuggestions()
-            }}
-            disabled={!activeLithoModel}
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.'
-            }
-            testid="litho-clear-suggestions"
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
               operation that creates perpendicular companion sections for
