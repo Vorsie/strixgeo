@@ -42,7 +42,7 @@ from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -586,6 +586,68 @@ def _build_sample(
     return sample
 
 
+async def _wipe_project_scoped_rows(
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    logger: GroundModelLogger,
+) -> None:
+    """Delete every project-scoped CHILD collection, keeping the project shell.
+
+    Backs replace-restore (revert-to-last-save, debt #160): after the wipe the
+    idempotent restore insert re-materialises the whole bundle against an empty
+    project, so a close-without-save reverts creates, mutations, AND deletes.
+
+    Order is FK-safe and relies on the verified DB-level ``ON DELETE CASCADE``
+    map (bulk ``delete()`` fires DB cascades, not ORM-relationship cascades):
+
+    * ``geological_model`` is deleted by ``kind`` — geotechnical →
+      lithostratigraphic → geological — because ``parent_geological_model_id``
+      is ``ON DELETE RESTRICT`` (a child model pins its parent). Each model
+      delete CASCADEs to its formation contacts, contact-correlation edges,
+      lens metadata, and lens shapes (→ boundary nodes).
+    * ``geological_formation`` next — CASCADEs to any remaining formation
+      contacts, geotechnical units, formation absences, and formation-scoped
+      lens rows.
+    * ``cross_section`` / ``investigation_review`` / ``cpt`` / ``borehole`` are
+      independent project-scoped roots; deleting a cpt/borehole CASCADEs to its
+      series / child tree and to contacts anchored on it.
+
+    The project row itself is preserved — metadata revert is handled by the
+    separate metadata two-stage-save model. Runs in the caller's session;
+    wipe + insert + the caller's single commit are atomic.
+
+    Parameters
+    ----------
+    session
+        Async session whose transaction also carries the subsequent insert.
+    project_id
+        Project whose child collections are removed.
+    logger
+        Logger for the phase-summary line.
+    """
+    for kind in ("geotechnical", "lithostratigraphic", "geological"):
+        await session.execute(
+            delete(GeologicalModelOrm).where(
+                GeologicalModelOrm.app_project_id == project_id,
+                GeologicalModelOrm.kind == kind,
+            )
+        )
+    await session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == project_id)
+    )
+    await session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project_id)
+    )
+    await session.execute(
+        delete(InvestigationReviewOrm).where(InvestigationReviewOrm.app_project_id == project_id)
+    )
+    await session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await session.flush()
+    logger.info(f"replace-restore: wiped project-scoped rows for project {project_id}")
+
+
 async def _restore_project_bundle_impl(
     session: AsyncSession,
     project_id: UUID,
@@ -604,6 +666,7 @@ async def _restore_project_bundle_impl(
     litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
+    replace: bool = False,
 ) -> ProjectOrm:
     """Idempotently materialise a project + every child collection from a bundle.
 
@@ -649,6 +712,13 @@ async def _restore_project_bundle_impl(
         logger.info(f"restored project shell {project_id}")
     else:
         logger.info(f"project {project_id} already exists — leaving metadata untouched")
+
+    # ---- Replace mode: wipe child collections before re-inserting --------
+    # Revert-to-last-save (debt #160). Runs after the project shell is
+    # resolved (kept) and before any insert, in this same transaction, so the
+    # net effect is "project's children == the bundle exactly".
+    if replace:
+        await _wipe_project_scoped_rows(session, project_id, logger=logger)
 
     # ---- CPTs ------------------------------------------------------------
     existing_cpt_ids = set(
@@ -1464,11 +1534,21 @@ class ProjectBundleService(GroundModelLogger):
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
         litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
         litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+        *,
+        replace: bool = False,
     ) -> ProjectOrm:
         """Idempotently materialise the project tree from a bundle.
 
         See :func:`_restore_project_bundle_impl` for the per-section
         dedup / orphan-skip semantics.
+
+        Parameters
+        ----------
+        replace
+            When True, wipe the project's child collections before inserting
+            (revert-to-last-save, debt #160) so the project ends up matching
+            the bundle exactly. When False (default), insert is idempotent —
+            existing rows are skipped (the open-from-file path).
         """
         return await _restore_project_bundle_impl(
             self._session,
@@ -1487,6 +1567,7 @@ class ProjectBundleService(GroundModelLogger):
             litho_lens_shapes_payload,
             litho_lens_boundary_nodes_payload,
             logger=self,
+            replace=replace,
         )
 
 
@@ -1518,6 +1599,8 @@ async def restore_project_bundle(
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
     litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+    *,
+    replace: bool = False,
 ) -> ProjectOrm:
     """Backwards-compat wrapper — see ``ProjectBundleService.restore``."""
     return await ProjectBundleService(session).restore(
@@ -1535,4 +1618,5 @@ async def restore_project_bundle(
         litho_contact_correlation_edges_payload,
         litho_lens_shapes_payload,
         litho_lens_boundary_nodes_payload,
+        replace=replace,
     )
