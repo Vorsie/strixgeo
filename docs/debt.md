@@ -4183,11 +4183,15 @@ the close-flow "Don't Save" branch reverts. Slices:
   44bed339 / 86a3d92c / 30867e38 + tests c599811d / 38fb1a9c. Spec:
   `docs/superpowers/specs/2026-05-29-two-stage-save-replace-restore-design.md`.
 
-**Follow-up (open):** only the three core mutation handlers call `markMutated`. Other
-geology mutations (link/unlink litho↔geo, reorder, pinch-out, auto-correlate) don't yet
-flip the dirty flag, so an edit made ONLY through those won't prompt on close. Add
-`markMutated()` to each as dogfeed surfaces it. Project **metadata** revert stays on the
-separate metadata two-stage-save model.
+**Mutation coverage (expanded 2026-05-29).** `markMutated` now fires from contact edits
+(depth/delete/batch), link/unlink litho↔geo, dedupe, toggle-borehole, clear-litho-model,
+auto-correlate, clear-suggestions, delete (litho) model, and the section-local edits
+(lens-shape, correlation create/delete, Ctrl-drag edge duplicate/retarget). Commits
+f6135255 / bb6a92b9 + fixtures 285dbad3. **Still not flagged (known, low-priority):**
+GeologyInspector formation-property edits (reorder / rename / colour / pin) and model
+create/activate (deliberately excluded — bootstrap auto-create + navigation would dirty
+every open). Project **metadata** revert stays on the separate metadata two-stage-save
+model.
 
 (Original filing kept below for history.)
 
