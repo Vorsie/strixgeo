@@ -144,15 +144,15 @@ export default function LithoGeoSnapDialog({
         )}
 
         <div className="flex justify-end gap-2 flex-wrap">
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="md"
             onClick={onCancel}
             disabled={busy}
             data-testid="snap-cancel"
-            className="px-3.5 py-1.5 text-sm font-medium rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Cancel — keep separate
-          </button>
+          </Button>
           <Button
             variant="secondary"
             size="md"
@@ -162,18 +162,18 @@ export default function LithoGeoSnapDialog({
           >
             Move geological to litho
           </Button>
-          {/* Plain <button> for default-focus via ref — Button.tsx doesn't
-              forwardRef (same call-out as in ReCorrelateConfirmDialog). */}
-          <button
+          {/* Default-focused primary action (the snap). Button forwards the
+              ref (#165) so the old plain-<button> workaround is gone. */}
+          <Button
             ref={snapBtnRef}
-            type="button"
+            variant="primary"
+            size="md"
             onClick={() => onSnapToGeo(selectedId)}
             disabled={busy}
             data-testid="snap-litho-to-geo"
-            className="px-3.5 py-1.5 text-sm font-medium rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Snap litho to geological
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
