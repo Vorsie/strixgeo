@@ -909,11 +909,22 @@ export default function SectionPanel({
     // onClick — neither triggers this clear path).
     if (start === null) return
     if (e.shiftKey) return
+    // A click that landed on a correlate band hit-rect arms/correlates via its
+    // own onClick — don't also reset selection or clear the armed source here.
+    if ((e.target as Element | null)?.closest?.('[data-testid="contact-gesture-rects"]')) {
+      return
+    }
     const rect = e.currentTarget.getBoundingClientRect()
     const dx = Math.abs(e.clientX - rect.left - start.px)
     const dy = Math.abs(e.clientY - rect.top - start.py)
     if (dx < 3 && dy < 3) {
       setSelectionResetCounter(c => c + 1)
+      // Void click in correlate mode → clear the armed correlation source
+      // (dogfeed 2026-05-29): clicking empty space deselects the boundary,
+      // matching the section's deselect-on-background-click behaviour.
+      if (contactGestureState?.contactCorrelateMode) {
+        contactGestureState.onClearArmedContact()
+      }
     }
   }
 
