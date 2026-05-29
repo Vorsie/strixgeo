@@ -434,7 +434,10 @@ async def unlink_geo_from_contact(
 
 @router.post(
     "/models/{model_id}/contacts/{contact_id}/link-geo",
-    response_model=FormationContactResponse,
+    # Optional: the use case returns None when no geo contact is within
+    # tolerance — the response model must allow a null body or FastAPI raises
+    # a 500 ResponseValidationError on that (documented, valid) outcome.
+    response_model=FormationContactResponse | None,
     responses={
         200: {"description": "Linked successfully or no geo contact within tolerance (null body)."},
     },
