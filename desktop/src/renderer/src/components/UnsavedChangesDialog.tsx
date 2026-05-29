@@ -1,15 +1,12 @@
 // Save / Discard / Cancel prompt shown when the user tries to close a
 // project while the metadata editor has unsaved drafts.
 //
-// Three-button shape mirrors the Word / Pages / VS Code convention:
-// Save (commit + proceed), Discard (drop + proceed), Cancel (do nothing).
-// Cancel receives default focus so an accidental Enter doesn't drop
-// the drafts.
+// Three-button shape (Word / Pages / VS Code convention): Save (commit +
+// proceed), Discard (drop + proceed), Cancel (do nothing, default focus).
+// Thin wrapper over the generic ConfirmDialog (#165): Discard is the
+// secondary action, Save the primary confirm.
 
-import { useEffect, useRef } from 'react'
-
-import Button from './ui/Button'
-import Modal from './ui/Modal'
+import ConfirmDialog from './ui/ConfirmDialog'
 
 interface Props {
   open: boolean
@@ -29,69 +26,33 @@ export default function UnsavedChangesDialog({
   onDiscard,
   onCancel,
   busy = false,
-}: Props) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (open) cancelRef.current?.focus()
-  }, [open])
-
+}: Props): JSX.Element {
   return (
-    <Modal
+    <ConfirmDialog
       open={open}
-      onCancel={onCancel}
       labelledBy="unsaved-changes-title"
-      busy={busy}
-      cardClassName="w-96"
       testid="unsaved-changes-dialog"
-    >
-      <div className="p-5">
-        <h2
-          id="unsaved-changes-title"
-          className="text-sm font-semibold text-text-primary mb-1"
-        >
-          Save changes to{' '}
-          <span className="font-bold">{projectName}</span>?
-        </h2>
-        <p className="text-xs text-text-secondary mb-4">
-          The metadata editor has unsaved edits. If you discard, your
-          typed values will be lost; the database row stays as it was.
-        </p>
-        {/* Cancel uses a plain styled <button> so we can attach a ref
-            for default-focus — Button doesn't forwardRef today and adding
-            it for one site isn't worth the API surface. The other two
-            actions use the shared Button component for consistent
-            styling with the rest of the app. */}
-        <div className="flex justify-end gap-2">
-          <button
-            ref={cancelRef}
-            onClick={onCancel}
-            disabled={busy}
-            data-testid="unsaved-cancel"
-            className="px-3.5 py-1.5 text-sm font-medium rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            Cancel
-          </button>
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={onDiscard}
-            disabled={busy}
-            data-testid="unsaved-discard-and-close"
-          >
-            Discard
-          </Button>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={onSave}
-            disabled={busy}
-            data-testid="unsaved-save-and-close"
-          >
-            Save
-          </Button>
-        </div>
-      </div>
-    </Modal>
+      onCancel={onCancel}
+      busy={busy}
+      cancelTestid="unsaved-cancel"
+      title={
+        <>
+          Save changes to <span className="font-bold">{projectName}</span>?
+        </>
+      }
+      body="The metadata editor has unsaved edits. If you discard, your typed values will be lost; the database row stays as it was."
+      secondary={{
+        label: 'Discard',
+        onClick: onDiscard,
+        variant: 'ghost',
+        testid: 'unsaved-discard-and-close',
+      }}
+      confirm={{
+        label: 'Save',
+        onClick: onSave,
+        variant: 'primary',
+        testid: 'unsaved-save-and-close',
+      }}
+    />
   )
 }
