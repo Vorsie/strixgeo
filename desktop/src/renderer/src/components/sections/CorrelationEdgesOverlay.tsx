@@ -1180,8 +1180,20 @@ export default function CorrelationEdgesOverlay({
             })
             if (!col) return null
             const hw = col.width / 2
-            const rectY = pt.topY - CONTACT_HIT_HEIGHT / 2
             const isArmed = armedContactId === c.id
+            // Full-band hit target (dogfeed 2026-05-29): clicking anywhere in a
+            // band arms its TOP contact, so the band body — not just the thin
+            // boundary line — is clickable.  Bands are contiguous and
+            // non-overlapping, so a click resolves to exactly one band → one
+            // contact; stacked lenses each get their own zone unambiguously
+            // (no need to suppress correlation there).  Falls back to a thin
+            // strip on the boundary line when the band geometry is unavailable.
+            const invId = anchorId(c)
+            const band = invId
+              ? bandRect(invId, c.formation_id, bandMap, levelToScreen, plotTop, plotBottom, hw)
+              : null
+            const rectY = band ? band.topY : pt.topY - CONTACT_HIT_HEIGHT / 2
+            const rectH = band ? band.botY - band.topY : CONTACT_HIT_HEIGHT
             return (
               <g key={`contact-hit-${c.id}`}>
                 {/* Visible indicator line when this contact is armed */}
@@ -1203,7 +1215,7 @@ export default function CorrelationEdgesOverlay({
                   x={pt.x - hw}
                   y={rectY}
                   width={hw * 2}
-                  height={CONTACT_HIT_HEIGHT}
+                  height={rectH}
                   fill="transparent"
                   stroke={isArmed ? CONTACT_ARM_COLOR : 'transparent'}
                   strokeWidth={isArmed ? 1 : 0}
