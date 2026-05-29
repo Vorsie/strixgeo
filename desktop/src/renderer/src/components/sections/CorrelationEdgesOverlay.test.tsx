@@ -1113,3 +1113,68 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('b')
   })
 })
+
+describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)', () => {
+  const fA = makeFormation('f-a', 'Zand', 1)
+  const contacts = [
+    makeContact('a-top', 'f-a', 'inv-A', 'cpt', 1.0),
+    makeContact('a-mid', 'f-a', 'inv-A', 'cpt', 5.0), // enclosed, un-correlated
+    makeContact('a-bot', 'f-a', 'inv-A', 'cpt', 9.0),
+    makeContact('b-top', 'f-a', 'inv-B', 'cpt', 1.0),
+    makeContact('b-bot', 'f-a', 'inv-B', 'cpt', 9.0),
+  ]
+  const columns = [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)]
+  const mk = (id: string, a: string, b: string) => ({
+    id,
+    contact_a_id: a,
+    contact_b_id: b,
+    model_id: 'm1',
+    source: 'manual',
+    user_approved: true,
+    created_at: '2026-01-01T00:00:00Z',
+  })
+  const edges = [mk('e-top', 'a-top', 'b-top'), mk('e-bot', 'a-bot', 'b-bot')]
+
+  it('marks an enclosed un-correlated contact as a lens candidate (correlate mode)', () => {
+    const { queryByTestId } = renderOverlay({
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: edges,
+      contactGestureState: makeContactGestureState(),
+    })
+    expect(queryByTestId('lens-candidate-a-mid')).not.toBeNull()
+    expect(queryByTestId('lens-candidate-a-top')).toBeNull()
+    expect(queryByTestId('lens-candidate-a-bot')).toBeNull()
+  })
+
+  it('hides candidate markers outside correlate mode', () => {
+    const { queryByTestId } = renderOverlay({
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: edges,
+    })
+    expect(queryByTestId('lens-candidate-a-mid')).toBeNull()
+  })
+
+  it('does not flag a non-enclosed un-correlated contact', () => {
+    const { queryByTestId } = renderOverlay({
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: [edges[0]], // only the top correlated → a-mid not enclosed below
+      contactGestureState: makeContactGestureState(),
+    })
+    expect(queryByTestId('lens-candidate-a-mid')).toBeNull()
+  })
+})
