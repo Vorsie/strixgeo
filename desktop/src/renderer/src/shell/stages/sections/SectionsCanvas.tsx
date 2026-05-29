@@ -589,6 +589,29 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated],
   )
 
+  // Right-click a lens wedge → dissolve the lens (dogfeed 2026-05-29).
+  // A lens IS its two defining correlation edges (above↔pinch, below↔pinch);
+  // the metadata-only DELETE endpoint would leave the body in the graph and
+  // the detector would re-create it.  Deleting both edges removes the #135
+  // topology, so DetectLithoLenses (fired by the uncorrelate path) reconciles
+  // the lens row away.  refetchLensData refreshes the wedge overlay.
+  const handleDeleteLens = useCallback(
+    async (aboveId: string, belowId: string, targetId: string): Promise<void> => {
+      if (
+        !window.confirm(
+          'Delete this lens? This removes the two correlations that define it.',
+        )
+      ) {
+        return
+      }
+      log.info('section', `delete-lens: dissolving ${aboveId}/${belowId} ↔ ${targetId}`)
+      await handleDeleteContactCorrelation(aboveId, targetId)
+      await handleDeleteContactCorrelation(belowId, targetId)
+      void refetchLensData()
+    },
+    [handleDeleteContactCorrelation, refetchLensData],
+  )
+
   // Right-click "Delete contact" gesture from the section overlay.
   // Presents window.confirm (irreversible action), delegates to the
   // existing handleDeleteContact from the geoModel bus (which owns
@@ -1931,6 +1954,7 @@ export default function SectionsCanvas(): JSX.Element {
           lenses={isLitho ? lensList : undefined}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
+          onDeleteLens={isLitho ? handleDeleteLens : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
