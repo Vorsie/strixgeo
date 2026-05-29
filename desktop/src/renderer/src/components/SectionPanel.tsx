@@ -2160,6 +2160,15 @@ export default function SectionPanel({
               contacts={contacts}
               formations={formations}
               placedColumns={visibleColumns}
+              // #159-followup: the active model's cross-column formation
+              // surfaces (TIN slice + connect-the-dots) group BY FORMATION
+              // and auto-join same-lithology contacts across columns,
+              // ignoring the explicit correlation graph.  Wrong on the
+              // litho axis — connectivity there is the user's explicit
+              // correlation ribbons, not an auto-join (confirmed via the
+              // dashed-inventory diagnostic, 2026-05-29).  Geological axis
+              // keeps them (formations ARE laterally continuous).
+              renderFormationSurfaces={axisMode !== 'lithostratigraphic'}
               // Debt #142 follow-up — the post-accept hide of litho
               // suggestion ghosts removed the bold colour fill the user
               // previously read as "this band is a SAND / SILT / CLAY
