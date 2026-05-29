@@ -210,6 +210,7 @@ async def get_project_bundle(
 async def restore_project(
     project_id: UUID,
     request: ProjectBundleRequest,
+    replace: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
     """Idempotently materialise a project row + its CPTs + boreholes from a bundle.
@@ -218,6 +219,13 @@ async def restore_project(
     longer has the rows the file points at — typically because the user
     wiped the local DB while a .gmproj still lives on disk. The file is
     the user's anchor; the DB is just a cache.
+
+    Replace mode (``?replace=true``) backs the "Don't Save" / revert-to-last-
+    save flow (debt #160): the project's child collections are wiped before
+    the insert (same transaction), so the project ends up matching the bundle
+    EXACTLY — session creates, mutations, AND deletes are all reverted. The
+    project shell row is preserved. Defaults to false (the open-from-file path
+    is unchanged).
 
     Behaviour:
 
@@ -266,6 +274,7 @@ async def restore_project(
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
             litho_lens_shapes_payload=request.litho_lens_shapes,
             litho_lens_boundary_nodes_payload=request.litho_lens_boundary_nodes,
+            replace=replace,
         )
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.
