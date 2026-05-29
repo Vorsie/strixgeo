@@ -79,6 +79,7 @@ function makeUseProjectStub(): UseProject {
     applyMetadataDraft: vi.fn(),
     applyViewStatePatch: vi.fn().mockResolvedValue(true),
     saveProject: vi.fn().mockResolvedValue(true),
+    revertToLastSaved: vi.fn().mockResolvedValue(false),
     saveAsProject: vi.fn().mockResolvedValue(null),
     discardEdits: vi.fn(),
     archiveCurrent: vi.fn().mockResolvedValue(undefined),

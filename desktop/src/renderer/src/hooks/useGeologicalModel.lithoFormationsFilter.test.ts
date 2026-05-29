@@ -178,6 +178,7 @@ function makeArgs() {
     currentLumping: null,
     stageLumping: vi.fn(),
     requestCorrelationEdgesRefetch: vi.fn(),
+    markMutated: vi.fn(),
   }
 }
 

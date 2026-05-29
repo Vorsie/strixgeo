@@ -275,6 +275,7 @@ function makeArgs() {
       currentLumping: null as import('../utils/projectFile').StratigraphyLumping | null,
       stageLumping: vi.fn(),
       requestCorrelationEdgesRefetch,
+      markMutated: vi.fn(),
     },
     toast,
   }

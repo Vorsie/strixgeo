@@ -148,6 +148,7 @@ function makeHook(options: {
       currentLumping: options.currentLumping ?? null,
       stageLumping,
       requestCorrelationEdgesRefetch: vi.fn(),
+      markMutated: vi.fn(),
     })),
     stageLumping,
   }
