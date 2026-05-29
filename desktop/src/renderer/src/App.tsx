@@ -111,6 +111,7 @@ export default function App() {
     applyMetadataDraft,
     applyViewStatePatch,
     saveProject: saveMetadata,
+    revertToLastSaved,
     saveAsProject,
     closeProject,
     stageLumping,
@@ -351,6 +352,23 @@ export default function App() {
     [setSessionImportFormationIds, setSessionImportContactIds],
   )
 
+  // Two-stage save / dirty (#160). Geology MUTATIONS (depth drag, delete,
+  // batch update) change pre-existing rows that never flow through the
+  // session-import manifest, so without this flag they would never mark the
+  // project dirty — the close prompt wouldn't fire and the edits would
+  // silently survive a close-without-save. ``markMutated`` is injected into
+  // useGeologicalModel; the flag is OR'd into ``projectDirty`` and cleared on
+  // save / revert / project switch. Decoupled from the session-import
+  // delete-manifest: a mutated row must NOT be deleted on discard — the
+  // replace-restore reverts it instead.
+  const [hasUnsavedMutations, setHasUnsavedMutations] = useState(false)
+  const markMutated = useCallback(() => setHasUnsavedMutations(true), [])
+  // Reset on project open / close / switch: a fresh project starts clean,
+  // and a close-without-save tears the project down (id → undefined).
+  useEffect(() => {
+    setHasUnsavedMutations(false)
+  }, [project?.id])
+
   // Geological model — formations, contacts, TIN surfaces, and all
   // mutation handlers (create / update / delete / batch, auto-populate,
   // dedupe, rebuild, Plaxis export, borehole toggle). The cluster is
@@ -368,6 +386,7 @@ export default function App() {
     currentLumping,
     stageLumping,
     requestCorrelationEdgesRefetch,
+    markMutated,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
   // result is handed to the shell as `geoModel: geo` (below) — never a
@@ -436,6 +455,9 @@ export default function App() {
     activeGeologicalModel,
     stageLumping,
     currentLumping,
+    hasUnsavedMutations,
+    setHasUnsavedMutations,
+    revertToLastSaved,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
