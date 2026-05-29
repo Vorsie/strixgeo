@@ -192,26 +192,55 @@ def test_adjacent_only_keeps_consecutive_chain_not_skip_over_diagonals() -> None
     assert len(pairs) == 3
 
 
-def test_depth_window_param_widens_what_correlates() -> None:
-    """#163b — the depth-match window is user-tunable.
+def test_dipping_bed_correlates_with_default_window() -> None:
+    """#163 dogfeed 2026-05-29 — a realistically-dipping bed must correlate.
 
-    Two contacts on neighbouring tests 50 m apart with a 0.8 m depth
-    residual.  The default window (~0.6 m at this distance) rejects the
-    pair; a widened ``base_depth_threshold_m=1.0`` accepts it — the knob
-    the Settings control feeds.
+    Two adjacent tests ~50 m apart, identical boundary signature, but the
+    shared horizon dips ~1 m (9.01 m vs 10.08 m — a ~2% gradient, totally
+    ordinary geology). With the old window (0.5 + 0.002·dist ≈ 0.6 m at 50 m)
+    this obvious correlation was silently missed. The default window must be
+    generous enough to catch ordinary dip — RNG adjacency already prevents
+    spaghetti, so a wide window is safe.
+    """
+    contacts = [
+        # Left column: ZAND-on-KLEI at 9.01, KLEI (deepest) at 15.0.
+        _make_contact(1, 10, 9.01, 99, "ZAND", "KLEI"),
+        _make_contact(2, 10, 15.0, 99, "KLEI", None),
+        # Right column: same signature, ZAND top dips to 10.08 (1.07 m deeper).
+        _make_contact(3, 11, 10.08, 99, "ZAND", "KLEI"),
+        _make_contact(4, 11, 14.9, 99, "KLEI", None),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),  # ~50 m apart
+    ]
+    pairs = {
+        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    # The dipping ZAND boundary must correlate with the DEFAULT params.
+    assert (_uid(1), _uid(3)) in pairs
+
+
+def test_depth_window_param_widens_what_correlates() -> None:
+    """#163b — the depth-match window base is user-tunable.
+
+    Two contacts on neighbouring tests 50 m apart with a 3.5 m depth
+    residual.  The default window (0.5 + 0.05·50 = 3.0 m at this distance)
+    rejects the pair; a widened ``base_depth_threshold_m=1.5`` (→ 4.0 m
+    window) accepts it — the knob the Settings control feeds.
     """
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
-        _make_contact(2, 11, 5.8, 99, "ZAND", "KLEI"),
+        _make_contact(2, 11, 8.5, 99, "ZAND", "KLEI"),
     ]
     locations = [
         InvestigationLocation(_uid(10), 0.0, 0.0),
         InvestigationLocation(_uid(11), 50.0, 0.0),
     ]
-    # Default window is too tight for a 0.8 m residual.
+    # Default window (3.0 m at 50 m) is too tight for a 3.5 m residual.
     assert auto_correlate_contact_edges(contacts, locations) == []
-    # Widened window lets the pair through.
-    widened = AutoCorrelateContactParams(base_depth_threshold_m=1.0)
+    # Widening the base to 1.5 m (→ 4.0 m window) lets the pair through.
+    widened = AutoCorrelateContactParams(base_depth_threshold_m=1.5)
     result = auto_correlate_contact_edges(contacts, locations, widened)
     assert {(_uid(1), _uid(2))} == {(c.contact_a_id, c.contact_b_id) for c in result}
 

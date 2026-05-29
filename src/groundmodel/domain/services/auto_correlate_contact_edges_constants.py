@@ -20,10 +20,16 @@ MAX_COLUMN_DISTANCE_M: float = 200.0
 BASE_DEPTH_THRESHOLD_M: float = 0.5
 
 # Linear relaxation of the depth window per metre of horizontal column
-# separation.  At MAX_COLUMN_DISTANCE_M (200 m) this adds 0.4 m of
-# tolerance — accounting for genuine dip + survey/elevation drift across
-# the corridor without inflating the window so much that everything pairs.
-DISTANCE_FACTOR: float = 0.002
+# separation — the allowable bed DIP between two tests.  Raised from 0.002
+# to 0.05 (dogfeed 2026-05-29, #163): the old 0.2%-gradient tolerance assumed
+# near-flat beds and silently dropped obvious correlations where a horizon
+# dipped a realistic ~1 m over ~50 m (a ~2% gradient).  5% covers ordinary
+# dip with margin; at 50 m the window is ~3 m, at the 200 m cap ~10.5 m.
+# Crucially this no longer risks spaghetti: the relative-neighbourhood-graph
+# adjacency gate (#163a) already restricts pairing to adjacent tests, so a
+# generous window only decides whether ADJACENT boundaries pair, never
+# whether distant ones do.
+DISTANCE_FACTOR: float = 0.05
 
 # Provenance tag written to ``litho_contact_correlation_edge.source`` for
 # rows produced by this algorithm.  Mirrors the formation-level "auto"
