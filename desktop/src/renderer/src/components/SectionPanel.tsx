@@ -1139,6 +1139,20 @@ export default function SectionPanel({
       ? virtueleBoringGhostRailWidth(virtueleBoringActiveModelsForLayout.length)
       : 0
 
+  // Anchors that render a litho suggestion ghost on this section. Their band
+  // is drawn ``2 * bandHalfWidth`` wide regardless of whether the CPT data
+  // band is shown, so the column-nudge footprint must reserve that width or
+  // adjacent litho bands overlap into an unreadable smear for closely-spaced
+  // tests (#28 dogfeed 2026-05-29).
+  const lithoGhostAnchorIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (lithoGhostState != null) ids.add(lithoGhostState.investigationId)
+    if (bulkLithoGhostState != null) {
+      for (const anchorId of bulkLithoGhostState.anchorGhosts.keys()) ids.add(anchorId)
+    }
+    return ids
+  }, [lithoGhostState, bulkLithoGhostState])
+
   const placedColumns = useMemo<PlacedColumn[]>(() => {
     // ``columnSpacing`` lerps between two layouts, both collision-safe:
     //
@@ -1177,6 +1191,11 @@ export default function SectionPanel({
     // condition for the ghosts NOT to overlap column[i+1]'s band.
     // The extra is symmetric (both sides) for nudge math symmetry —
     // a small over-spacing on the leftmost column is acceptable.
+    // Litho band footprint (#28): a suggestion ghost draws ``2 * bandHalfWidth``
+    // wide even when the data band is off, so reserve at least that so the
+    // nudge keeps adjacent litho bands from overlapping.
+    const lithoBandW = (id: string): number =>
+      lithoGhostAnchorIds.has(id) ? 2 * bandHalfWidth : 0
     const rawItems: (RawCpt | RawBh)[] = [
       ...projectedCpts.map((proj): RawCpt => {
         const trackW = cptPlots?.has(proj.item.id)
@@ -1186,7 +1205,10 @@ export default function SectionPanel({
           kind: 'cpt',
           proj,
           trueX: xToScreen(proj.along),
-          visualWidth: BARE_COLUMN_WIDTH_PX + trackW + ghostFootprintForLayout,
+          visualWidth:
+            BARE_COLUMN_WIDTH_PX +
+            Math.max(trackW, lithoBandW(proj.item.id)) +
+            ghostFootprintForLayout,
         }
       }),
       ...projectedBoreholes.map((proj): RawBh => {
@@ -1197,7 +1219,10 @@ export default function SectionPanel({
           kind: 'borehole',
           proj,
           trueX: xToScreen(proj.along),
-          visualWidth: BARE_COLUMN_WIDTH_PX + stripsW + ghostFootprintForLayout,
+          visualWidth:
+            BARE_COLUMN_WIDTH_PX +
+            Math.max(stripsW, lithoBandW(proj.item.id)) +
+            ghostFootprintForLayout,
         }
       }),
     ]
@@ -1265,6 +1290,7 @@ export default function SectionPanel({
     columnSpacing,
     enabledBhChannels,
     ghostFootprintForLayout,
+    lithoGhostAnchorIds,
   ])
 
   // Virtuele Boring overlay — index the predictions by
