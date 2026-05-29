@@ -4162,7 +4162,38 @@ the 1 cm epsilon targets the snap-produced exact coincidence. Widen if
 dogfeed reports it.
 Filed from dogfeed session 2026-05-28.
 
-## 160. Two-stage save for litho accepts + pending discard-on-close (Tier D — deferred big refactor)
+## 160. Two-stage save — revert-to-last-save on close (Tier D) — SHIPPED 2026-05-29
+
+**SHIPPED 2026-05-29 ("B", owner directive 2026-05-29 — promoted above the litho
+gate).** Approach: instead of a per-mutation staged-commit layer (the heavy option
+below), close-without-save **reverts the DB to the last-saved .gmproj** via a new
+**replace-restore**. The DB stays the live source of truth during the session; only
+the close-flow "Don't Save" branch reverts. Slices:
+- **Backend:** `_wipe_project_scoped_rows` + `restore(..., replace=True)` +
+  `POST /projects/{id}/restore?replace=true` — wipe the project's child collections
+  (geological models by `kind` for the RESTRICT self-FK, then formations / sections /
+  reviews / cpts / boreholes; DB cascades the rest) then the existing idempotent
+  insert, in one transaction → DB matches the bundle EXACTLY. Integration test pins
+  mutation/create/delete revert. Commits 2b0760db / 978876b3 / fb4e6325.
+- **Frontend:** `hasUnsavedMutations` flag set by `handleUpdateContactDepth` /
+  `handleDeleteContact` / `handleBatchUpdateContacts` (OR'd into `projectDirty` so the
+  close prompt fires); `revertToLastSaved` re-reads the .gmproj and replace-restores;
+  `handleUnsavedDiscard` reverts (saved project) or falls back to discardSessionImports
+  (never-saved), full project reload on the next open. Commits 8b6b955e / 7e7c3d70 /
+  44bed339 / 86a3d92c / 30867e38 + tests c599811d / 38fb1a9c. Spec:
+  `docs/superpowers/specs/2026-05-29-two-stage-save-replace-restore-design.md`.
+
+**Follow-up (open):** only the three core mutation handlers call `markMutated`. Other
+geology mutations (link/unlink litho↔geo, reorder, pinch-out, auto-correlate) don't yet
+flip the dirty flag, so an edit made ONLY through those won't prompt on close. Add
+`markMutated()` to each as dogfeed surfaces it. Project **metadata** revert stays on the
+separate metadata two-stage-save model.
+
+(Original filing kept below for history.)
+
+---
+
+## 160 (filing). Two-stage save for litho accepts + pending discard-on-close
 
 **What.** Owner dogfeed 2026-05-28 (re-raised, with a wink): "if i close,
 non-accepted lithos [should be discarded] and accepted lithos should also
