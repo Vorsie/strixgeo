@@ -29,6 +29,7 @@ from groundmodel.domain.services.auto_correlate_contact_edges_constants import (
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -36,6 +37,10 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
+)
+from groundmodel.infrastructure.gis.section_projection import (
+    SectionEndpoints,
+    project_point_onto_line,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -83,6 +88,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         project_id: UUID,
         model_id: UUID,
         params: AutoCorrelateContactParams | None = None,
+        section_id: UUID | None = None,
     ) -> AutoCorrelateContactResult:
         """Run the use case.
 
@@ -207,8 +213,31 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             f"{len(bh_locs)} borehole location(s) loaded"
         )
 
-        # 5. Run the pure-domain algorithm.
-        candidates = auto_correlate_contact_edges(contact_records, locations, params)
+        # 5. Build the adjacency gate.  When a section is given, pair each
+        #    in-corridor, contact-bearing investigation only with its immediate
+        #    along-section neighbours (consecutive projected columns) so
+        #    correlations follow the section's left-to-right order.  Map-plane
+        #    RNG (the domain default) does NOT match the section's column order
+        #    for off-line tests — a map-adjacent pair crosses an intervening
+        #    column and renders as a spaghetti ribbon on the section
+        #    (dogfeed 2026-05-29).  No section → adjacency=None → model-wide RNG.
+        section_adjacency: set[frozenset[UUID]] | None = None
+        if section_id is not None:
+            section_adjacency = await self._section_along_adjacency(
+                project_id=project_id,
+                section_id=section_id,
+                locations=locations,
+                participant_ids={r.investigation_id for r in contact_records},
+            )
+            self.debug(
+                f"AutoCorrelateContactEdges: section {section_id} → "
+                f"{len(section_adjacency)} consecutive along-section pair(s)"
+            )
+
+        # 6. Run the pure-domain algorithm.
+        candidates = auto_correlate_contact_edges(
+            contact_records, locations, params, adjacency=section_adjacency
+        )
         self.debug(f"AutoCorrelateContactEdges: {len(candidates)} candidate pair(s)")
 
         # 6. Bulk-insert with ON CONFLICT DO NOTHING (Postgres-specific).
@@ -247,3 +276,80 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             edges_created=edges_created,
             edges_skipped_existing=edges_skipped,
         )
+
+    async def _section_along_adjacency(
+        self,
+        *,
+        project_id: UUID,
+        section_id: UUID,
+        locations: list[InvestigationLocation],
+        participant_ids: set[UUID],
+    ) -> set[frozenset[UUID]]:
+        """Adjacency = consecutive contact-bearing columns along the section.
+
+        Projects every contact-bearing, in-corridor (within the section's
+        ``projection_buffer_m``, not explicitly excluded) investigation onto the
+        section line, orders them by along-distance, and returns the set of
+        immediate-neighbour pairs.  This is the section-editor's notion of
+        "adjacent" — consecutive columns left-to-right — which the user expects
+        correlations to follow, in contrast to the model-wide map-plane RNG.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project — the section must belong to it (scope guard).
+        section_id : UUID
+            The cross-section whose along-order defines adjacency.
+        locations : list[InvestigationLocation]
+            Planar (x, y) of every project investigation (CPTs + boreholes).
+        participant_ids : set[UUID]
+            Investigations that have at least one contact in the model — only
+            these can correlate, so a contactless column never splits two
+            contact-bearing neighbours apart.
+
+        Returns
+        -------
+        set[frozenset[UUID]]
+            Canonical unordered pairs of along-section-consecutive
+            investigations.  Empty when fewer than two qualify.
+
+        Raises
+        ------
+        ValueError
+            When the section does not exist in ``project_id``.
+        """
+        section = (
+            await self._session.execute(
+                select(CrossSectionOrm).where(
+                    CrossSectionOrm.id == section_id,
+                    CrossSectionOrm.app_project_id == project_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if section is None:
+            raise ValueError(f"Section {section_id} not found in project {project_id}")
+
+        endpoints = SectionEndpoints(
+            start_x=section.start_x,
+            start_y=section.start_y,
+            end_x=section.end_x,
+            end_y=section.end_y,
+        )
+        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
+
+        on_section: list[tuple[float, UUID]] = []
+        for loc in locations:
+            iid = loc.investigation_id
+            if iid not in participant_ids or iid in excluded:
+                continue
+            res = project_point_onto_line(endpoints, loc.x, loc.y)
+            if res is None:
+                continue
+            if abs(res.offset) <= section.projection_buffer_m:
+                on_section.append((res.along, iid))
+
+        on_section.sort(key=lambda t: t[0])
+        adjacency: set[frozenset[UUID]] = set()
+        for i in range(len(on_section) - 1):
+            adjacency.add(frozenset((on_section[i][1], on_section[i + 1][1])))
+        return adjacency
