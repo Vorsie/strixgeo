@@ -381,3 +381,78 @@ async def test_materialise_404_on_unknown_model(
         f"/projects/{pid}/geology/models/{unknown_mid}/lens-companions/materialise"
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /contact-correlations/auto — "Clear suggestions" (#179)
+# ---------------------------------------------------------------------------
+
+
+async def test_clear_suggestions_removes_unapproved_and_can_re_run(
+    async_client: AsyncClient,
+    project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
+) -> None:
+    """Clear-suggestions deletes the unapproved auto edges; re-running
+    auto-correlate recreates them (proving they were truly cleared, #179)."""
+    project, bh1, bh2 = project_with_two_boreholes
+    pid = str(project.id)
+    mid = (await _create_model(async_client, pid))["id"]
+    f = await _create_formation(async_client, pid)
+    c1 = await _create_contact(async_client, pid, mid, f["id"], bh1.id, depth=3.0)
+    c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=3.0)
+    assert c1 and c2
+
+    auto = await async_client.post(
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+    )
+    n = auto.json()["edges_created"]
+    assert n >= 1, "setup: auto-correlate should have created a suggestion"
+
+    cleared = await async_client.delete(
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["deleted"] == n
+
+    listed = await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
+    assert listed.json() == [], "all edges were unapproved → none remain"
+
+    auto2 = await async_client.post(
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+    )
+    assert auto2.json()["edges_created"] == n, "cleared edges regenerate on re-run"
+
+
+async def test_clear_suggestions_keeps_approved_manual_edge(
+    async_client: AsyncClient,
+    project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
+) -> None:
+    """Clear-suggestions leaves approved (manual) correlations intact (#179)."""
+    project, bh1, bh2 = project_with_two_boreholes
+    pid = str(project.id)
+    mid = (await _create_model(async_client, pid))["id"]
+    f = await _create_formation(async_client, pid)
+    c1 = await _create_contact(async_client, pid, mid, f["id"], bh1.id, depth=4.0)
+    c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=4.0)
+    await _create_edge(async_client, pid, mid, c1["id"], c2["id"])  # manual → approved
+
+    cleared = await async_client.delete(
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["deleted"] == 0
+
+    listed = await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
+    assert len(listed.json()) == 1, "the approved manual edge must survive"
+
+
+async def test_clear_suggestions_404_on_unknown_model(
+    async_client: AsyncClient,
+    project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
+) -> None:
+    """DELETE /contact-correlations/auto with an unknown model returns 404."""
+    project, _bh1, _bh2 = project_with_two_boreholes
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{uuid7()}/contact-correlations/auto"
+    )
+    assert resp.status_code == 404

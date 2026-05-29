@@ -31,7 +31,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -43,6 +43,7 @@ from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas im
 from groundmodel.api.schemas.project.litho_contact_correlation.auto_schemas import (
     AutoCorrelateContactRequest,
     AutoCorrelateContactResponse,
+    DeleteAutoCorrelationsResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.lens_companion_schemas import (
     MaterialiseLensCompanionsResponse,
@@ -75,8 +76,12 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 router = APIRouter()
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 
 @router.post(
@@ -321,6 +326,63 @@ async def auto_correlate_contact(
         edges_created=result.edges_created,
         edges_skipped_existing=result.edges_skipped_existing,
     )
+
+
+@router.delete(
+    "/models/{model_id}/contact-correlations/auto",
+    response_model=DeleteAutoCorrelationsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Clear all unapproved (auto) contact-correlation suggestions (#179)",
+)
+async def delete_auto_contact_correlations(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteAutoCorrelationsResponse:
+    """Remove every unapproved (suggestion) contact-correlation edge for a model.
+
+    The "Clear suggestions" action (#179). Deletes only
+    ``user_approved=False`` edges — approved manual correlations are left
+    intact. Idempotent: returns ``deleted=0`` when there is nothing to clear.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    session : AsyncSession
+        DB session.
+
+    Returns
+    -------
+    DeleteAutoCorrelationsResponse
+        Count of suggestion edges removed.
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to ``project_id``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    result = await session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == model_id,
+            LithoContactCorrelationEdgeOrm.user_approved.is_(False),
+        )
+    )
+    deleted = result.rowcount or 0
+    await session.commit()
+    logger.info(
+        f"delete_auto_contact_correlations: project={project_id} model={model_id} "
+        f"cleared {deleted} suggestion edge(s)"
+    )
+    return DeleteAutoCorrelationsResponse(deleted=deleted)
 
 
 @router.post(

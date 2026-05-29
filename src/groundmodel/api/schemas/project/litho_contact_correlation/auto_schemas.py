@@ -20,6 +20,19 @@ class AutoCorrelateContactRequest(BaseModel):
     base_depth_threshold_m: float | None = Field(default=None, ge=0.05, le=5.0)
 
 
+class DeleteAutoCorrelationsResponse(BaseModel):
+    """Response body for the bulk delete-auto-suggestions endpoint (#179).
+
+    Attributes
+    ----------
+    deleted : int
+        Number of unapproved (``source='auto'``, ``user_approved=False``)
+        contact-correlation edges removed. Approved manual edges are untouched.
+    """
+
+    deleted: int
+
+
 class AutoCorrelateContactResponse(BaseModel):
     """Response body for the auto-correlate endpoint.
 

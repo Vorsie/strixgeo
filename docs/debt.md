@@ -4622,5 +4622,27 @@ bug cluster lives. **Fix.** Incremental extraction along the marked seams; do NO
 big-bang. **When to revisit.** Take one split per quiet period; #164 (ContextMenu)
 + #167 (accept body) are the cheap first cuts that shrink two of them. **Effort.** L.
 
+## 179. No "Clear suggestions" — stale auto-correlation edges can't be removed/overwritten from the UI (Tier G — dogfeed 2026-05-29)
+
+**What.** A litho model accumulates unapproved `source='auto'` correlation edges
+(dogfeed 2026-05-29: model "qdfv" had **204** of them, none orphaned). The user
+could neither delete nor overwrite them from the app and had to have them removed
+directly from the DB. The removal paths that exist don't cover this:
+- **Per-edge right-click delete (#163e)** only renders a hit-strip for edges whose
+  contacts are seeded on the *current* section, and at 204 edges it's hopeless
+  anyway.
+- **Re-correlate (the only bulk path)** does `deleteAutoCorrelations` → then
+  immediately re-runs auto-correlate, so the same suggestions regenerate — it
+  *overwrites with the same set*, it doesn't *clear*.
+There is no action that simply removes the unapproved suggestions and stops.
+**Why it matters.** Stale suggestions clutter the section and block the litho
+workflow; the only recovery was a manual `DELETE FROM litho_contact_correlation_edge
+WHERE user_approved=false`. **Fix.** A "Clear suggestions" toolbar action wired to
+the existing `deleteAutoCorrelations` endpoint (deletes auto/unapproved edges only,
+keeps approved manual correlations) + a confirm + the #163c edge-refetch nonce so
+the canvas updates without a reload. **Effort.** S. Likely also worth: a follow-up
+to let per-edge delete reach off-section edges (or surface a model-wide suggestion
+count so the user knows there are off-section suggestions to clear).
+
 ## (end)
 
