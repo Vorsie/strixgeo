@@ -245,6 +245,41 @@ def test_depth_window_param_widens_what_correlates() -> None:
     assert {(_uid(1), _uid(2))} == {(c.contact_a_id, c.contact_b_id) for c in result}
 
 
+def test_chain_does_not_orphan_a_boundary_when_neighbour_matches_a_third_test() -> None:
+    """#163 dogfeed 2026-05-29 — the bottom layer must keep auto-suggesting.
+
+    Three collinear tests A(0 m) B(50 m) C(100 m), all sharing one deepest
+    boundary (below=None, the basement top).  The middle test B sits closer
+    in depth to A (0.10 m) than to C (0.40 m).  The user's rule: every
+    adjacent test's matching boundary should correlate — B's boundary must
+    link to BOTH its neighbours (A and C).  It must NOT be orphaned on the
+    C side just because A is a slightly closer depth-match, which is what
+    the owner saw: the deepest contact on some columns never got an edge.
+
+    The contact ids are arranged so the shared middle test (B) owns the
+    EXTREME id of the trio — the precise arrangement that made the old
+    group-wide mutual-nearest-neighbour step drop the B-C edge.
+    """
+    contacts = [
+        _make_contact(1, 10, 15.00, 99, "KLEI", None),  # A deepest, id 1
+        _make_contact(3, 11, 15.10, 99, "KLEI", None),  # B deepest, id 3 (max)
+        _make_contact(2, 12, 15.50, 99, "KLEI", None),  # C deepest, id 2
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+        InvestigationLocation(_uid(12), 100.0, 0.0),
+    ]
+    pairs = {
+        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    # A-B links (canonical (1, 3)).
+    assert (_uid(1), _uid(3)) in pairs
+    # B-C must ALSO link (canonical (2, 3)) — B's boundary is not orphaned.
+    assert (_uid(2), _uid(3)) in pairs
+    assert len(pairs) == 2
+
+
 def test_mnn_tie_breaking_picks_exactly_one() -> None:
     """When two contacts on column B are equidistant from a column-A contact, MNN keeps exactly one."""
     contacts = [
