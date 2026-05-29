@@ -172,4 +172,27 @@ describe('ContextMenu (SVG variant)', () => {
     fireEvent.click(document.body)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('CM9 — svg foreignObject re-enables pointer events (clickable under a none group)', () => {
+    // dogfeed 2026-05-29: the menu mounts inside the section overlays' root
+    // <g pointer-events:none>; without pointerEvents:auto on the foreignObject
+    // the menu was visible but unclickable (cursor fell through to canvas pan).
+    const { container } = render(
+      <svg>
+        <g style={{ pointerEvents: 'none' }}>
+          <ContextMenu
+            portal="svg"
+            x={0}
+            y={0}
+            width={100}
+            height={48}
+            items={[{ label: 'Delete correlation', onClick: vi.fn() }]}
+            onClose={vi.fn()}
+          />
+        </g>
+      </svg>,
+    )
+    const fo = container.querySelector('foreignObject') as SVGForeignObjectElement
+    expect(fo.style.pointerEvents).toBe('auto')
+  })
 })
