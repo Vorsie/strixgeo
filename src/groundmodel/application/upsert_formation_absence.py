@@ -34,6 +34,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
@@ -130,9 +131,9 @@ class UpsertFormationAbsence(GroundModelLogger):
         # ------------------------------------------------------------------
         # Validate formation scope.
         # ------------------------------------------------------------------
-        formation = await self._session.get(GeologicalFormationOrm, formation_id)
-        if formation is None or formation.app_project_id != project_id:
-            raise ValueError(f"Formation {formation_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalFormationOrm, formation_id, project_id, label="Formation"
+        )
 
         # ------------------------------------------------------------------
         # Validate investigation scope.
