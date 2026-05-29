@@ -4482,20 +4482,21 @@ skip, not an error); the lens trio `create_perpendicular_companion` /
 inline guards; the common pattern is now single-source. Per-file commits on
 develop 2026-05-29.
 
-## 167. Litho-accept payload + created-rows-session-import duplicated 4× (Tier D — frontend, S; payload half of #111)
+## 167. Litho-accept payload + created-rows-session-import duplicated 4× — RESOLVED 2026-05-29
 
-**What.** `useGeologicalModel.ts:3997-4003, 4148-4153, 4437-4442, 4596-4601` build
-the same accept body `{...(cpt_id|borehole_id), section_id, suggestions,
-straddle_min_piece_thickness_m: readLithoSegmenterPrefs(...).straddle…,
-couple_tolerance_m: readLithoSegmenterPrefs(...).lithoSnap…}` (calls
-`readLithoSegmenterPrefs` twice per copy = 8 calls), and the
-`if (created_*_ids.length) addToSessionImports('formation'|'contact', ids)` block
-(`:4020-4023`) recurs across all four accept handlers + create/seed/pinch-out
-(the #144 fix replicated it). **Why.** A 5th segmenter knob = edit 4 sites; the
-session-import block is the #144 bug surface. **Fix.** `buildLithoAcceptBody(...)`
-(reads prefs once) + `recordCreatedRows(result)` helper in
-`utils/lithoSegmenterPrefs.ts` / a small `lithoAccept.ts`. Resolves the payload
-half of #111. **Effort.** S.
+Shipped `utils/lithoAccept.ts` (4 unit tests LA1–LA4):
+`buildLithoAcceptBody({anchorKind, anchorId, sectionId, suggestions, viewState})`
++ `lithoAcceptTuningParams(viewState)` (one `readLithoSegmenterPrefs` call, not
+two) + `recordCreatedRows(addToSessionImports, result)`. All four accept handlers
+in `useGeologicalModel.ts` migrated: single-accept / accept-all / bulk-one build
+their body via `buildLithoAcceptBody`; the bulk-all **batch** body (different
+shape — `defer_inference` per-anchor, `run_inference` + tuning at the top level)
+spreads `lithoAcceptTuningParams`; the #144 dirty-flag manifest block is now
+`recordCreatedRows` in all four (the bulk-all aggregated arrays flow through it
+too). `readLithoSegmenterPrefs` drops from 8 accept-path calls to 4 (one per
+site). Resolves the payload half of #111 (the bypassed-`_updateGhostEntry` half
+stays under #111). Full suite 1446 green; tsc clean. Per-file commits on develop
+2026-05-29.
 
 ## 168. Section SVG geometry split across 4 overlays + `levelToScreen` prop-drill (Tier D — frontend, M)
 
