@@ -861,6 +861,28 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
   })
 
+  it('CE-HIT: correlate hit-rect spans the whole band, not just the boundary line', () => {
+    // cb1 (inv-B, 2 m) has cb2 (5 m) below it → a finite band. The hit-rect
+    // must cover that band so a click on the band BODY — not only the thin
+    // boundary line — arms the contact (dogfeed 2026-05-29).
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    const rect = screen.getByTestId('contact-hit-cb1')
+    // band: topLevel 8 → y 40, botLevel 5 → y 70 ⇒ height 30, far above the
+    // legacy 12 px boundary strip.
+    expect(Number(rect.getAttribute('height'))).toBeGreaterThan(12)
+    fireEvent.click(rect)
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cb1')
+  })
+
   it('CC2: clicking armed source again → onClearArmedContact', () => {
     const gesture = makeContactGestureState({ armedContactId: 'ca' })
     renderOverlay({
