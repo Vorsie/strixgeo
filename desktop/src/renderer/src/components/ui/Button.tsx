@@ -9,6 +9,7 @@
 // ``secondary`` and ``ghost`` use semantic surface tokens so they render
 // correctly in dark mode without extra ``dark:`` pairs per-callsite.
 
+import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -53,18 +54,28 @@ const SIZES: Record<Size, string> = {
  * children
  *     Button label content.
  *
+ * ref
+ *     Forwarded to the underlying ``<button>`` so callers can focus it
+ *     (e.g. default-focus Cancel in confirm dialogs).
+ *
  * Returns
  * -------
  * JSX.Element
  *     The button element.
  */
-export default function Button({ variant = 'secondary', size = 'sm', className = '', children, ...rest }: Props) {
+const Button = forwardRef<HTMLButtonElement, Props>(function Button(
+  { variant = 'secondary', size = 'sm', className = '', children, ...rest },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       className={[BASE, VARIANTS[variant], SIZES[size], className].join(' ')}
       {...rest}
     >
       {children}
     </button>
   )
-}
+})
+
+export default Button
