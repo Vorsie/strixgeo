@@ -264,6 +264,18 @@ interface Props {
    * before — zero regression on the geological axis or pre-Sync state.
    */
   referenceContacts?: readonly FormationContactResponse[]
+  /** Whether to draw the ACTIVE model's cross-column formation surfaces —
+   *  the TIN-slice polylines (`formation-surface-*`) and the connect-the-dots
+   *  fallback (`formation-polyline-*`).  Both group contacts BY FORMATION and
+   *  auto-join every same-formation contact across columns, ignoring the
+   *  explicit contact-correlation graph.  That is correct on the geological
+   *  axis (formations are laterally continuous) but wrong on the litho axis,
+   *  where cross-column connectivity is the user's explicit correlations, not
+   *  an auto-join-by-lithology (#159-followup, owner dogfeed 2026-05-29 —
+   *  confirmed via the dashed-inventory diagnostic: 13 spurious connect-the-
+   *  dots lines on a litho section).  Defaults to true (geological axis
+   *  unchanged); SectionPanel passes false on the litho axis. */
+  renderFormationSurfaces?: boolean
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -729,6 +741,7 @@ export default function ContactsLayer({
   referenceFormations,
   referenceSurfacesByFormationId,
   referenceContacts,
+  renderFormationSurfaces = true,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   pendingGhostRangesByAnchorId,
@@ -3032,7 +3045,7 @@ export default function ContactsLayer({
           stroke distinguishes them from the dashed connect-the-dots
           fallback — the user sees at a glance which formations have a
           full surface vs. which are still 2-pick tie-lines. */}
-      {slicedPolylines.map(line => {
+      {renderFormationSurfaces && slicedPolylines.map(line => {
         // On-click build pivot: stale TINs render dashed + faded so
         // the engineer can see "this is your last build, refresh to
         // update". Distinct from the connect-the-dots fallback (also
@@ -3091,7 +3104,7 @@ export default function ContactsLayer({
              paints alone in its covered region (no visible chord
              under a curving slice). The user's "lines should draw
              through" requirement is satisfied by these segments. */}
-      {polylines.map(line => {
+      {renderFormationSurfaces && polylines.map(line => {
         if (line.vertices.length < 2) return null
         const sliceRange = slicedXRangeByFormationId.get(line.formationId)
         // Project each vertex with the same drag-override logic as
