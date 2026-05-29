@@ -53,6 +53,33 @@ def test_happy_path_single_lens() -> None:
     assert lens.formation_id == _uid(1001)  # silt — the formation whose top is c2
 
 
+def test_degeneracy_guard_rejects_thick_lens() -> None:
+    """max_lens_thickness_m rejects a body thicker than the cap; off/generous keeps it.
+
+    Reuses the happy-path topology — the silt body c2(5 m)→c3(8 m) is 3 m thick
+    (dogfeed 2026-05-29: a near-whole-column "lens" from a loose correlation is
+    the degeneracy this guards against).
+    """
+    stacks = [
+        ContactStack(
+            investigation_id=_uid(100),
+            entries=(
+                ContactStackEntry(_uid(1), _uid(1000), 2.0),
+                ContactStackEntry(_uid(2), _uid(1001), 5.0),
+                ContactStackEntry(_uid(3), _uid(1002), 8.0),
+            ),
+        ),
+        ContactStack(_uid(200), (ContactStackEntry(_uid(10), _uid(1003), 3.0),)),
+    ]
+    edges = [ContactEdge(_uid(2), _uid(10)), ContactEdge(_uid(3), _uid(10))]
+    # 3 m body, 2 m cap → rejected.
+    assert detect_lenses_from_graph(edges, stacks, max_lens_thickness_m=2.0) == []
+    # generous cap → kept.
+    assert len(detect_lenses_from_graph(edges, stacks, max_lens_thickness_m=10.0)) == 1
+    # guard off (None default) → kept (existing behaviour).
+    assert len(detect_lenses_from_graph(edges, stacks)) == 1
+
+
 def test_one_to_one_edges_no_lens() -> None:
     """Only 1-to-1 edges in the graph → empty result."""
     stacks = [
