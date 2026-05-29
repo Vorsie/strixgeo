@@ -22,6 +22,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -126,9 +127,9 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 2. Validate the model belongs to this project.                       #
         # ------------------------------------------------------------------ #
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Model {model_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Model"
+        )
 
         # ------------------------------------------------------------------ #
         # 3. Validate both contacts belong to this model + project.            #
@@ -267,9 +268,9 @@ class UncorrelateLithoContacts(GroundModelLogger):
         self.info(f"UncorrelateLithoContacts: model={model_id} a={contact_a_id} b={contact_b_id}")
 
         # Scope guard — mirrors the create path.
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Model {model_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Model"
+        )
 
         # Canonical ordering.
         a_id = min(contact_a_id, contact_b_id)
