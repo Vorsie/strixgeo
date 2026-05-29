@@ -150,4 +150,26 @@ describe('ContextMenu (SVG variant)', () => {
     fireEvent.contextMenu(backdrop)
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  it('CM8 — svg variant closes on a document click elsewhere (backdrop may not cover)', () => {
+    // dogfeed 2026-05-29: a fixed backdrop nested in an SVG foreignObject does
+    // not reliably cover the viewport, so a click on the canvas elsewhere left
+    // the menu open. The document click listener is the reliable fallback.
+    const onClose = vi.fn()
+    render(
+      <svg>
+        <ContextMenu
+          portal="svg"
+          x={0}
+          y={0}
+          width={100}
+          height={48}
+          items={[{ label: 'X', onClick: vi.fn() }]}
+          onClose={onClose}
+        />
+      </svg>,
+    )
+    fireEvent.click(document.body)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })
