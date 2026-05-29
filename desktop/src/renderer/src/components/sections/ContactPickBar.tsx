@@ -28,6 +28,7 @@ import type { CptPlotResponse } from '../../api/client'
 import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { lookupCptValueAtDepth } from './cptInterpolation'
 import HoverReadoutCard from './HoverReadoutCard'
+import { depthAxisAtSurface } from './utils'
 
 interface Props {
   plot: CptPlotResponse
@@ -117,21 +118,10 @@ export default function ContactPickBar({
 
   if (bgBottomY - bgTopY <= 0) return null
 
-  // Inverse of levelToScreen is callable from the closure since
-  // it's a linear transform; we sample two points to derive the
-  // ratio rather than asking the caller for a separate inverse.
-  // (px-per-m below the surface) = (levelToScreen(s) -
-  // levelToScreen(s-1)) for any s.
-  const oneMetreDownPx = levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM)
-  const surfaceY = levelToScreen(surfaceElevationM)
-
-  function depthAtY(y: number): number {
-    // depth = (y - surfaceY) / oneMetreDownPx
-    // oneMetreDownPx is positive (deeper level = larger Y in the
-    // flipped section transform).
-    if (oneMetreDownPx === 0) return 0
-    return (y - surfaceY) / oneMetreDownPx
-  }
+  // Shared surface-anchored depth axis (#168): surfaceY + Y→depth inverse,
+  // derived from the linear levelToScreen transform.
+  const axis = depthAxisAtSurface(levelToScreen, surfaceElevationM)
+  const depthAtY = axis.depthAtY
 
   function elevationAtY(y: number): number {
     return surfaceElevationM - depthAtY(y)
