@@ -141,6 +141,7 @@ function renderLayer(
     onUnlinkLithoFromGeo?: (id: string) => Promise<void>
     onLinkLithoToGeo?: (id: string) => Promise<void>
     renderFormationSurfaces?: boolean
+    surfaceThroughPicks?: boolean
   } = {},
 ) {
   return render(
@@ -172,6 +173,7 @@ function renderLayer(
         contactDragClampMinThicknessM={extras.contactDragClampMinThicknessM}
         onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
         renderFormationSurfaces={extras.renderFormationSurfaces}
+        surfaceThroughPicks={extras.surfaceThroughPicks}
       />
     </svg>,
   )
@@ -1452,6 +1454,68 @@ describe('ContactsLayer', () => {
     expect(seg).not.toBeNull()
     expect(seg!.getAttribute('stroke-opacity')).toBe('0.7')
     expect(seg!.getAttribute('stroke-dasharray')).toBeNull()
+  })
+
+  it('surfaceThroughPicks draws the surface through placed picks, not the TIN slice', () => {
+    // Same fixture as the fresh-slice test but the middle/right picks
+    // sit at DIFFERENT depths than the flat z=9 TIN surface, so a slice
+    // (flat at screenY 11) and a chord-through-picks line diverge: the
+    // pick at depth 4 lands at screenY 14 (flipped = 20-(10-4)). With
+    // surfaceThroughPicks the line must pass through 14 (the pick), the
+    // TIN-slice element must NOT render, and the polyline must read as a
+    // BUILT surface (solid, opacity 0.7) — not the dashed "unbuilt"
+    // fallback. Mirrors the placed-boundaries-are-truth rule the backdrop
+    // already follows via referenceContacts (dogfeed 2026-05-29).
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 4 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [100, -2, 9],
+        [50, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 100),
+        makeBoreholePlaced('bh-3', 50),
+      ],
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', surface]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+        surfaceThroughPicks: true,
+      },
+    )
+    // Slice line suppressed.
+    expect(container.querySelector('[data-testid="formation-surface-f"]')).toBeNull()
+    // The surface is now the through-picks contact polyline.
+    const poly = container.querySelector('[data-testid="formation-polyline-f"]')
+    expect(poly).not.toBeNull()
+    // It passes through the depth-4 pick at screenY 14 — a flat TIN
+    // slice (screenY 11 everywhere) never would.
+    expect(poly!.getAttribute('d')).toContain('14.00')
+    // Built + fresh surface → solid, opacity 0.7, no dash (NOT the
+    // dashed 0.55 "unbuilt" fallback).
+    expect(poly!.getAttribute('stroke-opacity')).toBe('0.7')
+    expect(poly!.getAttribute('stroke-dasharray')).toBeNull()
   })
 
   it('renders stale slice-of-TIN dashed + opacity 0.35', () => {
