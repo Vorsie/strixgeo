@@ -32,6 +32,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.lens_inference import (
     BodyContactRecord,
     FormationAbsenceRecord,
@@ -282,17 +283,15 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         # ------------------------------------------------------------------
         # 1. Scope guards.
         # ------------------------------------------------------------------
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
-
-        formation = await self._session.get(GeologicalFormationOrm, formation_id)
-        if formation is None or formation.app_project_id != project_id:
-            raise ValueError(f"Formation {formation_id} not found in project {project_id}")
-
-        section = await self._session.get(CrossSectionOrm, section_id)
-        if section is None or section.app_project_id != project_id:
-            raise ValueError(f"Cross-section {section_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
+        )
+        formation = await load_scoped_or_raise(
+            self._session, GeologicalFormationOrm, formation_id, project_id, label="Formation"
+        )
+        section = await load_scoped_or_raise(
+            self._session, CrossSectionOrm, section_id, project_id, label="Cross-section"
+        )
 
         formation_soil_code: str | None = getattr(formation, "litho_main_soil_code", None)
         self.debug(f"Formation soil code: {formation_soil_code!r} (formation {formation_id})")
