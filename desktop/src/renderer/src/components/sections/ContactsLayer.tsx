@@ -601,6 +601,16 @@ const APPROX_GLYPH_WIDTH_PX = 5
 // enough that the line is grabbable without precision aiming, narrow
 // enough that adjacent layers don't fight for the same pointer.
 const DRAG_HIT_HALF_HEIGHT_PX = 5
+// Depth window (m) within which a geological reference contact is treated as
+// COINCIDENT with a litho contact on the same anchor (#159).  The litho-geo
+// snap dialog ("Snap litho" / "Move geo") leaves the two boundaries at the
+// SAME depth without setting ``parent_geo_contact_id`` — so they are
+// coincident but not coupled.  When that happens the reference hit-strip is
+// suppressed (same as the coupled case) so it can't sit on top of the litho
+// drag-strip and eat its hover + mousedown.  Tight (1 cm) so it targets the
+// snap-produced exact coincidence only, never a legitimately-distinct geo
+// boundary that merely sits near a litho one.
+const REFERENCE_COINCIDENCE_EPSILON_M = 0.01
 // Litho contact boundary line colour (#143). A litho band is filled with
 // its lithology colour; drawing the boundary in that same colour made the
 // accepted contact vanish into the band. Near-black reads against every
@@ -2581,9 +2591,21 @@ export default function ContactsLayer({
     // the litho contact's own strip already handles drag AND its context menu
     // already offers both "Edit in Geology stage" and "Unlink from geology".
     const coupledGeoIds = new Set<string>()
+    // Litho contact depths grouped by anchor — used to detect a reference
+    // contact that is COINCIDENT with a litho contact (same anchor + depth)
+    // but not coupled (#159).  A coincident reference strip is suppressed for
+    // the same reason as a coupled one: it would sit on top of the litho
+    // drag-strip and eat its hover + mousedown, locking the litho contact.
+    const lithoDepthsByAnchor = new Map<string, number[]>()
     for (const c of contacts) {
       if (c.parent_geo_contact_id != null) {
         coupledGeoIds.add(c.parent_geo_contact_id)
+      }
+      const lithoAnchorId = c.borehole_id ?? c.cpt_id
+      if (lithoAnchorId != null) {
+        const depths = lithoDepthsByAnchor.get(lithoAnchorId)
+        if (depths) depths.push(c.depth_top_m)
+        else lithoDepthsByAnchor.set(lithoAnchorId, [c.depth_top_m])
       }
     }
     // Pre-index placed columns by anchor id for O(1) lookup.
@@ -2615,6 +2637,20 @@ export default function ContactsLayer({
       // Only anchor-backed contacts — synthetic lens tips have no column.
       const anchorId = c.borehole_id ?? c.cpt_id
       if (!anchorId) continue
+      // Suppress the strip when a litho contact on the same anchor sits at the
+      // same depth (#159 — coincident-but-not-coupled, e.g. after the snap
+      // dialog).  Same rationale as the coupled case: the litho contact's own
+      // drag-strip handles drag and its menu still offers "Edit in Geology
+      // stage", so the reference strip would only steal the litho contact's
+      // pointer events.
+      const lithoDepths = lithoDepthsByAnchor.get(anchorId)
+      if (
+        lithoDepths?.some(
+          d => Math.abs(d - c.depth_top_m) <= REFERENCE_COINCIDENCE_EPSILON_M,
+        )
+      ) {
+        continue
+      }
       const col = colByAnchorId.get(anchorId)
       if (!col) continue
       const item = col.proj.item as { elevation_m: number | null }
