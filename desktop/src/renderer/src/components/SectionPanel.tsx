@@ -80,6 +80,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import LensWedgeOverlay from './sections/LensWedgeOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
+import { warpedScreenXToAlong, type WarpAnchor } from './sections/sectionWarp'
 
 /** Stable empty map so the LensWedgeOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, LensBoundaryResponse> = new Map()
@@ -725,6 +726,9 @@ export default function SectionPanel({
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
+  // Latest warp anchors, read by the wheel-zoom handler (defined above the
+  // warp memo, so it reaches them through this ref rather than a closure dep).
+  const warpAnchorsRef = useRef<WarpAnchor[]>([])
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
   // Default viewport — full section length, default vertical
@@ -931,7 +935,14 @@ export default function SectionPanel({
       if (px < MARGIN.left || px > MARGIN.left + plotWidth) return
       if (py < MARGIN.top || py > MARGIN.top + plotHeight) return
 
-      const worldX = viewport.xMin + (px - MARGIN.left) / scaleH
+      // Invert the WARP (spacing slider + collision nudge), not just the
+      // linear map, so the along-distance we anchor on is the one actually
+      // drawn under the cursor. At spacing=1 with no collisions the warp is
+      // identity and this equals the linear inverse (no behaviour change);
+      // when columns are packed or nudged it keeps zoom locked to the feature
+      // the user is pointing at instead of drifting (dogfeed 2026-05-29).
+      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
+      const worldX = warpedScreenXToAlong(px, warpAnchorsRef.current, scaleH, linearAlong)
       const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV
       const factor = e.deltaY < 0 ? 1 / WHEEL_ZOOM_FACTOR : WHEEL_ZOOM_FACTOR
 
@@ -1579,11 +1590,17 @@ export default function SectionPanel({
   // collision nudges) so the warp is essentially identity. At
   // spacing=0, each test sits at its packed X and the function
   // interpolates the DEM through those.
-  const warpAnchors = useMemo(() => {
+  const warpAnchors = useMemo<WarpAnchor[]>(() => {
     return [...visibleColumns]
       .map(col => ({ along: col.proj.along, effX: col.nudgedX }))
       .sort((a, b) => a.along - b.along)
   }, [visibleColumns])
+
+  // Feed the latest anchors to the wheel-zoom handler's ref (it is declared
+  // above this memo, so it cannot close over ``warpAnchors`` directly).
+  useEffect(() => {
+    warpAnchorsRef.current = warpAnchors
+  }, [warpAnchors])
 
   const warpedXToScreen = useCallback(
     (along: number): number => {
