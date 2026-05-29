@@ -56,6 +56,12 @@ const HEADER_FONT_SIZE = 8
 /** Pixels the cursor must move before a band-body press becomes a move-both
  *  drag (below this it stays a plain click / double-click). */
 const MOVE_BOTH_DRAG_THRESHOLD_PX = 3
+/** How far OUTSIDE the band each edge-drag zone extends past its boundary
+ *  line. Generous so a press just above the top line / just below the base
+ *  line still grabs the boundary instead of falling through to the
+ *  contact-pick bar underneath (which would place a committed contact —
+ *  dogfeed 2026-05-29). */
+const EDGE_OUTER_GRAB_PX = 8
 
 function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
@@ -1614,13 +1620,14 @@ export default function LithoSuggestionGhostColumns({
             {dragHandlesEnabled && (
               <>
                 {/* Top-edge zone — drag moves only this layer's TOP. Spans
-                    from 3 px above the top line down ``edgeZoneH`` into the
-                    band so it's an easy target (dogfeed 2026-05-29). */}
+                    from EDGE_OUTER_GRAB_PX above the top line down
+                    ``edgeZoneH`` into the band so a press near the line grabs
+                    the boundary instead of the pick-bar (dogfeed 2026-05-29). */}
                 <rect
                   x={left}
-                  y={topY - 3}
+                  y={topY - EDGE_OUTER_GRAB_PX}
                   width={ghostWidth}
-                  height={edgeZoneH + 3}
+                  height={edgeZoneH + EDGE_OUTER_GRAB_PX}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-top-${idx}`}
@@ -1650,12 +1657,14 @@ export default function LithoSuggestionGhostColumns({
                   }}
                 />
                 {/* Base-edge zone — drag moves only this layer's BASE. Spans
-                    ``edgeZoneH`` up from the base line to 3 px below it. */}
+                    ``edgeZoneH`` up from the base line to EDGE_OUTER_GRAB_PX
+                    below it, so a press just below the line grabs the boundary
+                    rather than the pick-bar (which would place a contact). */}
                 <rect
                   x={left}
                   y={baseY - edgeZoneH}
                   width={ghostWidth}
-                  height={edgeZoneH + 3}
+                  height={edgeZoneH + EDGE_OUTER_GRAB_PX}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-base-${idx}`}
