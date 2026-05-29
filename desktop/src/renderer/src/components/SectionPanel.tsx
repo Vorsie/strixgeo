@@ -2283,6 +2283,9 @@ export default function SectionPanel({
               // dogfeed 2026-05-29). The backdrop already does this via
               // referenceContacts; this brings the active surface in line.
               surfaceThroughPicks
+              // Suppress the depth-drag hit-strip while correlating so it can't
+              // intercept boundary-select clicks (dogfeed 2026-05-29).
+              correlateMode={contactGestureState?.contactCorrelateMode ?? false}
               referenceFormations={referenceFormations}
               referenceSurfacesByFormationId={referenceSurfacesByFormationId}
               referenceContacts={referenceContacts}
