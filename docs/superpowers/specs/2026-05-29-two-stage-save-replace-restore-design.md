@@ -1,8 +1,15 @@
 # Two-stage save via replace-restore (debt #160, "B") — design
 
 **Date:** 2026-05-29
-**Status:** approved (owner: "we're going for B"; decisions: full project reload on
-discard, whole-project revert scope)
+**Status:** SHIPPED 2026-05-29 (backend slice + frontend slice). Owner: "we're going
+for B"; decisions: full project reload on discard, whole-project revert scope.
+
+**Follow-up (not in this slice):** only the core mutation handlers
+(`handleUpdateContactDepth`, `handleDeleteContact`, `handleBatchUpdateContacts`) call
+`markMutated`. Other geology mutations (link/unlink litho↔geo, reorder, pinch-out,
+auto-correlate, accept-without-create) don't yet flip the flag, so an edit made ONLY
+through those won't prompt on close. Add `markMutated()` to each as dogfeed surfaces
+them. (Creates already mark dirty via `addToSessionImports`.)
 **Origin:** owner dogfeed 2026-05-29 — "a lot of things i manually change are still in
 the project after i close window without saving." Promotes debt #160 above the litho gate.
 
