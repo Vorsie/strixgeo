@@ -4378,6 +4378,24 @@ pass alongside the lens work (#131-a lens_id / #101). Tier G (litho-finishing)
 since auto-correlate is part of the litho stage. Filed from dogfeed session
 2026-05-28.
 
+**Dogfeed follow-ups 2026-05-29 (both SHIPPED):**
+- **Bottom layer never auto-suggested.** The mutual-nearest-neighbour step
+  ran group-wide keyed on canonical `(min, max)` contact ids, so along a
+  chain of tests one column could "win" a shared contact and orphan the
+  matching boundary on its other neighbour — verified in the dev DB
+  (`019e6f56-…`): S33's deepest KLEI @ 15.47 m sat 0.57 m from S13's deepest
+  KLEI @ 14.90 m yet had no edge. Fix: MNN now runs **per adjacent
+  column-pair** (RNG adjacency already blocks skip-over spaghetti), letting a
+  contact link to both its chain neighbours. Pinned by
+  `test_chain_does_not_orphan_a_boundary_when_neighbour_matches_a_third_test`.
+  Needs a backend restart to take effect.
+- **Could not delete an accepted correlation.** The backend DELETE deletes
+  regardless of approval; the bug was the hit target. Approved edges show no
+  grab handles, so only the thin 14px seam (not the visible coloured ribbon)
+  was right-clickable. Fix: the right-click hit target is now a band-shaped
+  polygon covering the full ribbon (inset at the column ends so
+  contact-dragging still wins). Pinned by CE-E3.
+
 ---
 
 # ═══ Overnight code-health audit (2026-05-28) ═══
