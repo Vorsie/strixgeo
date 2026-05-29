@@ -60,6 +60,7 @@ import {
 } from '../../utils/tinConfidence'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
+import ContextMenu from '../ui/ContextMenu'
 import HoverReadoutCard from './HoverReadoutCard'
 import { buildFillBand, columnMaxDepthM, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
@@ -4073,126 +4074,39 @@ function ContactContextMenu({
   onClose,
 }: ContactContextMenuProps): JSX.Element {
   const pinchOutDisabled = pinchOutDisabledReason != null
-  useEffect(() => {
-    function handleDocClick(): void {
-      onClose()
-    }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('click', handleDocClick)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('click', handleDocClick)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [onClose])
-
   return (
-    <div
-      className="fixed z-[9999] min-w-[200px] rounded border border-gray-300 bg-white text-sm shadow-md dark:border-gray-600 dark:bg-gray-800"
-      style={{ left: clientX, top: clientY }}
-      onClick={e => e.stopPropagation()}
-      role="menu"
-      aria-label={`Actions for ${formationName} contact`}
-      data-testid="contact-context-menu"
-    >
-      <div className="max-w-[220px] truncate border-b border-gray-100 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-        {formationName}
-      </div>
-      {onEditInGeologyStage && (
-        <button
-          type="button"
-          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
-          onClick={e => {
-            // nativeEvent.stopImmediatePropagation: stop the document-level
-            // click handler from firing a redundant onClose.
-            e.nativeEvent.stopImmediatePropagation()
-            onEditInGeologyStage()
-            onClose()
-          }}
-          role="menuitem"
-          data-testid="geo-deep-link-menu-item"
-        >
-          Edit in Geology stage
-        </button>
-      )}
-      {onPinchOut && (
-        <button
-          type="button"
-          disabled={pinchOutDisabled}
-          title={pinchOutDisabledReason ?? undefined}
-          className={
-            pinchOutDisabled
-              ? 'block w-full px-3 py-2 text-left text-gray-400 cursor-not-allowed dark:text-gray-500'
-              : 'block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700'
-          }
-          onClick={e => {
-            // nativeEvent.stopImmediatePropagation: the React-synthetic
-            // stopPropagation on the container does NOT stop the
-            // document-level `click` listener (handleDocClick) firing a
-            // redundant onClose — review S4. Stop the native event before
-            // it reaches document.
-            e.nativeEvent.stopImmediatePropagation()
-            if (pinchOutDisabled) return
-            onPinchOut()
-            onClose()
-          }}
-          role="menuitem"
-          aria-disabled={pinchOutDisabled}
-        >
-          Extrapolate pinch-out&hellip;
-          {pinchOutDisabled && (
-            <span className="block text-[10px] text-gray-400 mt-0.5 dark:text-gray-500">
-              {pinchOutDisabledReason}
-            </span>
-          )}
-        </button>
-      )}
-      {onLinkLithoToGeo && (
-        <button
-          type="button"
-          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
-          onClick={e => {
-            e.nativeEvent.stopImmediatePropagation()
-            onLinkLithoToGeo()
-            onClose()
-          }}
-          role="menuitem"
-          data-testid="link-geo-menu-item"
-        >
-          Link to geology
-        </button>
-      )}
-      {onUnlinkLithoFromGeo && (
-        <button
-          type="button"
-          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
-          onClick={e => {
-            e.nativeEvent.stopImmediatePropagation()
-            onUnlinkLithoFromGeo()
-            onClose()
-          }}
-          role="menuitem"
-          data-testid="unlink-geo-menu-item"
-        >
-          Unlink from geology
-        </button>
-      )}
-      {onDelete && (
-        <button
-          type="button"
-          className="block w-full border-t border-gray-100 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:border-gray-700 dark:text-red-400 dark:hover:bg-red-950/40"
-          onClick={e => {
-            e.nativeEvent.stopImmediatePropagation()
-            onDelete()
-            onClose()
-          }}
-          role="menuitem"
-        >
-          Delete contact
-        </button>
-      )}
-    </div>
+    <ContextMenu
+      portal="fixed"
+      x={clientX}
+      y={clientY}
+      header={formationName}
+      ariaLabel={`Actions for ${formationName} contact`}
+      testid="contact-context-menu"
+      onClose={onClose}
+      items={[
+        onEditInGeologyStage && {
+          label: 'Edit in Geology stage',
+          onClick: onEditInGeologyStage,
+          testid: 'geo-deep-link-menu-item',
+        },
+        onPinchOut && {
+          label: 'Extrapolate pinch-out…',
+          onClick: onPinchOut,
+          disabled: pinchOutDisabled,
+          reason: pinchOutDisabledReason ?? undefined,
+        },
+        onLinkLithoToGeo && {
+          label: 'Link to geology',
+          onClick: onLinkLithoToGeo,
+          testid: 'link-geo-menu-item',
+        },
+        onUnlinkLithoFromGeo && {
+          label: 'Unlink from geology',
+          onClick: onUnlinkLithoFromGeo,
+          testid: 'unlink-geo-menu-item',
+        },
+        onDelete && { label: 'Delete contact', onClick: onDelete, danger: true, topBorder: true },
+      ]}
+    />
   )
 }
