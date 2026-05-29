@@ -22,7 +22,9 @@ Algorithm
    whose ``|depth_A - depth_B| < BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR ·
    column_distance``.
 4. Mutual-nearest-neighbour disambiguation via the shared ``_mnn_by_id``
-   generic core.
+   generic core, applied PER adjacent column-pair (not group-wide) so a
+   contact can link to both its neighbours along a chain without one pair
+   stealing a shared endpoint from the other (#163 dogfeed 2026-05-29).
 5. Emit canonical-ordered ``(contact_a_id, contact_b_id)`` candidates.
 
 No Theil-Sen dip transfer — see spec for the trade-off discussion.
@@ -282,7 +284,6 @@ def auto_correlate_contact_edges(
             by_inv.setdefault(c.investigation_id, []).append(c)
 
         inv_ids = list(by_inv.keys())
-        candidates: list[_ContactCandidatePair] = []
         for i in range(len(inv_ids)):
             for j in range(i + 1, len(inv_ids)):
                 inv_a, inv_b = inv_ids[i], inv_ids[j]
@@ -296,13 +297,23 @@ def auto_correlate_contact_edges(
                 if col_dist > p.max_column_distance_m:
                     continue
                 window = p.base_depth_threshold_m + p.distance_factor * col_dist
+                # #163 dogfeed 2026-05-29: MNN is applied PER investigation
+                # pair, not group-wide.  A group-wide reduction keyed on the
+                # canonical (min, max) contact ids lets one column "win" a
+                # shared contact and orphans the matching boundary on the
+                # other neighbour — the owner's "bottom layer never
+                # auto-suggests" symptom.  RNG adjacency already blocks
+                # skip-over spaghetti, so disambiguating only WITHIN each
+                # adjacent pair is sufficient and lets a contact link to
+                # both its neighbours along a chain.
+                pair_candidates: list[_ContactCandidatePair] = []
                 for ca in by_inv[inv_a]:
                     for cb in by_inv[inv_b]:
                         residual = abs(ca.depth_top_m - cb.depth_top_m)
                         if residual < window:
                             a_id = min(ca.contact_id, cb.contact_id)
                             b_id = max(ca.contact_id, cb.contact_id)
-                            candidates.append(
+                            pair_candidates.append(
                                 _ContactCandidatePair(
                                     contact_a_id=a_id,
                                     contact_b_id=b_id,
@@ -310,17 +321,17 @@ def auto_correlate_contact_edges(
                                 )
                             )
 
-        for survivor in _mnn_by_id(
-            candidates,
-            key_a=lambda c: c.contact_a_id,
-            key_b=lambda c: c.contact_b_id,
-            residual=lambda c: c.residual,
-        ):
-            out.append(
-                ContactCorrelationCandidate(
-                    contact_a_id=survivor.contact_a_id,
-                    contact_b_id=survivor.contact_b_id,
-                )
-            )
+                for survivor in _mnn_by_id(
+                    pair_candidates,
+                    key_a=lambda c: c.contact_a_id,
+                    key_b=lambda c: c.contact_b_id,
+                    residual=lambda c: c.residual,
+                ):
+                    out.append(
+                        ContactCorrelationCandidate(
+                            contact_a_id=survivor.contact_a_id,
+                            contact_b_id=survivor.contact_b_id,
+                        )
+                    )
 
     return out
