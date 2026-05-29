@@ -588,6 +588,33 @@ describe('CorrelationEdgesOverlay', () => {
     expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('ed')
   })
 
+  // CE-E3 (dogfeed 2026-05-29): an APPROVED (accepted) correlation must be
+  // deletable the same way — the owner reported "can't delete accepted
+  // correlation". Approved edges show no grab handles, so the band itself
+  // is the only affordance; right-clicking it must fire onRequestDeleteEdge.
+  it('CE-E3: right-click an approved edge fires onRequestDeleteEdge', () => {
+    const onRequestDeleteEdge = vi.fn()
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'eok', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge], onRequestDeleteEdge,
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-hit-eok'))
+    fireEvent.click(screen.getByText(/Delete correlation/i, { selector: 'button' }))
+    expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
+    expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('eok')
+  })
+
   // CE-E2 (#163e): no edge-delete hit target when onRequestDeleteEdge absent.
   it('CE-E2: no edge-delete hit target when onRequestDeleteEdge is absent', () => {
     const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
