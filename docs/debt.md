@@ -4430,19 +4430,26 @@ all existing consumer tests (ColumnContextMenu 8, CorrelationEdgesOverlay 37,
 ContactsLayer 83) pass unchanged; full suite 1436 green. Per-file commits on
 develop 2026-05-29.
 
-## 165. Generic `<ConfirmDialog>` + `Button` forwardRef — the named 4th copy has landed (Tier E — frontend, S+M)
+## 165. Generic `<ConfirmDialog>` + `Button` forwardRef — RESOLVED 2026-05-29
 
-**What.** `DeleteContactConfirmDialog`, `UnsavedChangesDialog`,
-`ReCorrelateConfirmDialog`, `sections/CopyCompositionConfirmDialog` all repeat
-`cancelRef = useRef` + focus-on-open effect + a hand-styled plain `<button>` with
-a comment "Button.tsx doesn't forwardRef". `DeleteContactConfirmDialog.tsx:9-12`
-explicitly deferred extraction "when a 4th destructive confirm needs the same
-shape" — **that 4th now exists.** **Why.** The code's own extraction trigger has
-fired; cancel-focus a11y re-derived 4×. **Fix.** (a) Add `forwardRef` to
-`ui/Button.tsx` (kills the plain-`<button>` workaround everywhere — also unblocks
-`LithoGeoSnapDialog.tsx:165`, `PinchOutGhostOverlay.tsx:353`); (b) build
-`components/ui/ConfirmDialog.tsx` `{open,title,body,confirmLabel,variant,
-onConfirm,onCancel,busy}`. **Effort.** S (forwardRef) + M (rollout).
+(a) `ui/Button.tsx` now uses `forwardRef` (FR5 test pins it). (b) Shipped
+`components/ui/ConfirmDialog.tsx` `{open, title, body, confirm, secondary?,
+cancelLabel?, cancelTestid?, onCancel, busy, labelledBy, titleTestid?,
+cardClassName?, testid?}` — it owns the Modal + the default-focus-Cancel ref
+effect + the Cancel/[secondary]/confirm button row. The optional `secondary`
+action covers the three-button cases, so all four confirms collapse onto it:
+`DeleteContactConfirmDialog` (danger), `CopyCompositionConfirmDialog` (primary),
+`ReCorrelateConfirmDialog` (Skip secondary + Re-correlate danger),
+`UnsavedChangesDialog` (Discard ghost secondary + Save primary). Each is now a
+thin wrapper passing rich title/body as ReactNode; every testid + role + the
+cancel-focus a11y is preserved (existing dialog tests pass unchanged).
+`LithoGeoSnapDialog` also dropped its two plain-`<button>` workarounds for
+`Button` (it default-focuses Snap, not Cancel, so it stays a bespoke 3-button
+Modal rather than a ConfirmDialog). `PinchOutGhostOverlay` left as-is — a compact
+inline ghost-preview panel with bespoke full-width styling, not a modal confirm,
+so forcing `Button` there would be a visual change for no real dedup. 5 new
+ConfirmDialog tests (CD1–CD5) + Button FR5; full suite 1442 green. Per-file
+commits on develop 2026-05-29.
 
 ## 165b. `.gitignore` e2e artifacts — SHIPPED 2026-05-28
 
