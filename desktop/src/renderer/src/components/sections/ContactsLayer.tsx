@@ -298,6 +298,12 @@ interface Props {
    *  not as the dashed "unbuilt" fallback.  Defaults to false (legacy
    *  TIN-slice render); SectionPanel passes true for the active surface. */
   surfaceThroughPicks?: boolean
+  /** Correlate mode is active (dogfeed 2026-05-29).  When true the depth-drag
+   *  hit-strip is suppressed so it can't intercept or compete with the
+   *  CorrelationEdgesOverlay's boundary-select clicks — in correlate mode the
+   *  user is selecting boundaries, not editing depths.  Depth-drag is a
+   *  normal-mode gesture. */
+  correlateMode?: boolean
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -765,6 +771,7 @@ export default function ContactsLayer({
   referenceContacts,
   renderFormationSurfaces = true,
   surfaceThroughPicks = false,
+  correlateMode = false,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   pendingGhostRangesByAnchorId,
@@ -3485,7 +3492,8 @@ export default function ContactsLayer({
                 handler is wired so the lines participate in pointer
                 events; without all three they stay fully
                 non-interactive. */}
-            {(onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact) &&
+            {!correlateMode &&
+              (onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
