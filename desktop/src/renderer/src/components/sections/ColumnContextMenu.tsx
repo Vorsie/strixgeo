@@ -7,19 +7,19 @@
  *   * "Focus this test" — enters the section's focus mode, hiding
  *     every other column so the user can edit formation boundaries
  *     on the picked test in isolation.
+ *   * "Open detail" — opens the test's full chart/borelog detail.
  *   * "Remove from this section" — adds the column's id to the
  *     section's excluded_{cpt,borehole}_ids list. Reversible
  *     (project-local hide, the test stays in the project + on the
  *     map). Per UX conventions no confirmation dialog; the
  *     "N hidden · restore all" footer is the undo path.
  *
- * The menu is positioned absolutely inside SectionPanel's relative
- * container; coordinates come from the original ``onContextMenu``
- * event's ``clientX/clientY`` translated into container-local
- * coordinates by the caller. Click-outside and Esc both dismiss.
+ * Thin wrapper over the generic {@link ContextMenu} (#164): positioned
+ * ``absolute`` inside SectionPanel's relative container, dismissed on
+ * click-outside / Esc.
  */
 
-import { useEffect } from 'react'
+import ContextMenu, { type ContextMenuItem } from '../ui/ContextMenu'
 
 interface Props {
   /** Container-local coordinates where the menu's top-left corner
@@ -34,9 +34,7 @@ interface Props {
   onFocus: () => void
   /** Fired when the user picks "Open detail" — opens the test's full
    * chart/borelog detail (routes to the Data stage). When omitted
-   * (read-only mounts / no detail handler) the item is hidden. Single-
-   * click on a section column places a contact, so detail-open lives
-   * here rather than on a click gesture. */
+   * (read-only mounts / no detail handler) the item is hidden. */
   onOpenDetail?: () => void
   /** Fired when the user picks "Remove from this section". When
    * omitted (test harness, read-only mounts) the menu item is
@@ -57,71 +55,25 @@ export default function ColumnContextMenu({
   onRemoveFromSection,
   onClose,
 }: Props): JSX.Element {
-  useEffect(() => {
-    function handleDocClick(): void {
-      onClose()
-    }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('click', handleDocClick)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('click', handleDocClick)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [onClose])
-
+  const items: (ContextMenuItem | false | undefined)[] = [
+    { label: 'Focus this test', onClick: onFocus },
+    onOpenDetail && { label: 'Open detail', onClick: onOpenDetail, topBorder: true },
+    onRemoveFromSection && {
+      label: 'Remove from this section',
+      onClick: onRemoveFromSection,
+      danger: true,
+      topBorder: true,
+    },
+  ]
   return (
-    <div
-      className="absolute z-30 min-w-[200px] bg-white border border-gray-300 shadow-md rounded text-sm"
-      style={{ left: x, top: y }}
-      // Stop our own clicks from bubbling to the document-level
-      // dismisser; only clicks elsewhere should close the menu.
-      onClick={e => e.stopPropagation()}
-      role="menu"
-      aria-label={`Actions for ${name}`}
-    >
-      <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
-        {name}
-      </div>
-      <button
-        type="button"
-        className="block w-full text-left px-3 py-2 hover:bg-gray-100"
-        onClick={() => {
-          onFocus()
-          onClose()
-        }}
-        role="menuitem"
-      >
-        Focus this test
-      </button>
-      {onOpenDetail && (
-        <button
-          type="button"
-          className="block w-full text-left px-3 py-2 hover:bg-gray-100 border-t border-gray-100"
-          onClick={() => {
-            onOpenDetail()
-            onClose()
-          }}
-          role="menuitem"
-        >
-          Open detail
-        </button>
-      )}
-      {onRemoveFromSection && (
-        <button
-          type="button"
-          className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 border-t border-gray-100"
-          onClick={() => {
-            onRemoveFromSection()
-            onClose()
-          }}
-          role="menuitem"
-        >
-          Remove from this section
-        </button>
-      )}
-    </div>
+    <ContextMenu
+      portal="absolute"
+      x={x}
+      y={y}
+      header={name}
+      ariaLabel={`Actions for ${name}`}
+      items={items}
+      onClose={onClose}
+    />
   )
 }
