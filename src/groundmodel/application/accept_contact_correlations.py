@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -113,18 +114,18 @@ class AcceptContactCorrelations(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 1. Scope guard — verify model belongs to project.                  #
         # ------------------------------------------------------------------ #
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
+        )
         self.debug(f"AcceptContactCorrelations: model scope guard passed for {model_id}")
 
         # ------------------------------------------------------------------ #
         # 2. Build the in-scope edge id set.                                 #
         # ------------------------------------------------------------------ #
         if section_id is not None:
-            sec = await self._session.get(CrossSectionOrm, section_id)
-            if sec is None or sec.app_project_id != project_id:
-                raise ValueError(f"Cross-section {section_id} not found in project {project_id}")
+            sec = await load_scoped_or_raise(
+                self._session, CrossSectionOrm, section_id, project_id, label="Cross-section"
+            )
             section_contact_ids: set[UUID] = set(sec.seeded_formation_contact_ids or [])
             self.debug(
                 f"AcceptContactCorrelations: section {section_id} has "
