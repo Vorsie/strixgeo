@@ -27,7 +27,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FormationAbsenceItem, GeologicalFormationResponse } from '../../api/client'
+import type {
+  FormationAbsenceItem,
+  GeologicalFormationResponse,
+  LensBoundaryNode,
+  LensRenderStyle,
+} from '../../api/client'
 import { api } from '../../api/client'
 import { log } from '../../utils/log'
 import Button from '../ui/Button'
@@ -153,6 +158,15 @@ export default function InspectLensBodyPanel({
   // Bulk-confirm-all loading state.
   const [confirmAllBusy, setConfirmAllBusy] = useState(false)
 
+  // #163f Slice 2 — lens boundary render style + the current control nodes
+  // (preserved so a style change PUTs the full shape, not an empty one).
+  const [renderStyle, setRenderStyle] = useState<LensRenderStyle>('straight')
+  const [boundaryNodes, setBoundaryNodes] = useState<{
+    upper: LensBoundaryNode[]
+    lower: LensBoundaryNode[]
+  }>({ upper: [], lower: [] })
+  const [styleSaving, setStyleSaving] = useState(false)
+
   // Sync the name field when the panel reopens for a different lens or body.
   useEffect(() => {
     setLensName(existingLensName ?? '')
@@ -195,6 +209,53 @@ export default function InspectLensBodyPanel({
       cancelled = true
     }
   }, [target])
+
+  // #163f Slice 2 — load the lens's boundary shape (style + nodes) when the
+  // panel opens for a lens that has a row. Drives the render-style picker +
+  // preserves the control nodes across a style change.
+  useEffect(() => {
+    if (target === null || existingLensId === null) {
+      setRenderStyle('straight')
+      setBoundaryNodes({ upper: [], lower: [] })
+      return
+    }
+    let cancelled = false
+    api.geology
+      .getLensBoundary(target.projectId, target.modelId, existingLensId)
+      .then(b => {
+        if (cancelled) return
+        setRenderStyle(b.render_style)
+        setBoundaryNodes({ upper: b.upper_nodes, lower: b.lower_nodes })
+      })
+      .catch(err => {
+        if (!cancelled) log.warn('section', 'InspectLensBodyPanel: getLensBoundary failed', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [target, existingLensId])
+
+  const handleStyleChange = useCallback(
+    async (style: LensRenderStyle): Promise<void> => {
+      if (target === null || existingLensId === null) return
+      const prev = renderStyle
+      setRenderStyle(style) // optimistic
+      setStyleSaving(true)
+      try {
+        await api.geology.saveLensBoundary(target.projectId, target.modelId, existingLensId, {
+          upper_nodes: boundaryNodes.upper,
+          lower_nodes: boundaryNodes.lower,
+          render_style: style,
+        })
+      } catch (err) {
+        log.warn('section', 'InspectLensBodyPanel: saveLensBoundary (style) failed', err)
+        setRenderStyle(prev) // rollback
+      } finally {
+        setStyleSaving(false)
+      }
+    },
+    [target, existingLensId, renderStyle, boundaryNodes],
+  )
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -484,6 +545,39 @@ export default function InspectLensBodyPanel({
             <p className="mt-1 text-xs text-red-500">{nameError}</p>
           )}
         </section>
+
+        {/* Lens boundary render style (#163f Slice 2). Only meaningful once
+            the lens has a body row; differences are visible once the user has
+            added shaping nodes on the section. */}
+        {existingLensId !== null && (
+          <section data-testid="inspect-lens-style">
+            <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
+              Boundary style
+            </h3>
+            <div className="flex gap-1.5">
+              {(['straight', 'blocky', 'rounded'] as const).map(style => (
+                <button
+                  key={style}
+                  type="button"
+                  data-testid={`inspect-lens-style-${style}`}
+                  onClick={() => void handleStyleChange(style)}
+                  disabled={styleSaving}
+                  className={[
+                    'flex-1 text-xs rounded border px-2 py-1.5 capitalize transition-colors',
+                    renderStyle === style
+                      ? 'border-accent bg-accent/15 text-text-primary'
+                      : 'border-border-default text-text-secondary hover:bg-surface-overlay',
+                  ].join(' ')}
+                >
+                  {style}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              How the lens boundary is drawn between its control nodes.
+            </p>
+          </section>
+        )}
       </div>
 
       {/* Footer actions */}
