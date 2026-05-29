@@ -2187,3 +2187,68 @@ describe('computeMoveBothEdits (middle-dot move-both)', () => {
     expect(r.baseM).toBe(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// 3-dot grab handle (#163 Slice 1) — hover-gated dots at column centre
+// ---------------------------------------------------------------------------
+//
+//   HD1  dots are hidden by default and appear on hover (when onEdit wired).
+//   HD2  middle dot mousedown→mouseup moves the WHOLE layer (onEdit carries
+//        BOTH depth_top_m and depth_base_m).
+//   HD3  top dot reuses the single-edge drag (onEdit carries depth_top_m only).
+
+describe('three-dot grab handle (#163 Slice 1)', () => {
+  it('HD1 — grab dots are hidden until the band is hovered', () => {
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit: vi.fn() },
+    )
+    expect(container.querySelector('[data-testid="litho-grab-dots-0"]')).toBeNull()
+    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
+    expect(container.querySelector('[data-testid="litho-grab-dots-0"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="litho-grab-top-0"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="litho-grab-middle-0"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="litho-grab-bottom-0"]')).not.toBeNull()
+  })
+
+  it('HD2 — middle dot drag moves the whole layer (both edges in one onEdit)', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit },
+    )
+    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
+    const mid = container.querySelector('[data-testid="litho-grab-middle-0"]')
+    expect(mid).not.toBeNull()
+    // pxPerM = 100 → 100 px down = +1.0 m. Layer [0,2] → [1,3].
+    fireEvent.mouseDown(mid!, { clientY: 100 })
+    fireEvent.mouseUp(document, { clientY: 200 })
+    // The dragged layer's edit carries BOTH edges (the move-both signature).
+    const own = onEdit.mock.calls.find(c => c[0] === 0)
+    expect(own).toBeTruthy()
+    expect(own![1].depth_top_m).toBeCloseTo(1.0, 5)
+    expect(own![1].depth_base_m).toBeCloseTo(3.0, 5)
+  })
+
+  it('HD3 — top dot reuses the single-edge drag (depth_top_m only)', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit },
+    )
+    fireEvent.mouseEnter(container.querySelector('[data-testid="litho-band-group-0"]')!)
+    const top = container.querySelector('[data-testid="litho-grab-top-0"]')
+    expect(top).not.toBeNull()
+    fireEvent.mouseDown(top!, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 200 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    const [idx, edit] = onEdit.mock.calls[0]
+    expect(idx).toBe(0)
+    expect(edit.depth_top_m).toBeCloseTo(1.0, 5)
+    expect(edit.depth_base_m).toBeUndefined()
+  })
+})
