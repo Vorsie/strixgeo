@@ -736,7 +736,7 @@ export interface UseGeologicalModelResult {
    * -------
    * Promise<void>
    */
-  handleAutoCorrelate: () => Promise<void>
+  handleAutoCorrelate: (sectionId?: string | null) => Promise<void>
   /**
    * Clear all unapproved (auto) correlation suggestions for the active litho
    * model without re-running auto-correlate (#179). Keeps approved manual
@@ -2808,15 +2808,23 @@ export function useGeologicalModel({
   // #127 — auto-correlate: fire the domain algorithm across the model,
   // persist net-new edges with source='auto', re-run the resolver, and
   // trigger inference per formation — all in one server-side transaction.
-  const handleAutoCorrelate = useCallback(async (): Promise<void> => {
+  const handleAutoCorrelate = useCallback(
+    async (sectionId?: string | null): Promise<void> => {
     const model = activeLithoModelRef.current
     if (!project || !model) return
-    log.info('geology', `autoCorrelate entry model=${model.id}`)
+    log.info('geology', `autoCorrelate entry model=${model.id} section=${sectionId ?? 'model-wide'}`)
     try {
       // #163b: pass the user-tuned depth-match window from Settings.
       const depthWindowM = readLithoSegmenterPrefs(project.view_state).autoCorrelateDepthWindowM
-      // TODO Task 19: migrate to autoCorrelateContacts (contact-level).
-      const result = await api.geology.autoCorrelateContacts(project.id, model.id, depthWindowM)
+      // sectionId (dogfeed 2026-05-29): gate adjacency to consecutive columns
+      // along the section, not map-plane RNG. The Sections toolbar passes the
+      // selected section; null/undefined keeps model-wide behaviour.
+      const result = await api.geology.autoCorrelateContacts(
+        project.id,
+        model.id,
+        depthWindowM,
+        sectionId ?? null,
+      )
       log.success(
         'geology',
         `autoCorrelate ok edges_created=${result.edges_created} ` +
