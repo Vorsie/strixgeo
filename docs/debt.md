@@ -4411,22 +4411,24 @@ god-component splits + a generic-component extraction, exactly the multi-file
 refactors that want a human in the loop before execution. Ranked roughly by
 value within each area. Effort S/M/L.
 
-## 164. Generic `<ContextMenu>` — collapse 4 hand-rolled portalled menus (Tier E — frontend, M)
+## 164. Generic `<ContextMenu>` — RESOLVED 2026-05-29
 
-**What.** Four near-identical portalled context menus re-implement positioned
-container + `itemStyle` button block + backdrop/Esc/outside-click dismiss +
-danger-item styling: `ColumnContextMenu.tsx:75-126`; `CorrelationEdgesOverlay.tsx`
-`BodyContextMenu` (573-639) + `EdgeContextMenu` (658-698, added 2026-05-28 for
-#163e — the `itemStyle` object + the `position:fixed inset:0 zIndex:9998`
-backdrop div are byte-identical to BodyContextMenu); `ContactsLayer.tsx`
-`ContactContextMenu` (4063-4197). **Why.** Past the extraction window (3+ copies).
-Dismiss correctness is re-derived per copy — `ContactContextMenu` needed
-`nativeEvent.stopImmediatePropagation`, the others lack it (latent bug). **Fix.**
-`components/ui/ContextMenu.tsx` taking `{x, y, items:[{label,onClick,danger?,
-disabled?,reason?,testid?}], header?, onClose, portal:'svg'|'body'}` —
-encapsulate backdrop+Esc+outside-click+stopImmediatePropagation once; the SVG
-`<foreignObject>` vs DOM-portal split becomes the `portal` prop. Subsumes the
-repeated `useDismissOnOutsideClick`-shaped effect. **Effort.** M.
+Shipped `components/ui/ContextMenu.tsx` (`{items:[{label,onClick,danger?,
+disabled?,reason?,topBorder?,testid?}], header?, onClose, ariaLabel?, testid?,
+portal:'svg'|'fixed'|'absolute', x, y, width?, height?}`). All four menus —
+`ColumnContextMenu`, `ContactContextMenu`, and the `BodyContextMenu` +
+`EdgeContextMenu` pair — are now thin wrappers that build an items array; the
+positioned container, the danger/disabled/reason item styling, the divider
+borders, and the dismiss logic (svg backdrop click/right-click vs DOM document
+click + Esc) live once in the component. The `portal` prop encodes the
+`<foreignObject>` (canvas) vs DOM (fixed/absolute) split; the SVG variant keeps
+the dark inline styling so the canvas look is unchanged, the DOM variant uses
+the shared light+dark Tailwind chrome. The latent double-`onClose` bug is fixed
+for every DOM menu (item clicks call `stopImmediatePropagation` once, in the
+component). Esc now closes every variant. 7 new component tests (CM1–CM7) +
+all existing consumer tests (ColumnContextMenu 8, CorrelationEdgesOverlay 37,
+ContactsLayer 83) pass unchanged; full suite 1436 green. Per-file commits on
+develop 2026-05-29.
 
 ## 165. Generic `<ConfirmDialog>` + `Button` forwardRef — the named 4th copy has landed (Tier E — frontend, S+M)
 
