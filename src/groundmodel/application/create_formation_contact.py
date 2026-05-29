@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -130,17 +131,15 @@ class CreateFormationContact(GroundModelLogger):
         # router's get_in_project_or_404 guard; these checks prevent a
         # crafted request from embedding a foreign-project formation_id or
         # anchor id in the body (VULN-9).
-        formation = await self._session.get(GeologicalFormationOrm, formation_id)
-        if formation is None or formation.app_project_id != project_id:
-            raise ValueError(f"Formation {formation_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session, GeologicalFormationOrm, formation_id, project_id, label="Formation"
+        )
         if borehole_id is not None:
-            borehole = await self._session.get(BoreholeOrm, borehole_id)
-            if borehole is None or borehole.app_project_id != project_id:
-                raise ValueError(f"Borehole {borehole_id} not found in project {project_id}")
+            await load_scoped_or_raise(
+                self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
+            )
         if cpt_id is not None:
-            cpt = await self._session.get(CptOrm, cpt_id)
-            if cpt is None or cpt.app_project_id != project_id:
-                raise ValueError(f"CPT {cpt_id} not found in project {project_id}")
+            await load_scoped_or_raise(self._session, CptOrm, cpt_id, project_id, label="CPT")
         # Per-(model, anchor, formation) uniqueness check. Geological
         # semantic: a formation has exactly one top per investigation.
         # Two-layer enforcement: this best-effort SELECT keeps the
