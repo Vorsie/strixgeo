@@ -425,3 +425,156 @@ async def test_cp4_unlink_geo_clears_coupling(
     assert litho_contact.parent_geo_contact_id is None, (
         "DB row must have parent_geo_contact_id=NULL after unlink"
     )
+
+
+# ---------------------------------------------------------------------------
+# CP5 — manual link-geo endpoint links + snaps an uncoupled contact (#162 Slice 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_cp5_link_geo_links_uncoupled_contact_and_snaps(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Manually link an uncoupled litho contact to a nearby geological contact.
+
+    Scenario: the auto-link on accept missed (no geo contact was near at the
+    time), then a geo contact appears within tolerance and the user clicks
+    "Link to geology".
+
+    Steps
+    -----
+    1. Accept a litho suggestion at 1.0 m — only geo contact is at 3.0 m
+       (2.0 m away), so the contact is created UNCOUPLED.
+    2. Add a new geological contact at 0.95 m on the same borehole (0.05 m from
+       the litho contact, within the 0.20 m tolerance).
+    3. POST link-geo on the litho contact.
+    4. Assert HTTP 200, the response carries ``parent_geo_contact_id`` ==
+       the new geo contact, and the geo contact's depth is snapped 0.95 → 1.0 m.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    geo_model = stack["geo_model"]
+
+    # Step 1 — accept far from the only geo contact (3.0 m) → uncoupled.
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=1.0,
+        base=2.5,
+        lithology="ZAND",
+        borehole_id=bh_id,
+    )
+    litho_rows = list(
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(FormationContactOrm.model_id == litho_mid)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(litho_rows) == 1, f"Expected 1 litho contact, got {len(litho_rows)}"
+    litho_contact = litho_rows[0]
+    assert litho_contact.parent_geo_contact_id is None, (
+        "Pre-condition: the litho contact must be uncoupled before the manual link"
+    )
+
+    # Step 2 — add a geological contact at 0.95 m on the same borehole. It must
+    # use a DIFFERENT formation than the existing 3.0 m contact — only one
+    # contact per (formation, investigation) is allowed (409 duplicate_contact).
+    near_formation_resp = await async_client.post(
+        f"/projects/{project.id}/geology/formations",
+        json={"name": "Quaternary cover", "color": "#aaa", "display_order": 1},
+    )
+    assert near_formation_resp.status_code == 201, near_formation_resp.text
+    near_formation = near_formation_resp.json()
+
+    near_geo_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{geo_model['id']}/contacts",
+        json={
+            "formation_id": near_formation["id"],
+            "depth_top_m": 0.95,
+            "borehole_id": bh_id,
+            "source": "manual_pick",
+            "confidence": "high",
+        },
+    )
+    assert near_geo_resp.status_code == 201, near_geo_resp.text
+    near_geo = near_geo_resp.json()
+
+    # Step 3 — POST link-geo on the litho contact.
+    link_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho_mid}/contacts/{litho_contact.id}/link-geo"
+    )
+    assert link_resp.status_code == 200, link_resp.text
+    body = link_resp.json()
+
+    # Step 4 — body links to the new geo contact (not the far 3.0 m one).
+    assert body is not None, "link-geo should return the linked contact, not null"
+    assert body["parent_geo_contact_id"] == near_geo["id"], (
+        f"Expected link to the near geo contact {near_geo['id']}, "
+        f"got {body['parent_geo_contact_id']}"
+    )
+
+    # The near geo contact's depth is snapped from 0.95 → 1.0 m.
+    near_geo_row = (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.id == near_geo["id"])
+        )
+    ).scalar_one()
+    assert near_geo_row.depth_top_m == pytest.approx(1.0, abs=1e-6), (
+        f"Geo contact should snap 0.95 → 1.0 m on link; got {near_geo_row.depth_top_m}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CP6 — link-geo with nothing within tolerance returns a null body (200)
+# ---------------------------------------------------------------------------
+
+
+async def test_cp6_link_geo_returns_null_when_no_geo_within_tolerance(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """link-geo on a contact with no geological contact within tolerance.
+
+    The only geo contact is at 3.0 m; the litho contact sits at 1.0 m (2.0 m
+    away, outside the 0.20 m tolerance). The endpoint must return HTTP 200 with
+    a null body and leave the contact uncoupled.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=1.0,
+        base=2.5,
+        lithology="ZAND",
+        borehole_id=bh_id,
+    )
+    litho_contact = (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.model_id == litho_mid)
+        )
+    ).scalar_one()
+
+    link_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho_mid}/contacts/{litho_contact.id}/link-geo"
+    )
+    assert link_resp.status_code == 200, link_resp.text
+    assert link_resp.json() is None, (
+        "link-geo must return a null body when no geo contact is within tolerance"
+    )
+
+    await db_session.refresh(litho_contact)
+    assert litho_contact.parent_geo_contact_id is None, (
+        "Contact must stay uncoupled when no geo contact is within tolerance"
+    )
