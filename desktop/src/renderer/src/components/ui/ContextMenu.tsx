@@ -116,17 +116,20 @@ export default function ContextMenu(props: Props): JSX.Element {
     return () => document.removeEventListener('keydown', handleKey)
   }, [onClose])
 
-  // DOM variants also dismiss on any document click (outside-click). The SVG
-  // variant uses its backdrop instead, so it does not register this.
-  const isDom = props.portal !== 'svg'
+  // All variants dismiss on any document click outside the menu. The SVG
+  // variant ALSO has a backdrop (for right-click-to-close), but a
+  // ``position:fixed`` backdrop nested in an SVG ``<foreignObject>`` does NOT
+  // reliably cover the viewport in Chromium/Electron, so a left-click on the
+  // canvas elsewhere missed it and the menu stayed open (dogfeed 2026-05-29).
+  // The document listener is the reliable outside-click path; each menu's
+  // container stops its own clicks from reaching it.
   useEffect(() => {
-    if (!isDom) return
     function handleDocClick(): void {
       onClose()
     }
     document.addEventListener('click', handleDocClick)
     return () => document.removeEventListener('click', handleDocClick)
-  }, [isDom, onClose])
+  }, [onClose])
 
   const visibleItems = items.filter((it): it is ContextMenuItem => Boolean(it))
 
@@ -140,7 +143,15 @@ export default function ContextMenu(props: Props): JSX.Element {
         height={props.height}
         style={{ overflow: 'visible' }}
       >
-        <div data-testid={testid} role="menu" aria-label={ariaLabel} style={{ ...SVG_PANEL_STYLE, minWidth }}>
+        <div
+          data-testid={testid}
+          role="menu"
+          aria-label={ariaLabel}
+          style={{ ...SVG_PANEL_STYLE, minWidth }}
+          // Keep clicks inside the menu from reaching the document dismisser
+          // (an item still closes via its own onClick → onClose).
+          onClick={e => e.stopPropagation()}
+        >
           {header && (
             <div
               style={{
@@ -179,10 +190,17 @@ export default function ContextMenu(props: Props): JSX.Element {
             </button>
           ))}
         </div>
-        {/* Full-viewport backdrop — click or right-click anywhere to dismiss. */}
+        {/* Backdrop — catches right-click-to-dismiss (the document listener
+            only watches left clicks). stopPropagation on the left click so it
+            doesn't ALSO trigger the document dismisser (double onClose). Where
+            the backdrop fails to cover the viewport (fixed-in-foreignObject),
+            the document click listener is the fallback. */}
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-          onClick={onClose}
+          onClick={e => {
+            e.stopPropagation()
+            onClose()
+          }}
           onContextMenu={e => {
             e.preventDefault()
             onClose()
