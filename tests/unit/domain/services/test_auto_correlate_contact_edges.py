@@ -293,3 +293,41 @@ def test_mnn_tie_breaking_picks_exactly_one() -> None:
     ]
     result = auto_correlate_contact_edges(contacts, locations)
     assert len(result) == 1
+
+
+def test_explicit_adjacency_overrides_map_plane_rng() -> None:
+    """A caller-supplied adjacency replaces the model-wide RNG gate.
+
+    Three collinear tests (x = 0, 50, 100) with an identical boundary
+    signature.  The default map-plane RNG pairs only consecutive neighbours
+    (1-2, 2-3) and blocks 1-3 (test 2 sits in the lune).  Passing an explicit
+    ``adjacency`` of {1, 3} flips that: ONLY the 1-3 edge survives — proving
+    the section-along-order gate can override map-plane proximity (dogfeed
+    2026-05-29: section column order, not true-2D RNG, must drive adjacency).
+    """
+    contacts = [
+        _make_contact(1, 1, 5.0, 99, "ZAND", "KLEI"),
+        _make_contact(2, 2, 5.0, 99, "ZAND", "KLEI"),
+        _make_contact(3, 3, 5.0, 99, "ZAND", "KLEI"),
+    ]
+    locations = [
+        InvestigationLocation(_uid(1), 0.0, 0.0),
+        InvestigationLocation(_uid(2), 50.0, 0.0),
+        InvestigationLocation(_uid(3), 100.0, 0.0),
+    ]
+    # Default map-plane RNG: consecutive only, 1-3 blocked by 2.
+    default_pairs = {
+        frozenset((c.contact_a_id, c.contact_b_id))
+        for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    assert frozenset((_uid(1), _uid(2))) in default_pairs
+    assert frozenset((_uid(2), _uid(3))) in default_pairs
+    assert frozenset((_uid(1), _uid(3))) not in default_pairs
+
+    # Explicit adjacency {1, 3} only: 1-3 is the sole surviving edge.
+    forced = {frozenset((_uid(1), _uid(3)))}
+    overridden = {
+        frozenset((c.contact_a_id, c.contact_b_id))
+        for c in auto_correlate_contact_edges(contacts, locations, adjacency=forced)
+    }
+    assert overridden == {frozenset((_uid(1), _uid(3)))}
