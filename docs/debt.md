@@ -4456,24 +4456,31 @@ commits on develop 2026-05-29.
 `desktop/tests/e2e/_results/` + root `.e2e-backend.err` (run artifacts) were
 untracked and at risk of accidental commit; added to `.gitignore`.
 
-## 166. Backend project-scope guard re-hand-rolled ~25× in `application/` (Tier E — backend, M; security-adjacent)
+## 166. Backend project-scope guard re-hand-rolled in `application/` — RESOLVED 2026-05-29
 
-**What.** The router layer extracts `get_in_project_or_404`
-(`api/routers/_helpers.py:70`, 70 sites), but the application layer re-hand-rolls
-`model = await session.get(...); if model is None or model.app_project_id !=
-project_id: raise ValueError(...)` at 25+ sites (`link_litho_to_geo.py:103`,
-`unlink_litho_from_geo.py:87`, `correlate_litho_contacts.py:130,271`,
-`accept_contact_correlations.py:117`, `accept_litho_suggestions.py:397,889`,
-`auto_correlate_contact_edges.py:115`, `create_formation_contact.py:134`,
-`upsert_formation_absence.py:134`, `name_lens_body.py:112`,
-`propagate_litho_admixtures.py:122`, the recompute_*_absences triad,
-`materialize_wedge_tips_for_formation.py:181`, `create_perpendicular_companion.py:149,156`,
-`build_section_snapshot.py:103,125`, `build_ground_model_snapshot.py:108`). **Why.**
-25+ copies of a *scope/security* check — a future tightening (e.g. also reject
-`archived_at`, or a soft-delete column) must touch 25 places; one miss is a
-cross-project data-leak. **Fix.** `application/scope_guard.py`:
-`load_scoped_or_raise(session, OrmClass, id, project_id, *, attr="app_project_id")`
-(pure async, no logger), raises `ValueError`. Replace the inline blocks. **Effort.** M.
+Shipped `application/scope_guard.py::load_scoped_or_raise(session, orm_class,
+entity_id, project_id, *, label, attr="app_project_id")` (pure async, no logger;
+raises `ValueError` with an identical message for missing-vs-wrong-project so the
+two can't be distinguished). 4 unit tests. Migrated the **single-stage** sites —
+load-by-id + own `app_project_id` + message references that id — across 12 files:
+`create_formation_contact`, `accept_contact_correlations`,
+`auto_correlate_contact_edges`, `correlate_litho_contacts` (×2),
+`propagate_litho_admixtures` (×2), `name_lens_body` (×2),
+`recompute_all_absences_for_model`, `recompute_formation_absences_for_body` (×3),
+`recompute_formation_absences_for_formation`, `upsert_formation_absence`,
+`extrapolate_pinch_out`, `accept_litho_suggestions` (×4). Full unit suite (1102)
++ integration API suite (170, exercises the cross-project-rejection paths) green.
+
+**Intentionally NOT migrated (different shapes — a uniform helper would change
+behaviour):** `link_litho_to_geo` / `unlink_litho_from_geo` load a *contact* then
+scope-check its *model*, but the error message references the contact id — the
+load-helper would surface the model id instead; `materialize_wedge_tips_for_formation`
+**warns + returns** an empty result on scope failure instead of raising (graceful
+skip, not an error); the lens trio `create_perpendicular_companion` /
+`delete_lens_metadata` / `lens_boundary` carry a second `model_id` scope dimension
+(and two check an already-loaded row, not a fresh `session.get`). These keep their
+inline guards; the common pattern is now single-source. Per-file commits on
+develop 2026-05-29.
 
 ## 167. Litho-accept payload + created-rows-session-import duplicated 4× (Tier D — frontend, S; payload half of #111)
 
