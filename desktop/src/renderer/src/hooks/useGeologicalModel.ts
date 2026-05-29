@@ -796,6 +796,7 @@ export function useGeologicalModel({
   currentLumping,
   stageLumping,
   requestCorrelationEdgesRefetch,
+  markMutated,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -823,6 +824,16 @@ export function useGeologicalModel({
    * auto-correlate makes the overlay refresh without a manual reload.
    */
   requestCorrelationEdgesRefetch: () => void
+  /**
+   * Coordinator signal that marks the project dirty after a geology
+   * MUTATION (a depth drag, a delete, a batch depth change) — changes to
+   * pre-existing rows that don't flow through ``addToSessionImports`` (#160).
+   * Without it those edits never flip the dirty flag, so the close prompt
+   * doesn't fire and they silently persist past a close-without-save.
+   * Decoupled from the session-import delete-manifest: a mutated row must
+   * NOT be deleted on discard — the replace-restore reverts it instead.
+   */
+  markMutated: () => void
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1445,6 +1456,9 @@ export function useGeologicalModel({
             confidence: snapped ? 'high' : 'medium',
           },
         )
+        // Mutation of a pre-existing contact — mark dirty so the close
+        // prompt fires and a close-without-save reverts it (#160).
+        markMutated()
 
         // null = drag-down cross-merge: dragger was absorbed by the formation
         // above.  The BE deleted the dragger + all crossed contacts in one
@@ -1549,7 +1563,15 @@ export function useGeologicalModel({
         toast('error', 'Could not update the contact depth.')
       }
     },
-    [project, contacts, lithoContacts, pushUndo, refetchContacts, refetchLithoContacts],
+    [
+      project,
+      contacts,
+      lithoContacts,
+      pushUndo,
+      refetchContacts,
+      refetchLithoContacts,
+      markMutated,
+    ],
   )
 
   // Create a formation contact at a specific depth on a specific
@@ -1969,6 +1991,9 @@ export function useGeologicalModel({
         // Index by id so the local state patch is O(N+M).
         const byId = new Map(res.contacts.map(c => [c.id, c]))
         applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
+        // Batch depth/anchor mutation of pre-existing contacts — mark dirty
+        // so a close-without-save reverts it (#160).
+        markMutated()
         log.success(
           'geology',
           `batchUpdateContacts ok count=${res.contacts.length}`,
@@ -2017,7 +2042,7 @@ export function useGeologicalModel({
         toast('error', 'Could not update the selected contacts.')
       }
     },
-    [project, contacts, lithoContacts, pushUndo],
+    [project, contacts, lithoContacts, pushUndo, markMutated],
   )
 
   // Right-click → confirm → delete an existing contact. ContactsLayer
@@ -2048,6 +2073,11 @@ export function useGeologicalModel({
           : setContacts
         await api.geology.deleteContact(project.id, modelId, contactId)
         applyPatch(prev => prev.filter(c => c.id !== contactId))
+        // Deletion of a pre-existing contact — mark dirty so a
+        // close-without-save reverts it (#160). NOT added to the session-
+        // import manifest: a delete has no created row to discard; the
+        // replace-restore brings the row back instead.
+        markMutated()
         // No setSessionImportContactIds here — the session-imports set
         // is owned by useProjectLifecycle. The deleteContact callback
         // reaches the session set via the addToSessionImports injected
@@ -2102,6 +2132,7 @@ export function useGeologicalModel({
       contacts,
       lithoContacts,
       pushUndo,
+      markMutated,
     ],
   )
 
