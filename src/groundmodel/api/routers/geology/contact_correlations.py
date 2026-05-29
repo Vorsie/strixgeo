@@ -320,7 +320,10 @@ async def auto_correlate_contact(
     if body is not None and body.base_depth_threshold_m is not None:
         params = AutoCorrelateContactParams(base_depth_threshold_m=body.base_depth_threshold_m)
     result = await AutoCorrelateContactEdges(session).execute(
-        project_id=project_id, model_id=model_id, params=params
+        project_id=project_id,
+        model_id=model_id,
+        params=params,
+        section_id=body.section_id if body is not None else None,
     )
     return AutoCorrelateContactResponse(
         edges_created=result.edges_created,
