@@ -198,6 +198,7 @@ function LithoSection({
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
   const straddleBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
   const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
+  const lensBounds = LITHO_SEGMENTER_BOUNDS.maxLensThicknessM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -223,8 +224,18 @@ function LithoSection({
     Number.isFinite(draft.autoCorrelateDepthWindowM) &&
     draft.autoCorrelateDepthWindowM >= autoCorrBounds.min &&
     draft.autoCorrelateDepthWindowM <= autoCorrBounds.max
+  const lensValid =
+    Number.isFinite(draft.maxLensThicknessM) &&
+    draft.maxLensThicknessM >= lensBounds.min &&
+    draft.maxLensThicknessM <= lensBounds.max
   const allValid =
-    thicknessValid && gunsatValid && drValid && snapValid && straddleValid && autoCorrValid
+    thicknessValid &&
+    gunsatValid &&
+    drValid &&
+    snapValid &&
+    straddleValid &&
+    autoCorrValid &&
+    lensValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
@@ -233,7 +244,8 @@ function LithoSection({
     draft.mergeSameLithology !== initial.mergeSameLithology ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM ||
-    draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM
+    draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
+    draft.maxLensThicknessM !== initial.maxLensThicknessM
 
   return (
     <SectionShell
@@ -330,6 +342,20 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!autoCorrValid}
+      />
+      <NumberRow
+        id="settings-max-lens-thickness"
+        label="Lens max thickness (m)"
+        hint={`Degeneracy guard for lens detection. A detected lens thicker than this is rejected as spurious — a near-whole-column "lens" born from a loose correlation, not a real thin enclosed body. Set to 0 to turn the guard OFF. Range ${lensBounds.min}–${lensBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM} m.`}
+        value={draft.maxLensThicknessM}
+        onChange={v => setDraft({ ...draft, maxLensThicknessM: v })}
+        bounds={lensBounds}
+        sliderMin={lensBounds.min}
+        sliderMax={lensBounds.max}
+        step={0.5}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!lensValid}
       />
 
       <SectionFooter
