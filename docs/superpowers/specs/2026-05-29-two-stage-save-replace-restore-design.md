@@ -4,12 +4,18 @@
 **Status:** SHIPPED 2026-05-29 (backend slice + frontend slice). Owner: "we're going
 for B"; decisions: full project reload on discard, whole-project revert scope.
 
-**Follow-up (not in this slice):** only the core mutation handlers
-(`handleUpdateContactDepth`, `handleDeleteContact`, `handleBatchUpdateContacts`) call
-`markMutated`. Other geology mutations (link/unlink litho↔geo, reorder, pinch-out,
-auto-correlate, accept-without-create) don't yet flip the flag, so an edit made ONLY
-through those won't prompt on close. Add `markMutated()` to each as dogfeed surfaces
-them. (Creates already mark dirty via `addToSessionImports`.)
+**Mutation coverage (2026-05-29, expanded):** `markMutated` now fires from the contact
+edits (depth drag, delete, batch), link/unlink litho↔geo, dedupe, toggle-borehole,
+clear-litho-model, auto-correlate, clear-suggestions, delete (litho) model, and the
+section-local edits (lens-shape save, correlation create/delete, Ctrl-drag edge
+duplicate/retarget). Creates already mark dirty via `addToSessionImports`.
+
+**Still not flagged (known, low-priority):** formation-property edits in
+`GeologyInspector` (reorder / rename / colour / pin) and model **create/activate**
+(deliberately excluded — the geological model is auto-created on bootstrap and
+"activate" is navigation, so flagging them would dirty every project open). Add
+`markMutated()` to the GeologyInspector formation handlers if dogfeed shows those edits
+slipping past the close prompt.
 **Origin:** owner dogfeed 2026-05-29 — "a lot of things i manually change are still in
 the project after i close window without saving." Promotes debt #160 above the litho gate.
 
