@@ -901,6 +901,26 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).toHaveBeenCalledWith('cb2')
   })
 
+  it('CE-HIT-MID: clicking a tall band’s inert middle arms nothing', () => {
+    // ca is the only contact on inv-A, so its band spans most of the column →
+    // tall enough to have an inert middle zone. A click there must NOT arm a
+    // far boundary (dogfeed 2026-05-29: mid-band clicks used to arm the band's
+    // far edge).
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-ca-mid'))
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
   it('CC2: clicking armed source again → onClearArmedContact', () => {
     const gesture = makeContactGestureState({ armedContactId: 'ca' })
     renderOverlay({
