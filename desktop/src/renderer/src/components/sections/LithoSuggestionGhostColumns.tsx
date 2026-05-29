@@ -1533,6 +1533,13 @@ export default function LithoSuggestionGhostColumns({
           plotTop,
           Math.min(plotBottom, levelToScreen(surfaceElevationM - baseM)),
         )
+        // Single-edge drag zones (#163 dogfeed 2026-05-29): a generous band
+        // near each boundary drags JUST that edge; the middle gap drags both.
+        // Capped at 40% of the band height so a middle (move-both) zone always
+        // remains, and at 24 px so tall bands don't make the whole band a
+        // resize zone. The old 6 px strips were too small to hit, so presses
+        // aimed at an edge landed on the body (move-both) instead.
+        const edgeZoneH = Math.min((baseY - topY) * 0.4, 24)
         const accepted = acceptedIndices.has(idx)
         const rejected = rejectedIndices.has(idx)
         // Debt #142 — once a layer is accepted, the committed
@@ -1606,13 +1613,14 @@ export default function LithoSuggestionGhostColumns({
             />
             {dragHandlesEnabled && (
               <>
-                {/* Top-edge handle — drag moves only this layer's TOP.
-                    6 px tall hit zone centred on the top edge. */}
+                {/* Top-edge zone — drag moves only this layer's TOP. Spans
+                    from 3 px above the top line down ``edgeZoneH`` into the
+                    band so it's an easy target (dogfeed 2026-05-29). */}
                 <rect
                   x={left}
                   y={topY - 3}
                   width={ghostWidth}
-                  height={6}
+                  height={edgeZoneH + 3}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-top-${idx}`}
@@ -1641,12 +1649,13 @@ export default function LithoSuggestionGhostColumns({
                     })
                   }}
                 />
-                {/* Base-edge handle — drag moves only this layer's BASE. */}
+                {/* Base-edge zone — drag moves only this layer's BASE. Spans
+                    ``edgeZoneH`` up from the base line to 3 px below it. */}
                 <rect
                   x={left}
-                  y={baseY - 3}
+                  y={baseY - edgeZoneH}
                   width={ghostWidth}
-                  height={6}
+                  height={edgeZoneH + 3}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-base-${idx}`}
