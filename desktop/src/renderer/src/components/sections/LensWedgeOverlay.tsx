@@ -100,6 +100,13 @@ interface Props {
     lowerNodes: LensBoundaryNode[],
     style: LensRenderStyle,
   ) => void
+  /**
+   * Right-click a wedge body → dissolve the lens.  Receives the three defining
+   * contact ids; the caller deletes the two correlation edges (above↔target,
+   * below↔target) so the detector no longer reconstructs the body.  Absent =
+   * no delete affordance (read-only).
+   */
+  onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
 }
 
 interface ResolvedLens {
@@ -111,6 +118,13 @@ interface ResolvedLens {
   pinch: WorldPt
   topSource: WorldPt
   baseSource: WorldPt
+  /** Defining contact ids — the two correlation edges (above↔target,
+   *  below↔target) are what make this body a lens; deleting them dissolves
+   *  it (the metadata-only DELETE endpoint would leave the body in the graph
+   *  and the detector would re-create it). */
+  aboveId: string
+  belowId: string
+  targetId: string
 }
 
 interface NodeDrag {
@@ -140,6 +154,7 @@ export default function LensWedgeOverlay({
   plotTop,
   plotBottom,
   onSaveLensShape,
+  onDeleteLens,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
@@ -191,6 +206,9 @@ export default function LensWedgeOverlay({
       pinch,
       topSource,
       baseSource,
+      aboveId: roles.aboveId,
+      belowId: roles.belowId,
+      targetId: roles.targetId,
     })
   }
 
@@ -313,7 +331,26 @@ export default function LensWedgeOverlay({
         return (
           <g key={`lens-wedge-${lens.lensId}`} data-testid={`lens-wedge-${lens.lensId}`}>
             {fillD && (
-              <path d={fillD} fill={FILL_COLOR} fillOpacity={FILL_OPACITY} stroke="none" />
+              <path
+                data-testid={`lens-wedge-fill-${lens.lensId}`}
+                d={fillD}
+                fill={FILL_COLOR}
+                fillOpacity={FILL_OPACITY}
+                stroke="none"
+                style={{
+                  pointerEvents: onDeleteLens ? 'auto' : 'none',
+                  cursor: onDeleteLens ? 'context-menu' : undefined,
+                }}
+                onContextMenu={
+                  onDeleteLens
+                    ? e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onDeleteLens(lens.aboveId, lens.belowId, lens.targetId)
+                      }
+                    : undefined
+                }
+              />
             )}
             {/* Boundary hit-bands: mousedown adds + drags a node (the
                 "click the band and drag" gesture). Rendered first/below the
