@@ -39,6 +39,7 @@ describe('readLithoSegmenterPrefs', () => {
       lithoSnapToleranceM: 0.30,
       straddleMinPieceThicknessM: 0.40,
       autoCorrelateDepthWindowM: 1.2,
+      maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
     })
   })
 
@@ -61,6 +62,7 @@ describe('readLithoSegmenterPrefs', () => {
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
       straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
+      maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
     })
   })
 
@@ -115,6 +117,7 @@ describe('buildLithoSegmenterPatch', () => {
         lithoSnapToleranceM: 0.25,
         straddleMinPieceThicknessM: 0.35,
         autoCorrelateDepthWindowM: 0.8,
+        maxLensThicknessM: 6.0,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -125,6 +128,7 @@ describe('buildLithoSegmenterPatch', () => {
         litho_snap_tolerance_m: 0.25,
         straddle_min_piece_thickness_m: 0.35,
         auto_correlate_depth_window_m: 0.8,
+        max_lens_thickness_m: 6.0,
       },
     })
   })
@@ -276,5 +280,28 @@ describe('readLithoSegmenterPrefs — mergeSameLithology field', () => {
         litho_segmenter: { merge_same_lithology: 'yes' },
       }).mergeSameLithology,
     ).toBe(true)
+  })
+})
+
+describe('readLithoSegmenterPrefs — maxLensThicknessM field', () => {
+  it('defaults to 5 m when the max_lens_thickness_m key is absent', () => {
+    expect(readLithoSegmenterPrefs({ litho_segmenter: {} }).maxLensThicknessM).toBe(
+      LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
+    )
+  })
+
+  it('accepts 0 as a valid value (guard off — min bound is 0)', () => {
+    expect(
+      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: 0 } }).maxLensThicknessM,
+    ).toBe(0)
+  })
+
+  it('falls back to default on out-of-range (negative or above 20 m)', () => {
+    expect(
+      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: -1 } }).maxLensThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM)
+    expect(
+      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: 999 } }).maxLensThicknessM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM)
   })
 })
