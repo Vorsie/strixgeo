@@ -33,6 +33,7 @@ import type {
 } from '../../api/client'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
+import ContextMenu from '../ui/ContextMenu'
 import { columnMaxDepthM } from './utils'
 import type { PlacedColumn } from './utils'
 
@@ -583,64 +584,30 @@ function BodyContextMenu({
   onInspect,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
-  const itemStyle: React.CSSProperties = {
-    display: 'block',
-    width: '100%',
-    padding: '6px 12px',
-    textAlign: 'left',
-    fontSize: 12,
-    color: 'var(--color-text-primary, #e2e8f0)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-  }
   return (
-    <foreignObject
+    <ContextMenu
+      portal="svg"
       x={menu.x}
       y={menu.y}
       width={220}
       height={96}
-      style={{ overflow: 'visible' }}
-    >
-      <div
-        data-testid="body-context-menu"
-        style={{
-          position: 'absolute',
-          background: 'var(--color-surface-overlay, #1e293b)',
-          border: '1px solid var(--color-border-default, #334155)',
-          borderRadius: 6,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-          zIndex: 9999,
-          minWidth: 220,
-        }}
-      >
-        {onInspect && (
-          <button type="button" style={itemStyle} onClick={onInspect}
-            data-testid="body-context-inspect"
-          >
-            Inspect lens body…
-          </button>
-        )}
-        <button type="button" style={itemStyle} onClick={onEditAdmixtures}>
-          Edit admixtures for this body
-        </button>
-        <button
-          type="button"
-          style={{ ...itemStyle, color: 'var(--color-text-danger, #f87171)' }}
-          onClick={onRemoveAll}
-        >
-          Remove all correlations for this body
-        </button>
-      </div>
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-        onClick={onClose}
-        onContextMenu={e => {
-          e.preventDefault()
-          onClose()
-        }}
-      />
-    </foreignObject>
+      minWidth={220}
+      testid="body-context-menu"
+      onClose={onClose}
+      items={[
+        onInspect && {
+          label: 'Inspect lens body…',
+          onClick: onInspect,
+          testid: 'body-context-inspect',
+        },
+        { label: 'Edit admixtures for this body', onClick: onEditAdmixtures },
+        {
+          label: 'Remove all correlations for this body',
+          onClick: onRemoveAll,
+          danger: true,
+        },
+      ]}
+    />
   )
 }
 
@@ -662,44 +629,18 @@ interface EdgeContextMenuProps {
 }
 
 function EdgeContextMenu({ menu, onDelete, onClose }: EdgeContextMenuProps): JSX.Element {
-  const itemStyle: React.CSSProperties = {
-    display: 'block',
-    width: '100%',
-    padding: '6px 12px',
-    textAlign: 'left',
-    fontSize: 12,
-    color: 'var(--color-text-danger, #f87171)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-  }
   return (
-    <foreignObject x={menu.x} y={menu.y} width={200} height={48} style={{ overflow: 'visible' }}>
-      <div
-        data-testid="edge-context-menu"
-        style={{
-          position: 'absolute',
-          background: 'var(--color-surface-overlay, #1e293b)',
-          border: '1px solid var(--color-border-default, #334155)',
-          borderRadius: 6,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-          zIndex: 9999,
-          minWidth: 180,
-        }}
-      >
-        <button type="button" style={itemStyle} onClick={onDelete}>
-          Delete correlation
-        </button>
-      </div>
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-        onClick={onClose}
-        onContextMenu={e => {
-          e.preventDefault()
-          onClose()
-        }}
-      />
-    </foreignObject>
+    <ContextMenu
+      portal="svg"
+      x={menu.x}
+      y={menu.y}
+      width={200}
+      height={48}
+      minWidth={180}
+      testid="edge-context-menu"
+      onClose={onClose}
+      items={[{ label: 'Delete correlation', onClick: onDelete, danger: true }]}
+    />
   )
 }
 
