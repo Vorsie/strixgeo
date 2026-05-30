@@ -29,13 +29,16 @@ import type {
   BoreholeListItem,
   CrossSectionResponse,
   FormationContactResponse,
+  GapIssueResponse,
   GeologicalModelResponse,
 } from '../../../api/client'
 import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
+import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
+import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { hashHexColor } from '../../../utils/hashColor'
 
@@ -73,7 +76,6 @@ export default function SectionsInspector(): JSX.Element {
       handleCreateSection,
       handleDeleteSection,
       handlePatchSelectedSection,
-      handleFocusContacts,
       applyUpdatedSection,
       sectionModelAxis,
       backdropModelIdOverride,
@@ -98,8 +100,11 @@ export default function SectionsInspector(): JSX.Element {
       handleChangeVirtueleBoringPicker,
       handleSetShowOverlay,
     },
+    investigations: { cpts, boreholes },
+    toasts: { toast },
     coordinator: {
       sessionImportSectionIds,
+      setSectionsDeepLinkTarget,
     },
   } = useShell()
 
@@ -115,6 +120,43 @@ export default function SectionsInspector(): JSX.Element {
         ? (visibleSections.find(s => s.id === selectedSectionId) ?? null)
         : null,
     [selectedSectionId, visibleSections],
+  )
+
+  // Crossing-issue → sections-stage navigation flow (dogfeed 2026-05-30).
+  // Same flow as in GeologyInspector: 1 candidate → deep-link directly;
+  // >1 → open picker; 0 → toast. The deep-link path routes through
+  // AppShell so the stage switch + section select + focus pulse all fire
+  // in one consistent flow.
+  const [crossingPicker, setCrossingPicker] = useState<{
+    contactIds: readonly string[]
+    candidates: CrossSectionResponse[]
+  } | null>(null)
+  const handleClickCrossingIssue = useCallback(
+    (issue: GapIssueResponse) => {
+      const candidates = resolveCandidateCrossingSections(
+        issue.contact_ids,
+        contacts,
+        sections,
+        boreholes,
+        cpts,
+      )
+      if (candidates.length === 0) {
+        toast(
+          'error',
+          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
+        )
+        return
+      }
+      if (candidates.length === 1) {
+        setSectionsDeepLinkTarget({
+          sectionId: candidates[0].id,
+          contactIds: issue.contact_ids,
+        })
+        return
+      }
+      setCrossingPicker({ contactIds: issue.contact_ids, candidates })
+    },
+    [contacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast],
   )
 
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
@@ -266,9 +308,23 @@ export default function SectionsInspector(): JSX.Element {
           modelId={activeGeologicalModel.id}
           refreshSignal={crossingsRefreshCounter}
           staleSurfaceCount={staleSurfaceCount}
-          onFocusContacts={handleFocusContacts}
+          onClickIssue={handleClickCrossingIssue}
         />
       )}
+      <CrossingSectionPickerDialog
+        open={crossingPicker !== null}
+        candidates={crossingPicker?.candidates ?? []}
+        onPick={sectionId => {
+          if (crossingPicker !== null) {
+            setSectionsDeepLinkTarget({
+              sectionId,
+              contactIds: crossingPicker.contactIds,
+            })
+          }
+          setCrossingPicker(null)
+        }}
+        onCancel={() => setCrossingPicker(null)}
+      />
 
       {/* ------------------------------------------------------------------ */}
       {/* Virtuele Boring overlay picker                                      */}
@@ -971,9 +1027,10 @@ interface CrossingsBannerProps {
   modelId: string
   refreshSignal: number
   staleSurfaceCount: number
-  /** Highlight the offending contacts in the section view when a crossing
-   *  row is clicked (debt #9 flow — same contract as InterpretationPane). */
-  onFocusContacts: (contactIds: readonly string[]) => void
+  /** Open the cross-section containing the offending contacts. SectionsInspector
+   *  routes through the deep-link flow (1 candidate → direct; >1 → picker;
+   *  0 → toast). */
+  onClickIssue: (issue: GapIssueResponse) => void
 }
 
 /**
@@ -1007,7 +1064,7 @@ function CrossingsBanner({
   modelId,
   refreshSignal,
   staleSurfaceCount,
-  onFocusContacts,
+  onClickIssue,
 }: CrossingsBannerProps): JSX.Element | null {
   // Stale-gated fetch (debt #18): a stale cache is not validated; the
   // hook exposes pendingBuild so we show a neutral "Build to check"
@@ -1061,18 +1118,19 @@ function CrossingsBanner({
         </div>
         <ul className="mt-1 ml-5 list-disc space-y-0.5">
           {issues.map((issue, idx) => {
-            // Click a row to highlight the offending contacts in the
-            // section view (debt #9). Rows with no contact_ids stay
-            // inert text — same canFocus guard as InterpretationPane.
-            const canFocus = issue.contact_ids.length > 0
+            // Click a row to open the offending cross-section + pan to
+            // the affected columns (dogfeed 2026-05-30). Rows with no
+            // contact_ids stay inert text — the validator returned no
+            // anchors to navigate to.
+            const hasContacts = issue.contact_ids.length > 0
             return (
               <li key={`${issue.formation_ids.join('-')}-${idx}`}>
-                {canFocus ? (
+                {hasContacts ? (
                   <button
                     type="button"
                     className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-status-amber/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
-                    onClick={() => onFocusContacts(issue.contact_ids)}
-                    title="Highlight the offending contacts in the section view"
+                    onClick={() => onClickIssue(issue)}
+                    title="Open the cross-section containing the offending contacts and pan to them."
                   >
                     {issue.detail}
                   </button>
