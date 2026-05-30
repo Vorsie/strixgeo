@@ -2139,12 +2139,22 @@ export function useGeologicalModel({
         const modelId = snapshot.model_id
         const isLitho = lithoContacts.some(c => c.id === contactId)
         const applyPatch = isLitho ? setLithoContacts : setContacts
-        await api.geology.deleteContact(project.id, modelId, contactId)
+        // A4 slice 3 — litho writers target /layers; the LL→FC
+        // mirror trigger keeps formation_contact + correlation FKs
+        // coherent. Geological models stay on /contacts (no Shape A
+        // for the geological axis). The layer snapshot is captured
+        // BEFORE the call so the undo's recreate has the depth_base_m
+        // the bulk-create endpoint requires.
+        const layerSnap = isLitho ? lithoLayers.find(l => l.id === contactId) : null
+        if (isLitho) {
+          await api.geology.deleteLayer(project.id, modelId, contactId)
+        } else {
+          await api.geology.deleteContact(project.id, modelId, contactId)
+        }
         applyPatch(prev => prev.filter(c => c.id !== contactId))
-        // A3a — keep lithoLayers in sync with the optimistic prune.
-        // BE trigger removed the litho_layer row when the contact was
-        // deleted; the refetch propagates that + recomputes neighbour
-        // depth_base_m into FE state.
+        // Keep lithoLayers + lithoContacts in lockstep after the
+        // optimistic prune. The trigger deleted the FC mirror; the
+        // refetch propagates that into FE state.
         if (isLitho) refetchLithoContacts()
         // Deletion of a pre-existing contact — mark dirty so a
         // close-without-save reverts it (#160). NOT added to the session-
@@ -2177,6 +2187,32 @@ export function useGeologicalModel({
         pushUndo({
           description: 'Delete contact',
           revert: async () => {
+            // A4 slice 3 — litho undo recreates via /layers, taking
+            // depth_base_m from the snapshot the layer side captured
+            // before the delete. Geological undo stays on /contacts
+            // (no depth_base_m to recreate from).
+            if (isLitho && layerSnap !== null && layerSnap !== undefined) {
+              const created = await api.geology.bulkCreateLayers(projectId, modelId, [
+                {
+                  formation_id: layerSnap.formation_id,
+                  depth_top_m: layerSnap.depth_top_m,
+                  depth_base_m: layerSnap.depth_base_m,
+                  status: layerSnap.status,
+                  source: layerSnap.source,
+                  confidence: layerSnap.confidence,
+                  borehole_id: layerSnap.borehole_id,
+                  cpt_id: layerSnap.cpt_id,
+                  observation_id: layerSnap.observation_id,
+                  observation_layer_id: layerSnap.observation_layer_id,
+                  parent_geo_contact_id: layerSnap.parent_geo_contact_id,
+                  notes: layerSnap.notes,
+                },
+              ])
+              currentId = created[0].id
+              addToSessionImports('contact', [created[0].id])
+              refetchLithoContacts()
+              return
+            }
             const recreated = await api.geology.createContact(
               projectId,
               modelId,
@@ -2185,15 +2221,19 @@ export function useGeologicalModel({
             currentId = recreated.id
             applyPatch(prev => [...prev, recreated])
             addToSessionImports('contact', [recreated.id])
-            if (isLitho) refetchLithoContacts()
           },
           reapply: async () => {
             if (!currentId) return
+            if (isLitho) {
+              await api.geology.deleteLayer(projectId, modelId, currentId)
+              currentId = null
+              refetchLithoContacts()
+              return
+            }
             await api.geology.deleteContact(projectId, modelId, currentId)
             const deletedId = currentId
             applyPatch(prev => prev.filter(c => c.id !== deletedId))
             currentId = null
-            if (isLitho) refetchLithoContacts()
           },
         })
       } catch (err) {
@@ -2206,7 +2246,9 @@ export function useGeologicalModel({
       addToSessionImports,
       contacts,
       lithoContacts,
+      lithoLayers,
       pushUndo,
+      refetchLithoContacts,
       markMutated,
     ],
   )
