@@ -31,6 +31,10 @@ vi.mock('../../../api/client', async () => {
       geology: {
         // GeologyInspector fetches crossings on mount.
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+        // PATCH path exercised by the colour-swatch override (and any other
+        // formation-row inline edit). Returns the (mutated) row that the
+        // caller passed in — tests override per-case via mockImplementation.
+        updateFormation: vi.fn(),
       },
     },
   }
@@ -735,3 +739,183 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
   })
 })
 
+// ---------------------------------------------------------------------------
+// GeologyInspector formation colour-swatch click-to-override
+//
+// Spec: docs/superpowers/specs/2026-05-30-formation-color-swatch-override-design.md
+//
+// The swatch is a label wrapping a hidden native <input type="color">.
+// onChange updates only local state (pendingColor); onBlur is the commit
+// point. Each behavioural rule below pins one branch of that contract.
+// ---------------------------------------------------------------------------
+
+describe('GeologyInspector colour-swatch override (2026-05-30 spec)', () => {
+  const SWATCH_FORMATION_ID = 'form-color-1'
+
+  const makeColorFormation = (
+    color: string,
+  ): import('../../../api/client').GeologicalFormationResponse => ({
+    id: SWATCH_FORMATION_ID,
+    app_project_id: 'proj-1',
+    name: 'Boom Klei',
+    color,
+    code: null,
+    regional_ref: null,
+    description: null,
+    display_order: 0,
+    pinned_order: false,
+    lithology: null,
+    nad_class: null,
+    parent_formation_id: null,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
+    parent_formation_name: null,
+    parent_extrapolated: false,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  })
+
+  function mountWithFormation(
+    f: import('../../../api/client').GeologicalFormationResponse,
+  ): { undoPush: ReturnType<typeof vi.fn>; formationUpdated: ReturnType<typeof vi.fn> } {
+    const ctx = makeStubContext()
+    ctx.geoModel.formations = [f]
+    ctx.geoModel.visibleFormations = [f]
+    ctx.coordinator.manifestFormationIds = new Set([f.id])
+    const formationUpdated = vi.fn()
+    ctx.geoModel.handleFormationUpdated = formationUpdated
+    const undoPush = vi.fn()
+    ctx.undo.push = undoPush
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+    return { undoPush, formationUpdated }
+  }
+
+  /**
+   * Resolve the colour ``<input>`` for the test formation.
+   * The element has ``sr-only`` styling so it isn't queryable by role.
+   */
+  function colorInput(): HTMLInputElement {
+    const el = document.querySelector(
+      `[data-testid="geology-formation-color-input-${SWATCH_FORMATION_ID}"]`,
+    )
+    if (!(el instanceof HTMLInputElement)) {
+      throw new Error('colour input not found')
+    }
+    return el
+  }
+
+  it('CSW1 — swatch input renders the formation colour', () => {
+    mountWithFormation(makeColorFormation('#b45309'))
+    expect(colorInput().value).toBe('#b45309')
+  })
+
+  it('CSW2 — onChange alone (no blur) fires NO PATCH', async () => {
+    const { api: apiClient } = await import('../../../api/client')
+    const updateFormation = vi.mocked(apiClient.geology.updateFormation)
+    updateFormation.mockClear()
+    mountWithFormation(makeColorFormation('#b45309'))
+
+    fireEvent.change(colorInput(), { target: { value: '#22c55e' } })
+
+    expect(updateFormation).not.toHaveBeenCalled()
+  })
+
+  it('CSW3 — blur after a real change PATCHes, refreshes the bus, and pushes one undo command', async () => {
+    const { api: apiClient } = await import('../../../api/client')
+    const updateFormation = vi.mocked(apiClient.geology.updateFormation)
+    updateFormation.mockClear()
+    updateFormation.mockResolvedValue({
+      ...makeColorFormation('#22c55e'),
+    })
+    const { undoPush, formationUpdated } = mountWithFormation(
+      makeColorFormation('#b45309'),
+    )
+
+    fireEvent.change(colorInput(), { target: { value: '#22c55e' } })
+    await act(async () => {
+      fireEvent.blur(colorInput())
+    })
+
+    expect(updateFormation).toHaveBeenCalledTimes(1)
+    expect(updateFormation).toHaveBeenCalledWith(
+      'proj-1',
+      SWATCH_FORMATION_ID,
+      { color: '#22c55e' },
+    )
+    expect(formationUpdated).toHaveBeenCalled()
+    expect(undoPush).toHaveBeenCalledTimes(1)
+    const cmd = undoPush.mock.calls[0][0] as {
+      description: string
+      revert: () => Promise<void>
+      reapply: () => Promise<void>
+    }
+    expect(cmd.description).toBe('Recolor formation')
+  })
+
+  it('CSW4 — blur with the SAME colour as formation.color is a no-op', async () => {
+    const { api: apiClient } = await import('../../../api/client')
+    const updateFormation = vi.mocked(apiClient.geology.updateFormation)
+    updateFormation.mockClear()
+    const { undoPush } = mountWithFormation(makeColorFormation('#b45309'))
+
+    fireEvent.change(colorInput(), { target: { value: '#b45309' } })
+    await act(async () => {
+      fireEvent.blur(colorInput())
+    })
+
+    expect(updateFormation).not.toHaveBeenCalled()
+    expect(undoPush).not.toHaveBeenCalled()
+  })
+
+  it('CSW5 — blur without any onChange (Esc-cancel) fires NO PATCH', async () => {
+    const { api: apiClient } = await import('../../../api/client')
+    const updateFormation = vi.mocked(apiClient.geology.updateFormation)
+    updateFormation.mockClear()
+    const { undoPush } = mountWithFormation(makeColorFormation('#b45309'))
+
+    await act(async () => {
+      fireEvent.blur(colorInput())
+    })
+
+    expect(updateFormation).not.toHaveBeenCalled()
+    expect(undoPush).not.toHaveBeenCalled()
+  })
+
+  it('CSW6 — the undo command revert PATCHes back to the previous colour', async () => {
+    const { api: apiClient } = await import('../../../api/client')
+    const updateFormation = vi.mocked(apiClient.geology.updateFormation)
+    updateFormation.mockClear()
+    // Both the initial PATCH and the revert PATCH go through the same mock;
+    // returning the requested colour back on each call keeps the bus state
+    // consistent for whichever path the test triggers.
+    updateFormation.mockImplementation(async (_pid, _fid, body) => ({
+      ...makeColorFormation(body.color ?? '#b45309'),
+    }))
+    const { undoPush } = mountWithFormation(makeColorFormation('#b45309'))
+
+    fireEvent.change(colorInput(), { target: { value: '#22c55e' } })
+    await act(async () => {
+      fireEvent.blur(colorInput())
+    })
+
+    expect(undoPush).toHaveBeenCalledTimes(1)
+    const cmd = undoPush.mock.calls[0][0] as {
+      revert: () => Promise<void>
+    }
+    updateFormation.mockClear()
+    await act(async () => {
+      await cmd.revert()
+    })
+    expect(updateFormation).toHaveBeenCalledWith(
+      'proj-1',
+      SWATCH_FORMATION_ID,
+      { color: '#b45309' },
+    )
+  })
+})
