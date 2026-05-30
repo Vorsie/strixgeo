@@ -92,16 +92,24 @@ class StratigraphyLumping(BaseModel):
 
 # Current bundle format version. Bumped when the bundle shape changes
 # in a way readers must branch on. New saves always emit this version.
-BUNDLE_FORMAT_VERSION = 3
+#
+# v4 (A4 of the unified litho boundary model) — every geological-model
+# payload nests a ``litho_layers`` array carrying the Shape A primitives
+# (id, formation_id, anchor, depth_top_m, depth_base_m, status, source,
+# confidence, ...). Geological models always emit an empty list; litho
+# models emit ALL layers (pending / accepted / rejected). The
+# ``contacts`` array stays populated on litho models too for now (so
+# correlation edges + legacy FE keep working through the cut-over) —
+# the contacts retire in a later A4 slice together with the FC↔LL
+# trigger.
+BUNDLE_FORMAT_VERSION = 4
 
-# Versions a current build will accept on restore. Always includes the
-# current ``BUNDLE_FORMAT_VERSION``; when v4 lands, the v3 reader stays
-# (with an upgrade step) and the constant becomes ``{3, 4}``. Phrased
-# as a set so the route handler's membership test reads naturally and
-# the next bump is a one-line edit, not a re-think of the gate's
-# shape. See CLAUDE.md "Backwards Compatibility" — versioned formats
-# must always parse, with an explicit upgrade chain.
-SUPPORTED_BUNDLE_VERSIONS: frozenset[int] = frozenset({BUNDLE_FORMAT_VERSION})
+# Versions a current build will accept on restore. v3 stays parseable
+# (the trigger fills litho_layer from contacts on the way in), v4 is
+# the current writer. Backwards-compat is suspended pre-ship per
+# memory; once shipped, every older version stays in this set forever
+# with an explicit upgrade chain. See CLAUDE.md "Backwards Compatibility".
+SUPPORTED_BUNDLE_VERSIONS: frozenset[int] = frozenset({3, 4})
 
 
 # Per-array bounds for the restore body (debt #38). Calibrated well
