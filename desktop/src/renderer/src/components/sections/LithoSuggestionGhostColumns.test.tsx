@@ -2412,4 +2412,164 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     expect(layer1Edit).toBeDefined()
     expect(layer1Edit![1].depth_top_m).toBeCloseTo(1, 5)
   })
+
+  // CS1 — Slice 3 cross-store commit dispatch. When a pending drag
+  // moves a shared boundary with an ACCEPTED neighbour AND a committed
+  // contact exists at the pre-drag boundary depth, the hook fires
+  // onUpdateContactDepth so the contact follows the pending edit.
+  it('CS1 — drag past accepted neighbour fires onUpdateContactDepth on the matching contact', () => {
+    const onEdit = vi.fn()
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    // Layer 0 (accepted) at [0, 2]; layer 1 (pending) at [2, 4]; layer 2 (pending) at [4, 6].
+    // A committed contact exists at depth_top_m=2 — the shared boundary
+    // between layer 0 (accepted) and layer 1 (pending).
+    const contact = {
+      id: 'contact-at-2m',
+      model_id: 'litho-1',
+      formation_id: 'f-1',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2,
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([0])}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          committedContactsForAnchor={[contact]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    // Layer 1's top sits at depth 2 (= the committed contact's depth).
+    // Drag it UP to depth 1 (= 100 px up). After Slice 2 this drag is
+    // not locked; after Slice 3 the contact at depth 2 follows.
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 300 }) // depth 2
+    fireEvent.mouseMove(document, { clientY: 200 }) // depth 1
+    fireEvent.mouseUp(document)
+    // Pending edit fires for layer 1.
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    expect(layer1Edit).toBeDefined()
+    expect(layer1Edit![1].depth_top_m).toBeCloseTo(1, 5)
+    // Cross-store PATCH fires for the contact at the matching depth.
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2m', 1, false)
+  })
+
+  // CS2 — no cross-store PATCH fires when the neighbour is PENDING
+  // (the existing onEdit shared-boundary propagation handles it).
+  it('CS2 — pending-only drag does not fire onUpdateContactDepth', () => {
+    const onUpdateContactDepth = vi.fn()
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          committedContactsForAnchor={[]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 300 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+  })
+
+  // CS3 — no PATCH fires when the drag didn't actually move the
+  // boundary (defensive — protects against an accidental PATCH on a
+  // mousedown-mouseup with no movement).
+  it('CS3 — drag with no movement does not fire onUpdateContactDepth', () => {
+    const onUpdateContactDepth = vi.fn()
+    const contact = {
+      id: 'c',
+      model_id: 'm',
+      formation_id: 'f',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2,
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([0])}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          committedContactsForAnchor={[contact]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 300 })
+    // No mousemove — release at the same position.
+    fireEvent.mouseUp(document)
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+  })
 })
