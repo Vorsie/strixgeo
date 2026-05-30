@@ -72,6 +72,7 @@ import {
   cptBandFullWidth,
   cptBandHalfWidth,
   enabledBoreholeChannelCount,
+  pickQcFullScaleMpa,
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
@@ -1701,6 +1702,19 @@ export default function SectionPanel({
     [warpAnchors, xToScreen, scaleH],
   )
 
+  // Section-wide qc full scale in MPa. Default 40 (DOV CPT-graph
+  // convention); steps up to 60/80/100/150/200/+50 when any CPT in
+  // the section shows ≥ 20 consecutive qc samples above the current
+  // step — i.e. a real thick high-qc layer, not a transient spike.
+  // Passed verbatim to every CptDataColumn so every column reads on
+  // the same axis (DOV cross-comparison rule).
+  const qcFullScaleMpa = useMemo(() => {
+    if (cptPlots === null) return 40
+    const arr: { qc_mpa: ReadonlyArray<number | null | undefined> | null }[] = []
+    for (const plot of cptPlots.values()) arr.push({ qc_mpa: plot.qc_mpa })
+    return pickQcFullScaleMpa(arr)
+  }, [cptPlots])
+
   // IDs of investigations that already have a data band rendered —
   // CPTs with loaded plot data + boreholes with loaded detail — and
   // a known elevation. For these the ColumnGlyph cap + body line is
@@ -2046,6 +2060,7 @@ export default function SectionPanel({
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
                     showLabels={showLabelsByCptId.get(item.id) ?? true}
+                    qcFullScaleMpa={qcFullScaleMpa}
                   />
                 )
               })}
@@ -2574,6 +2589,7 @@ export default function SectionPanel({
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
                     showLabels={showLabelsByCptId.get(item.id) ?? true}
+                    qcFullScaleMpa={qcFullScaleMpa}
                     overlayMode
                   />
                 )
