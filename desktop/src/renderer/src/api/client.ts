@@ -464,6 +464,101 @@ export interface FormationContactCreatePayload {
   section_id?: string | null
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Unified litho boundary model (A2/A2.5 backend / A3 FE cut-over).
+// See docs/superpowers/specs/2026-05-30-unified-litho-boundary-model-design.md
+//
+// On litho models the source-of-truth is `litho_layer` (Shape A —
+// layer-centric) — each row is one lithology interval at one anchor
+// with explicit depth_top_m + depth_base_m + status. The A2.5 backfill
+// migration ports existing FormationContact rows into this table with
+// UUIDs preserved, so litho_correlation_edge / seeded_formation_contact_ids
+// / parent_geo_contact_id all continue to resolve unchanged.
+//
+// Geological models still use FormationContactResponse — Shape A
+// is litho-only.
+// ─────────────────────────────────────────────────────────────────────
+
+export type LithoLayerStatus = 'pending' | 'accepted' | 'rejected'
+export type LithoLayerSource =
+  | 'segmenter'
+  | 'manual'
+  | 'observation_layer'
+  | 'observation_interpretation'
+export type LithoLayerConfidence = 'low' | 'medium' | 'high'
+
+export interface LithoLayerResponse {
+  id: string
+  model_id: string
+  formation_id: string
+  // Anchor XOR — exactly one of borehole_id / cpt_id is set.
+  borehole_id: string | null
+  cpt_id: string | null
+  depth_top_m: number
+  depth_base_m: number
+  status: LithoLayerStatus
+  source: LithoLayerSource
+  confidence: LithoLayerConfidence
+  observation_id: string | null
+  observation_layer_id: string | null
+  // Litho↔geo coupling (#162) — points at the geological contact this
+  // layer's TOP boundary is the same physical surface as.
+  parent_geo_contact_id: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LithoLayerUpdatePayload {
+  formation_id?: string
+  depth_top_m?: number
+  depth_base_m?: number
+  status?: LithoLayerStatus
+  confidence?: LithoLayerConfidence
+  borehole_id?: string | null
+  cpt_id?: string | null
+  observation_id?: string | null
+  observation_layer_id?: string | null
+  parent_geo_contact_id?: string | null
+  notes?: string | null
+}
+
+export interface LithoLayerCreateItem {
+  formation_id: string
+  depth_top_m: number
+  depth_base_m: number
+  status?: LithoLayerStatus
+  source?: LithoLayerSource
+  confidence?: LithoLayerConfidence
+  borehole_id?: string | null
+  cpt_id?: string | null
+  observation_id?: string | null
+  observation_layer_id?: string | null
+  parent_geo_contact_id?: string | null
+  notes?: string | null
+}
+
+export interface LithoLayerBoundaryMovePayload {
+  upper_layer_id: string
+  lower_layer_id: string
+  new_depth_m: number
+}
+
+export interface LithoLayerBoundaryMoveResponse {
+  upper: LithoLayerResponse
+  lower: LithoLayerResponse
+}
+
+export interface LithoLayerBatchStatusPayload {
+  layer_ids: readonly string[]
+  status: LithoLayerStatus
+}
+
+export interface LithoLayerBatchStatusResponse {
+  updated_count: number
+  layers: LithoLayerResponse[]
+}
+
 // Lithostratigraphic-suggestion (litho slice 3/4). One read-only
 // proposed layer from the Robertson-2015/2009 CPT segmenter or the
 // borehole ObservationLayer mapping. The user accepts → it becomes a
@@ -1737,6 +1832,136 @@ export const api = {
       return get(
         `/projects/${projectId}/geology/models/${modelId}/contacts${qs ? `?${qs}` : ''}`,
       )
+    },
+
+    // ─────────────────────────────────────────────────────────────────
+    // Unified litho boundary model — layer endpoints.
+    // The model_id passed in MUST belong to a litho (kind='lithostratigraphic')
+    // model. For geological models, keep using the contact endpoints above.
+    // ─────────────────────────────────────────────────────────────────
+
+    /** GET /models/{mid}/layers — list every layer for one litho model. */
+    listLayers: (
+      projectId: string,
+      modelId: string,
+      filters?: {
+        boreholeId?: string
+        cptId?: string
+        formationId?: string
+        status?: LithoLayerStatus
+      },
+    ): Promise<LithoLayerResponse[]> => {
+      const q = new URLSearchParams()
+      if (filters?.boreholeId) q.set('borehole_id', filters.boreholeId)
+      if (filters?.cptId) q.set('cpt_id', filters.cptId)
+      if (filters?.formationId) q.set('formation_id', filters.formationId)
+      if (filters?.status) q.set('status', filters.status)
+      const qs = q.toString()
+      return get(
+        `/projects/${projectId}/geology/models/${modelId}/layers${qs ? `?${qs}` : ''}`,
+      )
+    },
+
+    /** PATCH /models/{mid}/layers/{lid} — partial update on one layer. */
+    updateLayer: async (
+      projectId: string,
+      modelId: string,
+      layerId: string,
+      patch: LithoLayerUpdatePayload,
+    ): Promise<LithoLayerResponse | null> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        },
+      )
+      if (res.status === 404) return null
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `updateLayer failed (${res.status})`)
+      }
+      return res.json()
+    },
+
+    /** DELETE /models/{mid}/layers/{lid} — hard delete. */
+    deleteLayer: async (
+      projectId: string,
+      modelId: string,
+      layerId: string,
+    ): Promise<void> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok && res.status !== 404) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `deleteLayer failed (${res.status})`)
+      }
+    },
+
+    /** POST /models/{mid}/layers — bulk-create N pending layers in one transaction. */
+    bulkCreateLayers: async (
+      projectId: string,
+      modelId: string,
+      layers: readonly LithoLayerCreateItem[],
+    ): Promise<LithoLayerResponse[]> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ layers }),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `bulkCreateLayers failed (${res.status})`)
+      }
+      return res.json()
+    },
+
+    /** PATCH /models/{mid}/layers/boundary-move — atomic shared-boundary move. */
+    moveLayerBoundary: async (
+      projectId: string,
+      modelId: string,
+      payload: LithoLayerBoundaryMovePayload,
+    ): Promise<LithoLayerBoundaryMoveResponse> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/boundary-move`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `moveLayerBoundary failed (${res.status})`)
+      }
+      return res.json()
+    },
+
+    /** POST /models/{mid}/layers/batch-status — accept-all / reject-all. */
+    batchUpdateLayerStatus: async (
+      projectId: string,
+      modelId: string,
+      payload: LithoLayerBatchStatusPayload,
+    ): Promise<LithoLayerBatchStatusResponse> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/batch-status`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `batchUpdateLayerStatus failed (${res.status})`)
+      }
+      return res.json()
     },
 
     createContact: async (
