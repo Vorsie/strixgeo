@@ -764,6 +764,11 @@ export default function SectionPanel({
   // Latest warp anchors, read by the wheel-zoom handler (defined above the
   // warp memo, so it reaches them through this ref rather than a closure dep).
   const warpAnchorsRef = useRef<WarpAnchor[]>([])
+  // Latest column-spacing slider value (0..1). Mirrored from the
+  // ``useSectionData`` destructure further down via a useEffect so
+  // ``handleWheel`` (declared above that destructure) can blend the
+  // cursor anchor by spacing without TDZ.
+  const columnSpacingRef = useRef<number>(1)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
   // Default viewport — full section length, default vertical
@@ -981,14 +986,38 @@ export default function SectionPanel({
       if (px < MARGIN.left || px > MARGIN.left + plotWidth) return
       if (py < MARGIN.top || py > MARGIN.top + plotHeight) return
 
-      // Anchor zoom on the cursor's LINEAR along-section world position
-      // (cursor at world 50 m → zoom anchors at 50 m). Spacing / nudge
-      // are render-side modifiers applied on TOP of the zoom math;
-      // baking the warp inverse into the anchor introduced drift at
-      // default spacing because nudge cascades re-shuffle the
-      // post-zoom anchor positions, and the user reported the view
-      // drifting rightward on every scroll (dogfeed 2026-05-30).
-      const worldX = viewport.xMin + (px - MARGIN.left) / scaleH
+      // Cursor zoom anchor — SPACING-AWARE blend (dogfeed 2026-05-31).
+      // Two endpoints, blended by the column-spacing slider:
+      //
+      //   * spacing = 1 (no compression): the cursor's LINEAR along-
+      //     section world position. Cursor at world 50 m → zoom
+      //     anchored at 50 m. Standard cursor-anchor behaviour.
+      //
+      //   * spacing = 0 (fully packed): the leftmost test's along.
+      //     At spacing=0 every column's screen X is packedX_0 +
+      //     Σ widths, where packedX_0 = xToScreen(leftmost.along). All
+      //     packed columns translate UNIFORMLY when the leftmost's
+      //     screen X moves. So anchoring on the leftmost's along
+      //     keeps every column at the same pixel — the cursor's
+      //     column stays under the cursor, no drift.
+      //
+      // Linear interpolation between the two endpoints by spacing
+      // matches the lerp the column-layout itself does
+      // (lerpedX = packedX + (trueX - packedX) * spacing). Without
+      // this blend, wheel zoom at spacing=0 drifts rightward (the
+      // packed columns translate while the linear anchor preserves
+      // a world point that's decoupled from the visible content).
+      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
+      const anchorsNow = warpAnchorsRef.current
+      // warpAnchors are sorted ascending by `along` — element [0] is
+      // the leftmost test. Falling back to ``linearAlong`` when no
+      // columns are placed yet makes the math degenerate cleanly to
+      // pure cursor-anchored linear zoom (spacing irrelevant when
+      // there's nothing to pack).
+      const leftmostAlong =
+        anchorsNow.length > 0 ? anchorsNow[0].along : linearAlong
+      const spacing = columnSpacingRef.current
+      const worldX = leftmostAlong * (1 - spacing) + linearAlong * spacing
       const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV
       const factor = e.deltaY < 0 ? 1 / WHEEL_ZOOM_FACTOR : WHEEL_ZOOM_FACTOR
 
@@ -1047,12 +1076,39 @@ export default function SectionPanel({
   const zoomOut = useCallback(() => zoomBy(WHEEL_ZOOM_FACTOR), [zoomBy])
 
   // Horizontal pan for the scrub bar. Sets the viewport's
-  // xMin/xMax to a new window of the same width centred on
-  // ``centerX``.
+  // xMin/xMax to a new window of the same width, with the centre
+  // CLAMPED so the viewport never scrolls "too far" past the data:
+  //
+  //   * At scrub far-right, xMax = rightmostAlong + small buffer →
+  //     the rightmost test sits on the RIGHT SIDE of the plot with a
+  //     bit of breathing room (NOT in the middle).
+  //   * At scrub far-left, xMin = leftmostAlong - small buffer →
+  //     symmetric.
+  //   * In between, centred on the requested centerX.
+  //
+  // Buffer = 5 % of the current viewport width. Reads bounds from
+  // ``scrubBoundsRef`` — declared above ``scrubTo``, populated by a
+  // useEffect further down once ``placedColumns`` is in scope. The
+  // ref pattern dodges the TDZ that a direct closure capture would
+  // hit (placedColumns + scrubDataMinM/MaxM are declared later in
+  // the component body).
+  const scrubBoundsRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 })
   const scrubTo = useCallback((centerX: number) => {
     setViewport(prev => {
       const half = (prev.xMax - prev.xMin) / 2
-      return { ...prev, xMin: centerX - half, xMax: centerX + half }
+      const buffer = (prev.xMax - prev.xMin) * 0.05
+      const { min: dMin, max: dMax } = scrubBoundsRef.current
+      const minCentre = dMin + half - buffer
+      const maxCentre = dMax - half + buffer
+      let clamped: number
+      if (maxCentre < minCentre) {
+        // Viewport is wider than the data — centre on the data
+        // midpoint so both edges show equal margin.
+        clamped = (dMin + dMax) / 2
+      } else {
+        clamped = Math.max(minCentre, Math.min(maxCentre, centerX))
+      }
+      return { ...prev, xMin: clamped - half, xMax: clamped + half }
     })
   }, [])
 
@@ -1362,6 +1418,21 @@ export default function SectionPanel({
     return { scrubDataMinM: lo, scrubDataMaxM: hi }
   }, [placedColumns, lengthM])
 
+  // Feed the latest data bounds into the ref that ``scrubTo``
+  // (declared above ``placedColumns``) consumes. The ref dodges the
+  // TDZ that would otherwise hit if scrubTo's useCallback closed over
+  // scrubDataMinM/MaxM directly.
+  useEffect(() => {
+    scrubBoundsRef.current = { min: scrubDataMinM, max: scrubDataMaxM }
+  }, [scrubDataMinM, scrubDataMaxM])
+
+  // Same TDZ-dodging pattern for handleWheel's spacing-aware cursor
+  // anchor: mirror the live ``columnSpacing`` into the ref the wheel
+  // handler reads.
+  useEffect(() => {
+    columnSpacingRef.current = columnSpacing
+  }, [columnSpacing])
+
   // Virtuele Boring overlay — index the predictions by
   // investigation_id once per prop change so the SVG render walks a
   // single Map lookup per column. Truncate active models to two; the
@@ -1446,11 +1517,40 @@ export default function SectionPanel({
     }
     if (fits.length === 0) return
 
-    const alongs = fits.map(f => f.along)
+    // De-dup by column (multiple contacts on the same anchor → one
+    // column entry). The crossing validator returns every offending
+    // vertex's contact_id, so a two-formation crossing across the
+    // whole section can return ~60 contacts; without dedup the
+    // bounding box degenerates to the whole section. We want to zoom
+    // to ONE column, not fit-everything.
+    const dedup = new Map<number, (typeof fits)[number]>()
+    for (const f of fits) {
+      if (!dedup.has(f.along)) dedup.set(f.along, f)
+    }
+    const distinctCols = [...dedup.values()]
+
+    const alongsAll = distinctCols.map(f => f.along)
+    const fullMinAlong = Math.min(...alongsAll)
+    const fullMaxAlong = Math.max(...alongsAll)
+    const FIT_ALL_HORIZONTAL_THRESHOLD_M = 200
+
+    let activeCols: typeof distinctCols
+    if (fullMaxAlong - fullMinAlong > FIT_ALL_HORIZONTAL_THRESHOLD_M) {
+      // Too spread (e.g. a system-wide formation crossing) — zoom to
+      // the FIRST affected column only. The amber-pulse highlight
+      // still fires on every contact, so the engineer sees the full
+      // extent of the issue while landing tightly on a specific
+      // problem location. They can scrub to the others.
+      activeCols = [distinctCols[0]]
+    } else {
+      activeCols = distinctCols
+    }
+
+    const alongs = activeCols.map(f => f.along)
     const minAlong = Math.min(...alongs)
     const maxAlong = Math.max(...alongs)
-    const topZ = Math.max(...fits.map(f => f.topZ))
-    const bottomZ = Math.min(...fits.map(f => f.bottomZ))
+    const topZ = Math.max(...activeCols.map(f => f.topZ))
+    const bottomZ = Math.min(...activeCols.map(f => f.bottomZ))
 
     // Horizontal: minimum extent (tight). Single column → 50 m on
     // each side so the column has breathing room and a neighbour or
