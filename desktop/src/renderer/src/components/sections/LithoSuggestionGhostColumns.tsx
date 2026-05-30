@@ -44,12 +44,6 @@ import {
   nearestVisibleIndexAbove,
   nearestVisibleIndexBelow,
 } from '../../utils/lithoBoundaryHelpers'
-// Re-export computeDragBounds so test files that import it from this
-// module keep compiling. The implementation now lives in the utils
-// module; the re-export is a one-line forwarding shim that stays here
-// until callers migrate to the new path (planned for Slice 4 cleanup).
-export { computeDragBounds }
-export type { DragBoundsResult } from '../../utils/lithoBoundaryHelpers'
 
 // ---------------------------------------------------------------------------
 // Visual constants
