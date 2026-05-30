@@ -1203,6 +1203,28 @@ export default function SectionsCanvas(): JSX.Element {
   } | null>(null)
   const [lithoGeoSnapBusy, setLithoGeoSnapBusy] = useState(false)
 
+  // P1b (dogfeed 2026-05-30) — live contact-depth override during a
+  // cross-store suggestion drag. Set on every mousemove by the
+  // ``onContactLivePreview`` callback that ``useBoundaryDrag`` fires;
+  // cleared on mouseup. ContactsLayer reads this prop and renders the
+  // matching contact at the live depth so the committed contact
+  // follows the pending edit visually until the PATCH commit refetch
+  // takes over.
+  const [
+    lithoSuggestionContactPreview,
+    setLithoSuggestionContactPreview,
+  ] = useState<{ contactId: string; depthM: number } | null>(null)
+  const handleLithoContactLivePreview = useCallback(
+    (contactId: string | null, liveDepthM: number) => {
+      if (contactId === null) {
+        setLithoSuggestionContactPreview(null)
+      } else {
+        setLithoSuggestionContactPreview({ contactId, depthM: liveDepthM })
+      }
+    },
+    [],
+  )
+
   // Snap-aware wrapper around ``handleUpdateContactDepth``.  Commits the
   // litho contact at the raw drag depth first (so the user sees the drag
   // result immediately), then — on the litho axis only — checks for any
@@ -1630,6 +1652,10 @@ export default function SectionsCanvas(): JSX.Element {
       // (debt #134) still fires identically — the suggestion-drag
       // path is just another entry point to the same audit trail.
       onUpdateContactDepth: handleLithoSnapAwareUpdateContactDepth,
+      // P1b — live preview callback. Updates SectionsCanvas state;
+      // SectionPanel forwards the resulting override to ContactsLayer
+      // so the committed contact's render follows the drag live.
+      onContactLivePreview: handleLithoContactLivePreview,
     }
   }, [
     isLitho,
@@ -1650,6 +1676,7 @@ export default function SectionsCanvas(): JSX.Element {
     visibleBoreholes,
     lithoContacts,
     handleLithoSnapAwareUpdateContactDepth,
+    handleLithoContactLivePreview,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -1857,6 +1884,7 @@ export default function SectionsCanvas(): JSX.Element {
           onSelectCpt={handleSelect}
           onSelectBorehole={handleSelectBorehole}
           contacts={sectionContacts}
+          liveContactDepthOverride={lithoSuggestionContactPreview}
           formations={axisFormations}
           surfacesByFormationId={axisSurfacesByFormationId}
           focusedContactIds={focusedContactIds}
