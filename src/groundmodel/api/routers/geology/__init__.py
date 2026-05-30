@@ -17,6 +17,7 @@ from . import (
     exports,
     formations,
     lenses,
+    litho_layers,
     models,
     surfaces,
 )
@@ -29,3 +30,4 @@ router.include_router(surfaces.router)
 router.include_router(exports.router)
 router.include_router(contact_correlations.router)
 router.include_router(lenses.router)
+router.include_router(litho_layers.router)
