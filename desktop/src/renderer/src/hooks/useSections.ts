@@ -88,7 +88,23 @@ export interface UseSectionsResult {
     excluded_borehole_ids?: string[]
   }) => Promise<void>
   handleSelectSection: (id: string) => void
-  handleFocusContacts: (contactIds: readonly string[]) => void
+  /**
+   * Highlight + select the cross-section containing the given offending
+   * contacts.
+   *
+   * Default resolution: find the first section whose buffer contains any
+   * of the contacts' anchors, preferring the currently-selected section.
+   *
+   * When ``targetSectionId`` is provided, the auto-resolution is bypassed
+   * and the named section is used verbatim — the crossings-banner click
+   * flow sets this explicitly so the AppShell deep-link dispatches to
+   * the section the user picked (avoids a race with the hook's own
+   * "prefer current" logic during the sections-stage transition).
+   */
+  handleFocusContacts: (
+    contactIds: readonly string[],
+    targetSectionId?: string,
+  ) => void
   /**
    * Apply a fully-resolved section row returned by the server (e.g. the
    * ``updated_section`` from a Seed response or the section patched after a
@@ -643,7 +659,7 @@ export function useSections({
   // focusedContactIds for the ContactsLayer ring + pulse. Cleared
   // after 2.5 s. debt #9.
   const handleFocusContacts = useCallback(
-    (contactIds: readonly string[]) => {
+    (contactIds: readonly string[], targetSectionId?: string) => {
       if (contactIds.length === 0) return
       // Slice 2 (#55): search the contact set that matches the active axis so
       // "focus crossing" still works when the litho axis is active. The
@@ -676,15 +692,23 @@ export function useSections({
           const proj = projectPointOntoLine(s, p.x, p.y)
           return proj !== null && Math.abs(proj.offset) <= s.projection_buffer_m
         })
-      // Prefer the section the user is already viewing so the viewport
-      // stays stable when the offending contact is already in sight.
-      const current = selectedSectionId
-        ? sections.find(s => s.id === selectedSectionId) ?? null
-        : null
-      const target =
-        current && sectionContains(current)
-          ? current
-          : sections.find(sectionContains) ?? null
+      let target: CrossSectionResponse | null
+      if (targetSectionId !== undefined) {
+        // Explicit section — the crossings-banner deep-link path sets
+        // this so the user's picked section is used verbatim, bypassing
+        // the "prefer current" heuristic below.
+        target = sections.find(s => s.id === targetSectionId) ?? null
+      } else {
+        // Prefer the section the user is already viewing so the viewport
+        // stays stable when the offending contact is already in sight.
+        const current = selectedSectionId
+          ? sections.find(s => s.id === selectedSectionId) ?? null
+          : null
+        target =
+          current && sectionContains(current)
+            ? current
+            : sections.find(sectionContains) ?? null
+      }
       if (target === null) {
         toast(
           'error',
