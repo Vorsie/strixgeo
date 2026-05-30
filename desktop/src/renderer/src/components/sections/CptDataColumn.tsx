@@ -87,6 +87,16 @@ interface Props {
    * SectionPanel sets this based on neighbour distance — tight
    * columns drop labels so adjacent ones don't overlap. */
   showLabels: boolean
+  /**
+   * P4 (dogfeed 2026-05-30) — when true, render ONLY the reference
+   * gridlines (qc 2/10 MPa, rf 2/4 %) + their value labels. Suppress
+   * the track background, surface tick, curves, and everything else.
+   * Used by SectionPanel to emit a second pass of CptDataColumn AFTER
+   * the litho band fills so the reference lines stay visible on top
+   * of the bands. Pointer-events stay off so the overlay never
+   * intercepts contact / suggestion drags.
+   */
+  overlayMode?: boolean
 }
 
 export default function CptDataColumn({
@@ -100,6 +110,7 @@ export default function CptDataColumn({
   plotBottom,
   levelToScreen,
   showLabels,
+  overlayMode = false,
 }: Props): JSX.Element | null {
   // Memoise sample-index → screen-Y once per render. Must be
   // declared BEFORE any early return so the hook order stays stable
@@ -148,6 +159,87 @@ export default function CptDataColumn({
   const labelY = bgTopY - 3
 
   const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
+
+  // P4 overlay path — emit only the reference gridlines + labels so
+  // the section panel can stack them on top of litho band fills (the
+  // 0.55-opacity bands otherwise drown the 0.5-px gridlines). Use a
+  // bolder stroke + slightly higher contrast so the lines read
+  // clearly through whatever sits behind them. pointerEvents:none
+  // keeps the overlay click-through.
+  if (overlayMode) {
+    return (
+      <g pointerEvents="none">
+        {showQc && hasBand && (
+          <>
+            <line
+              x1={qc2X}
+              x2={qc2X}
+              y1={bgTopY}
+              y2={bgBottomY}
+              stroke={GRID_COLOR}
+              strokeWidth={1}
+              strokeOpacity={0.9}
+              strokeDasharray="3 2"
+            />
+            <line
+              x1={qc10X}
+              x2={qc10X}
+              y1={bgTopY}
+              y2={bgBottomY}
+              stroke={GRID_COLOR}
+              strokeWidth={1}
+              strokeOpacity={0.9}
+              strokeDasharray="3 2"
+            />
+          </>
+        )}
+        {showRf && hasBand && (
+          <>
+            <line
+              x1={rf2X}
+              x2={rf2X}
+              y1={bgTopY}
+              y2={bgBottomY}
+              stroke={GRID_COLOR}
+              strokeWidth={1}
+              strokeOpacity={0.9}
+              strokeDasharray="3 2"
+            />
+            <line
+              x1={rf4X}
+              x2={rf4X}
+              y1={bgTopY}
+              y2={bgBottomY}
+              stroke={GRID_COLOR}
+              strokeWidth={1}
+              strokeOpacity={0.9}
+              strokeDasharray="3 2"
+            />
+          </>
+        )}
+        {renderLabels && showQc && (
+          <>
+            <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+              2
+            </text>
+            <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
+              10 MPa
+            </text>
+          </>
+        )}
+        {renderLabels && showRf && (
+          <>
+            <text x={rf2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+              2%
+            </text>
+            <text x={rf4X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+              4%
+            </text>
+          </>
+        )}
+      </g>
+    )
+  }
 
   return (
     <g pointerEvents="none">
