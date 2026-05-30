@@ -57,6 +57,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.repositories.cross_section_repository import (
+    CrossSectionRepository,
+)
 from groundmodel.infrastructure.db.session import get_session
 
 router = APIRouter()
@@ -117,11 +120,18 @@ async def bulk_create_layers(
     request: LithoLayerBulkCreateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> list[LithoLayerOrm]:
-    """Insert N pending ``litho_layer`` rows in one transaction.
+    """Insert N ``litho_layer`` rows in one transaction.
 
-    Used by the suggest-litho flow after the Slice A3 cut-over: the
-    segmenter output is persisted directly as ``status='pending'`` rows
-    rather than held in ``BulkAnchorGhost.suggestions[]`` in memory.
+    Used by the suggest-litho flow (segmenter output → pending layers)
+    and by the manual-create-contact path (single-item array with
+    section_id) after the A4 cut-over.
+
+    When ``section_id`` is provided the freshly-created layer ids are
+    unioned into that section's ``seeded_formation_contact_ids`` array —
+    the explicit-content invariant carried forward from the contact
+    endpoint (only seeded ids pass the section's filter so the user
+    actually sees what they just drew). Non-fatal: a seeding failure
+    leaves the set stale but the 200 still stands.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -146,7 +156,20 @@ async def bulk_create_layers(
         )
         for item in request.layers
     ]
-    return await use_case.execute(model_id, payloads)
+    created = await use_case.execute(model_id, payloads)
+    if request.section_id is not None and created:
+        # The created layers' ids are valid contact ids by Shape A's
+        # UUID-preservation rule (LL→FC trigger materialises accepted
+        # FCs with the same id), so unioning them into the section's
+        # seeded set works whether the section filter reads /layers
+        # or /contacts.
+        await CrossSectionRepository(session).union_seeded_contact_ids(
+            request.section_id,
+            project_id,
+            {layer.id for layer in created},
+            operation="bulk_create_layers",
+        )
+    return created
 
 
 @router.patch(
