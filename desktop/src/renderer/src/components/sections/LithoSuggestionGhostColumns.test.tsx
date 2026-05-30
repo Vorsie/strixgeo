@@ -2518,6 +2518,116 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     expect(onUpdateContactDepth).not.toHaveBeenCalled()
   })
 
+  // ZT-FILL1 — P1a (dogfeed 2026-05-30): collapsing a layer's top to
+  // its own base auto-rejects the layer AND extends the layer above
+  // down to fill the rejected territory. Pending-neighbour case.
+  it('ZT-FILL1 — collapse-top auto-fills the pending layer above', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // A (pending) — should grow
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }), // B (pending) — being collapsed
+      ],
+      { onEdit, onReject },
+    )
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    // Drag layer B's top from depth 2 (clientY=200) down to depth 4
+    // (clientY=400) — collapse onto its own base.
+    fireEvent.mouseDown(top1, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 400 })
+    fireEvent.mouseUp(document)
+    // Layer B rejected.
+    expect(onReject).toHaveBeenCalledWith(1)
+    // Layer A's base extended to layer B's base (depth 4).
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(layer0Edit).toBeDefined()
+    expect(layer0Edit![1].depth_base_m).toBeCloseTo(4, 5)
+  })
+
+  // ZT-FILL2 — P1a: mirror. Collapsing a layer's base to its own top
+  // auto-rejects the layer AND extends the layer below up to fill.
+  it('ZT-FILL2 — collapse-base auto-fills the pending layer below', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // A — being collapsed
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }), // B — should grow
+      ],
+      { onEdit, onReject },
+    )
+    const base0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    // Drag layer A's base from depth 2 (clientY=200) up to depth 0
+    // (clientY=0) — collapse onto its own top.
+    fireEvent.mouseDown(base0, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 0 })
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledWith(0)
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    expect(layer1Edit).toBeDefined()
+    expect(layer1Edit![1].depth_top_m).toBeCloseTo(0, 5)
+  })
+
+  // ZT-FILL3 — P1a: when the fill neighbour is ACCEPTED, the
+  // committed contact at the OLD shared boundary is PATCHed to the
+  // new boundary (auto-reject path's cross-store dispatch).
+  it('ZT-FILL3 — collapse with accepted fill-neighbour fires onUpdateContactDepth', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contact = {
+      id: 'contact-at-2',
+      model_id: 'm',
+      formation_id: 'f',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2,
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([0])} // layer 0 (A) is accepted
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          committedContactsForAnchor={[contact]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    // Drag layer B's top from depth 2 down to depth 4 — collapse B.
+    // Fill direction: TOP drag → extend layer ABOVE (= A, accepted).
+    // Contact at depth 2 must move to depth 4.
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 400 })
+    fireEvent.mouseUp(document)
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2', 4, false)
+  })
+
   // CS3 — no PATCH fires when the drag didn't actually move the
   // boundary (defensive — protects against an accidental PATCH on a
   // mousedown-mouseup with no movement).
