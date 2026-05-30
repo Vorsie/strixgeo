@@ -212,7 +212,12 @@ async def test_s1_seed_copies_contacts_with_correct_provenance(
     contacts = resp.json()
     assert len(contacts) == 1
     c = contacts[0]
-    assert c["source"] == "geological_model_seed"
+    # A4 cleanup: SeedLithoFromGeologicalModel now writes LithoLayer with
+    # source='manual' (no seed-specific value in the layer source enum).
+    # The LL→FC trigger maps that to FC source='manual_pick' on the
+    # mirror — so the FC the /contacts GET returns has 'manual_pick',
+    # not the legacy 'geological_model_seed' literal.
+    assert c["source"] == "manual_pick"
     assert c["confidence"] == "medium"
     assert c["observation_id"] is None
     assert c["observation_layer_id"] is None
