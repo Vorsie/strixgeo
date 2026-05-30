@@ -181,6 +181,21 @@ export interface UseBoundaryDragParams {
     newDepthM: number,
     snapped: boolean,
   ) => Promise<void>
+  /**
+   * P1b (dogfeed 2026-05-30) — live preview during a cross-store
+   * drag. Fired on every mousemove with the committed contact id
+   * + the cursor's live depth, so the section editor can render
+   * that contact at the live depth (instead of its DB-committed
+   * depth) until mouseup. ``contactId === null`` clears the
+   * preview (drag isn't crossing accepted territory).
+   *
+   * Optional — when absent the preview is a no-op and the
+   * committed contact only updates on mouseup PATCH success.
+   */
+  onContactLivePreview?: (
+    contactId: string | null,
+    liveDepthM: number,
+  ) => void
 }
 
 export interface UseBoundaryDragReturn {
@@ -217,6 +232,7 @@ export function useBoundaryDrag(
     investigationId,
     committedContactsForAnchor,
     onUpdateContactDepth,
+    onContactLivePreview,
   } = params
 
   const [drag, setDrag] = useState<BoundaryDragState | null>(null)
@@ -355,9 +371,50 @@ export function useBoundaryDrag(
             }
           : null,
       )
+
+      // P1b (dogfeed 2026-05-30) — live contact preview. When the
+      // drag crosses an accepted neighbour, publish the matching
+      // contact's live depth so the section editor renders the
+      // committed contact at the live drag depth (instead of its
+      // DB-committed depth) until mouseup. Without this the user
+      // sees the pending edge move live but the committed contact
+      // stay frozen until release — visible mismatch by design that
+      // Slice 3 alone left unaddressed.
+      if (
+        onContactLivePreview !== undefined &&
+        committedContactsForAnchor !== undefined
+      ) {
+        const neighbourIdx =
+          drag.edge === 'top'
+            ? nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
+            : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
+        if (neighbourIdx !== null && acceptedIndices.has(neighbourIdx)) {
+          const contact = committedContactsForAnchor.find(
+            c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+          )
+          if (contact !== undefined) {
+            onContactLivePreview(contact.id, next)
+          } else {
+            onContactLivePreview(null, 0)
+          }
+        } else {
+          onContactLivePreview(null, 0)
+        }
+      }
     }
     function handleUp(): void {
       if (!drag) return
+
+      // P1b — clear the live preview at the top of mouseup so that
+      // whichever branch fires (absorb, zero-thickness reject, plain
+      // commit, cross-store dispatch) the section editor stops
+      // rendering the contact at the live drag depth. The
+      // committed-contact PATCH refetch (Slice 3 via the audit-point
+      // wrapper) then takes over rendering at the new persisted
+      // depth on the next render cycle.
+      if (onContactLivePreview !== undefined) {
+        onContactLivePreview(null, 0)
+      }
 
       // Shift+drag absorb — takes priority over the normal clamp/snap
       // path. When absorbPending is set, fire onAbsorbLayer and skip
@@ -557,7 +614,7 @@ export function useBoundaryDrag(
   // readonly array that changes by reference on accept; same pattern
   // as onEdit. effectivelyRejectedIndices is a useMemo set whose
   // identity tracks its inputs.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, onUpdateContactDepth])
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, onUpdateContactDepth, onContactLivePreview])
 
   return { drag, startDrag }
 }
