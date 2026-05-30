@@ -49,12 +49,19 @@ export function effectiveDepths(
 }
 
 /**
- * Find the nearest VISIBLE neighbour above ``idx`` — only REJECTED
- * layers are skipped. Used by the shared-boundary COMMIT path. The
- * dragged edge physically stops at the next visible layer's near
- * edge; accepted layers are barriers (their committed contact says
- * "this boundary exists, you can't pass through"), rejected layers
- * are crossed out so the drag treats them as gone.
+ * Find the nearest VISIBLE neighbour index above ``idx`` — only
+ * REJECTED layers are skipped. Used by the shared-boundary COMMIT
+ * path (the index identifies whose stored depth follows the dragged
+ * edge). Both pending and accepted indices are returned; the COMMIT
+ * caller gates on accepted to skip pending-edit propagation (the
+ * audit-point PATCH at useBoundaryDrag handles accepted neighbours
+ * via ``onUpdateContactDepth`` instead).
+ *
+ * Slice 2 of the unified-boundary-drag work (2026-05-30, owner
+ * directive "drag at any stage"): accepted neighbours are no longer
+ * a hard barrier for the bound walker — the drag passes through
+ * their territory and the contact PATCH (Slice 3) keeps the
+ * committed contact in sync with the pending edit.
  */
 export function nearestVisibleIndexAbove(
   idx: number,
