@@ -242,6 +242,16 @@ export default function App() {
     contactId: string
   } | null>(null)
 
+  // Sections deep-link target — set by the Geology / Sections inspector
+  // crossings banner when the user clicks an issue. AppShell switches to
+  // the sections stage, selects the chosen section, and triggers the
+  // focus-contacts pulse so the section view pans + amber-pulses the
+  // offending columns. Cleared after dispatch (single-fire).
+  const [sectionsDeepLinkTarget, setSectionsDeepLinkTarget] = useState<{
+    sectionId: string
+    contactIds: readonly string[]
+  } | null>(null)
+
   // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
   // SectionsToolbar via the geoModel slice, but the contact-correlation edge
   // state lives in SectionsCanvas (a sibling). Bumping this nonce after a
@@ -938,6 +948,7 @@ export default function App() {
     projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
     geoDeepLinkTarget, setGeoDeepLinkTarget,
+    sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     correlationEdgesRefetchNonce,
   })
 

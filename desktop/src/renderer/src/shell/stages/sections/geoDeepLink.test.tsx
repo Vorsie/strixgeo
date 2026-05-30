@@ -745,6 +745,8 @@ function makeStubContext(overrides?: {
       setHoveredTestId: vi.fn(),
       geoDeepLinkTarget,
       setGeoDeepLinkTarget,
+      sectionsDeepLinkTarget: null,
+      setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
     },
   }

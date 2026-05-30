@@ -140,6 +140,8 @@ export interface UseShellContextValueArgs {
   setHoveredTestId: ShellContextValue['coordinator']['setHoveredTestId']
   geoDeepLinkTarget: ShellContextValue['coordinator']['geoDeepLinkTarget']
   setGeoDeepLinkTarget: ShellContextValue['coordinator']['setGeoDeepLinkTarget']
+  sectionsDeepLinkTarget: ShellContextValue['coordinator']['sectionsDeepLinkTarget']
+  setSectionsDeepLinkTarget: ShellContextValue['coordinator']['setSectionsDeepLinkTarget']
   correlationEdgesRefetchNonce: ShellContextValue['coordinator']['correlationEdgesRefetchNonce']
 }
 
@@ -190,6 +192,7 @@ export function useShellContextValue(
     handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
+    sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     correlationEdgesRefetchNonce,
   } = argsWithoutGeo
 
@@ -353,6 +356,8 @@ export function useShellContextValue(
       setHoveredTestId,
       geoDeepLinkTarget,
       setGeoDeepLinkTarget,
+      sectionsDeepLinkTarget,
+      setSectionsDeepLinkTarget,
       correlationEdgesRefetchNonce,
     },
   }),

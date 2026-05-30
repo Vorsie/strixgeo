@@ -170,6 +170,28 @@ export interface Coordinator {
     target: { sectionId: string; contactId: string } | null,
   ) => void
   /**
+   * Sections deep-link request — set by the surface-crossings banner (in
+   * either the Geology or Sections inspector) when the user picks an
+   * issue.  AppShell watches this, switches to the Sections stage,
+   * selects the chosen section, and triggers the focus-contacts pulse so
+   * the section view pans + amber-pulses the offending columns.  The
+   * payload is cleared after dispatch (single-fire — subsequent inspector
+   * re-mounts do not re-apply a stale target).
+   *
+   * Same architectural rationale as ``geoDeepLinkTarget``: the writer
+   * (inspector) and the consumer (AppShell + sections hook) live in
+   * different React subtrees, and the dispatch must survive the stage
+   * transition.
+   */
+  sectionsDeepLinkTarget: {
+    sectionId: string
+    contactIds: readonly string[]
+  } | null
+  /** Set or clear the sections deep-link target. */
+  setSectionsDeepLinkTarget: (
+    target: { sectionId: string; contactIds: readonly string[] } | null,
+  ) => void
+  /**
    * Monotonic nonce bumped after a successful auto-correlate (#163c).
    *
    * Written by ``handleAutoCorrelate`` (via the

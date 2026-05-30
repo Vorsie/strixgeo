@@ -401,6 +401,8 @@ function makeCtx(overrides: {
       setHoveredTestId: vi.fn(),
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
+      sectionsDeepLinkTarget: null,
+      setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
     },
   }

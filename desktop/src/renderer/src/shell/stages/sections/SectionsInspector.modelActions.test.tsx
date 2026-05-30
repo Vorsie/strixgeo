@@ -427,6 +427,8 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       setHoveredTestId: vi.fn(),
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
+      sectionsDeepLinkTarget: null,
+      setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
     },
   }
