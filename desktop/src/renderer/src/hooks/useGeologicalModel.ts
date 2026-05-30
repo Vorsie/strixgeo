@@ -2039,9 +2039,8 @@ export function useGeologicalModel({
           return
         }
         const modelId = firstContact.model_id
-        const applyPatch = lithoContacts.some(c => c.id === updateIds[0])
-          ? setLithoContacts
-          : setContacts
+        const isLitho = lithoContacts.some(c => c.id === updateIds[0])
+        const applyPatch = isLitho ? setLithoContacts : setContacts
         const beforeById = new Map(
           [...contacts, ...lithoContacts]
             .filter(c => idSet.has(c.id))
@@ -2055,6 +2054,10 @@ export function useGeologicalModel({
         // Index by id so the local state patch is O(N+M).
         const byId = new Map(res.contacts.map(c => [c.id, c]))
         applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
+        // A3a — keep lithoLayers in sync with the contact-shaped patch.
+        // The BE trigger already updated litho_layer when the batch
+        // landed; a /layers refetch propagates that into FE state.
+        if (isLitho) refetchLithoContacts()
         // Batch depth/anchor mutation of pre-existing contacts — mark dirty
         // so a close-without-save reverts it (#160).
         markMutated()
@@ -2090,6 +2093,7 @@ export function useGeologicalModel({
             )
             const map = new Map(back.contacts.map(c => [c.id, c]))
             applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
+            if (isLitho) refetchLithoContacts()
           },
           reapply: async () => {
             const fwd = await api.geology.updateContactsBatch(
@@ -2099,6 +2103,7 @@ export function useGeologicalModel({
             )
             const map = new Map(fwd.contacts.map(c => [c.id, c]))
             applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
+            if (isLitho) refetchLithoContacts()
           },
         })
       } catch (err) {
@@ -2132,11 +2137,15 @@ export function useGeologicalModel({
           lithoContacts.find(c => c.id === contactId)
         if (!snapshot) return
         const modelId = snapshot.model_id
-        const applyPatch = lithoContacts.some(c => c.id === contactId)
-          ? setLithoContacts
-          : setContacts
+        const isLitho = lithoContacts.some(c => c.id === contactId)
+        const applyPatch = isLitho ? setLithoContacts : setContacts
         await api.geology.deleteContact(project.id, modelId, contactId)
         applyPatch(prev => prev.filter(c => c.id !== contactId))
+        // A3a — keep lithoLayers in sync with the optimistic prune.
+        // BE trigger removed the litho_layer row when the contact was
+        // deleted; the refetch propagates that + recomputes neighbour
+        // depth_base_m into FE state.
+        if (isLitho) refetchLithoContacts()
         // Deletion of a pre-existing contact — mark dirty so a
         // close-without-save reverts it (#160). NOT added to the session-
         // import manifest: a delete has no created row to discard; the
@@ -2176,6 +2185,7 @@ export function useGeologicalModel({
             currentId = recreated.id
             applyPatch(prev => [...prev, recreated])
             addToSessionImports('contact', [recreated.id])
+            if (isLitho) refetchLithoContacts()
           },
           reapply: async () => {
             if (!currentId) return
@@ -2183,6 +2193,7 @@ export function useGeologicalModel({
             const deletedId = currentId
             applyPatch(prev => prev.filter(c => c.id !== deletedId))
             currentId = null
+            if (isLitho) refetchLithoContacts()
           },
         })
       } catch (err) {
@@ -2509,10 +2520,11 @@ export function useGeologicalModel({
             `seedLithoFromParent: section ${sectionId} seeded set applied locally`,
           )
         }
-        // Refresh litho contacts — the simplest path to consistency;
-        // new contacts were inserted server-side.
-        const conts = await api.geology.listContacts(project.id, activeLithoModel.id)
-        setLithoContacts(conts)
+        // Refresh litho state — the simplest path to consistency;
+        // new contacts were inserted server-side, mirror trigger keeps
+        // litho_layer in sync. refetchLithoContacts pulls /layers and
+        // updates both lithoLayers + lithoContacts (A3a).
+        refetchLithoContacts()
         addToSessionImports('contact', outcome.created_contact_ids)
         const created = outcome.created_contact_ids.length
         log.success(
@@ -5066,6 +5078,14 @@ export function useGeologicalModel({
         // ``lithoContacts``. Calling the wrong setter leaves the new
         // contacts invisible until a manual reload (#118).
         if (resp.created_contact_ids.length > 0) {
+          // Pinch-out synthetics are anchor-less FormationContacts that
+          // don't fit Shape A — the litho_layer XOR CHECK requires an
+          // anchor, so the A3 mirror trigger skips synthetics. For the
+          // litho branch, that means /layers will NEVER carry these
+          // rows; the only place to render them is the contact array
+          // we already had. So we stay on listContacts here even
+          // post-A3a, until debt #131-b ships a real layer-shaped
+          // pinch-out terminus.
           const newContacts = await api.geology.listContacts(project.id, preview.model_id)
           if (preview.model_kind === 'lithostratigraphic') {
             setLithoContacts(newContacts)
@@ -5106,6 +5126,10 @@ export function useGeologicalModel({
           // instead of staying invisible until a reload (review B2).
           // Same litho-vs-geological setter split as the happy path.
           try {
+            // Same Shape-A exception as the happy-path branch above:
+            // pinch-out synthetics are anchor-less and don't materialise
+            // in litho_layer (mirror trigger skip); we must hit
+            // /contacts directly until #131-b lands.
             const refreshed = await api.geology.listContacts(
               project.id,
               preview.model_id,
