@@ -166,6 +166,10 @@ interface Props {
    * Phase 4 editor overlay (horizontal lines connecting picks per
    * formation across the projected investigations). */
   contacts?: readonly FormationContactResponse[]
+  /** P1b (dogfeed 2026-05-30) — forwarded to ContactsLayer so the
+   *  matching contact renders at the live depth during a cross-store
+   *  suggestion drag. SectionsCanvas owns the state. */
+  liveContactDepthOverride?: { contactId: string; depthM: number } | null
   /** Formation vocabulary — used to colour each contact polyline
    * with the formation's own colour. */
   formations?: readonly GeologicalFormationResponse[]
@@ -456,6 +460,14 @@ interface Props {
       newDepthM: number,
       snapped: boolean,
     ) => Promise<void>
+    /** P1b (dogfeed 2026-05-30) — live preview during a cross-store
+     *  drag. Forwarded to ``useBoundaryDrag`` so it fires on every
+     *  mousemove. SectionsCanvas holds the override Map and passes
+     *  it to ContactsLayer as ``liveContactDepthOverrides``. */
+    onContactLivePreview?: (
+      contactId: string | null,
+      liveDepthM: number,
+    ) => void
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -690,6 +702,7 @@ export default function SectionPanel({
   onPatch,
   onClose,
   contacts = [],
+  liveContactDepthOverride,
   formations = [],
   excludedBoreholeIds,
   surfacesByFormationId,
@@ -2187,6 +2200,7 @@ export default function SectionPanel({
                 handles appeared to do nothing in zoomed-out mode. */}
             <ContactsLayer
               contacts={contacts}
+              liveContactDepthOverride={liveContactDepthOverride}
               formations={formations}
               placedColumns={visibleColumns}
               // #159-followup: the active model's cross-column formation
@@ -2358,6 +2372,7 @@ export default function SectionPanel({
                 onExtendToNearest={lithoGhostState.onExtendToNearest}
                 committedContactsForAnchor={lithoGhostState.committedContactsForAnchor}
                 onUpdateContactDepth={lithoGhostState.onUpdateContactDepth}
+                onContactLivePreview={lithoGhostState.onContactLivePreview}
                 // Per-CPT depth series for the drag readout (qc + Rf).
                 // ``cptPlots`` is already loaded by useSectionData for the
                 // CPT data columns; reuse here so the readout doesn't
