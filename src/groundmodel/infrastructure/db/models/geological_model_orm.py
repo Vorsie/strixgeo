@@ -91,6 +91,15 @@ class GeologicalModelOrm(Base):
         back_populates="model",
         cascade="all, delete-orphan",
     )
+    # Layer rows for the unified litho boundary model
+    # (spec docs/superpowers/specs/2026-05-30-unified-litho-boundary-model-design.md).
+    # Populated for kind='lithostratigraphic' models; geological models
+    # carry zero layers (their boundaries live in ``contacts`` above).
+    litho_layers: Mapped[list[LithoLayerOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "LithoLayerOrm",
+        back_populates="model",
+        cascade="all, delete-orphan",
+    )
     # Reverse relationship for the cached TIN surfaces (one row per
     # formation present in this model). The bundle serialiser nests
     # them under the model so .strix save/restore carries the cache
