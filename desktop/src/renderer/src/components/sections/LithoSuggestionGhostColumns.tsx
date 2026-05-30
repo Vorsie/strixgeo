@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
+import { useBoundaryDrag } from '../../hooks/useBoundaryDrag'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
@@ -32,6 +33,19 @@ import {
   LITHOLOGY_COLORS,
   LITHOLOGY_FALLBACK_COLOR,
 } from '../../utils/lithoConstants'
+import {
+  ZERO_THICKNESS_M,
+  computeDragBounds,
+  effectiveDepths,
+  nearestVisibleIndexAbove,
+  nearestVisibleIndexBelow,
+} from '../../utils/lithoBoundaryHelpers'
+// Re-export computeDragBounds so test files that import it from this
+// module keep compiling. The implementation now lives in the utils
+// module; the re-export is a one-line forwarding shim that stays here
+// until callers migrate to the new path (planned for Slice 4 cleanup).
+export { computeDragBounds }
+export type { DragBoundsResult } from '../../utils/lithoBoundaryHelpers'
 
 // ---------------------------------------------------------------------------
 // Visual constants
@@ -54,361 +68,11 @@ const GHOST_OPACITY_REJECTED = 0.2
 const LABEL_FONT_SIZE = 9
 const HEADER_FONT_SIZE = 8
 
-/**
- * A pending layer with effective ``baseM - topM < ZERO_THICKNESS_M`` is
- * treated as effectively rejected (skipped in neighbour walks, auto-
- * rejected on drag commit). Without this, a user who drags one edge to
- * meet the other collapses the layer visually (the rect early-returns at
- * ``height ≤ 0.5px``) but the layer survives in state as a zero-thickness
- * pending entry — and the bound walker then returns its FAR edge as the
- * neighbouring layer's clamp, locking the next layer's drag at the shared
- * boundary depth. 1 mm tolerance absorbs float rounding without
- * triggering on legitimate thin layers.
- */
-const ZERO_THICKNESS_M = 1e-3
-
 function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
 }
 
 
-/**
- * Find the nearest index strictly above (smaller than) ``idx`` that
- * is still a PENDING layer (not accepted, not rejected).  Used by
- * the shared-boundary drag commit + the live drag preview so that
- * rejected / accepted layers don't get treated as adjacency partners
- * — dogfeed bug 2026-05-20: rejecting a middle layer let the
- * two surrounding pending layers be dragged independently into
- * overlap because the propagation was hardwired to ``drag.idx-1``.
- *
- * Returns ``null`` when no pending layer exists above ``idx`` (the
- * dragged layer is the topmost pending one — outer edge case).
- */
-function nearestPendingIndexAbove(
-  idx: number,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-): number | null {
-  for (let i = idx - 1; i >= 0; i--) {
-    if (!acceptedIndices.has(i) && !rejectedIndices.has(i)) return i
-  }
-  return null
-}
-
-/** Mirror of ``nearestPendingIndexAbove`` for the other direction. */
-function nearestPendingIndexBelow(
-  idx: number,
-  total: number,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-): number | null {
-  for (let i = idx + 1; i < total; i++) {
-    if (!acceptedIndices.has(i) && !rejectedIndices.has(i)) return i
-  }
-  return null
-}
-
-/**
- * Find the nearest VISIBLE neighbour (pending OR accepted) above
- * ``idx`` — only REJECTED layers are skipped. Used by the drag CLAMP
- * (debt #83 v1.1, dogfeed 2026-05-20 correction): the dragged edge
- * physically stops at the next visible layer's near edge. Accepted
- * layers are visible barriers (their committed contact says "this
- * boundary exists, you can't pass through"); rejected layers are
- * crossed out so the drag treats them as gone.
- *
- * Differs from ``nearestPendingIndexAbove`` which is used by the
- * shared-boundary COMMIT — that one skips both accepted AND rejected
- * because accepted layers' edits must not be mutated (their depth
- * is the committed contact, not the edits map).
- */
-function nearestVisibleIndexAbove(
-  idx: number,
-  rejectedIndices: ReadonlySet<number>,
-): number | null {
-  for (let i = idx - 1; i >= 0; i--) {
-    if (!rejectedIndices.has(i)) return i
-  }
-  return null
-}
-
-/** Mirror of ``nearestVisibleIndexAbove`` for the other direction. */
-function nearestVisibleIndexBelow(
-  idx: number,
-  total: number,
-  rejectedIndices: ReadonlySet<number>,
-): number | null {
-  for (let i = idx + 1; i < total; i++) {
-    if (!rejectedIndices.has(i)) return i
-  }
-  return null
-}
-
-/**
- * Look up the first visible neighbour in one direction and the
- * topology between it and the dragged layer. Used by the drag clamp:
- *
- *   - PENDING immediately adjacent: drag clamp = the neighbour's
- *     NEAR edge (= the current shared boundary). The boundary cannot
- *     be moved without first rejecting one of the two layers. This
- *     is the kill-cascade simplification (dogfeed 2026-05-23 — "snap
- *     to first boundary we encounter"). Use the merge button (#102)
- *     or the × per-layer reject (#103) to collapse / merge before
- *     redrawing the boundary.
- *   - PENDING with rejected between (gap-fill): clamp at the
- *     neighbour's NEAR edge. The drag fills the rejected gap and the
- *     next-pending's facing edge follows via shared-boundary commit.
- *   - ACCEPTED (immediate or via rejected): clamp at the accepted's
- *     NEAR edge; no commit propagation past it (its committed
- *     contact is the source of truth).
- *   - No visible neighbour (outer edge): outer ground above / for
- *     below, the segmenter's deepest output (last suggestion's base
- *     = test's effective bottom — dogfeed 2026-05-23 "or beneath the
- *     bottom of the test" bug).
- */
-interface VisibleNeighbour {
-  idx: number
-  kind: 'pending' | 'accepted'
-  crossedRejected: boolean
-}
-
-function findVisibleNeighbourAbove(
-  idx: number,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-): VisibleNeighbour | null {
-  let crossedRejected = false
-  for (let i = idx - 1; i >= 0; i--) {
-    if (rejectedIndices.has(i)) {
-      crossedRejected = true
-      continue
-    }
-    return {
-      idx: i,
-      kind: acceptedIndices.has(i) ? 'accepted' : 'pending',
-      crossedRejected,
-    }
-  }
-  return null
-}
-
-function findVisibleNeighbourBelow(
-  idx: number,
-  total: number,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-): VisibleNeighbour | null {
-  let crossedRejected = false
-  for (let i = idx + 1; i < total; i++) {
-    if (rejectedIndices.has(i)) {
-      crossedRejected = true
-      continue
-    }
-    return {
-      idx: i,
-      kind: acceptedIndices.has(i) ? 'accepted' : 'pending',
-      crossedRejected,
-    }
-  }
-  return null
-}
-
-/**
- * Resolve the effective top/base of a suggestion — committed edits
- * win over the raw segmenter output. Used to compute drag bounds
- * from the live state of the neighbouring layers (debt #83 v1).
- */
-function effectiveDepths(
-  suggestions: readonly LithoLayerSuggestion[],
-  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
-  idx: number,
-): { topM: number; baseM: number } {
-  const raw = suggestions[idx]
-  const committed = edits?.get(idx)
-  return {
-    topM: committed?.depth_top_m ?? raw.depth_top_m,
-    baseM: committed?.depth_base_m ?? raw.depth_base_m,
-  }
-}
-
-/**
- * Compute the hard-clamp bounds + collapse targets for a drag at
- * mousedown. The dragged edge cannot cross either bound; if the
- * user releases at OWN-OPPOSITE-EDGE (the #81 self-collapse direction)
- * with snap, the dragged layer is auto-rejected on mouseup.
- *
- * Cascade-capped-at-1 rule (dogfeed 2026-05-23). The user's complaint
- * was the MULTI-LAYER cascade — drag of layer N passing through
- * several same-parent neighbours' boundaries in one gesture, with
- * the merge-confirm dialog popping up for cases that surprised. The
- * fix caps cascade at ONE neighbour and removes the dialog entirely:
- *
- *   - **TOWARD AN IMMEDIATE PENDING NEIGHBOUR** — clamp at the
- *     neighbour's FAR edge (its base for a below-walk; its top for
- *     an above-walk). The shared boundary CAN be moved across the
- *     neighbour's territory, so G17-class shared-boundary resize
- *     still works. Releasing AT the far edge zero-thickness-collapses
- *     the neighbour (its facing edge follows via the shared-boundary
- *     commit); the layer stays pending with zero thickness — user
- *     can reject it explicitly via the × icon. No auto-reject, no
- *     dialog — the previous "cascade with merge prompt" (#83 + #84)
- *     was confusing because it silently absorbed N layers.
- *
- *   - **TOWARD A REJECTED-GAP NEIGHBOUR** — clamp at the next
- *     visible (non-rejected) neighbour's NEAR edge. The drag fills
- *     the rejected gap and the next-pending's facing edge follows.
- *     Preserves the G29 gap-fill semantics.
- *
- *   - **TOWARD AN ACCEPTED BARRIER** — clamp at the accepted's NEAR
- *     edge. The committed contact is the source of truth; no
- *     propagation past it.
- *
- *   - **TOWARD OWN OPPOSITE EDGE** — the #81 self-collapse. Snap
- *     auto-rejects the dragged layer on release.
- *
- *   - **NO NEIGHBOUR (outer edge)** — for ABOVE: clamp at 0 (ground).
- *     For BELOW: clamp at the LAST suggestion's BASE (the segmenter's
- *     deepest output = test's effective bottom). Replaces the prior
- *     POSITIVE_INFINITY which let drags run off the bottom of the
- *     plot (dogfeed 2026-05-23 "or beneath the bottom of the test").
- *
- * Multi-layer merge happens via the #102 merge button or N successive
- * × rejects (#103). The drag is now predictable: at most one
- * neighbour crossed per gesture.
- */
-export interface DragBoundsResult {
-  boundsAboveM: number
-  boundsBelowM: number
-  /**
-   * Pending-layer indices auto-rejected when the drag snaps at
-   * ``boundsAboveM`` on mouseup. After the kill-cascade refactor
-   * (2026-05-23), this only ever contains ``[idx]`` — the #81 self-
-   * collapse path (snap to own opposite edge). Neighbour auto-collapse
-   * is gone; collapse-by-merge is an explicit user gesture now.
-   * Kept as a list (not a single id) so the existing handleUp logic —
-   * which gates on ``chain.length === 1 && chain[0] === drag.idx`` —
-   * stays unchanged.
-   */
-  collapseChainAbove: number[]
-  /** Mirror of ``collapseChainAbove`` for the BELOW direction. */
-  collapseChainBelow: number[]
-}
-
-/** Result of the single-step neighbour walk: the bound the dragged
- *  edge is allowed to reach + (when applicable) the neighbour idx to
- *  auto-reject on snap-at-bound. The auto-reject restores the "drag
- *  a bottom layer up to merge it into the layer above" gesture that
- *  the kill-multi-cascade refactor accidentally killed (dogfeed
- *  2026-05-23: "I merged a bottom clay layer into an upper one and
- *  it disappeared"). Without auto-reject the upper layer collapsed
- *  to zero-thickness and stayed pending — invisible zombie. */
-interface NeighbourBound {
-  boundM: number
-  /** Neighbour idx to auto-reject when drag releases AT boundM, or
-   *  null when no auto-reject applies (outer edge, accepted barrier,
-   *  rejected-gap-fill, or self-collapse direction). */
-  autoRejectIdx: number | null
-}
-
-function boundFromNeighbour(
-  neighbour: VisibleNeighbour | null,
-  outerEdgeFallback: number,
-  suggestions: readonly LithoLayerSuggestion[],
-  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
-  nearEdgeKey: 'topM' | 'baseM',
-  farEdgeKey: 'topM' | 'baseM',
-): NeighbourBound {
-  if (!neighbour) {
-    return { boundM: outerEdgeFallback, autoRejectIdx: null }
-  }
-  // Accepted = committed contact = hard barrier at NEAR edge. No
-  // auto-reject — the committed contact is the source of truth.
-  if (neighbour.kind === 'accepted') {
-    return {
-      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
-      autoRejectIdx: null,
-    }
-  }
-  // Rejected gap-fill: pending neighbour reached past rejected layers.
-  // Clamp at the next pending's NEAR edge (G29 semantics preserved).
-  // No auto-reject — the user has already rejected what they wanted
-  // gone; collapsing the next pending too would be over-eager.
-  if (neighbour.crossedRejected) {
-    return {
-      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
-      autoRejectIdx: null,
-    }
-  }
-  // Immediate pending neighbour — single-step cascade. Clamp at the
-  // neighbour's FAR edge so the shared boundary can move across its
-  // territory (G17-class resize). Snap-at-bound on release auto-
-  // rejects the neighbour — the "merge into next layer" gesture.
-  // Multi-step cascade is gone; exactly one neighbour absorbed.
-  return {
-    boundM: effectiveDepths(suggestions, edits, neighbour.idx)[farEdgeKey],
-    autoRejectIdx: neighbour.idx,
-  }
-}
-
-export function computeDragBounds(
-  edge: 'top' | 'base',
-  idx: number,
-  suggestions: readonly LithoLayerSuggestion[],
-  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-): DragBoundsResult {
-  const own = effectiveDepths(suggestions, edits, idx)
-  if (edge === 'top') {
-    const above = findVisibleNeighbourAbove(idx, acceptedIndices, rejectedIndices)
-    // Above-walk: nearEdge is the neighbour's BASE (facing the dragged
-    // layer); farEdge is its TOP (further from the dragged layer).
-    // Outer fallback: 0 = ground.
-    const aboveBound = boundFromNeighbour(
-      above,
-      0,
-      suggestions,
-      edits,
-      'baseM',
-      'topM',
-    )
-    return {
-      boundsAboveM: aboveBound.boundM,
-      boundsBelowM: own.baseM,
-      collapseChainAbove:
-        aboveBound.autoRejectIdx !== null ? [aboveBound.autoRejectIdx] : [],
-      collapseChainBelow: [idx],
-    }
-  }
-  // edge === 'base'
-  const below = findVisibleNeighbourBelow(
-    idx,
-    suggestions.length,
-    acceptedIndices,
-    rejectedIndices,
-  )
-  // Below-walk: nearEdge is the neighbour's TOP; farEdge is its BASE.
-  // Outer fallback: the LAST suggestion's BASE (= test's effective
-  // bottom). When the dragged layer IS the last, this equals own.baseM
-  // → no extension downward (matches "can't drag past the test bottom").
-  const lastIdx = suggestions.length - 1
-  const outerBelow = effectiveDepths(suggestions, edits, lastIdx).baseM
-  const belowBound = boundFromNeighbour(
-    below,
-    outerBelow,
-    suggestions,
-    edits,
-    'topM',
-    'baseM',
-  )
-  return {
-    boundsAboveM: own.topM,
-    boundsBelowM: belowBound.boundM,
-    collapseChainAbove: [idx],
-    collapseChainBelow:
-      belowBound.autoRejectIdx !== null ? [belowBound.autoRejectIdx] : [],
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -646,82 +310,16 @@ export default function LithoSuggestionGhostColumns({
   // Hooks live ABOVE all early returns (suggestions.length === 0 /
   // !surfaceElevationM / !col) so the hook count is invariant —
   // CLAUDE.md "Temporal Dead Zone after reordering React component
-  // bodies" / Rules of Hooks. The drag state is cheap (one ref +
-  // one effect) so paying it on every render is free.
-  const [drag, setDrag] = useState<{
-    idx: number
-    edge: 'top' | 'base'
-    initialClientY: number
-    initialDepthM: number
-    currentDepthM: number
-    /**
-     * Hard clamp on the shallow side (smaller depth). The dragged
-     * edge cannot cross this — captures collision with the next
-     * pending neighbour above (its top) OR with own opposite edge
-     * for a base-drag. ``0`` when the dragged edge is the outermost
-     * top with no pending layer above (= ground surface).
-     *
-     * Snap-to-collide UX (dogfeed 2026-05-20): the drag stops at
-     * a colliding boundary; if the user releases at that snap, the
-     * shared-boundary commit + auto-reject collapse one layer
-     * (own or the neighbour, depending which bound was hit).
-     */
-    boundsAboveM: number
-    /**
-     * Hard clamp on the deep side. Mirrors ``boundsAboveM`` for the
-     * other direction — own opposite edge for a top-drag, or the
-     * next pending neighbour below's base for a base-drag. Capped
-     * by the plot bottom (no infinite drag past the last layer).
-     */
-    boundsBelowM: number
-    /**
-     * Indices of pending layers absorbed when the drag snaps at
-     * ``boundsAboveM``. Single-element ``[idx]`` for the #81
-     * self-collapse path (snap to own opposite edge); multi-element
-     * for a cascade through same-parent neighbours (debt #83); empty
-     * when no collapse target on this side (ground surface, accepted
-     * barrier, geological boundary).
-     */
-    collapseChainAbove: number[]
-    /** Mirror of ``collapseChainAbove`` for ``boundsBelowM``. */
-    collapseChainBelow: number[]
-    /**
-     * Whether the current drag position is snapped to either bound.
-     * Drives the visible snap indicator + the on-mouseup auto-reject /
-     * merge-confirm prompt.
-     */
-    snapped: boolean
-    /**
-     * Depth the current snap is bound to — equals ``boundsAboveM``
-     * when snapped at the shallow side, ``boundsBelowM`` when at the
-     * deep side, ``null`` when not snapped. Used by the indicator
-     * to render the amber dashed line at the correct depth.
-     */
-    snapTargetM: number | null
-    /**
-     * Chain of layers to auto-reject on mouseup when ``snapped`` is
-     * true. The dialog (debt #84) only opens when this chain contains
-     * a NEIGHBOUR (#83 cascade or #83 v1 single-neighbour); the #81
-     * self-collapse path (chain == [own idx]) skips the dialog and
-     * auto-rejects directly — that gesture is the user's explicit
-     * "fold this layer into its opposite edge" intent and asking is
-     * friction.
-     */
-    collapseChainOnRelease: number[]
-    /**
-     * When non-null, the user is holding Shift and has dragged the edge
-     * past the neighbour's MIDPOINT — releasing here will call
-     * onAbsorbLayer. The value is the direction of the absorb:
-     * ``'down'`` when the lower neighbour is pending absorption (base-
-     * drag past midpoint) or ``'up'`` for the upper (top-drag up past
-     * midpoint). Mutually exclusive with ``snapped``: if the cursor has
-     * crossed the midpoint, the absorb indicator renders instead of the
-     * merge/collapse indicator.
-     * Null = no absorb pending (plain drag or Shift-drag short of
-     * midpoint).
-     */
-    absorbPending: 'up' | 'down' | null
-  } | null>(null)
+  // bodies" / Rules of Hooks.
+  //
+  // The drag state + the document-level mousemove/mouseup listeners
+  // were extracted into ``useBoundaryDrag`` (Slice 1 of the unified
+  // boundary drag work). The component owns the hit-strip render +
+  // their onMouseDown callbacks; the hook owns the live drag state
+  // and the mouseup commit dispatch (onEdit / onReject /
+  // onAbsorbLayer / onMergeLayers + the zero-thickness auto-reject).
+  // ``startDrag`` is what the hit-strip onMouseDowns call; ``drag``
+  // is what the indicator + readout renderers consume.
 
   // ZERO-THICKNESS SAFETY NET. A pending layer with effective thickness
   // below ZERO_THICKNESS_M is treated as effectively rejected for ALL
@@ -843,313 +441,18 @@ export default function LithoSuggestionGhostColumns({
       ? levelToScreen(surfaceElevationM - 1) - surfaceY
       : 0
 
-  // Document-level mousemove + mouseup while a drag is active. The
-  // hit-zones are SVG rects but the mouse can leave them during a
-  // drag; attaching to document keeps the gesture coherent. Final
-  // depth fires through ``onEdit`` exactly once on mouseup.
-  useEffect(() => {
-    if (!drag) return
-    // Snap threshold in metres — 4 screen-px translated to depth via
-    // pxPerM. Wide enough to be discoverable, tight enough that small
-    // resize moves near the opposite edge don't auto-collapse.
-    const SNAP_PX = 4
-    const snapThresholdM = pxPerM > 0 ? SNAP_PX / pxPerM : 0
-    function handleMove(e: MouseEvent): void {
-      if (!drag) return
-      const pixelDelta = e.clientY - drag.initialClientY
-      const depthDelta = pxPerM !== 0 ? pixelDelta / pxPerM : 0
-      // Cursor-derived depth, clamped to non-negative (top can't sit
-      // above ground; base can't either).
-      const raw = Math.max(0, drag.initialDepthM + depthDelta)
-      // Hard-clamp to the bounds set at mousedown — the dragged edge
-      // physically cannot cross any other layer's boundary (debt #83
-      // v1 / dogfeed 2026-05-20: "if it collides it should just snap
-      // and attach to the boundary it collides with"). The clamp +
-      // snap together produce a satisfying "stick" against any wall.
-      const clamped = Math.max(
-        drag.boundsAboveM,
-        Math.min(drag.boundsBelowM, raw),
-      )
-      // Snap visual — fires ONLY when the user has explicitly OVERSHOT
-      // the bound (cursor past the bound by more than the snap threshold).
-      // Dogfeed 2026-05-23: the prior "snap when within threshold of
-      // the bound" fired the moment the dragged edge touched the
-      // neighbour bound, surprising users who just wanted to resize
-      // tight against the bound. Requiring deliberate overshoot makes
-      // the merge gesture explicit ("push past the wall = absorb") and
-      // lets users freely drag right up to / coincident with the bound
-      // without triggering the absorb. ``raw`` (cursor depth pre-clamp)
-      // is the right signal here, not ``clamped``: clamped is already
-      // pinned at the bound, so its distance to the bound is always 0.
-      // Use the UN-clamped cursor depth — ``raw`` above was floored to
-      // 0 by ``Math.max(0, ...)``, which would falsely report "no
-      // overshoot" when the user drags above the ground line (raw < 0).
-      // Recompute without the floor so an "I overshot the ground"
-      // gesture (e.g. top-drag UP past surface) still registers as a
-      // deliberate merge intent on the above-bound.
-      const rawUnclamped = drag.initialDepthM + depthDelta
-      const snappedAtAbove =
-        snapThresholdM > 0 && rawUnclamped < drag.boundsAboveM - snapThresholdM
-      const snappedAtBelow =
-        snapThresholdM > 0 && rawUnclamped > drag.boundsBelowM + snapThresholdM
-      // If both bounds are within threshold simultaneously (a layer
-      // narrower than 2 * snapThresholdM), prefer the one closer to
-      // the cursor — keeps the snap intuitive when the layer is thin.
-      let snapTargetM: number | null = null
-      let collapseChainOnRelease: number[] = []
-      if (snappedAtAbove && snappedAtBelow) {
-        const aboveDist = Math.abs(clamped - drag.boundsAboveM)
-        const belowDist = Math.abs(clamped - drag.boundsBelowM)
-        if (aboveDist <= belowDist) {
-          snapTargetM = drag.boundsAboveM
-          collapseChainOnRelease = drag.collapseChainAbove
-        } else {
-          snapTargetM = drag.boundsBelowM
-          collapseChainOnRelease = drag.collapseChainBelow
-        }
-      } else if (snappedAtAbove) {
-        snapTargetM = drag.boundsAboveM
-        collapseChainOnRelease = drag.collapseChainAbove
-      } else if (snappedAtBelow) {
-        snapTargetM = drag.boundsBelowM
-        collapseChainOnRelease = drag.collapseChainBelow
-      }
-      const next = snapTargetM !== null ? snapTargetM : clamped
+  const { drag, startDrag } = useBoundaryDrag({
+    pxPerM,
+    suggestions,
+    edits,
+    acceptedIndices,
+    effectivelyRejectedIndices,
+    onEdit,
+    onReject,
+    onAbsorbLayer,
+    onMergeLayers,
+  })
 
-      // Shift+drag absorb gesture (dogfeed 2026-05-25). When the user
-      // holds Shift AND the cursor has crossed the neighbour's MIDPOINT,
-      // set absorbPending so the indicator renders and the mouseup
-      // handler fires onAbsorbLayer. The midpoint check is: cursor
-      // depth (rawUnclamped) has crossed the midpoint of the relevant
-      // pending neighbour in the drag direction.
-      //
-      // Only arms when onAbsorbLayer is wired (prop present); plain
-      // dragging or missing prop leaves absorbPending null so existing
-      // clamp + merge behaviour is unchanged.
-      //
-      // Mutually exclusive with snapped: if absorbPending is set the
-      // absorb indicator renders; if snapped (but not absorb) the merge
-      // indicator renders. This means the Shift key is the only
-      // difference between the two paths — the absorb gesture is the
-      // Shift-variant of the existing merge snap.
-      let absorbPending: 'up' | 'down' | null = null
-      if (e.shiftKey && onAbsorbLayer !== undefined) {
-        if (drag.edge === 'base') {
-          // Looking for lower neighbour to absorb.
-          const neighbourBelow = findVisibleNeighbourBelow(
-            drag.idx,
-            suggestions.length,
-            acceptedIndices,
-            effectivelyRejectedIndices,
-          )
-          if (
-            neighbourBelow !== null &&
-            neighbourBelow.kind === 'pending' &&
-            !neighbourBelow.crossedRejected
-          ) {
-            const { topM: nTop, baseM: nBase } = effectiveDepths(
-              suggestions,
-              edits,
-              neighbourBelow.idx,
-            )
-            const midpoint = nTop + (nBase - nTop) / 2
-            if (rawUnclamped > midpoint) {
-              absorbPending = 'down'
-            }
-          }
-        } else {
-          // edge === 'top': looking for upper neighbour to absorb.
-          const neighbourAbove = findVisibleNeighbourAbove(
-            drag.idx,
-            acceptedIndices,
-            effectivelyRejectedIndices,
-          )
-          if (
-            neighbourAbove !== null &&
-            neighbourAbove.kind === 'pending' &&
-            !neighbourAbove.crossedRejected
-          ) {
-            const { topM: nTop, baseM: nBase } = effectiveDepths(
-              suggestions,
-              edits,
-              neighbourAbove.idx,
-            )
-            const midpoint = nTop + (nBase - nTop) / 2
-            if (rawUnclamped < midpoint) {
-              absorbPending = 'up'
-            }
-          }
-        }
-      }
-
-      setDrag(d =>
-        d !== null
-          ? {
-              ...d,
-              currentDepthM: next,
-              snapped: snapTargetM !== null,
-              snapTargetM,
-              collapseChainOnRelease,
-              absorbPending,
-            }
-          : null,
-      )
-    }
-    function handleUp(): void {
-      if (!drag) return
-
-      // Shift+drag absorb — takes priority over the normal clamp/snap
-      // path. When absorbPending is set, fire onAbsorbLayer and skip
-      // the depth-commit + auto-reject path entirely: the absorb helper
-      // (absorbLithoLayer) rebuilds the ghost with the correct extended
-      // depths + removed neighbour in one atomic step; no onEdit calls
-      // are needed from here.
-      if (drag.absorbPending !== null && onAbsorbLayer !== undefined) {
-        onAbsorbLayer(drag.idx, drag.absorbPending)
-        setDrag(null)
-        return
-      }
-
-      const final = drag.currentDepthM
-      // Collapse chain on release. After the kill-multi-cascade
-      // refactor, the chain has at most ONE entry per direction:
-      //   - ``[idx]`` on the own-opposite-edge side → #81 self-collapse.
-      //   - ``[neighbour.idx]`` on the neighbour-direction side →
-      //     single-step "merge into next layer" auto-reject (dogfeed
-      //     2026-05-23 fix: drag bottom layer up to absorb the upper
-      //     layer cleanly, without leaving a zero-thickness zombie).
-      //   - ``[]`` when no auto-reject applies (outer edge, accepted
-      //     barrier, rejected-gap-fill).
-      const chain = drag.snapped ? drag.collapseChainOnRelease : []
-      //
-      // Shared-boundary commit (owner directive 2026-05-20). A boundary
-      // BETWEEN two adjacent layers is one boundary, not two — moving
-      // it slides both the layer above's base AND the layer below's
-      // top to the same depth.
-      //
-      // Adjacency skips REJECTED and ACCEPTED layers: rejected layers
-      // are hidden so propagating to them leaves the boundary out of
-      // sync across the gap; accepted layers' depths are committed
-      // contacts and mutating their stored top/base via the edits map
-      // distorts the green-tick ghost rect without changing the actual
-      // contact in the DB.
-      // Predict whether the primary onEdit will trigger a cross-merge
-      // absorb inside the parent reducer's applyCrossMergeOnDrag. If it
-      // will, two follow-up emissions become incorrect and MUST be
-      // suppressed (dogfeed 2026-05-26 — bottom layer turning into the
-      // dragger's lithology after a drag-up):
-      //   1. The secondary onEdit on the partner — its ``visible`` index
-      //      was computed pre-absorb; the helper shifts indices down by
-      //      one when it removes the partner. The old index now points
-      //      at the dragger itself, so the secondary would corrupt the
-      //      dragger's opposite edge.
-      //   2. The chain onMergeLayers — same stale-index problem. The
-      //      chain entry was the partner's pre-absorb idx; post-absorb
-      //      that idx points at the layer BELOW the dragger (drag-up)
-      //      or ABOVE (drag-down), so onMergeLayers(min(drag.idx, i))
-      //      would silently merge an untouched neighbour into the
-      //      dragger. The parent's helper already handles the absorb
-      //      atomically; emitting onMergeLayers on top of it is the
-      //      double-merge that surfaced the user's bug.
-      // Zero-thickness auto-reject (fix A, dogfeed 2026-05-30). If the
-      // commit would collapse the dragged layer onto its own opposite
-      // edge (within tolerance), reject the layer outright instead of
-      // emitting a depth edit. Without this, the layer survives in
-      // state as a zero-thickness pending entry — visually gone (rect
-      // early-returns at height ≤ 0.5px) but still in the suggestions
-      // array, where the bound walkers return its FAR edge as the
-      // clamp for the next layer's drag, locking that drag at the
-      // shared boundary depth.
-      const ownDepths = effectiveDepths(suggestions, edits, drag.idx)
-      const collapsesToZero =
-        drag.edge === 'top'
-          ? final >= ownDepths.baseM - ZERO_THICKNESS_M
-          : final <= ownDepths.topM + ZERO_THICKNESS_M
-      if (collapsesToZero) {
-        onReject(drag.idx)
-        setDrag(null)
-        return
-      }
-      let partnerWillBeAbsorbed = false
-      if (drag.edge === 'top') {
-        const visible = nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
-        partnerWillBeAbsorbed = (() => {
-          if (visible === null) return false
-          if (acceptedIndices.has(visible)) return false
-          const partner = suggestions[visible]
-          if (partner === undefined) return false
-          // Mirror of applyCrossMergeOnDrag: absorb fires when the new
-          // top crosses the partner's FAR edge (its depth_top_m), not the
-          // shared near edge.
-          const partnerTop = edits?.get(visible)?.depth_top_m ?? partner.depth_top_m
-          return final <= partnerTop
-        })()
-        if (onEdit) onEdit(drag.idx, { depth_top_m: final })
-        if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
-          onEdit(visible, { depth_base_m: final, _propagateOnly: true })
-        }
-      } else {
-        const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
-        partnerWillBeAbsorbed = (() => {
-          if (visible === null) return false
-          if (acceptedIndices.has(visible)) return false
-          const partner = suggestions[visible]
-          if (partner === undefined) return false
-          // Mirror of applyCrossMergeOnDrag: absorb fires when the new
-          // base crosses the partner's FAR edge (its depth_base_m).
-          const partnerBase = edits?.get(visible)?.depth_base_m ?? partner.depth_base_m
-          return final >= partnerBase
-        })()
-        if (onEdit) onEdit(drag.idx, { depth_base_m: final })
-        if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
-          onEdit(visible, { depth_top_m: final, _propagateOnly: true })
-        }
-      }
-      // Resolve each chain entry. Two cases:
-      //   i === drag.idx  → self-collapse (#81): the dragged layer folded
-      //     onto its own opposite edge. Keep it in suggestions as a rejected
-      //     layer so the user can undo via the ↻ icon.
-      //   i !== drag.idx  → neighbour absorbed: the user dragged one layer
-      //     into the adjacent one. Call onMergeLayers to REMOVE the absorbed
-      //     layer from suggestions entirely (matching the right-click Merge
-      //     path). This avoids leaving a zero-thickness rejected layer that
-      //     freezes subsequent drag bounds — dogfeed 2026-05-25 bug: after a
-      //     drag-to-collapse merge the surviving layer's base handle was clamped
-      //     at the exact current depth (the zero-thickness rejected neighbour's
-      //     near edge equalled the merged layer's base) making the boundary
-      //     immovable in both directions. Falls back to onReject when
-      //     onMergeLayers is not wired (backwards-compat for callers that
-      //     haven't opted in).
-      for (const i of chain) {
-        // Skip the chain entry when the cross-merge helper will absorb
-        // the partner — the chain's idx was computed BEFORE the helper's
-        // index-shift, so firing onMergeLayers now would target the
-        // wrong layer post-shift (the layer below the dragger on
-        // drag-up; the layer above on drag-down). Self-collapse
-        // (i === drag.idx) is unaffected — it uses the dragger's own idx
-        // and the helper doesn't touch it.
-        if (partnerWillBeAbsorbed && i !== drag.idx) continue
-        if (i !== drag.idx && onMergeLayers !== undefined) {
-          // upperIdx is the smaller index — the surviving layer.
-          onMergeLayers(Math.min(drag.idx, i))
-        } else {
-          onReject(i)
-        }
-      }
-      setDrag(null)
-    }
-    document.addEventListener('mousemove', handleMove)
-    document.addEventListener('mouseup', handleUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMove)
-      document.removeEventListener('mouseup', handleUp)
-    }
-  // reason: onAbsorbLayer + onMergeLayers identities are stable (useCallback);
-  // edits is a ReadonlyMap that changes by reference on every edit commit —
-  // listing it here keeps the closure fresh for the absorb-midpoint lookup.
-  // suggestions is a readonly array that changes by reference on accept
-  // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices])
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
@@ -1518,17 +821,12 @@ export default function LithoSuggestionGhostColumns({
                       acceptedIndices,
                       effectivelyRejectedIndices,
                     )
-                    setDrag({
+                    startDrag({
                       idx,
                       edge: 'top',
                       initialClientY: e.clientY,
                       initialDepthM: topM,
-                      currentDepthM: topM,
                       ...bounds,
-                      snapped: false,
-                      snapTargetM: null,
-                      collapseChainOnRelease: [],
-                      absorbPending: null,
                     })
                   }}
                 />
@@ -1552,17 +850,12 @@ export default function LithoSuggestionGhostColumns({
                       acceptedIndices,
                       effectivelyRejectedIndices,
                     )
-                    setDrag({
+                    startDrag({
                       idx,
                       edge: 'base',
                       initialClientY: e.clientY,
                       initialDepthM: baseM,
-                      currentDepthM: baseM,
                       ...bounds,
-                      snapped: false,
-                      snapTargetM: null,
-                      collapseChainOnRelease: [],
-                      absorbPending: null,
                     })
                   }}
                 />
