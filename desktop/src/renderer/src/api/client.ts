@@ -2428,26 +2428,35 @@ export const api = {
     // splits, and section seeding atomically. The caller MUST apply
     // updated_section via applyUpdatedSection — explicit-content
     // invariant (#57 class trap, recurred 3×).
+    //
+    // A4 remaining-writer cut: the URL moves to /layers; the BE
+    // delegates to the same AcceptLithoSuggestions use case via a
+    // stacked route decorator. The use case still writes FormationContact
+    // (FC→LL trigger materialises the layer mirror); a future refactor
+    // would have the use case write LithoLayer natively and let
+    // LL→FC create the contact mirror for legacy consumers.
     acceptLithoSuggestions: (
       projectId: string,
       modelId: string,
       body: AcceptLithoSuggestionsRequest,
     ): Promise<AcceptLithoSuggestionsResponse> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/contacts/accept-litho-suggestions`,
+        `/projects/${projectId}/geology/models/${modelId}/layers/accept-litho-suggestions`,
         body,
       ),
 
     // Batch accept (#153): all anchors in one transaction + one section seed +
     // one inference recompute. Replaces the per-anchor accept loop + the
     // separate recompute call for the bulk "accept all" flow.
+    //
+    // Same A4 URL cut as accept-litho-suggestions above.
     batchAcceptLithoSuggestions: (
       projectId: string,
       modelId: string,
       body: BatchAcceptLithoSuggestionsRequest,
     ): Promise<BatchAcceptLithoSuggestionsResponse> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/contacts/batch-accept-litho-suggestions`,
+        `/projects/${projectId}/geology/models/${modelId}/layers/batch-accept-litho-suggestions`,
         body,
       ),
 
