@@ -51,6 +51,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
@@ -167,25 +168,56 @@ class ClearLithoModel(GroundModelLogger):
         )
         n_contacts: int = contacts_result.rowcount or 0
 
+        # Step 3.5 — bulk-delete any remaining litho_layer rows for this model.
+        # Step 3's FC delete triggers FC→LL → deletes accepted LL rows; but
+        # pending/rejected LL rows have no FC counterpart by design (Shape A —
+        # only accepted layers mirror to FC), so they survive the cascade.
+        # A "Clear litho model" gesture must wipe pending suggestions and
+        # rejected layers too. Idempotent — if the FC cascade already removed
+        # everything (or the model never had non-accepted layers), the
+        # DELETE rowcount is 0.
+        await self._session.execute(delete(LithoLayerOrm).where(LithoLayerOrm.model_id == model_id))
+
         # Step 4 — bulk-delete formation surfaces for this model
         surfaces_result = await self._session.execute(
             delete(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model_id)
         )
         n_surfaces: int = surfaces_result.rowcount or 0
 
-        # Step 5 — delete orphan litho formations (no contacts in ANY model).
-        # Re-check each candidate: the step-2 delete removed THIS model's
-        # contacts; a formation shared by another litho model still has rows.
+        # Step 5 — delete orphan litho formations (no contacts AND no layers
+        # in ANY model). Re-check each candidate: the step-3 contact-delete
+        # removed THIS model's contacts and the step 3.5 layer-delete removed
+        # THIS model's layers; a formation shared by another litho model
+        # still has rows somewhere. A4 cleanup: the survivors check looks at
+        # BOTH formation_contact and litho_layer — Shape A pending/rejected
+        # layers don't mirror to FC, so a formation referenced only by
+        # pending suggestions on a sibling model would otherwise be
+        # wrongly classified as orphan and CASCADE-wipe the sibling's layers.
         n_formations = 0
         if candidate_fids:
-            surviving_fids_stmt = (
-                select(FormationContactOrm.formation_id)
-                .where(FormationContactOrm.formation_id.in_(candidate_fids))
-                .distinct()
+            survivors_from_fc = set(
+                (
+                    await self._session.execute(
+                        select(FormationContactOrm.formation_id)
+                        .where(FormationContactOrm.formation_id.in_(candidate_fids))
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
             )
-            still_referenced: set[UUID] = set(
-                (await self._session.execute(surviving_fids_stmt)).scalars().all()
+            survivors_from_ll = set(
+                (
+                    await self._session.execute(
+                        select(LithoLayerOrm.formation_id)
+                        .where(LithoLayerOrm.formation_id.in_(candidate_fids))
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
             )
+            still_referenced: set[UUID] = survivors_from_fc | survivors_from_ll
             orphan_fids = candidate_fids - still_referenced
             if orphan_fids:
                 del_formations_result = await self._session.execute(
