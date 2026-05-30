@@ -151,7 +151,7 @@ async def test_build_bundle_captures_full_tree(db_session: AsyncSession) -> None
 
     bundle = await build_project_bundle(db_session, project)
 
-    assert bundle["format_version"] == 3
+    assert bundle["format_version"] == 4
     assert bundle["project"]["name"] == "Bundle source"
     assert bundle["project"]["client"] == "ACME"
     assert bundle["project"]["tags"] == ["foundation", "marine"]
