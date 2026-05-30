@@ -141,6 +141,16 @@ class GeologicalFormationOrm(Base):
         cascade="all, delete-orphan",
     )
 
+    # Layer rows for the unified litho boundary model (see
+    # docs/superpowers/specs/2026-05-30-unified-litho-boundary-model-design.md).
+    # Same load policy as ``contacts``: no eager load by default;
+    # callers selectinload when they need them.
+    litho_layers: Mapped[list[LithoLayerOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "LithoLayerOrm",
+        back_populates="formation",
+        cascade="all, delete-orphan",
+    )
+
     # Geotechnical units beneath this formation. Same pattern as contacts —
     # no eager load by default; ORM-level cascade keeps SQLAlchemy's
     # identity map in sync when the parent formation is deleted (the DB
