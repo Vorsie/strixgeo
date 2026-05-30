@@ -40,7 +40,6 @@ from uuid import uuid4
 import pytest
 
 from groundmodel.application.seed_litho_from_geological_model import (
-    _LEGACY_FC_SOURCE_LITERAL,
     SeedLithoFromGeologicalModel,
 )
 
@@ -199,11 +198,10 @@ async def test_happy_path_copies_parent_contacts():
     assert new_row.borehole_id == borehole_id
     assert new_row.depth_top_m == 3.0
     # A4 cleanup: the use case writes LithoLayerOrm with source='manual'
-    # (the LL source enum has no seed-specific value). The original FC
-    # source token survives as a constant for archaeology, but the LL→FC
-    # trigger maps the layer's 'manual' source to FC 'manual_pick' — so
-    # FC.source for seeded rows is no longer 'geological_model_seed'.
-    assert _LEGACY_FC_SOURCE_LITERAL == "geological_model_seed"
+    # (the LL source enum has no seed-specific value). The LL→FC trigger
+    # maps the layer's 'manual' source to FC 'manual_pick' — so the
+    # 'geological_model_seed' token the use case used to write to FC
+    # is gone for seeded rows.
     assert new_row.source == "manual"
     assert new_row.status == "accepted"
     assert new_row.confidence == "medium"
@@ -225,11 +223,8 @@ async def test_created_contact_source_and_confidence():
     The legacy FC source 'geological_model_seed' has no equivalent in the
     LithoLayer source enum — the use case maps it to 'manual'. The LL→FC
     trigger then maps 'manual' back to FC 'manual_pick', so FC.source on
-    the seeded mirror is 'manual_pick'. The original token survives as
-    _LEGACY_FC_SOURCE_LITERAL for archaeology only.
+    the seeded mirror is 'manual_pick'.
     """
-    assert _LEGACY_FC_SOURCE_LITERAL == "geological_model_seed"
-
     parent_id = uuid4()
     litho = _litho_model(parent_id=parent_id)
     parent_contact = _contact(
