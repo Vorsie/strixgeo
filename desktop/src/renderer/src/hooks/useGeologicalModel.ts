@@ -2390,7 +2390,11 @@ export function useGeologicalModel({
       const modelId = snapshot.model_id
       log.debug('geology', `linkLithoToGeo entry id=${contactId}`)
       try {
-        const result = await api.geology.linkLithoToGeo(project.id, modelId, contactId)
+        // A4 cleanup — link-geo on /layers (contactId == layerId by UUID
+        // preservation). The BE delegates to the same LinkLithoToGeo
+        // use case; the FC→LL trigger mirrors parent_geo_contact_id
+        // back into the FC row so legacy /contacts readers stay coherent.
+        const result = await api.geology.linkLayerToGeo(project.id, modelId, contactId)
         if (result == null) {
           // No geological contact within tolerance — inform the user.
           toast('warning', 'No geological contact within snap tolerance to link.')
