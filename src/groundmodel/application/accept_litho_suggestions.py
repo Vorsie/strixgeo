@@ -68,6 +68,7 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.shared.constants.litho_constants import (
     LITHOLOGY_COLORS,
@@ -109,6 +110,30 @@ def _geo_contact_to_link(
         if d <= tolerance_m and (best is None or d < best[0]):
             best = (d, contact_id)
     return best[1] if best is not None else None
+
+
+def _map_contact_source_to_layer(contact_source: str) -> str:
+    """Map a FormationContact ``source`` token to the litho_layer ``source`` enum.
+
+    The contact-side source set is open (segmenter paths use
+    ``'cpt_robertson_2015'`` / ``'borehole_observation'``; manual gestures
+    use ``'manual_pick'``). The layer-side set is tighter — see
+    ``LithoLayerOrm.source`` CHECK constraint. The mapping preserves the
+    "this came from a borehole observation" intent and collapses every
+    other provenance into ``'segmenter'`` (still distinct from a
+    handheld-drawn ``'manual'`` layer).
+
+    The LL→FC trigger maps back via a similar CASE statement; the
+    round-trip is lossy for non-canonical contact sources but the
+    intent (observation vs derived) is preserved.
+    """
+    if contact_source == "borehole_observation":
+        return "observation_layer"
+    if contact_source == "manual_pick":
+        return "manual"
+    # Segmenter outputs ('cpt_robertson_2015', 'cpt_robertson_2009', and any
+    # future cone-classification token) all collapse here.
+    return "segmenter"
 
 
 def _canonical_admixture_signature(admixtures: tuple[Admixture, ...]) -> str:
@@ -489,7 +514,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             if len(splits.intervals) > 1:
                 straddle_split_count += 1
 
-            for interval_top, interval_parent_fid in splits.intervals:
+            for interval_top, interval_base, interval_parent_fid in splits.intervals:
                 # Find-or-create the litho formation unit.
                 sig = _canonical_admixture_signature(sug.suggested_admixtures)
                 fkey = (interval_parent_fid, sug.suggested_lithology, sig)
@@ -540,17 +565,24 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 # formation row without any committed contact; the ghost-accept
                 # call creates the contact when the user drags + accepts).
                 if not create_formation_only:
-                    # Thread sug.source directly so manual_pick payloads stamp
-                    # 'manual_pick' and the bulk-segmenter paths keep their own
-                    # source strings ('cpt_robertson_2015' / 'borehole_observation').
-                    contact_id, was_created = await self._find_or_create_contact(
+                    # A4 cleanup — native LithoLayer write. The use case
+                    # creates the layer with explicit depth_top + depth_base
+                    # from the straddle split; the LL→FC trigger mirrors
+                    # an accepted layer into formation_contact so legacy
+                    # readers stay coherent. Source enum maps to the
+                    # litho_layer source set: contact 'borehole_observation'
+                    # ↔ layer 'observation_layer'; everything else maps to
+                    # 'manual' (close enough for the segmenter / manual_pick
+                    # provenance — full fidelity isn't required for litho).
+                    contact_id, was_created = await self._find_or_create_layer(
                         litho_model_id=litho_model_id,
                         formation_id=formation.id,
                         depth_top_m=interval_top,
+                        depth_base_m=interval_base,
                         borehole_id=borehole_id,
                         cpt_id=cpt_id,
                         confidence=sug.confidence.value.lower(),
-                        source=sug.source,
+                        source=_map_contact_source_to_layer(sug.source),
                         existing_contacts=batch_ctx.existing_contacts if batch_ctx else None,
                     )
                     if was_created:
@@ -570,9 +602,14 @@ class AcceptLithoSuggestions(GroundModelLogger):
                             interval_top, geology_contacts_at_inv, couple_tolerance_m
                         )
                         if geo_contact_id is not None:
-                            litho_contact = await self._session.get(FormationContactOrm, contact_id)
-                            if litho_contact is not None:
-                                litho_contact.parent_geo_contact_id = geo_contact_id
+                            # Set parent_geo_contact_id on the LITHO LAYER row
+                            # (A4 cleanup — used to load FormationContactOrm
+                            # here; same id post Shape A but the LL is the
+                            # source of truth). The LL→FC trigger mirrors the
+                            # coupling label onto the FC mirror.
+                            litho_layer = await self._session.get(LithoLayerOrm, contact_id)
+                            if litho_layer is not None:
+                                litho_layer.parent_geo_contact_id = geo_contact_id
                                 geo_contact = await self._session.get(
                                     FormationContactOrm, geo_contact_id
                                 )
@@ -822,32 +859,43 @@ class AcceptLithoSuggestions(GroundModelLogger):
         self,
         litho_model_id: UUID,
     ) -> dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]:
-        """Load all contacts in a model as a find-or-create idempotency map.
+        """Load all accepted layers in a model as a find-or-create idempotency map.
 
         Keyed by ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)``
-        → contact id, matching the key :meth:`_find_or_create_contact` uses.  A
+        → layer id, matching the key :meth:`_find_or_create_layer` uses. A
         batch loads this once instead of issuing one existence ``SELECT`` per
         layer.
+
+        A4 cleanup: queries ``litho_layer`` (the Shape A source of truth)
+        rather than ``formation_contact`` (the legacy mirror, still kept in
+        sync via the LL↔FC trigger pair). The method name kept the
+        ``_contacts`` suffix for callers that share the variable name —
+        the values are interchangeable UUIDs end-to-end.
 
         Parameters
         ----------
         litho_model_id : UUID
-            The lithostratigraphic model to load contacts for.
+            The lithostratigraphic model to load layers for.
 
         Returns
         -------
         dict
-            ``key → contact_id`` for every contact currently in the model.
+            ``key → layer_id`` for every accepted layer currently in the
+            model. Pending / rejected layers are excluded — only committed
+            boundaries count for the find-or-create idempotency check.
         """
         rows = (
             await self._session.execute(
                 select(
-                    FormationContactOrm.id,
-                    FormationContactOrm.formation_id,
-                    FormationContactOrm.depth_top_m,
-                    FormationContactOrm.borehole_id,
-                    FormationContactOrm.cpt_id,
-                ).where(FormationContactOrm.model_id == litho_model_id)
+                    LithoLayerOrm.id,
+                    LithoLayerOrm.formation_id,
+                    LithoLayerOrm.depth_top_m,
+                    LithoLayerOrm.borehole_id,
+                    LithoLayerOrm.cpt_id,
+                ).where(
+                    LithoLayerOrm.model_id == litho_model_id,
+                    LithoLayerOrm.status == "accepted",
+                )
             )
         ).all()
         return {
@@ -1002,7 +1050,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             # surfaces-exist-but-no-contacts-here case takes the "no
             # boundaries" exit below; it CAN extrapolate.
             return _StraddleResult(
-                intervals=[(top, None)],
+                intervals=[(top, base, None)],
                 stale_tin_fallback_count=0,
             )
 
@@ -1118,7 +1166,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         "footprint — accepting as orphan (parent_formation_id NULL)"
                     )
             return _StraddleResult(
-                intervals=[(top, parent_fid)],
+                intervals=[(top, base, parent_fid)],
                 stale_tin_fallback_count=stale_fallbacks,
                 extrapolated=extrapolated,
             )
@@ -1132,7 +1180,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"splitting into upper (parent={upper_fid}) + lower (parent={lower_fid})"
         )
         return _StraddleResult(
-            intervals=[(top, upper_fid), (boundary_depth, lower_fid)],
+            intervals=[
+                # Upper half: [top, boundary_depth] → upper geology parent.
+                (top, boundary_depth, upper_fid),
+                # Lower half: [boundary_depth, base] → lower geology parent.
+                (boundary_depth, base, lower_fid),
+            ],
             stale_tin_fallback_count=stale_fallbacks,
         )
 
@@ -1349,16 +1402,21 @@ class AcceptLithoSuggestions(GroundModelLogger):
             being recomputed.  Only formations with contacts in this model
             are considered.
         """
-        # -- Step 1: collect formation ids + shallowest contact depth ----------
+        # -- Step 1: collect formation ids + shallowest layer depth ----------
+        # A4 cleanup: query litho_layer (Shape A source of truth, accepted
+        # rows only — pending suggestions don't carry display-order intent).
         contacts_stmt = select(
-            FormationContactOrm.formation_id,
-            FormationContactOrm.depth_top_m,
-        ).where(FormationContactOrm.model_id == litho_model_id)
+            LithoLayerOrm.formation_id,
+            LithoLayerOrm.depth_top_m,
+        ).where(
+            LithoLayerOrm.model_id == litho_model_id,
+            LithoLayerOrm.status == "accepted",
+        )
         contact_rows = (await self._session.execute(contacts_stmt)).all()
 
         if not contact_rows:
             self.debug(
-                f"_recompute_litho_display_orders: no contacts in model {litho_model_id}, skip"
+                f"_recompute_litho_display_orders: no layers in model {litho_model_id}, skip"
             )
             return
 
@@ -1454,12 +1512,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 "already at correct display_order (no-op)"
             )
 
-    async def _find_or_create_contact(
+    async def _find_or_create_layer(
         self,
         *,
         litho_model_id: UUID,
         formation_id: UUID,
         depth_top_m: float,
+        depth_base_m: float,
         borehole_id: UUID | None,
         cpt_id: UUID | None,
         confidence: str,
@@ -1467,94 +1526,102 @@ class AcceptLithoSuggestions(GroundModelLogger):
         existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
         | None = None,
     ) -> tuple[UUID, bool]:
-        """Idempotent contact find-or-create.
+        """Idempotent layer find-or-create (A4 cleanup — was contact).
+
+        Writes ``LithoLayerOrm`` with ``status='accepted'`` rather than
+        ``FormationContactOrm`` — Shape A native. The LL→FC trigger mirrors
+        the accepted layer into formation_contact so legacy /contacts
+        readers + correlation FK (now on litho_layer post 4a) stay coherent.
 
         Parameters
         ----------
         litho_model_id : UUID
         formation_id : UUID
         depth_top_m : float
+        depth_base_m : float
+            Layer base, derived from the straddle-split interval. Required
+            by the LL CHECK (top < base); the LL→FC trigger ignores it on
+            the FC mirror (FC has no base concept).
         borehole_id : UUID | None
         cpt_id : UUID | None
         confidence : str
             Lowercased confidence string (``"high"`` / ``"medium"`` / ``"low"``).
         source : str
-            Contact provenance token — passed through from the suggestion item
-            so the caller controls the value.  The bulk segmenter paths carry
-            ``"cpt_robertson_2015"`` or ``"borehole_observation"``; the manual-
-            pick path sends ``"manual_pick"``.
+            Layer provenance token in the LL source enum
+            (``"segmenter"``, ``"manual"``, ``"observation_layer"``,
+            ``"observation_interpretation"``). The caller maps the original
+            contact source via ``_map_contact_source_to_layer``.
         existing_contacts : dict | None
-            Batch mode (#153): a pre-loaded ``key → contact_id`` map for the
-            model, keyed by ``(model_id, formation_id, depth_top_m, borehole_id,
-            cpt_id)``.  When given, the idempotency check is answered in memory
-            (no per-layer ``SELECT``) and a newly-created contact's id is added
-            back to the map.  When ``None`` the single-accept path runs the
-            existence ``SELECT``.
+            Batch mode (#153): a pre-loaded
+            ``key → layer_id`` map for the model, keyed by
+            ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)``.
+            When given, the idempotency check is answered in memory
+            (no per-layer ``SELECT``) and a newly-created layer's id is
+            added back to the map.  When ``None`` the single-accept path
+            runs the existence ``SELECT`` against ``litho_layer``.
 
         Returns
         -------
         tuple[UUID, bool]
-            ``(contact_id, was_created)`` — ``True`` when a new row was
-            inserted, ``False`` when an existing row was found.
+            ``(layer_id, was_created)``. The id doubles as the contact id
+            for the trigger-mirrored FC row (UUID preserved end-to-end).
         """
         # ``depth_top_m`` is part of the idempotency key. Without it, a
         # re-accept after a re-segmentation that moved the boundary (param
         # change, or a straddle re-split at a different geology-TIN depth)
-        # would match the OLD contact on (model, formation, anchor) alone
-        # and silently keep the stale depth (review B1). With it, the same
-        # suggestion re-accepts as a no-op; a moved boundary creates a new
-        # contact. Float match is safe for the idempotent path: an unchanged
-        # suggestion yields a bit-identical depth from the same pipeline.
+        # would match the OLD layer on (model, formation, anchor) alone
+        # and silently keep the stale depth (review B1). Float match is
+        # safe for the idempotent path: an unchanged suggestion yields a
+        # bit-identical depth from the same pipeline.
         key = (litho_model_id, formation_id, depth_top_m, borehole_id, cpt_id)
 
         if existing_contacts is not None:
-            # In-memory idempotency check (batch mode).
             hit = existing_contacts.get(key)
             if hit is not None:
                 return hit, False
         else:
             anchor_filter = (
-                FormationContactOrm.borehole_id == borehole_id
+                LithoLayerOrm.borehole_id == borehole_id
                 if borehole_id is not None
-                else FormationContactOrm.cpt_id == cpt_id
+                else LithoLayerOrm.cpt_id == cpt_id
             )
-            existing_stmt = select(FormationContactOrm.id).where(
-                FormationContactOrm.model_id == litho_model_id,
-                FormationContactOrm.formation_id == formation_id,
-                FormationContactOrm.depth_top_m == depth_top_m,
+            existing_stmt = select(LithoLayerOrm.id).where(
+                LithoLayerOrm.model_id == litho_model_id,
+                LithoLayerOrm.formation_id == formation_id,
+                LithoLayerOrm.depth_top_m == depth_top_m,
+                LithoLayerOrm.status == "accepted",
                 anchor_filter,
             )
             existing_id = (await self._session.execute(existing_stmt)).scalar_one_or_none()
             if existing_id is not None:
                 self.trace(
-                    f"  Contact already exists: {existing_id} "
-                    f"(formation={formation_id}, depth={depth_top_m:.2f}m)"
+                    f"  Layer already exists: {existing_id} "
+                    f"(formation={formation_id}, depth={depth_top_m:.2f}–{depth_base_m:.2f}m)"
                 )
                 return existing_id, False
 
-        contact = FormationContactOrm(
+        layer = LithoLayerOrm(
             id=uuid7(),
             model_id=litho_model_id,
             formation_id=formation_id,
             depth_top_m=depth_top_m,
+            depth_base_m=depth_base_m,
+            status="accepted",
             borehole_id=borehole_id,
             cpt_id=cpt_id,
             source=source,
             confidence=confidence,
         )
-        self._session.add(contact)
+        self._session.add(layer)
         if existing_contacts is not None:
-            # Batch mode: defer the INSERT to the batch's single flush/commit
-            # (no per-contact round-trip) and record the new key for in-memory
-            # idempotency on later layers/anchors.
-            existing_contacts[key] = contact.id
+            existing_contacts[key] = layer.id
         else:
             await self._session.flush()
             self.trace(
-                f"  Contact created: {contact.id} "
-                f"(formation={formation_id}, depth={depth_top_m:.2f}m)"
+                f"  Layer created: {layer.id} "
+                f"(formation={formation_id}, depth={depth_top_m:.2f}–{depth_base_m:.2f}m)"
             )
-        return contact.id, True
+        return layer.id, True
 
 
 @dataclass(frozen=True)
@@ -1563,9 +1630,14 @@ class _StraddleResult:
 
     Attributes
     ----------
-    intervals : list[tuple[float, UUID | None]]
-        ``[(depth_top_m, parent_formation_id), ...]`` — one entry per contact
-        to create. Two entries mean the suggestion was split.
+    intervals : list[tuple[float, float, UUID | None]]
+        ``[(depth_top_m, depth_base_m, parent_formation_id), ...]`` — one
+        entry per layer to create. Two entries mean the suggestion was
+        split at a geology boundary; each half carries explicit top + base
+        depths so the use case can write LithoLayerOrm natively (A4 cleanup
+        — was ``(depth_top_m, parent_formation_id)`` when the use case
+        wrote FormationContactOrm and the FC→LL trigger derived the base
+        via LEAD).
     stale_tin_fallback_count : int
         How many splits fell back to depth-ordering (debt #68).
     extrapolated : bool
@@ -1576,6 +1648,6 @@ class _StraddleResult:
         to sample).
     """
 
-    intervals: list[tuple[float, UUID | None]]
+    intervals: list[tuple[float, float, UUID | None]]
     stale_tin_fallback_count: int
     extrapolated: bool = False
