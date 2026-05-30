@@ -153,6 +153,31 @@ export interface BulkAnchorGhost {
   rejected: ReadonlySet<number>
   /** User edits per layer — depth + composition overrides. */
   edits: ReadonlyMap<number, LithoSuggestionEdit>
+  /**
+   * Robust-fix tracking for the cross-store dispatch (dogfeed 2026-05-30,
+   * follow-up to Slice 3). Map<acceptedSuggestionIdx → contact ids
+   * that the API returned when that suggestion was accepted>. Used
+   * by ``useBoundaryDrag`` to resolve "the committed contact that
+   * corresponds to this accepted suggestion's boundary" by IDENTITY
+   * (not by depth-tolerance match). Survives contact-drift drag
+   * sequences that previously fell off the depth-match: the user
+   * can move a committed contact in ContactsLayer, then drag the
+   * adjacent pending, and the cross-store dispatch still finds the
+   * right contact.
+   *
+   * Populated by the three accept handlers
+   * (``handleAcceptLithoSuggestion``, ``handleAcceptAllLithoSuggestions``,
+   * ``handleAcceptBulkLitho``) from the API's ``created_contact_ids``
+   * + ``found_contact_ids`` arrays, associating each contact to its
+   * suggestion idx by matching the contact's depth_top_m to the
+   * suggestion's known depth at accept time (before any drift).
+   *
+   * Optional + defaults to empty for backwards-compat with existing
+   * tests and the bulk-suggest reducer paths that don't touch this
+   * field. When absent the cross-store dispatch falls back to the
+   * pre-fix depth-tolerance match.
+   */
+  contactIdsByAcceptedIdx?: ReadonlyMap<number, readonly string[]>
 }
 
 export interface UseGeologicalModelResult {
@@ -4128,6 +4153,17 @@ export function useGeologicalModel({
         }
         // Mark accepted so the ghost overlay shows the tick — updates
         // the focused entry in the unified Map (debt #77).
+        //
+        // Robust-fix (dogfeed 2026-05-30 follow-up to Slice 3): also
+        // stash the contact ids the API returned for this suggestion
+        // so the cross-store dispatch in ``useBoundaryDrag`` can look
+        // up the matching contact by identity (not by depth match).
+        // The single-suggestion accept path is the simplest case —
+        // every returned contact id belongs to THIS suggestion.
+        const allContactIds = [
+          ...result.created_contact_ids,
+          ...result.found_contact_ids,
+        ]
         setGhostsByAnchor(prev => {
           const focusedId = focusedSuggestAnchorIdRef.current
           if (focusedId === null) return prev
@@ -4135,8 +4171,14 @@ export function useGeologicalModel({
           if (!existing) return prev
           const nextAccepted = new Set(existing.accepted)
           nextAccepted.add(idx)
+          const nextContactIds = new Map(existing.contactIdsByAcceptedIdx ?? [])
+          nextContactIds.set(idx, allContactIds)
           const next = new Map(prev)
-          next.set(focusedId, { ...existing, accepted: nextAccepted })
+          next.set(focusedId, {
+            ...existing,
+            accepted: nextAccepted,
+            contactIdsByAcceptedIdx: nextContactIds,
+          })
           return next
         })
         // Refetch litho contacts so the committed contact lands in
