@@ -32,11 +32,13 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoLayerResponse,
   LithoLayerSuggestion,
   PinchOutExtrapolationResponse,
   ProjectResponse,
 } from '../api/client'
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
+import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
@@ -877,6 +879,25 @@ export function useGeologicalModel({
   // Litho parallel state (slice 2, #55). Independent of the geological
   // contact set — mutations in one set never invalidate the other.
   // Loaded / cleared by a useEffect that watches activeLithoModel.
+  // A3 of the unified litho boundary model: both arrays exist
+  // side-by-side during the cut-over. Both are populated from the
+  // /layers endpoint — `lithoContacts` is projected via
+  // `lithoLayersToContacts()`, `lithoLayers` is the raw layer rows.
+  //
+  // Consumers migrate from `lithoContacts` (boundary-shaped) to
+  // `lithoLayers` (layer-shaped) one at a time. Once all consumers
+  // are off `lithoContacts`, the state slice + its setter shrink to
+  // dead code and get removed.
+  //
+  // Both arrays carry the SAME UUIDs (A2.5 backfill preserved them
+  // end-to-end), so litho_correlation_edge / seeded_formation_contact_ids
+  // / parent_geo_contact_id all continue to resolve in either shape.
+  //
+  // Writers MUST update both: a setLithoContacts on a mutation should
+  // be paired with a setLithoLayers that reflects the same change.
+  // Helper utilities (utils/lithoLayerToContact) keep the projection
+  // logic in one place.
+  const [lithoLayers, setLithoLayers] = useState<LithoLayerResponse[]>([])
   const [lithoContacts, setLithoContacts] = useState<FormationContactResponse[]>([])
   // lithoFormations was a separate useState until debt #89 — that dual
   // atom caused the staleness class behind debt #88 (one half refreshed
@@ -1156,6 +1177,7 @@ export function useGeologicalModel({
     // identical (these are ephemeral overlays scoped to the model the
     // user is currently editing).
     setLithoContacts([])
+    setLithoLayers([])
     setLithoSurfacesByFormationId(new Map())
     setGhostsByAnchor(new Map())
     setFocusedSuggestAnchorId(null)
@@ -1165,27 +1187,32 @@ export function useGeologicalModel({
     const modelId = activeLithoModel.id
     ;(async () => {
       try {
-        // Formations are derived from the global ``formations`` state
-        // (debt #89) — fetched once by the geological bootstrap, so no
-        // separate listFormations call here. Just contacts + surfaces
-        // for the active litho model.
-        const [conts, surfs] = await Promise.all([
-          api.geology.listContacts(projectId, modelId),
+        // A3 cut-over: source-of-truth is /layers. Project the rows
+        // to the contact shape for consumers that still read the
+        // FormationContact array (renderer + inspector); the raw
+        // layer rows go to lithoLayers for consumers that read
+        // Shape A directly.
+        const [layers, surfs] = await Promise.all([
+          api.geology.listLayers(projectId, modelId),
           api.geology.listSurfaces(projectId, modelId),
         ])
         if (cancelled) return
+        setLithoLayers(layers)
+        const conts = lithoLayersToContacts(layers)
         setLithoContacts(conts)
         const sm = new Map<string, FormationSurfaceResponse>()
         for (const s of surfs) sm.set(s.formation_id, s)
         setLithoSurfacesByFormationId(sm)
         log.debug(
           'geology',
-          `litho model ${modelId}: loaded ${conts.length} contacts, ${surfs.length} surfaces`,
+          `litho model ${modelId}: loaded ${layers.length} layers ` +
+            `(${conts.length} accepted as contacts), ${surfs.length} surfaces`,
         )
       } catch (err) {
         if (!cancelled) {
           log.warn('geology', `litho model ${modelId}: load failed`, err)
           setLithoContacts([])
+          setLithoLayers([])
           setLithoSurfacesByFormationId(new Map())
         }
       }
@@ -1249,11 +1276,18 @@ export function useGeologicalModel({
   const refetchLithoContacts = useCallback(() => {
     const model = activeLithoModelRef.current
     if (!project || !model) return
+    // A3 cut-over: refetch /layers (source-of-truth) + project to
+    // the contact shape for legacy consumers. Both state slices
+    // update in lockstep so any consumer hitting either array sees
+    // a consistent post-mutation view.
     void api.geology
-      .listContacts(project.id, model.id)
-      .then(setLithoContacts)
+      .listLayers(project.id, model.id)
+      .then(layers => {
+        setLithoLayers(layers)
+        setLithoContacts(lithoLayersToContacts(layers))
+      })
       .catch(err => {
-        log.warn('geology', `litho listContacts refetch failed`, err)
+        log.warn('geology', `litho listLayers refetch failed`, err)
       })
   }, [project])
 
