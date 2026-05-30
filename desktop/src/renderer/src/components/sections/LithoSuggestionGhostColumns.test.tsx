@@ -2628,6 +2628,78 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2', 4, false)
   })
 
+  // CS4 — robust-fix follow-up (dogfeed 2026-05-30). When
+  // ``contactIdsByAcceptedIdx`` is populated, the cross-store
+  // dispatch picks the contact by IDENTITY (id match) instead of
+  // by depth tolerance. Survives contact-drift drag sequences where
+  // the committed contact's depth_top_m no longer matches the
+  // pending's pre-drag boundary depth (because the user moved the
+  // contact via ContactsLayer drag after accept).
+  it('CS4 — identity match survives contact-drift (depth differs by >1 cm)', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    // Layer 0 accepted; layer 1 pending. The committed contact for
+    // the boundary between them sits at depth 2.45 — DRIFTED from
+    // the pre-drag boundary depth (which is 2.0, layer 1's TOP).
+    // Pre-fix (depth tolerance 1 cm) the match would FAIL because
+    // |2.45 - 2.0| > 0.01. With the identity map, the contact is
+    // found by id and the PATCH fires.
+    const driftedContact = {
+      id: 'contact-drifted',
+      model_id: 'm',
+      formation_id: 'f',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2.45, // drifted from the pre-drag boundary at 2.0
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([0])}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          committedContactsForAnchor={[driftedContact]}
+          contactIdsByAcceptedIdx={new Map([[0, ['contact-drifted']]])}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    // Drag layer 1's top UP from depth 2 (clientY=300) to depth 1
+    // (clientY=200). The pre-drag boundary depth is 2.0; the
+    // contact's CURRENT depth_top_m is 2.45 — doesn't match the
+    // 1-cm tolerance. Pre-fix the PATCH would NOT fire. Post-fix
+    // the identity map ensures it does.
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 300 })
+    fireEvent.mouseMove(document, { clientY: 200 })
+    fireEvent.mouseUp(document)
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-drifted', 1, false)
+  })
+
   // CS3 — no PATCH fires when the drag didn't actually move the
   // boundary (defensive — protects against an accidental PATCH on a
   // mousedown-mouseup with no movement).
