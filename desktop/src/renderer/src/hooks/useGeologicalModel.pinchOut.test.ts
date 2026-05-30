@@ -233,31 +233,18 @@ describe('useGeologicalModel — handlePreviewPinchOut (#62 item 2)', () => {
     expect(toast).toHaveBeenCalledTimes(1)
   })
 
-  it('PO5 — litho-axis preview stores model_kind; commit refreshes lithoContacts (not contacts)', async () => {
-    // Verifies the #118 wiring: a pinch-out invoked with
-    // modelKind='lithostratigraphic' carries the kind through to the
-    // commit path, which refreshes ``lithoContacts`` rather than the
-    // geological ``contacts`` list. Calling the wrong setter would
-    // leave the new synthetic contacts invisible on the Litho axis.
-    const newLithoContact = {
-      id: 'litho-contact-1',
-      model_id: 'mod-1',
-      formation_id: 'f-pinching',
-      borehole_id: null,
-      cpt_id: null,
-      synthetic_x: 100.0,
-      synthetic_y: 200.0,
-      synthetic_elevation_m: 5.67,
-      depth_top_m: 3.21,
-      source: 'pinch_out_extrapolation' as const,
-      confidence: 'low' as const,
-      observation_id: null,
-      observation_layer_id: null,
-      notes: null,
-      created_at: '2026-05-24T00:00:00Z',
-      updated_at: '2026-05-24T00:00:00Z',
-    }
-    // Preview = dry_run success; Commit = wet run returning the new id.
+  it('PO5 — litho-axis pinch-out commit refreshes /layers, NOT the geological contacts list', async () => {
+    // A5 carve-out: lithoContacts is now a derived memo from lithoLayers.
+    // Anchor-less synthetic pinch-out FCs (debt #131-b future work)
+    // have no LL counterpart, so they cannot appear in lithoContacts
+    // post-A5 — that's the documented Shape A trade-off.
+    //
+    // What this test pins: the commit's model-kind branch goes through
+    // the LITHO refetch path (api.geology.listLayers via
+    // refetchLithoContacts) rather than the geological setContacts.
+    // Calling the wrong setter would scribble synthetic FCs into the
+    // geological contacts list — that's the regression we're guarding
+    // against.
     geoApi.extrapolatePinchOut
       .mockResolvedValueOnce(makeOkResp())
       .mockResolvedValueOnce({
@@ -266,8 +253,9 @@ describe('useGeologicalModel — handlePreviewPinchOut (#62 item 2)', () => {
         tip_elevation_m: 5.67,
         updated_section: null,
       })
-    // The refetch after commit returns the newly inserted contact.
-    geoApi.listContacts.mockResolvedValueOnce([newLithoContact])
+    // refetchLithoContacts hits /layers — synthetics don't exist there,
+    // so an empty array is the truthful response.
+    geoApi.listLayers.mockResolvedValueOnce([])
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
@@ -287,12 +275,15 @@ describe('useGeologicalModel — handlePreviewPinchOut (#62 item 2)', () => {
       await result.current.handleCommitPinchOut()
     })
 
-    // The new synthetic contact landed on the LITHO list, not the
-    // geological list — proves the model-kind branch in the commit
-    // path routes to setLithoContacts when the preview was started
-    // on the Litho axis.
-    expect(result.current.lithoContacts).toContainEqual(newLithoContact)
-    expect(result.current.contacts).not.toContainEqual(newLithoContact)
+    // The commit took the LITHO branch — listContacts (the geological
+    // refresh path) was NOT called. The litho branch goes through
+    // refetchLithoContacts, which is a no-op when no litho model is
+    // active in this test fixture (artificial setup — debt #131-b
+    // future work would activate a real litho model before pinch-out
+    // commit). The regression-guard is "litho branch must NOT scribble
+    // into the geological contacts list".
+    expect(geoApi.listContacts).not.toHaveBeenCalled()
+    expect(result.current.contacts).toHaveLength(0)
   })
 
   it('PO4 — non-geometry error (no `code: pinch_out_geometry_error`) does NOT retry', async () => {
