@@ -45,6 +45,7 @@ from groundmodel.application.bulk_create_litho_layers import (
     BulkCreateLithoLayers,
     LithoLayerCreateRequest,
 )
+from groundmodel.application.link_litho_to_geo import LinkLithoToGeo
 from groundmodel.application.list_litho_layers_for_model import (
     ListLithoLayersForModel,
 )
@@ -275,6 +276,81 @@ async def batch_update_layers(
         updated_count=result.updated_count,
         layers=[LithoLayerResponse.model_validate(r) for r in result.layers],
     )
+
+
+@router.post(
+    "/models/{model_id}/layers/{layer_id}/link-geo",
+    response_model=LithoLayerResponse | None,
+    responses={
+        200: {"description": "Linked successfully or no geo contact within tolerance (null body)."},
+    },
+)
+async def link_layer_to_geo(
+    project_id: UUID,
+    model_id: UUID,
+    layer_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> LithoLayerOrm | None:
+    """Link a litho LAYER to the nearest geological contact (A4 cleanup).
+
+    Mirrors the contact-side ``/contacts/{id}/link-geo`` endpoint. UUIDs
+    are preserved between LL and FC (LL.id == FC.id for accepted layers),
+    so the existing LinkLithoToGeo use case operates on the same row via
+    either entry point. The post-commit return is the refreshed LL row
+    (the FC→LL trigger UPSERTs parent_geo_contact_id automatically when
+    the use case commits the FC mutation).
+
+    Returns 200 with the updated layer, or 200 with a null body when no
+    geo contact is within tolerance. 404 when the layer doesn't exist or
+    isn't in the URL model.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    layer = await session.get(LithoLayerOrm, layer_id)
+    if layer is None or layer.model_id != model_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
+    try:
+        # contact_id == layer_id by Shape A's UUID-preservation rule.
+        contact = await LinkLithoToGeo(session).execute(project_id=project_id, contact_id=layer_id)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    if contact is None:
+        return None
+    # FC→LL trigger already mirrored the parent_geo_contact_id update
+    # onto the layer row; refresh so the response reflects it.
+    await session.refresh(layer)
+    return layer
+
+
+@router.post(
+    "/models/{model_id}/layers/{layer_id}/unlink-geo",
+    response_model=LithoLayerResponse,
+)
+async def unlink_layer_from_geo(
+    project_id: UUID,
+    model_id: UUID,
+    layer_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> LithoLayerOrm:
+    """Clear the litho↔geo coupling on a single layer (A4 cleanup).
+
+    Thin wrapper over ``UpdateLithoLayer`` with ``parent_geo_contact_id``
+    set to NULL. Provided alongside ``link-geo`` so the FE has a
+    consistent layer-shaped pair for the coupling toggle (parity with
+    the contact-side unlink endpoint).
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    updated = await UpdateLithoLayer(session).execute(layer_id, {"parent_geo_contact_id": None})
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
+    return updated
 
 
 @router.patch(
