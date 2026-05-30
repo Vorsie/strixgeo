@@ -386,7 +386,53 @@ export function useBoundaryDrag(
           ? final >= ownDepths.baseM - ZERO_THICKNESS_M
           : final <= ownDepths.topM + ZERO_THICKNESS_M
       if (collapsesToZero) {
+        // P1a (dogfeed 2026-05-30): after auto-rejecting the dragged
+        // layer, also extend the neighbour in the drag direction so
+        // the rejected layer's territory is filled instead of left as
+        // a stub. Drag direction:
+        //   TOP drag collapses by moving top DOWN to base → the
+        //     LAYER ABOVE should extend its BASE down to the rejected
+        //     layer's base.
+        //   BASE drag collapses by moving base UP to top → the
+        //     LAYER BELOW should extend its TOP up to the rejected
+        //     layer's top.
+        // If the receiving neighbour is ACCEPTED, the committed
+        // contact at the OLD shared boundary needs the same depth
+        // update — same audit-point PATCH as the Slice 3 cross-store
+        // dispatch, just triggered by the auto-reject path.
         onReject(drag.idx)
+        const fillBoundary =
+          drag.edge === 'top' ? ownDepths.baseM : ownDepths.topM
+        const neighbourIdx =
+          drag.edge === 'top'
+            ? nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
+            : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
+        if (neighbourIdx !== null) {
+          if (acceptedIndices.has(neighbourIdx)) {
+            // Accepted neighbour: PATCH the contact at the OLD shared
+            // boundary depth (= drag.initialDepthM) to the new
+            // boundary (= the rejected layer's far edge).
+            if (
+              onUpdateContactDepth !== undefined &&
+              committedContactsForAnchor !== undefined
+            ) {
+              const contact = committedContactsForAnchor.find(
+                c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+              )
+              if (contact !== undefined) {
+                void onUpdateContactDepth(contact.id, fillBoundary, false)
+              }
+            }
+          } else if (onEdit) {
+            // Pending neighbour: extend its edit so the band grows
+            // into the rejected territory.
+            const fillEdit: LithoSuggestionEdit =
+              drag.edge === 'top'
+                ? { depth_base_m: fillBoundary }
+                : { depth_top_m: fillBoundary }
+            onEdit(neighbourIdx, fillEdit)
+          }
+        }
         setDrag(null)
         return
       }
