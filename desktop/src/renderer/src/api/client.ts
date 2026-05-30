@@ -514,6 +514,9 @@ export interface LithoLayerUpdatePayload {
   depth_top_m?: number
   depth_base_m?: number
   status?: LithoLayerStatus
+  // Source can change on a drag commit (snapped → observation_layer,
+  // unsnapped → manual). Backend allows it; A2 schema omitted it.
+  source?: LithoLayerSource
   confidence?: LithoLayerConfidence
   borehole_id?: string | null
   cpt_id?: string | null
