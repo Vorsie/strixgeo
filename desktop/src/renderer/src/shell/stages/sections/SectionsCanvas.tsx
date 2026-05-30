@@ -1647,6 +1647,13 @@ export default function SectionsCanvas(): JSX.Element {
       committedContactsForAnchor: lithoContacts.filter(
         c => c.cpt_id === focusedSuggestAnchorId || c.borehole_id === focusedSuggestAnchorId,
       ),
+      // Robust-fix follow-up (dogfeed 2026-05-30): contact ids per
+      // accepted suggestion idx, populated by the accept handlers
+      // on the focused ghost entry. Surfaces the identity-match path
+      // in ``useBoundaryDrag`` for single-suggestion accepts; multi-
+      // suggestion accepts (accept-all / bulk) fall back to depth-
+      // tolerance until those handlers populate the map too.
+      contactIdsByAcceptedIdx: entry.contactIdsByAcceptedIdx,
       // The cross-store PATCH dispatch (Slice 3). Uses the existing
       // snap-aware wrapper so the post-PATCH litho-geo snap prompt
       // (debt #134) still fires identically — the suggestion-drag
