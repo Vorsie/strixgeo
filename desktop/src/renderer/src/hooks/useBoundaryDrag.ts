@@ -172,6 +172,17 @@ export interface UseBoundaryDragParams {
    */
   committedContactsForAnchor?: readonly FormationContactResponse[]
   /**
+   * Robust-fix follow-up to Slice 3 (dogfeed 2026-05-30): contact
+   * ids the API returned per accepted suggestion idx. When set, the
+   * cross-store dispatch picks the matching contact by IDENTITY
+   * (filter committedContactsForAnchor by id) instead of by depth
+   * tolerance — survives contact-drift drag sequences where the
+   * committed contact's depth no longer matches the pending's
+   * pre-drag boundary depth. Optional; absence falls back to the
+   * pre-fix depth-tolerance match for backwards-compat.
+   */
+  contactIdsByAcceptedIdx?: ReadonlyMap<number, readonly string[]>
+  /**
    * Slice 3 — PATCH callback fired when a pending drag moves a
    * shared boundary with an accepted neighbour. Optional — when
    * absent, the cross-store dispatch is a no-op.
@@ -231,11 +242,60 @@ export function useBoundaryDrag(
     onMergeLayers,
     investigationId,
     committedContactsForAnchor,
+    contactIdsByAcceptedIdx,
     onUpdateContactDepth,
     onContactLivePreview,
   } = params
 
   const [drag, setDrag] = useState<BoundaryDragState | null>(null)
+
+  /**
+   * Robust-fix resolver (dogfeed 2026-05-30): given an accepted
+   * neighbour's suggestion idx + the pre-drag boundary depth, return
+   * the committed contact that owns this boundary.
+   *
+   * Identity-first path: if ``contactIdsByAcceptedIdx`` carries an
+   * entry for this idx, scope the candidate pool to those ids and
+   * pick the closest to the expected depth. Handles contact-drift
+   * (user moved the committed contact in ContactsLayer after accept)
+   * because the IDs survive the drift.
+   *
+   * Depth-tolerance fallback: when no id mapping is available (older
+   * BulkAnchorGhost, accept-all multi-suggestion path that doesn't
+   * populate the map yet), use the pre-fix 1-cm depth match. Works
+   * as long as no drift has occurred.
+   *
+   * Returns null when no matching contact is found — caller skips
+   * the cross-store PATCH silently.
+   */
+  function resolveContactForAcceptedNeighbour(
+    acceptedIdx: number,
+    expectedDepthM: number,
+  ): FormationContactResponse | null {
+    if (committedContactsForAnchor === undefined) return null
+    const knownIds = contactIdsByAcceptedIdx?.get(acceptedIdx)
+    if (knownIds !== undefined && knownIds.length > 0) {
+      const idSet = new Set(knownIds)
+      const candidates = committedContactsForAnchor.filter(c => idSet.has(c.id))
+      if (candidates.length === 0) return null
+      let best = candidates[0]
+      let bestDist = Math.abs(best.depth_top_m - expectedDepthM)
+      for (let i = 1; i < candidates.length; i++) {
+        const c = candidates[i]
+        const d = Math.abs(c.depth_top_m - expectedDepthM)
+        if (d < bestDist) {
+          best = c
+          bestDist = d
+        }
+      }
+      return best
+    }
+    // Fallback: depth-tolerance match.
+    const match = committedContactsForAnchor.find(
+      c => Math.abs(c.depth_top_m - expectedDepthM) < CONTACT_MATCH_TOLERANCE_M,
+    )
+    return match ?? null
+  }
 
   const startDrag = useCallback((start: BoundaryDragStart) => {
     setDrag({
@@ -380,19 +440,17 @@ export function useBoundaryDrag(
       // sees the pending edge move live but the committed contact
       // stay frozen until release — visible mismatch by design that
       // Slice 3 alone left unaddressed.
-      if (
-        onContactLivePreview !== undefined &&
-        committedContactsForAnchor !== undefined
-      ) {
+      if (onContactLivePreview !== undefined) {
         const neighbourIdx =
           drag.edge === 'top'
             ? nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
             : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
         if (neighbourIdx !== null && acceptedIndices.has(neighbourIdx)) {
-          const contact = committedContactsForAnchor.find(
-            c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+          const contact = resolveContactForAcceptedNeighbour(
+            neighbourIdx,
+            drag.initialDepthM,
           )
-          if (contact !== undefined) {
+          if (contact !== null) {
             onContactLivePreview(contact.id, next)
           } else {
             onContactLivePreview(null, 0)
@@ -468,15 +526,14 @@ export function useBoundaryDrag(
           if (acceptedIndices.has(neighbourIdx)) {
             // Accepted neighbour: PATCH the contact at the OLD shared
             // boundary depth (= drag.initialDepthM) to the new
-            // boundary (= the rejected layer's far edge).
-            if (
-              onUpdateContactDepth !== undefined &&
-              committedContactsForAnchor !== undefined
-            ) {
-              const contact = committedContactsForAnchor.find(
-                c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+            // boundary (= the rejected layer's far edge). Identity
+            // resolver handles contact-drift.
+            if (onUpdateContactDepth !== undefined) {
+              const contact = resolveContactForAcceptedNeighbour(
+                neighbourIdx,
+                drag.initialDepthM,
               )
-              if (contact !== undefined) {
+              if (contact !== null) {
                 void onUpdateContactDepth(contact.id, fillBoundary, false)
               }
             }
@@ -580,7 +637,6 @@ export function useBoundaryDrag(
       // cross-store rollback to a follow-up; see spec Slice 3 risks).
       if (
         onUpdateContactDepth !== undefined &&
-        committedContactsForAnchor !== undefined &&
         Math.abs(final - drag.initialDepthM) > ZERO_THICKNESS_M
       ) {
         const neighbourIdx =
@@ -588,12 +644,13 @@ export function useBoundaryDrag(
             ? nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
             : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
         if (neighbourIdx !== null && acceptedIndices.has(neighbourIdx)) {
-          // Pre-drag boundary depth == drag.initialDepthM. Find the
-          // contact whose depth_top_m matches within tolerance.
-          const contact = committedContactsForAnchor.find(
-            c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+          // Robust resolver — identity match via contactIdsByAcceptedIdx
+          // when available, depth-tolerance fallback otherwise.
+          const contact = resolveContactForAcceptedNeighbour(
+            neighbourIdx,
+            drag.initialDepthM,
           )
-          if (contact !== undefined) {
+          if (contact !== null) {
             void onUpdateContactDepth(contact.id, final, drag.snapped)
           }
         }
@@ -614,7 +671,7 @@ export function useBoundaryDrag(
   // readonly array that changes by reference on accept; same pattern
   // as onEdit. effectivelyRejectedIndices is a useMemo set whose
   // identity tracks its inputs.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, onUpdateContactDepth, onContactLivePreview])
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, contactIdsByAcceptedIdx, onUpdateContactDepth, onContactLivePreview])
 
   return { drag, startDrag }
 }
