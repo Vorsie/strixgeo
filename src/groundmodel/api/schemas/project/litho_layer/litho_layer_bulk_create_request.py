@@ -48,10 +48,26 @@ class LithoLayerBulkCreateRequest(BaseModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/layers``.
 
     Inserts N rows in one transaction. Used by the suggest-litho
-    persistence path (segmenter output → pending layers) after the
-    Slice A3 cut-over.
+    persistence path (segmenter output → pending layers) and by the
+    manual-create-contact path (single-item array with section_id) after
+    the A4 cut-over.
+
+    The optional ``section_id`` carries the explicit-content invariant
+    forward from the contact-side endpoint: when the user manually draws
+    a layer on a section, that section's ``seeded_formation_contact_ids``
+    array gets unioned with the freshly-created layer ids so the
+    section view's filter shows the new content immediately. Same
+    semantic as ``FormationContactCreateRequest.section_id``.
     """
 
     layers: list[LithoLayerCreateItem] = Field(
         description="Per-layer payloads. Empty list = no-op (returns [])."
+    )
+    section_id: UUID | None = Field(
+        default=None,
+        description=(
+            "When set, the created layer ids are unioned into this "
+            "section's seeded_formation_contact_ids array — the "
+            "explicit-content invariant from the contact side."
+        ),
     )
