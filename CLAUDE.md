@@ -723,6 +723,14 @@ A small number of aggregations (`cpt.max_depth_m`, `cpt.n_rows`, future `borehol
 
 Cross-field invariants — e.g. `Borehole.total_depth_m ≈ max(drill_segments.base_m)`, sample/observation depths within `[0, total_depth_m]`, observations contiguous within a stream — are flagged as `ValidationIssue`s emitted by the parser, not enforced by raising in the domain dataclass. Reasoning: the domain has to accept whatever the source gave us (occasionally messy real-world data) so the rest of the pipeline can run; the validator records the problem for the user to see.
 
+### 6. Committed contacts are an audit point, not a UI-surface barrier
+
+A `formation_contact` row is the *durable* record of a boundary — every depth change must go through the `UpdateFormationContact` use case (PATCH) so it lands in backend logs, hits schema invariants, and increments `updated_at`. The audit trail is the rule; *which UI fires the PATCH* is not.
+
+The litho-suggestion drag surface (`useBoundaryDrag` / `LithoSuggestionGhostColumns`) is allowed to call `UpdateFormationContact` directly when a pending drag's mouseup moves a shared boundary with an accepted neighbour — see `docs/superpowers/specs/2026-05-30-unified-boundary-drag-design.md`. Previously the rule was framed as "committed contact is the source of truth, no propagation past it"; the renaming clarifies that *the PATCH is the audit point*, not that the UI must avoid touching committed state.
+
+The functional invariant is preserved: the pending edits Map NEVER carries a committed-contact depth (no parallel writer), and every committed depth change still flows through one backend endpoint with full logs.
+
 ---
 
 ## Code Conventions
