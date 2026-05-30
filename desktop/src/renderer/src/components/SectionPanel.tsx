@@ -2542,6 +2542,39 @@ export default function SectionPanel({
               />
             )}
 
+            {/* P4 (dogfeed 2026-05-30) — second pass of CptDataColumn in
+                ``overlayMode`` so the qc/Rf reference gridlines + value
+                labels (2 / 10 MPa, 2 / 4 %) render ON TOP of the litho
+                band fills. The first pass at line 2034 paints them
+                behind the bands (correct for the track background and
+                curves); the overlay layer here picks them out
+                separately and renders them last with stronger stroke
+                + pointerEvents:none so the underlying drag surfaces
+                stay clickable. */}
+            {cptPlots !== null &&
+              visibleColumns.map(col => {
+                if (col.kind !== 'cpt') return null
+                const item = col.proj.item
+                const plot = cptPlots.get(item.id)
+                if (!plot || item.elevation_m === null) return null
+                return (
+                  <CptDataColumn
+                    key={`cpt-ref-overlay-${item.id}`}
+                    plot={plot}
+                    cptType={item.cpt_type}
+                    channels={cptChannels}
+                    halfWidth={bandHalfWidth}
+                    screenX={col.nudgedX}
+                    surfaceElevationM={item.elevation_m}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    levelToScreen={levelToScreen}
+                    showLabels={showLabelsByCptId.get(item.id) ?? true}
+                    overlayMode
+                  />
+                )
+              })}
+
             {/* Axis labels. */}
             <text
               x={MARGIN.left + plotWidth / 2}
