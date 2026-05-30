@@ -599,6 +599,10 @@ describe('LithoSuggestionGhostColumns', () => {
   // PAST the bound by more than the snap threshold, not just AT it).
   // Move 210 px (= 2.10 m): 0.10 m past the 2 m base → safely past
   // the 4 px (~0.04 m) overshoot threshold.
+  // 2026-05-30 dogfeed (fix A): commit-side zero-thickness auto-reject
+  // now short-circuits the onEdit emission — a layer being rejected
+  // doesn't need a depth commit since the rect doesn't render. Test
+  // pins the cleaner contract: onReject fires, onEdit does not.
   it('G26 — drag top down past own base snaps and auto-rejects the layer', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
@@ -613,8 +617,7 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseUp(document)
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(0)
-    // onEdit still fires the depth commit at the snap point.
-    expect(onEdit).toHaveBeenCalledWith(0, { depth_top_m: 2 })
+    expect(onEdit).not.toHaveBeenCalled()
   })
 
   // G27: drag top down only ~100 px (midway) → NOT snapped → no
@@ -1038,6 +1041,8 @@ describe('LithoSuggestionGhostColumns', () => {
   })
 
   // G28: drag base up onto top → snap from the opposite direction.
+  // 2026-05-30 dogfeed (fix A): commit-side zero-thickness auto-reject
+  // short-circuits the onEdit emission for the same reason as G26.
   it('G28 — drag base up onto top snaps and auto-rejects the layer', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
@@ -1056,7 +1061,7 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseUp(document)
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(0)
-    expect(onEdit).toHaveBeenCalledWith(0, { depth_base_m: 0 })
+    expect(onEdit).not.toHaveBeenCalled()
   })
 
   // -----------------------------------------------------------------
@@ -2283,4 +2288,95 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     expect(after.edits.get(0)?.depth_base_m).toBeCloseTo(3, 5)
   })
 
+  // ZT1 — fix A: collapsing a layer's top onto its own base with NO snap
+  // (cursor lands exactly at the base, not past + threshold) must STILL
+  // auto-reject the layer instead of leaving a zero-thickness pending
+  // entry. Pre-fix this was the dogfeed bug 2026-05-30: user dragged
+  // top down to base, layer "disappeared" visually but lived on in
+  // state, blocking the next layer's upward drag.
+  it('ZT1 — drag top to own base without snap still auto-rejects (no zero-thickness zombie)', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
+    // Drag top from y=0 (depth 0) down to y=200 (depth 2.0) — exactly at
+    // the layer's own base, no overshoot, no snap indicator. Pre-fix
+    // this would have emitted onEdit(0, {depth_top_m: 2}) and left the
+    // layer alive as zero-thickness pending. Post-fix it auto-rejects.
+    fireEvent.mouseDown(topHandle, { clientY: 0 })
+    fireEvent.mouseMove(document, { clientY: 200 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  // ZT2 — mirror of ZT1: drag base UP to own top, no snap, must reject.
+  it('ZT2 — drag base to own top without snap still auto-rejects', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 200 }) // depth 2 (own base)
+    fireEvent.mouseMove(document, { clientY: 0 })     // depth 0 (own top)
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  // ZT3 — fix B: an existing zero-thickness pending layer in state (e.g.
+  // loaded from a save written before fix A landed) must NOT block the
+  // next layer's UP drag. The effectivelyRejectedIndices safety net
+  // skips it so the bound walker reaches the next non-collapsed layer.
+  it('ZT3 — zero-thickness pending layer in state does not lock next layer\'s UP drag', () => {
+    const onEdit = vi.fn()
+    // Three stacked layers; layer 0 starts pre-collapsed via edits
+    // (depth_top_m == depth_base_m == 2) — simulates the legacy zombie
+    // state. Layer 1 is the user's draggable pending. Layer 2 below
+    // gives layer 1's base a clamp partner so we can verify both bounds.
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          edits={new Map([[0, { depth_top_m: 2, depth_base_m: 2 }]])}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+        />
+      </svg>,
+    )
+    // Layer 1's top sits at depth 2. Drag it UP to 1.
+    const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    fireEvent.mouseDown(top1, { clientY: 300 }) // levelToScreen(5-2) = 300
+    fireEvent.mouseMove(document, { clientY: 200 }) // depth 1
+    fireEvent.mouseUp(document)
+    // The drag MUST fire onEdit (not be locked). Pre-fix, layer 0's
+    // effective top (2) would have been returned by boundFromNeighbour
+    // as the FAR edge clamp → boundsAbove = 2 = layer 1's start → lock.
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    expect(layer1Edit).toBeDefined()
+    expect(layer1Edit![1].depth_top_m).toBeCloseTo(1, 5)
+  })
 })
