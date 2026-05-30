@@ -441,6 +441,21 @@ interface Props {
      *  Returns ``{ ok: true }`` on success or ``{ ok: false, reason }``
      *  on overlap — caller is expected to surface the reason to the user. */
     onExtendToNearest?: (idx: number) => { ok: boolean; reason?: string }
+    /** Slice 3 of unified-boundary-drag: committed litho contacts for
+     *  the focused anchor, used by the cross-store dispatch in
+     *  useBoundaryDrag to find the contact whose depth matches the
+     *  dragged boundary. Filtered at SectionsCanvas level. */
+    committedContactsForAnchor?: readonly FormationContactResponse[]
+    /** Slice 3 of unified-boundary-drag: PATCH callback fired when a
+     *  pending drag moves a shared boundary with an accepted neighbour.
+     *  Same signature as ContactsLayer's drag commit; the suggestion-
+     *  drag surface is just another entry point to the audit-point
+     *  ``UpdateFormationContact`` PATCH. */
+    onUpdateContactDepth?: (
+      contactId: string,
+      newDepthM: number,
+      snapped: boolean,
+    ) => Promise<void>
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -2341,6 +2356,8 @@ export default function SectionPanel({
                 onMergeLayers={lithoGhostState.onMergeLayers}
                 onAbsorbLayer={lithoGhostState.onAbsorbLayer}
                 onExtendToNearest={lithoGhostState.onExtendToNearest}
+                committedContactsForAnchor={lithoGhostState.committedContactsForAnchor}
+                onUpdateContactDepth={lithoGhostState.onUpdateContactDepth}
                 // Per-CPT depth series for the drag readout (qc + Rf).
                 // ``cptPlots`` is already loaded by useSectionData for the
                 // CPT data columns; reuse here so the readout doesn't
