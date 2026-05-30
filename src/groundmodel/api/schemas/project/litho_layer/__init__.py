@@ -6,6 +6,13 @@ from groundmodel.api.schemas.project.litho_layer.litho_layer_batch_status_reques
 from groundmodel.api.schemas.project.litho_layer.litho_layer_batch_status_response import (
     LithoLayerBatchStatusResponse,
 )
+from groundmodel.api.schemas.project.litho_layer.litho_layer_batch_update_request import (
+    LithoLayerBatchUpdateItem,
+    LithoLayerBatchUpdateRequest,
+)
+from groundmodel.api.schemas.project.litho_layer.litho_layer_batch_update_response import (
+    LithoLayerBatchUpdateResponse,
+)
 from groundmodel.api.schemas.project.litho_layer.litho_layer_boundary_move_request import (
     LithoLayerBoundaryMoveRequest,
 )
@@ -29,6 +36,9 @@ from groundmodel.api.schemas.project.litho_layer.litho_layer_update_request impo
 __all__ = [
     "LithoLayerBatchStatusRequest",
     "LithoLayerBatchStatusResponse",
+    "LithoLayerBatchUpdateItem",
+    "LithoLayerBatchUpdateRequest",
+    "LithoLayerBatchUpdateResponse",
     "LithoLayerBoundaryMoveRequest",
     "LithoLayerBoundaryMoveResponse",
     "LithoLayerBulkCreateRequest",
