@@ -261,6 +261,18 @@ export interface LithoSuggestionGhostColumnsProps {
     snapped: boolean,
   ) => Promise<void>
   /**
+   * P1b (dogfeed 2026-05-30) — live preview callback fired on every
+   * mousemove during a cross-store drag. ``contactId === null``
+   * clears the preview. The caller (SectionsCanvas) holds a state
+   * Map<contactId, depthM> + passes it to ContactsLayer so the
+   * committed contact renders at the live drag depth until mouseup.
+   * Optional — when absent the preview is a no-op.
+   */
+  onContactLivePreview?: (
+    contactId: string | null,
+    liveDepthM: number,
+  ) => void
+  /**
    * Optional CPT depth-series for the dragged investigation. When the
    * investigation is a CPT and this map carries an entry for its id,
    * the live drag readout shows ``qc`` (MPa) and ``Rf`` (%) at the
@@ -343,6 +355,7 @@ export default function LithoSuggestionGhostColumns({
   onExtendToNearest,
   committedContactsForAnchor,
   onUpdateContactDepth,
+  onContactLivePreview,
   cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
@@ -498,6 +511,7 @@ export default function LithoSuggestionGhostColumns({
     investigationId,
     committedContactsForAnchor,
     onUpdateContactDepth,
+    onContactLivePreview,
   })
 
 
