@@ -54,20 +54,27 @@ def _make_execute_side_effects(
     n_surfaces: int,
     surviving_fids: list[UUID],
     n_formations: int,
+    surviving_fids_from_ll: list[UUID] | None = None,
 ) -> list:
     """Return ordered side-effects for the ``session.execute`` mock.
 
-    The use case issues exactly 6 ``session.execute`` calls (in order):
+    The use case issues these ``session.execute`` calls in order:
 
     1. SELECT DISTINCT formation_id for candidate litho formations.
-    2. DELETE LithoContactCorrelationEdge (edges-first, see use case for why).
+    2. DELETE LithoContactCorrelationEdge (edges-first, see use case).
     3. DELETE FormationContact.
-    4. DELETE FormationSurface.
-    5. SELECT DISTINCT surviving formation_id (post-contact-delete).
-    6. DELETE GeologicalFormation (orphans only; skipped when candidate_fids is empty).
+    4. DELETE LithoLayer (Shape A — A4 cleanup, picks up
+       pending/rejected layers the FC cascade left behind).
+    5. DELETE FormationSurface.
+    6. SELECT DISTINCT surviving formation_id from formation_contact.
+    7. SELECT DISTINCT surviving formation_id from litho_layer (A4 cleanup).
+    8. DELETE GeologicalFormation (orphans only; skipped when no orphans).
 
-    When ``candidate_fids`` is empty call 5 + 6 are skipped.
-    When all candidates are still referenced, call 6 is skipped.
+    When ``candidate_fids`` is empty calls 6 + 7 + 8 are skipped.
+    When all candidates are still referenced, call 8 is skipped.
+
+    ``surviving_fids_from_ll`` defaults to empty — a formation referenced
+    only by a pending/rejected layer on a sibling model survives.
     """
 
     def _scalars_result(values: list) -> MagicMock:
@@ -84,17 +91,21 @@ def _make_execute_side_effects(
         result.rowcount = n
         return result
 
+    ll_survivors = surviving_fids_from_ll if surviving_fids_from_ll is not None else []
     effects: list = [
         _scalars_result(candidate_fids),  # 1 — candidate litho fids
         _rowcount_result(n_edges),  # 2 — DELETE edges (edges-first)
         _rowcount_result(n_contacts),  # 3 — DELETE contacts
-        _rowcount_result(n_surfaces),  # 4 — DELETE surfaces
+        _rowcount_result(0),  # 4 — DELETE litho_layer (rowcount unused)
+        _rowcount_result(n_surfaces),  # 5 — DELETE surfaces
     ]
     if candidate_fids:
-        effects.append(_scalars_result(surviving_fids))  # 5 — surviving fids
-        if len(candidate_fids) > len(surviving_fids):
+        effects.append(_scalars_result(surviving_fids))  # 6 — survivors from FC
+        effects.append(_scalars_result(ll_survivors))  # 7 — survivors from LL
+        combined = set(surviving_fids) | set(ll_survivors)
+        if len(candidate_fids) > len(combined & set(candidate_fids)):
             # Some orphans exist — formation DELETE fires.
-            effects.append(_rowcount_result(n_formations))  # 6 — DELETE formations
+            effects.append(_rowcount_result(n_formations))  # 8 — DELETE formations
     return effects
 
 
@@ -193,9 +204,10 @@ async def test_geological_formations_not_touched() -> None:
 
     assert result.contacts == 3
     assert result.formations == 0
-    # Only 4 execute calls: candidate-fid SELECT + 3 DELETEs (no survivor
-    # SELECT or formation DELETE because candidate_fids was empty).
-    assert session.execute.call_count == 4
+    # Only 5 execute calls: candidate-fid SELECT + 4 DELETEs (edges,
+    # contacts, litho_layer, surfaces). No survivor SELECTs or formation
+    # DELETE because candidate_fids was empty.
+    assert session.execute.call_count == 5
 
 
 @pytest.mark.asyncio
