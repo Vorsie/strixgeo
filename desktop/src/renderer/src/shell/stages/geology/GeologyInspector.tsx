@@ -35,6 +35,8 @@ import {
 
 import { api } from '../../../api/client'
 import type {
+  CrossSectionResponse,
+  GapIssueResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
@@ -44,7 +46,9 @@ import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import Button from '../../../components/ui/Button'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Modal from '../../../components/ui/Modal'
+import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
 import FormationDialog from '../../../components/interpretation/FormationDialog'
+import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
 import { useShell } from '../../ShellContext'
 
 // ---------------------------------------------------------------------------
@@ -81,8 +85,13 @@ export default function GeologyInspector(): JSX.Element {
       // When the sections axis is 'lithostratigraphic', only formations
       // with ≥1 contact in the active litho model are shown.
       lithoContacts,
+      // Geological contacts — fed to the crossing-banner click handler
+      // so the issue's contact ids resolve to anchor coordinates.
+      contacts: geoContacts,
     },
-    sections: { handleFocusContacts, sectionModelAxis },
+    sections: { sections, handleFocusContacts, sectionModelAxis },
+    investigations: { cpts, boreholes },
+    toasts: { toast },
     // manifestFormationIds is still needed by reorderFormations' inline
     // derivation (cannot read visibleFormations there — TDZ; see §8.1 Risk 3).
     coordinator: {
@@ -90,6 +99,7 @@ export default function GeologyInspector(): JSX.Element {
       sessionImportFormationIds,
       geoDeepLinkTarget,
       setGeoDeepLinkTarget,
+      setSectionsDeepLinkTarget,
     },
     undo: { push: pushUndoCommand },
     visibleBoreholes,
@@ -162,6 +172,42 @@ export default function GeologyInspector(): JSX.Element {
       crossingsRefreshCounter,
       staleSurfaceCount,
     )
+
+  // Crossing-issue → sections-stage navigation flow (dogfeed 2026-05-30).
+  // Click an LI in the surface-crossings banner: resolve the issue's
+  // contacts to candidate sections, then either deep-link directly (1
+  // candidate) or open the picker (>1).  Empty candidate set → toast.
+  const [crossingPicker, setCrossingPicker] = useState<{
+    contactIds: readonly string[]
+    candidates: CrossSectionResponse[]
+  } | null>(null)
+  const handleClickCrossingIssue = useCallback(
+    (issue: GapIssueResponse) => {
+      const candidates = resolveCandidateCrossingSections(
+        issue.contact_ids,
+        geoContacts,
+        sections,
+        boreholes,
+        cpts,
+      )
+      if (candidates.length === 0) {
+        toast(
+          'error',
+          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
+        )
+        return
+      }
+      if (candidates.length === 1) {
+        setSectionsDeepLinkTarget({
+          sectionId: candidates[0].id,
+          contactIds: issue.contact_ids,
+        })
+        return
+      }
+      setCrossingPicker({ contactIds: issue.contact_ids, candidates })
+    },
+    [geoContacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast],
+  )
 
   // ---------------------------------------------------------------------------
   // Sync from bus on formationsRefreshCounter change.
@@ -731,15 +777,14 @@ export default function GeologyInspector(): JSX.Element {
           <ul className="mt-1 ml-5 list-disc space-y-0.5">
             {crossingIssues.map((issue, idx) => {
               const hasContacts = issue.contact_ids.length > 0
-              const canFocus = hasContacts && handleFocusContacts !== undefined
               return (
                 <li key={`${issue.formation_ids.join('-')}-${idx}`}>
-                  {canFocus ? (
+                  {hasContacts ? (
                     <button
                       type="button"
                       className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-amber-100 dark:hover:bg-amber-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
-                      onClick={() => handleFocusContacts(issue.contact_ids)}
-                      title="Navigate to the cross-section containing one of the offending contacts."
+                      onClick={() => handleClickCrossingIssue(issue)}
+                      title="Open the cross-section containing the offending contacts and pan to them."
                       data-testid="crossings-banner-item"
                     >
                       {issue.detail}
@@ -753,6 +798,21 @@ export default function GeologyInspector(): JSX.Element {
           </ul>
         </div>
       )}
+
+      <CrossingSectionPickerDialog
+        open={crossingPicker !== null}
+        candidates={crossingPicker?.candidates ?? []}
+        onPick={sectionId => {
+          if (crossingPicker !== null) {
+            setSectionsDeepLinkTarget({
+              sectionId,
+              contactIds: crossingPicker.contactIds,
+            })
+          }
+          setCrossingPicker(null)
+        }}
+        onCancel={() => setCrossingPicker(null)}
+      />
 
       {/* Empty-state guidance */}
       {visibleFormations.length === 0 && (
