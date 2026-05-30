@@ -24,6 +24,8 @@ from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.litho_layer import (
     LithoLayerBatchStatusRequest,
     LithoLayerBatchStatusResponse,
+    LithoLayerBatchUpdateRequest,
+    LithoLayerBatchUpdateResponse,
     LithoLayerBoundaryMoveRequest,
     LithoLayerBoundaryMoveResponse,
     LithoLayerBulkCreateRequest,
@@ -34,6 +36,10 @@ from groundmodel.api.schemas.project.litho_layer import (
 from groundmodel.application.batch_update_litho_layer_status import (
     BatchStatusError,
     BatchUpdateLithoLayerStatus,
+)
+from groundmodel.application.batch_update_litho_layers import (
+    BatchUpdateError,
+    BatchUpdateLithoLayers,
 )
 from groundmodel.application.bulk_create_litho_layers import (
     BulkCreateLithoLayers,
@@ -202,6 +208,47 @@ async def batch_update_status(
             detail=str(err),
         ) from err
     return LithoLayerBatchStatusResponse(
+        updated_count=result.updated_count,
+        layers=[LithoLayerResponse.model_validate(r) for r in result.layers],
+    )
+
+
+@router.patch(
+    "/models/{model_id}/layers/batch-update",
+    response_model=LithoLayerBatchUpdateResponse,
+)
+async def batch_update_layers(
+    project_id: UUID,
+    model_id: UUID,
+    request: LithoLayerBatchUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LithoLayerBatchUpdateResponse:
+    """All-or-nothing PATCH for N layer rows in one transaction.
+
+    Mirrors the existing ``POST /contacts/batch`` semantics so the FE
+    multi-drag + cross-column MOVE gestures preserve the all-or-nothing
+    contract after the A4 slice-4b cut-over.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    # Convert request items to (layer_id, patch_dict) tuples for the
+    # use case; patch_dict is exclude_unset so only sent fields apply.
+    patches = [
+        (item.layer_id, item.model_dump(exclude_unset=True, exclude={"layer_id"}))
+        for item in request.updates
+    ]
+    use_case = BatchUpdateLithoLayers(session)
+    try:
+        result = await use_case.execute(patches)
+    except BatchUpdateError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+    return LithoLayerBatchUpdateResponse(
         updated_count=result.updated_count,
         layers=[LithoLayerResponse.model_validate(r) for r in result.layers],
     )
