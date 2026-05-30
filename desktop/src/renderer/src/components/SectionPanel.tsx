@@ -450,6 +450,9 @@ interface Props {
      *  useBoundaryDrag to find the contact whose depth matches the
      *  dragged boundary. Filtered at SectionsCanvas level. */
     committedContactsForAnchor?: readonly FormationContactResponse[]
+    /** Robust-fix follow-up (dogfeed 2026-05-30): contact ids per
+     *  accepted suggestion idx, populated by the accept handlers. */
+    contactIdsByAcceptedIdx?: ReadonlyMap<number, readonly string[]>
     /** Slice 3 of unified-boundary-drag: PATCH callback fired when a
      *  pending drag moves a shared boundary with an accepted neighbour.
      *  Same signature as ContactsLayer's drag commit; the suggestion-
@@ -2371,6 +2374,7 @@ export default function SectionPanel({
                 onAbsorbLayer={lithoGhostState.onAbsorbLayer}
                 onExtendToNearest={lithoGhostState.onExtendToNearest}
                 committedContactsForAnchor={lithoGhostState.committedContactsForAnchor}
+                contactIdsByAcceptedIdx={lithoGhostState.contactIdsByAcceptedIdx}
                 onUpdateContactDepth={lithoGhostState.onUpdateContactDepth}
                 onContactLivePreview={lithoGhostState.onContactLivePreview}
                 // Per-CPT depth series for the drag readout (qc + Rf).
