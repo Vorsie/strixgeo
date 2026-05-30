@@ -2015,6 +2015,45 @@ export const api = {
       return res.json()
     },
 
+    /** POST /models/{mid}/layers/{lid}/link-geo — layer-shape mirror of
+     *  the contact-side link-geo. Returns the updated layer, or null
+     *  when no geo contact is within snap tolerance. */
+    linkLayerToGeo: async (
+      projectId: string,
+      modelId: string,
+      layerId: string,
+    ): Promise<LithoLayerResponse | null> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/link-geo`,
+        { method: 'POST' },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `linkLayerToGeo failed (${res.status})`)
+      }
+      // 200 with a JSON `null` body is the no-match-in-range outcome.
+      const text = await res.text()
+      if (!text || text === 'null') return null
+      return JSON.parse(text)
+    },
+
+    /** POST /models/{mid}/layers/{lid}/unlink-geo — clears parent_geo_contact_id. */
+    unlinkLayerFromGeo: async (
+      projectId: string,
+      modelId: string,
+      layerId: string,
+    ): Promise<LithoLayerResponse> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/unlink-geo`,
+        { method: 'POST' },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `unlinkLayerFromGeo failed (${res.status})`)
+      }
+      return res.json()
+    },
+
     createContact: async (
       projectId: string,
       modelId: string,
