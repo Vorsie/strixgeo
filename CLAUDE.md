@@ -311,15 +311,19 @@ User-owned artefacts have to keep working across upgrades. "Forever"
 isn't rhetorical — the user paid the cost of saving the file once and
 should never lose access to that data because we changed our minds.
 
-### Floor: format_version = 3
+### Floor: format_version = 4
 
 v1 (metadata-only) and v2 (CPTs + boreholes + geology + sections) were
-dev-only and have been removed pre-shipping (one-time amnesty). v3 is
-the first format we commit to: it carries every per-project decision
-(geology + cross-sections + investigation_reviews + view_state) so
-opening on a wiped DB rehydrates the user's complete state. The
-backend's ``SUPPORTED_BUNDLE_VERSIONS`` is the runtime contract;
-bumping it requires the upgrade-chain steps below.
+dev-only and have been removed pre-shipping (one-time amnesty). v3
+carried every per-project decision in the boundary-centric shape
+(``contacts`` array on each geological model). **v4 (current, A4 of
+the unified litho boundary model) makes the litho axis Shape A
+native: each geological model carries a nested ``litho_layers``
+array; on litho models the ``contacts`` array is emitted empty —
+``litho_layer`` rows are the source of truth.** Both v3 and v4 stay
+parseable on this build (``SUPPORTED_BUNDLE_VERSIONS == {3, 4}``);
+v3 restores via the LL→FC trigger materialising layers from contacts.
+Bumping the version requires the upgrade-chain steps below.
 
 ### Scope
 
@@ -422,6 +426,23 @@ Geophysical: MASW, Seismic CPT
   validated against a domain rule that needs first-class type safety.
   Adding a new test to the catch-all is one tuple in
   `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS` — no migration, no schema change.
+
+**Interpretation primitives by model kind (post-A4 Shape A):**
+- Geological models: ``FormationContact`` rows are the boundary-centric
+  primitive (one row per contact at depth_top_m on an investigation).
+- Lithostratigraphic models: ``LithoLayer`` rows are the layer-centric
+  primitive (one row per [depth_top_m, depth_base_m] interval at an
+  investigation; status ∈ {pending, accepted, rejected}). The LL row is
+  the source of truth; a defensive FC↔LL trigger pair keeps a
+  formation_contact mirror in sync for legacy /contacts readers
+  (bundle export of geological models, external API callers). All
+  internal BE + FE litho writers hit /layers/* endpoints natively.
+  Exception: synthetic pinch-out contacts (anchor-less, debt #131-b
+  future work) stay on formation_contact — Shape A's anchor XOR
+  doesn't fit.
+- Correlation edges (``litho_contact_correlation_edge.contact_a_id /
+  contact_b_id``) FK ``litho_layer.id`` post-A4 (UUIDs preserved
+  end-to-end since the A2.5 backfill).
 
 ---
 
@@ -723,13 +744,31 @@ A small number of aggregations (`cpt.max_depth_m`, `cpt.n_rows`, future `borehol
 
 Cross-field invariants — e.g. `Borehole.total_depth_m ≈ max(drill_segments.base_m)`, sample/observation depths within `[0, total_depth_m]`, observations contiguous within a stream — are flagged as `ValidationIssue`s emitted by the parser, not enforced by raising in the domain dataclass. Reasoning: the domain has to accept whatever the source gave us (occasionally messy real-world data) so the rest of the pipeline can run; the validator records the problem for the user to see.
 
-### 6. Committed contacts are an audit point, not a UI-surface barrier
+### 6. Committed boundaries are an audit point, not a UI-surface barrier
 
-A `formation_contact` row is the *durable* record of a boundary — every depth change must go through the `UpdateFormationContact` use case (PATCH) so it lands in backend logs, hits schema invariants, and increments `updated_at`. The audit trail is the rule; *which UI fires the PATCH* is not.
+A `formation_contact` row (geological models) or a `litho_layer` row
+with `status='accepted'` (litho models) is the *durable* record of a
+committed boundary — every depth change must go through the matching
+use case (`UpdateFormationContact` for FC; `UpdateLithoLayer` /
+`MoveLithoLayerBoundary` / `BatchUpdateLithoLayers` for LL) so it
+lands in backend logs, hits schema invariants, and increments
+`updated_at`. The audit trail is the rule; *which UI fires the PATCH*
+is not.
 
-The litho-suggestion drag surface (`useBoundaryDrag` / `LithoSuggestionGhostColumns`) is allowed to call `UpdateFormationContact` directly when a pending drag's mouseup moves a shared boundary with an accepted neighbour — see `docs/superpowers/specs/2026-05-30-unified-boundary-drag-design.md`. Previously the rule was framed as "committed contact is the source of truth, no propagation past it"; the renaming clarifies that *the PATCH is the audit point*, not that the UI must avoid touching committed state.
+The litho-suggestion drag surface (`useBoundaryDrag` /
+`LithoSuggestionGhostColumns`) is allowed to call the layer update
+endpoints directly when a pending drag's mouseup moves a shared
+boundary with an accepted neighbour — see
+`docs/superpowers/specs/2026-05-30-unified-boundary-drag-design.md`.
+Previously the rule was framed as "committed contact is the source
+of truth, no propagation past it"; the renaming clarifies that *the
+PATCH is the audit point*, not that the UI must avoid touching
+committed state.
 
-The functional invariant is preserved: the pending edits Map NEVER carries a committed-contact depth (no parallel writer), and every committed depth change still flows through one backend endpoint with full logs.
+The functional invariant is preserved: the pending edits Map NEVER
+carries a committed-row depth (no parallel writer), and every
+committed depth change still flows through one backend endpoint with
+full logs.
 
 ---
 
@@ -1037,7 +1076,7 @@ metadata editor.
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "project": {
     "id": "<uuid>",
     "name": "Antwerp port — quay 7",
@@ -1056,7 +1095,20 @@ metadata editor.
   "boreholes": [ ],
   "geological_formations": [ ],
   "geotechnical_units": [ ],
-  "geological_models": [ ],
+  "geological_models": [
+    {
+      "id": "<uuid>",
+      "kind": "geological",
+      "contacts": [ /* boundary-centric: FormationContact rows */ ],
+      "litho_layers": []
+    },
+    {
+      "id": "<uuid>",
+      "kind": "lithostratigraphic",
+      "contacts": [],
+      "litho_layers": [ /* Shape A — layer-centric primitives */ ]
+    }
+  ],
   "cross_sections": [ ],
   "investigation_reviews": [ ]
 }
@@ -1066,38 +1118,50 @@ metadata editor.
 * Timestamps (``created_at`` / ``updated_at`` / ``archived_at``) live in the
   DB only and are not persisted to the file, so re-saving without a DB
   change leaves the file byte-identical.
-* **File format v3** (current) bundles the full project state. Header
-  metadata + ``view_state`` toggle bag under ``project``; every CPT
-  (with series) under ``cpts``; every borehole (with its full child
-  tree: drill segments, field log intervals, observations + layers +
-  admixtures, samples + 6 lab-test families) under ``boreholes``;
-  the geological-model interpretation arrays (``geological_formations``,
-  ``geotechnical_units``, ``geological_models``); the project-scoped cross-section definitions
-  (``cross_sections``); and every per-(project, investigation)
-  decision (``investigation_reviews``: review status / notes / hidden
-  flag, polymorphic target). Every per-project engineering decision
-  lives here, never in localStorage — see
-  ``memory/project_decisions_in_bundle.md``. The file weighs whatever
-  the data weighs (JSON arrays of long depth-series add up — a few
-  MB for typical projects, tens of MB for a 500-CPT DOV import).
-* **v1 and v2 readers are gone.** Pre-shipping we cut the legacy
-  parse paths in favour of one clean v3 reader/writer. Opening a
-  pre-v3 .gmproj returns ``null`` from ``parseProjectFile`` and the
-  frontend surfaces "re-save from a build that emits v3" instead of
-  silently materialising partial state.
+* **File format v4** (current — A4 of the unified litho boundary
+  model) bundles the full project state with the litho axis in Shape A
+  native shape. Header metadata + ``view_state`` toggle bag under
+  ``project``; every CPT (with series) under ``cpts``; every borehole
+  (with its full child tree: drill segments, field log intervals,
+  observations + layers + admixtures, samples + 6 lab-test families)
+  under ``boreholes``; the interpretation arrays
+  (``geological_formations``, ``geotechnical_units``,
+  ``geological_models``); the project-scoped cross-section definitions
+  (``cross_sections``); and per-(project, investigation) decisions
+  (``investigation_reviews``).
+* **Per-model litho payload (v4):** each ``geological_models[]`` entry
+  carries a nested ``contacts`` array AND a nested ``litho_layers``
+  array. Geological models populate ``contacts`` only (boundary-centric
+  FormationContact rows) and emit empty ``litho_layers``. Litho models
+  populate ``litho_layers`` only (Shape A primitives — id, formation_id,
+  anchor, depth_top_m, depth_base_m, status, source, confidence,
+  parent_geo_contact_id, ...) and emit empty ``contacts``.
+* Every per-project engineering decision lives here, never in
+  localStorage — see ``memory/project_decisions_in_bundle.md``. The
+  file weighs whatever the data weighs (JSON arrays of long
+  depth-series add up — a few MB for typical projects, tens of MB
+  for a 500-CPT DOV import).
+* **v3 still parses.** ``SUPPORTED_BUNDLE_VERSIONS = {3, 4}``.
+  v3 bundles carry litho data in the ``contacts`` array (boundary
+  shape, no ``litho_layers`` field); restore creates the FCs and the
+  LL→FC trigger materialises layers from them. The slice-1 de-dupe
+  rule in the restore code keeps the round-trip pkey-safe when both
+  fields are populated (legacy v4 bundles saved by a pre-slice-4c
+  build also hit this path). v1 and v2 readers are gone — pre-shipping
+  amnesty.
 * Opening a file: read JSON → ``GET /projects/{id}`` → adopt the live
   metadata. If the DB row is missing (wiped DB, fresh install,
   archived elsewhere), the frontend automatically calls
   ``POST /projects/{id}/restore`` with the file's full bundle —
   metadata + CPTs + boreholes + geology + sections + reviews. The
-  endpoint rejects non-v3 payloads with a 400 + "re-save from a
-  current build" message; on a valid v3 payload it's idempotent
-  (existing rows by id are skipped, missing rows are inserted with
-  their original ids). CPTs and boreholes round-trip with their
-  PostGIS geometry rebuilt from x/y/epsg on restore. The principle
-  is: **the .gmproj file is the user's anchor; the DB is just a
-  cache of the data**. Opening a valid v3 .gmproj always brings
-  everything back when the API is reachable.
+  endpoint accepts v3 or v4 payloads; older versions return 400 +
+  "re-save from a current build". Restore is idempotent (existing
+  rows by id are skipped, missing rows are inserted with their
+  original ids). CPTs and boreholes round-trip with their PostGIS
+  geometry rebuilt from x/y/epsg on restore. The principle is:
+  **the .gmproj file is the user's anchor; the DB is just a cache of
+  the data**. Opening a valid v3/v4 .gmproj always brings everything
+  back when the API is reachable.
 * Recent-projects list lives at
   ``app.getPath('userData')/recent-projects.json`` (max 10 entries, MRU
   order). Both the File menu's "Open Recent" submenu and the Welcome
