@@ -46,6 +46,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.api.schemas.project.project_bundle import BUNDLE_FORMAT_VERSION
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -66,6 +67,7 @@ from groundmodel.infrastructure.db.models.investigation_review_orm import (
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
     LithoLensBoundaryNodeOrm,
 )
@@ -330,6 +332,12 @@ async def _build_project_bundle_impl(
         .options(
             selectinload(GeologicalModelOrm.contacts),
             selectinload(GeologicalModelOrm.surfaces),
+            # A4 — litho layers ride alongside contacts on each model.
+            # Geological models always have an empty layer set (the
+            # litho_layer XOR CHECK plus the trigger's kind gate make
+            # this an invariant), so the eager load is cheap there
+            # and load-bearing for litho models.
+            selectinload(GeologicalModelOrm.litho_layers),
         )
     )
     sections_stmt = select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project.id)
@@ -389,10 +397,13 @@ async def _build_project_bundle_impl(
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
 
-    # v3 bundle. Every per-project decision rides along — the .gmproj
-    # is the user's anchor, the DB is just a cache.
+    # v4 bundle. Every per-project decision rides along — the .gmproj
+    # is the user's anchor, the DB is just a cache. v4 adds the
+    # ``litho_layers`` array under each model payload (Shape A — A4 of
+    # the unified litho boundary model).
+
     bundle = {
-        "format_version": 3,
+        "format_version": BUNDLE_FORMAT_VERSION,
         "project": _column_to_json(project, _SKIP_COLUMNS),
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
@@ -436,7 +447,7 @@ async def _build_project_bundle_impl(
 
 def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
     """Serialise a geological model with its formation contacts +
-    cached TIN surfaces nested.
+    cached TIN surfaces + (litho models only) litho_layers nested.
 
     Mirrors the rest of the bundle's nesting convention — child rows
     live under their parent (CPT.series, borehole.observations[]) — so
@@ -446,10 +457,26 @@ def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
     doesn't pay the recompute cost up front. The next contact mutation
     refreshes the cache anyway, but for a freshly-opened project the
     section view's slice query lands on already-computed geometry.
+
+    Litho models also carry a ``litho_layers`` list — Shape A's
+    layer-centric primitives (id, formation_id, anchor, depth_top_m,
+    depth_base_m, status, source, confidence, ...). For litho models
+    these are the source of truth post-A3; the ``contacts`` field is
+    kept in lockstep via the FC↔LL mirror trigger so a v4-shipping
+    build still round-trips correlation edges + legacy consumers. The
+    trigger retires together with the FC-for-litho rows in a later A4
+    slice; until then both fields are populated on litho models.
+
+    Geological models always emit an empty ``litho_layers`` (the
+    litho_layer XOR CHECK + the trigger's kind gate make this an
+    invariant), so v4 readers can branch on model.kind safely.
     """
     payload = _column_to_json(model, _SKIP_COLUMNS)
     payload["contacts"] = [_column_to_json(c, _SKIP_COLUMNS | {"model_id"}) for c in model.contacts]
     payload["surfaces"] = [_column_to_json(s, _SKIP_COLUMNS | {"model_id"}) for s in model.surfaces]
+    payload["litho_layers"] = [
+        _column_to_json(layer, _SKIP_COLUMNS | {"model_id"}) for layer in model.litho_layers
+    ]
     return payload
 
 
@@ -1008,6 +1035,63 @@ async def _restore_project_bundle_impl(
                 f"caps (debt #19) — is_stale forced, rebuild required"
             )
         model.surfaces = valid_surfaces
+        # A4 — Shape A litho layers ride alongside contacts on each
+        # model. v4 bundles emit them explicitly; v3 bundles do not,
+        # so the default-empty payload list is correct for the legacy
+        # case (the FC→LL mirror trigger materialises layers from the
+        # contacts that follow).
+        #
+        # Coexistence rule for v4 restore:
+        # * For every accepted layer there's a matching FormationContact
+        #   in ``contacts_payload`` with the same id. The FC→LL trigger
+        #   creates the layer row when the contact INSERTs (status =
+        #   'accepted'), so we MUST NOT also INSERT the same id
+        #   explicitly — that would conflict on the pkey. We skip
+        #   those and let the trigger do the work.
+        # * For pending / rejected layers there's no matching FC
+        #   (only accepted boundaries land in formation_contact). The
+        #   trigger never touches those rows, so we INSERT them
+        #   explicitly to preserve status.
+        layers_payload = m_payload.get("litho_layers") or []
+        contact_ids_in_payload = {
+            UUID(c["id"]) if isinstance(c.get("id"), str) else c["id"]
+            for c in contacts_payload
+            if c.get("id") is not None
+        }
+        valid_layers: list[LithoLayerOrm] = []
+        skipped_orphan_layers = 0
+        skipped_layers_with_matching_fc = 0
+        for layer_payload in layers_payload:
+            fid_raw = layer_payload.get("formation_id")
+            if fid_raw is None:
+                skipped_orphan_layers += 1
+                continue
+            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
+            if fid not in valid_formation_ids:
+                skipped_orphan_layers += 1
+                continue
+            lid_raw = layer_payload.get("id")
+            lid = UUID(lid_raw) if isinstance(lid_raw, str) else lid_raw
+            if lid in contact_ids_in_payload:
+                # Trigger handles it via the contact INSERT.
+                skipped_layers_with_matching_fc += 1
+                continue
+            valid_layers.append(
+                LithoLayerOrm(**_apply_json_to_kwargs(LithoLayerOrm, layer_payload))
+            )
+        model.litho_layers = valid_layers
+        if skipped_orphan_layers:
+            logger.warning(
+                f"restore_project_bundle({project_id}): skipped "
+                f"{skipped_orphan_layers} orphan-formation litho layers "
+                f"(missing formation row in bundle)"
+            )
+        if skipped_layers_with_matching_fc:
+            logger.debug(
+                f"restore_project_bundle({project_id}): skipped explicit "
+                f"INSERT for {skipped_layers_with_matching_fc} layers — "
+                f"FC→LL trigger materialises them from contact INSERTs"
+            )
         session.add(model)
         new_models += 1
         new_contacts += len(valid_contacts)
