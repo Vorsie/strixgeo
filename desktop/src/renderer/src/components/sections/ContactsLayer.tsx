@@ -67,6 +67,16 @@ import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
+  /**
+   * P1b (dogfeed 2026-05-30) — live depth override for cross-store
+   * suggestion-drag preview. When set, the matching contact renders
+   * at ``depthM`` instead of its committed ``depth_top_m``, so the
+   * boundary follows the live pending-drag (in
+   * ``LithoSuggestionGhostColumns``). Cleared by the parent on
+   * mouseup; ContactsLayer then renders at the committed depth (which
+   * the PATCH refetch has updated). Null when no override is active.
+   */
+  liveContactDepthOverride?: { contactId: string; depthM: number } | null
   formations: readonly GeologicalFormationResponse[]
   /** Every CPT and borehole placed on the section, in projection
    * order. The component looks up each contact's anchor by id to
@@ -746,7 +756,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export default function ContactsLayer({
-  contacts,
+  contacts: rawContacts,
+  liveContactDepthOverride,
   formations,
   placedColumns,
   excludedBoreholeIds,
@@ -786,6 +797,27 @@ export default function ContactsLayer({
   showConfidenceFade = true,
   onEditInGeologyStage,
 }: Props): JSX.Element | null {
+  // P1b — apply the live cross-store-drag preview override to the
+  // contacts list before anything else reads them. When a sibling
+  // ``LithoSuggestionGhostColumns`` is dragging a pending edge across
+  // an accepted neighbour, ``liveContactDepthOverride`` carries the
+  // committed contact's id + the live cursor depth; we swap that
+  // contact's ``depth_top_m`` in-place so every downstream read
+  // (line segments, drag strips, fill bands) renders at the live
+  // depth. Cleared by the parent on mouseup; the next render picks
+  // up the PATCH'd contact at the new persisted depth.
+  const contacts = useMemo(() => {
+    if (!liveContactDepthOverride) return rawContacts
+    const { contactId, depthM } = liveContactDepthOverride
+    let touched = false
+    const out = rawContacts.map(c => {
+      if (c.id !== contactId) return c
+      touched = true
+      return { ...c, depth_top_m: depthM }
+    })
+    return touched ? out : rawContacts
+  }, [rawContacts, liveContactDepthOverride])
+
   // ---- Contact context-menu state --------------------------------
   // Small two-item menu triggered by right-click on a contact
   // hit-strip.  Replaces the naked window.confirm approach so both
