@@ -44,12 +44,12 @@ async def _make_project_with_view_state(
     return project
 
 
-async def test_bundle_emits_v3_with_reviews_array(db_session: AsyncSession) -> None:
-    """``build_project_bundle`` returns format_version=3 + the new array."""
+async def test_bundle_emits_v4_with_reviews_array(db_session: AsyncSession) -> None:
+    """``build_project_bundle`` returns format_version=4 + the new array."""
     project = await _make_project_with_view_state(db_session)
     bundle = await build_project_bundle(db_session, project)
 
-    assert bundle["format_version"] == 3
+    assert bundle["format_version"] == 4
     assert "investigation_reviews" in bundle
     # No reviews written → empty list, not missing.
     assert bundle["investigation_reviews"] == []
