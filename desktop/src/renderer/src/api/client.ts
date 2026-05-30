@@ -2244,6 +2244,8 @@ export const api = {
     // ``sectionId`` is optional: when provided the server appends the created
     // contact ids to the section's seeded_formation_contact_ids (explicit-content
     // invariant) and echoes the updated section in updated_section.
+    // A4 cleanup: URL moves to /layers/seed-from-parent; the BE
+    // dual-mounts both paths on the same handler.
     seedLithoFromParent: (
       projectId: string,
       modelId: string,
@@ -2251,7 +2253,7 @@ export const api = {
       sectionId?: string | null,
     ): Promise<SeedLithoFromParentResponse> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/contacts/seed-from-parent`,
+        `/projects/${projectId}/geology/models/${modelId}/layers/seed-from-parent`,
         {
           borehole_ids: boreholeIds,
           ...(sectionId != null ? { section_id: sectionId } : {}),
