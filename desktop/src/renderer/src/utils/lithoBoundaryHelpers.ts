@@ -165,29 +165,37 @@ export function boundFromNeighbour(
   if (!neighbour) {
     return { boundM: outerEdgeFallback, autoRejectIdx: null }
   }
-  // Accepted = committed contact = hard barrier at NEAR edge. No
-  // auto-reject — the committed contact is the source of truth.
-  if (neighbour.kind === 'accepted') {
-    return {
-      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
-      autoRejectIdx: null,
-    }
-  }
   // Rejected gap-fill: pending neighbour reached past rejected layers.
   // Clamp at the next pending's NEAR edge (G29 semantics preserved).
+  // Kept as a distinct branch because crossedRejected layers don't
+  // auto-reject on snap (the user already rejected what they wanted
+  // gone; collapsing the next pending too would be over-eager).
   if (neighbour.crossedRejected) {
     return {
       boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
       autoRejectIdx: null,
     }
   }
-  // Immediate pending neighbour — single-step cascade. Clamp at the
+  // Immediate visible neighbour — pending OR accepted. Clamp at the
   // neighbour's FAR edge so the shared boundary can move across its
-  // territory (G17-class resize). Snap-at-bound on release auto-
-  // rejects the neighbour — the "merge into next layer" gesture.
+  // territory (G17-class resize).
+  //
+  // Slice 2 of the unified-boundary-drag work (2026-05-30, owner
+  // directive "drag at any stage"): accepted neighbours are NO LONGER
+  // a hard barrier at their near edge. The drag passes through their
+  // territory just like a pending neighbour. The auto-reject (snap-
+  // at-bound on release) still fires for PENDING neighbours only —
+  // an accepted neighbour at the snap target gets ``autoRejectIdx =
+  // null`` because auto-rejecting a committed contact is wrong; Slice
+  // 3 will route accepted-at-snap to ``updateContactDepth`` (the
+  // audit-point PATCH) so the committed contact follows the drag.
+  // Until Slice 3 lands, a drag that snaps at an accepted neighbour
+  // commits the pending edge to the accepted's far edge but leaves
+  // the committed contact at its existing depth — visible mismatch
+  // by design, resolved by Slice 3.
   return {
     boundM: effectiveDepths(suggestions, edits, neighbour.idx)[farEdgeKey],
-    autoRejectIdx: neighbour.idx,
+    autoRejectIdx: neighbour.kind === 'pending' ? neighbour.idx : null,
   }
 }
 
