@@ -2544,6 +2544,26 @@ target-formation derivation (next-older by `display_order`) already
 runs against `axisFormations` which is axis-swapped, so it should
 drop in unchanged.
 
+**A4 implication (2026-05-30).** Shape A made litho's source of
+truth ``litho_layer`` with an anchor XOR constraint. Pinch-out FCs
+are anchor-less synthetics (``borehole_id`` AND ``cpt_id`` NULL,
+carrying ``synthetic_x/y/elevation_m``) — they don't fit the LL
+shape. The LL→FC trigger and the A4 historical-delete migration
+both explicitly skip anchor-less rows so existing pinch-out
+infrastructure on geological models keeps working. Re-arming this
+debt item for litho needs a design call:
+* Option A — keep litho pinch-outs on ``formation_contact``
+  permanently (carve-out forever). The FE branch on isLitho that
+  routes /contacts vs /layers for pinch-out already exists post-A4.
+  Smallest path; tradeoff is "litho axis is Shape A except for
+  this one gesture".
+* Option B — extend ``litho_layer`` with synthetic_x/y/elevation_m +
+  a third anchor-or-synthetic CHECK variant. Makes Shape A truly
+  uniform but is a schema change + ORM addition + trigger update.
+The dogfeed need (clay wedges, sand pinch-outs in fluvial-deltaic
+sequences) hasn't changed — but the implementation surface is
+larger post-A4 than it was on 2026-05-24.
+
 **Tests to add.** Litho ghost-preview → confirm → contact rows
 appear with `source='pinch_out_extrapolation'` on the litho model.
 When #101 lands, extend the test: pinch-out with `lens_id` carries
