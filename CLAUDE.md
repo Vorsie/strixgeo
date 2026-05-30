@@ -437,9 +437,9 @@ Geophysical: MASW, Seismic CPT
   formation_contact mirror in sync for legacy /contacts readers
   (bundle export of geological models, external API callers). All
   internal BE + FE litho writers hit /layers/* endpoints natively.
-  Exception: synthetic pinch-out contacts (anchor-less, debt #131-b
-  future work) stay on formation_contact — Shape A's anchor XOR
-  doesn't fit.
+  Exception: synthetic pinch-out contacts (anchor-less, debt #118
+  litho-axis pinch-out wiring) stay on formation_contact — Shape A's
+  anchor XOR doesn't fit.
 - Correlation edges (``litho_contact_correlation_edge.contact_a_id /
   contact_b_id``) FK ``litho_layer.id`` post-A4 (UUIDs preserved
   end-to-end since the A2.5 backfill).
