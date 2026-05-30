@@ -134,7 +134,8 @@ async def project_with_litho(db_session: AsyncSession) -> dict:
 async def test_v4_bundle_emits_litho_layers_under_each_model(
     db_session: AsyncSession, project_with_litho: dict
 ) -> None:
-    """Each model payload carries ``litho_layers``; geo model empty."""
+    """Each model payload carries ``litho_layers``; geo model empty;
+    litho model emits empty ``contacts`` (slice 4c)."""
     p = project_with_litho
     # Insert a contact → trigger materialises the layer.
     contact = FormationContactOrm(
@@ -161,6 +162,47 @@ async def test_v4_bundle_emits_litho_layers_under_each_model(
     # UUID preserved across the trigger's mirror.
     assert layer["id"] == str(contact.id)
     assert layer["depth_top_m"] == 2.0
+    # A4 slice 4c: litho models emit empty contacts; geological keep theirs.
+    assert models_by_kind["lithostratigraphic"]["contacts"] == []
+
+
+async def test_v4_round_trip_recreates_fc_mirror_from_layers_alone(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A4 slice 4c — bundle round-trip works WITHOUT contacts on litho.
+
+    Build → wipe → restore: the bundle's litho_layers list is the only
+    source; the LL→FC trigger fires on each accepted-layer INSERT
+    during restore and rebuilds the formation_contact mirror, including
+    parent_geo_contact_id, source mapping, and confidence.
+    """
+    p = project_with_litho
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=3.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    contact_id = contact.id
+
+    bundle = await build_project_bundle(db_session, p["project"])
+    # Sanity: litho model emits empty contacts (slice 4c invariant).
+    litho_models = [m for m in bundle["geological_models"] if m["kind"] == "lithostratigraphic"]
+    assert litho_models[0]["contacts"] == []
+    assert len(litho_models[0]["litho_layers"]) == 1
+
+    # Wipe + restore. The trigger rebuilds the FC mirror from the layer.
+    await _restore_bundle(db_session, p["project"].id, bundle)
+
+    fc_back = await db_session.get(FormationContactOrm, contact_id)
+    assert fc_back is not None, "LL→FC trigger should have re-materialised the contact mirror"
+    assert fc_back.depth_top_m == 3.0
+    assert fc_back.source == "manual_pick"
 
 
 async def test_v4_round_trip_via_replace_restore(
@@ -338,10 +380,15 @@ async def test_v4_skipped_explicit_insert_does_not_double_up(
 ) -> None:
     """An accepted layer (matching FC exists) is restored ONCE.
 
-    Pins the de-dupe rule: if a layer.id appears in the bundle's
-    contacts payload, we don't INSERT it explicitly — the trigger
-    creates it from the contact. Double-insert would conflict on
-    litho_layer_pkey.
+    Pins the de-dupe rule for LEGACY v4 bundles that DID emit
+    contacts on litho models (saved by an earlier build, pre-slice-4c).
+    If a layer.id appears in the bundle's contacts payload, restore
+    skips the explicit LL INSERT — the trigger creates it from the
+    contact. Double-insert would conflict on litho_layer_pkey.
+
+    Current-build v4 bundles emit empty contacts on litho models
+    (slice 4c), so this de-dupe path doesn't normally fire. Hand-craft
+    a legacy-shaped bundle to exercise it directly.
     """
     p = project_with_litho
     contact = FormationContactOrm(
@@ -357,11 +404,26 @@ async def test_v4_skipped_explicit_insert_does_not_double_up(
     await db_session.commit()
     bundle = await build_project_bundle(db_session, p["project"])
 
-    # The bundle must carry both: the trigger materialised the layer.
+    # Current behaviour: contacts empty for litho, layer present.
     litho_models = [m for m in bundle["geological_models"] if m["kind"] == "lithostratigraphic"]
-    assert len(litho_models[0]["contacts"]) == 1
+    assert litho_models[0]["contacts"] == []
     assert len(litho_models[0]["litho_layers"]) == 1
-    assert litho_models[0]["contacts"][0]["id"] == litho_models[0]["litho_layers"][0]["id"]
+    layer_id = litho_models[0]["litho_layers"][0]["id"]
+
+    # Hand-craft the legacy shape: inject the matching contact back
+    # into the bundle to simulate an older-build save where both
+    # fields were populated.
+    litho_models[0]["contacts"] = [
+        {
+            "id": layer_id,
+            "formation_id": str(p["sand"].id),
+            "borehole_id": str(p["bh"].id),
+            "cpt_id": None,
+            "depth_top_m": 2.0,
+            "source": "manual_pick",
+            "confidence": "medium",
+        }
+    ]
 
     # Restore must not double-insert.
     await _restore_bundle(db_session, p["project"].id, bundle)
