@@ -32,7 +32,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-import type { LithoLayerSuggestion } from '../api/client'
+import type { FormationContactResponse, LithoLayerSuggestion } from '../api/client'
 import type { LithoSuggestionEdit } from './useGeologicalModel'
 import {
   ZERO_THICKNESS_M,
@@ -42,6 +42,17 @@ import {
   nearestVisibleIndexAbove,
   nearestVisibleIndexBelow,
 } from '../utils/lithoBoundaryHelpers'
+
+/**
+ * Tolerance (m) for matching a committed contact's ``depth_top_m`` to
+ * a pre-drag boundary depth. Boundary depths should be equal exactly
+ * because the contact was created at the suggestion's depth, but
+ * intermediate edits (via ContactsLayer drag) can drift the contact
+ * before the litho-side drag begins. 1 cm absorbs typical user-edit
+ * drift; tighter would miss; looser risks matching the wrong contact
+ * on layers narrower than the tolerance.
+ */
+const CONTACT_MATCH_TOLERANCE_M = 0.01
 
 // ---------------------------------------------------------------------------
 // State + start-params types
@@ -144,6 +155,32 @@ export interface UseBoundaryDragParams {
   /** Optional — chain-merge path. Falls back to ``onReject`` when
    *  absent (backwards-compat for callers that haven't opted in). */
   onMergeLayers?: (upperIdx: number) => void
+  /**
+   * Slice 3 — investigation id for the focused anchor, used to scope
+   * the committed-contact lookup to this column. The contacts list
+   * passed in is already filtered, but the id is kept around for
+   * defensive logging + future cross-column work.
+   */
+  investigationId?: string
+  /**
+   * Slice 3 — committed litho contacts for the focused anchor,
+   * pre-filtered by the caller. When a pending drag's mouseup lands
+   * at an accepted neighbour's boundary, the hook scans this list
+   * for a contact whose ``depth_top_m`` matches the pre-drag
+   * boundary depth and fires ``onUpdateContactDepth`` so the
+   * committed contact follows the pending edit.
+   */
+  committedContactsForAnchor?: readonly FormationContactResponse[]
+  /**
+   * Slice 3 — PATCH callback fired when a pending drag moves a
+   * shared boundary with an accepted neighbour. Optional — when
+   * absent, the cross-store dispatch is a no-op.
+   */
+  onUpdateContactDepth?: (
+    contactId: string,
+    newDepthM: number,
+    snapped: boolean,
+  ) => Promise<void>
 }
 
 export interface UseBoundaryDragReturn {
@@ -177,6 +214,9 @@ export function useBoundaryDrag(
     onReject,
     onAbsorbLayer,
     onMergeLayers,
+    investigationId,
+    committedContactsForAnchor,
+    onUpdateContactDepth,
   } = params
 
   const [drag, setDrag] = useState<BoundaryDragState | null>(null)
@@ -407,6 +447,55 @@ export function useBoundaryDrag(
           onReject(i)
         }
       }
+
+      // Slice 3 of the unified-boundary-drag work (2026-05-30): cross-
+      // store commit dispatch. When the dragged boundary is SHARED
+      // with an ACCEPTED neighbour, also fire the committed contact's
+      // PATCH so the contact follows the pending edit (the "drag at
+      // any stage" delivery — owner directive Q1 audit-point framing).
+      //
+      // The dragger's edge moved from ``initialDepthM`` to ``final``.
+      // The shared boundary depth (pre-drag) equals ``initialDepthM``.
+      // We look up the committed contact whose ``depth_top_m`` matches
+      // that depth (within tolerance) on this anchor, and PATCH it to
+      // ``final``. ContactsLayer's same drag-commit path is used so
+      // refetch / undo / litho-geo snap prompt fire identically.
+      //
+      // Gated on:
+      //   - onUpdateContactDepth wired (caller opt-in).
+      //   - The drag's neighbour in the drag direction is in
+      //     acceptedIndices (we're at a pending-↔-accepted boundary).
+      //   - A contact whose depth_top_m matches the pre-drag boundary
+      //     depth exists on this anchor (the match is the audit point).
+      //   - The drag actually moved the boundary (final !== initial).
+      //
+      // Optimistic local first per Q2: the onEdit above already
+      // committed the local pending edit; this PATCH fires in
+      // background. PATCH failure surfaces a toast via the wrapped
+      // handler at the SectionsCanvas level — the local pending edit
+      // is intentionally NOT rolled back here (deferring full
+      // cross-store rollback to a follow-up; see spec Slice 3 risks).
+      if (
+        onUpdateContactDepth !== undefined &&
+        committedContactsForAnchor !== undefined &&
+        Math.abs(final - drag.initialDepthM) > ZERO_THICKNESS_M
+      ) {
+        const neighbourIdx =
+          drag.edge === 'top'
+            ? nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
+            : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
+        if (neighbourIdx !== null && acceptedIndices.has(neighbourIdx)) {
+          // Pre-drag boundary depth == drag.initialDepthM. Find the
+          // contact whose depth_top_m matches within tolerance.
+          const contact = committedContactsForAnchor.find(
+            c => Math.abs(c.depth_top_m - drag.initialDepthM) < CONTACT_MATCH_TOLERANCE_M,
+          )
+          if (contact !== undefined) {
+            void onUpdateContactDepth(contact.id, final, drag.snapped)
+          }
+        }
+      }
+
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -422,7 +511,7 @@ export function useBoundaryDrag(
   // readonly array that changes by reference on accept; same pattern
   // as onEdit. effectivelyRejectedIndices is a useMemo set whose
   // identity tracks its inputs.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices])
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, onUpdateContactDepth])
 
   return { drag, startDrag }
 }
