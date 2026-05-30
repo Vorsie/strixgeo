@@ -8,7 +8,8 @@
 //   * Single TrackBackground per CPT (was two before the shared-band
 //     refactor — one per slot).
 //   * qc gridlines on the RIGHT of axis; Rf gridlines on the LEFT
-//     (mirrored). 10 MPa qc gridline included alongside 2 MPa.
+//     (mirrored). Default scale 40 MPa: 10 MPa interior + 40 MPa
+//     at the right edge.
 //   * Per-CPT value labels render only when showLabels=true.
 //   * Background and gridlines are bounded to the CPT's data extent,
 //     not the full plot height.
@@ -115,7 +116,7 @@ describe('CptDataColumn — qc/Rf mirror layout', () => {
       channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
     })
     const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
-    expect(dashed.length).toBe(2) // qc 2 MPa + qc 10 MPa
+    expect(dashed.length).toBe(2) // qc 10 MPa interior + qc 40 MPa at right edge
     for (const line of dashed) {
       expect(Number(line.getAttribute('x1'))).toBeGreaterThan(100)
     }
@@ -148,17 +149,29 @@ describe('CptDataColumn — qc/Rf mirror layout', () => {
 })
 
 describe('CptDataColumn — per-CPT gridline value labels', () => {
-  it('renders qc "2"/"10 MPa" + rf "2%"/"4%" when showLabels is true', () => {
+  it('renders qc "10"/"40 MPa" + rf "2%"/"4%" at the default scale when showLabels is true', () => {
     const { container } = renderColumn({
       cptType: 'CPTU',
       channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
       showLabels: true,
     })
     const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
-    expect(texts).toContain('2')
-    expect(texts).toContain('10 MPa')
+    expect(texts).toContain('10')
+    expect(texts).toContain('40 MPa')
     expect(texts).toContain('2%')
     expect(texts).toContain('4%')
+  })
+
+  it('renders the extended scale label when qcFullScaleMpa is bumped (e.g. 100 MPa)', () => {
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
+      showLabels: true,
+      qcFullScaleMpa: 100,
+    })
+    const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).toContain('10') // interior reference stays
+    expect(texts).toContain('100 MPa') // right-edge label tracks the scale
   })
 
   it('suppresses every label when showLabels is false (collision avoidance)', () => {
@@ -168,8 +181,8 @@ describe('CptDataColumn — per-CPT gridline value labels', () => {
       showLabels: false,
     })
     const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
-    expect(texts).not.toContain('2')
-    expect(texts).not.toContain('10 MPa')
+    expect(texts).not.toContain('10')
+    expect(texts).not.toContain('40 MPa')
     expect(texts).not.toContain('2%')
     expect(texts).not.toContain('4%')
   })

@@ -5,8 +5,13 @@
  * this same band with its own x-scale and direction, mirroring the
  * DOV "lengteprofiel" PDF page-3 convention:
  *
- *   * qc reads RIGHTWARD from the axis (0 at axis, 10 MPa at right
- *     edge), thin black line, dashed gridlines at 2 MPa and 10 MPa.
+ *   * qc reads RIGHTWARD from the axis (0 at axis, ``qcFullScaleMpa``
+ *     at right edge), thin black line. Dashed gridlines at 10 MPa
+ *     (interior reference — only when scale > 10) and at the right
+ *     edge (= the active full scale). The scale defaults to 40 MPa
+ *     (DOV CPT-graph convention) and steps up section-wide when a
+ *     CPT has a thick run above the current step — see
+ *     ``pickQcFullScaleMpa``.
  *   * Rf reads MIRRORED LEFTWARD from the axis (0 at axis, 10% at
  *     left edge), brown line, dashed gridlines at 2% and 4%.
  *   * fs overlays RIGHTWARD on its own smaller scale (0–0.5 MPa) so
@@ -15,7 +20,7 @@
  *   * q_total overlays RIGHTWARD on the qc scale as a dashed line
  *     (CPTM only).
  *
- * Gridline value labels ("2", "10 MPa", "2%", "4%") render above
+ * Gridline value labels ("10", "<scale> MPa", "2%", "4%") render above
  * the band at ``bgTopY - 3`` and ONLY when ``showLabels`` is true —
  * SectionPanel suppresses them when the column has a tight
  * neighbour so adjacent labels don't pile up. fs / u2 / qTotal
@@ -35,7 +40,6 @@ import { useMemo } from 'react'
 import type { CptPlotResponse } from '../../api/client'
 import {
   QC_FULL_SCALE_MPA,
-  QT_FULL_SCALE_MPA,
   RF_FULL_SCALE_PCT,
   type CptChannels,
 } from './cptChannels'
@@ -89,7 +93,7 @@ interface Props {
   showLabels: boolean
   /**
    * P4 (dogfeed 2026-05-30) — when true, render ONLY the reference
-   * gridlines (qc 2/10 MPa, rf 2/4 %) + their value labels. Suppress
+   * gridlines (qc 10/scale MPa, rf 2/4 %) + their value labels. Suppress
    * the track background, surface tick, curves, and everything else.
    * Used by SectionPanel to emit a second pass of CptDataColumn AFTER
    * the litho band fills so the reference lines stay visible on top
@@ -97,6 +101,13 @@ interface Props {
    * intercepts contact / suggestion drags.
    */
   overlayMode?: boolean
+  /**
+   * Section-wide qc full scale in MPa. Defaults to ``QC_FULL_SCALE_MPA``
+   * (40 MPa, DOV convention). The section panel computes the active
+   * scale via ``pickQcFullScaleMpa`` and passes the same value to
+   * every CptDataColumn so all columns read on the SAME axis.
+   */
+  qcFullScaleMpa?: number
 }
 
 export default function CptDataColumn({
@@ -111,6 +122,7 @@ export default function CptDataColumn({
   levelToScreen,
   showLabels,
   overlayMode = false,
+  qcFullScaleMpa = QC_FULL_SCALE_MPA,
 }: Props): JSX.Element | null {
   // Memoise sample-index → screen-Y once per render. Must be
   // declared BEFORE any early return so the hook order stays stable
@@ -146,12 +158,16 @@ export default function CptDataColumn({
   const hasBand = bgBottomY - bgTopY > 0
 
   // Gridline positions on the column axis ± a fraction of halfWidth.
-  // qc gridlines on the right half; rf gridlines on the (mirrored)
-  // left half.
-  const qc2X = axisX + (2 / QC_FULL_SCALE_MPA) * halfWidth
-  const qc10X = rightX
+  // qc reads on the right; the interior gridline sits at 10 MPa (a
+  // canonical SBT reference — sands typically read > 10, soft clays
+  // < 10) and the right-edge gridline marks the active full scale.
+  // Rf gridlines stay on the (mirrored) left half at 2 % + 4 %.
+  const showQc10Interior = qcFullScaleMpa > 10
+  const qc10X = axisX + (10 / qcFullScaleMpa) * halfWidth
+  const qcScaleX = rightX
   const rf2X = axisX - (2 / RF_FULL_SCALE_PCT) * halfWidth
   const rf4X = axisX - (4 / RF_FULL_SCALE_PCT) * halfWidth
+  const qcScaleLabel = `${qcFullScaleMpa} MPa`
 
   // Label gating: caller's collision flag PLUS local headroom check.
   // ``bgTopY > plotTop + 4`` keeps labels out of the top margin band.
@@ -169,29 +185,29 @@ export default function CptDataColumn({
   if (overlayMode) {
     return (
       <g pointerEvents="none">
+        {showQc && hasBand && showQc10Interior && (
+          <line
+            x1={qc10X}
+            x2={qc10X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={1}
+            strokeOpacity={0.9}
+            strokeDasharray="3 2"
+          />
+        )}
         {showQc && hasBand && (
-          <>
-            <line
-              x1={qc2X}
-              x2={qc2X}
-              y1={bgTopY}
-              y2={bgBottomY}
-              stroke={GRID_COLOR}
-              strokeWidth={1}
-              strokeOpacity={0.9}
-              strokeDasharray="3 2"
-            />
-            <line
-              x1={qc10X}
-              x2={qc10X}
-              y1={bgTopY}
-              y2={bgBottomY}
-              stroke={GRID_COLOR}
-              strokeWidth={1}
-              strokeOpacity={0.9}
-              strokeDasharray="3 2"
-            />
-          </>
+          <line
+            x1={qcScaleX}
+            x2={qcScaleX}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={1}
+            strokeOpacity={0.9}
+            strokeDasharray="3 2"
+          />
         )}
         {showRf && hasBand && (
           <>
@@ -219,11 +235,13 @@ export default function CptDataColumn({
         )}
         {renderLabels && showQc && (
           <>
-            <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
-              2
-            </text>
-            <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
-              10 MPa
+            {showQc10Interior && (
+              <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+                10
+              </text>
+            )}
+            <text x={qcScaleX} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
+              {qcScaleLabel}
             </text>
           </>
         )}
@@ -272,27 +290,27 @@ export default function CptDataColumn({
         </>
       )}
 
+      {showQc && hasBand && showQc10Interior && (
+        <line
+          x1={qc10X}
+          x2={qc10X}
+          y1={bgTopY}
+          y2={bgBottomY}
+          stroke={GRID_COLOR}
+          strokeWidth={0.5}
+          strokeDasharray="2 2"
+        />
+      )}
       {showQc && hasBand && (
-        <>
-          <line
-            x1={qc2X}
-            x2={qc2X}
-            y1={bgTopY}
-            y2={bgBottomY}
-            stroke={GRID_COLOR}
-            strokeWidth={0.5}
-            strokeDasharray="2 2"
-          />
-          <line
-            x1={qc10X}
-            x2={qc10X}
-            y1={bgTopY}
-            y2={bgBottomY}
-            stroke={GRID_COLOR}
-            strokeWidth={0.5}
-            strokeDasharray="2 2"
-          />
-        </>
+        <line
+          x1={qcScaleX}
+          x2={qcScaleX}
+          y1={bgTopY}
+          y2={bgBottomY}
+          stroke={GRID_COLOR}
+          strokeWidth={0.5}
+          strokeDasharray="2 2"
+        />
       )}
       {showRf && hasBand && (
         <>
@@ -319,11 +337,13 @@ export default function CptDataColumn({
 
       {renderLabels && showQc && (
         <>
-          <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
-            2
-          </text>
-          <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
-            10 MPa
+          {showQc10Interior && (
+            <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+              10
+            </text>
+          )}
+          <text x={qcScaleX} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
+            {qcScaleLabel}
           </text>
         </>
       )}
@@ -352,7 +372,7 @@ export default function CptDataColumn({
 
       {showQc && (
         <path
-          d={curvePath(plot.qc_mpa, screenYByIdx, axisX, halfWidth, QC_FULL_SCALE_MPA, 1, plotTop, plotBottom)}
+          d={curvePath(plot.qc_mpa, screenYByIdx, axisX, halfWidth, qcFullScaleMpa, 1, plotTop, plotBottom)}
           stroke={QC_COLOR}
           strokeWidth={1.1}
           strokeOpacity={0.95}
@@ -388,7 +408,7 @@ export default function CptDataColumn({
       )}
       {showQTotal && (
         <path
-          d={curvePath(plot.q_total_mpa!, screenYByIdx, axisX, halfWidth, QT_FULL_SCALE_MPA, 1, plotTop, plotBottom)}
+          d={curvePath(plot.q_total_mpa!, screenYByIdx, axisX, halfWidth, qcFullScaleMpa, 1, plotTop, plotBottom)}
           stroke={QT_COLOR}
           strokeWidth={1}
           strokeOpacity={0.75}

@@ -54,9 +54,6 @@ export const DEFAULT_CPT_CHANNELS: CptChannels = {
 // while letting dense formations fit inside the band.
 export const QC_FULL_SCALE_MPA = 40
 export const RF_FULL_SCALE_PCT = 10
-// kept for back-compat with imports; CptDataColumn now plots q_total
-// on the active qcFullScaleMpa, so this constant is no longer read.
-export const QT_FULL_SCALE_MPA = 40
 
 // Stepped upper bounds for the section-wide qc scale. The smallest
 // step that no CPT exceeds (per the consecutive-samples rule) wins.
