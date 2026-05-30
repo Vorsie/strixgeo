@@ -79,9 +79,22 @@ async def _create_formation(client: AsyncClient, project_id) -> dict:  # noqa: A
 
 
 async def _create_model(client: AsyncClient, project_id) -> dict:  # noqa: ANN001
+    # litho_contact_correlation_edge is litho-only by design (the FK target
+    # is litho_layer post A4 slice 4a). Force kind='lithostratigraphic' so
+    # the FC→LL mirror trigger materialises the layer rows the FK requires.
+    # A litho model needs a parent geological model — create one first.
+    parent = await client.post(
+        f"/projects/{project_id}/geology/models",
+        json={"name": "Parent geo", "kind": "geological"},
+    )
+    assert parent.status_code == 201, parent.text
     resp = await client.post(
         f"/projects/{project_id}/geology/models",
-        json={"name": "Model"},
+        json={
+            "name": "Model",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": parent.json()["id"],
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
