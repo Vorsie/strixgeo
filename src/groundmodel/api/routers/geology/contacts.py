@@ -859,6 +859,10 @@ async def clear_litho_model(
 
 
 @router.post(
+    "/models/{model_id}/layers/seed-from-parent",
+    response_model=SeedLithoFromParentResponse,
+)
+@router.post(
     "/models/{model_id}/contacts/seed-from-parent",
     response_model=SeedLithoFromParentResponse,
 )
