@@ -98,17 +98,24 @@ class LithoContactCorrelationEdgeOrm(Base):
         index=True,
     )
 
-    # The two contact endpoints (canonical: a < b).  ON DELETE CASCADE —
-    # deleting either contact dissolves the edge, keeping the DB consistent
-    # when a layer is removed from the section.
+    # The two boundary endpoints (canonical: a < b).  ON DELETE CASCADE —
+    # deleting either layer dissolves the edge, keeping the DB consistent
+    # when the boundary is removed from the section.
+    #
+    # A4 slice 4a — FK target migrated from formation_contact to
+    # litho_layer (UUIDs identical via the backfill + trigger pair).
+    # Decoupling here lets slice 4c DELETE formation_contact rows for
+    # litho models without taking the correlation graph down with them.
+    # Column names are unchanged (still ``contact_a_id`` / ``contact_b_id``)
+    # to keep the FE client.ts surface stable; a rename is a separate cut.
     contact_a_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("formation_contact.id", ondelete="CASCADE"),
+        ForeignKey("litho_layer.id", ondelete="CASCADE"),
         nullable=False,
     )
     contact_b_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("formation_contact.id", ondelete="CASCADE"),
+        ForeignKey("litho_layer.id", ondelete="CASCADE"),
         nullable=False,
     )
 
