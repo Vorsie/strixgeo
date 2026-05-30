@@ -48,6 +48,7 @@ vi.mock('../api/client', () => ({
       listModels: vi.fn(),
       listFormations: vi.fn(),
       listContacts: vi.fn(),
+      listLayers: vi.fn().mockResolvedValue([]),
       listSurfaces: vi.fn(),
       validateCrossings: vi.fn(),
       createModel: vi.fn(),
