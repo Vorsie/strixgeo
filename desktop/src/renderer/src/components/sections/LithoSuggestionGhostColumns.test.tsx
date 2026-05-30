@@ -987,14 +987,17 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(calls.find(c => c.idx === 1)).toBeUndefined()
   })
 
-  // G30: with the middle layer ACCEPTED, accepted is a hard visible
-  // barrier (its committed contact says "this boundary is real").
-  // Drag of layer 0's BASE is clamped at layer 1's TOP (= the
-  // current shared boundary). The commit does NOT propagate past
-  // the accepted layer — layer 2's stored top stays where it was
-  // (otherwise we'd overwrite a pending edit with an irrelevant value
-  // and create overlap with the accepted region).
-  it('G30 — accepted between is a hard barrier, no propagation past it', () => {
+  // G30 (rewritten 2026-05-30, Slice 2 of unified-boundary-drag):
+  // accepted neighbours are NO LONGER a hard barrier at their near
+  // edge. The drag passes through their territory just like a pending
+  // neighbour — bound = accepted's FAR edge. The propagate-to-partner
+  // still skips when the partner is accepted (Slice 3 will route this
+  // to the contact PATCH instead), so only the dragger's edit fires
+  // — but the dragger's edit can now reach into accepted territory,
+  // which was the user-facing lock the spec aimed at.
+  //
+  // See docs/superpowers/specs/2026-05-30-unified-boundary-drag-design.md.
+  it('G30 — accepted neighbour bound = its FAR edge (drag passes through accepted)', () => {
     const onEdit = vi.fn()
     const layers = [
       makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
@@ -1006,15 +1009,45 @@ describe('LithoSuggestionGhostColumns', () => {
       acceptedIndices: new Set([1]),
     })
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Drag base from y=200 (depth 2) down to y=300 (depth 3) — 1 m
+    // into the accepted layer's territory. Pre-Slice-2 this clamped
+    // at depth 2 (the accepted's near edge); post-Slice-2 the bound
+    // is the accepted's far edge (depth 4), so depth 3 is reached.
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 300 })
     fireEvent.mouseUp(document)
-    // Only the dragged layer's edit fires; no propagation past the
-    // accepted barrier. Depth stays at the clamped value (2.0,
-    // current shared boundary with the accepted neighbour).
     const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    // Only the dragger's edit fires — the accepted partner still
+    // doesn't receive a pending edit (Slice 3 fires its contact PATCH
+    // instead). depth_base_m reaches depth 3.
     expect(calls.map(c => c.idx)).toEqual([0])
-    expect(calls[0].edit.depth_base_m).toBeCloseTo(2, 5)
+    expect(calls[0].edit.depth_base_m).toBeCloseTo(3, 5)
+  })
+
+  // G30b (new, Slice 2): drag base DOWN past the accepted's near edge
+  // all the way to its FAR edge — the bound should let the drag reach
+  // the accepted's far edge, not clamp at the near edge.
+  it('G30b — base drag clamps at accepted neighbour FAR edge (Slice 2)', () => {
+    const onEdit = vi.fn()
+    const layers = [
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+    ]
+    const { container } = renderGhost(layers, {
+      onEdit,
+      acceptedIndices: new Set([1]),
+    })
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Drag well past depth 4 (overshoot). Clamp = accepted's far edge
+    // = depth 4. Commit fires depth_base_m = 4 (or close, depending
+    // on snap-vs-clamp).
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 500 }) // depth 5, past depth 4
+    fireEvent.mouseUp(document)
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(layer0Edit).toBeDefined()
+    expect(layer0Edit![1].depth_base_m).toBeCloseTo(4, 5)
   })
 
   // G31: when the only neighbour below is rejected, there is no
