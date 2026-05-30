@@ -562,6 +562,28 @@ export interface LithoLayerBatchStatusResponse {
   layers: LithoLayerResponse[]
 }
 
+/** One per-row patch in a layer batch update (A4 slice 4b). */
+export interface LithoLayerBatchUpdateItem {
+  layer_id: string
+  formation_id?: string
+  depth_top_m?: number
+  depth_base_m?: number
+  status?: LithoLayerStatus
+  source?: LithoLayerSource
+  confidence?: LithoLayerConfidence
+  // Anchor XOR: if either is sent, both must appear with exactly one
+  // non-null. The schema rejects half-anchor patches with a 422.
+  borehole_id?: string | null
+  cpt_id?: string | null
+  parent_geo_contact_id?: string | null
+  notes?: string | null
+}
+
+export interface LithoLayerBatchUpdateResponse {
+  updated_count: number
+  layers: LithoLayerResponse[]
+}
+
 // Lithostratigraphic-suggestion (litho slice 3/4). One read-only
 // proposed layer from the Robertson-2015/2009 CPT segmenter or the
 // borehole ObservationLayer mapping. The user accepts → it becomes a
@@ -1942,6 +1964,27 @@ export const api = {
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}))
         throw new Error(detail.detail ?? `moveLayerBoundary failed (${res.status})`)
+      }
+      return res.json()
+    },
+
+    /** PATCH /models/{mid}/layers/batch-update — atomic N-row PATCH. */
+    batchUpdateLayers: async (
+      projectId: string,
+      modelId: string,
+      updates: readonly LithoLayerBatchUpdateItem[],
+    ): Promise<LithoLayerBatchUpdateResponse> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/layers/batch-update`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates }),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `batchUpdateLayers failed (${res.status})`)
       }
       return res.json()
     },
