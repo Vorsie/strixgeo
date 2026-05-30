@@ -491,6 +491,69 @@ export default function GeologyInspector(): JSX.Element {
   )
 
   // ---------------------------------------------------------------------------
+  // Inline colour swatch override.
+  //
+  // The list-row swatch is a clickable label wrapping a native colour input;
+  // changing it commits a one-field PATCH against ``formation.color`` and
+  // pushes an undo command that restores the previous colour. No new
+  // persistence layer — the override rides on the existing project-scoped
+  // ``GeologicalFormation.color`` field, so it flows through to the section
+  // editor, 3D viewer, and DXF/Plaxis exports automatically and ships in the
+  // .gmproj bundle on next save. Defaults come from formation creation
+  // (G3Dv3 catalog or the neutral grey) so a brand-new project naturally
+  // starts with default colours again — see
+  // ``docs/superpowers/specs/2026-05-30-formation-color-swatch-override-design.md``.
+  // ---------------------------------------------------------------------------
+  const handleUpdateFormationColor = useCallback(
+    async (
+      formation: GeologicalFormationResponse,
+      newColor: string,
+    ): Promise<void> => {
+      const oldColor = formation.color
+      if (newColor === oldColor) return
+      try {
+        const updated = await api.geology.updateFormation(
+          projectId,
+          formation.id,
+          { color: newColor },
+        )
+        setFormations(prev =>
+          sortFormations(prev.map(f => (f.id === updated.id ? updated : f))),
+        )
+        handleFormationUpdated()
+        pushUndoCommand({
+          description: 'Recolor formation',
+          revert: async () => {
+            const back = await api.geology.updateFormation(
+              projectId,
+              formation.id,
+              { color: oldColor },
+            )
+            setFormations(prev =>
+              sortFormations(prev.map(f => (f.id === back.id ? back : f))),
+            )
+            handleFormationUpdated()
+          },
+          reapply: async () => {
+            const fwd = await api.geology.updateFormation(
+              projectId,
+              formation.id,
+              { color: newColor },
+            )
+            setFormations(prev =>
+              sortFormations(prev.map(f => (f.id === fwd.id ? fwd : f))),
+            )
+            handleFormationUpdated()
+          },
+        })
+      } catch (err) {
+        log.error('geology', 'updateFormation (color) failed', err)
+      }
+    },
+    [projectId, handleFormationUpdated, pushUndoCommand],
+  )
+
+  // ---------------------------------------------------------------------------
   // Delete handler
   // ---------------------------------------------------------------------------
 
@@ -718,6 +781,9 @@ export default function GeologyInspector(): JSX.Element {
                 setDialogOpen(true)
               }}
               onDelete={() => setPendingDelete(f)}
+              onColorChange={newColor =>
+                void handleUpdateFormationColor(f, newColor)
+              }
               onDragStart={() => setDraggedId(f.id)}
               onDragOver={() => setDragOverId(f.id)}
               onDragLeave={() => {
@@ -893,6 +959,10 @@ interface FormationRowProps {
   reorderBusy: boolean
   onEdit: () => void
   onDelete: () => void
+  /** Called when the user picks a new colour in the swatch and the picker
+   *  closes (input ``onBlur``). Fired only when the new colour differs from
+   *  ``formation.color``; the parent owns the PATCH + undo. */
+  onColorChange: (newColor: string) => void
   onDragStart: () => void
   onDragOver: () => void
   onDragLeave: () => void
@@ -937,12 +1007,20 @@ function FormationRow({
   reorderBusy,
   onEdit,
   onDelete,
+  onColorChange,
   onDragStart,
   onDragOver,
   onDragLeave,
   onDrop,
   onDragEnd,
 }: FormationRowProps): JSX.Element {
+  // Pending colour while the native picker is open. ``null`` means
+  // "no pick in progress — render formation.color". Committed on blur
+  // via onColorChange (which equality-checks against formation.color
+  // and no-ops if unchanged, so an Esc-cancel that never fires onChange
+  // is naturally a no-op too).
+  const [pendingColor, setPendingColor] = useState<string | null>(null)
+  const displayedColor = pendingColor ?? formation.color
   return (
     <li
       data-testid={`geology-formation-list-item-${formation.id}`}
@@ -986,11 +1064,35 @@ function FormationRow({
       >
         <GripVertical size={12} />
       </button>
-      <span
-        className="inline-block w-3.5 h-3.5 rounded border border-border-default shrink-0"
-        style={{ backgroundColor: formation.color }}
-        title={formation.color}
-      />
+      {/*
+        Swatch doubles as a colour-picker trigger. Native ``<input type="color">``
+        opens on label click; ``pendingColor`` mirrors the chosen value while
+        the picker is open so the swatch updates in lock-step. ``onBlur`` is
+        the commit point — the parent equality-checks against
+        ``formation.color`` and PATCHes only on a real change. Esc/cancel
+        never fires ``onChange``, so pendingColor stays null and the blur is
+        a no-op. ``sr-only`` keeps the input visually hidden but reachable.
+      */}
+      <label
+        title={`${displayedColor} — click to change colour`}
+        aria-label={`Change colour of ${formation.name}`}
+        data-testid={`geology-formation-color-swatch-${formation.id}`}
+        className="inline-block w-3.5 h-3.5 rounded border border-border-default shrink-0 cursor-pointer focus-within:ring-2 focus-within:ring-accent"
+        style={{ backgroundColor: displayedColor }}
+      >
+        <input
+          type="color"
+          value={displayedColor}
+          onChange={e => setPendingColor(e.currentTarget.value)}
+          onBlur={() => {
+            const picked = pendingColor
+            setPendingColor(null)
+            if (picked !== null) onColorChange(picked)
+          }}
+          className="sr-only"
+          data-testid={`geology-formation-color-input-${formation.id}`}
+        />
+      </label>
       <button
         onClick={onEdit}
         className="flex-1 text-left min-w-0"
