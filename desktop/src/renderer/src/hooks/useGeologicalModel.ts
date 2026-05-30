@@ -2353,9 +2353,15 @@ export function useGeologicalModel({
       const modelId = snapshot.model_id
       log.debug('geology', `unlinkLithoFromGeo entry id=${contactId}`)
       try {
-        await api.geology.unlinkLithoFromGeo(project.id, modelId, contactId)
-        // Optimistic patch: null the coupling locally so the glyph
-        // disappears immediately, then refetch for server truth.
+        // A4 remaining-writer cut — unlink is a single-field PATCH on the
+        // layer (parent_geo_contact_id → null). The LL→FC trigger mirrors
+        // the null back into the formation_contact row so legacy consumers
+        // (bundle restore, link-glyph readers on /contacts) stay coherent.
+        await api.geology.updateLayer(project.id, modelId, contactId, {
+          parent_geo_contact_id: null,
+        })
+        // Optimistic patch on the contact-shape state — refetch follows
+        // for server truth across both lithoLayers + lithoContacts.
         setLithoContacts(prev =>
           prev.map(c => (c.id === contactId ? { ...c, parent_geo_contact_id: null } : c)),
         )
@@ -3459,34 +3465,57 @@ export function useGeologicalModel({
           (sectionId ? ` section=${sectionId}` : ''),
       )
       try {
-        const payload = {
-          formation_id: formationId,
-          depth_top_m: depth_m,
-          borehole_id: anchorKind === 'borehole' ? anchorId : null,
-          cpt_id: anchorKind === 'cpt' ? anchorId : null,
-          source: (snapped ? 'borehole_observation' : 'manual_pick') as
-            | 'borehole_observation'
-            | 'manual_pick',
-          confidence: (snapped ? 'high' : 'medium') as 'high' | 'medium',
-          // P2 explicit-content parity with the geological axis — seed
-          // this section's set so the P2-F filter shows the litho contact.
-          ...(sectionId ? { section_id: sectionId } : {}),
-        }
-        const created = await api.geology.createContact(project.id, model.id, payload)
-        // Optimistic update first — refetch follows for server truth.
-        setLithoContacts(prev => [...prev, created])
+        // A4 remaining-writer cut — handleCreateLithoContact now routes
+        // to POST /layers. The new endpoint takes section_id at the
+        // request level (not per-item) and unions the created layer
+        // ids into the section's seeded_formation_contact_ids — the
+        // explicit-content invariant that used to live on the contact
+        // POST. The LL→FC trigger materialises the matching FC mirror
+        // so correlation FKs + legacy /contacts readers stay coherent.
+        //
+        // depth_base_m derivation: the original /contacts POST had no
+        // base concept (boundary-shape). For the layer-shape we need
+        // one — use the next-deeper layer's top at this anchor, or
+        // depth_m + 1.0 m as a fallback when nothing's below. The
+        // user's next gesture (drag boundary, or another create) will
+        // refine; the +1.0 m floor satisfies the depth-ordered CHECK.
+        const anchorLayers = lithoLayers
+          .filter(
+            l =>
+              (anchorKind === 'borehole' ? l.borehole_id : l.cpt_id) === anchorId &&
+              l.depth_top_m > depth_m,
+          )
+          .sort((a, b) => a.depth_top_m - b.depth_top_m)
+        const depth_base_m = anchorLayers[0]?.depth_top_m ?? depth_m + 1.0
+        const created = await api.geology.bulkCreateLayers(
+          project.id,
+          model.id,
+          [
+            {
+              formation_id: formationId,
+              depth_top_m: depth_m,
+              depth_base_m,
+              status: 'accepted',
+              source: snapped ? 'observation_layer' : 'manual',
+              confidence: snapped ? 'high' : 'medium',
+              borehole_id: anchorKind === 'borehole' ? anchorId : null,
+              cpt_id: anchorKind === 'cpt' ? anchorId : null,
+            },
+          ],
+          sectionId,
+        )
         refetchLithoContacts()
         refetchLithoSurfaces()
         log.success(
           'geology',
-          `createLithoContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m`,
+          `createLithoContact ok id=${created[0]?.id} depth=${depth_m.toFixed(3)}m`,
         )
       } catch (err) {
         log.error('geology', 'createLithoContact failed', err)
         toast('error', 'Could not place the litho formation contact.')
       }
     },
-    [project, refetchLithoContacts, refetchLithoSurfaces, toast],
+    [project, lithoLayers, refetchLithoContacts, refetchLithoSurfaces, toast],
   )
 
   // Slice 2, #55: inline-create a formation inside the active LITHO model.
