@@ -1451,6 +1451,16 @@ export default function LithoSuggestionGhostColumns({
                       acceptedIndices,
                       rejectedIndices,
                     )
+                    // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
+                    // absorb-down" report. Temporary; remove once root-caused.
+                    // eslint-disable-next-line no-console
+                    console.info('[litho-drag] DOWN', {
+                      strip: `top-${idx}`,
+                      topM,
+                      baseM,
+                      bounds,
+                      lockedUp: bounds.boundsAboveM >= topM,
+                    })
                     setDrag({
                       idx,
                       edge: 'top',
@@ -1485,6 +1495,16 @@ export default function LithoSuggestionGhostColumns({
                       acceptedIndices,
                       rejectedIndices,
                     )
+                    // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
+                    // absorb-down" report. Temporary; remove once root-caused.
+                    // eslint-disable-next-line no-console
+                    console.info('[litho-drag] DOWN', {
+                      strip: `base-${idx}`,
+                      topM,
+                      baseM,
+                      bounds,
+                      lockedDown: bounds.boundsBelowM <= baseM,
+                    })
                     setDrag({
                       idx,
                       edge: 'base',
