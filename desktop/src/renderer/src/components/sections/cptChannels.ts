@@ -40,15 +40,89 @@ export const DEFAULT_CPT_CHANNELS: CptChannels = {
 // DOV PDF scale conventions — keep these in sync with the gridline
 // markers + curve mappings drawn in ``CptDataColumn``.
 //
-//   * qc: 0..10 MPa (rightward from axis), gridlines at 2 + 10 MPa.
+//   * qc: 0..40 MPa default (rightward from axis); the scale steps
+//     up SECTION-WIDE (60/80/100/150/200/+50) when any CPT shows a
+//     real thick layer above the current step — see
+//     ``pickQcFullScaleMpa`` below. Gridlines at 10 MPa (interior
+//     reference) and the right edge (= the active full scale).
 //   * Rf: 0..10% (leftward from axis, mirrored), gridlines at 2 + 4 %.
+//   * q_total: shares the qc scale (CPTM totaalweerstand).
 //
-// Auto-scale per CPT is intentionally NOT done — DOV's whole point
+// PER-CPT auto-scale is intentionally NOT done — DOV's whole point
 // is that every column reads on the SAME scale so the eye can compare
-// CPTs at a glance. Auto-scaling breaks that contract.
-export const QC_FULL_SCALE_MPA = 10
+// CPTs at a glance. The section-wide step-up preserves that contract
+// while letting dense formations fit inside the band.
+export const QC_FULL_SCALE_MPA = 40
 export const RF_FULL_SCALE_PCT = 10
-export const QT_FULL_SCALE_MPA = 10
+// kept for back-compat with imports; CptDataColumn now plots q_total
+// on the active qcFullScaleMpa, so this constant is no longer read.
+export const QT_FULL_SCALE_MPA = 40
+
+// Stepped upper bounds for the section-wide qc scale. The smallest
+// step that no CPT exceeds (per the consecutive-samples rule) wins.
+// Above 200 MPa we keep stepping by 50.
+const QC_FULL_SCALE_STEPS_MPA = [40, 60, 80, 100, 150, 200] as const
+
+// Consecutive-sample threshold. At a typical 2 cm CPT sampling
+// interval, 20 samples ≈ 40 cm — enough to mean "real layer", not
+// "transient spike". This is the user-visible trade-off knob: lower
+// it and short hard bands start bumping the scale; raise it and
+// only thick continuous layers do.
+export const QC_CONSECUTIVE_THRESHOLD = 20
+
+/**
+ * Longest run of consecutive qc samples STRICTLY above ``threshold``
+ * in a single CPT's depth series. Null / non-finite samples break
+ * the run (gaps cannot fake a long high-qc layer).
+ */
+function longestConsecutiveAboveMpa(
+  qc: ReadonlyArray<number | null | undefined> | null,
+  threshold: number,
+): number {
+  if (!qc) return 0
+  let best = 0
+  let current = 0
+  for (const v of qc) {
+    if (v === null || v === undefined || !Number.isFinite(v) || v <= threshold) {
+      current = 0
+      continue
+    }
+    current += 1
+    if (current > best) best = current
+  }
+  return best
+}
+
+/**
+ * Section-wide qc full scale in MPa.
+ *
+ * Picks the smallest step in [40, 60, 80, 100, 150, 200, +50, ...]
+ * such that no CPT in the section has ≥ ``consecutiveThreshold``
+ * consecutive qc samples strictly above that step. The per-CPT
+ * check (rather than aggregating across CPTs) ensures one CPT with
+ * a real thick high-qc layer is honoured even when the rest of the
+ * section is soft.
+ *
+ * Returns the DOV-convention default (40 MPa) for an empty section
+ * or when no CPT shows a thick high-qc layer.
+ */
+export function pickQcFullScaleMpa(
+  plots: ReadonlyArray<{ qc_mpa: ReadonlyArray<number | null | undefined> | null }>,
+  consecutiveThreshold: number = QC_CONSECUTIVE_THRESHOLD,
+): number {
+  const triggersAt = (step: number): boolean =>
+    plots.some(
+      p => longestConsecutiveAboveMpa(p.qc_mpa, step) >= consecutiveThreshold,
+    )
+  for (const step of QC_FULL_SCALE_STEPS_MPA) {
+    if (!triggersAt(step)) return step
+  }
+  // Above the top of the table — keep stepping by 50 until the
+  // consecutive-run rule no longer triggers.
+  let step = QC_FULL_SCALE_STEPS_MPA[QC_FULL_SCALE_STEPS_MPA.length - 1] + 50
+  while (triggersAt(step)) step += 50
+  return step
+}
 
 /**
  * Half-width of the shared CPT band in px at the current horizontal
