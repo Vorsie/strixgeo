@@ -20,6 +20,7 @@
 //   crossings counter.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 
 import { api, DuplicateContactError } from '../api/client'
 import type {
@@ -49,6 +50,17 @@ import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
  * type (which requires `number` not `number | null`) is satisfied; the
  * BE applies only fields present in the body (`model_dump(exclude_unset)`).
  */
+/**
+ * No-op `setContacts`-shaped setter used by the legacy `applyPatch`
+ * dispatch on the litho branch (A5 — `lithoContacts` is a derived
+ * memo now; optimistic patches on it are nonsensical because the
+ * derivation re-runs from `lithoLayers` on every render). The
+ * post-write `refetchLithoContacts()` call still drives the actual
+ * state refresh via `setLithoLayers`; this no-op preserves the
+ * shared-handler shape without touching state.
+ */
+const _noopApplyContactPatch: Dispatch<SetStateAction<FormationContactResponse[]>> = () => {}
+
 function formationContactBatchToLayerItem(
   u: FormationContactBatchUpdateEntry,
 ): LithoLayerBatchUpdateItem {
@@ -911,26 +923,25 @@ export function useGeologicalModel({
   // Litho parallel state (slice 2, #55). Independent of the geological
   // contact set — mutations in one set never invalidate the other.
   // Loaded / cleared by a useEffect that watches activeLithoModel.
-  // A3 of the unified litho boundary model: both arrays exist
-  // side-by-side during the cut-over. Both are populated from the
-  // /layers endpoint — `lithoContacts` is projected via
-  // `lithoLayersToContacts()`, `lithoLayers` is the raw layer rows.
-  //
-  // Consumers migrate from `lithoContacts` (boundary-shaped) to
-  // `lithoLayers` (layer-shaped) one at a time. Once all consumers
-  // are off `lithoContacts`, the state slice + its setter shrink to
-  // dead code and get removed.
+  // A5 — single source of truth on the litho axis: `lithoLayers` is
+  // the only state slice; `lithoContacts` is a derived memo that
+  // projects the layer rows onto the FormationContact shape so legacy
+  // consumers (renderers, inspectors that still think boundary-centric)
+  // keep working unchanged. The dual-state era ended with A4 — every
+  // FE writer hits /layers/* endpoints, and the LL→FC trigger feeds
+  // the database mirror for legacy /contacts readers.
   //
   // Both arrays carry the SAME UUIDs (A2.5 backfill preserved them
   // end-to-end), so litho_correlation_edge / seeded_formation_contact_ids
   // / parent_geo_contact_id all continue to resolve in either shape.
   //
-  // Writers MUST update both: a setLithoContacts on a mutation should
-  // be paired with a setLithoLayers that reflects the same change.
-  // Helper utilities (utils/lithoLayerToContact) keep the projection
-  // logic in one place.
+  // Consumers can migrate from `lithoContacts` to `lithoLayers` at
+  // their own pace — there is no longer any state-coherence risk.
   const [lithoLayers, setLithoLayers] = useState<LithoLayerResponse[]>([])
-  const [lithoContacts, setLithoContacts] = useState<FormationContactResponse[]>([])
+  const lithoContacts = useMemo<FormationContactResponse[]>(
+    () => lithoLayersToContacts(lithoLayers),
+    [lithoLayers],
+  )
   // lithoFormations was a separate useState until debt #89 — that dual
   // atom caused the staleness class behind debt #88 (one half refreshed
   // after accept, the other didn't). Now a useMemo over the global
@@ -1178,11 +1189,11 @@ export function useGeologicalModel({
   // geological bootstrap. Clears when activeLithoModel is null.
   // Architect-flagged highest risk: this effect is INDEPENDENT of
   // the geological bootstrap (different state atoms) so there is no
-  // shared refresh counter — mutations go through setLithoContacts
+  // shared refresh counter — mutations go through setLithoLayers
   // optimistically + refetch, never through setContacts.
   useEffect(() => {
     if (!project || !activeLithoModel) {
-      setLithoContacts([])
+      setLithoLayers([])
       setLithoSurfacesByFormationId(new Map())
       setGhostsByAnchor(new Map())
       setFocusedSuggestAnchorId(null)
@@ -1208,7 +1219,6 @@ export function useGeologicalModel({
     // ``handleClearLithoModel`` resets — the architectural reasoning is
     // identical (these are ephemeral overlays scoped to the model the
     // user is currently editing).
-    setLithoContacts([])
     setLithoLayers([])
     setLithoSurfacesByFormationId(new Map())
     setGhostsByAnchor(new Map())
@@ -1219,31 +1229,24 @@ export function useGeologicalModel({
     const modelId = activeLithoModel.id
     ;(async () => {
       try {
-        // A3 cut-over: source-of-truth is /layers. Project the rows
-        // to the contact shape for consumers that still read the
-        // FormationContact array (renderer + inspector); the raw
-        // layer rows go to lithoLayers for consumers that read
-        // Shape A directly.
+        // A5 — single source of truth: only setLithoLayers fires;
+        // lithoContacts re-derives via the useMemo above.
         const [layers, surfs] = await Promise.all([
           api.geology.listLayers(projectId, modelId),
           api.geology.listSurfaces(projectId, modelId),
         ])
         if (cancelled) return
         setLithoLayers(layers)
-        const conts = lithoLayersToContacts(layers)
-        setLithoContacts(conts)
         const sm = new Map<string, FormationSurfaceResponse>()
         for (const s of surfs) sm.set(s.formation_id, s)
         setLithoSurfacesByFormationId(sm)
         log.debug(
           'geology',
-          `litho model ${modelId}: loaded ${layers.length} layers ` +
-            `(${conts.length} accepted as contacts), ${surfs.length} surfaces`,
+          `litho model ${modelId}: loaded ${layers.length} layers, ${surfs.length} surfaces`,
         )
       } catch (err) {
         if (!cancelled) {
           log.warn('geology', `litho model ${modelId}: load failed`, err)
-          setLithoContacts([])
           setLithoLayers([])
           setLithoSurfacesByFormationId(new Map())
         }
@@ -1308,16 +1311,12 @@ export function useGeologicalModel({
   const refetchLithoContacts = useCallback(() => {
     const model = activeLithoModelRef.current
     if (!project || !model) return
-    // A3 cut-over: refetch /layers (source-of-truth) + project to
-    // the contact shape for legacy consumers. Both state slices
-    // update in lockstep so any consumer hitting either array sees
-    // a consistent post-mutation view.
+    // A5 — refetch /layers (the only source of truth). lithoContacts
+    // re-derives via the useMemo above; consumers reading either
+    // shape see the new state on the next render.
     void api.geology
       .listLayers(project.id, model.id)
-      .then(layers => {
-        setLithoLayers(layers)
-        setLithoContacts(lithoLayersToContacts(layers))
-      })
+      .then(setLithoLayers)
       .catch(err => {
         log.warn('geology', `litho listLayers refetch failed`, err)
       })
@@ -1527,7 +1526,7 @@ export function useGeologicalModel({
         if (!previous) return
         const modelId = previous.model_id
         const isLitho = lithoContacts.some(c => c.id === contactId)
-        const applyPatch = isLitho ? setLithoContacts : setContacts
+        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
         // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
         // Records the FE→BE handoff so the user can see exactly what
         // depth+axis the hook dispatched on a buggy drag.
@@ -2108,7 +2107,7 @@ export function useGeologicalModel({
         }
         const modelId = firstContact.model_id
         const isLitho = lithoContacts.some(c => c.id === updateIds[0])
-        const applyPatch = isLitho ? setLithoContacts : setContacts
+        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
         const beforeById = new Map(
           [...contacts, ...lithoContacts]
             .filter(c => idSet.has(c.id))
@@ -2225,7 +2224,7 @@ export function useGeologicalModel({
         if (!snapshot) return
         const modelId = snapshot.model_id
         const isLitho = lithoContacts.some(c => c.id === contactId)
-        const applyPatch = isLitho ? setLithoContacts : setContacts
+        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
         // A4 slice 3 — litho writers target /layers; the LL→FC
         // mirror trigger keeps formation_contact + correlation FKs
         // coherent. Geological models stay on /contacts (no Shape A
@@ -2360,11 +2359,9 @@ export function useGeologicalModel({
         await api.geology.updateLayer(project.id, modelId, contactId, {
           parent_geo_contact_id: null,
         })
-        // Optimistic patch on the contact-shape state — refetch follows
-        // for server truth across both lithoLayers + lithoContacts.
-        setLithoContacts(prev =>
-          prev.map(c => (c.id === contactId ? { ...c, parent_geo_contact_id: null } : c)),
-        )
+        // A5 — lithoContacts is a derived memo; the optimistic patch
+        // that used to apply here is redundant. refetchLithoContacts
+        // refreshes lithoLayers, the memo re-derives, the UI updates.
         refetchLithoContacts()
         markMutated()
         log.success('geology', `unlinkLithoFromGeo ok id=${contactId}`)
@@ -2401,15 +2398,8 @@ export function useGeologicalModel({
           log.warn('geology', `linkLithoToGeo no geo contact in range id=${contactId}`)
           return
         }
-        // Optimistic patch: apply the returned coupling locally so the glyph
-        // appears immediately, then refetch for server truth.
-        setLithoContacts(prev =>
-          prev.map(c =>
-            c.id === contactId
-              ? { ...c, parent_geo_contact_id: result.parent_geo_contact_id }
-              : c,
-          ),
-        )
+        // A5 — lithoContacts is a derived memo; refetch is the
+        // canonical update path (lithoLayers refresh → memo re-derives).
         refetchLithoContacts()
         // Coupling established (result != null only) — a real edit. The
         // no-geo-in-range branch returned above without mutating.
@@ -3445,13 +3435,11 @@ export function useGeologicalModel({
   )
 
   // Slice 2, #55: create a formation contact on the LITHO model.
-  // Mirror of handleCreateContact — same optimistic-update + refetch
-  // pattern (setLithoContacts → refetchLithoContacts), DIFFERENT state
-  // atom. Closes over activeLithoModelRef so the dep array stays
+  // Mirror of handleCreateContact — refetchLithoContacts drives the
+  // local state refresh (post-A5 lithoContacts is a derived memo
+  // over lithoLayers, so no optimistic patch is needed). Closes over
+  // activeLithoModelRef so the dep array stays
   // [project, refetchLithoContacts] — stable to project identity.
-  // Architect warning: the parallel litho contact-set must NEVER share
-  // a refresh counter with the geological set; each has its own optimistic
-  // setter + explicit refetch.
   const handleCreateLithoContact = useCallback(
     async (
       anchorKind: 'cpt' | 'borehole',
@@ -5248,10 +5236,15 @@ export function useGeologicalModel({
           // we already had. So we stay on listContacts here even
           // post-A3a, until debt #131-b ships a real layer-shaped
           // pinch-out terminus.
-          const newContacts = await api.geology.listContacts(project.id, preview.model_id)
           if (preview.model_kind === 'lithostratigraphic') {
-            setLithoContacts(newContacts)
+            // Litho pinch-outs (debt #131-b) are anchor-less synthetics
+            // that don't materialise in litho_layer. A5: lithoContacts
+            // is a memo derived from lithoLayers, so a /contacts fetch
+            // can't reach it. refetchLithoContacts re-reads /layers
+            // (synthetics absent → stay absent until #131-b ships).
+            refetchLithoContacts()
           } else {
+            const newContacts = await api.geology.listContacts(project.id, preview.model_id)
             setContacts(newContacts)
           }
           addToSessionImports('contact', resp.created_contact_ids)
@@ -5290,15 +5283,17 @@ export function useGeologicalModel({
           try {
             // Same Shape-A exception as the happy-path branch above:
             // pinch-out synthetics are anchor-less and don't materialise
-            // in litho_layer (mirror trigger skip); we must hit
-            // /contacts directly until #131-b lands.
-            const refreshed = await api.geology.listContacts(
-              project.id,
-              preview.model_id,
-            )
+            // in litho_layer (mirror trigger skip). For the geo path
+            // we still hit /contacts directly. For litho (debt #131-b
+            // future work) we refetch /layers — synthetics remain
+            // absent until #131-b ships a layer-shape pinch-out.
             if (preview.model_kind === 'lithostratigraphic') {
-              setLithoContacts(refreshed)
+              refetchLithoContacts()
             } else {
+              const refreshed = await api.geology.listContacts(
+                project.id,
+                preview.model_id,
+              )
               setContacts(refreshed)
             }
             const existingIds = (err as { existingContactIds?: string[] })
