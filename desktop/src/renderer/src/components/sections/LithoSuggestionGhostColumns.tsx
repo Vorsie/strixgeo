@@ -66,6 +66,24 @@ const GHOST_OPACITY_REJECTED = 0.2
 const LABEL_FONT_SIZE = 9
 const HEADER_FONT_SIZE = 8
 
+/**
+ * Half-height of the edge/boundary hit-strip in pixels. Picked so the
+ * pending suggestion's hit-strip (2 * 5 = 10 px tall) fully shadows
+ * the committed contact's drag strip in ``ContactsLayer`` (which is
+ * also 10 px tall — ``DRAG_HIT_HALF_HEIGHT_PX = 5``). SVG paint order
+ * (``LithoSuggestionGhostColumns`` is rendered AFTER ``ContactsLayer``
+ * in ``SectionPanel``) then guarantees the pending hit-strip wins
+ * mousedown on the shared boundary.
+ *
+ * Pre-2026-05-30 this was 3 px → suggestion strip was 6 px tall →
+ * the 4-px outer ring of the contact strip (between 3 and 5 px from
+ * the boundary y) had no overlapping suggestion pixel and grabbed the
+ * mousedown, so the user grabbing "the pending edge" actually grabbed
+ * the committed contact and dragged it off, opening a visible gap
+ * (P2 of the dogfeed report 2026-05-30).
+ */
+const HIT_STRIP_HALF_PX = 5
+
 function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
 }
@@ -830,12 +848,14 @@ export default function LithoSuggestionGhostColumns({
             {dragHandlesEnabled && (
               <>
                 {/* Top-edge handle — drag moves only this layer's TOP.
-                    6 px tall hit zone centred on the top edge. */}
+                    Half-height matches ContactsLayer so the pending
+                    strip fully shadows the contact strip on shared
+                    boundaries (see HIT_STRIP_HALF_PX). */}
                 <rect
                   x={left}
-                  y={topY - 3}
+                  y={topY - HIT_STRIP_HALF_PX}
                   width={ghostWidth}
-                  height={6}
+                  height={HIT_STRIP_HALF_PX * 2}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-top-${idx}`}
@@ -859,12 +879,13 @@ export default function LithoSuggestionGhostColumns({
                     })
                   }}
                 />
-                {/* Base-edge handle — drag moves only this layer's BASE. */}
+                {/* Base-edge handle — drag moves only this layer's BASE.
+                    Half-height matches ContactsLayer (see HIT_STRIP_HALF_PX). */}
                 <rect
                   x={left}
-                  y={baseY - 3}
+                  y={baseY - HIT_STRIP_HALF_PX}
                   width={ghostWidth}
-                  height={6}
+                  height={HIT_STRIP_HALF_PX * 2}
                   fill="transparent"
                   style={{ cursor: 'ns-resize' }}
                   data-testid={`litho-drag-base-${idx}`}
