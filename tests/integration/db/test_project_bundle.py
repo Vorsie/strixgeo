@@ -1550,15 +1550,23 @@ async def test_bundle_roundtrip_preserves_parent_geo_contact_id(
     original_geo_contact_id = geo_contact.id
     original_litho_contact_id = litho_contact.id
 
-    # ---- Build: parent_geo_contact_id appears in the bundled contacts -----
+    # ---- Build: parent_geo_contact_id appears in the bundled layers -----
+    # A4 slice 4c: litho models emit empty ``contacts`` in v4; the
+    # parent_geo_contact_id rides along on the layer row instead
+    # (mirrored from FC via the LL→FC trigger). Restore re-creates the
+    # FC mirror with the same coupling because the trigger copies
+    # parent_geo_contact_id on every accepted-layer INSERT.
     bundle = await build_project_bundle(db_session, source)
 
     assert len(bundle["geological_models"]) == 2
     by_kind = {m["kind"]: m for m in bundle["geological_models"]}
-    litho_contacts_in_bundle = by_kind["lithostratigraphic"]["contacts"]
-    assert len(litho_contacts_in_bundle) == 1, "litho model should carry one contact"
-    assert litho_contacts_in_bundle[0]["parent_geo_contact_id"] == str(original_geo_contact_id), (
-        "parent_geo_contact_id must be serialised into the bundle"
+    assert by_kind["lithostratigraphic"]["contacts"] == [], (
+        "v4 litho models emit empty contacts; layers are the truth"
+    )
+    litho_layers_in_bundle = by_kind["lithostratigraphic"]["litho_layers"]
+    assert len(litho_layers_in_bundle) == 1, "litho model should carry one layer"
+    assert litho_layers_in_bundle[0]["parent_geo_contact_id"] == str(original_geo_contact_id), (
+        "parent_geo_contact_id must ride along on the layer in the bundle"
     )
 
     # ---- Wipe the DB (simulate opening on a fresh machine) ----------------
