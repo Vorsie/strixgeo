@@ -605,15 +605,18 @@ async def test_a6_bulk_segmenter_source_passthrough() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    # The ORM contact row is passed to session.add — inspect the call.
+    # The ORM row passed to session.add is now a LithoLayerOrm (A4 cleanup
+    # — used to be FormationContactOrm; the LL→FC trigger handles the
+    # contact mirror). Source is mapped via _map_contact_source_to_layer:
+    # 'borehole_observation' → 'observation_layer' on the layer row.
     added_objects = [call_args.args[0] for call_args in session.add.call_args_list]
-    contact_rows = [
+    layer_rows = [
         obj for obj in added_objects if hasattr(obj, "source") and hasattr(obj, "confidence")
     ]
-    assert len(contact_rows) == 1, "Expected exactly one FormationContactOrm created"
-    assert contact_rows[0].source == "borehole_observation", (
-        "Bulk segmenter suggestion source must pass through unchanged; "
-        "previously this was hard-coded from the anchor type."
+    assert len(layer_rows) == 1, "Expected exactly one LithoLayerOrm created"
+    assert layer_rows[0].source == "observation_layer", (
+        "Bulk segmenter suggestion source must map through "
+        "_map_contact_source_to_layer; 'borehole_observation' → 'observation_layer'."
     )
 
 
@@ -651,13 +654,13 @@ async def test_a7_manual_pick_source_stamps_manual_pick() -> None:
     )
 
     added_objects = [call_args.args[0] for call_args in session.add.call_args_list]
-    contact_rows = [
+    layer_rows = [
         obj for obj in added_objects if hasattr(obj, "source") and hasattr(obj, "confidence")
     ]
-    assert len(contact_rows) == 1, "Expected exactly one FormationContactOrm created"
-    assert contact_rows[0].source == "manual_pick", (
-        "Manual-pick suggestion source must reach the contact row as 'manual_pick'; "
-        "a hard-coded anchor-derived source would break provenance tagging."
+    assert len(layer_rows) == 1, "Expected exactly one LithoLayerOrm created"
+    assert layer_rows[0].source == "manual", (
+        "Manual-pick suggestion source must map through "
+        "_map_contact_source_to_layer; 'manual_pick' → 'manual'."
     )
 
 
@@ -1002,7 +1005,7 @@ def test_e1_no_geology_at_all_returns_orphan_not_extrapolated() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(0.0, None)]
+    assert result.intervals == [(0.0, 5.0, None)]
     assert result.extrapolated is False
     assert result.stale_tin_fallback_count == 0
 
@@ -1041,7 +1044,7 @@ def test_e2_tin_extrapolates_parent_when_no_contacts_at_inv() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(7.0, upper_fid)]
+    assert result.intervals == [(7.0, 9.0, upper_fid)]
     assert result.extrapolated is True
 
 
@@ -1069,7 +1072,7 @@ def test_e3_suggestion_above_all_surfaces_is_orphan() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(2.0, None)]
+    assert result.intervals == [(2.0, 4.0, None)]
     assert result.extrapolated is False
 
 
@@ -1097,7 +1100,7 @@ def test_e4_inv_outside_tin_footprint_is_orphan() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(7.0, None)]
+    assert result.intervals == [(7.0, 9.0, None)]
     assert result.extrapolated is False
 
 
@@ -1130,7 +1133,7 @@ def test_e5_stale_tin_is_skipped_during_extrapolation() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(7.0, None)]
+    assert result.intervals == [(7.0, 9.0, None)]
     assert result.extrapolated is False
 
 
@@ -1158,7 +1161,7 @@ def test_e6_no_inv_elevation_disables_extrapolation() -> None:
         inv_elevation_m=None,
         suggestion_index=0,
     )
-    assert result.intervals == [(7.0, None)]
+    assert result.intervals == [(7.0, 9.0, None)]
     assert result.extrapolated is False
 
 
@@ -1190,7 +1193,7 @@ def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
         inv_elevation_m=10.0,
         suggestion_index=0,
     )
-    assert result.intervals == [(2.0, upper_fid)]
+    assert result.intervals == [(2.0, 4.0, upper_fid)]
     assert result.extrapolated is False
 
 
@@ -1228,7 +1231,7 @@ def test_as1_near_base_boundary_does_not_split_parent_is_upper() -> None:
         suggestion_index=0,
         min_piece_thickness_m=0.20,
     )
-    assert result.intervals == [(0.0, UPPER_FORMATION_ID)]
+    assert result.intervals == [(0.0, 6.0, UPPER_FORMATION_ID)]
     assert result.stale_tin_fallback_count == 0
 
 
@@ -1256,7 +1259,7 @@ def test_as2_near_top_boundary_does_not_split_parent_is_lower() -> None:
         suggestion_index=0,
         min_piece_thickness_m=0.20,
     )
-    assert result.intervals == [(0.0, LOWER_FORMATION_ID)]
+    assert result.intervals == [(0.0, 6.0, LOWER_FORMATION_ID)]
     assert result.stale_tin_fallback_count == 0
 
 
@@ -1282,8 +1285,8 @@ def test_as3_clear_boundary_still_splits() -> None:
         min_piece_thickness_m=0.20,
     )
     assert result.intervals == [
-        (0.0, UPPER_FORMATION_ID),
-        (3.0, LOWER_FORMATION_ID),
+        (0.0, 3.0, UPPER_FORMATION_ID),
+        (3.0, 6.0, LOWER_FORMATION_ID),
     ]
 
 
