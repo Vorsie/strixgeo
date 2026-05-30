@@ -20,7 +20,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
+import type {
+  FormationContactResponse,
+  GeologicalFormationResponse,
+  LithoLayerSuggestion,
+} from '../../api/client'
 import { useBoundaryDrag } from '../../hooks/useBoundaryDrag'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import { canMergeAt } from '../../utils/lithoLayerMerge'
@@ -219,6 +223,32 @@ export interface LithoSuggestionGhostColumnsProps {
    */
   onExtendToNearest?: (idx: number) => { ok: boolean; reason?: string }
   /**
+   * Slice 3 of unified-boundary-drag (2026-05-30): committed litho
+   * contacts for the focused anchor. The hook scans this list when a
+   * pending drag's mouseup lands at an accepted neighbour's far edge
+   * — finds the contact whose depth_top_m equals the pre-drag
+   * boundary depth and fires ``onUpdateContactDepth`` so the
+   * committed contact follows the pending edit (the "drag at any
+   * stage" delivery). Optional + defaults to an empty list so
+   * existing callers (tests, the bulk-ghost path) keep working with
+   * zero behaviour change — the cross-store dispatch is a no-op when
+   * either prop is absent.
+   */
+  committedContactsForAnchor?: readonly FormationContactResponse[]
+  /**
+   * Slice 3: PATCH callback fired when the dragged boundary crosses
+   * into accepted territory and a matching committed contact exists.
+   * Same signature as ContactsLayer's drag commit (uses the existing
+   * snap-aware wrapper at the SectionsCanvas level so the post-PATCH
+   * litho-geo snap prompt still fires identically). Optional — when
+   * absent the cross-store dispatch is a no-op.
+   */
+  onUpdateContactDepth?: (
+    contactId: string,
+    newDepthM: number,
+    snapped: boolean,
+  ) => Promise<void>
+  /**
    * Optional CPT depth-series for the dragged investigation. When the
    * investigation is a CPT and this map carries an entry for its id,
    * the live drag readout shows ``qc`` (MPa) and ``Rf`` (%) at the
@@ -299,6 +329,8 @@ export default function LithoSuggestionGhostColumns({
   onMergeLayers,
   onAbsorbLayer,
   onExtendToNearest,
+  committedContactsForAnchor,
+  onUpdateContactDepth,
   cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
@@ -451,6 +483,9 @@ export default function LithoSuggestionGhostColumns({
     onReject,
     onAbsorbLayer,
     onMergeLayers,
+    investigationId,
+    committedContactsForAnchor,
+    onUpdateContactDepth,
   })
 
 
