@@ -397,50 +397,6 @@ export function computeDragBounds(
   }
 }
 
-/**
- * Clamp + apply a "move the whole layer" drag — the middle grab dot (#163
- * Slice 1).  Translates BOTH the top and base edges of suggestion ``idx`` by
- * the same delta (thickness preserved), clamped so the band cannot push past
- * its visible neighbours: the top stops at the above-neighbour's far edge (or
- * ground), the base at the below-neighbour's far edge (or the test bottom).
- *
- * Reuses ``computeDragBounds`` so the dot's clamp matches the boundary
- * line-drag — no second, divergent clamp implementation.
- *
- * Parameters
- * ----------
- * idx
- *     The suggestion being moved.
- * suggestions, edits, acceptedIndices, rejectedIndices
- *     Live ghost state (same inputs as ``computeDragBounds``).
- * requestedDeltaM
- *     Desired vertical move in metres (positive = deeper / down).
- *
- * Returns
- * -------
- * { topM, baseM, clampedDeltaM }
- *     The new clamped top + base depths and the delta actually applied.
- */
-export function computeMoveBothEdits(
-  idx: number,
-  suggestions: readonly LithoLayerSuggestion[],
-  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
-  acceptedIndices: ReadonlySet<number>,
-  rejectedIndices: ReadonlySet<number>,
-  requestedDeltaM: number,
-): { topM: number; baseM: number; clampedDeltaM: number } {
-  const own = effectiveDepths(suggestions, edits, idx)
-  const topBounds = computeDragBounds('top', idx, suggestions, edits, acceptedIndices, rejectedIndices)
-  const baseBounds = computeDragBounds('base', idx, suggestions, edits, acceptedIndices, rejectedIndices)
-  // Room upward (≤ 0): the top edge may rise until the above-neighbour's
-  // far edge.  Room downward (≥ 0): the base edge may sink until the
-  // below-neighbour's far edge.
-  const minDelta = topBounds.boundsAboveM - own.topM
-  const maxDelta = baseBounds.boundsBelowM - own.baseM
-  const clampedDeltaM = Math.max(minDelta, Math.min(maxDelta, requestedDeltaM))
-  return { topM: own.topM + clampedDeltaM, baseM: own.baseM + clampedDeltaM, clampedDeltaM }
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -752,23 +708,6 @@ export default function LithoSuggestionGhostColumns({
      * midpoint).
      */
     absorbPending: 'up' | 'down' | null
-  } | null>(null)
-
-  // #163 Slice 1 — 3-dot grab handle. Which suggestion is hovered/selected
-  // (shows its grab dots); null = none. Dots render at the column centre so
-  // they don't collide with the geo↔litho coupling dots at the band edges.
-  const [hoveredHandleIdx, setHoveredHandleIdx] = useState<number | null>(null)
-
-  // #163 Slice 1 — middle-dot "move whole layer" drag. Carries the dragged
-  // suggestion + the mousedown clientY; on mouseup the clamped move commits
-  // via computeMoveBothEdits. Separate from ``drag`` (the single-edge line
-  // drag) so the move-both path doesn't touch the cross-merge mouseup.
-  const [moveBothDrag, setMoveBothDrag] = useState<{
-    idx: number
-    initialClientY: number
-    /** Live cursor delta in metres (updated on mousemove) so the band can
-     *  follow the cursor during the drag (live preview). */
-    currentDeltaM: number
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -1153,56 +1092,6 @@ export default function LithoSuggestionGhostColumns({
   // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
   }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, rejectedIndices])
 
-  // #163 Slice 1 — middle-dot "move whole layer" drag. Mousemove tracks the
-  // cursor delta so the band follows live (preview, applied in the render
-  // block below); mouseup commits the clamped move via computeMoveBothEdits +
-  // follows the shared boundaries on the visible pending neighbours (idx-1
-  // base ← new top; idx+1 top ← new base). Isolated from the single-edge
-  // ``drag`` cross-merge path.
-  useEffect(() => {
-    if (moveBothDrag === null) return
-    function handleMove(e: MouseEvent): void {
-      setMoveBothDrag(md =>
-        md === null
-          ? md
-          : { ...md, currentDeltaM: (e.clientY - md.initialClientY) / pxPerM },
-      )
-    }
-    function handleUp(): void {
-      setMoveBothDrag(md => {
-        if (md !== null && onEdit) {
-          const { topM, baseM, clampedDeltaM } = computeMoveBothEdits(
-            md.idx,
-            suggestions,
-            edits,
-            acceptedIndices,
-            rejectedIndices,
-            md.currentDeltaM,
-          )
-          if (clampedDeltaM !== 0) {
-            onEdit(md.idx, { depth_top_m: topM, depth_base_m: baseM })
-            // Shared-boundary follow on visible pending neighbours.
-            const aboveIdx = nearestVisibleIndexAbove(md.idx, rejectedIndices)
-            if (aboveIdx !== null && !acceptedIndices.has(aboveIdx)) {
-              onEdit(aboveIdx, { depth_base_m: topM, _propagateOnly: true })
-            }
-            const belowIdx = nearestVisibleIndexBelow(md.idx, suggestions.length, rejectedIndices)
-            if (belowIdx !== null && !acceptedIndices.has(belowIdx)) {
-              onEdit(belowIdx, { depth_top_m: baseM, _propagateOnly: true })
-            }
-          }
-        }
-        return null
-      })
-    }
-    document.addEventListener('mousemove', handleMove)
-    document.addEventListener('mouseup', handleUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMove)
-      document.removeEventListener('mouseup', handleUp)
-    }
-  }, [moveBothDrag, pxPerM, onEdit, suggestions, edits, acceptedIndices, rejectedIndices])
-
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
   // by its ``data-litho-anchor-id`` + ``data-litho-idx`` attributes —
@@ -1362,20 +1251,6 @@ export default function LithoSuggestionGhostColumns({
   // sibling ghost-column instances (single-anchor + bulk) don't
   // collide on the same SVG-wide id.
   const hatchPatternId = `litho-pending-hatch-${investigationId}`
-  // #163 Slice 1 — precompute the clamped move-both preview once so the
-  // render loop can offset the dragged band + its shared-boundary neighbours
-  // live as the middle dot is dragged.
-  const moveBothPreview =
-    moveBothDrag !== null
-      ? computeMoveBothEdits(
-          moveBothDrag.idx,
-          suggestions,
-          edits,
-          acceptedIndices,
-          rejectedIndices,
-          moveBothDrag.currentDeltaM,
-        )
-      : null
   return (
     <>
     <g data-testid="litho-suggestion-ghosts">
@@ -1454,25 +1329,6 @@ export default function LithoSuggestionGhostColumns({
             }
           }
         }
-        // #163 Slice 1 — middle-dot move-both live preview. The dragged band
-        // follows the cursor (both edges); the shared-boundary neighbours
-        // follow the same way the commit propagates (above.base ← new top,
-        // below.top ← new base).
-        if (moveBothDrag !== null && moveBothPreview !== null) {
-          if (moveBothDrag.idx === idx) {
-            topM = moveBothPreview.topM
-            baseM = moveBothPreview.baseM
-          } else if (!acceptedIndices.has(idx) && !rejectedIndices.has(idx)) {
-            if (nearestVisibleIndexAbove(moveBothDrag.idx, rejectedIndices) === idx) {
-              baseM = moveBothPreview.topM
-            }
-            if (
-              nearestVisibleIndexBelow(moveBothDrag.idx, suggestions.length, rejectedIndices) === idx
-            ) {
-              topM = moveBothPreview.baseM
-            }
-          }
-        }
         // Composition overrides from the LithoGhostCompositionEditor
         // (debt #72) — when the user edits a layer's main soil or
         // admixture list, the dialog's onSave stashes the new values
@@ -1534,10 +1390,6 @@ export default function LithoSuggestionGhostColumns({
           <g
             key={`${idx}-${rawLayer.suggested_lithology}-${rawLayer.depth_top_m}`}
             data-testid={`litho-band-group-${idx}`}
-            onMouseEnter={() => setHoveredHandleIdx(idx)}
-            onMouseLeave={() =>
-              setHoveredHandleIdx(cur => (cur === idx ? null : cur))
-            }
           >
             <LithoSuggestionLayer
               layer={effective}
@@ -1649,101 +1501,6 @@ export default function LithoSuggestionGhostColumns({
                 />
               </>
             )}
-            {/* #163 Slice 1 — three grab dots at the column CENTRE (not the
-                edges, so they don't collide with the geo↔litho coupling dots).
-                Shown on hover/while dragging this layer. Top/bottom reuse the
-                existing single-edge drag; the middle moves the whole layer via
-                the move-both path. */}
-            {dragHandlesEnabled &&
-              (hoveredHandleIdx === idx ||
-                drag?.idx === idx ||
-                moveBothDrag?.idx === idx) && (
-                <g data-testid={`litho-grab-dots-${idx}`} style={{ pointerEvents: 'auto' }}>
-                  <circle
-                    data-testid={`litho-grab-top-${idx}`}
-                    cx={left + ghostWidth / 2}
-                    cy={topY}
-                    r={5}
-                    fill="#f59e0b"
-                    stroke="#fff"
-                    strokeWidth={1.5}
-                    style={{ cursor: 'ns-resize' }}
-                    onMouseDown={e => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      const bounds = computeDragBounds(
-                        'top',
-                        idx,
-                        suggestions,
-                        edits,
-                        acceptedIndices,
-                        rejectedIndices,
-                      )
-                      setDrag({
-                        idx,
-                        edge: 'top',
-                        initialClientY: e.clientY,
-                        initialDepthM: topM,
-                        currentDepthM: topM,
-                        ...bounds,
-                        snapped: false,
-                        snapTargetM: null,
-                        collapseChainOnRelease: [],
-                        absorbPending: null,
-                      })
-                    }}
-                  />
-                  <circle
-                    data-testid={`litho-grab-middle-${idx}`}
-                    cx={left + ghostWidth / 2}
-                    cy={(topY + baseY) / 2}
-                    r={5}
-                    fill="#f59e0b"
-                    stroke="#fff"
-                    strokeWidth={1.5}
-                    style={{ cursor: 'move' }}
-                    onMouseDown={e => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      setMoveBothDrag({ idx, initialClientY: e.clientY, currentDeltaM: 0 })
-                    }}
-                  />
-                  <circle
-                    data-testid={`litho-grab-bottom-${idx}`}
-                    cx={left + ghostWidth / 2}
-                    cy={baseY}
-                    r={5}
-                    fill="#f59e0b"
-                    stroke="#fff"
-                    strokeWidth={1.5}
-                    style={{ cursor: 'ns-resize' }}
-                    onMouseDown={e => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      const bounds = computeDragBounds(
-                        'base',
-                        idx,
-                        suggestions,
-                        edits,
-                        acceptedIndices,
-                        rejectedIndices,
-                      )
-                      setDrag({
-                        idx,
-                        edge: 'base',
-                        initialClientY: e.clientY,
-                        initialDepthM: baseM,
-                        currentDepthM: baseM,
-                        ...bounds,
-                        snapped: false,
-                        snapTargetM: null,
-                        collapseChainOnRelease: [],
-                        absorbPending: null,
-                      })
-                    }}
-                  />
-                </g>
-              )}
             {/* Debt #85 boundary hit-strip — 6 px tall transparent rect
                 centred on the shared boundary between this layer and
                 the next pending one. Right-click opens the boundary
