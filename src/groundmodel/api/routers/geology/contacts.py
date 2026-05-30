@@ -1086,6 +1086,11 @@ async def suggest_litho_contacts(
 
 
 @router.post(
+    "/models/{model_id}/layers/accept-litho-suggestions",
+    response_model=AcceptLithoSuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+@router.post(
     "/models/{model_id}/contacts/accept-litho-suggestions",
     response_model=AcceptLithoSuggestionsResponse,
     status_code=status.HTTP_200_OK,
@@ -1232,6 +1237,11 @@ async def accept_litho_suggestions(
     )
 
 
+@router.post(
+    "/models/{model_id}/layers/batch-accept-litho-suggestions",
+    response_model=BatchAcceptLithoSuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
 @router.post(
     "/models/{model_id}/contacts/batch-accept-litho-suggestions",
     response_model=BatchAcceptLithoSuggestionsResponse,
