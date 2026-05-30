@@ -248,6 +248,14 @@ export interface LithoSuggestionGhostColumnsProps {
    */
   committedContactsForAnchor?: readonly FormationContactResponse[]
   /**
+   * Robust-fix follow-up (dogfeed 2026-05-30): contact ids the API
+   * returned per accepted suggestion idx. Lets the hook's cross-
+   * store dispatch resolve the committed contact by IDENTITY instead
+   * of by depth-tolerance match, surviving contact-drift drag
+   * sequences. Optional — falls back to depth match when absent.
+   */
+  contactIdsByAcceptedIdx?: ReadonlyMap<number, readonly string[]>
+  /**
    * Slice 3: PATCH callback fired when the dragged boundary crosses
    * into accepted territory and a matching committed contact exists.
    * Same signature as ContactsLayer's drag commit (uses the existing
@@ -354,6 +362,7 @@ export default function LithoSuggestionGhostColumns({
   onAbsorbLayer,
   onExtendToNearest,
   committedContactsForAnchor,
+  contactIdsByAcceptedIdx,
   onUpdateContactDepth,
   onContactLivePreview,
   cptPlotByAnchorId,
@@ -510,6 +519,7 @@ export default function LithoSuggestionGhostColumns({
     onMergeLayers,
     investigationId,
     committedContactsForAnchor,
+    contactIdsByAcceptedIdx,
     onUpdateContactDepth,
     onContactLivePreview,
   })
