@@ -2145,3 +2145,142 @@ describe('LithoSuggestionGhostColumns', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// LOCK1 — drag UP locks after absorb-down (dogfeed 2026-05-30)
+//
+// Owner report: "upward drag seems to lock exactly after i pull a higher
+// layer down to a lower layer to collapse them into one layer."
+//
+// DR2 / DR3 already cover "drag merged BASE up after collapse" using an
+// explicit re-render. Both pass. The lock has to come from a divergence
+// with the real flow — most likely the z-order overlap at the shared
+// boundary: after absorb the merged BASE and the next layer's TOP both
+// sit at the same y. SVG paints the next layer's top LATER, so a click at
+// the boundary y grabs the next layer's TOP, not the merged BASE.
+//
+// This describe block walks the FULL flow via the same applyCrossMergeOnDrag
+// reducer the parent hook uses, then probes UP-drag on both candidate
+// hit-targets (merged BASE + next layer's TOP) to pin which one locks.
+// ---------------------------------------------------------------------------
+
+import { applyCrossMergeOnDrag as applyCrossMergeOnDragHelper } from '../../utils/lithoLayerMerge'
+import type { BulkAnchorGhost, LithoSuggestionEdit } from '../../hooks/useGeologicalModel'
+
+describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
+  /**
+   * Stateful harness — mirrors useGeologicalModel.handleEditBulkLitho: every
+   * onEdit fires the same applyCrossMergeOnDrag reducer the production code
+   * uses, then re-renders with the new ghost state.
+   */
+  function renderStatefulGhost(initial: LithoLayerSuggestion[]): {
+    container: HTMLElement
+    snapshot: () => BulkAnchorGhost
+  } {
+    const id = 'cpt-1'
+    let ghost: BulkAnchorGhost = {
+      kind: 'cpt',
+      surfaceElevationM: 5,
+      suggestions: initial,
+      accepted: new Set(),
+      rejected: new Set(),
+      edits: new Map(),
+    }
+    const renderShell = (): JSX.Element => (
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={ghost.suggestions}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={ghost.accepted}
+          rejectedIndices={ghost.rejected}
+          edits={ghost.edits}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={(idx, edit) => {
+            ghost = applyCrossMergeOnDragHelper(ghost, idx, edit as LithoSuggestionEdit)
+            rerender(renderShell())
+          }}
+          // Real SectionPanel wires this — the debt #85 boundary insert
+          // hit-strip only renders when present, so the test must wire it
+          // too or the real-life z-order isn't reproduced.
+          onInsertLayer={vi.fn()}
+        />
+      </svg>
+    )
+    const { container, rerender } = render(renderShell())
+    return { container, snapshot: () => ghost }
+  }
+
+  // Helper — depth → clientY using the test transform (surface=5, pxPerM=100).
+  const yOfDepth = (depth: number): number => 500 - (5 - depth) * 100
+
+  it('LOCK1 — drag MERGED LAYER base UP after absorb-down should fire onEdit', () => {
+    const { container, snapshot } = renderStatefulGhost([
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+    ])
+    // Step 1 — drag layer 0's base DOWN past layer 1's far edge (depth 4)
+    // to trigger absorb-down. baseY starts at yOfDepth(2)=300; drag to
+    // yOfDepth(5)=600 (well past depth 4 + snap threshold).
+    const baseHandle0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle0, { clientY: yOfDepth(2) })
+    fireEvent.mouseMove(document, { clientY: yOfDepth(5) })
+    fireEvent.mouseUp(document)
+
+    // Post-collapse state: layer 1 gone, layer 0 extended to depth 4,
+    // original layer 2 now at idx 1.
+    const post = snapshot()
+    expect(post.suggestions).toHaveLength(2)
+    expect(post.edits.get(0)?.depth_base_m).toBeCloseTo(4, 5)
+
+    // Step 2 — drag the MERGED layer's base UP from depth 4 to depth 3.
+    // baseY is at yOfDepth(4)=400; drag UP 100 px to yOfDepth(3)=300.
+    const baseHandleMerged = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    expect(baseHandleMerged).not.toBeNull()
+    fireEvent.mouseDown(baseHandleMerged, { clientY: yOfDepth(4) })
+    fireEvent.mouseMove(document, { clientY: yOfDepth(3) })
+    fireEvent.mouseUp(document)
+
+    // Expectation: the merged layer's base committed to 3 m.
+    const after = snapshot()
+    expect(after.edits.get(0)?.depth_base_m).toBeCloseTo(3, 5)
+  })
+
+  // LOCK1b — Grab the NEXT pending layer's TOP at the shared boundary
+  // (SVG z-order makes this the actual hit-target when the user clicks
+  // at the boundary y), drag UP. Shared-boundary commit MUST propagate
+  // the merged layer's base up by the same delta.
+  it('LOCK1b — grabbing the NEXT layer top at the shared boundary then dragging UP moves both edges', () => {
+    const { container, snapshot } = renderStatefulGhost([
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+    ])
+    // Absorb-down: layer 0 swallows layer 1.
+    const baseHandle0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle0, { clientY: yOfDepth(2) })
+    fireEvent.mouseMove(document, { clientY: yOfDepth(5) })
+    fireEvent.mouseUp(document)
+
+    // Post-merge: 2 layers. The NEXT pending below the merged sits at
+    // the shared boundary depth 4 — its TOP handle wins z-order at y=400.
+    const nextTopHandle = container.querySelector('[data-testid="litho-drag-top-1"]')!
+    expect(nextTopHandle).not.toBeNull()
+    fireEvent.mouseDown(nextTopHandle, { clientY: yOfDepth(4) })
+    fireEvent.mouseMove(document, { clientY: yOfDepth(3) })
+    fireEvent.mouseUp(document)
+
+    const after = snapshot()
+    // Shared-boundary commit must move BOTH: the next layer's top to 3
+    // AND the merged layer's base to 3 (the partner _propagateOnly edit).
+    expect(after.edits.get(1)?.depth_top_m).toBeCloseTo(3, 5)
+    expect(after.edits.get(0)?.depth_base_m).toBeCloseTo(3, 5)
+  })
+
+})
