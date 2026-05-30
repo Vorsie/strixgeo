@@ -1454,13 +1454,9 @@ export default function LithoSuggestionGhostColumns({
                     // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
                     // absorb-down" report. Temporary; remove once root-caused.
                     // eslint-disable-next-line no-console
-                    console.info('[litho-drag] DOWN', {
-                      strip: `top-${idx}`,
-                      topM,
-                      baseM,
-                      bounds,
-                      lockedUp: bounds.boundsAboveM >= topM,
-                    })
+                    console.info(
+                      `[litho-drag] DOWN strip=top-${idx} topM=${topM.toFixed(3)} baseM=${baseM.toFixed(3)} boundsAbove=${bounds.boundsAboveM.toFixed(3)} boundsBelow=${bounds.boundsBelowM.toFixed(3)} lockedUp=${bounds.boundsAboveM >= topM}`,
+                    )
                     setDrag({
                       idx,
                       edge: 'top',
@@ -1498,13 +1494,9 @@ export default function LithoSuggestionGhostColumns({
                     // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
                     // absorb-down" report. Temporary; remove once root-caused.
                     // eslint-disable-next-line no-console
-                    console.info('[litho-drag] DOWN', {
-                      strip: `base-${idx}`,
-                      topM,
-                      baseM,
-                      bounds,
-                      lockedDown: bounds.boundsBelowM <= baseM,
-                    })
+                    console.info(
+                      `[litho-drag] DOWN strip=base-${idx} topM=${topM.toFixed(3)} baseM=${baseM.toFixed(3)} boundsAbove=${bounds.boundsAboveM.toFixed(3)} boundsBelow=${bounds.boundsBelowM.toFixed(3)} lockedUp=${bounds.boundsAboveM >= baseM}`,
+                    )
                     setDrag({
                       idx,
                       edge: 'base',
