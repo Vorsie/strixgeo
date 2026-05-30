@@ -307,3 +307,64 @@ async def test_bulk_create_422_on_missing_anchor(
         },
     )
     assert resp.status_code == 422
+
+
+async def test_bulk_create_with_section_id_seeds_section(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """A4 remaining-writer cut — handleCreateLithoContact's section_id
+    behaviour ports to /layers. After insert, the freshly-created
+    layer ids must be unioned into the section's seeded_formation_contact_ids.
+    """
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+
+    project, model, bh, formation, _ = project_with_two_layers
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec",
+        start_x=0.0,
+        start_y=0.0,
+        end_x=100.0,
+        end_y=0.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers",
+        json={
+            "section_id": str(section.id),
+            "layers": [
+                {
+                    "formation_id": str(formation.id),
+                    "borehole_id": str(bh.id),
+                    "depth_top_m": 6.5,
+                    "depth_base_m": 7.5,
+                    "status": "accepted",
+                    "source": "manual",
+                }
+            ],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    layer_id = body[0]["id"]
+    # expire_on_commit=False on the integration session keeps the
+    # cached `section` object alive with its pre-update empty array;
+    # a SELECT against a fresh column bypasses the identity-map cache.
+    from sqlalchemy import select
+
+    row = (
+        await db_session.execute(
+            select(CrossSectionOrm.seeded_formation_contact_ids).where(
+                CrossSectionOrm.id == section.id
+            )
+        )
+    ).scalar_one()
+    assert layer_id in [str(x) for x in (row or [])]
