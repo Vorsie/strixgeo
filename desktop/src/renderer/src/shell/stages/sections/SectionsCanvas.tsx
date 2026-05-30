@@ -1613,6 +1613,23 @@ export default function SectionsCanvas(): JSX.Element {
           cpt?.max_depth_m ?? bh?.total_depth_m ?? 30
         return handleExtendLithoGhostToNearestContacts(focusedSuggestAnchorId, idx, maxDepthM)
       },
+      // Slice 3 of the unified-boundary-drag work (2026-05-30): the
+      // committed litho contacts for the focused anchor, filtered down
+      // here so the ghost component doesn't have to know the anchor-
+      // matching shape. The hook uses this list to find the contact
+      // whose depth_top_m equals the pre-drag boundary depth (the
+      // dragger's initialDepthM) when an accepted neighbour is on the
+      // drag direction — then fires onUpdateContactDepth to move the
+      // committed contact along with the pending edit. Pre-filter by
+      // anchor so the lookup is O(N_contacts_on_this_anchor) not O(N_all).
+      committedContactsForAnchor: lithoContacts.filter(
+        c => c.cpt_id === focusedSuggestAnchorId || c.borehole_id === focusedSuggestAnchorId,
+      ),
+      // The cross-store PATCH dispatch (Slice 3). Uses the existing
+      // snap-aware wrapper so the post-PATCH litho-geo snap prompt
+      // (debt #134) still fires identically — the suggestion-drag
+      // path is just another entry point to the same audit trail.
+      onUpdateContactDepth: handleLithoSnapAwareUpdateContactDepth,
     }
   }, [
     isLitho,
@@ -1631,6 +1648,8 @@ export default function SectionsCanvas(): JSX.Element {
     handleExtendLithoGhostToNearestContacts,
     visibleCpts,
     visibleBoreholes,
+    lithoContacts,
+    handleLithoSnapAwareUpdateContactDepth,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
