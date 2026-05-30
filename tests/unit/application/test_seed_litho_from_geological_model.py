@@ -40,7 +40,7 @@ from uuid import uuid4
 import pytest
 
 from groundmodel.application.seed_litho_from_geological_model import (
-    _SOURCE_LITERAL,
+    _LEGACY_FC_SOURCE_LITERAL,
     SeedLithoFromGeologicalModel,
 )
 
@@ -198,7 +198,14 @@ async def test_happy_path_copies_parent_contacts():
     assert new_row.formation_id == formation_id
     assert new_row.borehole_id == borehole_id
     assert new_row.depth_top_m == 3.0
-    assert new_row.source == _SOURCE_LITERAL
+    # A4 cleanup: the use case writes LithoLayerOrm with source='manual'
+    # (the LL source enum has no seed-specific value). The original FC
+    # source token survives as a constant for archaeology, but the LL→FC
+    # trigger maps the layer's 'manual' source to FC 'manual_pick' — so
+    # FC.source for seeded rows is no longer 'geological_model_seed'.
+    assert _LEGACY_FC_SOURCE_LITERAL == "geological_model_seed"
+    assert new_row.source == "manual"
+    assert new_row.status == "accepted"
     assert new_row.confidence == "medium"
     assert new_row.observation_id is None
     assert new_row.observation_layer_id is None
@@ -213,8 +220,15 @@ async def test_happy_path_copies_parent_contacts():
 
 @pytest.mark.asyncio
 async def test_created_contact_source_and_confidence():
-    """Created contacts carry source='geological_model_seed' and confidence='medium'."""
-    assert _SOURCE_LITERAL == "geological_model_seed"
+    """Created layers carry source='manual' (A4) + confidence='medium'.
+
+    The legacy FC source 'geological_model_seed' has no equivalent in the
+    LithoLayer source enum — the use case maps it to 'manual'. The LL→FC
+    trigger then maps 'manual' back to FC 'manual_pick', so FC.source on
+    the seeded mirror is 'manual_pick'. The original token survives as
+    _LEGACY_FC_SOURCE_LITERAL for archaeology only.
+    """
+    assert _LEGACY_FC_SOURCE_LITERAL == "geological_model_seed"
 
     parent_id = uuid4()
     litho = _litho_model(parent_id=parent_id)
@@ -240,7 +254,8 @@ async def test_created_contact_source_and_confidence():
 
     assert len(outcome.created_contact_ids) == 1
     new_row = session.add.call_args_list[0].args[0]
-    assert new_row.source == "geological_model_seed"
+    assert new_row.source == "manual"
+    assert new_row.status == "accepted"
     assert new_row.confidence == "medium"
     assert new_row.observation_id is None
     assert new_row.observation_layer_id is None
