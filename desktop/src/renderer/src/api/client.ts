@@ -1926,18 +1926,23 @@ export const api = {
       }
     },
 
-    /** POST /models/{mid}/layers — bulk-create N pending layers in one transaction. */
+    /** POST /models/{mid}/layers — bulk-create N layers in one transaction.
+     *  Pass `sectionId` to seed the new layer ids into a cross-section's
+     *  `seeded_formation_contact_ids` array (explicit-content invariant). */
     bulkCreateLayers: async (
       projectId: string,
       modelId: string,
       layers: readonly LithoLayerCreateItem[],
+      sectionId?: string | null,
     ): Promise<LithoLayerResponse[]> => {
+      const body: { layers: readonly LithoLayerCreateItem[]; section_id?: string } = { layers }
+      if (sectionId) body.section_id = sectionId
       const res = await fetch(
         `${_base}/projects/${projectId}/geology/models/${modelId}/layers`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ layers }),
+          body: JSON.stringify(body),
         },
       )
       if (!res.ok) {
