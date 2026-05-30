@@ -69,6 +69,7 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -110,11 +111,12 @@ class SeedLithoOutcome:
         self.skipped_existing = skipped_existing
 
 
-# Opaque provenance literal that fits the ``source VARCHAR(30)`` column.
-# WHY: distinguishes contacts seeded by copying the parent geological model
-# from contacts placed via borehole observation or manual pick — critical
-# for audit trails and future re-seed idempotency logic.
-_SOURCE_LITERAL = "geological_model_seed"
+# Historical FC provenance literal — no longer written by this use case
+# (A4 cleanup: writes LithoLayerOrm with source='manual' instead, since
+# the layer source enum has no seed-specific value). Kept here as
+# documentation of the original token; consumers of FC.source for litho
+# rows now see 'manual_pick' via the LL→FC trigger's source mapping.
+_LEGACY_FC_SOURCE_LITERAL = "geological_model_seed"
 
 
 class SeedLithoFromGeologicalModel(GroundModelLogger):
@@ -251,13 +253,19 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         # 4. Pre-load existing litho model contacts for idempotency check
         #    Index: (formation_id, borehole_id) → existing contact id
         # ----------------------------------------------------------------
+        # A4 cleanup: idempotency index reads litho_layer (Shape A source
+        # of truth, accepted rows only — pending suggestions don't count
+        # as already-seeded; rejected layers neither).
         litho_contacts_stmt = select(
-            FormationContactOrm.id,
-            FormationContactOrm.formation_id,
-            FormationContactOrm.borehole_id,
-        ).where(FormationContactOrm.model_id == model_id)
+            LithoLayerOrm.id,
+            LithoLayerOrm.formation_id,
+            LithoLayerOrm.borehole_id,
+        ).where(
+            LithoLayerOrm.model_id == model_id,
+            LithoLayerOrm.status == "accepted",
+        )
         litho_contact_rows = list((await self._session.execute(litho_contacts_stmt)).all())
-        # (formation_id, borehole_id) → existing contact id
+        # (formation_id, borehole_id) → existing layer id
         existing_pair_to_id: dict[tuple[UUID, UUID], UUID] = {
             (row[1], row[2]): row[0]
             for row in litho_contact_rows
@@ -321,27 +329,47 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
                 )
                 continue
 
-            # Create the litho contact
-            new_contact = FormationContactOrm(
+            # A4 cleanup — Shape A native write. The seeded boundary is
+            # a single point in depth (the parent geo contact's
+            # depth_top_m); the layer's depth_base_m is the next
+            # contact down at the same borehole. Computing that
+            # natively here would require sorting all seeded + existing
+            # contacts at the anchor — non-trivial across borehole
+            # groups. Instead, write the layer with a sentinel
+            # depth_base_m = depth_top_m + 0.001 (satisfies the
+            # depth-ordered CHECK) and let the FC↔LL trigger pair
+            # correct it: the LL→FC trigger materialises the FC mirror;
+            # the FC→LL trigger then recomputes depth_base_m via LEAD
+            # over current FCs at the (model, anchor). End state has
+            # the same depth_base_m derivation as the legacy path.
+            new_layer = LithoLayerOrm(
                 id=uuid7(),
                 model_id=model_id,
                 formation_id=formation_id,
                 borehole_id=bh_id,
                 cpt_id=None,
                 depth_top_m=parent_contact.depth_top_m,
-                source=_SOURCE_LITERAL,
+                depth_base_m=parent_contact.depth_top_m + 0.001,
+                status="accepted",
+                # Seed provenance — maps to FC.source='manual_pick' via the
+                # LL→FC trigger. The original 'geological_model_seed' token
+                # is preserved in this constant for archaeology; the LL
+                # source enum is intentionally tighter (no seed-specific
+                # value) and the FC mirror's source loses that distinction
+                # by design.
+                source="manual",
                 confidence="medium",
                 observation_id=None,
                 observation_layer_id=None,
                 notes=None,
             )
-            self._session.add(new_contact)
-            existing_pair_to_id[pair_key] = new_contact.id  # keep index current
-            created_contact_ids.append(new_contact.id)
+            self._session.add(new_layer)
+            existing_pair_to_id[pair_key] = new_layer.id  # keep index current
+            created_contact_ids.append(new_layer.id)
             if formation_id is not None:
                 created_formation_ids.add(formation_id)
             self.debug(
-                f"[{i}/{total}] SeedLitho: created contact {new_contact.id} "
+                f"[{i}/{total}] SeedLitho: created layer {new_layer.id} "
                 f"formation={formation_id} borehole={bh_id} "
                 f"depth={parent_contact.depth_top_m:.3f}m"
             )
