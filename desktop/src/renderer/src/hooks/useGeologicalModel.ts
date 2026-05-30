@@ -1510,16 +1510,25 @@ export function useGeologicalModel({
           axis: isLitho ? 'litho' : 'geological',
           refetchPath: isLitho ? 'refetchLithoContacts' : 'refetchContacts',
         })
-        const updated = await api.geology.updateContact(
-          project.id,
-          modelId,
-          contactId,
-          {
-            depth_top_m: newDepthM,
-            source: snapped ? 'borehole_observation' : 'manual_pick',
-            confidence: snapped ? 'high' : 'medium',
-          },
-        )
+        // A4 slice 3 — litho writers target /layers; updateLayer hits
+        // PATCH /layers/{lid} and the LL→FC trigger mirrors the depth
+        // move into formation_contact. Litho cross-merge is disabled
+        // at the BE (owner directive 2026-05-27, commit 9d4a01db) so
+        // the null-response branch below is geo-only by construction
+        // — updateLayer can't return null for a row that exists.
+        // The source enum maps differently: snap='observation_layer'
+        // ↔ FC 'borehole_observation'; unsnapped='manual' ↔ 'manual_pick'.
+        const updated = isLitho
+          ? await api.geology.updateLayer(project.id, modelId, contactId, {
+              depth_top_m: newDepthM,
+              source: snapped ? 'observation_layer' : 'manual',
+              confidence: snapped ? 'high' : 'medium',
+            })
+          : await api.geology.updateContact(project.id, modelId, contactId, {
+              depth_top_m: newDepthM,
+              source: snapped ? 'borehole_observation' : 'manual_pick',
+              confidence: snapped ? 'high' : 'medium',
+            })
         // Mutation of a pre-existing contact — mark dirty so the close
         // prompt fires and a close-without-save reverts it (#160).
         markMutated()
@@ -1575,7 +1584,10 @@ export function useGeologicalModel({
           'geology',
           `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source} — refetching`,
         )
-        // Undo: PATCH the contact back to its pre-drag state.
+        // Undo: PATCH the row back to its pre-drag state. A4 slice 3
+        // forks litho vs geological — litho hits /layers, geological
+        // stays on /contacts. The refetch path keeps lithoLayers +
+        // lithoContacts in lockstep for the litho branch.
         const projectId = project.id
         const beforePayload = {
           depth_top_m: previous.depth_top_m,
@@ -1593,9 +1605,32 @@ export function useGeologicalModel({
             | 'interpolated',
           confidence: updated.confidence as 'high' | 'medium' | 'low',
         }
+        // Layer-shape payloads for the litho path. Status stays as-is
+        // (the drag doesn't change accept/reject); source maps the
+        // same way as the main update above.
+        const beforeLayerPayload = {
+          depth_top_m: previous.depth_top_m,
+          source: (previous.source === 'borehole_observation' ? 'observation_layer' : 'manual') as
+            | 'observation_layer'
+            | 'manual',
+          confidence: previous.confidence as 'high' | 'medium' | 'low',
+        }
+        const afterLayerPayload = {
+          depth_top_m: updated.depth_top_m,
+          source: (updated.source === 'borehole_observation' ||
+          updated.source === 'observation_layer'
+            ? 'observation_layer'
+            : 'manual') as 'observation_layer' | 'manual',
+          confidence: updated.confidence as 'high' | 'medium' | 'low',
+        }
         pushUndo({
           description: 'Move contact',
           revert: async () => {
+            if (isLitho) {
+              await api.geology.updateLayer(projectId, modelId, contactId, beforeLayerPayload)
+              refetchLithoContacts()
+              return
+            }
             const reverted = await api.geology.updateContact(
               projectId,
               modelId,
@@ -1603,12 +1638,15 @@ export function useGeologicalModel({
               beforePayload,
             )
             if (reverted !== null) {
-              applyPatch(prev =>
-                prev.map(c => (c.id === contactId ? reverted : c)),
-              )
+              applyPatch(prev => prev.map(c => (c.id === contactId ? reverted : c)))
             }
           },
           reapply: async () => {
+            if (isLitho) {
+              await api.geology.updateLayer(projectId, modelId, contactId, afterLayerPayload)
+              refetchLithoContacts()
+              return
+            }
             const reapplied = await api.geology.updateContact(
               projectId,
               modelId,
@@ -1616,9 +1654,7 @@ export function useGeologicalModel({
               afterPayload,
             )
             if (reapplied !== null) {
-              applyPatch(prev =>
-                prev.map(c => (c.id === contactId ? reapplied : c)),
-              )
+              applyPatch(prev => prev.map(c => (c.id === contactId ? reapplied : c)))
             }
           },
         })
