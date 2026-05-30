@@ -81,7 +81,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import LensWedgeOverlay from './sections/LensWedgeOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
-import { warpedScreenXToAlong, type WarpAnchor } from './sections/sectionWarp'
+import { type WarpAnchor } from './sections/sectionWarp'
 
 /** Stable empty map so the LensWedgeOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, LensBoundaryResponse> = new Map()
@@ -981,14 +981,14 @@ export default function SectionPanel({
       if (px < MARGIN.left || px > MARGIN.left + plotWidth) return
       if (py < MARGIN.top || py > MARGIN.top + plotHeight) return
 
-      // Invert the WARP (spacing slider + collision nudge), not just the
-      // linear map, so the along-distance we anchor on is the one actually
-      // drawn under the cursor. At spacing=1 with no collisions the warp is
-      // identity and this equals the linear inverse (no behaviour change);
-      // when columns are packed or nudged it keeps zoom locked to the feature
-      // the user is pointing at instead of drifting (dogfeed 2026-05-29).
-      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
-      const worldX = warpedScreenXToAlong(px, warpAnchorsRef.current, scaleH, linearAlong)
+      // Anchor zoom on the cursor's LINEAR along-section world position
+      // (cursor at world 50 m → zoom anchors at 50 m). Spacing / nudge
+      // are render-side modifiers applied on TOP of the zoom math;
+      // baking the warp inverse into the anchor introduced drift at
+      // default spacing because nudge cascades re-shuffle the
+      // post-zoom anchor positions, and the user reported the view
+      // drifting rightward on every scroll (dogfeed 2026-05-30).
+      const worldX = viewport.xMin + (px - MARGIN.left) / scaleH
       const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV
       const factor = e.deltaY < 0 ? 1 / WHEEL_ZOOM_FACTOR : WHEEL_ZOOM_FACTOR
 
@@ -1339,6 +1339,29 @@ export default function SectionPanel({
     lithoGhostAnchorIds,
   ])
 
+  // Scrub-bar outer bounds: leftmost-test / rightmost-test
+  // along-section position (world m). The scrub-bar track represents
+  // this range — NOT 0..sectionLength — so the engineer scrubs over
+  // where the data actually sits, not the empty section tail. Falls
+  // back to [0, lengthM] when no columns are placed yet (fresh section
+  // before projection lands), so the bar stays grab-able. Recomputes
+  // on every change to placedColumns (zoom-driven layout changes,
+  // spacing slider, new investigation imported — all of which
+  // re-rerun the placedColumns memo).
+  const { scrubDataMinM, scrubDataMaxM } = useMemo(() => {
+    if (placedColumns.length === 0) {
+      return { scrubDataMinM: 0, scrubDataMaxM: lengthM }
+    }
+    let lo = Infinity
+    let hi = -Infinity
+    for (const col of placedColumns) {
+      const a = col.proj.along
+      if (a < lo) lo = a
+      if (a > hi) hi = a
+    }
+    return { scrubDataMinM: lo, scrubDataMaxM: hi }
+  }, [placedColumns, lengthM])
+
   // Virtuele Boring overlay — index the predictions by
   // investigation_id once per prop change so the SVG render walks a
   // single Map lookup per column. Truncate active models to two; the
@@ -1356,20 +1379,23 @@ export default function SectionPanel({
     return map
   }, [virtueleBoringPredictions])
 
-  // Pan the viewport so the focused contact's column lands near
-  // the centre of the visible window. Fires when the App's
-  // crossings-banner click flow sets focusedContactIds; without
-  // this the contact's highlight ring would fire off-screen if the
-  // user had zoomed in elsewhere. We only pan horizontally so
-  // vertical zoom is preserved (the engineer's framing of "what
-  // depths am I looking at" stays intact). Setting xMin/xMax keeps
-  // the current width — we centre by translation only.
+  // Zoom-to-detail on the focused contact(s) — crossings-banner click
+  // flow (dogfeed 2026-05-30). Fits the viewport so the offending
+  // column(s) fill the screen: vertical from the deepest sample up to
+  // the surface elevation ("max vertical extent"), horizontal tight
+  // around the column(s) ("minimum horizontal extent"). The user's
+  // exact wording from the dogfeed.
   //
-  // The effect's body only runs on the transition empty → non-empty
-  // so a repeated click on the same banner item (focusedContactIds
-  // identity changes but content stays) doesn't re-pan; a banner
-  // *click* always re-fires the parent's setFocusedContactIds with
-  // a fresh array, so the dep on the identity is enough.
+  // Operates on raw proj.along (world along-section m). The column-
+  // spacing modifier + nudge layout are render-side concerns — they
+  // re-apply on top of the new viewport so the offending column ends
+  // up visually centred regardless of spacing (see
+  // feedback_section_view_spacing_modifier memory).
+  //
+  // Falls back to a no-op when: no focus; the anchors don't resolve
+  // to placed columns; or none of the columns has a known surface
+  // elevation. Identity-checked so re-rendering with the same array
+  // ref doesn't re-fit (a banner click always supplies a fresh array).
   const focusedContactsLastRef = useRef<readonly string[] | null>(null)
   useEffect(() => {
     if (!focusedContactIds || focusedContactIds.length === 0) {
@@ -1378,29 +1404,88 @@ export default function SectionPanel({
     }
     if (focusedContactsLastRef.current === focusedContactIds) return
     focusedContactsLastRef.current = focusedContactIds
-    // Resolve each focused contact's anchor id, then find the
-    // matching placed column to read its projected along-distance.
+
     const focusedSet = new Set(focusedContactIds)
-    const targetAlongs: number[] = []
+    interface ColumnFit {
+      along: number
+      topZ: number
+      bottomZ: number
+    }
+    const fits: ColumnFit[] = []
     for (const contact of contacts) {
       if (!focusedSet.has(contact.id)) continue
       const anchorId = contact.borehole_id ?? contact.cpt_id ?? null
       if (!anchorId) continue
       const col = placedColumns.find(c => c.proj.item.id === anchorId)
-      if (col) targetAlongs.push(col.proj.along)
-    }
-    if (targetAlongs.length === 0) return
-    const targetAlong =
-      targetAlongs.reduce((a, b) => a + b, 0) / targetAlongs.length
-    setViewport(prev => {
-      const halfWidth = (prev.xMax - prev.xMin) / 2
-      return {
-        ...prev,
-        xMin: targetAlong - halfWidth,
-        xMax: targetAlong + halfWidth,
+      if (!col) continue
+      const elevation = col.proj.item.elevation_m
+      if (elevation === null || elevation === undefined) continue
+
+      // Deepest data point — drives the bottom of the vertical fit.
+      // CPT: last sample of the loaded plot. Borehole: total_depth_m
+      // off the detail map. If neither loaded yet, fall back to a
+      // typical 20 m so the fit still has a sensible vertical span.
+      let depthBottom: number | null = null
+      if (col.kind === 'cpt') {
+        const plot = cptPlots?.get(anchorId)
+        if (plot && plot.depths_m.length > 0) {
+          depthBottom = plot.depths_m[plot.depths_m.length - 1]
+        }
+      } else {
+        const detail = boreholeDetails?.get(anchorId)
+        if (detail && detail.total_depth_m !== null) {
+          depthBottom = detail.total_depth_m
+        }
       }
-    })
-  }, [focusedContactIds, contacts, placedColumns])
+      if (depthBottom === null) depthBottom = 20
+      fits.push({
+        along: col.proj.along,
+        topZ: elevation,
+        bottomZ: elevation - depthBottom,
+      })
+    }
+    if (fits.length === 0) return
+
+    const alongs = fits.map(f => f.along)
+    const minAlong = Math.min(...alongs)
+    const maxAlong = Math.max(...alongs)
+    const topZ = Math.max(...fits.map(f => f.topZ))
+    const bottomZ = Math.min(...fits.map(f => f.bottomZ))
+
+    // Horizontal: minimum extent (tight). Single column → 50 m on
+    // each side so the column has breathing room and a neighbour or
+    // two peek in. Multiple columns → 30% margin each side of the
+    // span, max(15 m, ...) to avoid pathologically narrow fits when
+    // columns sit on top of each other.
+    let xMin: number
+    let xMax: number
+    if (minAlong === maxAlong) {
+      xMin = minAlong - 50
+      xMax = maxAlong + 50
+    } else {
+      const xRange = maxAlong - minAlong
+      const margin = Math.max(15, xRange * 0.3)
+      xMin = minAlong - margin
+      xMax = maxAlong + margin
+    }
+
+    // Vertical: maximum extent ("top of test, bottom of test, fill
+    // the screen"). Tight to the data span with a small ±5% margin
+    // so the surface tick + deepest sample don't kiss the plot
+    // edges.
+    const zRange = topZ - bottomZ
+    const zMargin = Math.max(0.5, zRange * 0.05)
+    const levelMin = bottomZ - zMargin
+    const levelMax = topZ + zMargin
+
+    setViewport(prev => ({
+      ...prev,
+      xMin,
+      xMax,
+      levelMin,
+      levelMax,
+    }))
+  }, [focusedContactIds, contacts, placedColumns, cptPlots, boreholeDetails])
 
   // Click-to-place pick state + handlers. The hook owns the modal's
   // open / closed state and the create-on-select flow; the
@@ -2719,7 +2804,8 @@ export default function SectionPanel({
       </div>
 
       <SectionScrubBar
-        sectionLength={lengthM}
+        dataMinM={scrubDataMinM}
+        dataMaxM={scrubDataMaxM}
         xMin={viewport.xMin}
         xMax={viewport.xMax}
         onScrubTo={scrubTo}
