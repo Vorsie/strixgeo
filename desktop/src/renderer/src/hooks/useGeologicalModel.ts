@@ -32,6 +32,7 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoLayerBatchUpdateItem,
   LithoLayerResponse,
   LithoLayerSuggestion,
   PinchOutExtrapolationResponse,
@@ -39,6 +40,37 @@ import type {
 } from '../api/client'
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
+
+/** Project a {@link FormationContactBatchUpdateEntry} onto the layer
+ * batch-update shape. Used by handleBatchUpdateContacts (A4 slice 4b)
+ * for both the immediate call and its undo/reapply lambdas.
+ *
+ * Strips null/undefined optional fields so the LithoLayerBatchUpdateItem
+ * type (which requires `number` not `number | null`) is satisfied; the
+ * BE applies only fields present in the body (`model_dump(exclude_unset)`).
+ */
+function formationContactBatchToLayerItem(
+  u: FormationContactBatchUpdateEntry,
+): LithoLayerBatchUpdateItem {
+  const out: LithoLayerBatchUpdateItem = { layer_id: u.contact_id }
+  if (u.depth_top_m != null) out.depth_top_m = u.depth_top_m
+  if (u.source != null) {
+    // Map FC source enum back to LL source enum (inverse of the trigger's
+    // forward mapping; observation_layer ↔ borehole_observation; the
+    // 'manual' / 'interpolated' / 'geological_model_seed' contact sources
+    // collapse into LL 'manual').
+    out.source = u.source === 'borehole_observation' ? 'observation_layer' : 'manual'
+  }
+  if (u.confidence != null) out.confidence = u.confidence
+  // Anchor XOR — only included when the batch is doing a cross-column
+  // MOVE (the schema rejects half-anchor patches). Both fields must
+  // appear together with exactly one non-null.
+  if (u.borehole_id !== undefined && u.cpt_id !== undefined) {
+    out.borehole_id = u.borehole_id
+    out.cpt_id = u.cpt_id
+  }
+  return out
+}
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
@@ -2082,27 +2114,30 @@ export function useGeologicalModel({
             .filter(c => idSet.has(c.id))
             .map(c => [c.id, c]),
         )
-        const res = await api.geology.updateContactsBatch(
-          project.id,
-          modelId,
-          updates,
-        )
-        // Index by id so the local state patch is O(N+M).
-        const byId = new Map(res.contacts.map(c => [c.id, c]))
-        applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
-        // A3a — keep lithoLayers in sync with the contact-shaped patch.
-        // The BE trigger already updated litho_layer when the batch
-        // landed; a /layers refetch propagates that into FE state.
-        if (isLitho) refetchLithoContacts()
+        // A4 slice 4b — litho branch routes to the new layer batch-update
+        // endpoint; geological stays on /contacts. The LL→FC mirror
+        // trigger keeps formation_contact + correlation FKs coherent on
+        // the litho path. Atomicity is preserved (the endpoint is
+        // all-or-nothing on the layer side, same contract as contacts).
+        if (isLitho) {
+          await api.geology.batchUpdateLayers(
+            project.id,
+            modelId,
+            updates.map(formationContactBatchToLayerItem),
+          )
+          refetchLithoContacts()
+        } else {
+          const res = await api.geology.updateContactsBatch(project.id, modelId, updates)
+          const byId = new Map(res.contacts.map(c => [c.id, c]))
+          applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
+        }
         // Batch depth/anchor mutation of pre-existing contacts — mark dirty
         // so a close-without-save reverts it (#160).
         markMutated()
-        log.success(
-          'geology',
-          `batchUpdateContacts ok count=${res.contacts.length}`,
-        )
-        // Undo: PUT the snapshot back. Redo: PUT the original
-        // update payload again.
+        log.success('geology', `batchUpdateContacts ok count=${updateIds.length}`)
+        // Undo: PUT/PATCH the snapshot back. Redo: re-apply.
+        // A4 slice 4b — fork undo lambdas on isLitho. Litho hits the
+        // layer batch endpoint; geological stays on /contacts/batch.
         const projectId = project.id
         const beforeUpdates: FormationContactBatchUpdateEntry[] = updateIds
           .map(id => beforeById.get(id))
@@ -2112,16 +2147,25 @@ export function useGeologicalModel({
             depth_top_m: c.depth_top_m,
             borehole_id: c.borehole_id,
             cpt_id: c.cpt_id,
-            source: c.source as
-              | 'borehole_observation'
-              | 'manual_pick'
-              | 'interpolated',
+            source: c.source as 'borehole_observation' | 'manual_pick' | 'interpolated',
             confidence: c.confidence as 'high' | 'medium' | 'low',
           }))
         const afterUpdates = updates.slice()
+        const toLayerUpdates = (
+          entries: readonly FormationContactBatchUpdateEntry[],
+        ): LithoLayerBatchUpdateItem[] => entries.map(formationContactBatchToLayerItem)
         pushUndo({
           description: `Update ${updateIds.length} contact(s)`,
           revert: async () => {
+            if (isLitho) {
+              await api.geology.batchUpdateLayers(
+                projectId,
+                modelId,
+                toLayerUpdates(beforeUpdates),
+              )
+              refetchLithoContacts()
+              return
+            }
             const back = await api.geology.updateContactsBatch(
               projectId,
               modelId,
@@ -2129,9 +2173,17 @@ export function useGeologicalModel({
             )
             const map = new Map(back.contacts.map(c => [c.id, c]))
             applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
-            if (isLitho) refetchLithoContacts()
           },
           reapply: async () => {
+            if (isLitho) {
+              await api.geology.batchUpdateLayers(
+                projectId,
+                modelId,
+                toLayerUpdates(afterUpdates),
+              )
+              refetchLithoContacts()
+              return
+            }
             const fwd = await api.geology.updateContactsBatch(
               projectId,
               modelId,
@@ -2139,7 +2191,6 @@ export function useGeologicalModel({
             )
             const map = new Map(fwd.contacts.map(c => [c.id, c]))
             applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
-            if (isLitho) refetchLithoContacts()
           },
         })
       } catch (err) {
