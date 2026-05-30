@@ -17,7 +17,7 @@
  * collision with existing overlays.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
@@ -53,6 +53,19 @@ const GHOST_OPACITY_ACCEPTED = 0.85
 const GHOST_OPACITY_REJECTED = 0.2
 const LABEL_FONT_SIZE = 9
 const HEADER_FONT_SIZE = 8
+
+/**
+ * A pending layer with effective ``baseM - topM < ZERO_THICKNESS_M`` is
+ * treated as effectively rejected (skipped in neighbour walks, auto-
+ * rejected on drag commit). Without this, a user who drags one edge to
+ * meet the other collapses the layer visually (the rect early-returns at
+ * ``height ≤ 0.5px``) but the layer survives in state as a zero-thickness
+ * pending entry — and the bound walker then returns its FAR edge as the
+ * neighbouring layer's clamp, locking the next layer's drag at the shared
+ * boundary depth. 1 mm tolerance absorbs float rounding without
+ * triggering on legitimate thin layers.
+ */
+const ZERO_THICKNESS_M = 1e-3
 
 function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
@@ -710,6 +723,33 @@ export default function LithoSuggestionGhostColumns({
     absorbPending: 'up' | 'down' | null
   } | null>(null)
 
+  // ZERO-THICKNESS SAFETY NET. A pending layer with effective thickness
+  // below ZERO_THICKNESS_M is treated as effectively rejected for ALL
+  // internal walkers (computeDragBounds, nearestVisibleIndex*,
+  // findVisibleNeighbour*). Reason: a drag that collapses a layer's top
+  // edge onto its base commits a plain depth edit but DOES NOT mark the
+  // layer rejected (snap-to-collapse only fires on deliberate overshoot
+  // past the threshold). The collapsed rect early-returns at
+  // ``height ≤ 0.5px`` so the user sees the layer "gone" — but it
+  // survives in state as a zero-thickness pending entry whose effective
+  // top/base both sit at the shared boundary depth, locking the next
+  // layer's drag at that boundary. Folding it into the rejected set at
+  // the walker boundary is the bound-walker safety net (B); the
+  // commit-side auto-reject below in handleUp is the primary fix (A).
+  // Layers explicitly in ``rejectedIndices`` win regardless; accepted
+  // layers are untouched (they have legitimate zero-thickness committed
+  // state in some edge cases and should remain barriers per their own
+  // accepted-neighbour rule).
+  const effectivelyRejectedIndices = useMemo(() => {
+    const out = new Set(rejectedIndices)
+    for (let i = 0; i < suggestions.length; i++) {
+      if (acceptedIndices.has(i) || out.has(i)) continue
+      const { topM, baseM } = effectiveDepths(suggestions, edits, i)
+      if (baseM - topM < ZERO_THICKNESS_M) out.add(i)
+    }
+    return out
+  }, [suggestions, edits, acceptedIndices, rejectedIndices])
+
   // Composition editor (debt #72). Tracks which suggestion index is
   // open for edit; null when closed. Lives in this parent component
   // so it can survive across LithoSuggestionLayer remounts and so
@@ -900,7 +940,7 @@ export default function LithoSuggestionGhostColumns({
             drag.idx,
             suggestions.length,
             acceptedIndices,
-            rejectedIndices,
+            effectivelyRejectedIndices,
           )
           if (
             neighbourBelow !== null &&
@@ -922,7 +962,7 @@ export default function LithoSuggestionGhostColumns({
           const neighbourAbove = findVisibleNeighbourAbove(
             drag.idx,
             acceptedIndices,
-            rejectedIndices,
+            effectivelyRejectedIndices,
           )
           if (
             neighbourAbove !== null &&
@@ -1011,9 +1051,28 @@ export default function LithoSuggestionGhostColumns({
       //      dragger. The parent's helper already handles the absorb
       //      atomically; emitting onMergeLayers on top of it is the
       //      double-merge that surfaced the user's bug.
+      // Zero-thickness auto-reject (fix A, dogfeed 2026-05-30). If the
+      // commit would collapse the dragged layer onto its own opposite
+      // edge (within tolerance), reject the layer outright instead of
+      // emitting a depth edit. Without this, the layer survives in
+      // state as a zero-thickness pending entry — visually gone (rect
+      // early-returns at height ≤ 0.5px) but still in the suggestions
+      // array, where the bound walkers return its FAR edge as the
+      // clamp for the next layer's drag, locking that drag at the
+      // shared boundary depth.
+      const ownDepths = effectiveDepths(suggestions, edits, drag.idx)
+      const collapsesToZero =
+        drag.edge === 'top'
+          ? final >= ownDepths.baseM - ZERO_THICKNESS_M
+          : final <= ownDepths.topM + ZERO_THICKNESS_M
+      if (collapsesToZero) {
+        onReject(drag.idx)
+        setDrag(null)
+        return
+      }
       let partnerWillBeAbsorbed = false
       if (drag.edge === 'top') {
-        const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
+        const visible = nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
         partnerWillBeAbsorbed = (() => {
           if (visible === null) return false
           if (acceptedIndices.has(visible)) return false
@@ -1030,7 +1089,7 @@ export default function LithoSuggestionGhostColumns({
           onEdit(visible, { depth_base_m: final, _propagateOnly: true })
         }
       } else {
-        const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
+        const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
         partnerWillBeAbsorbed = (() => {
           if (visible === null) return false
           if (acceptedIndices.has(visible)) return false
@@ -1090,7 +1149,7 @@ export default function LithoSuggestionGhostColumns({
   // listing it here keeps the closure fresh for the absorb-midpoint lookup.
   // suggestions is a readonly array that changes by reference on accept
   // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, rejectedIndices])
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices])
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
@@ -1305,7 +1364,7 @@ export default function LithoSuggestionGhostColumns({
           // live preview either (their rect is frozen).
           if (
             !acceptedIndices.has(idx) &&
-            !rejectedIndices.has(idx)
+            !effectivelyRejectedIndices.has(idx)
           ) {
             // Match the commit's propagation topology: nearestVisible
             // (skip only rejected), then gate-out if accepted. Preview
@@ -1316,14 +1375,14 @@ export default function LithoSuggestionGhostColumns({
               nearestVisibleIndexBelow(
                 drag.idx,
                 suggestions.length,
-                rejectedIndices,
+                effectivelyRejectedIndices,
               ) === idx
             ) {
               topM = drag.currentDepthM
             }
             if (
               drag.edge === 'top' &&
-              nearestVisibleIndexAbove(drag.idx, rejectedIndices) === idx
+              nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices) === idx
             ) {
               baseM = drag.currentDepthM
             }
@@ -1359,7 +1418,15 @@ export default function LithoSuggestionGhostColumns({
           Math.min(plotBottom, levelToScreen(surfaceElevationM - baseM)),
         )
         const accepted = acceptedIndices.has(idx)
-        const rejected = rejectedIndices.has(idx)
+        // Use the effective set so zero-thickness pending layers also
+        // gate their hit-strips off (drag handles + boundary strip
+        // alike) — same effect as a user-rejected layer. The explicit
+        // rejected-from-prop is a subset of this, so the strikethrough
+        // / unreject icon rendering inside LithoSuggestionLayer keeps
+        // its existing semantics because the inner component only
+        // renders when height > 0.5 px (zero-thickness layers return
+        // null inside LithoSuggestionLayer anyway).
+        const rejected = effectivelyRejectedIndices.has(idx)
         // Debt #142 — once a layer is accepted, the committed
         // FormationContact takes over as the source of truth.  The
         // ghost rect was previously frozen-in-place at the raw
@@ -1385,7 +1452,7 @@ export default function LithoSuggestionGhostColumns({
           !rejected &&
           nextIdx < suggestions.length &&
           !acceptedIndices.has(nextIdx) &&
-          !rejectedIndices.has(nextIdx)
+          !effectivelyRejectedIndices.has(nextIdx)
         return (
           <g
             key={`${idx}-${rawLayer.suggested_lithology}-${rawLayer.depth_top_m}`}
@@ -1449,13 +1516,7 @@ export default function LithoSuggestionGhostColumns({
                       suggestions,
                       edits,
                       acceptedIndices,
-                      rejectedIndices,
-                    )
-                    // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
-                    // absorb-down" report. Temporary; remove once root-caused.
-                    // eslint-disable-next-line no-console
-                    console.info(
-                      `[litho-drag] DOWN strip=top-${idx} topM=${topM.toFixed(3)} baseM=${baseM.toFixed(3)} boundsAbove=${bounds.boundsAboveM.toFixed(3)} boundsBelow=${bounds.boundsBelowM.toFixed(3)} lockedUp=${bounds.boundsAboveM >= topM}`,
+                      effectivelyRejectedIndices,
                     )
                     setDrag({
                       idx,
@@ -1489,13 +1550,7 @@ export default function LithoSuggestionGhostColumns({
                       suggestions,
                       edits,
                       acceptedIndices,
-                      rejectedIndices,
-                    )
-                    // DOGFEED 2026-05-30 — diagnostic for the "UP-drag locks after
-                    // absorb-down" report. Temporary; remove once root-caused.
-                    // eslint-disable-next-line no-console
-                    console.info(
-                      `[litho-drag] DOWN strip=base-${idx} topM=${topM.toFixed(3)} baseM=${baseM.toFixed(3)} boundsAbove=${bounds.boundsAboveM.toFixed(3)} boundsBelow=${bounds.boundsBelowM.toFixed(3)} lockedUp=${bounds.boundsAboveM >= baseM}`,
+                      effectivelyRejectedIndices,
                     )
                     setDrag({
                       idx,
@@ -1879,7 +1934,7 @@ export default function LithoSuggestionGhostColumns({
               suggestions,
               edits,
               acceptedIndices,
-              rejectedIndices,
+              effectivelyRejectedIndices,
               boundaryContextMenu.afterIdx,
             ) && (
               <button
