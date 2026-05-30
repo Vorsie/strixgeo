@@ -1,0 +1,373 @@
+"""A4 v4 bundle round-trip — litho_layers field + v3 backwards-compat.
+
+The A4 slice 1 lands ``format_version = 4`` with ``litho_layers``
+nested under each geological-model payload (Shape A primitives:
+id, formation_id, anchor, depth_top_m, depth_base_m, status, source,
+confidence, ...).
+
+Covered:
+* v4 export emits the new field and populates it for litho models
+* a geological (kind='geological') model emits an empty layer list
+* a pending litho layer (no matching FormationContact) round-trips
+  with its status preserved
+* an accepted litho layer round-trips via the FC→LL trigger when
+  contacts and layers both reference the same id (no pkey conflict)
+* v3 bundles still parse on this build (SUPPORTED_BUNDLE_VERSIONS
+  contains both 3 and 4)
+* the rejected status round-trips for layers with no matching contact
+"""
+
+from __future__ import annotations
+
+import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.api.schemas.project.project_bundle import (
+    BUNDLE_FORMAT_VERSION,
+    SUPPORTED_BUNDLE_VERSIONS,
+)
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import (
+    FormationContactOrm,
+)
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
+)
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.repositories.project_bundle import (
+    build_project_bundle,
+    restore_project_bundle,
+)
+
+
+async def _restore_bundle(
+    db_session: AsyncSession,
+    project_id: object,
+    bundle: dict,
+    *,
+    replace: bool = True,
+) -> None:
+    """Unpack a bundle dict into restore_project_bundle's positional args.
+
+    The restore signature predates the dict-as-payload convention used
+    by the build side; existing tests duplicate this unpacking. Helper
+    keeps the v4 tests terse.
+    """
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle.get("cpts", []),
+        bundle.get("boreholes", []),
+        bundle.get("geological_formations", []),
+        bundle.get("geological_models", []),
+        bundle.get("cross_sections", []),
+        bundle.get("investigation_reviews", []),
+        geotechnical_units_payload=bundle.get("geotechnical_units", []),
+        litho_lenses_payload=bundle.get("litho_lenses", []),
+        formation_absences_payload=bundle.get("formation_absences", []),
+        litho_contact_correlation_edges_payload=bundle.get("litho_contact_correlation_edges", []),
+        litho_lens_shapes_payload=bundle.get("litho_lens_shapes", []),
+        litho_lens_boundary_nodes_payload=bundle.get("litho_lens_boundary_nodes", []),
+        replace=replace,
+    )
+    await db_session.commit()
+
+
+def test_bundle_format_version_constant_is_v4() -> None:
+    """Slice 1 of A4 bumps the writer version + keeps v3 parseable."""
+    assert BUNDLE_FORMAT_VERSION == 4
+    assert 3 in SUPPORTED_BUNDLE_VERSIONS
+    assert 4 in SUPPORTED_BUNDLE_VERSIONS
+
+
+@pytest_asyncio.fixture
+async def project_with_litho(db_session: AsyncSession) -> dict:
+    """Project + 1 litho model + 1 geo model + BH + 2 formations."""
+    project = ProjectOrm(id=uuid7(), name="V4 bundle", status="active")
+    db_session.add(project)
+    await db_session.flush()
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-1",
+        app_project_id=project.id,
+        project_id="T",
+        test_id="T",
+        location_x=0.0,
+        location_y=0.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="L",
+        kind="lithostratigraphic",
+    )
+    geo_model = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project.id, name="G", kind="geological"
+    )
+    sand = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"
+    )
+    clay = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="CLAY", color="#74b9ff"
+    )
+    db_session.add_all([bh, litho_model, geo_model, sand, clay])
+    await db_session.commit()
+    return {
+        "project": project,
+        "bh": bh,
+        "litho_model": litho_model,
+        "geo_model": geo_model,
+        "sand": sand,
+        "clay": clay,
+    }
+
+
+async def test_v4_bundle_emits_litho_layers_under_each_model(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """Each model payload carries ``litho_layers``; geo model empty."""
+    p = project_with_litho
+    # Insert a contact → trigger materialises the layer.
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    assert bundle["format_version"] == 4
+    models_by_kind = {m["kind"]: m for m in bundle["geological_models"]}
+    assert "litho_layers" in models_by_kind["lithostratigraphic"]
+    assert "litho_layers" in models_by_kind["geological"]
+    assert len(models_by_kind["lithostratigraphic"]["litho_layers"]) == 1
+    assert len(models_by_kind["geological"]["litho_layers"]) == 0
+    layer = models_by_kind["lithostratigraphic"]["litho_layers"][0]
+    # UUID preserved across the trigger's mirror.
+    assert layer["id"] == str(contact.id)
+    assert layer["depth_top_m"] == 2.0
+
+
+async def test_v4_round_trip_via_replace_restore(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """An accepted layer materialised by the trigger round-trips:
+    build → wipe → restore → trigger fires again on the restored
+    contact → litho_layer ends up with the same id + depth."""
+    p = project_with_litho
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=3.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    # Wipe + restore.
+    await _restore_bundle(db_session, p["project"].id, bundle)
+    layer = await db_session.get(LithoLayerOrm, contact.id)
+    assert layer is not None
+    assert layer.depth_top_m == 3.0
+    assert layer.status == "accepted"
+
+
+async def test_pending_layer_with_no_matching_fc_round_trips(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A pending layer (no FormationContact) survives bundle replace-restore.
+
+    The trigger never touches pending/rejected rows, so the bundle restore
+    MUST insert them explicitly. This pins that the explicit-insert
+    branch wires correctly + the status carries through.
+    """
+    p = project_with_litho
+    pending_id = uuid7()
+    layer = LithoLayerOrm(
+        id=pending_id,
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=1.0,
+        depth_base_m=2.0,
+        status="pending",
+        source="segmenter",
+        confidence="low",
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    # Verify the bundle carries the pending layer.
+    litho_models = [m for m in bundle["geological_models"] if m["kind"] == "lithostratigraphic"]
+    bundled_layers = litho_models[0]["litho_layers"]
+    assert len(bundled_layers) == 1
+    assert bundled_layers[0]["status"] == "pending"
+
+    # Restore from scratch.
+    await _restore_bundle(db_session, p["project"].id, bundle)
+    restored = await db_session.get(LithoLayerOrm, pending_id)
+    assert restored is not None
+    assert restored.status == "pending"
+    assert restored.source == "segmenter"
+    assert restored.depth_top_m == 1.0
+    assert restored.depth_base_m == 2.0
+
+
+async def test_rejected_layer_with_no_matching_fc_round_trips(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """Same as pending, for the rejected status."""
+    p = project_with_litho
+    rejected_id = uuid7()
+    layer = LithoLayerOrm(
+        id=rejected_id,
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=5.0,
+        depth_base_m=6.0,
+        status="rejected",
+        source="segmenter",
+        confidence="low",
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, p["project"])
+    await _restore_bundle(db_session, p["project"].id, bundle)
+
+    restored = await db_session.get(LithoLayerOrm, rejected_id)
+    assert restored is not None
+    assert restored.status == "rejected"
+
+
+async def test_v3_bundle_still_restores(db_session: AsyncSession, project_with_litho: dict) -> None:
+    """v3 backwards-compat: a bundle without ``litho_layers`` field still
+    restores cleanly. The trigger materialises the layer from the
+    contact (status='accepted' is the only path).
+    """
+    p = project_with_litho
+    contact_id = uuid7()
+    # Build a v3-shaped bundle by hand (no litho_layers field).
+    v3_bundle = {
+        "format_version": 3,
+        "project": {
+            "id": str(p["project"].id),
+            "name": p["project"].name,
+            "status": "active",
+        },
+        "cpts": [],
+        "boreholes": [
+            {
+                "id": str(p["bh"].id),
+                "name": p["bh"].name,
+                "project_id": p["bh"].project_id,
+                "test_id": p["bh"].test_id,
+                "location_x": p["bh"].location_x,
+                "location_y": p["bh"].location_y,
+                "epsg": p["bh"].epsg,
+                "total_depth_m": p["bh"].total_depth_m,
+                "drill_segments": [],
+                "field_log_intervals": [],
+                "observations": [],
+                "samples": [],
+            }
+        ],
+        "geological_formations": [
+            {
+                "id": str(p["sand"].id),
+                "name": p["sand"].name,
+                "color": p["sand"].color,
+            },
+        ],
+        "geological_models": [
+            {
+                "id": str(p["litho_model"].id),
+                "name": p["litho_model"].name,
+                "kind": "lithostratigraphic",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "contacts": [
+                    {
+                        "id": str(contact_id),
+                        "formation_id": str(p["sand"].id),
+                        "borehole_id": str(p["bh"].id),
+                        "cpt_id": None,
+                        "depth_top_m": 4.0,
+                        "source": "manual_pick",
+                        "confidence": "medium",
+                    }
+                ],
+                "surfaces": [],
+                # No litho_layers field — the v3 case.
+            }
+        ],
+    }
+    await _restore_bundle(db_session, p["project"].id, v3_bundle)
+    # Trigger materialised the layer.
+    layer = await db_session.get(LithoLayerOrm, contact_id)
+    assert layer is not None
+    assert layer.status == "accepted"
+    assert layer.depth_top_m == 4.0
+
+
+async def test_v4_skipped_explicit_insert_does_not_double_up(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """An accepted layer (matching FC exists) is restored ONCE.
+
+    Pins the de-dupe rule: if a layer.id appears in the bundle's
+    contacts payload, we don't INSERT it explicitly — the trigger
+    creates it from the contact. Double-insert would conflict on
+    litho_layer_pkey.
+    """
+    p = project_with_litho
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    # The bundle must carry both: the trigger materialised the layer.
+    litho_models = [m for m in bundle["geological_models"] if m["kind"] == "lithostratigraphic"]
+    assert len(litho_models[0]["contacts"]) == 1
+    assert len(litho_models[0]["litho_layers"]) == 1
+    assert litho_models[0]["contacts"][0]["id"] == litho_models[0]["litho_layers"][0]["id"]
+
+    # Restore must not double-insert.
+    await _restore_bundle(db_session, p["project"].id, bundle)
+    rows = list(
+        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.id == contact.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
