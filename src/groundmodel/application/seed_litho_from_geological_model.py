@@ -111,14 +111,6 @@ class SeedLithoOutcome:
         self.skipped_existing = skipped_existing
 
 
-# Historical FC provenance literal — no longer written by this use case
-# (A4 cleanup: writes LithoLayerOrm with source='manual' instead, since
-# the layer source enum has no seed-specific value). Kept here as
-# documentation of the original token; consumers of FC.source for litho
-# rows now see 'manual_pick' via the LL→FC trigger's source mapping.
-_LEGACY_FC_SOURCE_LITERAL = "geological_model_seed"
-
-
 class SeedLithoFromGeologicalModel(GroundModelLogger):
     """Copy a parent geological model's contacts into a lithostratigraphic model.
 
