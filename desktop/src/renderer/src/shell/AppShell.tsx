@@ -111,6 +111,27 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.coordinator.geoDeepLinkTarget])
 
+  // Sections deep-link — set by the surface-crossings banner (Geology
+  // or Sections inspector) when the user picks an issue.  Switches to
+  // the Sections stage, selects the chosen section, and fires the
+  // focus-contacts pulse so SectionPanel pans + amber-pulses the
+  // offending columns.  Payload is cleared after dispatch — single-fire.
+  useEffect(() => {
+    const target = context.coordinator.sectionsDeepLinkTarget
+    if (target == null) return
+    log.info(
+      'shell',
+      `sections-deep-link: stage=sections section=${target.sectionId} contacts=${target.contactIds.length}`,
+    )
+    setActiveStage('sections')
+    context.sections.handleFocusContacts(target.contactIds, target.sectionId)
+    context.coordinator.setSectionsDeepLinkTarget(null)
+    // reason: setActiveStage + sections handlers are stable callbacks;
+    // sectionsDeepLinkTarget is the only signal that should trigger this
+    // effect (mirrors the geoDeepLinkTarget effect above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context.coordinator.sectionsDeepLinkTarget])
+
   // Open-a-detail → Data stage. handleSelect / handleSelectBorehole are
   // the single funnel for "show this investigation's detail" (map click
   // AND section double-click): they set the selection + view='chart'.
