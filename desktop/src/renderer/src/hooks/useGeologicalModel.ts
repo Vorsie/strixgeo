@@ -20,7 +20,6 @@
 //   crossings counter.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Dispatch, SetStateAction } from 'react'
 
 import { api, DuplicateContactError } from '../api/client'
 import type {
@@ -50,17 +49,6 @@ import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
  * type (which requires `number` not `number | null`) is satisfied; the
  * BE applies only fields present in the body (`model_dump(exclude_unset)`).
  */
-/**
- * No-op `setContacts`-shaped setter used by the legacy `applyPatch`
- * dispatch on the litho branch (A5 — `lithoContacts` is a derived
- * memo now; optimistic patches on it are nonsensical because the
- * derivation re-runs from `lithoLayers` on every render). The
- * post-write `refetchLithoContacts()` call still drives the actual
- * state refresh via `setLithoLayers`; this no-op preserves the
- * shared-handler shape without touching state.
- */
-const _noopApplyContactPatch: Dispatch<SetStateAction<FormationContactResponse[]>> = () => {}
-
 function formationContactBatchToLayerItem(
   u: FormationContactBatchUpdateEntry,
 ): LithoLayerBatchUpdateItem {
@@ -1526,7 +1514,12 @@ export function useGeologicalModel({
         if (!previous) return
         const modelId = previous.model_id
         const isLitho = lithoContacts.some(c => c.id === contactId)
-        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
+        // applyPatch only fires in the geo `else` branch (litho path
+        // early-returns into refetchLithoContacts before reaching
+        // any applyPatch call). The variable is geo-only by
+        // construction — the historical noop-on-litho ternary was
+        // dead code.
+        const applyPatch = setContacts
         // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
         // Records the FE→BE handoff so the user can see exactly what
         // depth+axis the hook dispatched on a buggy drag.
@@ -2107,7 +2100,12 @@ export function useGeologicalModel({
         }
         const modelId = firstContact.model_id
         const isLitho = lithoContacts.some(c => c.id === updateIds[0])
-        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
+        // applyPatch only fires in the geo `else` branch (litho path
+        // early-returns into refetchLithoContacts before reaching
+        // any applyPatch call). The variable is geo-only by
+        // construction — the historical noop-on-litho ternary was
+        // dead code.
+        const applyPatch = setContacts
         const beforeById = new Map(
           [...contacts, ...lithoContacts]
             .filter(c => idSet.has(c.id))
@@ -2224,7 +2222,12 @@ export function useGeologicalModel({
         if (!snapshot) return
         const modelId = snapshot.model_id
         const isLitho = lithoContacts.some(c => c.id === contactId)
-        const applyPatch = isLitho ? _noopApplyContactPatch : setContacts
+        // applyPatch only fires in the geo `else` branch (litho path
+        // early-returns into refetchLithoContacts before reaching
+        // any applyPatch call). The variable is geo-only by
+        // construction — the historical noop-on-litho ternary was
+        // dead code.
+        const applyPatch = setContacts
         // A4 slice 3 — litho writers target /layers; the LL→FC
         // mirror trigger keeps formation_contact + correlation FKs
         // coherent. Geological models stay on /contacts (no Shape A
