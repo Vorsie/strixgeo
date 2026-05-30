@@ -79,6 +79,7 @@ from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.constants.model_kind import (
     MODEL_KIND_GEOLOGICAL,
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
     MODEL_KINDS,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -458,21 +459,38 @@ def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
     refreshes the cache anyway, but for a freshly-opened project the
     section view's slice query lands on already-computed geometry.
 
-    Litho models also carry a ``litho_layers`` list — Shape A's
-    layer-centric primitives (id, formation_id, anchor, depth_top_m,
-    depth_base_m, status, source, confidence, ...). For litho models
-    these are the source of truth post-A3; the ``contacts`` field is
-    kept in lockstep via the FC↔LL mirror trigger so a v4-shipping
-    build still round-trips correlation edges + legacy consumers. The
-    trigger retires together with the FC-for-litho rows in a later A4
-    slice; until then both fields are populated on litho models.
+    Litho models carry only ``litho_layers`` — the Shape A primitives
+    (id, formation_id, anchor, depth_top_m, depth_base_m, status,
+    source, confidence, ...) are the source of truth post-A3. The
+    ``contacts`` field is emitted as an empty list for litho models
+    (A4 slice 4c) — formation_contact stays populated in the DB as a
+    legacy mirror via the LL→FC trigger, but the bundle no longer
+    duplicates the data. On restore the LL→FC trigger fires per
+    accepted-layer INSERT and rebuilds the FC mirror, so a fresh v4
+    bundle opens cleanly on a wiped DB without contact rows in the
+    payload.
 
-    Geological models always emit an empty ``litho_layers`` (the
-    litho_layer XOR CHECK + the trigger's kind gate make this an
-    invariant), so v4 readers can branch on model.kind safely.
+    Geological models keep the historical ``contacts`` shape (the
+    geological axis never grew Shape A) and always emit an empty
+    ``litho_layers`` (the litho_layer XOR CHECK + the trigger's kind
+    gate make this an invariant), so v4 readers can branch on
+    model.kind safely.
+
+    Older v4 bundles that DID emit ``contacts`` on litho models still
+    restore — the explicit FC inserts run via the legacy path, the
+    FC→LL trigger UPSERTs the matching LL rows. The slice-1 de-dupe
+    rule (skip explicit LL INSERT when the layer's id is in the
+    contacts payload) handles the overlap.
     """
     payload = _column_to_json(model, _SKIP_COLUMNS)
-    payload["contacts"] = [_column_to_json(c, _SKIP_COLUMNS | {"model_id"}) for c in model.contacts]
+    if model.kind == MODEL_KIND_LITHOSTRATIGRAPHIC:
+        # Shape A native: layers are the truth, contacts are derived
+        # via the trigger and don't ride along in the bundle.
+        payload["contacts"] = []
+    else:
+        payload["contacts"] = [
+            _column_to_json(c, _SKIP_COLUMNS | {"model_id"}) for c in model.contacts
+        ]
     payload["surfaces"] = [_column_to_json(s, _SKIP_COLUMNS | {"model_id"}) for s in model.surfaces]
     payload["litho_layers"] = [
         _column_to_json(layer, _SKIP_COLUMNS | {"model_id"}) for layer in model.litho_layers
