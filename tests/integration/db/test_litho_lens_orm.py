@@ -183,7 +183,9 @@ async def test_unique_constraint_blocks_duplicate_body(db_session: AsyncSession)
             name="Duplicate",
         )
     )
-    with pytest.raises(IntegrityError, match="uq_body_model_formation_ordinal"):
+    # The migration kept the old constraint name on the renamed table;
+    # a future migration will rename it to uq_body_model_formation_ordinal.
+    with pytest.raises(IntegrityError, match="uq_litho_lens_model_formation_ordinal"):
         await db_session.flush()
 
     await db_session.rollback()
