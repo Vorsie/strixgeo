@@ -328,6 +328,13 @@ class DetectLithoLenses(GroundModelLogger):
 
         # ------------------------------------------------------------------ #
         # 7. Reconcile: delete stale lens rows whose body left the target set. #
+        #                                                                      #
+        # Preserve-named guard (owner directive 2026-05-31): a lens row with   #
+        # ``name IS NOT NULL`` was created by an explicit ``NameLensBody``     #
+        # gesture — the user labelled this body on purpose, so do NOT delete  #
+        # it just because the topology no longer matches the auto-detector.   #
+        # Named rows can still be removed via the explicit                     #
+        # ``DELETE /lenses/{lens_id}`` endpoint when the user wants them gone. #
         # ------------------------------------------------------------------ #
         existing_lenses = (
             (
@@ -341,13 +348,26 @@ class DetectLithoLenses(GroundModelLogger):
 
         lenses_removed = 0
         for lens in existing_lenses:
-            if (lens.formation_id, lens.body_ordinal) not in target_set:
-                await self._session.delete(lens)
-                lenses_removed += 1
+            if (lens.formation_id, lens.body_ordinal) in target_set:
+                continue
+            if lens.name is not None and lens.name.strip() != "":
                 self.debug(
-                    f"DetectLithoLenses: removed stale lens row "
-                    f"formation={lens.formation_id} ordinal={lens.body_ordinal}"
+                    f"DetectLithoLenses: preserving named lens row "
+                    f"formation={lens.formation_id} ordinal={lens.body_ordinal} "
+                    f"name={lens.name!r} (topology no longer matches but user-named)"
                 )
+                # A named lens survives a stale-topology sweep — still record
+                # its key as live so the orphan shape sweep in step 8 doesn't
+                # drop the user's boundary shape either.
+                if lens.content_key is not None:
+                    live_content_keys.add(lens.content_key)
+                continue
+            await self._session.delete(lens)
+            lenses_removed += 1
+            self.debug(
+                f"DetectLithoLenses: removed stale lens row "
+                f"formation={lens.formation_id} ordinal={lens.body_ordinal}"
+            )
 
         # ------------------------------------------------------------------ #
         # 8. Orphan-sweep lens shapes (#163f): a litho_lens_shape whose         #
