@@ -85,7 +85,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import LensWedgeOverlay from './sections/LensWedgeOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
-import { type WarpAnchor } from './sections/sectionWarp'
+import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
 /** Stable empty map so the LensWedgeOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, LensBoundaryResponse> = new Map()
@@ -896,6 +896,24 @@ export default function SectionPanel({
   const screenToLevel = useCallback(
     (y: number) => effLevelMax - (y - MARGIN.top) / scaleV,
     [effLevelMax, scaleV],
+  )
+
+  // Warp-aware screen→along inverse for LensWedgeOverlay.  The lens-shape
+  // editor commits drag positions back as ``along_m``; without warping, a
+  // drag-commit at spacing < 1.0 would land at the linear along (raw
+  // proj.along) instead of the post-nudge along the column sits at, so
+  // the lens would jump on every commit.  Mirrors the forward
+  // ``warpedXToScreen`` exactly so round-trips through the lens editor
+  // are stable at every spacing value.  Defined below ``warpAnchors`` /
+  // ``warpedXToScreen`` would create a forward-ref cycle for callers, so
+  // the function uses a ref that picks up the latest anchors on every
+  // invocation (the wheel-zoom handler uses the same pattern).
+  const warpedScreenXToAlongCb = useCallback(
+    (x: number): number => {
+      const linear = (x - MARGIN.left) / scaleH + viewport.xMin
+      return warpedScreenXToAlong(x, warpAnchorsRef.current, scaleH, linear)
+    },
+    [viewport.xMin, scaleH],
   )
 
   // ---- Pan / zoom interactions ---------------------------------------
@@ -3126,9 +3144,13 @@ export default function SectionPanel({
                 contacts={correlateContacts}
                 placedColumns={visibleColumns}
                 contactEdges={contactEdges ?? []}
-                alongToScreenX={xToScreen}
+                // Use the SAME warped forward + inverse the columns and
+                // every other section overlay use (dogfeed 2026-05-31 —
+                // raw ``xToScreen`` left the lens shape detached from
+                // the columns at any spacing != 100%).
+                alongToScreenX={warpedXToScreen}
                 levelToScreen={levelToScreen}
-                screenXToAlong={screenXToAlong}
+                screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
