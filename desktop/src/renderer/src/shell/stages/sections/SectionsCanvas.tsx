@@ -1891,6 +1891,7 @@ export default function SectionsCanvas(): JSX.Element {
           onSelectCpt={handleSelect}
           onSelectBorehole={handleSelectBorehole}
           contacts={sectionContacts}
+          focusableContacts={axisContacts}
           liveContactDepthOverride={lithoSuggestionContactPreview}
           formations={axisFormations}
           surfacesByFormationId={axisSurfacesByFormationId}

@@ -165,8 +165,18 @@ interface Props {
   onFocusedColumnChange?: (col: import('./sections/useFocusColumn').FocusTarget | null) => void
   /** Active geological model's formation contacts — render as the
    * Phase 4 editor overlay (horizontal lines connecting picks per
-   * formation across the projected investigations). */
+   * formation across the projected investigations). Filtered by the
+   * section's ``seeded_formation_contact_ids`` (the explicit-content
+   * invariant), so it's a SUBSET of the active model's contacts. */
   contacts?: readonly FormationContactResponse[]
+  /** UNFILTERED active-axis contacts (NOT seeded-only). Used by the
+   * crossings-banner zoom-to-detail effect to resolve focused
+   * contact ids → anchor → column, because the offending crossing
+   * contacts are global to the geological model and may not be in
+   * this section's seeded set. Optional; falls back to ``contacts``
+   * when omitted (older tests + integration sites that don't supply
+   * the full list). */
+  focusableContacts?: readonly FormationContactResponse[]
   /** P1b (dogfeed 2026-05-30) — forwarded to ContactsLayer so the
    *  matching contact renders at the live depth during a cross-store
    *  suggestion drag. SectionsCanvas owns the state. */
@@ -706,6 +716,7 @@ export default function SectionPanel({
   onPatch,
   onClose,
   contacts = [],
+  focusableContacts,
   liveContactDepthOverride,
   formations = [],
   excludedBoreholeIds,
@@ -1208,11 +1219,20 @@ export default function SectionPanel({
     [onPatch],
   )
 
-  // Band half-width scales with horizontal zoom only — at low zoom
-  // keep columns compact, at high zoom let curves breathe. This is
-  // the VISUAL width — what each band renders at — and stays fixed
-  // regardless of the column-spacing knob.
-  const bandHalfWidth = useMemo(() => cptBandHalfWidth(scaleH), [scaleH])
+  // Band half-width scales with horizontal zoom AT SPACING=1 only:
+  // at low zoom columns stay compact, at high zoom curves breathe.
+  // At spacing < 1 the column packing depends on cumulative widths
+  // (lerpedX = packedX + (trueX - packedX)*spacing, with packedX a
+  // sum of half-widths), so a zoom-driven width change shifts every
+  // packed column proportionally to its index — visible as drift
+  // when wheel-zooming. Freezing the half-width at the natural
+  // 5 px/m reference whenever spacing < 1 removes that drift while
+  // keeping the spacing=1 (default) behaviour identical (dogfeed
+  // 2026-05-31, follow-up to the leftmost-anchor blend fix).
+  const bandHalfWidth = useMemo(
+    () => cptBandHalfWidth(columnSpacing < 1.0 ? 5 : scaleH),
+    [scaleH, columnSpacing],
+  )
 
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
@@ -1492,7 +1512,15 @@ export default function SectionPanel({
       bottomZ: number
     }
     const fits: ColumnFit[] = []
-    for (const contact of contacts) {
+    // Use the UNFILTERED axis contacts when supplied — the crossings
+    // banner's contact_ids are global to the geological model and
+    // routinely span contacts not in this section's
+    // ``seeded_formation_contact_ids`` (the explicit-content
+    // invariant). Falling back to ``contacts`` (the seeded subset)
+    // preserves behaviour for callers that don't supply the full
+    // list.
+    const lookupContacts = focusableContacts ?? contacts
+    for (const contact of lookupContacts) {
       if (!focusedSet.has(contact.id)) continue
       const anchorId = contact.borehole_id ?? contact.cpt_id ?? null
       if (!anchorId) continue
@@ -1599,7 +1627,14 @@ export default function SectionPanel({
       levelMax,
     }))
     focusedContactsLastRef.current = focusedContactIds
-  }, [focusedContactIds, contacts, placedColumns, cptPlots, boreholeDetails])
+  }, [
+    focusedContactIds,
+    contacts,
+    focusableContacts,
+    placedColumns,
+    cptPlots,
+    boreholeDetails,
+  ])
 
   // Click-to-place pick state + handlers. The hook owns the modal's
   // open / closed state and the create-on-select flow; the
