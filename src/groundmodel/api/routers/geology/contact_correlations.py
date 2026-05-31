@@ -8,6 +8,7 @@ geology package __init__; paths extend to:
   GET    /projects/{pid}/geology/models/{mid}/contact-correlations
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations/auto
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations/accept
+  POST   /projects/{pid}/geology/models/{mid}/contact-correlations/{edge_id}/accept
   POST   /projects/{pid}/geology/models/{mid}/lens-companions/materialise
 
 These endpoints are MODEL-level only.  They take no section_id and do NOT
@@ -437,6 +438,66 @@ async def accept_contact_correlations(
     try:
         result = await AcceptContactCorrelations(session).execute(
             project_id=project_id, model_id=model_id, section_id=body.section_id
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    return AcceptContactCorrelationsResponse(
+        edges_accepted=result.edges_accepted,
+        lenses_created=result.lenses_created,
+        lenses_removed=result.lenses_removed,
+        ordinals_changed=result.ordinals_changed,
+    )
+
+
+@router.post(
+    "/models/{model_id}/contact-correlations/{edge_id}/accept",
+    response_model=AcceptContactCorrelationsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Approve a single contact-correlation edge (dogfeed 2026-05-31)",
+)
+async def accept_single_contact_correlation(
+    project_id: UUID,
+    model_id: UUID,
+    edge_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> AcceptContactCorrelationsResponse:
+    """Flip ``user_approved=True`` for one edge identified by ``edge_id``.
+
+    Powers the right-click "Accept correlation" menu item on a single edge.
+    Idempotent — re-accepting an already-approved edge returns
+    ``edges_accepted=0`` without raising. Runs the ordinal resolver and
+    lens detector in the same transaction so the model stays consistent.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    edge_id : UUID
+        The single edge to accept (path param).
+
+    Returns
+    -------
+    AcceptContactCorrelationsResponse
+        Counts of edges accepted, lenses created/removed, and ordinal
+        changes triggered.
+
+    Raises
+    ------
+    404
+        When the model or edge does not exist, or the edge does not belong
+        to the given model.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    try:
+        result = await AcceptContactCorrelations(session).execute(
+            project_id=project_id, model_id=model_id, edge_id=edge_id
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
