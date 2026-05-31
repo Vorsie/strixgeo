@@ -2715,6 +2715,27 @@ export const api = {
         { section_id: sectionId ?? null },
       ),
 
+    // --- Accept a single correlation edge (dogfeed 2026-05-31) ---------------
+    //
+    // Powers the right-click "Accept correlation" menu item: flips
+    // user_approved=True for one edge, runs the resolver + lens detector
+    // in the same transaction.  Idempotent — re-accepting an already-approved
+    // edge returns edges_accepted=0.
+    acceptSingleContactCorrelation: (
+      projectId: string,
+      modelId: string,
+      edgeId: string,
+    ): Promise<{
+      edges_accepted: number
+      lenses_created: number
+      lenses_removed: number
+      ordinals_changed: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/accept`,
+        {},
+      ),
+
     // --- Materialise lens companion sections (#133 Phase 3) -------------------
     //
     // For every LithoLens without a companion section, gate on all contacts
