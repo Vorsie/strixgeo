@@ -175,8 +175,13 @@ export function useUndoStack(
         // Abandon history rather than risk further corruption.
         commitUndo([])
         commitRedo([])
+        // Include the failed action's ``description`` so the user
+        // can see WHICH undo blew up — dogfeed 2026-05-31: a Ctrl-Z
+        // intended for a manual correlate actually targeted a much
+        // heavier "Delete formation" revert and the opaque toast
+        // hid the mismatch.
         onErrorRef.current?.(
-          'Undo failed — history cleared to keep state safe.',
+          `Undo failed: ${cmd.description} — history cleared to keep state safe.`,
         )
       }
     })
@@ -202,7 +207,7 @@ export function useUndoStack(
         commitUndo([])
         commitRedo([])
         onErrorRef.current?.(
-          'Redo failed — history cleared to keep state safe.',
+          `Redo failed: ${cmd.description} — history cleared to keep state safe.`,
         )
       }
     })
