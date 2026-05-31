@@ -245,6 +245,15 @@ interface Props {
    * don't need it).
    */
   onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
+  /**
+   * Fired when the user picks "Accept correlation" from the edge's
+   * right-click menu (dogfeed 2026-05-31).  The caller (SectionsCanvas)
+   * POSTs the single-edge accept endpoint and refetches.  Absent = the
+   * Accept item is suppressed (read-only callers).  The Accept item is
+   * also suppressed for already-approved edges regardless of this prop —
+   * an approved edge has nothing to accept.
+   */
+  onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -258,9 +267,26 @@ function anchorId(c: FormationContactResponse): string | null {
   return c.cpt_id ?? c.borehole_id ?? null
 }
 
+/** One band entry on an investigation. Keyed by ``contact_id`` so two
+ * contacts referencing the same formation (a repeated lithology) get
+ * distinct entries — the previous ``formation_id`` key collapsed them,
+ * making the shallower band's hit-rect render at the deeper band's
+ * depth (manual-correlate dogfeed 2026-05-31). */
+export interface BandEntry {
+  /** Top of the band in absolute mTAW. */
+  topLevel: number
+  /** Bottom of the band in absolute mTAW. */
+  botLevel: number
+  /** The formation this band represents (for renderers that group by formation). */
+  formationId: string
+}
+
+/** Outer map keyed by investigation id; inner keyed by contact id. */
+export type BandMap = Map<string, Map<string, BandEntry>>
+
 /**
- * Build a map from (investigationId → (formationId → { topLevel, botLevel }))
- * from the contacts on this section.  Levels are absolute mTAW elevations.
+ * Build a map from (investigationId → (contactId → BandEntry)) from the
+ * contacts on this section.  Levels are absolute mTAW elevations.
  *
  * Band bottom = the next shallower contact's top level − the current
  * contact's top level converted from depth using the investigation's
@@ -270,6 +296,11 @@ function anchorId(c: FormationContactResponse): string | null {
  * only when the depth field is absent.  This prevents the deepest band
  * from extending past the data column to the section-view floor (debt
  * #120).
+ *
+ * Keyed by ``contact_id`` (not ``formation_id``) so two contacts pointing
+ * at the same formation at different depths each get their own entry —
+ * the formation_id key collapsed the two, drawing the shallower contact's
+ * hit-rect at the deeper contact's screen position.
  *
  * Parameters
  * ----------
@@ -284,13 +315,13 @@ function anchorId(c: FormationContactResponse): string | null {
  *
  * Returns
  * -------
- * Map<string, Map<string, { topLevel: number; botLevel: number }>>
+ * BandMap
  */
 export function buildBandMap(
   contacts: readonly FormationContactResponse[],
   columns: readonly PlacedColumn[],
   plotBottomLevel: number,
-): Map<string, Map<string, { topLevel: number; botLevel: number }>> {
+): BandMap {
   // investId → elevation_m (surface)
   const surfaceByInvest = new Map<string, number>()
   // investId → max measurement depth in m below surface
@@ -315,7 +346,7 @@ export function buildBandMap(
     byInvest.get(inv)!.push(c)
   }
 
-  const result = new Map<string, Map<string, { topLevel: number; botLevel: number }>>()
+  const result: BandMap = new Map()
 
   for (const [investId, cList] of byInvest) {
     const surface = surfaceByInvest.get(investId)
@@ -323,7 +354,7 @@ export function buildBandMap(
 
     // Sort by depth_top_m ascending (shallowest first)
     const sorted = [...cList].sort((a, b) => a.depth_top_m - b.depth_top_m)
-    const bands = new Map<string, { topLevel: number; botLevel: number }>()
+    const bands = new Map<string, BandEntry>()
 
     const maxDepth = maxDepthByInvest.get(investId)
     // Deepest band closes at the investigation's actual bottom level, not the
@@ -338,7 +369,7 @@ export function buildBandMap(
         i + 1 < sorted.length
           ? surface - sorted[i + 1].depth_top_m
           : investigationBottomLevel
-      bands.set(c.formation_id, { topLevel, botLevel })
+      bands.set(c.id, { topLevel, botLevel, formationId: c.formation_id })
     }
 
     result.set(investId, bands)
@@ -348,12 +379,14 @@ export function buildBandMap(
 }
 
 /**
- * Get the band screen rect (topY, botY, halfWidth) for correlate-mode click captures.
+ * Get the band screen rect (topY, botY) for the contact's own band.
+ * Looked up by contact id so two contacts on the same investigation
+ * referencing the same formation get distinct rects.
  */
 function bandRect(
   investigationId: string,
-  formationId: string,
-  bandMap: Map<string, Map<string, { topLevel: number; botLevel: number }>>,
+  contactId: string,
+  bandMap: BandMap,
   levelToScreen: (l: number) => number,
   plotTop: number,
   plotBottom: number,
@@ -361,7 +394,7 @@ function bandRect(
 ): { topY: number; botY: number } | null {
   const bands = bandMap.get(investigationId)
   if (!bands) return null
-  const band = bands.get(formationId)
+  const band = bands.get(contactId)
   if (!band) return null
   const topY = Math.max(plotTop, levelToScreen(band.topLevel))
   const botY = Math.min(plotBottom, levelToScreen(band.botLevel))
@@ -398,7 +431,7 @@ function bandRect(
 export function buildContactScreenMap(
   contacts: readonly FormationContactResponse[],
   columns: readonly PlacedColumn[],
-  bandMap: Map<string, Map<string, { topLevel: number; botLevel: number }>>,
+  bandMap: BandMap,
   levelToScreen: (level: number) => number,
 ): Map<string, { x: number; topY: number; halfWidth: number }> {
   const result = new Map<string, { x: number; topY: number; halfWidth: number }>()
@@ -407,7 +440,9 @@ export function buildContactScreenMap(
     if (invId === null) continue
     const colBands = bandMap.get(invId)
     if (!colBands) continue
-    const band = colBands.get(c.formation_id)
+    // Look up by contact id — same formation appearing twice on one column
+    // has two distinct band entries, each anchored at its own depth.
+    const band = colBands.get(c.id)
     if (!band) continue
     const col = columns.find(col => col.proj.item.id === invId)
     if (!col) continue
@@ -631,21 +666,51 @@ interface EdgeContextMenuProps {
   menu: EdgeContextMenuState
   /** Deletes this correlation edge (caller owns the DELETE + refetch). */
   onDelete: () => void
+  /** Accepts this correlation edge (flips user_approved=True).
+   *  Absent / undefined for an already-approved edge — the Accept row is
+   *  then suppressed so the menu doesn't carry a no-op item. */
+  onAccept?: () => void
   onClose: () => void
 }
 
-function EdgeContextMenu({ menu, onDelete, onClose }: EdgeContextMenuProps): JSX.Element {
+function EdgeContextMenu({
+  menu,
+  onDelete,
+  onAccept,
+  onClose,
+}: EdgeContextMenuProps): JSX.Element {
+  const items: Array<{
+    label: string
+    onClick: () => void
+    danger?: boolean
+    testid?: string
+  }> = []
+  // Accept first (positive action above destructive) — only when the edge
+  // is still pending; an approved edge has nothing to accept.
+  if (onAccept) {
+    items.push({
+      label: 'Accept correlation',
+      onClick: onAccept,
+      testid: 'edge-context-accept',
+    })
+  }
+  items.push({
+    label: 'Delete correlation',
+    onClick: onDelete,
+    danger: true,
+    testid: 'edge-context-delete',
+  })
   return (
     <ContextMenu
       portal="svg"
       x={menu.x}
       y={menu.y}
       width={200}
-      height={48}
+      height={onAccept ? 80 : 48}
       minWidth={180}
       testid="edge-context-menu"
       onClose={onClose}
-      items={[{ label: 'Delete correlation', onClick: onDelete, danger: true }]}
+      items={items}
     />
   )
 }
@@ -701,6 +766,7 @@ export default function CorrelationEdgesOverlay({
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
+  onRequestAcceptEdge,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
@@ -909,18 +975,29 @@ export default function CorrelationEdgesOverlay({
       if (!bands) continue
       const hw = col.width / 2
       const colX = col.nudgedX
-      for (const [fId] of bands) {
-        const formation = formationById.get(fId)
+      // Iterate by contact id so repeated formations get one chip per
+      // instance (each at its own band's top), not one chip at the deepest
+      // band's top.
+      const seenInstancesOnCol = new Set<string>()
+      for (const [contactId, entry] of bands) {
+        const formation = formationById.get(entry.formationId)
         if (!formation) continue
         if (formation.instance_ordinal === null) continue
-        const rect = bandRect(invId, fId, bandMap, levelToScreen, plotTop, plotBottom, hw)
+        // De-dup: when two contacts on this column share the same formation
+        // AND it carries a single ordinal, render only the first chip we
+        // encounter — the chip displays the formation's ordinal, not a
+        // per-instance number, so two chips with identical text would be
+        // visual noise.
+        if (seenInstancesOnCol.has(entry.formationId)) continue
+        seenInstancesOnCol.add(entry.formationId)
+        const rect = bandRect(invId, contactId, bandMap, levelToScreen, plotTop, plotBottom, hw)
         if (!rect) continue
         const bandHeight = rect.botY - rect.topY
         if (bandHeight < CHIP_MIN_BAND_HEIGHT) continue
         const rightEdge = colX + hw
         rects.push({
           investigationId: invId,
-          formationId: fId,
+          formationId: entry.formationId,
           ordinal: formation.instance_ordinal,
           x: rightEdge - CHIP_WIDTH - CHIP_INSET,
           y: rect.topY + CHIP_INSET,
@@ -1027,11 +1104,11 @@ export default function CorrelationEdgesOverlay({
             if (!bands) return []
             const halfW = col.width / 2
             const result: JSX.Element[] = []
-            for (const [fId] of bands) {
-              if (!pulsingFormationIds.has(fId)) continue
+            for (const [contactId, entry] of bands) {
+              if (!pulsingFormationIds.has(entry.formationId)) continue
               const rect = bandRect(
                 invId,
-                fId,
+                contactId,
                 bandMap,
                 levelToScreen,
                 plotTop,
@@ -1041,8 +1118,8 @@ export default function CorrelationEdgesOverlay({
               if (!rect) continue
               result.push(
                 <rect
-                  key={`pulse-${invId}-${fId}`}
-                  data-testid={`correlation-pulse-${invId}-${fId}`}
+                  key={`pulse-${invId}-${contactId}`}
+                  data-testid={`correlation-pulse-${invId}-${entry.formationId}`}
                   x={col.nudgedX - halfW - 1}
                   y={rect.topY - 1}
                   width={halfW * 2 + 2}
@@ -1292,8 +1369,13 @@ export default function CorrelationEdgesOverlay({
             // (no need to suppress correlation there).  Falls back to a thin
             // strip on the boundary line when the band geometry is unavailable.
             const invId = anchorId(c)
+            // Look up by contact id (not formation_id) — same formation
+            // appearing twice on one column gets distinct band entries; the
+            // formation_id lookup collapsed them, drawing the shallower
+            // contact's hit-rect at the deeper contact's depth (dogfeed
+            // 2026-05-31: click upper SAND → lower SAND armed).
             const band = invId
-              ? bandRect(invId, c.formation_id, bandMap, levelToScreen, plotTop, plotBottom, hw)
+              ? bandRect(invId, c.id, bandMap, levelToScreen, plotTop, plotBottom, hw)
               : null
             // Split the band into an UPPER half (arms THIS contact = the
             // band's top boundary) and a LOWER half (arms the boundary BELOW =
@@ -1432,7 +1514,10 @@ export default function CorrelationEdgesOverlay({
         />
       )}
 
-      {/* Edge-level context menu — right-click on a correlation edge (#163e). */}
+      {/* Edge-level context menu — right-click on a correlation edge (#163e).
+          Accept row appears only when the edge is still pending AND the
+          caller wired an accept handler — an approved edge has nothing to
+          accept (dogfeed 2026-05-31). */}
       {edgeContextMenu && onRequestDeleteEdge && (
         <EdgeContextMenu
           menu={edgeContextMenu}
@@ -1441,6 +1526,15 @@ export default function CorrelationEdgesOverlay({
             setEdgeContextMenu(null)
             onRequestDeleteEdge(edge)
           }}
+          onAccept={
+            onRequestAcceptEdge && !edgeContextMenu.edge.user_approved
+              ? () => {
+                  const { edge } = edgeContextMenu
+                  setEdgeContextMenu(null)
+                  onRequestAcceptEdge(edge)
+                }
+              : undefined
+          }
           onClose={() => setEdgeContextMenu(null)}
         />
       )}
