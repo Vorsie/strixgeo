@@ -73,10 +73,12 @@ from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
 )
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory

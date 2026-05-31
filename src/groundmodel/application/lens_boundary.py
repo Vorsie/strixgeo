@@ -19,11 +19,15 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
-    LithoLensBoundaryNodeOrm,
+from groundmodel.infrastructure.db.models.body_boundary_node_orm import (
+    BodyBoundaryNodeOrm as LithoLensBoundaryNodeOrm,  # TODO: slice 2 — full rename
 )
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
-from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import (
+    BodyBoundaryShapeOrm as LithoLensShapeOrm,  # TODO: slice 2 — full rename
+)
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,  # TODO: slice 2 — full rename
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _VALID_STYLES = ("straight", "blocky", "rounded")

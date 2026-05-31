@@ -28,13 +28,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.update_formation_contact import UpdateFormationContact
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------

@@ -24,13 +24,15 @@ from groundmodel.application.lens_boundary import (
     LensNotFoundError,
     SaveLensBoundary,
 )
+from groundmodel.infrastructure.db.models.body_boundary_node_orm import (
+    BodyBoundaryNodeOrm as LithoLensBoundaryNodeOrm,  # TODO: slice 2 — full rename
+)
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,  # TODO: slice 2 — full rename
+)
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
-    LithoLensBoundaryNodeOrm,
-)
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import build_project_bundle
 

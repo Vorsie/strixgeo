@@ -20,7 +20,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 

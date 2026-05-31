@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.materialise_lens_companions import MaterialiseLensCompanions
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -32,7 +35,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------

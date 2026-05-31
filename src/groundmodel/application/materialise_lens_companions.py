@@ -34,11 +34,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.create_perpendicular_companion import (
     CreatePerpendicularCompanion,
 )
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 

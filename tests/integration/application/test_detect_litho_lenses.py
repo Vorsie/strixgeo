@@ -32,6 +32,9 @@ from groundmodel.application.correlate_litho_contacts import (
 )
 from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -41,7 +44,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,12 @@ from groundmodel.domain.services.detect_lenses_from_graph import (
     detect_lenses_from_graph,
 )
 from groundmodel.domain.services.lens_identity import lens_content_key
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import (
+    BodyBoundaryShapeOrm as LithoLensShapeOrm,
+)  # TODO: slice 2 — full rename
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,
+)  # TODO: slice 2 — full rename
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -36,8 +42,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
-from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 

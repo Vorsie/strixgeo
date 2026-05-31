@@ -77,6 +77,15 @@ class BundleIntegrityError(ValueError):
     """
 
 
+from groundmodel.infrastructure.db.models.body_boundary_node_orm import (
+    BodyBoundaryNodeOrm as LithoLensBoundaryNodeOrm,  # TODO: slice 4 — full rename + content_key→body_id pivot
+)
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import (
+    BodyBoundaryShapeOrm as LithoLensShapeOrm,  # TODO: slice 4 — full rename + content_key→body_id pivot
+)
+from groundmodel.infrastructure.db.models.body_orm import (
+    BodyOrm as LithoLensOrm,  # TODO: slice 4 — full rename + source_investigation_id wiring
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -98,11 +107,6 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
-    LithoLensBoundaryNodeOrm,
-)
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
-from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
