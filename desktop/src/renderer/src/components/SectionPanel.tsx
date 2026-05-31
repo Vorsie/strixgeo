@@ -694,6 +694,12 @@ interface Props {
    */
   onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
   /**
+   * Fired when the user picks "Accept correlation" from a pending edge's
+   * right-click menu (dogfeed 2026-05-31). Forwarded verbatim to
+   * ``CorrelationEdgesOverlay``. Absent = the Accept item is suppressed.
+   */
+  onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
+  /**
    * Detected lens bodies for the active litho model (#163f Slice 2). When
    * present, rendered as shapeable wedges by ``LensWedgeOverlay``. Absent =
    * no lens wedges.
@@ -769,6 +775,7 @@ export default function SectionPanel({
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
+  onRequestAcceptEdge,
   lenses,
   lensBoundaries,
   onSaveLensShape,
@@ -3071,6 +3078,7 @@ export default function SectionPanel({
                 onUnapprovedDragStart={onUnapprovedDragStart}
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
                 onRequestDeleteEdge={onRequestDeleteEdge}
+                onRequestAcceptEdge={onRequestAcceptEdge}
               />
             )}
             {/* Lens wedges (#163f Slice 2) — detected lenses rendered as
