@@ -47,6 +47,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from groundmodel.api.schemas.project.project_bundle import BUNDLE_FORMAT_VERSION
+
+
+class BundleIntegrityError(ValueError):
+    """Raised when a bundle would be (or is) internally inconsistent.
+
+    Catches the class of bug that wiped 833 accepted layers in the
+    2026-05-31 dogfeed: the export query missed 19 litho-instance
+    formations even though contacts/layers referenced them, so the
+    file was self-inconsistent. A later revert-to-last-save restored
+    from this broken file, dropping every dependent row as an orphan.
+
+    Two callers raise this:
+
+    * ``build_project_bundle`` — refuses to write a bundle where any
+      contact/layer/unit references a formation_id that does not
+      exist in the DB (cannot be recovered for inclusion in the
+      export).
+    * ``restore_project_bundle`` in ``replace=True`` mode — refuses
+      to wipe the existing DB children when the inbound bundle would
+      orphan any contacts/layers because formation_ids referenced by
+      them are missing from the bundle's formation list. The non-
+      replace path stays tolerant so legacy bundles still open.
+
+    Inherits from ValueError so the project router's existing
+    ``except (ValueError, KeyError, TypeError)`` 400 conversion picks
+    it up automatically — callers see a clear message instead of a
+    500.
+    """
+
+
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -397,6 +427,62 @@ async def _build_project_bundle_impl(
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
+
+    # ---- Integrity check + auto-recovery (2026-05-31 dogfeed fix). ------
+    # Collect every formation_id referenced by a contact / litho_layer /
+    # geotechnical unit on this project. The export query for formations
+    # scopes by ``app_project_id``; if a referenced formation lives
+    # outside that scope (a resolver-instance row whose app_project_id
+    # drifted, or any other historical leak) the query misses it. The
+    # bundle then ships layers whose formation_ids point at rows that
+    # aren't in the bundle, and the next restore drops every dependent
+    # row as an orphan. Recover by globally re-fetching the missing ids;
+    # if any are truly absent from the DB, refuse to write the corrupt
+    # bundle so the user sees the error at save time, not at restore.
+    referenced_fids: set[UUID] = set()
+    for model in models:
+        for contact in model.contacts:
+            referenced_fids.add(contact.formation_id)
+        for layer in model.litho_layers:
+            referenced_fids.add(layer.formation_id)
+    for unit in units:
+        fid = getattr(unit, "formation_id", None)
+        if fid is not None:
+            referenced_fids.add(fid)
+    emitted_fids = {f.id for f in formations}
+    missing_fids = referenced_fids - emitted_fids
+    if missing_fids:
+        extra_rows = list(
+            (
+                await session.execute(
+                    select(GeologicalFormationOrm).where(
+                        GeologicalFormationOrm.id.in_(missing_fids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        found_fids = {f.id for f in extra_rows}
+        still_missing = missing_fids - found_fids
+        if still_missing:
+            sample = sorted(str(i) for i in list(still_missing)[:5])
+            raise BundleIntegrityError(
+                f"Bundle export refused for project {project.id}: "
+                f"{len(still_missing)} formation(s) referenced by "
+                f"layers/contacts/units do not exist in the DB and cannot "
+                f"be included in the bundle. Writing this file would "
+                f"silently drop the dependent rows on the next restore. "
+                f"Sample missing formation ids: {sample}."
+            )
+        logger.warning(
+            f"bundle export: recovered {len(extra_rows)} formation(s) "
+            f"referenced by layers/contacts/units that were missing from "
+            f"the project-scope query (schema drift — investigate). "
+            f"Sample recovered ids: "
+            f"{sorted(str(f.id) for f in extra_rows)[:3]}"
+        )
+        formations = list(formations) + extra_rows
 
     # v4 bundle. Every per-project decision rides along — the .gmproj
     # is the user's anchor, the DB is just a cache. v4 adds the
@@ -763,6 +849,56 @@ async def _restore_project_bundle_impl(
     # resolved (kept) and before any insert, in this same transaction, so the
     # net effect is "project's children == the bundle exactly".
     if replace:
+        # Pre-wipe integrity guard (2026-05-31 dogfeed fix). When the inbound
+        # bundle is self-inconsistent (layers/contacts reference formation_ids
+        # not in the bundle's formation array), the post-wipe insert silently
+        # drops those rows as orphans. The non-replace open-from-file path
+        # stays tolerant on purpose so legacy bundles still open; the
+        # destructive ``replace`` path must NOT wipe valid DB state to make
+        # room for a broken file. Counting orphans up front lets the user see
+        # an actionable error instead of "all my data is gone".
+        bundle_fids: set[UUID] = set()
+        for f_payload in geological_formations_payload:
+            fid_raw = f_payload.get("id")
+            if fid_raw is None:
+                continue
+            bundle_fids.add(UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw)
+
+        def _ref_fid(raw: object) -> UUID | None:
+            if raw is None:
+                return None
+            return UUID(raw) if isinstance(raw, str) else raw  # type: ignore[return-value]
+
+        orphan_layer_count = 0
+        orphan_contact_count = 0
+        orphan_fids: set[UUID] = set()
+        for m_payload in geological_models_payload:
+            for c in m_payload.get("contacts") or []:
+                fid = _ref_fid(c.get("formation_id"))
+                if fid is not None and fid not in bundle_fids:
+                    orphan_contact_count += 1
+                    orphan_fids.add(fid)
+            for layer in m_payload.get("litho_layers") or []:
+                fid = _ref_fid(layer.get("formation_id"))
+                if fid is not None and fid not in bundle_fids:
+                    orphan_layer_count += 1
+                    orphan_fids.add(fid)
+        for u_payload in geotechnical_units_payload:
+            fid = _ref_fid(u_payload.get("formation_id"))
+            if fid is not None and fid not in bundle_fids:
+                orphan_fids.add(fid)
+        if orphan_fids:
+            sample = sorted(str(i) for i in list(orphan_fids)[:5])
+            raise BundleIntegrityError(
+                f"Replace-restore refused for project {project_id}: bundle "
+                f"is self-inconsistent. "
+                f"{orphan_layer_count} litho layer(s) and "
+                f"{orphan_contact_count} formation contact(s) reference "
+                f"{len(orphan_fids)} formation id(s) not present in the "
+                f"bundle's geological_formations array. Wiping the DB to "
+                f"match this bundle would silently drop those rows. "
+                f"Sample missing formation ids: {sample}."
+            )
         await _wipe_project_scoped_rows(session, project_id, logger=logger)
 
     # ---- CPTs ------------------------------------------------------------
