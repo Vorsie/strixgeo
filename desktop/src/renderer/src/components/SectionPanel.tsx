@@ -1557,7 +1557,7 @@ export default function SectionPanel({
       bottomZ: number
     }
     const fits: ColumnFit[] = []
-    log.info(
+    log.debug(
       'section-zoom',
       `focusedContactIds.length=${focusedContactIds.length} focusableContacts=${focusableContacts?.length ?? 'undef'} contacts=${contacts.length} placedColumns=${placedColumns.length}`,
     )
@@ -1603,7 +1603,7 @@ export default function SectionPanel({
       })
     }
     if (fits.length === 0) {
-      log.info(
+      log.debug(
         'section-zoom',
         `BAIL fits.length=0 — no offending contact's anchor was found in placedColumns. focusedContactIds=${focusedContactIds.length} lookupContacts=${(focusableContacts ?? contacts).length}`,
       )
@@ -1655,7 +1655,7 @@ export default function SectionPanel({
     // the effect re-fires once placedColumns recomputes with real
     // dimensions, and we want that re-fire to succeed.
     if (plotWidth <= 0 || scaleH <= 0) {
-      log.info(
+      log.debug(
         'section-zoom',
         `BAIL plotWidth=${plotWidth} scaleH=${scaleH} — layout not ready yet, will retry`,
       )
@@ -1742,7 +1742,7 @@ export default function SectionPanel({
       const targetAlong = activeCols[0].along
       const targetIdx = sortedCols.findIndex(c => c.proj.along === targetAlong)
       if (targetIdx < 0) {
-        log.info(
+        log.debug(
           'section-zoom',
           `BAIL packed branch: target along=${targetAlong} not in placedColumns`,
         )
@@ -1769,7 +1769,7 @@ export default function SectionPanel({
         leftmostAlong -
         (plotCentre - MARGIN.left - cumulativeOffsetPx) / newScaleH
       xMax = xMin + TARGET_XRANGE_M
-      log.info(
+      log.debug(
         'section-zoom',
         `PACKED targetIdx=${targetIdx}/${sortedCols.length} cumOff=${cumulativeOffsetPx.toFixed(0)} newBHW=${newBandHalfWidth} newScaleH=${newScaleH.toFixed(2)} leftmostAlong=${leftmostAlong} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
       )
@@ -1784,7 +1784,7 @@ export default function SectionPanel({
     const levelMin = bottomZ - zMargin
     const levelMax = topZ + zMargin
 
-    log.info(
+    log.debug(
       'section-zoom',
       `APPLY fits=${fits.length} distinct=${distinctCols.length} activeCols=${activeCols.length} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)} levelMin=${levelMin.toFixed(1)} levelMax=${levelMax.toFixed(1)}`,
     )
