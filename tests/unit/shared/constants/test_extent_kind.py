@@ -1,11 +1,14 @@
 """Unit tests for the extent_kind enum + helpers."""
 
+from typing import get_args
+
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_EXTRAPOLATED,
     EXTENT_KIND_OPEN,
     EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_TO_TARGET,
     EXTENT_KIND_VALUES,
+    ExtentKind,
     is_user_claimed_extent_kind,
 )
 
@@ -30,3 +33,16 @@ def test_is_user_claimed_extent_kind() -> None:
     assert is_user_claimed_extent_kind(EXTENT_KIND_EXTRAPOLATED)
     assert is_user_claimed_extent_kind(EXTENT_KIND_OPEN)
     assert not is_user_claimed_extent_kind(None)
+
+
+def test_extent_kind_literal_matches_named_constants() -> None:
+    """The Literal type alias must list exactly the four named constants
+    — static narrowing only works if the alias matches the runtime set."""
+    literal_values = set(get_args(ExtentKind))
+    assert literal_values == {
+        EXTENT_KIND_TO_TARGET,
+        EXTENT_KIND_PINCH_OUT_HALFWAY,
+        EXTENT_KIND_EXTRAPOLATED,
+        EXTENT_KIND_OPEN,
+    }
+    assert literal_values == set(EXTENT_KIND_VALUES)
