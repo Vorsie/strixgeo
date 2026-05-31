@@ -653,6 +653,40 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
   )
 
+  // Right-click a pending correlation edge → "Accept correlation" (dogfeed
+  // 2026-05-31).  Single-edge accept: flips user_approved=True on the server,
+  // refetches edges + lens data so the seam ribbon, ordinal chips, and
+  // wedges all reflect the new approved state.  No undo entry — the symmetric
+  // reverse is "delete the edge", which the same menu offers as a separate
+  // action.
+  const handleAcceptContactCorrelation = useCallback(
+    async (edgeId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      const modelId = activeLithoModel.id
+      log.info('section', `contact-accept: edge=${edgeId} on model ${modelId}`)
+      try {
+        const result = await api.geology.acceptSingleContactCorrelation(
+          project.id,
+          modelId,
+          edgeId,
+        )
+        await refetchContactEdges()
+        await refetchLensData()
+        markMutated()
+        log.success(
+          'section',
+          `contact-accept: edge=${edgeId} accepted=${result.edges_accepted} ` +
+            `lenses_created=${result.lenses_created} lenses_removed=${result.lenses_removed} ` +
+            `ordinals_changed=${result.ordinals_changed}`,
+        )
+      } catch (err) {
+        log.warn('section', `handleAcceptContactCorrelation: POST failed for edge ${edgeId}`, err)
+        toast('error', 'Could not accept the correlation. Try again or refresh.')
+      }
+    },
+    [activeLithoModel, project.id, refetchContactEdges, refetchLensData, markMutated, toast],
+  )
+
   // Right-click a lens wedge → dissolve the lens (dogfeed 2026-05-29).
   // A lens IS its two defining correlation edges (above↔pinch, below↔pinch);
   // the metadata-only DELETE endpoint would leave the body in the graph and
@@ -2068,6 +2102,11 @@ export default function SectionsCanvas(): JSX.Element {
             isLitho
               ? edge => void handleDeleteContactCorrelation(edge.contact_a_id, edge.contact_b_id)
               : undefined
+          }
+          // Dogfeed 2026-05-31: right-click a pending edge → "Accept correlation".
+          // The overlay suppresses the menu item for already-approved edges.
+          onRequestAcceptEdge={
+            isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
           }
           // #163f Slice 2 — lens wedges + shaping (litho axis only).
           lenses={isLitho ? lensList : undefined}
