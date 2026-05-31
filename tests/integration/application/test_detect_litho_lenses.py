@@ -558,3 +558,80 @@ async def test_unresolved_ordinal_logged_and_skipped(
     assert len(lens_rows) == 0, (
         f"Expected 0 LithoLensOrm rows when ordinal unresolved; got {len(lens_rows)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: named lens row survives a stale-topology reconcile (preserve-named)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_named_lens_survives_stale_topology_reconcile(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Owner directive 2026-05-31 — the reconcile step at DetectLithoLenses
+    skips lens rows with a non-null ``name`` even when their topology no
+    longer matches the bilateral-closure rule.  Named lenses are
+    intentional and must only be removed via the explicit
+    ``DELETE /lenses/{lens_id}`` endpoint.
+
+    This is the load-bearing test for the auto-reconcile-on-restore path:
+    legacy bundles saved under the old unilateral rule carry stale lens
+    rows that the new rule would not materialise.  We want those rows
+    swept on open — BUT named rows must survive untouched so we don't
+    silently destroy the user's lens labels.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-t5")
+    f_lens = _formation(project, parent, name="Named lens body", soil_code="KLEI")
+    # A borehole the named lens points at — the row needs an investigation
+    # for its formation, but no edges are required (the user named it
+    # without a defining topology).
+    bh = _borehole(project.id, suffix="T5", x=160000.0)
+
+    db_session.add_all([geo, litho, parent, f_lens, bh])
+    await db_session.flush()
+    # Give the formation an ``instance_ordinal`` so the resolver doesn't
+    # touch it (named-by-itself bodies don't go through the resolver).
+    await db_session.execute(
+        update(GeologicalFormationOrm)
+        .where(GeologicalFormationOrm.id == f_lens.id)
+        .values(instance_ordinal=0)
+    )
+
+    # Insert a NAMED lens row directly — simulates the row the user named
+    # under the pre-2026-05-31 rule, whose topology no longer qualifies.
+    named_lens = LithoLensOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=litho.id,
+        formation_id=f_lens.id,
+        body_ordinal=0,
+        name="Channel sand lens body",
+        content_key="stale-content-key-from-legacy-bundle",
+    )
+    db_session.add(named_lens)
+    await db_session.commit()
+
+    # Run the detector against an empty edge graph — no candidate fires,
+    # so the named row falls into the "stale" branch of step 7.
+    result = await DetectLithoLenses(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+    await db_session.commit()
+
+    assert result.lenses_removed == 0, (
+        f"Named lens must survive a stale-topology reconcile; "
+        f"got lenses_removed={result.lenses_removed}"
+    )
+
+    survivors = (
+        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        .scalars()
+        .all()
+    )
+    assert len(survivors) == 1, f"Named lens row must persist; got {len(survivors)} rows"
+    assert survivors[0].name == "Channel sand lens body"
