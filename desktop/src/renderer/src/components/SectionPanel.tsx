@@ -1694,17 +1694,32 @@ export default function SectionPanel({
       // Average packed pixel position of the active columns.
       const targetNudgedX =
         activeCols.reduce((acc, f) => acc + f.nudgedX, 0) / activeCols.length
-      // Leftmost test's nudgedX + along — anchors[0] of the warp
-      // ref is the leftmost (anchors are sorted by along).
-      const anchors = warpAnchorsRef.current
-      const leftmostNudgedX = anchors.length > 0 ? anchors[0].effX : targetNudgedX
-      const leftmostAlong =
-        anchors.length > 0 ? anchors[0].along : activeCols[0].along
+      // Derive the leftmost column SYNCHRONOUSLY from placedColumns —
+      // warpAnchorsRef is updated by a useEffect that runs AFTER this
+      // one, so on first mount (Geology -> Sections deep-link) the ref
+      // is still []. Reading from placedColumns directly avoids that
+      // race.
+      let leftmostCol: typeof placedColumns[number] | null = null
+      for (const c of placedColumns) {
+        if (leftmostCol === null || c.proj.along < leftmostCol.proj.along) {
+          leftmostCol = c
+        }
+      }
+      const leftmostNudgedX = leftmostCol?.nudgedX ?? targetNudgedX
+      const leftmostAlong = leftmostCol?.proj.along ?? activeCols[0].along
       const oldOffsetPx = targetNudgedX - leftmostNudgedX
       const newScaleH = plotWidth / TARGET_XRANGE_M
       const oldBandHalfWidth = cptBandHalfWidth(scaleH)
       const newBandHalfWidth = cptBandHalfWidth(newScaleH)
-      const widthRatio = oldBandHalfWidth > 0 ? newBandHalfWidth / oldBandHalfWidth : 1
+      // Per-column width has a CONSTANT part (bare + edge gap) and a
+      // scaling part (2 × bandHalfWidth). The offset ratio is the
+      // ratio of total per-column widths, NOT bandHalfWidth alone —
+      // using bandHalfWidth ratio overshoots and lands the target
+      // left of centre. Average widths estimate is fine: bare and
+      // edge-gap dominate at low scale, band width dominates at high.
+      const oldPerCol = BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
+      const newPerCol = BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
+      const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
       const newOffsetPx = oldOffsetPx * widthRatio
       const plotCentre = MARGIN.left + plotWidth / 2
       // We want the target's POST-ZOOM nudgedX = plotCentre.
@@ -1715,7 +1730,7 @@ export default function SectionPanel({
       xMax = xMin + TARGET_XRANGE_M
       log.info(
         'section-zoom',
-        `PACKED targetNudgedX=${targetNudgedX.toFixed(0)} leftmostNudgedX=${leftmostNudgedX.toFixed(0)} oldOff=${oldOffsetPx.toFixed(0)} newOff=${newOffsetPx.toFixed(0)} widthRatio=${widthRatio.toFixed(2)} newScaleH=${newScaleH.toFixed(2)} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
+        `PACKED targetNudgedX=${targetNudgedX.toFixed(0)} leftmostNudgedX=${leftmostNudgedX.toFixed(0)} oldOff=${oldOffsetPx.toFixed(0)} newOff=${newOffsetPx.toFixed(0)} widthRatio=${widthRatio.toFixed(2)} oldBHW=${oldBandHalfWidth} newBHW=${newBandHalfWidth} newScaleH=${newScaleH.toFixed(2)} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
       )
     }
 
