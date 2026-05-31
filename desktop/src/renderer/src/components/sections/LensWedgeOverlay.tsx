@@ -111,10 +111,25 @@ interface Props {
 
 interface ResolvedLens {
   lensId: string
+  /** Stable per-wedge id (a lens with bilateral closure renders multiple
+   *  wedges — one per pinch-out target). The primary wedge's key equals
+   *  the lensId; secondaries append their target contact id. */
+  wedgeKey: string
+  /** ``true`` for the primary (one-target) wedge that carries the stored
+   *  ``LithoLensShapeOrm`` boundary nodes + supports node-drag editing.
+   *  Secondary wedges (other pinch-out targets discovered from the edge
+   *  graph) render as straight pinches with no user-editable shape — the
+   *  underlying data model only stores one boundary set per lens until
+   *  two-sided lens authoring lands in Phase 5. */
+  isPrimary: boolean
   style: LensRenderStyle
   upperNodes: LensBoundaryNode[]
   lowerNodes: LensBoundaryNode[]
-  /** World anchors: the pinch point + the full-thickness source contacts. */
+  /** World anchors: the pinch point + the full-thickness source contacts.
+   *  ``pinch`` and ``topSource`` / ``baseSource`` carry an ``along_m`` set
+   *  to the column's EDGE FACING THE OTHER END (not the column centre),
+   *  so the wedge starts flush with the source column and tapers into the
+   *  target column's near edge. */
   pinch: WorldPt
   topSource: WorldPt
   baseSource: WorldPt
@@ -160,20 +175,36 @@ export default function LensWedgeOverlay({
   const [drag, setDrag] = useState<NodeDrag | null>(null)
 
   // --- world-coordinate lookups (contact id → depth + investigation; ----------
-  //     investigation id → along + surface elevation) -------------------------
+  //     investigation id → along + surface elevation + screen width) -----------
   const contactById = new Map(contacts.map(c => [c.id, c]))
-  const colByInv = new Map<string, { along: number; surfaceElevM: number }>()
+  const colByInv = new Map<
+    string,
+    { along: number; surfaceElevM: number; nudgedX: number; width: number }
+  >()
   for (const col of placedColumns) {
     const elev = col.proj.item.elevation_m
     if (elev !== null && elev !== undefined) {
-      colByInv.set(col.proj.item.id, { along: col.proj.along, surfaceElevM: elev })
+      colByInv.set(col.proj.item.id, {
+        along: col.proj.along,
+        surfaceElevM: elev,
+        nudgedX: col.nudgedX,
+        width: col.width,
+      })
     }
   }
   const anchorIdOf = (c: FormationContactResponse): string | null =>
     c.cpt_id ?? c.borehole_id ?? null
   const depthByContact = new Map<string, number>(contacts.map(c => [c.id, c.depth_top_m]))
+  // Investigation id of each contact (used to detect "same column" + to
+  // gate secondary targets to a DIFFERENT investigation than the primary).
+  const invByContact = new Map<string, string>()
+  for (const c of contacts) {
+    const inv = anchorIdOf(c)
+    if (inv !== null) invByContact.set(c.id, inv)
+  }
 
-  function worldPt(contactId: string): WorldPt | null {
+  /** Column-CENTRE world point for a contact (legacy behaviour). */
+  function worldPtCentre(contactId: string): WorldPt | null {
     const c = contactById.get(contactId)
     if (!c) return null
     const inv = anchorIdOf(c)
@@ -183,8 +214,49 @@ export default function LensWedgeOverlay({
     return { along_m: col.along, elevation_m: col.surfaceElevM - c.depth_top_m }
   }
 
-  // Resolve each lens to its three world anchors + stored shape.
+  /**
+   * Column-EDGE world point — same elevation as ``worldPtCentre`` but with
+   * ``along_m`` shifted to the column edge FACING ``otherSideAlong``. The
+   * facing edge is the one closer to the other end of the wedge, so the
+   * wedge starts flush with the column's edge and tapers from there.
+   *
+   * The screen-edge X is converted back to world ``along_m`` via the
+   * warp-aware inverse so spacing != 100% renders cleanly (dogfeed
+   * 2026-05-31 — the lens was floating off the columns at any other
+   * spacing before the warp wiring landed).
+   */
+  function worldPtEdge(contactId: string, otherSideAlong: number): WorldPt | null {
+    const c = contactById.get(contactId)
+    if (!c) return null
+    const inv = anchorIdOf(c)
+    if (inv === null) return null
+    const col = colByInv.get(inv)
+    if (!col) return null
+    // ``otherSideAlong > col.along`` → other end is to the RIGHT, so the
+    // facing edge is the column's RIGHT edge (positive halfWidth offset).
+    const halfW = col.width / 2
+    const edgeX = col.nudgedX + (otherSideAlong > col.along ? +halfW : -halfW)
+    return { along_m: screenXToAlong(edgeX), elevation_m: col.surfaceElevM - c.depth_top_m }
+  }
+
+  // Resolve each lens to its world anchors + every detected pinch-out
+  // closure (one primary wedge + optional secondary wedges for bilateral
+  // bodies — the new bilateral-closure rule guarantees ≥1 secondary
+  // exists for every detected lens).
   const edgePairs = contactEdges.map(e => ({ a: e.contact_a_id, b: e.contact_b_id }))
+  // Build per-contact neighbour set (across approved edges) — used to find
+  // all common targets of the (above, below) source pair.
+  const neighboursByContact = new Map<string, Set<string>>()
+  for (const e of contactEdges) {
+    if (!neighboursByContact.has(e.contact_a_id)) {
+      neighboursByContact.set(e.contact_a_id, new Set())
+    }
+    if (!neighboursByContact.has(e.contact_b_id)) {
+      neighboursByContact.set(e.contact_b_id, new Set())
+    }
+    neighboursByContact.get(e.contact_a_id)!.add(e.contact_b_id)
+    neighboursByContact.get(e.contact_b_id)!.add(e.contact_a_id)
+  }
   const resolved: ResolvedLens[] = []
   for (const lens of lenses) {
     const ids = parseContentKey(lens.content_key)
@@ -193,23 +265,67 @@ export default function LensWedgeOverlay({
     if (!ids.every(id => contactById.has(id))) continue
     const roles = resolveLensRoles(ids, edgePairs, depthByContact)
     if (roles === null) continue
-    const pinch = worldPt(roles.targetId)
-    const topSource = worldPt(roles.aboveId)
-    const baseSource = worldPt(roles.belowId)
-    if (!pinch || !topSource || !baseSource) continue
+
+    const sourceInvId = invByContact.get(roles.aboveId)
+    const primaryTargetInv = invByContact.get(roles.targetId)
+    if (sourceInvId === undefined || primaryTargetInv === undefined) continue
+    const sourceCol = colByInv.get(sourceInvId)
+    if (!sourceCol) continue
+
+    // Common targets of (above, below) — every contact X where BOTH the
+    // above and below source contacts have an approved edge to X. Each
+    // such X on a DIFFERENT investigation than the source is a pinch-out
+    // closure of this body.
+    const aboveNeigh = neighboursByContact.get(roles.aboveId) ?? new Set<string>()
+    const belowNeigh = neighboursByContact.get(roles.belowId) ?? new Set<string>()
+    const commonTargets: string[] = []
+    for (const candidate of aboveNeigh) {
+      if (!belowNeigh.has(candidate)) continue
+      const candInv = invByContact.get(candidate)
+      if (candInv === undefined || candInv === sourceInvId) continue
+      commonTargets.push(candidate)
+    }
+    // Stable, deterministic order — primary first, secondaries by id.
+    const orderedTargets = [
+      roles.targetId,
+      ...commonTargets
+        .filter(t => t !== roles.targetId)
+        .sort(),
+    ]
+
     const boundary = boundariesByLensId.get(lens.id)
-    resolved.push({
-      lensId: lens.id,
-      style: boundary?.render_style ?? 'straight',
-      upperNodes: boundary?.upper_nodes ?? [],
-      lowerNodes: boundary?.lower_nodes ?? [],
-      pinch,
-      topSource,
-      baseSource,
-      aboveId: roles.aboveId,
-      belowId: roles.belowId,
-      targetId: roles.targetId,
-    })
+    const style: LensRenderStyle = boundary?.render_style ?? 'straight'
+
+    for (const targetId of orderedTargets) {
+      const isPrimary = targetId === roles.targetId
+      const targetCol = colByInv.get(invByContact.get(targetId)!)
+      if (!targetCol) continue
+      // Anchor the source endpoints at the column EDGE facing THIS
+      // target (each secondary wedge faces its own target's side).
+      const topSource = worldPtEdge(roles.aboveId, targetCol.along)
+      const baseSource = worldPtEdge(roles.belowId, targetCol.along)
+      // Anchor the pinch at the target column's edge facing the source.
+      const pinch = worldPtEdge(targetId, sourceCol.along)
+      if (!topSource || !baseSource || !pinch) continue
+      resolved.push({
+        lensId: lens.id,
+        wedgeKey: isPrimary ? lens.id : `${lens.id}::${targetId}`,
+        isPrimary,
+        style,
+        // Stored shape nodes apply to the PRIMARY wedge only — the data
+        // model carries one boundary set per lens.  Secondary wedges
+        // render as straight pinches until two-sided lens authoring
+        // lands in Phase 5.
+        upperNodes: isPrimary ? (boundary?.upper_nodes ?? []) : [],
+        lowerNodes: isPrimary ? (boundary?.lower_nodes ?? []) : [],
+        pinch,
+        topSource,
+        baseSource,
+        aboveId: roles.aboveId,
+        belowId: roles.belowId,
+        targetId,
+      })
+    }
   }
 
   // --- drag lifecycle: live preview on move, commit on mouse-up ---------------
@@ -305,15 +421,13 @@ export default function LensWedgeOverlay({
   return (
     <g ref={rootRef} data-testid="lens-wedge-overlay" style={{ pointerEvents: 'none' }}>
       {resolved.map(lens => {
-        // Live-preview the dragged boundary's nodes.
+        // Live-preview the dragged boundary's nodes (drag is gated to
+        // primary wedges, so the match also requires ``isPrimary``).
+        const dragMatches = drag?.lensId === lens.lensId && lens.isPrimary
         const upperNodes =
-          drag?.lensId === lens.lensId && drag.boundary === 'upper'
-            ? drag.upperNodes
-            : lens.upperNodes
+          dragMatches && drag!.boundary === 'upper' ? drag!.upperNodes : lens.upperNodes
         const lowerNodes =
-          drag?.lensId === lens.lensId && drag.boundary === 'lower'
-            ? drag.lowerNodes
-            : lens.lowerNodes
+          dragMatches && drag!.boundary === 'lower' ? drag!.lowerNodes : lens.lowerNodes
 
         const upperWorld = lensBoundaryPolyline([lens.pinch, lens.topSource], upperNodes, lens.style)
         const lowerWorld = lensBoundaryPolyline(
@@ -328,11 +442,17 @@ export default function LensWedgeOverlay({
         const fillPts = [...upperScreen, ...lowerScreen.slice().reverse()]
         const fillD = fillPts.length >= 3 ? `${polylinePath(fillPts)} Z` : ''
 
+        // Secondary wedges (bilateral closure render) don't accept node-
+        // drag editing — the data model only stores one boundary set per
+        // lens.  They still support right-click → dissolve so the gesture
+        // is symmetric on both sides of the body.
+        const canEditShape = lens.isPrimary && Boolean(onSaveLensShape)
+
         return (
-          <g key={`lens-wedge-${lens.lensId}`} data-testid={`lens-wedge-${lens.lensId}`}>
+          <g key={`lens-wedge-${lens.wedgeKey}`} data-testid={`lens-wedge-${lens.wedgeKey}`}>
             {fillD && (
               <path
-                data-testid={`lens-wedge-fill-${lens.lensId}`}
+                data-testid={`lens-wedge-fill-${lens.wedgeKey}`}
                 d={fillD}
                 fill={FILL_COLOR}
                 fillOpacity={FILL_OPACITY}
@@ -353,26 +473,26 @@ export default function LensWedgeOverlay({
               />
             )}
             {/* Boundary hit-bands: mousedown adds + drags a node (the
-                "click the band and drag" gesture). Rendered first/below the
-                node circles. */}
-            {(['upper', 'lower'] as const).map(b => {
+                "click the band and drag" gesture).  Primary wedge only —
+                secondary wedges render as fixed straight pinches. */}
+            {canEditShape && (['upper', 'lower'] as const).map(b => {
               const screenPts = b === 'upper' ? upperScreen : lowerScreen
               return (
                 <path
                   key={`hit-${b}`}
-                  data-testid={`lens-boundary-hit-${lens.lensId}-${b}`}
+                  data-testid={`lens-boundary-hit-${lens.wedgeKey}-${b}`}
                   d={pathFn(screenPts)}
                   fill="none"
                   stroke="transparent"
                   strokeWidth={HIT_STROKE}
-                  style={{ pointerEvents: onSaveLensShape ? 'stroke' : 'none', cursor: 'crosshair' }}
+                  style={{ pointerEvents: 'stroke', cursor: 'crosshair' }}
                   onMouseDown={e => startAddNode(lens, b, e)}
                 />
               )
             })}
             {/* Visible boundary lines. */}
             <path
-              data-testid={`lens-boundary-upper-${lens.lensId}`}
+              data-testid={`lens-boundary-upper-${lens.wedgeKey}`}
               d={pathFn(upperScreen)}
               fill="none"
               stroke={BOUNDARY_COLOR}
@@ -380,29 +500,29 @@ export default function LensWedgeOverlay({
               pointerEvents="none"
             />
             <path
-              data-testid={`lens-boundary-lower-${lens.lensId}`}
+              data-testid={`lens-boundary-lower-${lens.wedgeKey}`}
               d={pathFn(lowerScreen)}
               fill="none"
               stroke={BOUNDARY_COLOR}
               strokeWidth={1.6}
               pointerEvents="none"
             />
-            {/* Draggable ghost nodes (hollow circles). */}
-            {(['upper', 'lower'] as const).map(b => {
+            {/* Draggable ghost nodes (hollow circles).  Primary wedge only. */}
+            {canEditShape && (['upper', 'lower'] as const).map(b => {
               const nodes = b === 'upper' ? upperNodes : lowerNodes
               return nodes.map((n, i) => {
                 const s = toScreen(n)
                 return (
                   <circle
                     key={`node-${b}-${i}`}
-                    data-testid={`lens-node-${lens.lensId}-${b}-${i}`}
+                    data-testid={`lens-node-${lens.wedgeKey}-${b}-${i}`}
                     cx={s.x}
                     cy={s.y}
                     r={NODE_R}
                     fill="#0f172a"
                     stroke={FILL_COLOR}
                     strokeWidth={2.2}
-                    style={{ pointerEvents: onSaveLensShape ? 'auto' : 'none', cursor: 'grab' }}
+                    style={{ pointerEvents: 'auto', cursor: 'grab' }}
                     onMouseDown={e => startNodeDrag(lens, b, i, e)}
                   />
                 )
