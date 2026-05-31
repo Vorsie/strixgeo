@@ -103,6 +103,7 @@ import { useSectionData } from './sections/useSectionData'
 import {
   BARE_COLUMN_WIDTH_PX,
   COLUMN_EDGE_GAP_PX,
+  CORRELATED_PAIR_EDGE_GAP_PX,
   DEFAULT_LEVEL_RANGE,
   MARGIN,
   VEX_DEFAULT,
@@ -1528,7 +1529,35 @@ export default function SectionPanel({
         ? { kind: 'cpt', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
         : { kind: 'borehole', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
     })
-    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r =>
+    // Edge-aware pair gap (dogfeed 2026-05-31): two adjacent columns
+    // connected by a correlation edge get CORRELATED_PAIR_EDGE_GAP_PX of
+    // clear space so the ribbon between them has room to render.
+    // Unconnected pairs keep the base 4 px floor so unrelated columns
+    // don't sprawl at the most-packed spacing setting. Pair keys are
+    // canonical ``min(invA, invB)|max(invA, invB)`` so order does not
+    // matter; built from contactEdges by mapping contact id →
+    // investigation id via the section's contacts list.
+    const investigationByContactId = new Map<string, string>()
+    for (const c of contacts) {
+      const inv = c.cpt_id ?? c.borehole_id
+      if (inv) investigationByContactId.set(c.id, inv)
+    }
+    const correlatedInvPairs = new Set<string>()
+    for (const edge of contactEdges ?? []) {
+      const invA = investigationByContactId.get(edge.contact_a_id)
+      const invB = investigationByContactId.get(edge.contact_b_id)
+      if (!invA || !invB || invA === invB) continue
+      const lo = invA < invB ? invA : invB
+      const hi = invA < invB ? invB : invA
+      correlatedInvPairs.add(`${lo}|${hi}`)
+    }
+    const pairKey = (a: string, b: string): string =>
+      a < b ? `${a}|${b}` : `${b}|${a}`
+    return nudgeColumns(items, COLUMN_EDGE_GAP_PX, (prev, curr) =>
+      correlatedInvPairs.has(pairKey(prev.proj.item.id, curr.proj.item.id))
+        ? CORRELATED_PAIR_EDGE_GAP_PX
+        : COLUMN_EDGE_GAP_PX,
+    ).map(r =>
       r.item.kind === 'cpt'
         ? {
             kind: 'cpt' as const,
@@ -1559,6 +1588,12 @@ export default function SectionPanel({
     enabledBhChannels,
     ghostFootprintForLayout,
     lithoGhostAnchorIds,
+    // Edge-aware pair gap depends on the contact-edge graph + the
+    // contact→investigation mapping; both can change without any other
+    // layout input changing (e.g. user accepts a correlation), so they
+    // belong in the dep list.
+    contactEdges,
+    contacts,
   ])
 
   // Scrub-bar outer bounds: leftmost-test / rightmost-test
