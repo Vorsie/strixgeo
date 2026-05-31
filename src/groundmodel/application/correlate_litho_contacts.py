@@ -20,7 +20,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -94,11 +93,9 @@ class CorrelateLithoContacts(GroundModelLogger):
         source : str
             Provenance token.  Defaults to ``'manual'``.
         request_section_id : UUID | None
-            The section the user was viewing when they drew the edge.
-            Forwarded to ``DetectLithoLenses`` as ``prefer_section_id``
-            so the lens row's ``primary_section_id`` is set correctly.
-            ``None`` is safe — the detector falls back to the lowest-id
-            section containing both anchor investigations.
+            Retained for API symmetry with the auto-detect era; no longer
+            consumed here.  Lens detection now runs only on the explicit
+            ``POST .../lenses/detect`` verb (owner directive 2026-05-31).
 
         Returns
         -------
@@ -197,16 +194,16 @@ class CorrelateLithoContacts(GroundModelLogger):
         await self._session.flush()
         self.debug(f"CorrelateLithoContacts: edge inserted {edge.id}")
 
-        # Approved-edge mutations trigger the resolver + lens detection in the
-        # same transaction so instance_ordinal + LithoLensOrm rows stay in sync.
+        # Approved-edge mutations still re-run the resolver so instance
+        # ordinals stay coherent in the same transaction.  Lens detection
+        # is NO LONGER fired here (owner directive 2026-05-31): a single
+        # manual correlate that incidentally closed a #135 topology was
+        # silently spawning a LithoLensOrm row, which violated the
+        # "no side-effects beyond the gesture" invariant.  Detection now
+        # runs only on the explicit ``POST .../lenses/detect`` verb.
         await ResolveLithoInstances(self._session).execute(
             model_id=model_id,
             commit=False,  # caller owns the transaction boundary
-        )
-        await DetectLithoLenses(self._session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            prefer_section_id=request_section_id,
         )
 
         await self._session.commit()
@@ -251,9 +248,9 @@ class UncorrelateLithoContacts(GroundModelLogger):
         contact_b_id : UUID
             The other endpoint.
         request_section_id : UUID | None
-            The section the user was viewing when they removed the edge.
-            Forwarded to ``DetectLithoLenses`` as ``prefer_section_id``
-            so primary-section resolution stays stable even on deletion.
+            Retained for API symmetry; no longer consumed.  Lens detection
+            now runs only on the explicit ``POST .../lenses/detect`` verb
+            (owner directive 2026-05-31).
 
         Returns
         -------
@@ -283,7 +280,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
         )
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
         if existing is None:
-            # Topology is unchanged — resolver + detector are not needed.
+            # Topology is unchanged — resolver is not needed.
             self.debug(
                 f"UncorrelateLithoContacts: edge not found — no-op "
                 f"(contact_a={a_id} contact_b={b_id})"
@@ -295,16 +292,13 @@ class UncorrelateLithoContacts(GroundModelLogger):
         await self._session.flush()
         self.debug(f"UncorrelateLithoContacts: edge {existing.id} deleted from session")
 
-        # Topology changed — re-run resolver + lens detection in the same
-        # transaction so stale LithoLensOrm rows are removed atomically.
+        # Topology changed — re-run the resolver so instance ordinals stay
+        # coherent.  Lens detection is NO LONGER fired here (owner directive
+        # 2026-05-31); stale LithoLensOrm rows are reconciled only when the
+        # user clicks "Detect lenses" (``POST .../lenses/detect``).
         await ResolveLithoInstances(self._session).execute(
             model_id=model_id,
             commit=False,  # caller owns the transaction boundary
-        )
-        await DetectLithoLenses(self._session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            prefer_section_id=request_section_id,
         )
 
         await self._session.commit()
