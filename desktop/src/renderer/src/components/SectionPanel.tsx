@@ -34,6 +34,8 @@ import type {
   AdmixtureItem,
   BoreholeListItem,
   CptListItem,
+  BoreholeDetailResponse,
+  CptPlotResponse,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -74,6 +76,7 @@ import {
   cptBandHalfWidth,
   enabledBoreholeChannelCount,
   pickQcFullScaleMpa,
+  type CptChannels,
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
@@ -781,6 +784,24 @@ export default function SectionPanel({
   // ``handleWheel`` (declared above that destructure) can blend the
   // cursor anchor by spacing without TDZ.
   const columnSpacingRef = useRef<number>(1)
+  // Layout state needed for the wheel-zoom exact simulation
+  // (cumulative-width offset at the post-zoom bandHalfWidth). Mirrored
+  // from the SectionPanel's useMemos below via a useEffect — handleWheel
+  // is declared above them so it consumes them via the ref. Initialised
+  // empty; the wheel handler falls back to the per-column-ratio
+  // approximation when the ref is empty (mount race).
+  const layoutStateRef = useRef<{
+    placedColumns: PlacedColumn[]
+    cptPlots: Map<string, CptPlotResponse> | null | undefined
+    boreholeDetails:
+      | Map<string, BoreholeDetailResponse>
+      | null
+      | undefined
+    cptChannels: CptChannels
+    enabledBhChannels: number
+    ghostFootprintForLayout: number
+    lithoGhostAnchorIds: Set<string>
+  } | null>(null)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
   // Default viewport — full section length, default vertical
@@ -1058,22 +1079,12 @@ export default function SectionPanel({
       // in, min clamp (factor=0.6 → BHW=14) on zoom-out.
       if (oldBandHalfWidth === newBandHalfWidth) {
         const zoomingIn = factor < 1
-        const atUpperClamp = oldBandHalfWidth >= 72 && zoomingIn
+        // Upper clamp = 6.0 × → 144 px halfwidth.
+        // Lower clamp = 0.6 × → 14 px halfwidth.
+        const atUpperClamp = oldBandHalfWidth >= 144 && zoomingIn
         const atLowerClamp = oldBandHalfWidth <= 14 && !zoomingIn
         if (atUpperClamp || atLowerClamp) return
       }
-      // Per-column width has a CONSTANT part (BARE + EDGE_GAP) that
-      // does NOT scale + a variable part (2 × bandHalfWidth) that
-      // does. Using newBHW/oldBHW alone overstates the offset growth
-      // by the ratio of (BARE+EG+2*BHW) / (2*BHW), which compounds
-      // across cumulative columns and is most visible at intermediate
-      // spacing (zoom worked at 0% and 100% but drifted at 20%).
-      const oldPerCol =
-        BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
-      const newPerCol =
-        BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
-      const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
-
       // Find the column closest to the cursor in current screen X.
       // Anchors are sorted ascending by ``along``; ``effX`` is the
       // current nudgedX — what the user actually sees under the
@@ -1097,9 +1108,71 @@ export default function SectionPanel({
         }
         const cursorCol = anchorsNow[bestIdx]
         const leftmost = anchorsNow[0]
-        const oldOffsetPx = cursorCol.effX - leftmost.effX
-        cursorOffsetPxNew = oldOffsetPx * widthRatio
-        cursorAlong = cursorCol.along
+        // Compute the EXACT cumulative pixel offset at the new
+        // bandHalfWidth (same simulation the banner-zoom uses).
+        // Walks every placed column up to the cursor's index and sums
+        // the per-column visualWidth at the post-zoom scale. No
+        // approximation — works at any spacing because the formula
+        // matches what placedColumns will ACTUALLY render at the new
+        // viewport.
+        //
+        // Falls back to the per-column-ratio approximation when the
+        // layoutStateRef hasn't been populated yet (fresh mount race).
+        const state = layoutStateRef.current
+        if (state !== null && state.placedColumns.length > 0) {
+          const widthAtNew = (col: PlacedColumn): number => {
+            if (col.kind === 'cpt') {
+              const trackW = state.cptPlots?.has(col.proj.item.id)
+                ? cptBandFullWidth(
+                    col.proj.item.cpt_type,
+                    state.cptChannels,
+                    newBandHalfWidth,
+                  )
+                : 0
+              const lithoBandW = state.lithoGhostAnchorIds.has(col.proj.item.id)
+                ? 2 * newBandHalfWidth
+                : 0
+              return (
+                BARE_COLUMN_WIDTH_PX +
+                Math.max(trackW, lithoBandW) +
+                state.ghostFootprintForLayout
+              )
+            }
+            const stripsW = state.boreholeDetails?.has(col.proj.item.id)
+              ? state.enabledBhChannels * 2 * newBandHalfWidth
+              : 0
+            const lithoBandW = state.lithoGhostAnchorIds.has(col.proj.item.id)
+              ? 2 * newBandHalfWidth
+              : 0
+            return (
+              BARE_COLUMN_WIDTH_PX +
+              Math.max(stripsW, lithoBandW) +
+              state.ghostFootprintForLayout
+            )
+          }
+          const sorted = [...state.placedColumns].sort(
+            (a, b) => a.proj.along - b.proj.along,
+          )
+          const cursorIdx = sorted.findIndex(c => c.proj.along === cursorCol.along)
+          let cumOff = 0
+          if (cursorIdx > 0) {
+            for (let i = 1; i <= cursorIdx; i += 1) {
+              cumOff +=
+                (widthAtNew(sorted[i - 1]) + widthAtNew(sorted[i])) / 2 +
+                COLUMN_EDGE_GAP_PX
+            }
+          }
+          cursorOffsetPxNew = cumOff
+        } else {
+          // Fall-back per-column ratio when layout ref hasn't been
+          // mirrored yet. Same approximation as the previous fix.
+          const oldPerCol =
+            BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
+          const newPerCol =
+            BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
+          const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
+          cursorOffsetPxNew = (cursorCol.effX - leftmost.effX) * widthRatio
+        }
         // Blend with leftmost.along by spacing — at spacing=1 we anchor
         // on the cursor column's along, at spacing=0 we anchor on the
         // leftmost.along and the offset term carries the packed
@@ -1518,6 +1591,32 @@ export default function SectionPanel({
   useEffect(() => {
     columnSpacingRef.current = columnSpacing
   }, [columnSpacing])
+
+  // Mirror the layout state the wheel handler's exact-simulation path
+  // needs into ``layoutStateRef``. handleWheel is declared above all
+  // these memos / destructures so it can't close over them directly.
+  // The ref lets the wheel compute cumulative widths at the post-zoom
+  // bandHalfWidth for the cursor's column without the per-column-
+  // ratio approximation that drifts at intermediate spacing.
+  useEffect(() => {
+    layoutStateRef.current = {
+      placedColumns,
+      cptPlots,
+      boreholeDetails,
+      cptChannels,
+      enabledBhChannels,
+      ghostFootprintForLayout,
+      lithoGhostAnchorIds,
+    }
+  }, [
+    placedColumns,
+    cptPlots,
+    boreholeDetails,
+    cptChannels,
+    enabledBhChannels,
+    ghostFootprintForLayout,
+    lithoGhostAnchorIds,
+  ])
 
   // Virtuele Boring overlay — index the predictions by
   // investigation_id once per prop change so the SVG render walks a

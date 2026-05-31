@@ -148,10 +148,14 @@ export function pickQcFullScaleMpa(
  * Strix layout (300 m section in a 1500 px canvas) the resting zoom
  * is ~5 px/m → factor 1.0 → halfWidth = 24 px (48 px total band).
  * Below ~3 px/m the floor (factor 0.6) keeps columns legible; above
- * ~15 px/m the cap (factor 3.0) prevents runaway widths at high zoom.
+ * ~30 px/m the cap (factor 6.0) prevents truly runaway band widths
+ * but still gives plenty of headroom for high-zoom inspection
+ * (dogfeed 2026-05-31: previous 3.0× cap was hit too early and
+ * locked the wheel-zoom refuse-stretch guard sooner than the user
+ * wanted, so they couldn't zoom in further).
  */
 export function cptBandHalfWidth(scaleH: number): number {
-  const factor = Math.max(0.6, Math.min(3.0, scaleH / 5))
+  const factor = Math.max(0.6, Math.min(6.0, scaleH / 5))
   return Math.round(24 * factor)
 }
 

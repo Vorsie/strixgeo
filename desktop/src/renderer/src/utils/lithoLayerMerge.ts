@@ -360,20 +360,40 @@ export function applyCrossMergeOnDrag(
     return { ...ghost, edits: nextEdits }
   }
 
+  // Absorb threshold (dogfeed 2026-05-31). When the dragger eats the
+  // neighbour down to a sliver — less than max(0.1 m, 15% of the
+  // neighbour's original thickness) remaining — finish the absorb
+  // instead of leaving a visible sliver. Strict "fully crossed"
+  // (newTop <= neighbourTop) was too tight: a release a few px short
+  // of the FAR edge left the neighbour visible at near-zero
+  // thickness. The threshold gives "drag-up-to-collapse" the natural
+  // UX (drag close to the boundary → absorb).
+  const absorbThresholdAbove = (
+    neighbourTop: number,
+    neighbourBase: number,
+  ): number => {
+    const thickness = neighbourBase - neighbourTop
+    return Math.max(0.1, thickness * 0.15)
+  }
+  const absorbThresholdBelow = (
+    neighbourTop: number,
+    neighbourBase: number,
+  ): number => {
+    const thickness = neighbourBase - neighbourTop
+    return Math.max(0.1, thickness * 0.15)
+  }
+
   if (topDragged && newTop < preTop) {
-    // TOP dragged UP — absorb the neighbour above ONLY when the new top
-    // has fully crossed the neighbour's FAR edge (its depth_top_m). Using
-    // the neighbour's NEAR edge (depth_base_m) would fire absorb on every
-    // upward drag because the shared boundary makes near-edge==preTop,
-    // so the comparison ``newTop < preTop && newTop <= near`` always holds
-    // (dogfeed 2026-05-26 — "release to collapse" means crossing the
-    // NEXT boundary above, not just nudging into the neighbour's range).
+    // TOP dragged UP — absorb the neighbour above when the dragger
+    // has eaten the neighbour down to a sliver (or fully crossed).
     for (let i = idx - 1; i >= 0; i--) {
       if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
       if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
       const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
-      if (neighbourTop === null) break
-      if (newTop <= neighbourTop) {
+      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
+      if (neighbourTop === null || neighbourBase === null) break
+      const threshold = absorbThresholdAbove(neighbourTop, neighbourBase)
+      if (newTop <= neighbourTop + threshold) {
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
         return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'up')
@@ -383,21 +403,21 @@ export function applyCrossMergeOnDrag(
   }
 
   if (baseDragged && newBase > preBase) {
-    // BASE dragged DOWN — mirror of top-up: absorb the neighbour below
-    // ONLY when the new base has fully crossed the neighbour's FAR edge
-    // (its depth_base_m). Using the near edge would absorb on any drag.
+    // BASE dragged DOWN — mirror of top-up.
     const total = ghost.suggestions.length
     for (let i = idx + 1; i < total; i++) {
-      if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
-      if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
+      if (ghost.rejected.has(i)) continue
+      if (ghost.accepted.has(i)) break
+      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
       const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
-      if (neighbourBase === null) break
-      if (newBase >= neighbourBase) {
+      if (neighbourTop === null || neighbourBase === null) break
+      const threshold = absorbThresholdBelow(neighbourTop, neighbourBase)
+      if (newBase >= neighbourBase - threshold) {
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
         return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'down')
       }
-      break // Only the immediately adjacent pending neighbour.
+      break
     }
   }
 

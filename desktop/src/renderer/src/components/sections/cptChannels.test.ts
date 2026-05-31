@@ -35,9 +35,11 @@ describe('cptBandHalfWidth — zoom-responsive band geometry', () => {
     expect(cptBandHalfWidth(1)).toBe(14)
   })
 
-  it('caps the factor at 3.0 (anything above ~15 px/m caps)', () => {
-    // 24 * 3 = 72.
-    expect(cptBandHalfWidth(100)).toBe(72)
+  it('caps the factor at 6.0 (anything above ~30 px/m caps)', () => {
+    // 24 * 6 = 144. (Cap raised from 3.0 → 6.0 in dogfeed
+    // 2026-05-31: previous 72 px ceiling locked the wheel-zoom
+    // refuse-stretch guard too early at high zoom.)
+    expect(cptBandHalfWidth(100)).toBe(144)
   })
 })
 
