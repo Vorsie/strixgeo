@@ -172,31 +172,20 @@ export function boundFromNeighbour(
   if (!neighbour) {
     return { boundM: outerEdgeFallback, autoRejectIdx: null }
   }
-  // Rejected gap-fill: pending neighbour reached past rejected layers.
-  // Clamp at the visible neighbour's ORIGINAL (suggestion-level)
-  // near edge — NOT its effective near edge.  The two differ when a
-  // previous self-collapse drag fired the fill path and extended
-  // the visible neighbour's effective base/top onto the rejected
-  // territory.  Using the effective edge then equals the new
-  // dragger's edge (zero room) and locks the drag in place.  Using
-  // the original suggestion edge lets the dragger reclaim absorbed
-  // territory back to the natural layout boundary (dogfeed
-  // 2026-05-31: drag-down-merge x N then drag-up was locked).
+  // Crossed-rejected branch removed (dogfeed 2026-05-31). Previously
+  // this clamped at the visible neighbour's NEAR edge (or, in a
+  // later iteration, its ORIGINAL near edge) on the rationale that
+  // the dragger was just "filling the gap" left by rejected layers.
+  // Owner directive 2026-05-31: rejected layers are visually GONE,
+  // so the user expects the drag to pass through them as if they
+  // were never there. The clamp should be the visible neighbour's
+  // FAR edge with the standard auto-reject contract — i.e. the
+  // exact same path the immediate-visible-neighbour branch below
+  // produces. Falling through to that branch deletes the special
+  // case entirely.
   //
-  // G34 / G34b still pass because those tests don't fire the fill
-  // edit (just an explicit rejectedIndices set), so original ==
-  // effective for the visible neighbour.  Auto-reject stays off
-  // (``autoRejectIdx: null``) so snapping at the original boundary
-  // doesn't collapse the visible neighbour.
-  if (neighbour.crossedRejected) {
-    const original = suggestions[neighbour.idx]
-    const originalNear =
-      nearEdgeKey === 'topM' ? original.depth_top_m : original.depth_base_m
-    return {
-      boundM: originalNear,
-      autoRejectIdx: null,
-    }
-  }
+  // Old G34 / G34b / G34c tests are updated to expect the new FAR-
+  // edge clamp.
   // Immediate visible neighbour — pending OR accepted. Clamp at the
   // neighbour's FAR edge so the shared boundary can move across its
   // territory (G17-class resize).

@@ -158,11 +158,14 @@ export default function CptDataColumn({
   const hasBand = bgBottomY - bgTopY > 0
 
   // Gridline positions on the column axis ± a fraction of halfWidth.
-  // qc reads on the right; the interior gridline sits at 10 MPa (a
-  // canonical SBT reference — sands typically read > 10, soft clays
-  // < 10) and the right-edge gridline marks the active full scale.
-  // Rf gridlines stay on the (mirrored) left half at 2 % + 4 %.
+  // qc reads on the right; gridlines at 2 MPa (low-strength SBT
+  // reference — soft fine soils), 10 MPa (canonical SBT reference —
+  // sands typically read > 10), and the right edge marks the active
+  // full scale. Rf gridlines stay on the (mirrored) left half at 2 %
+  // + 4 %.
+  const showQc2Interior = qcFullScaleMpa > 2
   const showQc10Interior = qcFullScaleMpa > 10
+  const qc2X = axisX + (2 / qcFullScaleMpa) * halfWidth
   const qc10X = axisX + (10 / qcFullScaleMpa) * halfWidth
   const qcScaleX = rightX
   const rf2X = axisX - (2 / RF_FULL_SCALE_PCT) * halfWidth
@@ -185,6 +188,18 @@ export default function CptDataColumn({
   if (overlayMode) {
     return (
       <g pointerEvents="none">
+        {showQc && hasBand && showQc2Interior && (
+          <line
+            x1={qc2X}
+            x2={qc2X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={1}
+            strokeOpacity={0.9}
+            strokeDasharray="3 2"
+          />
+        )}
         {showQc && hasBand && showQc10Interior && (
           <line
             x1={qc10X}
@@ -235,6 +250,11 @@ export default function CptDataColumn({
         )}
         {renderLabels && showQc && (
           <>
+            {showQc2Interior && (
+              <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+                2
+              </text>
+            )}
             {showQc10Interior && (
               <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
                 10
@@ -290,6 +310,17 @@ export default function CptDataColumn({
         </>
       )}
 
+      {showQc && hasBand && showQc2Interior && (
+        <line
+          x1={qc2X}
+          x2={qc2X}
+          y1={bgTopY}
+          y2={bgBottomY}
+          stroke={GRID_COLOR}
+          strokeWidth={0.5}
+          strokeDasharray="2 2"
+        />
+      )}
       {showQc && hasBand && showQc10Interior && (
         <line
           x1={qc10X}
@@ -337,6 +368,11 @@ export default function CptDataColumn({
 
       {renderLabels && showQc && (
         <>
+          {showQc2Interior && (
+            <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+              2
+            </text>
+          )}
           {showQc10Interior && (
             <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
               10

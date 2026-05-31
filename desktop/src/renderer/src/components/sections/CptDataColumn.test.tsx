@@ -116,7 +116,7 @@ describe('CptDataColumn — qc/Rf mirror layout', () => {
       channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
     })
     const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
-    expect(dashed.length).toBe(2) // qc 10 MPa interior + qc 40 MPa at right edge
+    expect(dashed.length).toBe(3) // qc 2 + qc 10 + qc scale (= 40 MPa default)
     for (const line of dashed) {
       expect(Number(line.getAttribute('x1'))).toBeGreaterThan(100)
     }
@@ -140,11 +140,11 @@ describe('CptDataColumn — qc/Rf mirror layout', () => {
       channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
     })
     const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
-    expect(dashed.length).toBe(4)
+    expect(dashed.length).toBe(5) // 3 qc (2/10/scale) + 2 rf (2%/4%)
     const leftCount = dashed.filter(l => Number(l.getAttribute('x1')) < 100).length
     const rightCount = dashed.filter(l => Number(l.getAttribute('x1')) > 100).length
     expect(leftCount).toBe(2)
-    expect(rightCount).toBe(2)
+    expect(rightCount).toBe(3)
   })
 })
 

@@ -1050,7 +1050,29 @@ export default function SectionPanel({
       const newScaleH = plotWidth / newXRange
       const newBandHalfWidth = cptBandHalfWidth(newScaleH)
       const oldBandHalfWidth = cptBandHalfWidth(scaleH)
-      const widthRatio = oldBandHalfWidth > 0 ? newBandHalfWidth / oldBandHalfWidth : 1
+      // Refuse the wheel zoom if bandHalfWidth is already at its
+      // clamp AND wouldn't change with this step. Past the clamp,
+      // horizontal stops scaling but vertical keeps growing →
+      // tests "elongate" instead of zooming. Dogfeed 2026-05-31.
+      // Both ends matter: max clamp (factor=3.0 → BHW=72) on zoom-
+      // in, min clamp (factor=0.6 → BHW=14) on zoom-out.
+      if (oldBandHalfWidth === newBandHalfWidth) {
+        const zoomingIn = factor < 1
+        const atUpperClamp = oldBandHalfWidth >= 72 && zoomingIn
+        const atLowerClamp = oldBandHalfWidth <= 14 && !zoomingIn
+        if (atUpperClamp || atLowerClamp) return
+      }
+      // Per-column width has a CONSTANT part (BARE + EDGE_GAP) that
+      // does NOT scale + a variable part (2 × bandHalfWidth) that
+      // does. Using newBHW/oldBHW alone overstates the offset growth
+      // by the ratio of (BARE+EG+2*BHW) / (2*BHW), which compounds
+      // across cumulative columns and is most visible at intermediate
+      // spacing (zoom worked at 0% and 100% but drifted at 20%).
+      const oldPerCol =
+        BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
+      const newPerCol =
+        BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
+      const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
 
       // Find the column closest to the cursor in current screen X.
       // Anchors are sorted ascending by ``along``; ``effX`` is the
