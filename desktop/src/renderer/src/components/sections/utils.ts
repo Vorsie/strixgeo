@@ -96,6 +96,16 @@ export const WHEEL_ZOOM_FACTOR = 1.15
  * keeps tie-back diagonals readable even on tight profiles. */
 export const COLUMN_EDGE_GAP_PX = 4
 
+/** Minimum visual gap between two adjacent columns that carry a
+ * correlation edge between them (dogfeed 2026-05-31). The gradient
+ * ribbon spans the full gap; at the 4 px floor it collapses to a
+ * hairline that's effectively invisible on a real-density section.
+ * Bumped to 24 so both stripes (above + below the seam) read at the
+ * most-packed spacing setting. Applies edge-aware via
+ * ``nudgeColumns(gapBetween)``: unrelated columns stay tightly packed,
+ * only correlation partners get the extra air. */
+export const CORRELATED_PAIR_EDGE_GAP_PX = 24
+
 /** Bare column width (S2/S3 layout — no data tracks). Used as the
  * floor for both kinds; data tracks grow the width additively as
  * the header toggles flip on. */
