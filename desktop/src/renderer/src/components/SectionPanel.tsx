@@ -1699,23 +1699,34 @@ export default function SectionPanel({
       const newScaleH = plotWidth / TARGET_XRANGE_M
       const newBandHalfWidth = cptBandHalfWidth(newScaleH)
 
-      // Re-compute visualWidth for each placed column at the NEW
-      // bandHalfWidth. Mirrors the placedColumns useMemo formula so
-      // the simulated packing matches what will actually render
-      // after setViewport.
+      // Predict visualWidth for each placed column at the POST-zoom
+      // bandHalfWidth, ASSUMING the per-CPT plot / per-borehole
+      // detail has loaded. On Geology -> Sections deep-link the
+      // section mounts before the async cptPlots / boreholeDetails
+      // fetches return, so checking ``cptPlots?.has(...)`` would
+      // read ``false`` for every column and the simulated cumulative
+      // offset would underestimate by a factor of ~8x. The actual
+      // placedColumns useMemo recomputes once the data lands and the
+      // columns balloon to full width — at which point the target
+      // column has drifted way past the plot centre (the "test on
+      // the right" report). Assume the eventual loaded state: every
+      // CPT with applicable channels gets a 2 × bandHalfWidth track,
+      // every borehole with enabledBhChannels > 0 gets the strip
+      // band. This matches what the rendered layout settles to and
+      // the target lands dead-centre once the data is in.
       const newVisualWidth = (col: typeof placedColumns[number]): number => {
         if (col.kind === 'cpt') {
-          const trackW = cptPlots?.has(col.proj.item.id)
-            ? cptBandFullWidth(col.proj.item.cpt_type, cptChannels, newBandHalfWidth)
-            : 0
+          const trackW = cptBandFullWidth(
+            col.proj.item.cpt_type,
+            cptChannels,
+            newBandHalfWidth,
+          )
           const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
             ? 2 * newBandHalfWidth
             : 0
           return BARE_COLUMN_WIDTH_PX + Math.max(trackW, lithoBandW) + ghostFootprintForLayout
         }
-        const stripsW = boreholeDetails?.has(col.proj.item.id)
-          ? enabledBhChannels * 2 * newBandHalfWidth
-          : 0
+        const stripsW = enabledBhChannels * 2 * newBandHalfWidth
         const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
           ? 2 * newBandHalfWidth
           : 0
