@@ -347,11 +347,12 @@ async def test_accept_does_not_auto_fire_lens_detection(
     #135 topology yield zero lens rows after accept; the user must
     explicitly invoke DetectLithoLenses to materialise the row.
 
-    Topology:
+    Topology (bilateral pinch-out — owner directive 2026-05-31):
       bh_a: c_top (f_cap, depth=2), c_body (f_lens, depth=4), c_base (f_base, depth=6)
-      bh_b: c_single (f_b, depth=3)
-      Edge 1: c_body ↔ c_single (top boundary of lens pinches to b)
-      Edge 2: c_base ↔ c_single (base boundary of lens pinches to same point)
+      bh_b: c_single_b (f_b, depth=3)
+      bh_c: c_single_c (f_b, depth=3)
+      Edges 1-2: c_body / c_base ↔ c_single_b (lens pinches to bh_b)
+      Edges 3-4: c_body / c_base ↔ c_single_c (lens pinches to bh_c)
     The lens body carries formation_id=f_lens (the formation whose top is c_body).
     """
     geo = _geo_model(project)
@@ -363,22 +364,27 @@ async def test_accept_does_not_auto_fire_lens_detection(
     f_b = _formation(project, parent, name="ZAND b t3", soil_code="ZAND")
     bh_a = _borehole(project.id, suffix="T3A", x=170000.0)
     bh_b = _borehole(project.id, suffix="T3B", x=170300.0)
+    bh_c = _borehole(project.id, suffix="T3C", x=169700.0)
 
-    db_session.add_all([geo, litho, parent, f_cap, f_lens, f_base, f_b, bh_a, bh_b])
+    db_session.add_all([geo, litho, parent, f_cap, f_lens, f_base, f_b, bh_a, bh_b, bh_c])
     await db_session.flush()
 
     c_top = _contact(litho, f_cap, bh_a, depth=2.0)
     c_body = _contact(litho, f_lens, bh_a, depth=4.0)
     c_base = _contact(litho, f_base, bh_a, depth=6.0)
-    c_single = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_b = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_c = _contact(litho, f_b, bh_c, depth=3.0)
 
-    db_session.add_all([c_top, c_body, c_base, c_single])
+    db_session.add_all([c_top, c_body, c_base, c_single_b, c_single_c])
     await db_session.flush()
 
-    # Two unapproved edges forming the lens topology — bypass use case to keep them unapproved.
-    edge1 = _raw_edge(litho, c_body, c_single, user_approved=False, source="auto")
-    edge2 = _raw_edge(litho, c_base, c_single, user_approved=False, source="auto")
-    db_session.add_all([edge1, edge2])
+    # Four unapproved edges forming the BILATERAL lens topology —
+    # bypass use case to keep them unapproved.
+    edge1 = _raw_edge(litho, c_body, c_single_b, user_approved=False, source="auto")
+    edge2 = _raw_edge(litho, c_base, c_single_b, user_approved=False, source="auto")
+    edge3 = _raw_edge(litho, c_body, c_single_c, user_approved=False, source="auto")
+    edge4 = _raw_edge(litho, c_base, c_single_c, user_approved=False, source="auto")
+    db_session.add_all([edge1, edge2, edge3, edge4])
     await db_session.commit()
 
     # Before accept: no LithoLensOrm rows.
@@ -395,7 +401,7 @@ async def test_accept_does_not_auto_fire_lens_detection(
         section_id=None,
     )
 
-    assert result.edges_accepted == 2, f"Expected 2 edges accepted; got {result.edges_accepted}"
+    assert result.edges_accepted == 4, f"Expected 4 edges accepted; got {result.edges_accepted}"
     # AcceptResult.lenses_created / .lenses_removed are kept on the
     # response shape for client compatibility but are ALWAYS 0 since
     # 2026-05-31.
