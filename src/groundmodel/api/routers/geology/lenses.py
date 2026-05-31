@@ -7,6 +7,12 @@ Endpoints
 GET  /models/{model_id}/lenses
     List all LithoLensOrm metadata rows (named bodies) for a model.
 
+POST /models/{model_id}/lenses/detect
+    Explicit "Detect lenses" verb — runs the correlation-graph lens
+    detector and reconciles ``LithoLensOrm`` rows.  Replaces the
+    auto-detect that used to fire from every edge mutation and every
+    destructive op (owner directive 2026-05-31).
+
 POST /models/{model_id}/lenses
     Create or update a name label for a lens body
     (identified by formation_id + body_ordinal).
@@ -37,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.litho_lens import (
+    DetectLensesResponse,
     FormationAbsenceItem,
     LithoLensListItem,
     NameLensBodyRequest,
@@ -51,6 +58,7 @@ from groundmodel.api.schemas.project.litho_lens_boundary import (
 )
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_lens_metadata import DeleteLensMetadata
+from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.lens_boundary import (
     BoundaryNode,
     GetLensBoundary,
@@ -140,6 +148,88 @@ async def list_litho_lenses(
         f"list_litho_lenses: project={project_id} model={model_id} → {len(lenses)} named lens(es)"
     )
     return lenses
+
+
+# ---------------------------------------------------------------------------
+# Explicit "Detect lenses" verb
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/lenses/detect",
+    response_model=DetectLensesResponse,
+)
+async def detect_litho_lenses(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DetectLensesResponse:
+    """Run the explicit "Detect lenses" pass on a lithostratigraphic model.
+
+    Materialises ``LithoLensOrm`` rows for #135 lens topologies in the
+    user-approved contact-edge graph and removes rows whose body no
+    longer matches.  Idempotent.
+
+    Until 2026-05-31 this pass fired implicitly from every edge mutation
+    (correlate / uncorrelate / accept) and every destructive op (delete
+    contact, delete layer, contact cross-merge).  Owner directive
+    removed those auto-fires — a single manual correlate that
+    incidentally closed a lens topology was silently spawning a
+    ``LithoLensOrm`` row.  This endpoint is now the only entry point.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Must be a lithostratigraphic model in this project.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    DetectLensesResponse
+        Counts of created, removed, and ordinal-skipped lens rows.
+
+    Raises
+    ------
+    HTTPException(404)
+        Model not found in the project.
+    HTTPException(422)
+        Model is not lithostratigraphic.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Model {model_id} is of kind {model.kind!r}; "
+                "lens detection only runs on lithostratigraphic models."
+            ),
+        )
+    result = await DetectLithoLenses(session).execute(
+        project_id=project_id,
+        model_id=model_id,
+        prefer_section_id=None,
+    )
+    # DetectLithoLenses flushes but does NOT commit (it's designed to
+    # compose inside larger transactions).  This explicit endpoint owns
+    # the commit boundary.
+    await session.commit()
+    logger.success(
+        f"detect_litho_lenses: project={project_id} model={model_id} "
+        f"created={result.lenses_created} removed={result.lenses_removed} "
+        f"skipped_unresolved_ordinal={result.lenses_skipped_unresolved_ordinal}"
+    )
+    return DetectLensesResponse(
+        lenses_created=result.lenses_created,
+        lenses_removed=result.lenses_removed,
+        lenses_skipped_unresolved_ordinal=result.lenses_skipped_unresolved_ordinal,
+    )
 
 
 # ---------------------------------------------------------------------------
