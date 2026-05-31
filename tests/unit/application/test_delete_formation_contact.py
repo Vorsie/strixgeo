@@ -143,54 +143,43 @@ async def test_no_preimage_skips_stale_flip() -> None:
 
 
 @pytest.mark.asyncio
-async def test_litho_cascade_runs_resolver_and_lens_detector() -> None:
-    """For lithostratigraphic contacts, resolver + lens detector are called."""
+async def test_litho_cascade_runs_resolver_only() -> None:
+    """For lithostratigraphic contacts, the resolver runs in the same
+    transaction so instance ordinals stay coherent.  Lens detection is
+    NOT called here — owner directive 2026-05-31 made it an explicit
+    verb (``POST .../lenses/detect``).
+    """
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("lithostratigraphic")])
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=True)
 
-    with (
-        patch(
-            "groundmodel.application.delete_formation_contact.ResolveLithoInstances"
-        ) as MockResolver,
-        patch("groundmodel.application.delete_formation_contact.DetectLithoLenses") as MockDetector,
-    ):
+    with patch(
+        "groundmodel.application.delete_formation_contact.ResolveLithoInstances"
+    ) as MockResolver:
         resolver_instance = AsyncMock()
         MockResolver.return_value = resolver_instance
-        detector_instance = AsyncMock()
-        MockDetector.return_value = detector_instance
 
         ok = await uc.execute(CONTACT, project_id=PROJECT, model_id=MODEL)
 
     assert ok is True
     MockResolver.assert_called_once_with(session)
     resolver_instance.execute.assert_awaited_once_with(model_id=MODEL, commit=False)
-    MockDetector.assert_called_once_with(session)
-    detector_instance.execute.assert_awaited_once_with(
-        project_id=PROJECT,
-        model_id=MODEL,
-        prefer_section_id=None,
-    )
     session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_geological_contact_skips_cascade() -> None:
-    """Resolver + lens detector are NOT called for geological contacts."""
+    """Resolver is NOT called for geological contacts (no correlation edges)."""
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("geological")])
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=True)
 
-    with (
-        patch(
-            "groundmodel.application.delete_formation_contact.ResolveLithoInstances"
-        ) as MockResolver,
-        patch("groundmodel.application.delete_formation_contact.DetectLithoLenses") as MockDetector,
-    ):
+    with patch(
+        "groundmodel.application.delete_formation_contact.ResolveLithoInstances"
+    ) as MockResolver:
         ok = await uc.execute(CONTACT, project_id=PROJECT, model_id=MODEL)
 
     assert ok is True
     MockResolver.assert_not_called()
-    MockDetector.assert_not_called()
