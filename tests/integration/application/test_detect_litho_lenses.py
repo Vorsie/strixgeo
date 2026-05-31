@@ -179,7 +179,8 @@ async def test_manual_135_gesture_materialises_lens_metadata(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Two CorrelateLithoContacts calls forming the #135 topology result in one LithoLensOrm row.
+    """Four CorrelateLithoContacts calls forming a bilateral #135 topology
+    result in one LithoLensOrm row after the explicit Detect verb runs.
 
     Topology (Strix contact convention: contact.formation_id = the formation whose TOP
     starts at that contact's depth):
@@ -189,10 +190,13 @@ async def test_manual_135_gesture_materialises_lens_metadata(
         c_lens_base (depth=6, formation_id=f_base_cap) — top of the cap below the lens
       bh_b has one contact:
         c_single_b  (depth=3, formation_id=f_b)        — single boundary on the thin column
-      Edge 1: c_lens_body ↔ c_single_b  (top boundary of lens converges to B)
-      Edge 2: c_lens_base ↔ c_single_b  (base boundary of lens converges to the same point)
-    The body between c_lens_body and c_lens_base on bh_a carries formation_id=f_lens
-    (the shallower of the two source contacts — domain algorithm: fid_above).
+      bh_c has one contact (the OTHER lateral neighbour that closes the lens):
+        c_single_c  (depth=3, formation_id=f_b)        — single boundary on the thin column
+      Edges 1-2: c_lens_body / c_lens_base ↔ c_single_b (lens pinches to B)
+      Edges 3-4: c_lens_body / c_lens_base ↔ c_single_c (lens pinches to C)
+    Bilateral closure (≥2 distinct target investigations) is required to
+    declare a lens — owner directive 2026-05-31.  See also
+    ``test_unilateral_pinch_out_does_not_create_lens`` in the unit suite.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -201,41 +205,53 @@ async def test_manual_135_gesture_materialises_lens_metadata(
     f_top_cap = _formation(project, parent, name="ZAND top cap", soil_code="ZAND")
     f_lens = _formation(project, parent, name="KLEI lens", soil_code="KLEI")
     f_base_cap = _formation(project, parent, name="ZAND base cap", soil_code="ZAND")
-    # Single formation on bh_b.
+    # Single formation on bh_b + bh_c.
     f_b = _formation(project, parent, name="ZAND b", soil_code="ZAND")
 
     bh_a = _borehole(project.id, suffix="A01", x=150000.0)
     bh_b = _borehole(project.id, suffix="B01", x=150300.0)
+    bh_c = _borehole(project.id, suffix="C01", x=149700.0)
 
-    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b])
+    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b, bh_c])
     await db_session.flush()
 
     # Contacts on bh_a — three formation tops, depth-sorted.
     c_lens_top = _contact(litho, f_top_cap, bh_a, depth=2.0)
     c_lens_body = _contact(litho, f_lens, bh_a, depth=4.0)
     c_lens_base = _contact(litho, f_base_cap, bh_a, depth=6.0)
-    # Single contact on bh_b.
+    # Single contact on each neighbour (the bilateral pinch-out targets).
     c_single_b = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_c = _contact(litho, f_b, bh_c, depth=3.0)
 
-    db_session.add_all([c_lens_top, c_lens_body, c_lens_base, c_single_b])
+    db_session.add_all([c_lens_top, c_lens_body, c_lens_base, c_single_b, c_single_c])
     await db_session.commit()
 
-    # --- Gesture 1: correlate the TOP boundary of the lens ---
-    # c_lens_body (depth=4, f_lens) is the top of the lens body.
+    # --- Gestures 1+2: correlate the lens body to bh_b's single contact ---
     await CorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
         contact_a_id=c_lens_body.id,
         contact_b_id=c_single_b.id,
     )
-
-    # --- Gesture 2: correlate BASE boundary (#135 topology completes here) ---
-    # c_lens_base (depth=6, f_base_cap) is the base of the lens body.
     await CorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
         contact_a_id=c_lens_base.id,
         contact_b_id=c_single_b.id,
+    )
+
+    # --- Gestures 3+4: close the OTHER side (bh_c) for bilateral pinch-out ---
+    await CorrelateLithoContacts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        contact_a_id=c_lens_body.id,
+        contact_b_id=c_single_c.id,
+    )
+    await CorrelateLithoContacts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        contact_a_id=c_lens_base.id,
+        contact_b_id=c_single_c.id,
     )
 
     # Before the explicit detect verb, no lens row exists — owner directive
@@ -282,7 +298,10 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Removing one of the two defining edges deletes the LithoLensOrm row."""
+    """Bilateral pinch-out → lens; removing one of the four defining edges
+    drops the second target investigation, so the next explicit Detect
+    pass removes the stale LithoLensOrm row.
+    """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-test2")
@@ -292,31 +311,46 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
     f_b = _formation(project, parent, name="ZAND b2", soil_code="ZAND")
     bh_a = _borehole(project.id, suffix="A02", x=151000.0)
     bh_b = _borehole(project.id, suffix="B02", x=151300.0)
+    bh_c = _borehole(project.id, suffix="C02", x=150700.0)
 
-    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b])
+    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b, bh_c])
     await db_session.flush()
 
     c_top = _contact(litho, f_top_cap, bh_a, depth=2.0)
     c_body = _contact(litho, f_lens, bh_a, depth=4.0)
     c_base = _contact(litho, f_base_cap, bh_a, depth=6.0)
-    c_single = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_b = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_c = _contact(litho, f_b, bh_c, depth=3.0)
 
-    db_session.add_all([c_top, c_body, c_base, c_single])
+    db_session.add_all([c_top, c_body, c_base, c_single_b, c_single_c])
     await db_session.commit()
 
-    # Build the lens via two Correlate calls + one explicit Detect pass
-    # (owner directive 2026-05-31 — see module docstring).
+    # Build the lens via FOUR Correlate calls (bilateral closure) + one
+    # explicit Detect pass (owner directive 2026-05-31 — see module
+    # docstring).
     await CorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
-        contact_a_id=c_top.id,
-        contact_b_id=c_single.id,
+        contact_a_id=c_body.id,
+        contact_b_id=c_single_b.id,
     )
     await CorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
         contact_a_id=c_base.id,
-        contact_b_id=c_single.id,
+        contact_b_id=c_single_b.id,
+    )
+    await CorrelateLithoContacts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        contact_a_id=c_body.id,
+        contact_b_id=c_single_c.id,
+    )
+    await CorrelateLithoContacts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        contact_a_id=c_base.id,
+        contact_b_id=c_single_c.id,
     )
     await DetectLithoLenses(db_session).execute(
         project_id=project.id,
@@ -332,13 +366,20 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
     )
     assert pre_count == 1, f"Expected 1 lens before removal; got {pre_count}"
 
-    # Remove one defining edge — topology breaks, but the stale lens row
-    # survives until the next explicit Detect pass.
+    # Remove BOTH edges to c_single_c — the body's pinch-out on bh_c is
+    # gone, leaving only the unilateral closure to bh_b.  The stale lens
+    # row survives until the next explicit Detect pass.
+    await UncorrelateLithoContacts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        contact_a_id=c_body.id,
+        contact_b_id=c_single_c.id,
+    )
     await UncorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
         contact_a_id=c_base.id,
-        contact_b_id=c_single.id,
+        contact_b_id=c_single_c.id,
     )
 
     interim_rows = (
@@ -455,22 +496,34 @@ async def test_unresolved_ordinal_logged_and_skipped(
     f_b = _formation(project, parent, name="ZAND b4", soil_code="ZAND")
     bh_a = _borehole(project.id, suffix="A04", x=153000.0)
     bh_b = _borehole(project.id, suffix="B04", x=153300.0)
+    # bh_c closes the OTHER side of the lens (bilateral pinch-out — owner
+    # directive 2026-05-31).  Without it the candidate is filtered out
+    # before the ordinal-resolution step and the skip counter never
+    # increments.
+    bh_c = _borehole(project.id, suffix="C04", x=152700.0)
 
-    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b])
+    db_session.add_all([geo, litho, parent, f_top_cap, f_lens, f_base_cap, f_b, bh_a, bh_b, bh_c])
     await db_session.flush()
 
     c_top = _contact(litho, f_top_cap, bh_a, depth=2.0)
     c_body = _contact(litho, f_lens, bh_a, depth=4.0)
     c_base = _contact(litho, f_base_cap, bh_a, depth=6.0)
-    c_single = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_b = _contact(litho, f_b, bh_b, depth=3.0)
+    c_single_c = _contact(litho, f_b, bh_c, depth=3.0)
 
-    db_session.add_all([c_top, c_body, c_base, c_single])
+    db_session.add_all([c_top, c_body, c_base, c_single_b, c_single_c])
     await db_session.flush()
 
-    # Insert approved edges forming the #135 topology.
-    e1 = _raw_edge(litho, c_top, c_single, user_approved=True)
-    e2 = _raw_edge(litho, c_base, c_single, user_approved=True)
-    db_session.add_all([e1, e2])
+    # Insert four approved edges forming the bilateral #135 topology.
+    # The lens body is between c_body and c_base on bh_a — Strix
+    # convention: ``FormationContact.formation_id`` is the formation
+    # whose TOP is this contact, so the body formation is f_lens (whose
+    # top is c_body).
+    e1 = _raw_edge(litho, c_body, c_single_b, user_approved=True)
+    e2 = _raw_edge(litho, c_base, c_single_b, user_approved=True)
+    e3 = _raw_edge(litho, c_body, c_single_c, user_approved=True)
+    e4 = _raw_edge(litho, c_base, c_single_c, user_approved=True)
+    db_session.add_all([e1, e2, e3, e4])
     await db_session.flush()
 
     # Force instance_ordinal to NULL on the lens body formation so the
