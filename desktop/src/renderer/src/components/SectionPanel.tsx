@@ -1691,46 +1691,76 @@ export default function SectionPanel({
         xMax = maxAlong + margin
       }
     } else {
-      // Average packed pixel position of the active columns.
-      const targetNudgedX =
-        activeCols.reduce((acc, f) => acc + f.nudgedX, 0) / activeCols.length
-      // Derive the leftmost column SYNCHRONOUSLY from placedColumns —
-      // warpAnchorsRef is updated by a useEffect that runs AFTER this
-      // one, so on first mount (Geology -> Sections deep-link) the ref
-      // is still []. Reading from placedColumns directly avoids that
-      // race.
-      let leftmostCol: typeof placedColumns[number] | null = null
-      for (const c of placedColumns) {
-        if (leftmostCol === null || c.proj.along < leftmostCol.proj.along) {
-          leftmostCol = c
-        }
-      }
-      const leftmostNudgedX = leftmostCol?.nudgedX ?? targetNudgedX
-      const leftmostAlong = leftmostCol?.proj.along ?? activeCols[0].along
-      const oldOffsetPx = targetNudgedX - leftmostNudgedX
+      // Packed layout: SIMULATE the post-zoom column layout exactly
+      // instead of estimating with a per-column ratio. We re-walk
+      // every column at the new bandHalfWidth and sum the cumulative
+      // offset to the target column. No estimation, no compounding
+      // error on the first click, no "needs two clicks" pattern.
       const newScaleH = plotWidth / TARGET_XRANGE_M
-      const oldBandHalfWidth = cptBandHalfWidth(scaleH)
       const newBandHalfWidth = cptBandHalfWidth(newScaleH)
-      // Per-column width has a CONSTANT part (bare + edge gap) and a
-      // scaling part (2 × bandHalfWidth). The offset ratio is the
-      // ratio of total per-column widths, NOT bandHalfWidth alone —
-      // using bandHalfWidth ratio overshoots and lands the target
-      // left of centre. Average widths estimate is fine: bare and
-      // edge-gap dominate at low scale, band width dominates at high.
-      const oldPerCol = BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
-      const newPerCol = BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
-      const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
-      const newOffsetPx = oldOffsetPx * widthRatio
+
+      // Re-compute visualWidth for each placed column at the NEW
+      // bandHalfWidth. Mirrors the placedColumns useMemo formula so
+      // the simulated packing matches what will actually render
+      // after setViewport.
+      const newVisualWidth = (col: typeof placedColumns[number]): number => {
+        if (col.kind === 'cpt') {
+          const trackW = cptPlots?.has(col.proj.item.id)
+            ? cptBandFullWidth(col.proj.item.cpt_type, cptChannels, newBandHalfWidth)
+            : 0
+          const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
+            ? 2 * newBandHalfWidth
+            : 0
+          return BARE_COLUMN_WIDTH_PX + Math.max(trackW, lithoBandW) + ghostFootprintForLayout
+        }
+        const stripsW = boreholeDetails?.has(col.proj.item.id)
+          ? enabledBhChannels * 2 * newBandHalfWidth
+          : 0
+        const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
+          ? 2 * newBandHalfWidth
+          : 0
+        return BARE_COLUMN_WIDTH_PX + Math.max(stripsW, lithoBandW) + ghostFootprintForLayout
+      }
+
+      // Sort placedColumns by along (the packing order).
+      const sortedCols = [...placedColumns].sort(
+        (a, b) => a.proj.along - b.proj.along,
+      )
+      // Find the target column's index. activeCols[0] is the leftmost
+      // focused column (we sorted distinctCols ASC).
+      const targetAlong = activeCols[0].along
+      const targetIdx = sortedCols.findIndex(c => c.proj.along === targetAlong)
+      if (targetIdx < 0) {
+        log.info(
+          'section-zoom',
+          `BAIL packed branch: target along=${targetAlong} not in placedColumns`,
+        )
+        return
+      }
+
+      // Walk 0..targetIdx and sum cumulative offset from packedX_0.
+      // packedX_i = packedX_{i-1} + halfW_{i-1} + halfW_i + edgeGap
+      // (the placedColumns useMemo packs edge-to-edge with edge gap).
+      let cumulativeOffsetPx = 0
+      for (let i = 1; i <= targetIdx; i += 1) {
+        const prevHalf = newVisualWidth(sortedCols[i - 1]) / 2
+        const currHalf = newVisualWidth(sortedCols[i]) / 2
+        cumulativeOffsetPx += prevHalf + currHalf + COLUMN_EDGE_GAP_PX
+      }
+
+      const leftmostAlong = sortedCols[0].proj.along
       const plotCentre = MARGIN.left + plotWidth / 2
-      // We want the target's POST-ZOOM nudgedX = plotCentre.
-      // post-zoom nudgedX = newPackedX_0 + newOffsetPx
-      //                  = MARGIN.left + (L - newXMin) * newScaleH + newOffsetPx
-      // → newXMin = L - (plotCentre - MARGIN.left - newOffsetPx) / newScaleH
-      xMin = leftmostAlong - (plotCentre - MARGIN.left - newOffsetPx) / newScaleH
+      // Want target's POST-ZOOM nudgedX = plotCentre:
+      //   plotCentre = MARGIN.left + (leftmostAlong - newXMin) * newScaleH
+      //              + cumulativeOffsetPx
+      // → newXMin = leftmostAlong - (plotCentre - MARGIN.left - cumulativeOffsetPx) / newScaleH
+      xMin =
+        leftmostAlong -
+        (plotCentre - MARGIN.left - cumulativeOffsetPx) / newScaleH
       xMax = xMin + TARGET_XRANGE_M
       log.info(
         'section-zoom',
-        `PACKED targetNudgedX=${targetNudgedX.toFixed(0)} leftmostNudgedX=${leftmostNudgedX.toFixed(0)} oldOff=${oldOffsetPx.toFixed(0)} newOff=${newOffsetPx.toFixed(0)} widthRatio=${widthRatio.toFixed(2)} oldBHW=${oldBandHalfWidth} newBHW=${newBandHalfWidth} newScaleH=${newScaleH.toFixed(2)} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
+        `PACKED targetIdx=${targetIdx}/${sortedCols.length} cumOff=${cumulativeOffsetPx.toFixed(0)} newBHW=${newBandHalfWidth} newScaleH=${newScaleH.toFixed(2)} leftmostAlong=${leftmostAlong} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
       )
     }
 
