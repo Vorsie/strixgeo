@@ -133,13 +133,20 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     setActiveStage('sections')
     context.sections.handleSelectSection(target.sectionId)
     // Defer the focus pulse.  600 ms covers the CPT-plot batch fetch
-    // observed at ~440 ms on the test project + a margin for
-    // borehole-detail fetch + first layout pass.  Cleared on unmount
-    // / target change so a stray re-fire can't double-trigger.
+    // observed at ~440 ms on the test project + a margin for the
+    // borehole-detail fetch + first layout pass.
+    //
+    // CRITICAL: clear the deep-link target INSIDE the timer callback,
+    // not synchronously.  If we cleared it here the effect's deps
+    // would flip to null immediately, React would run the cleanup
+    // (clearing the timer we just set) BEFORE re-running the effect
+    // body, and handleFocusContacts would never fire — which is
+    // exactly the regression that hit both Geology-pane click AND
+    // xsection-pane click in the previous commit.
     const focusTimer = window.setTimeout(() => {
       context.sections.handleFocusContacts(target.contactIds, target.sectionId)
+      context.coordinator.setSectionsDeepLinkTarget(null)
     }, 600)
-    context.coordinator.setSectionsDeepLinkTarget(null)
     return () => {
       window.clearTimeout(focusTimer)
     }
