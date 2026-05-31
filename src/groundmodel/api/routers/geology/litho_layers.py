@@ -45,6 +45,7 @@ from groundmodel.application.bulk_create_litho_layers import (
     BulkCreateLithoLayers,
     LithoLayerCreateRequest,
 )
+from groundmodel.application.delete_litho_layer import DeleteLithoLayer
 from groundmodel.application.link_litho_to_geo import LinkLithoToGeo
 from groundmodel.application.list_litho_layers_for_model import (
     ListLithoLayersForModel,
@@ -351,6 +352,51 @@ async def unlink_layer_from_geo(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
     return updated
+
+
+@router.delete(
+    "/models/{model_id}/layers/{layer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_layer(
+    project_id: UUID,
+    model_id: UUID,
+    layer_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete one ``litho_layer`` row + reconcile downstream state.
+
+    Idempotent — returns 204 whether the row existed or not. For
+    accepted layers the LL→FC trigger removes the matching contact
+    mirror; correlation edges referencing the layer cascade via the
+    FK. The use case re-runs the instance resolver + lens detector
+    afterwards so the model stays consistent.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    layer_id : UUID
+        The layer to delete (path param).
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to
+        ``project_id``. A missing layer is silently 204 (idempotent).
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    await DeleteLithoLayer(session).execute(
+        layer_id,
+        project_id=project_id,
+        model_id=model_id,
+    )
 
 
 @router.patch(
