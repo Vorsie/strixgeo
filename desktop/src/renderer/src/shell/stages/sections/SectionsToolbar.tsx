@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, ScanSearch } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -16,6 +16,7 @@ import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton, SplitToolbarButto
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import { investigationsOnSection } from '../../../utils/sectionProjection'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { log } from '../../../utils/log'
 
@@ -106,6 +107,10 @@ export default function SectionsToolbar(): JSX.Element {
   // gate on "all contacts in its primary section have ≥1 approved edge" and
   // create a perpendicular companion section.
   const [materialisingCompanions, setMaterialisingCompanions] = useState(false)
+  // Detect lenses (owner directive 2026-05-31) — busy flag for the explicit
+  // "Detect lenses" verb.  Replaces the auto-detect that used to fire from
+  // every edge mutation + destructive op.
+  const [detectingLenses, setDetectingLenses] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -251,14 +256,17 @@ export default function SectionsToolbar(): JSX.Element {
         activeLithoModel.id,
         selectedSectionId,
       )
+      // ``lenses_created`` / ``lenses_removed`` are always 0 since the
+      // 2026-05-31 explicit-detect switch; the toast only reports the
+      // accept count.  Engineer runs "Detect lenses" separately when
+      // they actually want lens rows materialised.
       log.success(
         'sections',
-        `acceptCorrelations: ${result.edges_accepted} accepted, ${result.lenses_created} lenses created`,
+        `acceptCorrelations: ${result.edges_accepted} accepted`,
       )
       toast(
         'success',
-        `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}. ` +
-          `${result.lenses_created} new lens${result.lenses_created === 1 ? '' : 'es'}.`,
+        `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}.`,
       )
     } catch (err) {
       log.error('sections', 'acceptCorrelations: failed', err)
@@ -307,6 +315,41 @@ export default function SectionsToolbar(): JSX.Element {
       setMaterialisingCompanions(false)
     }
   }, [activeLithoModel, materialisingCompanions, project.id, toast])
+
+  // Detect lenses (owner directive 2026-05-31): explicit verb that replaces
+  // the auto-detect previously embedded in every edge mutation + destructive
+  // op.  Runs the correlation-graph lens detector on the active litho model
+  // and reports counts in a toast.  Idempotent — re-running with no
+  // topology change is a no-op.
+  const handleDetectLenses = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || detectingLenses) return
+    log.info('sections', `detectLenses: model=${activeLithoModel.id}`)
+    setDetectingLenses(true)
+    try {
+      const result = await api.geology.detectLithoLenses(
+        project.id,
+        activeLithoModel.id,
+      )
+      log.success(
+        'sections',
+        `detectLenses: created=${result.lenses_created} removed=${result.lenses_removed} ` +
+          `skipped_unresolved_ordinal=${result.lenses_skipped_unresolved_ordinal}`,
+      )
+      const parts: string[] = [
+        `${result.lenses_created} new`,
+        `${result.lenses_removed} stale removed`,
+      ]
+      if (result.lenses_skipped_unresolved_ordinal > 0) {
+        parts.push(`${result.lenses_skipped_unresolved_ordinal} skipped (ordinal pending)`)
+      }
+      toast('success', `Lens detect: ${parts.join(', ')}.`)
+    } catch (err) {
+      log.error('sections', 'detectLenses: failed', err)
+      toast('error', 'Detect lenses failed — try again.')
+    } finally {
+      setDetectingLenses(false)
+    }
+  }, [activeLithoModel, detectingLenses, project.id, toast])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -456,10 +499,18 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   // Bulk-suggest (debt #73 / Phase 3) — derive the anchors list from
-  // visible CPTs + boreholes, filtered by the section's exclusion sets.
+  // investigations that ACTUALLY land on this section (within its
+  // span + projection_buffer_m), minus the section's exclusion sets.
   // Skips anchors with no elevation (the ghost overlay needs surface Z
   // to position layers). On click the confirmation dialog has already
   // fired; this kicks off the fan-out.
+  //
+  // Bug history: earlier this iterated all visible project CPTs +
+  // boreholes filtered only by the exclusion sets, so a section with
+  // 8 in-corridor tests reported "will run for 68 investigations" —
+  // the project's full count, not the section's. Route through
+  // ``investigationsOnSection`` the same way SectionOverlays and
+  // useSectionData do.
   const bulkAnchors = useMemo(() => {
     if (!selectedSection) return [] as {
       kind: 'cpt' | 'borehole'
@@ -473,15 +524,13 @@ export default function SectionsToolbar(): JSX.Element {
       id: string
       surfaceElevationM: number | null
     }[] = []
-    for (const c of visibleCpts) {
-      if (excludedCptIds.has(c.id)) continue
-      if (c.elevation_m == null) continue
-      out.push({ kind: 'cpt', id: c.id, surfaceElevationM: c.elevation_m })
+    for (const p of investigationsOnSection(selectedSection, visibleCpts, excludedCptIds)) {
+      if (p.item.elevation_m == null) continue
+      out.push({ kind: 'cpt', id: p.item.id, surfaceElevationM: p.item.elevation_m })
     }
-    for (const b of visibleBoreholes) {
-      if (excludedBhIds.has(b.id)) continue
-      if (b.elevation_m == null) continue
-      out.push({ kind: 'borehole', id: b.id, surfaceElevationM: b.elevation_m })
+    for (const p of investigationsOnSection(selectedSection, visibleBoreholes, excludedBhIds)) {
+      if (p.item.elevation_m == null) continue
+      out.push({ kind: 'borehole', id: p.item.id, surfaceElevationM: p.item.elevation_m })
     }
     return out
   }, [selectedSection, visibleCpts, visibleBoreholes])
@@ -890,6 +939,30 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'litho-clear-suggestions',
               },
             ]}
+          />
+          {/* Detect lenses (owner directive 2026-05-31) — explicit verb
+              that runs the correlation-graph lens detector and reconciles
+              ``LithoLensOrm`` rows.  Replaces the auto-detect that used to
+              fire from every edge mutation (correlate / uncorrelate /
+              accept) and every destructive op (delete contact, delete
+              layer, cross-merge).  A manual correlate that incidentally
+              closed a lens topology was silently spawning a lens row —
+              this verb gives the engineer explicit control over when
+              lens rows materialise. */}
+          <ToolbarButton
+            icon={<ScanSearch size={13} />}
+            label={detectingLenses ? 'Detecting…' : 'Detect lenses'}
+            onClick={() => { void handleDetectLenses() }}
+            disabled={!activeLithoModel || detectingLenses}
+            busy={detectingLenses}
+            testid="litho-detect-lenses"
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : detectingLenses
+                  ? 'Detecting lenses…'
+                  : 'Detect lenses: scan the approved contact-correlation graph for closed #135 topologies and materialise / reconcile lens rows. Idempotent — safe to re-run.'
+            }
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
               operation that creates perpendicular companion sections for
