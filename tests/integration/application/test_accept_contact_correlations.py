@@ -456,3 +456,111 @@ async def test_accept_is_idempotent_when_nothing_unapproved(
     row = await db_session.get(LithoContactCorrelationEdgeOrm, edge.id)
     assert row is not None
     assert row.user_approved is True
+
+
+# ---------------------------------------------------------------------------
+# Test 5: Edge-scoped accept flips only the named edge (dogfeed 2026-05-31)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edge_scoped_accept_flips_only_named_edge(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """``edge_id`` filter approves the single edge and leaves siblings unapproved.
+
+    Right-click "Accept correlation" menu item powers this — the menu fires
+    per-edge so the use case must accept exactly that one without dragging
+    the rest of the section's pending edges along.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-t5")
+    f1 = _formation(project, parent, name="ZAND-t5", soil_code="ZAND")
+    bh_a = _borehole(project.id, suffix="T5A", x=170000.0)
+    bh_b = _borehole(project.id, suffix="T5B", x=170500.0)
+    bh_c = _borehole(project.id, suffix="T5C", x=171000.0)
+
+    db_session.add_all([geo, litho, parent, f1, bh_a, bh_b, bh_c])
+    await db_session.flush()
+
+    c1 = _contact(litho, f1, bh_a, depth=3.0)
+    c2 = _contact(litho, f1, bh_b, depth=3.0)
+    c3 = _contact(litho, f1, bh_c, depth=3.0)
+    db_session.add_all([c1, c2, c3])
+    await db_session.flush()
+
+    target_edge = _raw_edge(litho, c1, c2, user_approved=False)
+    sibling_edge = _raw_edge(litho, c2, c3, user_approved=False)
+    db_session.add_all([target_edge, sibling_edge])
+    await db_session.commit()
+
+    result = await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        edge_id=target_edge.id,
+    )
+
+    assert result.edges_accepted == 1, (
+        f"Expected exactly one edge accepted; got {result.edges_accepted}"
+    )
+
+    target_row = await db_session.get(LithoContactCorrelationEdgeOrm, target_edge.id)
+    assert target_row is not None
+    assert target_row.user_approved is True
+
+    sibling_row = await db_session.get(LithoContactCorrelationEdgeOrm, sibling_edge.id)
+    assert sibling_row is not None
+    assert sibling_row.user_approved is False, (
+        "Sibling edge must remain unapproved when edge_id targets only one edge"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6: Edge-scoped accept rejects an edge that belongs to a different model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edge_scoped_accept_rejects_cross_model_edge(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """An ``edge_id`` whose model differs from ``model_id`` must raise ValueError.
+
+    Guards against a routing or client bug aiming a single-edge accept at
+    the wrong model and accidentally bypassing the model scope check.
+    """
+    geo = _geo_model(project)
+    litho_a = _litho_model(project, geo)
+    litho_b = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-t6")
+    f1 = _formation(project, parent, name="ZAND-t6", soil_code="ZAND")
+    bh_a = _borehole(project.id, suffix="T6A", x=180000.0)
+    bh_b = _borehole(project.id, suffix="T6B", x=180500.0)
+
+    db_session.add_all([geo, litho_a, litho_b, parent, f1, bh_a, bh_b])
+    await db_session.flush()
+
+    # Both contacts belong to litho_b; the edge therefore belongs to litho_b.
+    c1 = _contact(litho_b, f1, bh_a, depth=3.0)
+    c2 = _contact(litho_b, f1, bh_b, depth=3.0)
+    db_session.add_all([c1, c2])
+    await db_session.flush()
+    edge = _raw_edge(litho_b, c1, c2, user_approved=False)
+    db_session.add(edge)
+    await db_session.commit()
+
+    # Aim the accept at litho_a — the wrong model.
+    with pytest.raises(ValueError, match="does not belong to model"):
+        await AcceptContactCorrelations(db_session).execute(
+            project_id=project.id,
+            model_id=litho_a.id,
+            edge_id=edge.id,
+        )
+
+    # Edge must still be unapproved.
+    row = await db_session.get(LithoContactCorrelationEdgeOrm, edge.id)
+    assert row is not None
+    assert row.user_approved is False
