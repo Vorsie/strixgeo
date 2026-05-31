@@ -898,23 +898,8 @@ export default function SectionPanel({
     [effLevelMax, scaleV],
   )
 
-  // Warp-aware screen→along inverse for LensWedgeOverlay.  The lens-shape
-  // editor commits drag positions back as ``along_m``; without warping, a
-  // drag-commit at spacing < 1.0 would land at the linear along (raw
-  // proj.along) instead of the post-nudge along the column sits at, so
-  // the lens would jump on every commit.  Mirrors the forward
-  // ``warpedXToScreen`` exactly so round-trips through the lens editor
-  // are stable at every spacing value.  Defined below ``warpAnchors`` /
-  // ``warpedXToScreen`` would create a forward-ref cycle for callers, so
-  // the function uses a ref that picks up the latest anchors on every
-  // invocation (the wheel-zoom handler uses the same pattern).
-  const warpedScreenXToAlongCb = useCallback(
-    (x: number): number => {
-      const linear = (x - MARGIN.left) / scaleH + viewport.xMin
-      return warpedScreenXToAlong(x, warpAnchorsRef.current, scaleH, linear)
-    },
-    [viewport.xMin, scaleH],
-  )
+  // (warpedScreenXToAlongCb is defined below, AFTER ``warpAnchors`` —
+  //  see the dogfeed 2026-05-31 zoom-snap fix.)
 
   // ---- Pan / zoom interactions ---------------------------------------
 
@@ -2293,6 +2278,26 @@ export default function SectionPanel({
       return a.effX + frac * (b.effX - a.effX)
     },
     [warpAnchors, xToScreen, scaleH],
+  )
+
+  // Warp-aware screen→along inverse for LensWedgeOverlay (dogfeed
+  // 2026-05-31 follow-up).  Earlier version lived above ``warpAnchors``
+  // and read ``warpAnchorsRef.current``, but React updates refs in a
+  // ``useEffect`` AFTER the render that built them — so on the render
+  // following a zoom, the inverse saw STALE anchors while the forward
+  // (``warpedXToScreen``) closed over the NEW ones via useCallback
+  // deps.  The lens wedge endpoints round-tripped through inconsistent
+  // anchor sets and landed offset; a follow-up pan triggered a re-render
+  // by which time the ref had caught up, so the wedge "snapped back".
+  // Defining the inverse here lets it close over ``warpAnchors``
+  // directly (via the useCallback deps), so forward + inverse always
+  // see the same anchor state inside one render.
+  const warpedScreenXToAlongCb = useCallback(
+    (x: number): number => {
+      const linear = (x - MARGIN.left) / scaleH + viewport.xMin
+      return warpedScreenXToAlong(x, warpAnchors, scaleH, linear)
+    },
+    [viewport.xMin, scaleH, warpAnchors],
   )
 
   // Section-wide qc full scale in MPa. Default 40 (DOV CPT-graph
