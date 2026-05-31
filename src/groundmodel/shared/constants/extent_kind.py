@@ -10,6 +10,8 @@ sections 4.3 + 5.2 for the semantics.
 
 from __future__ import annotations
 
+from typing import Literal
+
 # --- Enum values -------------------------------------------------------------
 
 # Closure at a specific target contact (auto-detected bilateral closure).
@@ -24,6 +26,17 @@ EXTENT_KIND_EXTRAPOLATED = "extrapolated"
 
 # Explicitly extends to / past the section boundary. User-claimed.
 EXTENT_KIND_OPEN = "open"
+
+#: Static type alias for the four extent kind values.  Downstream consumers
+#: should annotate parameters / return types / ORM columns as ``ExtentKind``
+#: (not bare ``str``) so type checkers narrow correctly and string-literal
+#: misspellings surface at type-check time instead of runtime.
+ExtentKind = Literal[
+    "to_target",
+    "pinch_out_halfway",
+    "extrapolated",
+    "open",
+]
 
 # All known values for validation. Drift guard: adding a value here without
 # updating the test set + renderer dispatch + UI menu is a test failure.
