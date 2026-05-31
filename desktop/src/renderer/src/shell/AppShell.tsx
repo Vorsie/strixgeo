@@ -113,9 +113,16 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
 
   // Sections deep-link — set by the surface-crossings banner (Geology
   // or Sections inspector) when the user picks an issue.  Switches to
-  // the Sections stage, selects the chosen section, and fires the
-  // focus-contacts pulse so SectionPanel pans + amber-pulses the
-  // offending columns.  Payload is cleared after dispatch — single-fire.
+  // the Sections stage, selects the chosen section, then DEFERS the
+  // focus-contacts call by a beat so the freshly-mounted SectionPanel
+  // has time to fetch its cptPlots / boreholeDetails before the
+  // zoom-to-detail math runs.  Without this delay the math reads
+  // empty data maps, predicts the wrong post-zoom column widths, and
+  // the target ends up offscreen-right (user-reported repeatedly on
+  // the Geology-pane click while the same click from an already-
+  // mounted Sections stage works correctly — that's the asymmetry
+  // we're erasing).  Same dispatch the xsection-click path uses,
+  // just delayed until the section is alive.
   useEffect(() => {
     const target = context.coordinator.sectionsDeepLinkTarget
     if (target == null) return
@@ -124,11 +131,21 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
       `sections-deep-link: stage=sections section=${target.sectionId} contacts=${target.contactIds.length}`,
     )
     setActiveStage('sections')
-    context.sections.handleFocusContacts(target.contactIds, target.sectionId)
+    context.sections.handleSelectSection(target.sectionId)
+    // Defer the focus pulse.  600 ms covers the CPT-plot batch fetch
+    // observed at ~440 ms on the test project + a margin for
+    // borehole-detail fetch + first layout pass.  Cleared on unmount
+    // / target change so a stray re-fire can't double-trigger.
+    const focusTimer = window.setTimeout(() => {
+      context.sections.handleFocusContacts(target.contactIds, target.sectionId)
+    }, 600)
     context.coordinator.setSectionsDeepLinkTarget(null)
-    // reason: setActiveStage + sections handlers are stable callbacks;
-    // sectionsDeepLinkTarget is the only signal that should trigger this
-    // effect (mirrors the geoDeepLinkTarget effect above).
+    return () => {
+      window.clearTimeout(focusTimer)
+    }
+    // reason: setActiveStage + sections handlers + coord setter are
+    // stable callbacks; sectionsDeepLinkTarget is the only signal that
+    // should trigger this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.coordinator.sectionsDeepLinkTarget])
 
