@@ -1,12 +1,19 @@
-"""Integration tests for DetectLithoLenses + the wired Correlate/Uncorrelate path.
+"""Integration tests for DetectLithoLenses.
 
 Four cases:
 1. Manual #135 gesture (two correlated contacts from A → same target B)
-   materialises a LithoLensOrm row after CorrelateLithoContacts.
-2. Removing one defining edge via UncorrelateLithoContacts deletes the lens row.
+   materialises a LithoLensOrm row when the user explicitly runs
+   DetectLithoLenses afterwards.
+2. After detection has materialised a lens row, removing one defining
+   edge then re-running DetectLithoLenses removes the stale lens row.
 3. Unapproved edges do NOT seed lenses when DetectLithoLenses runs directly.
 4. Unresolved instance_ordinal → skipped (lenses_skipped_unresolved_ordinal++)
    and no LithoLensOrm row is created.
+
+Owner directive 2026-05-31: DetectLithoLenses is no longer auto-fired
+from CorrelateLithoContacts / UncorrelateLithoContacts / AcceptContactCorrelations
+or the destructive use cases.  Tests 1 + 2 used to assert the auto-fire
+behaviour; they now exercise the explicit-verb contract instead.
 """
 
 from __future__ import annotations
@@ -231,7 +238,25 @@ async def test_manual_135_gesture_materialises_lens_metadata(
         contact_b_id=c_single_b.id,
     )
 
-    # After both gestures, exactly one LithoLensOrm row must exist.
+    # Before the explicit detect verb, no lens row exists — owner directive
+    # 2026-05-31 stripped the auto-fire from CorrelateLithoContacts.
+    pre_lens_rows = (
+        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        .scalars()
+        .all()
+    )
+    assert len(pre_lens_rows) == 0, (
+        f"Lens detection must not auto-fire from CorrelateLithoContacts; got {len(pre_lens_rows)}"
+    )
+
+    # User clicks the explicit "Detect lenses" verb.
+    await DetectLithoLenses(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+    await db_session.commit()
+
+    # After the verb, exactly one LithoLensOrm row must exist.
     lens_rows = (
         (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
         .scalars()
@@ -279,7 +304,8 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
     db_session.add_all([c_top, c_body, c_base, c_single])
     await db_session.commit()
 
-    # Build the lens via two Correlate calls.
+    # Build the lens via two Correlate calls + one explicit Detect pass
+    # (owner directive 2026-05-31 — see module docstring).
     await CorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
@@ -292,6 +318,11 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
         contact_a_id=c_base.id,
         contact_b_id=c_single.id,
     )
+    await DetectLithoLenses(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+    await db_session.commit()
 
     # Confirm the lens row exists before the removal.
     pre_count = len(
@@ -301,7 +332,8 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
     )
     assert pre_count == 1, f"Expected 1 lens before removal; got {pre_count}"
 
-    # Remove one defining edge — topology breaks.
+    # Remove one defining edge — topology breaks, but the stale lens row
+    # survives until the next explicit Detect pass.
     await UncorrelateLithoContacts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
@@ -309,13 +341,30 @@ async def test_uncorrelate_removes_lens_when_topology_breaks(
         contact_b_id=c_single.id,
     )
 
+    interim_rows = (
+        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        .scalars()
+        .all()
+    )
+    assert len(interim_rows) == 1, (
+        "UncorrelateLithoContacts must NOT auto-reconcile lens rows "
+        f"(owner directive 2026-05-31); got {len(interim_rows)}"
+    )
+
+    # User runs the explicit verb again — stale row is removed.
+    await DetectLithoLenses(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+    await db_session.commit()
+
     post_rows = (
         (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
     assert len(post_rows) == 0, (
-        f"Expected no LithoLensOrm rows after topology broke; got {len(post_rows)}"
+        f"Expected no LithoLensOrm rows after Detect rerun; got {len(post_rows)}"
     )
 
 
