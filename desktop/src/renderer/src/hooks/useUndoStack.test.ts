@@ -120,6 +120,11 @@ describe('useUndoStack', () => {
     expect(result.current.canUndo).toBe(false)
     expect(result.current.canRedo).toBe(false)
     expect(onError).toHaveBeenCalledTimes(1)
+    // Toast names the failed action (dogfeed 2026-05-31): a Ctrl-Z
+    // landing on a stale stack entry must say WHICH action blew up
+    // so the user can correlate the message to their intent.
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('B'))
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('Undo failed'))
   })
 
   it('failed reapply also clears both stacks', async () => {
@@ -138,6 +143,8 @@ describe('useUndoStack', () => {
     expect(result.current.canUndo).toBe(false)
     expect(result.current.canRedo).toBe(false)
     expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('X'))
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('Redo failed'))
   })
 
   it('capacity caps the undo stack at the configured size', () => {
