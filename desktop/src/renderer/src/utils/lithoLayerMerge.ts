@@ -236,6 +236,122 @@ export function absorbLithoLayer(
   }
 }
 
+/**
+ * Absorb a CONTIGUOUS RANGE of layers between the dragger and a target
+ * neighbour ``throughIdx``, in the given direction. Generalises
+ * ``absorbLithoLayer`` to the case where one or more REJECTED layers
+ * sit between the dragger and the actual cross-merge target — those
+ * in-between layers were traversed by the drag and are consumed too,
+ * leaving no stale-idx zombies in the suggestions array.
+ *
+ * Semantics
+ * ---------
+ *   direction='up'   — throughIdx < draggerIdx. Removes the range
+ *                      [throughIdx, draggerIdx - 1] inclusive (the
+ *                      target + everything between it and the dragger).
+ *                      The dragger's depth_top_m extends to the target's
+ *                      effective depth_top_m.
+ *   direction='down' — throughIdx > draggerIdx. Removes the range
+ *                      [draggerIdx + 1, throughIdx] inclusive. The
+ *                      dragger's depth_base_m extends to the target's
+ *                      effective depth_base_m.
+ *
+ * When ``throughIdx`` is exactly the immediate neighbour
+ * (``draggerIdx ± 1``), the behaviour is identical to
+ * ``absorbLithoLayer`` — only one layer is removed.
+ *
+ * Pure: returns a new ``BulkAnchorGhost``. Callers route the result
+ * through ``setGhostsByAnchor`` in the parent reducer.
+ *
+ * Parameters
+ * ----------
+ * ghost
+ *     The anchor's current ghost state (with the dragger's depth edit
+ *     already merged into ``ghost.edits`` by the caller — see
+ *     ``applyCrossMergeOnDrag``).
+ * draggerIdx
+ *     Index of the dragged layer.
+ * throughIdx
+ *     Index of the absorb TARGET. Must be on the correct side of
+ *     ``draggerIdx`` for the given ``direction``; the caller's loop
+ *     guarantees this.
+ * direction
+ *     ``'up'`` or ``'down'``.
+ *
+ * Returns
+ * -------
+ * BulkAnchorGhost
+ *     New ghost with the inclusive range removed, dragger depth
+ *     extended to the target's far edge, and accepted / rejected /
+ *     edits index sets compacted (entries inside the removed range
+ *     are dropped; entries above shift down by the removed count).
+ */
+export function absorbThroughLayer(
+  ghost: BulkAnchorGhost,
+  draggerIdx: number,
+  throughIdx: number,
+  direction: 'up' | 'down',
+): BulkAnchorGhost {
+  const through = ghost.suggestions[throughIdx]
+  const throughEdit = ghost.edits.get(throughIdx)
+  const newOuterDepth =
+    direction === 'down'
+      ? (throughEdit?.depth_base_m ?? through.depth_base_m)
+      : (throughEdit?.depth_top_m ?? through.depth_top_m)
+
+  const removeStart = direction === 'up' ? throughIdx : draggerIdx + 1
+  const removeEnd = direction === 'up' ? draggerIdx - 1 : throughIdx
+  const removeCount = removeEnd - removeStart + 1
+
+  const newSuggestions = [
+    ...ghost.suggestions.slice(0, removeStart),
+    ...ghost.suggestions.slice(removeEnd + 1),
+  ]
+
+  // Returns null when the index falls inside the removed range
+  // (consumed by the absorb), otherwise the post-shift index.
+  const shift = (i: number): number | null => {
+    if (i >= removeStart && i <= removeEnd) return null
+    if (i > removeEnd) return i - removeCount
+    return i
+  }
+
+  // The dragger sits OUTSIDE the removed range (caller invariant), so
+  // shift() never returns null for it.
+  const newDraggerIdx = shift(draggerIdx) as number
+
+  const newAccepted = new Set<number>()
+  for (const i of ghost.accepted) {
+    const s = shift(i)
+    if (s !== null) newAccepted.add(s)
+  }
+  const newRejected = new Set<number>()
+  for (const i of ghost.rejected) {
+    const s = shift(i)
+    if (s !== null) newRejected.add(s)
+  }
+
+  const newEdits = new Map<number, LithoSuggestionEdit>()
+  for (const [k, v] of ghost.edits) {
+    const s = shift(k)
+    if (s !== null) newEdits.set(s, v)
+  }
+  const priorDraggerEdit = newEdits.get(newDraggerIdx) ?? {}
+  const depthPatch: LithoSuggestionEdit =
+    direction === 'down'
+      ? { ...priorDraggerEdit, depth_base_m: newOuterDepth }
+      : { ...priorDraggerEdit, depth_top_m: newOuterDepth }
+  newEdits.set(newDraggerIdx, depthPatch)
+
+  return {
+    ...ghost,
+    suggestions: newSuggestions,
+    accepted: newAccepted,
+    rejected: newRejected,
+    edits: newEdits,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // applyCrossMergeOnDrag
 // ---------------------------------------------------------------------------
@@ -396,7 +512,15 @@ export function applyCrossMergeOnDrag(
       if (newTop <= neighbourTop + threshold) {
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
-        return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'up')
+        // absorbThroughLayer consumes the inclusive range
+        // [i, idx-1]: the pending target AND any rejected layers
+        // the loop's ``continue`` skipped past. Pre-fix this was
+        // ``absorbLithoLayer(ghost, idx, 'up')`` which hardcoded
+        // ``absorbedIdx = idx - 1`` and absorbed the rejected
+        // in-between layer instead of the target — leaving the
+        // target alive as a phantom band with overlapping bounds
+        // (dogfeed 2026-05-31, "two sand bands + sliver").
+        return absorbThroughLayer({ ...ghost, edits: withEdit }, idx, i, 'up')
       }
       break // Only the immediately adjacent pending neighbour.
     }
@@ -415,7 +539,10 @@ export function applyCrossMergeOnDrag(
       if (newBase >= neighbourBase - threshold) {
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
-        return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'down')
+        // Mirror of the up-case: through-absorb consumes the
+        // inclusive range [idx+1, i] (target + any rejected
+        // between).
+        return absorbThroughLayer({ ...ghost, edits: withEdit }, idx, i, 'down')
       }
       break
     }
