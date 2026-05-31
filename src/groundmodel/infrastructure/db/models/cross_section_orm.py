@@ -13,9 +13,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from groundmodel.infrastructure.db.base import Base
 
-# String FK reference to litho_lens — avoids a circular import since
-# litho_lens_orm also references cross_section via primary_section_id.
-_LITHO_LENS_TABLE = "litho_lens"
+# String FK reference to the body table (renamed from litho_lens in the
+# body-with-extent migration 2026-05-31) — avoids a circular import since
+# body_orm also references cross_section via primary_section_id.
+_BODY_TABLE = "body"
 
 
 class CrossSectionOrm(Base):
@@ -115,7 +116,7 @@ class CrossSectionOrm(Base):
     # delete.
     companion_lens_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey(f"{_LITHO_LENS_TABLE}.id", ondelete="SET NULL"),
+        ForeignKey(f"{_BODY_TABLE}.id", ondelete="SET NULL"),
         nullable=True,
     )
 
