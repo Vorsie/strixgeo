@@ -26,6 +26,7 @@ from groundmodel.api.schemas.project.project_update_request import (
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
+    BundleIntegrityError,
     build_project_bundle,
     restore_project_bundle,
 )
@@ -203,7 +204,17 @@ async def get_project_bundle(
     project = await repo.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return await build_project_bundle(session, project)
+    try:
+        return await build_project_bundle(session, project)
+    except BundleIntegrityError as err:
+        # 422: the DB is self-inconsistent (layers reference formations
+        # that no longer exist) so the bundle cannot be safely written.
+        # 500 would suggest a server bug; 422 says "your data is bad,
+        # here's what's wrong" — actionable.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
 
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
@@ -276,6 +287,16 @@ async def restore_project(
             litho_lens_boundary_nodes_payload=request.litho_lens_boundary_nodes,
             replace=replace,
         )
+    except BundleIntegrityError as err:
+        # 422: the bundle parsed cleanly but is self-inconsistent (e.g.
+        # contacts/layers reference formations not in the bundle). The
+        # replace-restore guard refuses to wipe the DB in this state —
+        # the actionable error reaches the user instead of a silent
+        # 833-layer wipe (2026-05-31 dogfeed).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.
         raise HTTPException(
