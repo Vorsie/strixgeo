@@ -5,10 +5,14 @@ lens detection in the same transaction.
 
 Scope rules
 -----------
-* **Section-scoped** (``section_id`` supplied): edges where BOTH
-  ``contact_a_id`` and ``contact_b_id`` are in the section's
+* **Edge-scoped** (``edge_id`` supplied): the single edge with that id,
+  if it belongs to the model and is currently unapproved.  ``section_id``
+  is ignored when ``edge_id`` is set.  Surfaced via the right-click menu
+  on a single correlation edge (dogfeed 2026-05-31).
+* **Section-scoped** (``section_id`` supplied, ``edge_id=None``): edges
+  where BOTH ``contact_a_id`` and ``contact_b_id`` are in the section's
   ``seeded_formation_contact_ids`` list AND ``user_approved=False``.
-* **Model-scoped** (``section_id=None``): all edges in the model with
+* **Model-scoped** (both ``None``): all edges in the model with
   ``user_approved=False``.
 
 The use case owns the commit boundary — ``ResolveLithoInstances`` and
@@ -81,6 +85,7 @@ class AcceptContactCorrelations(GroundModelLogger):
         project_id: UUID,
         model_id: UUID,
         section_id: UUID | None = None,
+        edge_id: UUID | None = None,
     ) -> AcceptResult:
         """Run the accept flow.
 
@@ -91,9 +96,14 @@ class AcceptContactCorrelations(GroundModelLogger):
         model_id : UUID
             The lithostratigraphic model whose edges are being accepted.
         section_id : UUID | None
-            When supplied, limits acceptance to edges whose both endpoints
-            are in the section's ``seeded_formation_contact_ids``.
-            When ``None``, every unapproved edge in the model is accepted.
+            When supplied (and ``edge_id`` is ``None``), limits acceptance
+            to edges whose both endpoints are in the section's
+            ``seeded_formation_contact_ids``.
+        edge_id : UUID | None
+            When supplied, accepts just that one edge (provided it belongs
+            to the model and is unapproved). Takes precedence over
+            ``section_id``. When both ``edge_id`` and ``section_id`` are
+            ``None``, every unapproved edge in the model is accepted.
 
         Returns
         -------
@@ -104,11 +114,12 @@ class AcceptContactCorrelations(GroundModelLogger):
         ------
         ValueError
             If the model or (when supplied) the section is not found in the
-            given project.
+            given project, or if ``edge_id`` is supplied but does not belong
+            to the model.
         """
         self.info(
             f"AcceptContactCorrelations.execute: project={project_id} "
-            f"model={model_id} section={section_id}"
+            f"model={model_id} section={section_id} edge={edge_id}"
         )
 
         # ------------------------------------------------------------------ #
@@ -122,7 +133,32 @@ class AcceptContactCorrelations(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 2. Build the in-scope edge id set.                                 #
         # ------------------------------------------------------------------ #
-        if section_id is not None:
+        if edge_id is not None:
+            # Edge-scoped: scope-check the edge belongs to this model. The
+            # query against the unapproved filter handles the
+            # already-approved no-op case (it returns 0 edges, the rest of
+            # the flow short-circuits to a zero-result).
+            scope_row = (
+                await self._session.execute(
+                    select(LithoContactCorrelationEdgeOrm.model_id).where(
+                        LithoContactCorrelationEdgeOrm.id == edge_id
+                    )
+                )
+            ).first()
+            if scope_row is None:
+                raise ValueError(f"Contact correlation edge {edge_id} not found.")
+            if scope_row[0] != model_id:
+                raise ValueError(
+                    f"Contact correlation edge {edge_id} does not belong to model {model_id}."
+                )
+            self.debug(
+                f"AcceptContactCorrelations: edge {edge_id} scope guard passed for {model_id}"
+            )
+            in_scope_stmt = select(LithoContactCorrelationEdgeOrm.id).where(
+                LithoContactCorrelationEdgeOrm.id == edge_id,
+                LithoContactCorrelationEdgeOrm.user_approved.is_(False),
+            )
+        elif section_id is not None:
             sec = await load_scoped_or_raise(
                 self._session, CrossSectionOrm, section_id, project_id, label="Cross-section"
             )
