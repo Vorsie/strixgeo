@@ -62,24 +62,42 @@ export interface NudgeResult<T extends NudgeInput> {
  * profiles (data-laden CPTs next to bare boreholes) space
  * correctly. Output is in ascending-X order (i.e. sorted by
  * ``trueX``). The original array is not mutated.
+ *
+ * ``gapBetween`` is an optional per-pair override. When supplied,
+ * the function calls it with the previous and current items (in
+ * sorted-by-trueX order) for every adjacent pair and uses the
+ * returned value in place of ``edgeGap`` for that pair. Returning
+ * ``edgeGap`` itself is a no-op — the typical use is "if a
+ * correlation links these two columns, return a larger gap so the
+ * ribbon between them has room to render". Pairs not covered by
+ * the callback (or all pairs when the callback is omitted) fall
+ * back to ``edgeGap``.
  */
 export function nudgeColumns<T extends NudgeInput>(
   items: readonly T[],
   edgeGap: number,
+  gapBetween?: (prev: T, curr: T) => number,
 ): NudgeResult<T>[] {
   if (items.length === 0) return []
   const sorted = [...items].sort((a, b) => a.trueX - b.trueX)
   const out: NudgeResult<T>[] = []
   // Track the previous column's nudged-X-centerline + half-width
   // separately so the next item's minimum position can be expressed
-  // cleanly: ``prevNudgedX + prevHalfWidth + edgeGap + currHalfWidth``.
+  // cleanly: ``prevNudgedX + prevHalfWidth + gap + currHalfWidth``.
   let prevNudgedX = -Infinity
   let prevHalfWidth = 0
+  let prevItem: T | null = null
   for (const item of sorted) {
     const halfWidth = item.width / 2
+    // Per-pair gap override (e.g. correlation-aware spacing). Pairs not
+    // handled — or absence of the callback — fall back to ``edgeGap``.
+    const gap =
+      prevItem !== null && gapBetween !== undefined
+        ? gapBetween(prevItem, item)
+        : edgeGap
     // First column in a sorted run lands at its true position
     // (prev = -Infinity → the max() picks trueX).
-    const minCenter = prevNudgedX + prevHalfWidth + edgeGap + halfWidth
+    const minCenter = prevNudgedX + prevHalfWidth + gap + halfWidth
     const nudged = Math.max(item.trueX, minCenter)
     out.push({
       item,
@@ -91,6 +109,7 @@ export function nudgeColumns<T extends NudgeInput>(
     })
     prevNudgedX = nudged
     prevHalfWidth = halfWidth
+    prevItem = item
   }
   return out
 }
