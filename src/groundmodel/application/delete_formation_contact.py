@@ -7,11 +7,12 @@ router; this layer trusts the call and just drops the row.
 
 When the deleted contact belonged to a lithostratigraphic model,
 the FK cascade removes any ``LithoContactCorrelationEdge`` rows that
-referenced it.  To keep instance ordinals and lens metadata consistent
-with the updated edge graph the use case runs ``ResolveLithoInstances``
-and ``DetectLithoLenses`` (commit=False) before the single commit that
-covers all mutations.  Non-litho models skip both passes (no correlation
-edges exist for geological contacts).
+referenced it.  The resolver is re-run inline so instance ordinals
+stay coherent with the updated edge graph.  Lens detection is NOT
+fired here (owner directive 2026-05-31): stale ``LithoLensOrm`` rows
+are reconciled only on the explicit ``POST .../lenses/detect`` verb.
+Non-litho models skip the resolver pass (no correlation edges exist
+for geological contacts).
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -69,8 +69,9 @@ class DeleteFormationContact(GroundModelLogger):
         contact_id : UUID
             Primary key of the ``FormationContact`` row to remove.
         project_id : UUID
-            Project scope — passed to ``DetectLithoLenses`` which loads
-            cross-section rows filtered by project.
+            Project scope.  Used by the seeded-id sweep that prunes the
+            deleted contact from every cross-section's
+            ``seeded_formation_contact_ids``.
         model_id : UUID
             Geological model that owns the contact — used to determine
             whether to run the litho cascade and to scope the resolver +
@@ -95,23 +96,17 @@ class DeleteFormationContact(GroundModelLogger):
 
         # Litho-only cascade: the FK delete above removes any
         # LithoContactCorrelationEdge rows that referenced this contact.
-        # Re-run the resolver + lens detector so instance_ordinal values
-        # and LithoLens rows stay consistent with the updated edge graph.
+        # Re-run the resolver so instance_ordinal values stay coherent.
+        # Lens detection is NOT fired here (owner directive 2026-05-31) —
+        # stale LithoLensOrm rows survive until "Detect lenses" runs.
         # Geological contacts have no correlation edges — skip the cascade.
         if ok:
             geo_model = await self._session.get(GeologicalModelOrm, model_id)
             if geo_model is not None and geo_model.kind == "lithostratigraphic":
-                self.debug(
-                    f"litho contact deleted — running resolver + lens detector for model={model_id}"
-                )
+                self.debug(f"litho contact deleted — running resolver for model={model_id}")
                 await ResolveLithoInstances(self._session).execute(
                     model_id=model_id,
                     commit=False,
-                )
-                await DetectLithoLenses(self._session).execute(
-                    project_id=project_id,
-                    model_id=model_id,
-                    prefer_section_id=None,
                 )
 
             # Unseed the deleted contact from every section (explicit-content
