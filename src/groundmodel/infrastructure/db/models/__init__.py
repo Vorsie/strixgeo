@@ -2,6 +2,9 @@
 
 from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
+from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -20,11 +23,6 @@ from groundmodel.infrastructure.db.models.geotechnical_unit_orm import Geotechni
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-from groundmodel.infrastructure.db.models.litho_lens_boundary_node_orm import (
-    LithoLensBoundaryNodeOrm,
-)
-from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
-from groundmodel.infrastructure.db.models.litho_lens_shape_orm import LithoLensShapeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
@@ -35,6 +33,9 @@ from groundmodel.infrastructure.db.models.water_content_orm import WaterContentO
 __all__ = [
     "AdmixtureOrm",
     "AtterbergLimitsOrm",
+    "BodyBoundaryNodeOrm",
+    "BodyBoundaryShapeOrm",
+    "BodyOrm",
     "BoreholeOrm",
     "CaCO3ContentOrm",
     "CptOrm",
@@ -51,9 +52,6 @@ __all__ = [
     "InvestigationReviewOrm",
     "FormationAbsenceOrm",
     "LithoLayerOrm",
-    "LithoLensOrm",
-    "LithoLensBoundaryNodeOrm",
-    "LithoLensShapeOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
     "OrganicContentOrm",
