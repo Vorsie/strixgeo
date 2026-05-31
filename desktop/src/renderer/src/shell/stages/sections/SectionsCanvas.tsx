@@ -500,17 +500,19 @@ export default function SectionsCanvas(): JSX.Element {
   const handleCreateContactCorrelation = useCallback(
     async (contactAId: string, contactBId: string): Promise<void> => {
       if (!activeLithoModel) return
+      const modelId = activeLithoModel.id
+      const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-correlate: linking ${contactAId} ↔ ${contactBId} on model ${activeLithoModel.id}`,
+        `contact-correlate: linking ${contactAId} ↔ ${contactBId} on model ${modelId}`,
       )
       try {
         await api.geology.createContactCorrelation(
           project.id,
-          activeLithoModel.id,
+          modelId,
           contactAId,
           contactBId,
-          selectedSectionId,
+          sectionIdAtPush,
         )
         await refetchContactEdges()
         markMutated()
@@ -529,6 +531,38 @@ export default function SectionsCanvas(): JSX.Element {
         if (contactA?.formation_id && targetContact?.formation_id) {
           triggerCorrelationPulse(contactA.formation_id, targetContact.formation_id)
         }
+        // Undo wiring (dogfeed 2026-05-31): a manual correlate is a
+        // user-visible mutation and should peel off the stack on
+        // Ctrl-Z. revert = DELETE the same edge; reapply = re-POST.
+        // Both branches refetch + markMutated so the canvas + dirty
+        // flag stay in sync. Captured ids/model survive the
+        // SectionsCanvas remount-cycle (Refs not needed — these are
+        // primitives by value).
+        undoStack.push({
+          description: 'Correlate contacts',
+          revert: async () => {
+            await api.geology.deleteContactCorrelation(
+              project.id,
+              modelId,
+              contactAId,
+              contactBId,
+              sectionIdAtPush,
+            )
+            await refetchContactEdges()
+            markMutated()
+          },
+          reapply: async () => {
+            await api.geology.createContactCorrelation(
+              project.id,
+              modelId,
+              contactAId,
+              contactBId,
+              sectionIdAtPush,
+            )
+            await refetchContactEdges()
+            markMutated()
+          },
+        })
         toast('success', 'Boundary correlation added.')
         log.success(
           'section',
@@ -543,15 +577,17 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the boundary correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated, undoStack],
   )
 
   const handleDeleteContactCorrelation = useCallback(
     async (contactAId: string, contactBId: string): Promise<void> => {
       if (!activeLithoModel) return
+      const modelId = activeLithoModel.id
+      const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-uncorrelate: removing ${contactAId} ↔ ${contactBId} on model ${activeLithoModel.id}`,
+        `contact-uncorrelate: removing ${contactAId} ↔ ${contactBId} on model ${modelId}`,
       )
       // Optimistic removal.
       setContactCorrelationEdges(prev =>
@@ -566,13 +602,41 @@ export default function SectionsCanvas(): JSX.Element {
       try {
         await api.geology.deleteContactCorrelation(
           project.id,
-          activeLithoModel.id,
+          modelId,
           contactAId,
           contactBId,
-          selectedSectionId,
+          sectionIdAtPush,
         )
         await refetchContactEdges()
         markMutated()
+        // Mirror of the create path — undo restores the edge,
+        // redo removes it again. Symmetric so a Ctrl-Z + Ctrl-Y
+        // round-trip leaves no drift.
+        undoStack.push({
+          description: 'Uncorrelate contacts',
+          revert: async () => {
+            await api.geology.createContactCorrelation(
+              project.id,
+              modelId,
+              contactAId,
+              contactBId,
+              sectionIdAtPush,
+            )
+            await refetchContactEdges()
+            markMutated()
+          },
+          reapply: async () => {
+            await api.geology.deleteContactCorrelation(
+              project.id,
+              modelId,
+              contactAId,
+              contactBId,
+              sectionIdAtPush,
+            )
+            await refetchContactEdges()
+            markMutated()
+          },
+        })
         log.success(
           'section',
           `contact-uncorrelate: edge ${contactAId} ↔ ${contactBId} removed`,
@@ -586,7 +650,7 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchContactEdges()
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
   )
 
   // Right-click a lens wedge → dissolve the lens (dogfeed 2026-05-29).
