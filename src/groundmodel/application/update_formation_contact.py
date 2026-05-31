@@ -32,8 +32,10 @@ Cross-merge is skipped when the patch also touches ``formation_id``,
 operations with different semantics.
 
 For lithostratigraphic models, any cross-merge that deletes contacts
-triggers ``ResolveLithoInstances`` + ``DetectLithoLenses`` before
-commit to keep ordinals and lens metadata consistent.
+triggers ``ResolveLithoInstances`` before commit to keep ordinals
+consistent.  Lens detection is NOT fired here (owner directive
+2026-05-31) — stale ``LithoLensOrm`` rows survive until the user
+clicks the explicit "Detect lenses" verb.
 """
 
 from __future__ import annotations
@@ -235,8 +237,11 @@ class UpdateFormationContact(GroundModelLogger):
                     )
 
         # ------------------------------------------------------------------ #
-        # Litho cascade (resolver + lens detection) when contacts were        #
-        # deleted.  Runs before commit so it is part of the same transaction. #
+        # Litho cascade (resolver only) when contacts were deleted.  Runs   #
+        # before commit so it is part of the same transaction.              #
+        # Lens detection is NOT fired here (owner directive 2026-05-31) —  #
+        # stale ``LithoLensOrm`` rows survive cross-merge until the user   #
+        # clicks the explicit "Detect lenses" verb.                         #
         # ------------------------------------------------------------------ #
         if deleted_any:
             # ``model`` was fetched at the top of execute for the
@@ -245,18 +250,12 @@ class UpdateFormationContact(GroundModelLogger):
                 assert model is not None  # is_litho_model implies non-None
                 # Import lazily to avoid circular-import at module load (both
                 # use cases import from groundmodel.application).
-                from groundmodel.application.detect_litho_lenses import DetectLithoLenses
                 from groundmodel.application.resolve_litho_instances_use_case import (
                     ResolveLithoInstances,
                 )
 
                 await ResolveLithoInstances(self._session).execute(
                     model_id=old_model_id, commit=False
-                )
-                await DetectLithoLenses(self._session).execute(
-                    project_id=model.app_project_id,
-                    model_id=old_model_id,
-                    prefer_section_id=None,
                 )
 
         # ------------------------------------------------------------------ #
