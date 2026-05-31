@@ -1649,23 +1649,35 @@ export default function SectionPanel({
     const topZ = Math.max(...activeCols.map(f => f.topZ))
     const bottomZ = Math.min(...activeCols.map(f => f.bottomZ))
 
+    // Bail early if the plot hasn't been measured yet (SectionPanel's
+    // first render before ResizeObserver fires sets plotWidth = 0,
+    // which would NaN out the spacing<1 math). DON'T lock the ref —
+    // the effect re-fires once placedColumns recomputes with real
+    // dimensions, and we want that re-fire to succeed.
+    if (plotWidth <= 0 || scaleH <= 0) {
+      log.info(
+        'section-zoom',
+        `BAIL plotWidth=${plotWidth} scaleH=${scaleH} — layout not ready yet, will retry`,
+      )
+      return
+    }
+
     // Horizontal viewport. Branches by spacing because the visible
-    // column layout differs by spacing:
+    // column layout differs:
     //
-    // * spacing == 1 (default): columns sit at their world-along
-    //   positions, so a world-coord zoom-to-detail centres the
-    //   column visually. 50 m margin each side for one column;
-    //   30% margin for multiple.
+    // * spacing == 1: columns sit at world-along positions. Tight
+    //   world-coord zoom (50 m margin for 1 column; 30 % for many).
     //
-    // * spacing < 1 (packed layout): columns are positioned in
-    //   PIXELS as packedX_0 + cumulative widths, decoupled from
-    //   their world-along positions. A world-coord viewport zoom
-    //   would put the columns offscreen (the packing anchor moves
-    //   with xMin, but the packed offsets stay the same). Pan-only
-    //   instead: keep the current xRange, set xMin so the target
-    //   column's CURRENT nudgedX lands at the plot centre. The
-    //   user can then wheel-zoom from there (handleWheel knows
-    //   about the cursor-column anchor).
+    // * spacing < 1: columns are positioned in PIXELS as
+    //   packedX_0 + cumulative widths, decoupled from along. Use a
+    //   FIXED target xRange (TARGET_XRANGE_M) and solve for xMin
+    //   such that the target column's POST-ZOOM packed position
+    //   lands at the plot centre. bandHalfWidth scales with scaleH
+    //   (within the [0.6, 3.0] clamp), so the cumulative-offset is
+    //   estimated by oldOffset × (newBandHalfWidth / oldBandHalfWidth).
+    //   This delivers BOTH the zoom-in and the centring the user
+    //   asked for (image 17 was correctly centred but not zoomed).
+    const TARGET_XRANGE_M = 100
     let xMin: number
     let xMax: number
     if (columnSpacing >= 1.0) {
@@ -1679,20 +1691,32 @@ export default function SectionPanel({
         xMax = maxAlong + margin
       }
     } else {
-      // Packed layout: find the average packed pixel position of
-      // the active columns and pan so it lands at the plot centre.
+      // Average packed pixel position of the active columns.
       const targetNudgedX =
         activeCols.reduce((acc, f) => acc + f.nudgedX, 0) / activeCols.length
-      // For column at nudgedX (pixels) to sit at plot centre, the
-      // viewport's xMin must shift by (targetNudgedX - plotCentre) /
-      // scaleH in world metres. Keep the current xRange (no
-      // horizontal zoom in/out at spacing < 1 — the user controls
-      // that via wheel).
+      // Leftmost test's nudgedX + along — anchors[0] of the warp
+      // ref is the leftmost (anchors are sorted by along).
+      const anchors = warpAnchorsRef.current
+      const leftmostNudgedX = anchors.length > 0 ? anchors[0].effX : targetNudgedX
+      const leftmostAlong =
+        anchors.length > 0 ? anchors[0].along : activeCols[0].along
+      const oldOffsetPx = targetNudgedX - leftmostNudgedX
+      const newScaleH = plotWidth / TARGET_XRANGE_M
+      const oldBandHalfWidth = cptBandHalfWidth(scaleH)
+      const newBandHalfWidth = cptBandHalfWidth(newScaleH)
+      const widthRatio = oldBandHalfWidth > 0 ? newBandHalfWidth / oldBandHalfWidth : 1
+      const newOffsetPx = oldOffsetPx * widthRatio
       const plotCentre = MARGIN.left + plotWidth / 2
-      const currentXRange = viewport.xMax - viewport.xMin
-      const worldShift = (targetNudgedX - plotCentre) / scaleH
-      xMin = viewport.xMin + worldShift
-      xMax = xMin + currentXRange
+      // We want the target's POST-ZOOM nudgedX = plotCentre.
+      // post-zoom nudgedX = newPackedX_0 + newOffsetPx
+      //                  = MARGIN.left + (L - newXMin) * newScaleH + newOffsetPx
+      // → newXMin = L - (plotCentre - MARGIN.left - newOffsetPx) / newScaleH
+      xMin = leftmostAlong - (plotCentre - MARGIN.left - newOffsetPx) / newScaleH
+      xMax = xMin + TARGET_XRANGE_M
+      log.info(
+        'section-zoom',
+        `PACKED targetNudgedX=${targetNudgedX.toFixed(0)} leftmostNudgedX=${leftmostNudgedX.toFixed(0)} oldOff=${oldOffsetPx.toFixed(0)} newOff=${newOffsetPx.toFixed(0)} widthRatio=${widthRatio.toFixed(2)} newScaleH=${newScaleH.toFixed(2)} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)}`,
+      )
     }
 
     // Vertical: maximum extent ("top of test, bottom of test, fill
