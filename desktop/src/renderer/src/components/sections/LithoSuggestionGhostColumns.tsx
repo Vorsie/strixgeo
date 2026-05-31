@@ -1469,6 +1469,12 @@ function LithoSuggestionLayer({
   const baseY = Math.max(plotTop, Math.min(plotBottom, levelToScreen(baseMTaw)))
   const height = baseY - topY
   if (height <= 0.5) return null
+  // Dogfeed 2026-05-31: rejected layers render nothing — no band, no
+  // hatching, no cross-out, no ↻ undo button.  The state stays in
+  // memory (drag clamps + bound walkers still consult it) but the
+  // visual clutter is gone. Users restore a layer via right-click →
+  // Insert layer if needed.
+  if (rejected) return null
 
   // Sentinel ghost: a near-zero-thickness layer (< 6 px) that has not yet
   // been extended to a real range via "Extend to nearest contacts".  Render

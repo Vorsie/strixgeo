@@ -330,14 +330,23 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).not.toBeNull()
   })
 
-  it('G14c — rejected ghost layer is rendered but without the hatching overlay (debt #142)', () => {
+  it('G14c — rejected ghost layer renders NOTHING (dogfeed 2026-05-31 cleanup)', () => {
+    // Earlier iteration kept the rejected rect on screen with hatching
+    // suppressed + a ↻ undo icon. Owner directive 2026-05-31: hide the
+    // rejected band entirely — no band, no cross-out, no undo icon.
+    // Re-insertion is via right-click → Insert layer if needed.  The
+    // rejected state stays in memory (drag clamps + bound walkers
+    // consult it), only the rendering is hidden.
     const { container } = renderGhost([makeSuggestion()], {
       rejectedIndices: new Set([0]),
+      onUnreject: vi.fn(),
     })
-    // The frozen rect stays so the ↻-restore affordance is visible.
-    expect(container.querySelector('rect')).not.toBeNull()
-    // Hatching is reserved for pending state.
+    // No rect for the rejected layer.
+    expect(container.querySelector('[data-testid="litho-band-group-0"] rect')).toBeNull()
+    // No pending hatch, no undo icon, no reject (×) icon.
     expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-unreject-0"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-reject-0"]')).toBeNull()
   })
 
   it('G16 — shared boundary: dragging interior layer top fires onEdit on BOTH dragged + above', () => {
@@ -554,40 +563,11 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(2.5, 5)
   })
 
-  // G23: ↻ undo icon renders on rejected layer when onUnreject wired (debt #80).
-  it('G23 — rejected layer shows ↻ undo icon when onUnreject is wired', () => {
-    const { container } = renderGhost([makeSuggestion()], {
-      rejectedIndices: new Set([0]),
-      onUnreject: vi.fn(),
-    })
-    const icon = container.querySelector('[data-testid="litho-unreject-0"]')
-    expect(icon).not.toBeNull()
-    // Pointer events must be auto on the icon group so it stays
-    // clickable even though the parent rect is pointer-events:none.
-    expect((icon as SVGGElement).style.pointerEvents).toBe('auto')
-  })
-
-  // G24: clicking the ↻ icon fires onUnreject with the layer index.
-  it('G24 — clicking ↻ icon fires onUnreject with the layer idx', () => {
-    const onUnreject = vi.fn()
-    const { container } = renderGhost([makeSuggestion()], {
-      rejectedIndices: new Set([0]),
-      onUnreject,
-    })
-    const icon = container.querySelector('[data-testid="litho-unreject-0"]')
-    fireEvent.click(icon!)
-    expect(onUnreject).toHaveBeenCalledTimes(1)
-    expect(onUnreject).toHaveBeenCalledWith(0)
-  })
-
-  // G25: icon is omitted when onUnreject prop is not wired (opt-in).
-  it('G25 — rejected layer omits ↻ icon when onUnreject is undefined', () => {
-    const { container } = renderGhost([makeSuggestion()], {
-      rejectedIndices: new Set([0]),
-      // onUnreject omitted
-    })
-    expect(container.querySelector('[data-testid="litho-unreject-0"]')).toBeNull()
-  })
+  // G23-G25 — DELETED 2026-05-31. The ↻ undo icon used to render on
+  // rejected layers (debt #80) but the owner removed it as visual
+  // clutter; rejected layers now render nothing at all (see G14c
+  // above). Restoring a rejected layer is via right-click → Insert
+  // layer.
 
   // -----------------------------------------------------------------
   // Snap-to-collapse (debt #81) — dragging an edge onto the opposite

@@ -209,13 +209,15 @@ describe('readColumnSpacing — clamp to [MIN, MAX] with default fallback', () =
 })
 
 describe('pickQcFullScaleMpa — DOV-default 40 MPa with run-length step-up', () => {
-  // Owner directive (dogfeed 2026-05-30): the qc axis default is
+  // Owner directive (dogfeed 2026-05-31): the qc axis default is
   // 40 MPa (DOV CPT-graph convention). The scale steps up only when
-  // SOME CPT in the section shows ≥ 20 CONSECUTIVE qc samples above
-  // the current step — that's the signal of a real thick high-qc
-  // layer, not a transient spike (e.g. cone hitting a stone). A
-  // sparse set of values above the step gets clipped rather than
-  // dragging the whole scale up.
+  // SOME CPT in the section shows ≥ 20 CONSECUTIVE qc samples
+  // strictly above the MIDPOINT between the current step and the
+  // next.  i.e. at step 40 we don't step up unless values exceed
+  // 50 (= midpoint of 40 and 60); a 20-sample run at 41-45 MPa
+  // legitimately fits inside the 40 MPa range and shouldn't
+  // overshoot to 60. Previously the trigger was "> step", which
+  // pushed scale 40 → 60 on minor excursions just above 40.
   //
   // 20 consecutive samples ≈ 40 cm at 2 cm CPT spacing — a sensible
   // "real layer" threshold. The check is PER CPT (any one CPT
@@ -224,6 +226,7 @@ describe('pickQcFullScaleMpa — DOV-default 40 MPa with run-length step-up', ()
   // legitimately demands the larger scale.
   //
   // Step set: 40 → 60 → 80 → 100 → 150 → 200 → +50 forever.
+  // Trigger thresholds (midpoints): 50, 70, 90, 125, 175, 225, ...
 
   const runOf = (n: number, value: number): number[] => new Array(n).fill(value)
 
@@ -233,56 +236,64 @@ describe('pickQcFullScaleMpa — DOV-default 40 MPa with run-length step-up', ()
     expect(pickQcFullScaleMpa([{ qc_mpa: null }])).toBe(40)
   })
 
-  it('keeps 40 MPa when every CPT stays below 40', () => {
+  it('keeps 40 MPa when every CPT stays below 50 (midpoint to next step)', () => {
     expect(pickQcFullScaleMpa([{ qc_mpa: runOf(100, 30) }])).toBe(40)
+    // 100 consecutive at 45 MPa — above 40 but below the 50 trigger
+    // — fits inside the 40 MPa range, no step-up.
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(100, 45) }])).toBe(40)
   })
 
-  it('keeps 40 MPa when above-step runs are below the 20-sample threshold', () => {
-    // 19 consecutive at 50 MPa = transient hard band, does NOT bump.
-    const qc = [...runOf(100, 20), ...runOf(19, 50), ...runOf(100, 20)]
+  it('keeps 40 MPa when above-trigger runs are below the 20-sample threshold', () => {
+    // 19 consecutive at 55 MPa = transient hard band, does NOT bump.
+    const qc = [...runOf(100, 20), ...runOf(19, 55), ...runOf(100, 20)]
     expect(pickQcFullScaleMpa([{ qc_mpa: qc }])).toBe(40)
   })
 
-  it('steps to 60 when ≥ 20 consecutive samples sit above 40', () => {
-    // 25 consecutive at 50 MPa = real thick layer, bumps to next step.
-    const qc = [...runOf(50, 20), ...runOf(25, 50), ...runOf(50, 20)]
+  it('steps to 60 when ≥ 20 consecutive samples sit above 50 (the 40→60 midpoint)', () => {
+    // 25 consecutive at 55 MPa — above the 50 trigger by enough margin
+    // to commit to the next step but staying within 60.
+    const qc = [...runOf(50, 20), ...runOf(25, 55), ...runOf(50, 20)]
     expect(pickQcFullScaleMpa([{ qc_mpa: qc }])).toBe(60)
   })
 
   it('walks the full step set 40→60→80→100→150→200 as a real layer demands', () => {
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 65) }])).toBe(80)
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 90) }])).toBe(100)
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 120) }])).toBe(150)
+    // 40 cm of 75 MPa → crosses 50 + 70 triggers, stops at 80 (75 < 90).
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 75) }])).toBe(80)
+    // 40 cm of 95 MPa → crosses 50 + 70 + 90, stops at 100 (95 < 125).
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 95) }])).toBe(100)
+    // 40 cm of 130 MPa → crosses all triggers up to 125, stops at 150.
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 130) }])).toBe(150)
+    // 40 cm of 180 MPa → crosses 175, stops at 200 (180 < 225).
     expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 180) }])).toBe(200)
   })
 
   it('extends past 200 by rounding up to the next 50', () => {
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 220) }])).toBe(250)
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 260) }])).toBe(300)
+    // 230 MPa → crosses 225 trigger, lands at 250.
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 230) }])).toBe(250)
+    // 280 MPa → crosses 225 + 275, lands at 300.
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(40, 280) }])).toBe(300)
   })
 
   it('the trigger is per-CPT — one CPT with a real high-qc layer is enough', () => {
-    // CPT A: all soft, < 10 MPa. CPT B: 25 consecutive at 70 MPa.
-    // The section needs scale 80 to honour CPT B's thick dense band,
-    // even though most CPTs in the section are soft.
+    // CPT A: all soft, < 10 MPa. CPT B: 25 consecutive at 75 MPa
+    // (above the 70 midpoint between 60 and 80).
     const plots = [
       { qc_mpa: runOf(200, 5) },
-      { qc_mpa: [...runOf(100, 10), ...runOf(25, 70), ...runOf(50, 10)] },
+      { qc_mpa: [...runOf(100, 10), ...runOf(25, 75), ...runOf(50, 10)] },
     ]
     expect(pickQcFullScaleMpa(plots)).toBe(80)
   })
 
   it('null / NaN samples break the consecutive run (so they cannot accidentally bump the scale)', () => {
     // 19 above + null + 19 above = NO continuous run of 20.
-    const qc = [...runOf(50, 20), ...runOf(19, 50), null, ...runOf(19, 50), ...runOf(50, 20)]
+    const qc = [...runOf(50, 20), ...runOf(19, 55), null, ...runOf(19, 55), ...runOf(50, 20)]
     expect(pickQcFullScaleMpa([{ qc_mpa: qc }])).toBe(40)
   })
 
-  it('values exactly at the step boundary do NOT count as "above" it', () => {
-    // qc == 40 on a 40 scale is at the right edge but inside; the
-    // step-up trigger needs values STRICTLY above the step. 100
-    // consecutive at exactly 40 keeps scale 40.
-    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(100, 40) }])).toBe(40)
+  it('values exactly at the trigger midpoint do NOT count as "above" it', () => {
+    // qc == 50 (exactly the 40→60 trigger) — STRICTLY-above check
+    // keeps the scale at 40. 100 consecutive at 50 stays at 40.
+    expect(pickQcFullScaleMpa([{ qc_mpa: runOf(100, 50) }])).toBe(40)
   })
 })
 

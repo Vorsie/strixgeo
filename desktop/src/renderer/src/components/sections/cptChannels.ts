@@ -107,17 +107,35 @@ export function pickQcFullScaleMpa(
   plots: ReadonlyArray<{ qc_mpa: ReadonlyArray<number | null | undefined> | null }>,
   consecutiveThreshold: number = QC_CONSECUTIVE_THRESHOLD,
 ): number {
-  const triggersAt = (step: number): boolean =>
+  // Trigger threshold for stepping UP from a given scale: the MIDPOINT
+  // between that scale and the next step. e.g. at scale 40 we only
+  // step up when 20+ consecutive samples sit above 50 (= midpoint of
+  // 40 and 60), not above 40 itself. Without this, a CPT with a 20-
+  // sample run at 41-45 MPa would push the scale to 60 even though
+  // the data clearly fits the 40 MPa range — dogfeed 2026-05-31:
+  // "barely values above 30, why is it 60?".
+  const triggerForStep = (idx: number): number => {
+    const current = QC_FULL_SCALE_STEPS_MPA[idx]
+    const next =
+      idx + 1 < QC_FULL_SCALE_STEPS_MPA.length
+        ? QC_FULL_SCALE_STEPS_MPA[idx + 1]
+        : current + 50
+    return (current + next) / 2
+  }
+  const triggersAt = (trigger: number): boolean =>
     plots.some(
-      p => longestConsecutiveAboveMpa(p.qc_mpa, step) >= consecutiveThreshold,
+      p => longestConsecutiveAboveMpa(p.qc_mpa, trigger) >= consecutiveThreshold,
     )
-  for (const step of QC_FULL_SCALE_STEPS_MPA) {
-    if (!triggersAt(step)) return step
+  for (let i = 0; i < QC_FULL_SCALE_STEPS_MPA.length; i += 1) {
+    if (!triggersAt(triggerForStep(i))) return QC_FULL_SCALE_STEPS_MPA[i]
   }
   // Above the top of the table — keep stepping by 50 until the
-  // consecutive-run rule no longer triggers.
+  // consecutive-run rule no longer triggers. For a step S, the
+  // trigger is the midpoint of S and the next step (S + 50), i.e.
+  // S + 25.  When triggersAt(S + 25) is false we've found the
+  // smallest 50-multiple scale the data fits within.
   let step = QC_FULL_SCALE_STEPS_MPA[QC_FULL_SCALE_STEPS_MPA.length - 1] + 50
-  while (triggersAt(step)) step += 50
+  while (triggersAt(step + 25)) step += 50
   return step
 }
 
