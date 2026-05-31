@@ -1552,6 +1552,7 @@ export default function SectionPanel({
     const focusedSet = new Set(focusedContactIds)
     interface ColumnFit {
       along: number
+      nudgedX: number
       topZ: number
       bottomZ: number
     }
@@ -1596,6 +1597,7 @@ export default function SectionPanel({
       if (depthBottom === null) depthBottom = 20
       fits.push({
         along: col.proj.along,
+        nudgedX: col.nudgedX,
         topZ: elevation,
         bottomZ: elevation - depthBottom,
       })
@@ -1647,21 +1649,50 @@ export default function SectionPanel({
     const topZ = Math.max(...activeCols.map(f => f.topZ))
     const bottomZ = Math.min(...activeCols.map(f => f.bottomZ))
 
-    // Horizontal: minimum extent (tight). Single column → 50 m on
-    // each side so the column has breathing room and a neighbour or
-    // two peek in. Multiple columns → 30% margin each side of the
-    // span, max(15 m, ...) to avoid pathologically narrow fits when
-    // columns sit on top of each other.
+    // Horizontal viewport. Branches by spacing because the visible
+    // column layout differs by spacing:
+    //
+    // * spacing == 1 (default): columns sit at their world-along
+    //   positions, so a world-coord zoom-to-detail centres the
+    //   column visually. 50 m margin each side for one column;
+    //   30% margin for multiple.
+    //
+    // * spacing < 1 (packed layout): columns are positioned in
+    //   PIXELS as packedX_0 + cumulative widths, decoupled from
+    //   their world-along positions. A world-coord viewport zoom
+    //   would put the columns offscreen (the packing anchor moves
+    //   with xMin, but the packed offsets stay the same). Pan-only
+    //   instead: keep the current xRange, set xMin so the target
+    //   column's CURRENT nudgedX lands at the plot centre. The
+    //   user can then wheel-zoom from there (handleWheel knows
+    //   about the cursor-column anchor).
     let xMin: number
     let xMax: number
-    if (minAlong === maxAlong) {
-      xMin = minAlong - 50
-      xMax = maxAlong + 50
+    if (columnSpacing >= 1.0) {
+      if (minAlong === maxAlong) {
+        xMin = minAlong - 50
+        xMax = maxAlong + 50
+      } else {
+        const xRange = maxAlong - minAlong
+        const margin = Math.max(15, xRange * 0.3)
+        xMin = minAlong - margin
+        xMax = maxAlong + margin
+      }
     } else {
-      const xRange = maxAlong - minAlong
-      const margin = Math.max(15, xRange * 0.3)
-      xMin = minAlong - margin
-      xMax = maxAlong + margin
+      // Packed layout: find the average packed pixel position of
+      // the active columns and pan so it lands at the plot centre.
+      const targetNudgedX =
+        activeCols.reduce((acc, f) => acc + f.nudgedX, 0) / activeCols.length
+      // For column at nudgedX (pixels) to sit at plot centre, the
+      // viewport's xMin must shift by (targetNudgedX - plotCentre) /
+      // scaleH in world metres. Keep the current xRange (no
+      // horizontal zoom in/out at spacing < 1 — the user controls
+      // that via wheel).
+      const plotCentre = MARGIN.left + plotWidth / 2
+      const currentXRange = viewport.xMax - viewport.xMin
+      const worldShift = (targetNudgedX - plotCentre) / scaleH
+      xMin = viewport.xMin + worldShift
+      xMax = xMin + currentXRange
     }
 
     // Vertical: maximum extent ("top of test, bottom of test, fill
@@ -1685,6 +1716,14 @@ export default function SectionPanel({
       levelMax,
     }))
     focusedContactsLastRef.current = focusedContactIds
+    // reason: the packed-layout branch reads scaleH + viewport.xMin /
+    // xMax via closure, but those must NOT be in deps — they change
+    // on every wheel-zoom / pan, and the ref-check at the top of
+    // the effect would short-circuit anyway. Closure capture is
+    // correct because React re-defines the effect callback per
+    // render with the latest values, so on each focusedContactIds-
+    // driven fire the latest scaleH / viewport are used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     focusedContactIds,
     contacts,
@@ -1692,6 +1731,7 @@ export default function SectionPanel({
     placedColumns,
     cptPlots,
     boreholeDetails,
+    columnSpacing,
   ])
 
   // Click-to-place pick state + handlers. The hook owns the modal's
