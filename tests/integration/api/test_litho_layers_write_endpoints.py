@@ -368,3 +368,162 @@ async def test_bulk_create_with_section_id_seeds_section(
         )
     ).scalar_one()
     assert layer_id in [str(x) for x in (row or [])]
+
+
+# ---------------------------------------------------------------------------
+# DELETE /layers/{lid} — A4 slice 4 (dogfeed 2026-05-31)
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_layer_removes_pending_row(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """DELETE /layers/{lid} drops the row and returns 204."""
+    project, model, _, _, layers = project_with_two_layers
+    upper = layers[0]
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/{upper.id}"
+    )
+    assert resp.status_code == 204, resp.text
+    # Row gone.
+    from sqlalchemy import select
+
+    row = (
+        await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.id == upper.id))
+    ).scalar_one_or_none()
+    assert row is None
+
+
+async def test_delete_layer_is_idempotent_on_unknown_id(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+) -> None:
+    """Deleting a layer that does not exist still returns 204.
+
+    Mirrors ``DELETE /contacts/{cid}`` semantics — the FE doesn't have
+    to special-case "already gone".
+    """
+    project, model, _, _, _ = project_with_two_layers
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/{uuid7()}"
+    )
+    assert resp.status_code == 204
+
+
+async def test_delete_accepted_layer_removes_fc_mirror_via_trigger(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """Deleting an accepted layer cascades the FormationContact mirror.
+
+    Pins the LL→FC trigger pathway end-to-end: accept the layer (so the
+    trigger materialises the FC mirror), DELETE the layer, then verify
+    the matching ``formation_contact`` row has also gone. Without this
+    cascade the contact would linger as an orphan readable through the
+    bundle export.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm,
+    )
+
+    project, model, _, _, layers = project_with_two_layers
+    upper = layers[0]
+    # Accept first so the LL→FC trigger materialises the FC mirror.
+    acc = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/{upper.id}",
+        json={"status": "accepted"},
+    )
+    assert acc.status_code == 200, acc.text
+    # Bypass the identity-map cache: expire_on_commit=False keeps a
+    # cached FC alive even after the trigger deletes the row, so
+    # session.get returns the stale object. Re-SELECT from the column.
+    fc_before_id = (
+        await db_session.execute(
+            select(FormationContactOrm.id).where(FormationContactOrm.id == upper.id)
+        )
+    ).scalar_one_or_none()
+    assert fc_before_id is not None, "FC mirror should exist after accept"
+
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/{upper.id}"
+    )
+    assert resp.status_code == 204, resp.text
+
+    fc_after_id = (
+        await db_session.execute(
+            select(FormationContactOrm.id).where(FormationContactOrm.id == upper.id)
+        )
+    ).scalar_one_or_none()
+    assert fc_after_id is None, "FC mirror should be gone after layer delete"
+
+
+async def test_delete_layer_unseeds_id_from_cross_sections(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """Deleting a layer prunes its id from cross_section.seeded_formation_contact_ids.
+
+    The seeded-ids array is the explicit-content invariant; an
+    unpruned stale id bloats it and survives the LL row that gave it
+    meaning.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+
+    project, model, _, _, layers = project_with_two_layers
+    upper = layers[0]
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="S",
+        start_x=100000.0,
+        start_y=200000.0,
+        end_x=110000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[upper.id],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/{upper.id}"
+    )
+    assert resp.status_code == 204, resp.text
+
+    row = (
+        await db_session.execute(
+            select(CrossSectionOrm.seeded_formation_contact_ids).where(
+                CrossSectionOrm.id == section.id
+            )
+        )
+    ).scalar_one()
+    assert upper.id not in (row or []), (
+        f"Section should no longer carry the deleted layer id; got {row}"
+    )
+
+
+async def test_delete_layer_404_on_unknown_model(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+) -> None:
+    """Wrong model_id in the URL returns 404, NOT a silent 204.
+
+    Guards the scope check — the layer's parent model must agree with
+    the URL or the FE is hitting the wrong endpoint and shouldn't get
+    a destructive op acknowledged.
+    """
+    project, _, _, _, layers = project_with_two_layers
+    upper = layers[0]
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{uuid7()}/layers/{upper.id}"
+    )
+    assert resp.status_code == 404
