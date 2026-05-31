@@ -26,8 +26,6 @@ from .formation_surface_response import FormationSurfaceResponse
 from .gap_issue_response import GapIssueResponse
 from .gap_validation_response import GapValidationResponse
 from .lumping_collision_item import LumpingCollisionItem
-from .pinch_out_extrapolation_request import PinchOutExtrapolationRequest
-from .pinch_out_extrapolation_response import PinchOutExtrapolationResponse
 from .rebuild_surfaces_response import RebuildSurfacesResponse
 from .seed_litho_from_parent_request import SeedLithoFromParentRequest
 from .seed_litho_from_parent_response import SeedLithoFromParentResponse
@@ -55,7 +53,5 @@ __all__ = [
     "LumpingCollisionItem",
     "SeedLithoFromParentRequest",
     "SeedLithoFromParentResponse",
-    "PinchOutExtrapolationRequest",
-    "PinchOutExtrapolationResponse",
     "ClearLithoModelResponse",
 ]
