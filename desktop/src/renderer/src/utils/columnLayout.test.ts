@@ -83,6 +83,49 @@ describe('nudgeColumns — width-aware edge-to-edge spacing', () => {
     expect(result.map(r => r.item.id)).toEqual(['left', 'middle', 'right'])
   })
 
+  // Dogfeed 2026-05-31: edge-aware pair gap. Two adjacent columns
+  // connected by a correlation should get a wider clear-air channel so
+  // the gradient ribbon between them has room to render.
+  it('gapBetween callback widens specific adjacent pairs only', () => {
+    // Three 10-px columns at 100/115/130. With base gap=4 (step=14)
+    // they all sit tight at trueX. With a callback that returns 30
+    // for the (a,b) pair only, b must shift right (100 + 5 + 30 + 5 =
+    // 140), and c cascades from there with the BASE gap (140 + 5 + 4 +
+    // 5 = 154).
+    const result = nudgeColumns(
+      [
+        { id: 'a', trueX: 100, width: 10 },
+        { id: 'b', trueX: 115, width: 10 },
+        { id: 'c', trueX: 130, width: 10 },
+      ],
+      4,
+      (prev, curr) => {
+        const ids = [prev.id, curr.id].sort().join('|')
+        return ids === 'a|b' ? 30 : 4
+      },
+    )
+    expect(result[0].nudgedX).toBe(100)
+    expect(result[1].nudgedX).toBeCloseTo(140)
+    expect(result[1].displaced).toBe(true)
+    expect(result[2].nudgedX).toBeCloseTo(154)
+    expect(result[2].displaced).toBe(true)
+  })
+
+  it('gapBetween callback omitted falls back to base edgeGap (regression guard)', () => {
+    // Two columns that would tile fine with the base gap. Without the
+    // callback the existing edge-gap behaviour must be unchanged.
+    const result = nudgeColumns(
+      [
+        { id: 'a', trueX: 100, width: 10 },
+        { id: 'b', trueX: 200, width: 10 },
+      ],
+      4,
+    )
+    expect(result[0].nudgedX).toBe(100)
+    expect(result[1].nudgedX).toBe(200)
+    expect(result[1].displaced).toBe(false)
+  })
+
   it('a half-pixel jitter does NOT flag as displaced (threshold guard)', () => {
     // Two 1-px columns, trueX 0.4 apart. Min center distance =
     // 0.5 + 0.1 + 0.5 = 1.1. Second nudged to 1.1. Drift from 100.4
