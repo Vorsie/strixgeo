@@ -49,6 +49,7 @@ import type {
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
+import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
@@ -1018,31 +1019,82 @@ export default function SectionPanel({
       // this blend, wheel zoom at spacing=0 drifts rightward (the
       // packed columns translate while the linear anchor preserves
       // a world point that's decoupled from the visible content).
-      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
+      // Cursor anchor — keep the column UNDER the cursor at the same
+      // pixel after the zoom, even at spacing < 1 where bands pack
+      // edge-to-edge instead of sitting at their world-along screen
+      // positions.
+      //
+      // For a column at index C, post-warp:
+      //   nudgedX_C ≈ packedX_0 * (1-α) + trueX_C * α + (1-α) * offset_C
+      // where
+      //   packedX_0 = MARGIN.left + (L - xMin) * scaleH   (leftmost test's screen X)
+      //   trueX_C   = MARGIN.left + (col.along - xMin) * scaleH
+      //   offset_C  = (nudgedX_C - packedX_0_old)         (current packed offset, in px)
+      //   α         = columnSpacing
+      //
+      // bandHalfWidth scales with scaleH, so offset_C grows in
+      // proportion when zooming in — the wheel handler scales it by
+      // (new bandHalfWidth / old bandHalfWidth) to estimate the new
+      // packed offset.
+      //
+      // Solving "nudgedX_C_new = cursor_px" for new_xMin gives the
+      // formula below.  At spacing=1 it collapses to the standard
+      // linear cursor anchor (worldX = col.along, offset term vanishes).
+      // At spacing=0 it accounts for the cumulative width shift that
+      // would otherwise drift columns rightward on every wheel step.
       const anchorsNow = warpAnchorsRef.current
-      // warpAnchors are sorted ascending by `along` — element [0] is
-      // the leftmost test. Falling back to ``linearAlong`` when no
-      // columns are placed yet makes the math degenerate cleanly to
-      // pure cursor-anchored linear zoom (spacing irrelevant when
-      // there's nothing to pack).
-      const leftmostAlong =
-        anchorsNow.length > 0 ? anchorsNow[0].along : linearAlong
       const spacing = columnSpacingRef.current
-      const worldX = leftmostAlong * (1 - spacing) + linearAlong * spacing
-      const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV
       const factor = e.deltaY < 0 ? 1 / WHEEL_ZOOM_FACTOR : WHEEL_ZOOM_FACTOR
-
-      // Scale both axes by ``factor`` around the cursor's world
-      // coords. Solving "the same screen point still maps to the
-      // same world point after the zoom" yields these expressions.
       const newXRange = (viewport.xMax - viewport.xMin) * factor
       const newLevelRange = (viewport.levelMax - viewport.levelMin) * factor
-      const xFraction = (worldX - viewport.xMin) / (viewport.xMax - viewport.xMin)
+      const newScaleH = plotWidth / newXRange
+      const newBandHalfWidth = cptBandHalfWidth(newScaleH)
+      const oldBandHalfWidth = cptBandHalfWidth(scaleH)
+      const widthRatio = oldBandHalfWidth > 0 ? newBandHalfWidth / oldBandHalfWidth : 1
+
+      // Find the column closest to the cursor in current screen X.
+      // Anchors are sorted ascending by ``along``; ``effX`` is the
+      // current nudgedX — what the user actually sees under the
+      // cursor.  If no anchors yet (fresh section without projected
+      // columns), fall back to pure linear cursor anchor.
+      let cursorAlong: number
+      let cursorOffsetPxNew: number
+      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
+      if (anchorsNow.length === 0) {
+        cursorAlong = linearAlong
+        cursorOffsetPxNew = 0
+      } else {
+        let bestIdx = 0
+        let bestDist = Math.abs(anchorsNow[0].effX - px)
+        for (let i = 1; i < anchorsNow.length; i += 1) {
+          const d = Math.abs(anchorsNow[i].effX - px)
+          if (d < bestDist) {
+            bestDist = d
+            bestIdx = i
+          }
+        }
+        const cursorCol = anchorsNow[bestIdx]
+        const leftmost = anchorsNow[0]
+        const oldOffsetPx = cursorCol.effX - leftmost.effX
+        cursorOffsetPxNew = oldOffsetPx * widthRatio
+        cursorAlong = cursorCol.along
+        // Blend with leftmost.along by spacing — at spacing=1 we anchor
+        // on the cursor column's along, at spacing=0 we anchor on the
+        // leftmost.along and the offset term carries the packed
+        // location.
+        cursorAlong = leftmost.along * (1 - spacing) + cursorCol.along * spacing
+      }
+
+      const newXMin =
+        cursorAlong - (px - MARGIN.left - (1 - spacing) * cursorOffsetPxNew) / newScaleH
+      const newXMax = newXMin + newXRange
+
+      const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV
       const levelFraction =
         (worldLevel - viewport.levelMin) / (viewport.levelMax - viewport.levelMin)
       setViewport({
-        xMin: worldX - xFraction * newXRange,
-        xMax: worldX + (1 - xFraction) * newXRange,
+        xMin: newXMin,
+        xMax: newXMax,
         levelMin: worldLevel - levelFraction * newLevelRange,
         levelMax: worldLevel + (1 - levelFraction) * newLevelRange,
       })
@@ -1219,20 +1271,12 @@ export default function SectionPanel({
     [onPatch],
   )
 
-  // Band half-width scales with horizontal zoom AT SPACING=1 only:
-  // at low zoom columns stay compact, at high zoom curves breathe.
-  // At spacing < 1 the column packing depends on cumulative widths
-  // (lerpedX = packedX + (trueX - packedX)*spacing, with packedX a
-  // sum of half-widths), so a zoom-driven width change shifts every
-  // packed column proportionally to its index — visible as drift
-  // when wheel-zooming. Freezing the half-width at the natural
-  // 5 px/m reference whenever spacing < 1 removes that drift while
-  // keeping the spacing=1 (default) behaviour identical (dogfeed
-  // 2026-05-31, follow-up to the leftmost-anchor blend fix).
-  const bandHalfWidth = useMemo(
-    () => cptBandHalfWidth(columnSpacing < 1.0 ? 5 : scaleH),
-    [scaleH, columnSpacing],
-  )
+  // Band half-width scales with horizontal zoom — at low zoom keep
+  // columns compact, at high zoom let curves breathe. The wheel-zoom
+  // handler accounts for the spacing-dependent cumulative-width
+  // offset when computing the cursor anchor, so growing bands no
+  // longer cause column drift at spacing < 1.
+  const bandHalfWidth = useMemo(() => cptBandHalfWidth(scaleH), [scaleH])
 
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
@@ -1512,6 +1556,10 @@ export default function SectionPanel({
       bottomZ: number
     }
     const fits: ColumnFit[] = []
+    log.info(
+      'section-zoom',
+      `focusedContactIds.length=${focusedContactIds.length} focusableContacts=${focusableContacts?.length ?? 'undef'} contacts=${contacts.length} placedColumns=${placedColumns.length}`,
+    )
     // Use the UNFILTERED axis contacts when supplied — the crossings
     // banner's contact_ids are global to the geological model and
     // routinely span contacts not in this section's
@@ -1552,7 +1600,13 @@ export default function SectionPanel({
         bottomZ: elevation - depthBottom,
       })
     }
-    if (fits.length === 0) return
+    if (fits.length === 0) {
+      log.info(
+        'section-zoom',
+        `BAIL fits.length=0 — no offending contact's anchor was found in placedColumns. focusedContactIds=${focusedContactIds.length} lookupContacts=${(focusableContacts ?? contacts).length}`,
+      )
+      return
+    }
 
     // De-dup by column (multiple contacts on the same anchor → one
     // column entry). The crossing validator returns every offending
@@ -1619,6 +1673,10 @@ export default function SectionPanel({
     const levelMin = bottomZ - zMargin
     const levelMax = topZ + zMargin
 
+    log.info(
+      'section-zoom',
+      `APPLY fits=${fits.length} distinct=${distinctCols.length} activeCols=${activeCols.length} xMin=${xMin.toFixed(1)} xMax=${xMax.toFixed(1)} levelMin=${levelMin.toFixed(1)} levelMax=${levelMax.toFixed(1)}`,
+    )
     setViewport(prev => ({
       ...prev,
       xMin,
