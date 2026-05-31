@@ -34,6 +34,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { FormationContactResponse, LithoLayerSuggestion } from '../api/client'
 import type { LithoSuggestionEdit } from './useGeologicalModel'
+import { log } from '../utils/log'
 import {
   ZERO_THICKNESS_M,
   effectiveDepths,
@@ -298,6 +299,22 @@ export function useBoundaryDrag(
   }
 
   const startDrag = useCallback((start: BoundaryDragStart) => {
+    // Diagnostic log — dogfeed 2026-05-31. The clamp values + the
+    // effectively-rejected set at this exact moment fully determine
+    // why a drag can or can't move in either direction. If a future
+    // "drag-up locked after merge" report comes in, the very first
+    // line in DevTools tells us:
+    //   - The bounds the user is about to be clamped against.
+    //   - Which sibling indices are treated as rejected.
+    //   - The dragger's own current depth.
+    // The bug-class (stale clamp / wrong rejection / wrong neighbour
+    // walk) follows directly from comparing those.
+    const rejectedList = [...effectivelyRejectedIndices].sort((a, b) => a - b)
+    const acceptedList = [...acceptedIndices].sort((a, b) => a - b)
+    log.info(
+      'litho-drag',
+      `startDrag idx=${start.idx} edge=${start.edge} initialDepth=${start.initialDepthM.toFixed(2)} boundsAbove=${start.boundsAboveM.toFixed(2)} boundsBelow=${start.boundsBelowM.toFixed(2)} collapseAbove=[${start.collapseChainAbove.join(',')}] collapseBelow=[${start.collapseChainBelow.join(',')}] rejected=[${rejectedList.join(',')}] accepted=[${acceptedList.join(',')}] nSuggestions=${suggestions.length}`,
+    )
     setDrag({
       ...start,
       currentDepthM: start.initialDepthM,
@@ -306,7 +323,7 @@ export function useBoundaryDrag(
       collapseChainOnRelease: [],
       absorbPending: null,
     })
-  }, [])
+  }, [effectivelyRejectedIndices, acceptedIndices, suggestions.length])
 
   // Document-level mousemove + mouseup while a drag is active. The
   // hit-zones are SVG rects but the mouse can leave them during a
@@ -462,6 +479,16 @@ export function useBoundaryDrag(
     }
     function handleUp(): void {
       if (!drag) return
+
+      // Diagnostic log — dogfeed 2026-05-31. Dumps the final drag
+      // state so the next "drag-up locked after merge" report has a
+      // record of which branch fired and with what values. Pair with
+      // the startDrag log to see the full lifecycle of every drag.
+      const ownDepthsAtCommit = effectiveDepths(suggestions, edits, drag.idx)
+      log.info(
+        'litho-drag',
+        `handleUp idx=${drag.idx} edge=${drag.edge} initial=${drag.initialDepthM.toFixed(2)} final=${drag.currentDepthM.toFixed(2)} snapped=${drag.snapped} chain=[${drag.collapseChainOnRelease.join(',')}] absorbPending=${drag.absorbPending ?? 'none'} ownTopAtCommit=${ownDepthsAtCommit.topM.toFixed(2)} ownBaseAtCommit=${ownDepthsAtCommit.baseM.toFixed(2)}`,
+      )
 
       // P1b — clear the live preview at the top of mouseup so that
       // whichever branch fires (absorb, zero-thickness reject, plain
