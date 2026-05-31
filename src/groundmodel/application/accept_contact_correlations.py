@@ -15,9 +15,16 @@ Scope rules
 * **Model-scoped** (both ``None``): all edges in the model with
   ``user_approved=False``.
 
-The use case owns the commit boundary — ``ResolveLithoInstances`` and
-``DetectLithoLenses`` are called with ``commit=False`` / flush-only so
-all mutations land in one atomic transaction.
+The use case owns the commit boundary — ``ResolveLithoInstances`` is
+called with ``commit=False`` so the resolver result lands in the same
+atomic transaction as the approval flip.
+
+Lens detection is NOT fired here (owner directive 2026-05-31): the
+explicit ``POST .../lenses/detect`` verb is the only entry point that
+materialises or reconciles ``LithoLensOrm`` rows.  The ``lenses_created``
+and ``lenses_removed`` fields on :class:`AcceptResult` stay on the
+response shape for client compatibility but are always ``0`` from this
+flow.
 """
 
 from __future__ import annotations
@@ -28,7 +35,6 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -48,9 +54,11 @@ class AcceptResult:
     edges_accepted : int
         Number of edge rows whose ``user_approved`` flipped from False to True.
     lenses_created : int
-        ``LithoLensOrm`` rows inserted this pass (from ``DetectLithoLenses``).
+        Always ``0`` — kept on the response for client compatibility.
+        Lens materialisation now runs only on the explicit
+        ``POST .../lenses/detect`` verb (owner directive 2026-05-31).
     lenses_removed : int
-        Stale ``LithoLensOrm`` rows deleted this pass (from ``DetectLithoLenses``).
+        Always ``0`` — see ``lenses_created`` above.
     ordinals_changed : int
         Number of formations whose ``instance_ordinal`` changed during the
         resolver step (from ``ResolveLithoInstances``).
@@ -70,8 +78,8 @@ class AcceptContactCorrelations(GroundModelLogger):
     otherwise.
 
     After flipping approval, runs ``ResolveLithoInstances`` (to refresh
-    ``instance_ordinal`` values) and ``DetectLithoLenses`` (to reconcile
-    ``LithoLensOrm`` rows) in the same transaction before committing.
+    ``instance_ordinal`` values) in the same transaction before committing.
+    Lens detection is intentionally omitted — see module docstring.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -207,28 +215,19 @@ class AcceptContactCorrelations(GroundModelLogger):
         self.debug(f"AcceptContactCorrelations: resolver changed {ordinals_changed} ordinal(s)")
 
         # ------------------------------------------------------------------ #
-        # 5. Reconcile LithoLensOrm rows.                                    #
-        # ------------------------------------------------------------------ #
-        detect_result = await DetectLithoLenses(self._session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            prefer_section_id=section_id,
-        )
-
-        # ------------------------------------------------------------------ #
-        # 6. Commit the whole transaction atomically.                        #
+        # 5. Commit the whole transaction atomically.                        #
+        #    Lens detection is NOT fired here — see module docstring.       #
         # ------------------------------------------------------------------ #
         await self._session.commit()
 
         self.success(
             f"AcceptContactCorrelations: accepted={edges_accepted} "
             f"ordinals_changed={ordinals_changed} "
-            f"lenses_created={detect_result.lenses_created} "
-            f"lenses_removed={detect_result.lenses_removed}"
+            f"lenses_created=0 lenses_removed=0"
         )
         return AcceptResult(
             edges_accepted=edges_accepted,
-            lenses_created=detect_result.lenses_created,
-            lenses_removed=detect_result.lenses_removed,
+            lenses_created=0,
+            lenses_removed=0,
             ordinals_changed=ordinals_changed,
         )
