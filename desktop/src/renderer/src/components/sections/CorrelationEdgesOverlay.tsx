@@ -56,8 +56,10 @@ const UNAPPROVED_EDGE_DASH = '4 4'
 /** Half-height (px) of the seam ribbon above and below the boundary line
  *  (#131-c). Fixed regardless of zoom so the ribbon reads consistently.
  *  Kept slim so stacked correlations don't occlude each other (owner
- *  dogfeed 2026-05-28 — the original ±12 box read as too tall). */
-const RIBBON_HALF_HEIGHT_PX = 6
+ *  dogfeed 2026-05-28 — the original ±12 box read as too tall; halved
+ *  again 2026-05-31 from 6 → 3 px so the band stops fighting the
+ *  lithology stripes for visual weight). */
+const RIBBON_HALF_HEIGHT_PX = 3
 /** Fill opacity for an approved (accepted) correlation ribbon. */
 const RIBBON_APPROVED_OPACITY = 0.9
 /** Fill opacity for a pending (unaccepted) correlation ribbon — faded so a
