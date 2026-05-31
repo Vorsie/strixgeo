@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -225,6 +225,24 @@ class SaveLensBoundary(GroundModelLogger):
         self.info(
             f"SaveLensBoundary: lens={lens_id} key={lens.content_key} "
             f"upper={len(upper_nodes)} lower={len(lower_nodes)} style={render_style}"
+        )
+
+        # Serialise concurrent PUTs for the same (model, content_key) shape.
+        # The frontend lens-shape editor fires PUTs ~1 ms apart while the
+        # user drags nodes; without a lock both transactions can pass the
+        # "shape exists" SELECT, both DELETE the existing nodes, then both
+        # INSERT — and the second commit dies on
+        # uq_litho_lens_boundary_node_order (dogfeed 2026-05-31).
+        #
+        # ``pg_advisory_xact_lock`` is the right primitive here: it queues
+        # concurrent writers on the same key and releases at COMMIT /
+        # ROLLBACK with no manual cleanup.  Key combines model_id +
+        # content_key so unrelated shapes never block each other.  Lock
+        # held only for the duration of this transaction — read paths
+        # (``GetLensBoundary``) are untouched.
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"{model_id}:{lens.content_key}"},
         )
 
         # Upsert the shape container (keyed by model + content_key).
