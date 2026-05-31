@@ -433,3 +433,255 @@ async def test_v4_skipped_explicit_insert_does_not_double_up(
         .all()
     )
     assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Bundle integrity guards (2026-05-31 dogfeed fix)
+# ---------------------------------------------------------------------------
+#
+# Backs the chain that wiped 833 accepted layers on the dogfedded
+# project: bundle was self-inconsistent (833 layers referenced 19
+# formations not in the file), restore in replace mode wiped the DB to
+# match the file, every layer dropped as an orphan. Two guards:
+#
+# * Bundle EXPORT refuses to write when layers/contacts reference a
+#   formation that does not exist anywhere in the DB. Saves fail at
+#   the source instead of producing a broken file. (When the missing
+#   formation EXISTS in the DB but is out-of-scope for the project-
+#   scope query, the exporter auto-recovers it.)
+# * Bundle RESTORE in ``replace=True`` mode refuses to wipe the DB
+#   when the inbound bundle would orphan any contact/layer. The non-
+#   replace open-from-file path stays tolerant.
+
+
+async def test_export_auto_recovers_out_of_scope_formation(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """Bundle export auto-includes a referenced formation missing from project scope.
+
+    Scenario: a litho layer references a formation whose app_project_id
+    does not match this project (resolver-instance drift, the historical
+    leak source). The project-scoped formation query misses it, but the
+    DB still has the row. The exporter should globally re-fetch it and
+    include it so the bundle is self-consistent — with a WARNING logged
+    that schema drift was detected.
+    """
+    from groundmodel.infrastructure.db.repositories.project_bundle import (
+        build_project_bundle,
+    )
+
+    p = project_with_litho
+    # Stash a formation under a DIFFERENT project so the project-scope
+    # query for ``p["project"]`` misses it.
+    other_project = ProjectOrm(id=uuid7(), name="other", status="active")
+    out_of_scope_formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=other_project.id,
+        name="OUT-OF-SCOPE",
+        color="#000000",
+    )
+    db_session.add_all([other_project, out_of_scope_formation])
+    await db_session.flush()
+
+    # Reach past the FK by creating a pending layer (no FC mirror needed)
+    # whose formation_id points at the out-of-scope formation. The FK on
+    # litho_layer.formation_id is global (just ``geological_formation.id``)
+    # so the insert succeeds.
+    layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=out_of_scope_formation.id,
+        borehole_id=p["bh"].id,
+        depth_top_m=4.0,
+        depth_base_m=5.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, p["project"])
+    emitted_fids = {f["id"] for f in bundle["geological_formations"]}
+    assert str(out_of_scope_formation.id) in emitted_fids, (
+        "Exporter must auto-recover formations referenced by layers/contacts "
+        "even when they fall outside the project scope"
+    )
+
+
+async def test_export_refuses_when_referenced_formation_does_not_exist(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """Bundle export raises BundleIntegrityError when a formation is truly missing.
+
+    Scenario: a layer references a formation that has been deleted from
+    the DB entirely. The exporter cannot recover it. Writing the bundle
+    would produce the 2026-05-31 dogfeed shape — refuse instead.
+    """
+    from sqlalchemy import delete
+
+    from groundmodel.infrastructure.db.repositories.project_bundle import (
+        BundleIntegrityError,
+        build_project_bundle,
+    )
+
+    p = project_with_litho
+    layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["clay"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=5.0,
+        depth_base_m=6.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    # Drop the formation while bypassing the FK CASCADE so the layer
+    # survives as a dangling reference. ``session_replication_role =
+    # replica`` disables user-triggered cascades + checks for this
+    # session only; the snapshot the production bug produces is the
+    # equivalent end state.
+    from sqlalchemy import text
+
+    await db_session.execute(text("SET session_replication_role = replica"))
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.id == p["clay"].id)
+    )
+    await db_session.execute(text("SET session_replication_role = origin"))
+    await db_session.commit()
+
+    import pytest
+
+    with pytest.raises(BundleIntegrityError, match="do not exist in the DB"):
+        await build_project_bundle(db_session, p["project"])
+
+
+async def test_replace_restore_refuses_when_bundle_would_orphan_layers(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """``replace=True`` restore refuses when the bundle is self-inconsistent.
+
+    Constructs a synthetic bundle whose litho model carries layers
+    referencing a formation_id that is NOT in the bundle's
+    geological_formations array. The replace-restore guard must raise
+    instead of wiping the DB and silently dropping every layer as an
+    orphan (the 2026-05-31 chain).
+    """
+    import pytest
+
+    from groundmodel.infrastructure.db.repositories.project_bundle import (
+        BundleIntegrityError,
+    )
+
+    p = project_with_litho
+    ghost_formation_id = str(uuid7())  # not in the bundle, not in the DB
+    fake_layer = {
+        "id": str(uuid7()),
+        "model_id": str(p["litho_model"].id),
+        "formation_id": ghost_formation_id,
+        "borehole_id": str(p["bh"].id),
+        "cpt_id": None,
+        "depth_top_m": 1.0,
+        "depth_base_m": 2.0,
+        "status": "pending",
+        "source": "segmenter",
+        "confidence": "medium",
+        "observation_id": None,
+        "observation_layer_id": None,
+        "parent_geo_contact_id": None,
+        "notes": None,
+    }
+    bundle = {
+        "format_version": 4,
+        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
+        "cpts": [],
+        "boreholes": [],
+        # Note: the ghost_formation_id is intentionally absent.
+        "geological_formations": [
+            {
+                "id": str(p["sand"].id),
+                "app_project_id": str(p["project"].id),
+                "name": "SAND",
+                "color": "#fdcb6e",
+                "display_order": 0,
+            }
+        ],
+        "geological_models": [
+            {
+                "id": str(p["litho_model"].id),
+                "app_project_id": str(p["project"].id),
+                "name": "L",
+                "kind": "lithostratigraphic",
+                "contacts": [],
+                "litho_layers": [fake_layer],
+            }
+        ],
+    }
+
+    with pytest.raises(BundleIntegrityError, match="self-inconsistent"):
+        await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
+
+
+async def test_non_replace_restore_stays_tolerant_on_broken_bundle(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """The open-from-file path keeps its lenient orphan-skipping behaviour.
+
+    Only the destructive ``replace=True`` path enforces the integrity
+    guard — old bundles produced by pre-fix builds must still open via
+    the non-replace path so users with broken files can recover what
+    survives (the same tolerance comment in the contact / lens / absence
+    paths already encodes).
+    """
+    p = project_with_litho
+    ghost_formation_id = str(uuid7())
+    fake_layer = {
+        "id": str(uuid7()),
+        "model_id": str(p["litho_model"].id),
+        "formation_id": ghost_formation_id,
+        "borehole_id": str(p["bh"].id),
+        "cpt_id": None,
+        "depth_top_m": 1.0,
+        "depth_base_m": 2.0,
+        "status": "pending",
+        "source": "segmenter",
+        "confidence": "medium",
+        "observation_id": None,
+        "observation_layer_id": None,
+        "parent_geo_contact_id": None,
+        "notes": None,
+    }
+    bundle = {
+        "format_version": 4,
+        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
+        "cpts": [],
+        "boreholes": [],
+        "geological_formations": [],
+        "geological_models": [
+            {
+                "id": str(p["litho_model"].id),
+                "app_project_id": str(p["project"].id),
+                "name": "L",
+                "kind": "lithostratigraphic",
+                "contacts": [],
+                "litho_layers": [fake_layer],
+            }
+        ],
+    }
+    # Must NOT raise — the non-replace path skips the orphan layer.
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
+    # The orphan layer must be absent (skipped); no FK violation.
+    rows = list(
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.id == fake_layer["id"])
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
