@@ -901,6 +901,56 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit.mock.calls.find(([idx]) => idx === 1)).toBeUndefined()
   })
 
+  // G34c — dogfeed 2026-05-31. After N consecutive self-collapse
+  // drags absorb layers into a single neighbour, the next pending
+  // layer BELOW the absorbed region must still be draggable UP into
+  // the absorbed territory. Pre-fix the gap-fill clamp used the
+  // visible neighbour's EFFECTIVE near edge, which the fill-path
+  // edits had moved onto the dragger's edge → bound == initialDepth
+  // → zero room. Fix uses the suggestion's ORIGINAL near edge so the
+  // absorbed boundary stays reclaimable.
+  it('G34c — drag-up reclaims absorbed territory after consecutive self-collapse merges', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    // Three pending layers: 0=[10,11], 1=[11,12], 2=[12,13].
+    // Layers 1 and 2 are pre-rejected (simulating two prior self-
+    // collapse drags) AND layer 0 carries a fill edit extending its
+    // base from 11 down to 13 (= the post-fill state the bound
+    // walker would see).
+    const fillEdits = new Map([[0, { depth_base_m: 13 }]])
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 10, depth_base_m: 11 }),
+        makeSuggestion({ depth_top_m: 11, depth_base_m: 12 }),
+        makeSuggestion({ depth_top_m: 12, depth_base_m: 13 }),
+        makeSuggestion({ depth_top_m: 13, depth_base_m: 14 }),
+      ],
+      {
+        onEdit,
+        onReject,
+        rejectedIndices: new Set([1, 2]),
+        edits: fillEdits,
+      },
+    )
+    // Dragger = layer 3's TOP, currently at 13 (= layer 0's effective
+    // base after fills). Pre-fix the bound here was 13 (effective
+    // near edge of layer 0) → dragger stuck. With the fix the bound
+    // is 11 (layer 0's ORIGINAL base = suggestion.depth_base_m).
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-3"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 400 })
+    // Drag way up → should clamp at 11.
+    fireEvent.mouseMove(document, { clientY: -500 })
+    fireEvent.mouseUp(document)
+    // No auto-reject of layer 0; rejected layers stay rejected.
+    expect(onReject).not.toHaveBeenCalled()
+    const layer3Edit = onEdit.mock.calls.find(([idx]) => idx === 3)
+    expect(layer3Edit?.[1].depth_top_m).toBeCloseTo(11, 5)
+    // Shared-boundary propagation: layer 0's base moves back up to 11.
+    const layer0Edits = onEdit.mock.calls.filter(args => args[0] === 0)
+    const layer0LastEdit = layer0Edits[layer0Edits.length - 1]
+    expect(layer0LastEdit?.[1].depth_base_m).toBeCloseTo(11, 5)
+  })
+
   // G37 deleted 2026-05-23 — the MergeConfirmDialog is gone (kill-
   // multi-cascade refactor). No dialog ⇒ no cancel path to net.
 

@@ -173,13 +173,27 @@ export function boundFromNeighbour(
     return { boundM: outerEdgeFallback, autoRejectIdx: null }
   }
   // Rejected gap-fill: pending neighbour reached past rejected layers.
-  // Clamp at the next pending's NEAR edge (G29 semantics preserved).
-  // Kept as a distinct branch because crossedRejected layers don't
-  // auto-reject on snap (the user already rejected what they wanted
-  // gone; collapsing the next pending too would be over-eager).
+  // Clamp at the visible neighbour's ORIGINAL (suggestion-level)
+  // near edge — NOT its effective near edge.  The two differ when a
+  // previous self-collapse drag fired the fill path and extended
+  // the visible neighbour's effective base/top onto the rejected
+  // territory.  Using the effective edge then equals the new
+  // dragger's edge (zero room) and locks the drag in place.  Using
+  // the original suggestion edge lets the dragger reclaim absorbed
+  // territory back to the natural layout boundary (dogfeed
+  // 2026-05-31: drag-down-merge x N then drag-up was locked).
+  //
+  // G34 / G34b still pass because those tests don't fire the fill
+  // edit (just an explicit rejectedIndices set), so original ==
+  // effective for the visible neighbour.  Auto-reject stays off
+  // (``autoRejectIdx: null``) so snapping at the original boundary
+  // doesn't collapse the visible neighbour.
   if (neighbour.crossedRejected) {
+    const original = suggestions[neighbour.idx]
+    const originalNear =
+      nearEdgeKey === 'topM' ? original.depth_top_m : original.depth_base_m
     return {
-      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
+      boundM: originalNear,
       autoRejectIdx: null,
     }
   }
