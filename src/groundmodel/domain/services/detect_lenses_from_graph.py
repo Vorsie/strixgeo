@@ -4,16 +4,37 @@ Consumes the user-approved contact-edge graph plus per-investigation
 contact stacks; returns ``LensCandidate`` rows the application layer
 materialises as ``LithoLensOrm`` records.
 
-Topology
---------
-A lens body is detected iff two distinct source contacts on the same
-investigation A both have a correlation edge to the same target contact
-on another investigation B.  The layer living between the two source
-contacts on A is the lens body — it exists on A but pinches out to a
-single boundary at B.
+Topology — bilateral pinch-out required
+---------------------------------------
+A lens body is detected only when its enclosing layer pinches out to a
+single boundary on **at least two distinct neighbouring investigations**.
 
-Generalisation: N source contacts on A converging on one target on B
-produce (N-1) stacked lens candidates (between adjacent source pairs).
+Concretely, for a candidate body framed by two contacts ``(c_above,
+c_below)`` on source investigation A, the algorithm collects every
+target contact ``t`` such that BOTH ``c_above`` and ``c_below`` have a
+user-approved edge to ``t``.  Each such ``t`` lives on some target
+investigation; the body is emitted as a lens iff **at least two
+distinct target investigations** carry such a ``t``.
+
+Why bilateral
+-------------
+A single convergent "Z" closure (one pinch-out target) is geometrically
+a pinch-out wedge — the body still exists on A but vanishes towards a
+single neighbour.  It is NOT enough to declare a lens, because the body
+could continue indefinitely on the opposite side of A.  Requiring ≥2
+distinct target investigations enforces that the body is enclosed on
+both lateral sides (heuristic — investigations are identified by id
+here, so two targets that happen to be on the same physical side will
+still qualify; refinement to a true left/right-of-source check waits
+for spatial info to be threaded into this layer).
+
+Owner directive 2026-05-31 — the unilateral rule used to fire a lens
+the moment a user drew "left ↔ right-top" + "left ↔ right-base", which
+was premature because the body's right-hand side was still unresolved.
+
+Generalisation: N source contacts on A all converging on the same set
+of ≥2 target investigations produce (N-1) stacked lens candidates
+(between adjacent source pairs).
 """
 
 from __future__ import annotations
@@ -105,10 +126,14 @@ def detect_lenses_from_graph(
         neighbours[e.contact_a_id].append(e.contact_b_id)
         neighbours[e.contact_b_id].append(e.contact_a_id)
 
-    out: list[LensCandidate] = []
+    # Step 1: accumulate every (source_inv, c_above, c_below) → list of
+    # (target_inv_id, target_contact_id, fid_above) tuples where the
+    # `target_contact_id` is shared by edges from BOTH c_above and c_below.
+    # Emission is gated on this accumulator in step 2.
+    candidate_acc: dict[tuple[UUID, UUID, UUID], list[tuple[UUID, UUID, UUID]]] = defaultdict(list)
 
     # For each target contact t, group its neighbours by their investigation.
-    # Any group with ≥2 distinct contacts is the #135 topology.
+    # Any group with ≥2 distinct contacts is a pinch-out closure (one side).
     for target_id, neigh in neighbours.items():
         target_meta = contact_meta.get(target_id)
         if target_meta is None:
@@ -130,12 +155,12 @@ def detect_lenses_from_graph(
             if len(source_neigh) < 2:
                 continue
             source_neigh.sort()  # by depth ascending
-            # Adjacent pairs: (i, i+1) — yields N-1 stacked lens candidates.
+            # Adjacent pairs: (i, i+1) — yields N-1 stacked closure entries.
             for k in range(len(source_neigh) - 1):
                 depth_above, cid_above, fid_above = source_neigh[k]
                 depth_below, cid_below, _ = source_neigh[k + 1]
 
-                # Degeneracy guard: a lens whose body is thicker than the
+                # Degeneracy guard: a candidate whose body is thicker than the
                 # configured maximum is almost certainly a spurious detection
                 # (a near-whole-column "lens" born from a loose correlation),
                 # not a real thin enclosed body — skip it.  None = guard off.
@@ -145,23 +170,45 @@ def detect_lenses_from_graph(
                 ):
                     continue
 
-                # The lens body is the formation living between these two
-                # contacts on the source investigation.  Strix convention:
-                # ``FormationContact.formation_id`` is the formation whose
-                # TOP is this contact — that formation extends DOWN from
-                # ``depth_top_m`` until the next deeper contact.  The body
-                # between ``cid_above`` and ``cid_below`` therefore carries
-                # ``cid_above``'s ``formation_id``.
-                out.append(
-                    LensCandidate(
-                        formation_id=fid_above,
-                        contact_above_id=cid_above,
-                        contact_below_id=cid_below,
-                        source_investigation_id=source_inv_id,
-                        target_investigation_id=target_inv_id,
-                        target_contact_id=target_id,
-                    )
+                candidate_acc[(source_inv_id, cid_above, cid_below)].append(
+                    (target_inv_id, target_id, fid_above)
                 )
+
+    # Step 2: emit only the candidates that pinch out on ≥2 distinct target
+    # investigations (bilateral closure).  A single target investigation is
+    # geometrically a pinch-out wedge, not a lens — the body could continue
+    # indefinitely on the opposite side of the source (owner directive
+    # 2026-05-31).
+    out: list[LensCandidate] = []
+    for (source_inv_id, cid_above, cid_below), targets in candidate_acc.items():
+        distinct_target_invs = {tinv for tinv, _, _ in targets}
+        if len(distinct_target_invs) < 2:
+            continue
+
+        # Pick a deterministic "primary" target — lowest UUID by investigation,
+        # then by contact.  The LithoLensOrm row records ONE target_contact_id
+        # via the content_key triple; recording the smallest target keeps that
+        # key stable even when the user later adds more pinch-out sides.
+        targets_sorted = sorted(targets, key=lambda t: (str(t[0]), str(t[1])))
+        primary_inv, primary_contact, fid_above = targets_sorted[0]
+
+        # The lens body is the formation living between these two contacts
+        # on the source investigation.  Strix convention:
+        # ``FormationContact.formation_id`` is the formation whose TOP is
+        # this contact — that formation extends DOWN from ``depth_top_m``
+        # until the next deeper contact.  The body between ``cid_above``
+        # and ``cid_below`` therefore carries ``cid_above``'s
+        # ``formation_id``.
+        out.append(
+            LensCandidate(
+                formation_id=fid_above,
+                contact_above_id=cid_above,
+                contact_below_id=cid_below,
+                source_investigation_id=source_inv_id,
+                target_investigation_id=primary_inv,
+                target_contact_id=primary_contact,
+            )
+        )
 
     # Deterministic order.
     out.sort(
