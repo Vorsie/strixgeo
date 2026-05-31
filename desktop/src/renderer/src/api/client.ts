@@ -2697,9 +2697,13 @@ export const api = {
 
     // --- Accept correlations (#133 Phase 2) ------------------------------------
     //
-    // Mark all pending contact-level edges as user_approved=True, commit lens
-    // bodies, and recompute ordinals.  Scoped to a single section when
-    // sectionId is provided; model-wide when null.
+    // Mark all pending contact-level edges as user_approved=True and recompute
+    // ordinals.  Scoped to a single section when sectionId is provided;
+    // model-wide when null.
+    //
+    // lenses_created / lenses_removed are ALWAYS 0 in the response since
+    // 2026-05-31 (owner directive — see /lenses/detect).  The fields stay
+    // for type-shape compatibility.
     acceptContactCorrelations: (
       projectId: string,
       modelId: string,
@@ -2718,9 +2722,10 @@ export const api = {
     // --- Accept a single correlation edge (dogfeed 2026-05-31) ---------------
     //
     // Powers the right-click "Accept correlation" menu item: flips
-    // user_approved=True for one edge, runs the resolver + lens detector
-    // in the same transaction.  Idempotent — re-accepting an already-approved
-    // edge returns edges_accepted=0.
+    // user_approved=True for one edge and re-runs the resolver in the
+    // same transaction.  Idempotent — re-accepting an already-approved
+    // edge returns edges_accepted=0.  lenses_created / lenses_removed
+    // are ALWAYS 0 — see acceptContactCorrelations.
     acceptSingleContactCorrelation: (
       projectId: string,
       modelId: string,
@@ -2733,6 +2738,31 @@ export const api = {
     }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/accept`,
+        {},
+      ),
+
+    // --- Detect lenses (explicit verb, owner directive 2026-05-31) ------------
+    //
+    // Runs the correlation-graph lens detector and reconciles LithoLensOrm
+    // rows for one lithostratigraphic model.  Replaces the auto-detect that
+    // used to fire from every edge mutation (correlate / uncorrelate /
+    // accept) and every destructive op (delete contact, delete layer,
+    // cross-merge).  A single manual correlate was silently spawning a lens
+    // when it incidentally closed a #135 topology; this verb is the only
+    // path that materialises lens rows now.
+    //
+    // Idempotent — re-running with no topology change returns
+    // lenses_created=0 lenses_removed=0.
+    detectLithoLenses: (
+      projectId: string,
+      modelId: string,
+    ): Promise<{
+      lenses_created: number
+      lenses_removed: number
+      lenses_skipped_unresolved_ordinal: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/lenses/detect`,
         {},
       ),
 
