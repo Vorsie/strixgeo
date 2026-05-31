@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -24,6 +25,11 @@ from groundmodel.api.schemas.project.project_response import ProjectResponse
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
+from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.resolve_litho_instances_use_case import (
+    ResolveLithoInstances,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     BundleIntegrityError,
@@ -34,6 +40,7 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -303,6 +310,53 @@ async def restore_project(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid bundle payload: {err}",
         ) from err
+
+    # ------------------------------------------------------------------ #
+    # Lens reconciliation on restore (owner directive 2026-05-31).        #
+    #                                                                      #
+    # Bundles saved under the pre-2026-05-31 unilateral lens-detection rule #
+    # carry ``LithoLensOrm`` rows that the new bilateral rule would no    #
+    # longer materialise.  Without this pass those stale rows would         #
+    # silently survive every open + save cycle.                            #
+    #                                                                      #
+    # ``DetectLithoLenses`` step 7 carries a ``preserve-named`` guard, so  #
+    # user-named lens rows ride through untouched even when the topology   #
+    # no longer matches — named rows are intentional and can only be       #
+    # removed via the explicit DELETE /lenses/{lens_id} endpoint.          #
+    #                                                                      #
+    # Resolver runs first so ``instance_ordinal`` values are current; both #
+    # passes flush only and ride the outer transaction's commit below.    #
+    # ------------------------------------------------------------------ #
+    litho_model_ids = list(
+        (
+            await session.execute(
+                select(GeologicalModelOrm.id).where(
+                    GeologicalModelOrm.app_project_id == project_id,
+                    GeologicalModelOrm.kind == MODEL_KIND_LITHOSTRATIGRAPHIC,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for litho_model_id in litho_model_ids:
+        await ResolveLithoInstances(session).execute(
+            model_id=litho_model_id,
+            commit=False,
+        )
+        result = await DetectLithoLenses(session).execute(
+            project_id=project_id,
+            model_id=litho_model_id,
+            prefer_section_id=None,
+        )
+        if result.lenses_removed > 0 or result.lenses_created > 0:
+            logger.info(
+                f"restore_project_bundle({project_id}): reconciled litho model "
+                f"{litho_model_id} — created={result.lenses_created} "
+                f"removed={result.lenses_removed} "
+                f"skipped_unresolved_ordinal={result.lenses_skipped_unresolved_ordinal}"
+            )
+
     await session.commit()
     await session.refresh(project)
     return project
