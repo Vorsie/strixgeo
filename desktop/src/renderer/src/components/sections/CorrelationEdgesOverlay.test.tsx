@@ -12,11 +12,18 @@
 //   CE23 "Inspect lens body…" absent when onInspectLensBody prop is not provided.
 //   CE24 Regression — "Mark as lens" text is never present in body context menu.
 //   CE-B1..B3  buildBandMap geometry anchors (debt #120 regression).
+//   CE-B4      buildBandMap separates two contacts with the same formation_id
+//              at different depths (dogfeed 2026-05-31 — repeated-lithology
+//              collision: shallow contact's hit-rect drew at the deep
+//              contact's depth, so clicking the upper sand armed the lower).
 //   CC1..CC9  Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out).
 //   CC10..CC10b  Delete-contact right-click gesture.
 //   CC11..CC12  Drag-to-retarget unapproved edge (#133 Phase 2+3 Task 26).
 //   CE-D1  Enlarged endpoint grab target fires onUnapprovedDragStart (#163d).
 //   CE-E1..E2  Right-click edge → Delete-correlation menu → onRequestDeleteEdge (#163e).
+//   CE-E4..E6  Right-click edge → "Accept correlation" menu item: present on
+//              pending edges, fires onRequestAcceptEdge, suppressed on approved
+//              edges (dogfeed 2026-05-31).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -615,6 +622,88 @@ describe('CorrelationEdgesOverlay', () => {
     expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('eok')
   })
 
+  // CE-E4 (dogfeed 2026-05-31): right-clicking a pending edge shows the
+  // "Accept correlation" item and choosing it fires onRequestAcceptEdge
+  // with the edge.
+  it('CE-E4: right-click pending edge shows Accept item and fires onRequestAcceptEdge', () => {
+    const onRequestAcceptEdge = vi.fn()
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'epending', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+      onRequestAcceptEdge,
+      onUnapprovedDragStart: vi.fn(),
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-grab-a-epending'))
+    fireEvent.click(screen.getByText(/Accept correlation/i, { selector: 'button' }))
+    expect(onRequestAcceptEdge).toHaveBeenCalledOnce()
+    expect((onRequestAcceptEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe(
+      'epending',
+    )
+  })
+
+  // CE-E5: approved edges have no Accept item — the action is meaningless.
+  it('CE-E5: approved edge menu does NOT include Accept correlation', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'eapproved', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+      onRequestAcceptEdge: vi.fn(),
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-hit-eapproved'))
+    // Delete still present.
+    expect(screen.getByText(/Delete correlation/i, { selector: 'button' })).not.toBeNull()
+    // Accept must NOT appear on an already-approved edge regardless of prop.
+    expect(screen.queryByText(/Accept correlation/i, { selector: 'button' })).toBeNull()
+  })
+
+  // CE-E6: read-only callers (no onRequestAcceptEdge) get no Accept item.
+  it('CE-E6: pending edge menu omits Accept when onRequestAcceptEdge is undefined', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'eronly', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+      // onRequestAcceptEdge intentionally omitted.
+      onUnapprovedDragStart: vi.fn(),
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-grab-a-eronly'))
+    expect(screen.getByText(/Delete correlation/i, { selector: 'button' })).not.toBeNull()
+    expect(screen.queryByText(/Accept correlation/i, { selector: 'button' })).toBeNull()
+  })
+
   // CE-E2 (#163e): no edge-delete hit target when onRequestDeleteEdge absent.
   it('CE-E2: no edge-delete hit target when onRequestDeleteEdge is absent', () => {
     const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
@@ -718,12 +807,13 @@ describe('buildBandMap', () => {
     const bandMap = buildBandMap([contact], [col], -50)
     const bands = bandMap.get('inv-1')!
     expect(bands).toBeDefined()
-    const f1Band = bands.get('f1')!
-    expect(f1Band).toBeDefined()
+    const c1Band = bands.get('c1')!
+    expect(c1Band).toBeDefined()
+    expect(c1Band.formationId).toBe('f1')
     // Top of this single contact: surface − depth_top = 5 − 3 = 2.
-    expect(f1Band.topLevel).toBeCloseTo(2)
+    expect(c1Band.topLevel).toBeCloseTo(2)
     // Bottom must be investigation bottom (5 − 10 = −5), not −50.
-    expect(f1Band.botLevel).toBeCloseTo(-5)
+    expect(c1Band.botLevel).toBeCloseTo(-5)
   })
 
   it('CE-B2 — when max_depth_m is null, falls back to plotBottomLevel', () => {
@@ -732,9 +822,9 @@ describe('buildBandMap', () => {
     const col = makeMinimalColumn('inv-1', 5, null)
     const bandMap = buildBandMap([contact], [col], -50)
     const bands = bandMap.get('inv-1')!
-    const f1Band = bands.get('f1')!
+    const c1Band = bands.get('c1')!
     // Fallback to plotBottomLevel.
-    expect(f1Band.botLevel).toBeCloseTo(-50)
+    expect(c1Band.botLevel).toBeCloseTo(-50)
   })
 
   it('CE-B3 — intermediate bands close at next contact top, not at max_depth_m', () => {
@@ -747,12 +837,41 @@ describe('buildBandMap', () => {
     const col = makeMinimalColumn('inv-1', 5, 10)
     const bandMap = buildBandMap(contacts, [col], -50)
     const bands = bandMap.get('inv-1')!
-    const f1Band = bands.get('f1')!
+    const c1Band = bands.get('c1')!
     // Intermediate: closes at next contact's top = 5 − 7 = −2.
-    expect(f1Band.botLevel).toBeCloseTo(-2)
-    const f2Band = bands.get('f2')!
+    expect(c1Band.botLevel).toBeCloseTo(-2)
+    const c2Band = bands.get('c2')!
     // Deepest: closes at investigation bottom = 5 − 10 = −5.
-    expect(f2Band.botLevel).toBeCloseTo(-5)
+    expect(c2Band.botLevel).toBeCloseTo(-5)
+  })
+
+  it('CE-B4 — two contacts with the SAME formation_id at different depths each get their own band entry', () => {
+    // Repeated lithology: SAND #1 at 3 m and SAND #2 at 7 m share
+    // formation_id 'sand'. max_depth = 10 m. Both contacts must appear
+    // in the inner map (keyed by contact id) with their own depth
+    // intervals — formation_id as the key would let the deeper write
+    // overwrite the shallower one, drawing the upper hit-rect at the
+    // lower band's depth (dogfeed 2026-05-31).
+    const contacts = [
+      makeMinimalContact('upper-sand', 'sand', 'inv-1', 3),
+      makeMinimalContact('lower-sand', 'sand', 'inv-1', 7),
+    ]
+    const col = makeMinimalColumn('inv-1', 5, 10)
+    const bandMap = buildBandMap(contacts, [col], -50)
+    const bands = bandMap.get('inv-1')!
+    expect(bands.size).toBe(2)
+    const upper = bands.get('upper-sand')!
+    const lower = bands.get('lower-sand')!
+    expect(upper).toBeDefined()
+    expect(lower).toBeDefined()
+    expect(upper.formationId).toBe('sand')
+    expect(lower.formationId).toBe('sand')
+    // Upper: top = 5 − 3 = 2, bottom = 5 − 7 = −2.
+    expect(upper.topLevel).toBeCloseTo(2)
+    expect(upper.botLevel).toBeCloseTo(-2)
+    // Lower: top = 5 − 7 = −2, bottom = 5 − 10 = −5 (investigation bottom).
+    expect(lower.topLevel).toBeCloseTo(-2)
+    expect(lower.botLevel).toBeCloseTo(-5)
   })
 })
 
