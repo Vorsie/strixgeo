@@ -10,13 +10,17 @@ the deletion touches:
   ON DELETE CASCADE FK installed in migration ``q1k2l3m4n5o6``.
 
 After those cascades fire the use case re-runs ``ResolveLithoInstances``
-+ ``DetectLithoLenses`` so ``instance_ordinal`` values and
-``LithoLens`` rows stay coherent with the new edge graph, marks the
-corresponding (model, formation) surface stale (accepted-only — pending
-layers don't contribute to the TIN), and unseeds the layer id from every
-cross-section's ``seeded_formation_contact_ids`` so the explicit-content
-invariant doesn't bloat across delete cycles. All mutations land in one
-commit.
+so ``instance_ordinal`` values stay coherent with the new edge graph,
+marks the corresponding (model, formation) surface stale (accepted-only
+— pending layers don't contribute to the TIN), and unseeds the layer id
+from every cross-section's ``seeded_formation_contact_ids`` so the
+explicit-content invariant doesn't bloat across delete cycles. All
+mutations land in one commit.
+
+Lens detection is NOT fired here (owner directive 2026-05-31): stale
+``LithoLensOrm`` rows survive a layer delete until the user clicks the
+explicit "Detect lenses" verb (``POST .../lenses/detect``). The
+renderer must tolerate dangling lens rows.
 
 Pre-A4 the frontend deleted litho rows by calling
 ``DELETE /contacts/{id}`` and relying on the FC→LL trigger to prune the
@@ -32,7 +36,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -78,11 +81,10 @@ class DeleteLithoLayer(GroundModelLogger):
         layer_id : UUID
             Primary key of the ``LithoLayer`` row to remove.
         project_id : UUID
-            Project scope — passed to ``DetectLithoLenses`` (loads
-            cross-section rows by project) and the seeded-id sweep.
+            Project scope — used by the seeded-id sweep.
         model_id : UUID
             Lithostratigraphic model that owns the layer — used to scope
-            the resolver + detector to the right model.
+            the resolver to the right model.
 
         Returns
         -------
@@ -105,20 +107,14 @@ class DeleteLithoLayer(GroundModelLogger):
             if pre.status == "accepted":
                 await self._geology.mark_surfaces_stale([(pre.model_id, pre.formation_id)])
 
-            self.debug(
-                f"litho layer deleted — running resolver + lens detector for model={model_id}"
-            )
+            self.debug(f"litho layer deleted — running resolver for model={model_id}")
             # Correlation edges referencing this layer just cascaded away
-            # via the FK. Re-run the resolver + lens detector so
-            # instance_ordinal values and LithoLens rows stay consistent.
+            # via the FK. Re-run the resolver so instance_ordinal values
+            # stay coherent.  Lens detection is NOT fired here (owner
+            # directive 2026-05-31).
             await ResolveLithoInstances(self._session).execute(
                 model_id=model_id,
                 commit=False,
-            )
-            await DetectLithoLenses(self._session).execute(
-                project_id=project_id,
-                model_id=model_id,
-                prefer_section_id=None,
             )
 
             # Unseed the deleted id from every section — same hygiene as
