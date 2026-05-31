@@ -473,4 +473,85 @@ describe('applyCrossMergeOnDrag', () => {
     expect(result.edits.get(0)?.depth_base_m).toBe(5)
     expect(result.edits.get(0)?._propagateOnly).toBeUndefined()
   })
+
+  // CM-RJ1 / CM-RJ2 — cross-merge across a rejected layer (dogfeed
+  // 2026-05-31). When the dragger's edge crosses past a REJECTED
+  // neighbour to hit a pending one beyond, the cross-merge detection
+  // already walks past rejected (skip-rejected loop). The absorb
+  // operation must absorb the actually-found target (the pending one
+  // beyond the rejected), not the immediate-rejected layer. Pre-fix
+  // ``absorbLithoLayer`` hardcoded ``draggerIdx ± 1`` and absorbed
+  // the rejected (visually invisible) layer instead, leaving the
+  // pending target alive — manifesting as "two sand bands with a
+  // sliver" after a drag-up-to-collapse through a previously-merged
+  // rejected silt.
+  //
+  // Post-fix: the rejected layers between dragger and target are
+  // consumed by the absorb (they were inside the dragger's traversed
+  // path), and the dragger extends to the target's far edge.
+
+  it('CM-RJ1 — TOP dragged UP past a rejected neighbour absorbs the pending target beyond', () => {
+    // Layers 0→2 (pending sand), 2→3 (REJECTED silt), 3→6 (pending sand),
+    // 6→8 (pending sand). Drag idx=2 (3→6) TOP up to 0. The dragger
+    // crosses past rejected idx=1 to fully consume pending idx=0.
+    const g = ghost(
+      [L(0, 2), L(2, 3), L(3, 6), L(6, 8)],
+      { rejected: new Set([1]) },
+    )
+    const result = applyCrossMergeOnDrag(g, 2, { depth_top_m: 0 })
+    // The dragger consumed pending idx=0 AND the rejected idx=1 in
+    // between — 4 layers down to 2.
+    expect(result.suggestions).toHaveLength(2)
+    // The dragger (was idx=2, now idx=0 after two layers removed
+    // above it) has top extended to 0.
+    expect(result.edits.get(0)?.depth_top_m).toBe(0)
+    // Original last layer (was idx=3) now at idx=1.
+    expect(result.suggestions[1].depth_top_m).toBe(6)
+    // Rejected set is empty — the rejected layer was consumed by the
+    // through-absorb, not left as a stale-idx entry.
+    expect(result.rejected.size).toBe(0)
+  })
+
+  it('CM-RJ2 — BASE dragged DOWN past a rejected neighbour absorbs the pending target beyond', () => {
+    // Mirror of CM-RJ1.  Layers 0→2 (pending), 2→5 (pending sand),
+    // 5→6 (REJECTED silt), 6→8 (pending sand). Drag idx=1 (2→5) BASE
+    // down to 8. The dragger crosses past rejected idx=2 to consume
+    // pending idx=3.
+    const g = ghost(
+      [L(0, 2), L(2, 5), L(5, 6), L(6, 8)],
+      { rejected: new Set([2]) },
+    )
+    const result = applyCrossMergeOnDrag(g, 1, { depth_base_m: 8 })
+    expect(result.suggestions).toHaveLength(2)
+    // Dragger stays at idx=1; its base extended to absorbed target's far edge (8).
+    expect(result.edits.get(1)?.depth_base_m).toBe(8)
+    expect(result.rejected.size).toBe(0)
+  })
+
+  it('CM-RJ3 — stale edits on consumed in-between rejected layer are dropped', () => {
+    // The rejected layer might carry a stale depth edit from the
+    // earlier drag that rejected it (the auto-fill path patches the
+    // surviving neighbour's depth, not the rejected one — but defence
+    // in depth: through-absorb drops ALL edits on the consumed range
+    // so no stale idx survives the shift). Mirrors the production
+    // case where a rejected silt was once dragged then rejected.
+    const g = ghost(
+      [L(0, 2), L(2, 3), L(3, 6)],
+      {
+        rejected: new Set([1]),
+        edits: new Map([
+          // Pretend the rejected layer had a stale depth edit on it.
+          [1, { depth_top_m: 2.5 }],
+          // Pretend the pending target had its base extended earlier.
+          [0, { depth_base_m: 3 }],
+        ]),
+      },
+    )
+    const result = applyCrossMergeOnDrag(g, 2, { depth_top_m: 0 })
+    expect(result.suggestions).toHaveLength(1)
+    // The merged dragger has top=0, no stale top-edit from rejected idx=1.
+    expect(result.edits.get(0)?.depth_top_m).toBe(0)
+    // Stale edit on the absorbed pending (idx=0) is gone.
+    expect(result.edits.get(0)?.depth_base_m).toBeUndefined()
+  })
 })
