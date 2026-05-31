@@ -209,4 +209,82 @@ describe('LensWedgeOverlay', () => {
       'pointer-events: none',
     )
   })
+
+  it('LW8 — source endpoint is anchored at the source column EDGE, not centre', () => {
+    // Source column ``inv-S`` sits at along=50 with width=40 → its facing
+    // (left) edge toward target ``inv-T`` (at along=0) is at along=30 in
+    // screen px (identity transforms in this test). The upper boundary
+    // path runs from the pinch on inv-T to the source-top contact on
+    // inv-S — its rightmost x must therefore be 30, not 50 (centre).
+    //
+    // Owner dogfeed 2026-05-31: pre-fix, the wedge started "inside" the
+    // column at its centre; now it starts at the facing edge so the
+    // wedge taper begins flush with the column glyph.
+    const { getByTestId } = renderOverlay()
+    const d = getByTestId('lens-boundary-upper-L1').getAttribute('d') ?? ''
+    // Path is "M x,y L x,y..." — extract every x coordinate.
+    const xs = Array.from(d.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    // The pinch end (target column ``inv-T`` at along=0, width=40 → right
+    // edge at along=20) is the smaller x; the source end is the larger.
+    const maxX = Math.max(...xs)
+    const minX = Math.min(...xs)
+    expect(maxX).toBeCloseTo(30, 1) // source EDGE, not 50 (centre)
+    expect(minX).toBeCloseTo(20, 1) // pinch EDGE, not 0 (centre)
+  })
+
+  it('LW9 — bilateral closure renders a SECOND wedge to the other target', () => {
+    // Two pinch targets share the source pair (cs-top, cs-base): the
+    // primary ``ct`` on inv-T and a new ``ct2`` on inv-T2. The detector's
+    // bilateral rule guarantees this is exactly when a lens fires; the
+    // overlay must render BOTH closures so the body looks closed on
+    // both sides (owner dogfeed 2026-05-31, "we're moving that up").
+    const CT2 = 'ct2'
+    const contacts2 = [...baseContacts, contact(CT2, 'inv-T2', 5)]
+    const columns2 = [...baseColumns, column('inv-T2', 100, 10)]
+    const edges2 = [...baseEdges, edge(CT2, CS_TOP), edge(CT2, CS_BASE)]
+    const { queryByTestId } = renderOverlay({
+      contacts: contacts2,
+      placedColumns: columns2,
+      contactEdges: edges2,
+    })
+    // Primary wedge keys off the lens id verbatim; secondary keys append
+    // the secondary target contact id.
+    expect(queryByTestId('lens-wedge-L1')).not.toBeNull()
+    expect(queryByTestId(`lens-wedge-L1::${CT2}`)).not.toBeNull()
+  })
+
+  it('LW10 — secondary wedge has no draggable shape nodes', () => {
+    // Stored boundary nodes apply to the primary wedge only — the data
+    // model carries one boundary set per lens until Phase 5 ships
+    // two-sided lens authoring. The secondary stays a straight pinch.
+    const CT2 = 'ct2'
+    const contacts2 = [...baseContacts, contact(CT2, 'inv-T2', 5)]
+    const columns2 = [...baseColumns, column('inv-T2', 100, 10)]
+    const edges2 = [...baseEdges, edge(CT2, CS_TOP), edge(CT2, CS_BASE)]
+    const boundaries = new Map<string, LensBoundaryResponse>([
+      [
+        'L1',
+        {
+          lens_id: 'L1',
+          content_key: KEY,
+          render_style: 'straight',
+          primary_section_id: 's1',
+          upper_nodes: [{ along_m: 25, elevation_m: 6 }],
+          lower_nodes: [{ along_m: 25, elevation_m: 4 }],
+        },
+      ],
+    ])
+    const { queryByTestId } = renderOverlay({
+      contacts: contacts2,
+      placedColumns: columns2,
+      contactEdges: edges2,
+      boundariesByLensId: boundaries,
+    })
+    // Primary wedge has the editable node + boundary-hit band.
+    expect(queryByTestId('lens-node-L1-upper-0')).not.toBeNull()
+    expect(queryByTestId('lens-boundary-hit-L1-upper')).not.toBeNull()
+    // Secondary has neither (no node-drag editing on secondary side).
+    expect(queryByTestId(`lens-node-L1::${CT2}-upper-0`)).toBeNull()
+    expect(queryByTestId(`lens-boundary-hit-L1::${CT2}-upper`)).toBeNull()
+  })
 })
