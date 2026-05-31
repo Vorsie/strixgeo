@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
+from groundmodel.application.detect_litho_lenses import DetectLithoLenses
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -332,16 +333,19 @@ async def test_model_scoped_accept_flips_everything(
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Accept triggers lens detection
+# Test 3: Accept no longer auto-fires lens detection (explicit verb needed)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_accept_triggers_lens_detection(
+async def test_accept_does_not_auto_fire_lens_detection(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Two unapproved edges forming the #135 topology → after accept, one LithoLensOrm exists.
+    """Owner directive 2026-05-31 — AcceptContactCorrelations no longer
+    auto-fires DetectLithoLenses.  Two unapproved edges that form the
+    #135 topology yield zero lens rows after accept; the user must
+    explicitly invoke DetectLithoLenses to materialise the row.
 
     Topology:
       bh_a: c_top (f_cap, depth=2), c_body (f_lens, depth=4), c_base (f_base, depth=6)
@@ -392,7 +396,32 @@ async def test_accept_triggers_lens_detection(
     )
 
     assert result.edges_accepted == 2, f"Expected 2 edges accepted; got {result.edges_accepted}"
-    assert result.lenses_created == 1, f"Expected 1 lens created; got {result.lenses_created}"
+    # AcceptResult.lenses_created / .lenses_removed are kept on the
+    # response shape for client compatibility but are ALWAYS 0 since
+    # 2026-05-31.
+    assert result.lenses_created == 0, (
+        f"Accept must not auto-fire lens detection; got {result.lenses_created}"
+    )
+    assert result.lenses_removed == 0, (
+        f"Accept must not auto-fire lens detection; got {result.lenses_removed}"
+    )
+
+    # The lens row has NOT materialised yet — verify and then exercise the
+    # explicit verb to confirm it would have, given the same topology.
+    interim_lenses = (
+        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        .scalars()
+        .all()
+    )
+    assert len(interim_lenses) == 0, (
+        f"AcceptContactCorrelations must not materialise lens rows; got {len(interim_lenses)}"
+    )
+
+    await DetectLithoLenses(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+    await db_session.commit()
 
     post_lenses = (
         (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
@@ -400,7 +429,7 @@ async def test_accept_triggers_lens_detection(
         .all()
     )
     assert len(post_lenses) == 1, (
-        f"Expected exactly 1 LithoLensOrm row after accept; got {len(post_lenses)}"
+        f"Expected exactly 1 LithoLensOrm row after explicit Detect; got {len(post_lenses)}"
     )
     assert post_lenses[0].formation_id == f_lens.id, (
         f"Lens body must carry f_lens formation_id; got {post_lenses[0].formation_id}"
