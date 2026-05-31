@@ -1474,7 +1474,16 @@ export default function SectionPanel({
       return
     }
     if (focusedContactsLastRef.current === focusedContactIds) return
-    focusedContactsLastRef.current = focusedContactIds
+
+    // NB: the lock-ref is set at the BOTTOM of this effect, only after
+    // we actually changed the viewport.  An earlier version set it
+    // here, before the data-availability checks below — which meant
+    // that if ``contacts`` or ``placedColumns`` weren't loaded yet
+    // on the first render after a Geology → Sections deep-link, the
+    // effect bailed AND locked, so subsequent re-renders with the
+    // populated data never re-ran the zoom.  Banner-click from the
+    // Geology stage looked broken (always landed on the default-fit
+    // viewport).
 
     const focusedSet = new Set(focusedContactIds)
     interface ColumnFit {
@@ -1523,11 +1532,15 @@ export default function SectionPanel({
     // whole section can return ~60 contacts; without dedup the
     // bounding box degenerates to the whole section. We want to zoom
     // to ONE column, not fit-everything.
+    //
+    // Sort the deduped list by along ascending so the LEFTMOST column
+    // is "first". Predictable across re-renders, and the engineer can
+    // scrub right from there to step through the rest.
     const dedup = new Map<number, (typeof fits)[number]>()
     for (const f of fits) {
       if (!dedup.has(f.along)) dedup.set(f.along, f)
     }
-    const distinctCols = [...dedup.values()]
+    const distinctCols = [...dedup.values()].sort((a, b) => a.along - b.along)
 
     const alongsAll = distinctCols.map(f => f.along)
     const fullMinAlong = Math.min(...alongsAll)
@@ -1585,6 +1598,7 @@ export default function SectionPanel({
       levelMin,
       levelMax,
     }))
+    focusedContactsLastRef.current = focusedContactIds
   }, [focusedContactIds, contacts, placedColumns, cptPlots, boreholeDetails])
 
   // Click-to-place pick state + handlers. The hook owns the modal's

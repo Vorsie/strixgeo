@@ -94,8 +94,15 @@ export default function SectionScrubBar({
 
   return (
     <div className="border-t border-border-subtle bg-surface-card px-3 py-2 text-[10px] text-text-muted flex items-center gap-2">
+      {/* End labels show the panbar's outer bounds — the LEFTMOST and
+          RIGHTMOST test's along-section positions — NOT the current
+          viewport's edges. The handle position inside the track
+          conveys the current viewport; static end labels anchor the
+          track to "where is the data" so the engineer can tell at a
+          glance whether they're zoomed into the head, middle, or tail
+          of the section (dogfeed 2026-05-31). */}
       <span className="tabular-nums w-14 text-right shrink-0">
-        {Math.round(Math.max(dataMinM, xMin))} m
+        {Math.round(dataMinM)} m
       </span>
       <div
         ref={trackRef}
@@ -117,7 +124,7 @@ export default function SectionScrubBar({
         />
       </div>
       <span className="tabular-nums w-14 text-left shrink-0">
-        {Math.round(Math.min(dataMaxM, xMax))} m
+        {Math.round(dataMaxM)} m
       </span>
     </div>
   )
