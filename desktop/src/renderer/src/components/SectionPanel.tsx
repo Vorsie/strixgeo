@@ -48,6 +48,7 @@ import type {
   GeologicalFormationResponse,
   LithoContactCorrelationEdge,
   LithoLayerSuggestion,
+  PinchOutCandidate,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
@@ -739,6 +740,17 @@ interface Props {
    * when the user picks "Dissolve body".
    */
   onDissolveBody?: (bodyId: string) => void
+  /**
+   * Auto-suggest pinch-out candidates from the "Suggest pinch-outs" toolbar
+   * verb. Forwarded to ``BodyExtentOverlay`` to render dashed amber ghost
+   * wedges. Absent or empty = no ghost overlay.
+   */
+  ghostCandidates?: readonly PinchOutCandidate[]
+  /**
+   * Clicked a ghost candidate wedge → accept the suggested pinch-out.
+   * Forwarded to ``BodyExtentOverlay``.
+   */
+  onClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
 }
 
 export default function SectionPanel({
@@ -807,6 +819,8 @@ export default function SectionPanel({
   onClearBodyExtent,
   onNameBody,
   onDissolveBody,
+  ghostCandidates,
+  onClaimGhostCandidate,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -3214,6 +3228,8 @@ export default function SectionPanel({
                     ? handleBodyContextMenu
                     : undefined
                 }
+                ghostCandidates={ghostCandidates}
+                onClaimGhostCandidate={onClaimGhostCandidate}
               />
             )}
 
