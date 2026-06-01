@@ -2468,25 +2468,18 @@ comment / truncation changes verified by code review.
 
 ## 114. Large-file readability — bundle restore fn + ContactsLayer (Tier E)
 
-**What.** Two maintenance hotspots flagged by the cleanliness audit:
-- `_restore_project_bundle_impl` (`project_bundle.py`) is a ~560-line
-  function with 9 near-identical idempotent-insert blocks (CPTs,
-  boreholes, formations, units, models+contacts, surfaces, sections,
-  reviews, edges). Each block builds a different ORM with genuinely
-  different validation — a full generic extractor would be over-
-  abstraction — but it should be decomposed into 9 named `_restore_*`
-  helpers for reviewability.
-- `ContactsLayer.tsx` is a 2756-line component with 7 overlapping
-  polyline/geometry `useMemo`s and is the locus of recurring section
-  bugs (#28, #62, #99). The memos likely share a "project contacts →
-  sorted SVG path" core extractable to a unit-testable `utils/` helper.
-
-**Why deferred.** Both work correctly — pure readability / reviewability
-cost, no behaviour change.
-
-**When to revisit.** Decompose the restore function opportunistically
-the next time it is touched; the ContactsLayer extraction deserves its
-own focused pass (it is a recurring bug site).
+RESOLVED 2026-06-01. `_restore_project_bundle_impl` decomposed into 11
+named async phase helpers (`_restore_cpts`, `_restore_boreholes`,
+`_restore_formations`, `_restore_geotech_units`,
+`_build_valid_formation_ids`, `_restore_geological_models`,
+`_restore_cross_sections`, `_restore_investigation_reviews`,
+`_restore_bodies`, `_restore_formation_absences`,
+`_restore_contact_edges`, `_restore_lens_shapes_and_nodes`) plus a
+`_uuid()` coercion helper. The orchestrator now reads as a linear
+phase-sequence. 16 bundle integration tests + 1133 unit tests green.
+`ContactsLayer.tsx` Stage-A useMemo body extracted to exported module-level
+`computeSlabsAndPolylines()` pure function (unit-testable without
+mounting). 1539 Vitest tests green, tsc clean.
 
 ## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D)
 
