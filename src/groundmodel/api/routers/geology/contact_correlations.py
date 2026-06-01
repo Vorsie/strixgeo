@@ -36,6 +36,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers.geology.formations import _build_parent_code_map
 from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
 from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas import (
     AcceptContactCorrelationsRequest,
@@ -645,7 +646,10 @@ async def propagate_correlated_admixtures(
     )
     all_formations = list((await session.execute(all_formations_stmt)).scalars().all())
     name_map: dict[UUID, str] = {f.id: f.name for f in all_formations}
-    code_map: dict[UUID, str | None] = {f.id: f.code for f in all_formations}
+    # Same formal-code resolution the GET /formations path uses (manual link
+    # first, then the DOV-derived regional_ref) so the lens auto-name is stable
+    # across both response surfaces.
+    code_map: dict[UUID, str | None] = _build_parent_code_map(all_formations)
 
     enriched: list[GeologicalFormationResponse] = []
     for f_orm in result.updated_formations:
