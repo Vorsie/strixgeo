@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #109, #110, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -2389,47 +2389,33 @@ Partial / residual still open:
   scope of `InterpretationPane` removal cleanup is outside the three orientation docs
   this entry targeted.
 
-## 109. BaseExporter ABC split — ProjectExporter vs SectionExporter (Tier D)
+## 109. BaseExporter ABC split — RESOLVED 2026-06-01
 
-**What.** `BaseExporter.export(snapshot: GroundModelSnapshot) -> bytes`
-is the declared contract, but `DxfSectionExporter`,
-`PlaxisSectionExporter` and `SectionPdfReportExporter` all override
-`export()` with a `SectionSnapshot` parameter — three of five concrete
-exporters break the ABC at the type level (suppressed with an
-unexplained `# type: ignore[override]`).
+Replaced the single `BaseExporter` ABC with two shape-correct ABCs:
+`ProjectExporter(GroundModelLogger, ABC)` for project-wide exporters
+(`PlaxisExporter`, `DSheetExporter`, `GeoStudioExporter`) and
+`SectionExporter(GroundModelLogger, ABC)` for section-scoped exporters
+(`DxfSectionExporter`, `PlaxisSectionExporter`). The `# type: ignore[override]`
+suppressions are gone — the ABC parameter type matches each concrete class.
+`SectionPdfReportExporter` keeps direct `GroundModelLogger` inheritance
+(two-argument `export(snapshot, metadata)` is incompatible with the ABC).
+`base_exporter.py` deleted. 1133 unit tests green.
 
-**Why deferred.** Callers instantiate concrete types directly, never via
-the ABC, so no runtime bug today. But Phase-5 adds D-Stability /
-D-Sheet / GeoStudio exporters and every author has to infer the
-convention from context.
+## 110. Export-path duplication — RESOLVED 2026-06-01
 
-**When to revisit.** Phase-5 exporter work — the third section exporter
-already exists, so this is the "split on the second concrete use"
-moment. Split into `ProjectExporter(GroundModelSnapshot)` and
-`SectionExporter(SectionSnapshot)` ABCs.
+Backend duplication fully addressed (frontend `App.tsx` handlers out of scope
+for this backend-only debt item):
 
-## 110. Export-path duplication — Plaxis exporters + section-export boilerplate (Tier D)
-
-**What.** The cleanliness audit found heavy duplication on the export path:
-- `plaxis_exporter.py` (322 lines) and `plaxis_section_exporter.py`
-  (361 lines) are ~85% identical — `_emit_imports_and_connect`,
-  `_emit_materials`, `_material_variable_name`, `_py_str` byte-identical;
-  the borehole bottom-up cascade-fill differs only in the column key.
-- Three `cross_section.py` export endpoints (`export_section_dxf` / `_pdf`
-  / `_plaxis2d`) + `geology/exports.py` repeat the same build→ParseError-
-  404→CRS-guard→`safe_name` slug→`Response` tail; the slug logic exists
-  in 4 places.
-- `App.tsx`'s three `handleExportSection*` handlers (~45 lines each)
-  repeat the slug + save-dialog + fetch + write + toast flow; the
-  filename-slug regex is duplicated 4× in the frontend too.
-
-**Why deferred.** Works correctly; but #52's report slices B/C/D each
-add another export target and currently copy ~25-45 lines per target —
-this compounds.
-
-**When to revisit.** Before #52 slice B. Extract a `PlaxisScriptEmitter`
-shared module, a `_section_export_response(...)` router helper, a
-`runSectionExport(...)` frontend helper, and a `safeFilenameStem` util.
+- **Plaxis helpers** (`_emit_imports_and_connect`, `_emit_materials`,
+  `_emit_global_layers`, `_material_variable_name`, `_py_str`): extracted to
+  `plaxis_script_helpers.py` as module-level functions behind a
+  `_HasNameAndOrder` Protocol. `PlaxisExporter` and `PlaxisSectionExporter`
+  both import from it — a Plaxis-API change is now one edit. Subsumes #169.
+- **Section-export router boilerplate** (`BuildSectionSnapshot` +
+  `ParseError→404` + CRS guard + safe filename stem): extracted to
+  `_build_export_snapshot()` and `_section_safe_name()` in `cross_section.py`.
+  Each of the three section-export handlers (`/export/dxf`, `/export/pdf`,
+  `/export/plaxis2d`) is now 2-3 lines of unique logic.
 
 ## 111. useGeologicalModel duplication — litho-accept block + bypassed helper (Tier D)
 
@@ -4595,16 +4581,14 @@ the duplicated `oneMetreDownPx` / `surfaceY` / `depthAtY` blocks in `BoreholeCol
   shims" rules out an optional-prop-with-context-fallback. The prop-drill is mild;
   not worth the cost.
 
-## 169. Plaxis 2D/3D exporters share 4 byte-identical methods (Tier D — backend, M; extends #110)
+## 169. Plaxis 2D/3D exporters share 4 byte-identical methods — RESOLVED 2026-06-01
 
-**What.** `plaxis_exporter.py` (3D) + `plaxis_section_exporter.py` (2D) duplicate
-`_emit_imports_and_connect` (:167/:213), `_emit_materials` (:185/:227),
-`_material_variable_name` (:299/:340), `_py_str` (:316/:355); `export()` shares the
-header→imports→materials→layers→boreholes shape. **Why.** A Plaxis-API change edits
-both; the D-Sheet/GeoStudio exporters will copy a third time. **Fix.** A
-`PlaxisScriptBuilder` base/mixin in `exporters/` (alongside the #109 BaseExporter
-split); 2D/3D differ only in `_emit_boreholes` (1- vs 2-coord) + formation type.
-**Effort.** M.
+Subsumed by #110 resolution. `_emit_imports_and_connect`, `_emit_materials`,
+`_emit_global_layers`, `_material_variable_name`, and `_py_str` extracted to
+`plaxis_script_helpers.py`. Both exporters import from it. No `PlaxisScriptBuilder`
+mixin was needed — module-level functions behind a `_HasNameAndOrder` Protocol
+are simpler and sufficient (the two formation types differ structurally, not
+behaviourally).
 
 ## 170. Litho-geo coupling helper extractions — kill the #162/#134 drift risk (Tier E — backend, S each)
 
