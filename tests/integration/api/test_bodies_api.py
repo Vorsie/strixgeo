@@ -1,8 +1,12 @@
-"""HTTP-level tests for the body extent endpoints (C1 audit fix).
+"""HTTP-level tests for the body extent endpoints.
 
 Coverage:
   C1  POST /models/{mid}/bodies with a detector-set 'to_target' extent on the
       target side returns 409 + ``{"code": "provenance_violation"}``, not 422.
+
+  S4  Cross-project IDOR regression tests — every body endpoint returns 404
+      (not 200 or 403) when the URL's project_id / model_id belongs to a
+      different project than the body / model being addressed.
 
 These tests assert routing + error-mapping only.  Use-case semantics (the
 provenance rule itself) are pinned by ``test_claim_body_extent.py``.
@@ -188,3 +192,287 @@ async def test_claim_body_extent_other_validation_errors_still_return_422(
     )
     # Confirm we are NOT getting a 409 provenance-violation response.
     assert resp.status_code != 409
+
+
+# ---------------------------------------------------------------------------
+# S4: Cross-project IDOR regression tests
+# ---------------------------------------------------------------------------
+# Pattern: project A owns a model + body; requests use project B's id in
+# the URL path.  Every endpoint must return 404, not 200 or 403.
+# 404 is the correct response (the existing pattern — avoids leaking
+# existence information to the caller).
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def idor_fixture(
+    db_session: AsyncSession,
+) -> dict:
+    """Two independent projects, each with a lithostratigraphic model.
+
+    project_a owns:
+      - model_a (lithostratigraphic)
+      - formation_a
+      - bh_a (source investigation)
+      - bh_a_neighbour
+      - body_a (formation_a, ordinal=0, extent_left=to_target → bh_a_neighbour)
+
+    project_b owns:
+      - model_b (lithostratigraphic, geological parent model_b_geo)
+
+    The IDOR tests hit project_a endpoints using project_b's id (and
+    vice-versa where noted) — the scope guards must reject all of them.
+    """
+    # ---- project A ---------------------------------------------------------
+    project_a = ProjectOrm(id=uuid7(), name="IDOR-project-A", status="active")
+    db_session.add(project_a)
+    await db_session.flush()
+
+    geo_a = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project_a.id, name="Geo-A", kind="geological"
+    )
+    model_a = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_a.id,
+        name="Litho-A",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_a.id,
+    )
+    db_session.add_all([geo_a, model_a])
+    await db_session.flush()
+
+    formation_a = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_a.id,
+        name="KLEI-A",
+        color="#aabbcc",
+        display_order=0,
+        instance_ordinal=0,
+    )
+    db_session.add(formation_a)
+    await db_session.flush()
+
+    bh_a = BoreholeOrm(
+        id=uuid7(),
+        name="BH-A-SRC",
+        app_project_id=project_a.id,
+        project_id="IDOR",
+        test_id="BH-A-SRC-IDOR",
+        location_x=150000.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    bh_a_neighbour = BoreholeOrm(
+        id=uuid7(),
+        name="BH-A-NBR",
+        app_project_id=project_a.id,
+        project_id="IDOR",
+        test_id="BH-A-NBR-IDOR",
+        location_x=150300.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    db_session.add_all([bh_a, bh_a_neighbour])
+    await db_session.flush()
+
+    body_a = BodyOrm(
+        id=uuid7(),
+        app_project_id=project_a.id,
+        model_id=model_a.id,
+        formation_id=formation_a.id,
+        body_ordinal=0,
+        source_investigation_id=bh_a.id,
+        extent_left_kind=EXTENT_KIND_TO_TARGET,
+        extent_left_neighbour_inv_id=bh_a_neighbour.id,
+    )
+    db_session.add(body_a)
+
+    # ---- project B (only needs its own lithostratigraphic model) -----------
+    project_b = ProjectOrm(id=uuid7(), name="IDOR-project-B", status="active")
+    db_session.add(project_b)
+    await db_session.flush()
+
+    geo_b = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project_b.id, name="Geo-B", kind="geological"
+    )
+    model_b = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_b.id,
+        name="Litho-B",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_b.id,
+    )
+    db_session.add_all([geo_b, model_b])
+
+    await db_session.commit()
+
+    return {
+        "project_a": project_a,
+        "project_b": project_b,
+        "model_a": model_a,
+        "model_b": model_b,
+        "formation_a": formation_a,
+        "bh_a": bh_a,
+        "bh_a_neighbour": bh_a_neighbour,
+        "body_a": body_a,
+    }
+
+
+@pytest.mark.asyncio
+async def test_idor_detect_bodies_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: POST /projects/{B}/geology/models/{A-model}/bodies/detect → 404.
+
+    model_a belongs to project_a; using project_b's id in the URL must
+    be rejected by the model scope guard.
+    """
+    f = idor_fixture
+    resp = await async_client.post(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/detect"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on detect: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_suggest_pinch_outs_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: POST /projects/{B}/geology/models/{A-model}/bodies/suggest-pinch-outs → 404."""
+    f = idor_fixture
+    resp = await async_client.post(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/suggest-pinch-outs"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on suggest-pinch-outs: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_list_bodies_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: GET /projects/{B}/geology/models/{A-model}/bodies → 404."""
+    f = idor_fixture
+    resp = await async_client.get(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on list bodies: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_claim_body_extent_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: POST /projects/{B}/geology/models/{A-model}/bodies (claim) → 404."""
+    f = idor_fixture
+    resp = await async_client.post(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies",
+        json={
+            "formation_id": str(f["formation_a"].id),
+            "source_investigation_id": str(f["bh_a"].id),
+            "side": "right",
+            "kind": "open",
+        },
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on claim: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_patch_body_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: PATCH /projects/{B}/geology/models/{A-model}/bodies/{A-body} → 404.
+
+    NameBodyRequest requires ``formation_id`` + ``name`` — we supply both so
+    Pydantic passes and the real scope guard (body.app_project_id != project_b)
+    is actually exercised.
+    """
+    f = idor_fixture
+    resp = await async_client.patch(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/{f['body_a'].id}",
+        json={
+            "formation_id": str(f["formation_a"].id),
+            "name": "attempted rename",
+        },
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on PATCH body: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_delete_body_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: DELETE /projects/{B}/geology/models/{A-model}/bodies/{A-body} → 404."""
+    f = idor_fixture
+    resp = await async_client.delete(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/{f['body_a'].id}"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on DELETE body: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_clear_body_extent_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: DELETE /projects/{B}/geology/models/{A-model}/bodies/{A-body}/extents/left → 404."""
+    f = idor_fixture
+    resp = await async_client.delete(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}"
+        f"/bodies/{f['body_a'].id}/extents/left"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on clear extent: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_get_body_boundary_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: GET /projects/{B}/geology/models/{A-model}/bodies/{A-body}/boundary → 404."""
+    f = idor_fixture
+    resp = await async_client.get(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}"
+        f"/bodies/{f['body_a'].id}/boundary"
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on GET boundary: expected 404, got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_idor_put_body_boundary_wrong_project_404(
+    async_client: AsyncClient,
+    idor_fixture: dict,
+) -> None:
+    """S4: PUT /projects/{B}/geology/models/{A-model}/bodies/{A-body}/boundary → 404."""
+    f = idor_fixture
+    resp = await async_client.put(
+        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}"
+        f"/bodies/{f['body_a'].id}/boundary",
+        json={"upper_nodes": [], "lower_nodes": [], "render_style": "straight"},
+    )
+    assert resp.status_code == 404, (
+        f"IDOR guard failure on PUT boundary: expected 404, got {resp.status_code}: {resp.text}"
+    )
