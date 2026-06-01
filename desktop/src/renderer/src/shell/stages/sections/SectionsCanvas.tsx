@@ -43,6 +43,7 @@ import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
+import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -708,6 +709,113 @@ export default function SectionsCanvas(): JSX.Element {
       void refetchLensData()
     },
     [handleDeleteContactCorrelation, refetchLensData],
+  )
+
+  // Body context menu handlers — wired from BodyContextMenu via SectionPanel.
+
+  // Claim a user-extent on a body.  Looks up the body row from lensList to
+  // supply formation_id + source_investigation_id for the POST.  409 (existing
+  // user-claim from detector) surfaces a toast; Task 7.5 will promote this to
+  // the provenance-conflict dialog.
+  const handleClaimBodyExtent = useCallback(
+    async (bodyId: string, side: 'left' | 'right', kind: ClaimableKind): Promise<void> => {
+      if (!activeLithoModel) return
+      const body = lensList.find(b => b.id === bodyId)
+      if (!body) {
+        log.warn('section', `claim-body-extent: body ${bodyId} not found in lensList`)
+        return
+      }
+      log.info(
+        'section',
+        `claim-body-extent: body=${bodyId} side=${side} kind=${kind}`,
+      )
+      try {
+        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
+          formation_id: body.formation_id,
+          source_investigation_id: body.source_investigation_id,
+          side,
+          kind,
+        })
+        void refetchLensData()
+        toast('success', `Extent claimed: ${side} → ${kind}`)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('409') || msg.includes('Conflict')) {
+          // Provenance conflict — Task 7.5 will surface a dialog here.
+          toast('error', 'Extent already claimed by detector — clear it first.')
+        } else {
+          toast('error', 'Failed to claim extent.')
+          log.warn('section', 'handleClaimBodyExtent: failed', err)
+        }
+      }
+    },
+    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+  )
+
+  // Clear one side's user extent.  204 = body reaped; 200 = still alive.
+  const handleClearBodyExtent = useCallback(
+    async (bodyId: string, side: 'left' | 'right'): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info('section', `clear-body-extent: body=${bodyId} side=${side}`)
+      try {
+        await api.geology.clearBodyExtent(project.id, activeLithoModel.id, bodyId, side)
+        void refetchLensData()
+        toast('success', `Extent cleared: ${side}`)
+      } catch (err) {
+        toast('error', 'Failed to clear extent.')
+        log.warn('section', 'handleClearBodyExtent: failed', err)
+      }
+    },
+    [activeLithoModel, project.id, refetchLensData, toast],
+  )
+
+  // Name a body via a native prompt (quick path; full rename in the
+  // InspectLensBodyPanel).
+  const handleNameBody = useCallback(
+    async (bodyId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      const body = lensList.find(b => b.id === bodyId)
+      if (!body) {
+        log.warn('section', `name-body: body ${bodyId} not found in lensList`)
+        return
+      }
+      const newName = window.prompt('Enter a name for this body:', body.name ?? '')
+      if (newName === null) return // cancelled
+      const trimmed = newName.trim()
+      if (trimmed === '') return
+      log.info('section', `name-body: body=${bodyId} name="${trimmed}"`)
+      try {
+        await api.geology.nameBody(project.id, activeLithoModel.id, bodyId, {
+          formation_id: body.formation_id,
+          body_ordinal: body.body_ordinal,
+          name: trimmed,
+        })
+        void refetchLensData()
+        toast('success', `Body named: ${trimmed}`)
+      } catch (err) {
+        toast('error', 'Failed to name body.')
+        log.warn('section', 'handleNameBody: failed', err)
+      }
+    },
+    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+  )
+
+  // Dissolve a body — deletes the body row and all its correlation edges.
+  const handleDissolveBody = useCallback(
+    async (bodyId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      if (!window.confirm('Dissolve this body? This removes the body and its extent data.')) return
+      log.info('section', `dissolve-body: body=${bodyId}`)
+      try {
+        await api.geology.deleteBody(project.id, activeLithoModel.id, bodyId)
+        void refetchLensData()
+        toast('success', 'Body dissolved.')
+      } catch (err) {
+        toast('error', 'Failed to dissolve body.')
+        log.warn('section', 'handleDissolveBody: failed', err)
+      }
+    },
+    [activeLithoModel, project.id, refetchLensData, toast],
   )
 
   // Right-click "Delete contact" gesture from the section overlay.
@@ -2113,6 +2221,11 @@ export default function SectionsCanvas(): JSX.Element {
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
+          // #body-with-extent Slice 7.2 — body context menu verbs.
+          onClaimBodyExtent={isLitho ? (bid, side, kind) => void handleClaimBodyExtent(bid, side, kind) : undefined}
+          onClearBodyExtent={isLitho ? (bid, side) => void handleClearBodyExtent(bid, side) : undefined}
+          onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
+          onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
