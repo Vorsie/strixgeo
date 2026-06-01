@@ -1523,7 +1523,7 @@ export function useGeologicalModel({
         // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
         // Records the FE→BE handoff so the user can see exactly what
         // depth+axis the hook dispatched on a buggy drag.
-        console.debug('[handleUpdateContactDepth]', {
+        log.debug('geology', '[handleUpdateContactDepth]', {
           contactId,
           modelId,
           previousDepthM: previous.depth_top_m,
@@ -1568,7 +1568,7 @@ export function useGeologicalModel({
             'geology',
             `updateContactDepth absorbed id=${contactId} (drag-down cross-merge) — refetching`,
           )
-          console.debug('[handleUpdateContactDepth] absorbed-204', {
+          log.debug('geology', '[handleUpdateContactDepth] absorbed-204', {
             contactId,
             axis: isLitho ? 'litho' : 'geological',
           })
@@ -1591,7 +1591,7 @@ export function useGeologicalModel({
         // above). Aligning drag-up to the same refetch path eliminates the
         // optimistic-prune bug at the cost of ~50 ms extra latency per commit
         // — negligible compared to the drag gesture duration.
-        console.debug('[handleUpdateContactDepth] ok-200', {
+        log.debug('geology', '[handleUpdateContactDepth] ok-200', {
           contactId,
           returnedId: updated.id,
           returnedDepthM: updated.depth_top_m,
