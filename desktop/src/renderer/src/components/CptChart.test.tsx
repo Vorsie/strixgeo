@@ -156,7 +156,10 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
     expect(screen.queryByText(/Pre-drill/)).not.toBeInTheDocument()
   })
 
-  it('renders the Ic SBT zone strip when ic series is populated', () => {
+  it('does NOT render the Ic legend or SBT strip even when ic series is populated (debt #22)', () => {
+    // Debt #22 resolved 2026-06-01: Ic/SBT moved to the Parameters stage
+    // (CptIcSbtChart). CptChart is now raw-only — the Ic legend entry and
+    // the SBT zone key are absent regardless of whether plot.ic is populated.
     render(
       <CptChart
         plot={makePlot({ ic: [2.0, 2.0, 2.5, 2.5, 3.0, 3.0] })}
@@ -164,15 +167,14 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
         name="CPT-Ic"
       />,
     )
-    // Debt #22 interim cue: legend label promotes the "interpretation"
-    // word right next to the colour swatch. Reconciliation 2026-05-21:
-    // the plot endpoint now sources Ic from Robertson 2015 (same path
-    // as the litho segmenter), so the label tracks the new method.
-    expect(screen.getByText('Ic (interpretation, Robertson 2015)')).toBeInTheDocument()
-    // The SBT key strip surfaces each Robertson zone label (also
-    // rendered in the Ic panel overlay — getAllByText is forgiving).
-    expect(screen.getAllByText('Sand').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Clay').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Ic (interpretation, Robertson 2015)')).not.toBeInTheDocument()
+    // SBT zone labels — none should appear in the raw CptChart
+    expect(screen.queryByText('Sand mix')).not.toBeInTheDocument()
+    expect(screen.queryByText('Silt mix')).not.toBeInTheDocument()
+    // The chart header still renders (chart is otherwise intact)
+    expect(screen.getByText('CPT-Ic')).toBeInTheDocument()
+    // qc legend still present — raw curves are unaffected
+    expect(screen.getAllByText('qc (MPa)').length).toBeGreaterThan(0)
   })
 })
 
@@ -257,7 +259,7 @@ describe('CptChart — elevation editor surface', () => {
 // ── injectDepthGaps — pure unit tests (no rendering needed) ──────────────────
 
 function makePoint(depth: number, qc: number | null = 1.0): CptDataPoint {
-  return { depth, qc, fs: null, rf: null, u2_kpa: null, qt: null, ic: null }
+  return { depth, qc, fs: null, rf: null, u2_kpa: null, qt: null }
 }
 
 describe('injectDepthGaps', () => {
