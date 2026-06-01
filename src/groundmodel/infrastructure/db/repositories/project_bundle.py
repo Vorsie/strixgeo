@@ -818,6 +818,1141 @@ async def _wipe_project_scoped_rows(
     logger.info(f"replace-restore: wiped project-scoped rows for project {project_id}")
 
 
+# ---------------------------------------------------------------------------
+# Shared UUID coercion helper
+# ---------------------------------------------------------------------------
+
+
+def _uuid(raw: object) -> UUID | None:
+    """Coerce a raw bundle value to UUID, returning None when absent.
+
+    Parameters
+    ----------
+    raw : object
+        A value from a bundle dict — typically ``str``, ``UUID``, or ``None``.
+
+    Returns
+    -------
+    UUID | None
+        Parsed UUID, or ``None`` when ``raw`` is ``None``.
+    """
+    if raw is None:
+        return None
+    return UUID(raw) if isinstance(raw, str) else raw  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Per-phase restore helpers — each owns one named section of the restore
+# pipeline.  All take the running session, the project id, the phase's
+# payload list, any previously-built validity sets they need, and the
+# shared logger.  None of them commit or flush; flushing is the caller's job.
+# ---------------------------------------------------------------------------
+
+
+async def _restore_cpts(
+    session: AsyncSession,
+    project_id: UUID,
+    cpts_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> int:
+    """Insert CPT rows from the bundle, skipping ids that already exist.
+
+    Debt #112: CPTs whose depth-series exceeds ``_MAX_CPT_SERIES_ROWS``
+    are inserted without the series payload (the CPT appears on the map
+    but depth data is absent) rather than failing the whole restore.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    cpts_payload : list[dict[str, Any]]
+        Raw CPT dicts from the bundle.
+    logger : GroundModelLogger
+        Caller's logger (phase-summary + per-row debug).
+
+    Returns
+    -------
+    int
+        Number of CPT rows newly inserted.
+    """
+    existing = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    new_cpts = 0
+    skipped = 0
+    total = len(cpts_payload)
+    logger.info(f"restoring {total} cpt(s) for project {project_id}")
+    for i, cpt_payload in enumerate(cpts_payload, start=1):
+        cpt_id = _uuid(cpt_payload.get("id"))
+        if cpt_id is None:
+            logger.debug(f"[{i}/{total}] cpt skipped — payload has no id")
+            skipped += 1
+            continue
+        if cpt_id in existing:
+            logger.debug(f"[{i}/{total}] cpt {cpt_id} already present — skipped")
+            skipped += 1
+            continue
+        n_rows = _series_row_count(cpt_payload)
+        if n_rows is not None and n_rows > _MAX_CPT_SERIES_ROWS:
+            logger.warning(
+                f"[{i}/{total}] cpt {cpt_id}: series has {n_rows} rows "
+                f"(cap {_MAX_CPT_SERIES_ROWS}) — series dropped (debt #112)"
+            )
+            cpt_payload = {k: v for k, v in cpt_payload.items() if k != "series"}
+        session.add(_build_cpt(cpt_payload, project_id))
+        new_cpts += 1
+        logger.debug(f"[{i}/{total}] cpt {cpt_id} queued for insert")
+    logger.info(
+        f"cpt restore: {new_cpts} new, {skipped} skipped (of {total}) for project {project_id}"
+    )
+    return new_cpts
+
+
+async def _restore_boreholes(
+    session: AsyncSession,
+    project_id: UUID,
+    boreholes_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> int:
+    """Insert borehole rows (with full child tree) from the bundle.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    boreholes_payload : list[dict[str, Any]]
+        Raw borehole dicts from the bundle, each carrying nested drill
+        segments, field-log intervals, observations, and samples.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    int
+        Number of borehole rows newly inserted.
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_boreholes = 0
+    skipped = 0
+    total = len(boreholes_payload)
+    logger.info(f"restoring {total} borehole(s) for project {project_id}")
+    for i, bh_payload in enumerate(boreholes_payload, start=1):
+        bh_id = _uuid(bh_payload.get("id"))
+        if bh_id is None:
+            logger.debug(f"[{i}/{total}] borehole skipped — payload has no id")
+            skipped += 1
+            continue
+        if bh_id in existing:
+            logger.debug(f"[{i}/{total}] borehole {bh_id} already present — skipped")
+            skipped += 1
+            continue
+        session.add(_build_borehole(bh_payload, project_id))
+        new_boreholes += 1
+        logger.debug(f"[{i}/{total}] borehole {bh_id} queued for insert")
+    logger.info(
+        f"borehole restore: {new_boreholes} new, {skipped} skipped (of {total}) for project {project_id}"
+    )
+    return new_boreholes
+
+
+async def _restore_formations(
+    session: AsyncSession,
+    project_id: UUID,
+    geological_formations_payload: list[dict[str, Any]],
+) -> int:
+    """Insert geological formation rows from the bundle.
+
+    Formations are project-scoped (not nested under a model) — each row
+    carries its own id and is deduped against the DB.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geological_formations_payload : list[dict[str, Any]]
+        Raw formation dicts from the bundle.
+
+    Returns
+    -------
+    int
+        Number of formation rows newly inserted.
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_formations = 0
+    for f_payload in geological_formations_payload:
+        f_id = _uuid(f_payload.get("id"))
+        if f_id is None or f_id in existing:
+            continue
+        kwargs = _apply_json_to_kwargs(GeologicalFormationOrm, f_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(GeologicalFormationOrm(**kwargs))
+        new_formations += 1
+    return new_formations
+
+
+async def _restore_geotech_units(
+    session: AsyncSession,
+    project_id: UUID,
+    geotechnical_units_payload: list[dict[str, Any]],
+) -> int:
+    """Insert geotechnical unit rows from the bundle.
+
+    Flat array — each row carries its own ``geological_formation_id``.
+    Restore order must be "formations first, then units" so the FK
+    resolves (the caller ensures this ordering).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geotechnical_units_payload : list[dict[str, Any]]
+        Raw geotech unit dicts from the bundle.
+
+    Returns
+    -------
+    int
+        Number of unit rows newly inserted.
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(GeotechnicalUnitOrm.id).where(
+                    GeotechnicalUnitOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_units = 0
+    for u_payload in geotechnical_units_payload:
+        u_id = _uuid(u_payload.get("id"))
+        if u_id is None or u_id in existing:
+            continue
+        kwargs = _apply_json_to_kwargs(GeotechnicalUnitOrm, u_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(GeotechnicalUnitOrm(**kwargs))
+        new_units += 1
+    return new_units
+
+
+async def _build_valid_formation_ids(
+    session: AsyncSession,
+    project_id: UUID,
+    geological_formations_payload: list[dict[str, Any]],
+) -> set[UUID]:
+    """Return the union of DB-persisted + bundle-carried formation ids.
+
+    Used by ``_restore_geological_models`` and later phases to decide
+    whether a contact/layer/absence/unit formation reference is valid.
+    Re-queries the DB after the formation insert phase so newly-queued
+    rows are included.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geological_formations_payload : list[dict[str, Any]]
+        Raw formation dicts from the bundle (payload-level ids included
+        even when not yet flushed, so edge-validation doesn't need a
+        flush in between).
+
+    Returns
+    -------
+    set[UUID]
+        All valid formation ids for this project.
+    """
+    db_ids = set(
+        (
+            await session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    payload_ids = {
+        _uuid(f.get("id")) for f in geological_formations_payload if f.get("id") is not None
+    } - {None}
+    return db_ids | payload_ids  # type: ignore[return-value]
+
+
+async def _restore_geological_models(
+    session: AsyncSession,
+    project_id: UUID,
+    geological_models_payload: list[dict[str, Any]],
+    valid_formation_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int]:
+    """Insert geological model rows with nested contacts, surfaces, and layers.
+
+    Behaviour per model:
+
+    * Existing model id → skip the whole model (and all its nested rows).
+      Mixing a live model with bundled contacts would silently merge two
+      interpretations.
+    * New model → insert with contacts filtered for valid formation refs,
+      surfaces with TIN-blob size caps (debt #19), and litho layers with
+      FC-trigger coexistence de-dupe.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts, each carrying nested ``contacts``, ``surfaces``,
+        and ``litho_layers`` arrays.
+    valid_formation_ids : set[UUID]
+        Pre-computed union of DB + payload formation ids (from
+        ``_build_valid_formation_ids``).
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(new_models, new_contacts)`` — counts of inserted rows.
+    """
+    existing_model_ids = set(
+        (
+            await session.execute(
+                select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_models = 0
+    new_contacts = 0
+    skipped_orphan_contacts = 0
+
+    for m_payload in geological_models_payload:
+        m_id = _uuid(m_payload.get("id"))
+        if m_id is None or m_id in existing_model_ids:
+            # Existing model wins — skip nested rows entirely.
+            continue
+
+        contacts_payload = m_payload.get("contacts") or []
+        model_kwargs = _apply_json_to_kwargs(GeologicalModelOrm, m_payload)
+        model_kwargs["app_project_id"] = project_id
+        # Senior-review S6: ``kind`` is a plain VARCHAR with no DB CHECK.
+        # Coerce unknown kinds to 'geological' (safe default — keeps
+        # crossing validation active) and log loudly.
+        bundled_kind = model_kwargs.get("kind")
+        if bundled_kind is not None and bundled_kind not in MODEL_KINDS:
+            logger.warning(
+                f"restore: model {m_id} has unknown kind {bundled_kind!r} — coercing to 'geological'"
+            )
+            model_kwargs["kind"] = MODEL_KIND_GEOLOGICAL
+        model = GeologicalModelOrm(**model_kwargs)
+
+        # ---- Contacts ---------------------------------------------------
+        valid_contacts: list[FormationContactOrm] = []
+        for c in contacts_payload:
+            fid = _uuid(c.get("formation_id"))
+            if fid is None or fid not in valid_formation_ids:
+                skipped_orphan_contacts += 1
+                continue
+            valid_contacts.append(
+                FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
+            )
+        model.contacts = valid_contacts
+
+        # ---- Surfaces (with TIN-blob size caps) --------------------------
+        surfaces_payload = m_payload.get("surfaces") or []
+        contacts_per_formation: dict[UUID, int] = {}
+        for c in valid_contacts:
+            contacts_per_formation[c.formation_id] = (
+                contacts_per_formation.get(c.formation_id, 0) + 1
+            )
+
+        valid_surfaces: list[FormationSurfaceOrm] = []
+        forced_stale = 0
+        oversized_surfaces = 0
+        for s in surfaces_payload:
+            fid = _uuid(s.get("formation_id"))
+            if fid is None or fid not in valid_formation_ids:
+                continue
+            kwargs = _apply_json_to_kwargs(FormationSurfaceOrm, s)
+            # Debt #19: cap untrusted TIN blobs — blank geometry + force
+            # is_stale rather than letting an unbounded JSONB array OOM
+            # the asyncio process.
+            verts = kwargs.get("vertices") or []
+            tris = kwargs.get("triangles") or []
+            claimed_count = kwargs.get("source_contact_count")
+            if (
+                (claimed_count is not None and claimed_count > _MAX_SURFACE_SOURCE_CONTACTS)
+                or len(verts) > _MAX_TIN_ARRAY_LEN
+                or len(tris) > _MAX_TIN_ARRAY_LEN
+            ):
+                logger.warning(
+                    f"restore_project_bundle({project_id}): surface for formation {fid} "
+                    f"exceeds size caps (claimed={claimed_count}, verts={len(verts)}, "
+                    f"tris={len(tris)}) — geometry dropped, is_stale forced"
+                )
+                kwargs["vertices"] = []
+                kwargs["triangles"] = []
+                kwargs["is_stale"] = True
+                oversized_surfaces += 1
+                valid_surfaces.append(FormationSurfaceOrm(**kwargs))
+                continue
+            # Force is_stale when the restored contact count disagrees
+            # with the surface's claimed source_contact_count.
+            actual = contacts_per_formation.get(fid, 0)
+            claimed = kwargs.get("source_contact_count")
+            if claimed is not None and claimed != actual:
+                kwargs["is_stale"] = True
+                forced_stale += 1
+            valid_surfaces.append(FormationSurfaceOrm(**kwargs))
+        if forced_stale:
+            logger.info(
+                f"restore_project_bundle({project_id}): forced is_stale=True on "
+                f"{forced_stale} surface(s) — contact count drifted from saved source_contact_count"
+            )
+        if oversized_surfaces:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropped geometry on "
+                f"{oversized_surfaces} surface(s) exceeding TIN size caps (debt #19) — rebuild required"
+            )
+        model.surfaces = valid_surfaces
+
+        # ---- Litho layers (A4 Shape A) -----------------------------------
+        # v4 bundles emit layers explicitly; v3 bundles do not — the
+        # FC→LL trigger materialises them from the contacts that follow.
+        # Coexistence: skip explicit INSERT for accepted layers whose id
+        # matches a contact in contacts_payload — the trigger handles those.
+        layers_payload = m_payload.get("litho_layers") or []
+        contact_ids_in_payload = {
+            _uuid(c.get("id")) for c in contacts_payload if c.get("id") is not None
+        } - {None}
+
+        valid_layers: list[LithoLayerOrm] = []
+        skipped_orphan_layers = 0
+        skipped_fc_trigger = 0
+        for layer_payload in layers_payload:
+            fid = _uuid(layer_payload.get("formation_id"))
+            if fid is None or fid not in valid_formation_ids:
+                skipped_orphan_layers += 1
+                continue
+            lid = _uuid(layer_payload.get("id"))
+            if lid in contact_ids_in_payload:
+                skipped_fc_trigger += 1
+                continue
+            valid_layers.append(
+                LithoLayerOrm(**_apply_json_to_kwargs(LithoLayerOrm, layer_payload))
+            )
+        model.litho_layers = valid_layers
+        if skipped_orphan_layers:
+            logger.warning(
+                f"restore_project_bundle({project_id}): skipped "
+                f"{skipped_orphan_layers} orphan-formation litho layers (missing formation row in bundle)"
+            )
+        if skipped_fc_trigger:
+            logger.debug(
+                f"restore_project_bundle({project_id}): skipped explicit INSERT for "
+                f"{skipped_fc_trigger} layers — FC→LL trigger materialises them from contact INSERTs"
+            )
+
+        session.add(model)
+        new_models += 1
+        new_contacts += len(valid_contacts)
+
+    if skipped_orphan_contacts:
+        logger.warning(
+            f"restore_project_bundle({project_id}): skipped "
+            f"{skipped_orphan_contacts} orphan-formation contacts (missing formation row in bundle)"
+        )
+    return new_models, new_contacts
+
+
+async def _restore_cross_sections(
+    session: AsyncSession,
+    project_id: UUID,
+    cross_sections_payload: list[dict[str, Any]],
+) -> int:
+    """Insert cross-section rows from the bundle.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    cross_sections_payload : list[dict[str, Any]]
+        Raw cross-section dicts from the bundle.
+
+    Returns
+    -------
+    int
+        Number of cross-section rows newly inserted.
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_sections = 0
+    for s_payload in cross_sections_payload:
+        s_id = _uuid(s_payload.get("id"))
+        if s_id is None or s_id in existing:
+            continue
+        kwargs = _apply_json_to_kwargs(CrossSectionOrm, s_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(CrossSectionOrm(**kwargs))
+        new_sections += 1
+    return new_sections
+
+
+async def _restore_investigation_reviews(
+    session: AsyncSession,
+    project_id: UUID,
+    investigation_reviews_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int]:
+    """Insert investigation review rows from the bundle.
+
+    Reviews point at CPT or borehole rows via a polymorphic anchor.  The
+    target is validated to exist in the project; orphan reviews are dropped
+    with a warning so one bad row doesn't sabotage the whole restore.
+
+    Target validation queries the DB so it runs after CPTs and boreholes
+    have been inserted (caller ensures ordering).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    investigation_reviews_payload : list[dict[str, Any]]
+        Raw review dicts from the bundle.
+    logger : GroundModelLogger
+        Caller's logger (orphan-drop warnings).
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(new_reviews, dropped_reviews)``.
+    """
+    valid_cpt_ids = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    valid_bh_ids = set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    existing = set(
+        (
+            await session.execute(
+                select(InvestigationReviewOrm.id).where(
+                    InvestigationReviewOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_reviews = 0
+    dropped = 0
+    for r_payload in investigation_reviews_payload:
+        r_id = _uuid(r_payload.get("id"))
+        if r_id is None or r_id in existing:
+            continue
+        target_kind = r_payload.get("target_kind")
+        target_id = _uuid(r_payload.get("target_id"))
+        if target_kind is None or target_id is None:
+            dropped += 1
+            continue
+        valid_targets = valid_cpt_ids if target_kind == "cpt" else valid_bh_ids
+        if target_id not in valid_targets:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropping orphan "
+                f"review row {r_id} → {target_kind} {target_id} (target not present in this project)"
+            )
+            dropped += 1
+            continue
+        kwargs = _apply_json_to_kwargs(InvestigationReviewOrm, r_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(InvestigationReviewOrm(**kwargs))
+        new_reviews += 1
+    return new_reviews, dropped
+
+
+async def _restore_bodies(
+    session: AsyncSession,
+    project_id: UUID,
+    bodies_payload: list[dict[str, Any]],
+    cpts_payload: list[dict[str, Any]],
+    boreholes_payload: list[dict[str, Any]],
+    valid_formation_ids: set[UUID],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert body (lens) rows from the bundle with FK integrity guards.
+
+    Extent guards strip unresolvable ``to_target`` / ``pinch_out_halfway``
+    /``extrapolated`` extent links rather than dropping the entire body —
+    losing an extent hint is less destructive than losing the body.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    bodies_payload : list[dict[str, Any]]
+        Raw body dicts from the bundle.
+    cpts_payload : list[dict[str, Any]]
+        Raw CPT dicts — included to cover investigations queued in this
+        transaction but not yet flushed.
+    boreholes_payload : list[dict[str, Any]]
+        Raw borehole dicts — same reason.
+    valid_formation_ids : set[UUID]
+        Pre-computed union of DB + payload formation ids.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — used to include contacts queued in this transaction
+        when validating ``to_target`` extents.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_lenses, skipped_lenses, dropped_lenses)``.
+    """
+    # Build the valid investigation set (DB rows + payload ids not yet flushed).
+    valid_inv_ids: set[UUID] = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    ) | set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for cpt_p in cpts_payload:
+        cid = _uuid(cpt_p.get("id"))
+        if cid is not None:
+            valid_inv_ids.add(cid)
+    for bh_p in boreholes_payload:
+        bid = _uuid(bh_p.get("id"))
+        if bid is not None:
+            valid_inv_ids.add(bid)
+
+    # Valid formation-contact ids — DB rows + contacts queued in models payload.
+    valid_contact_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(FormationContactOrm.id)
+                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for m_p in geological_models_payload:
+        for c in m_p.get("contacts") or []:
+            cid = _uuid(c.get("id"))
+            if cid is not None:
+                valid_contact_ids.add(cid)
+
+    existing = set(
+        (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+
+    _EXTENT_SIDES = ("left", "right")
+    _TARGET_KINDS = frozenset({"to_target"})
+    _NEIGHBOUR_KINDS = frozenset({"pinch_out_halfway", "extrapolated"})
+
+    new_lenses = 0
+    skipped = 0
+    dropped = 0
+    total = len(bodies_payload)
+    logger.info(f"restore_project_bundle({project_id}): restoring {total} body/bodies")
+
+    for i, lens_payload in enumerate(bodies_payload, start=1):
+        lens_id = _uuid(lens_payload.get("id"))
+        if lens_id is None:
+            logger.debug(f"[{i}/{total}] body skipped — payload has no id")
+            skipped += 1
+            continue
+        if lens_id in existing:
+            logger.debug(f"[{i}/{total}] body {lens_id} already present — skipped")
+            skipped += 1
+            continue
+        model_id = _uuid(lens_payload.get("model_id"))
+        if model_id is None:
+            logger.warning(f"[{i}/{total}] body {lens_id} has no model_id — dropped")
+            dropped += 1
+            continue
+        if model_id not in valid_model_ids:
+            logger.warning(
+                f"[{i}/{total}] body {lens_id} → model {model_id} "
+                f"not in this project — dropped (bundle-injection guard)"
+            )
+            dropped += 1
+            continue
+        pf_id = _uuid(lens_payload.get("formation_id"))
+        if pf_id is None:
+            logger.warning(f"[{i}/{total}] body {lens_id} missing formation_id — dropped")
+            dropped += 1
+            continue
+        if pf_id not in valid_formation_ids:
+            logger.warning(
+                f"[{i}/{total}] body {lens_id}: formation_id {pf_id} "
+                f"not present in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        src_inv_id = _uuid(lens_payload.get("source_investigation_id"))
+        if src_inv_id is None:
+            logger.warning(
+                f"[{i}/{total}] body {lens_id} missing source_investigation_id — dropped"
+            )
+            dropped += 1
+            continue
+        if src_inv_id not in valid_inv_ids:
+            logger.warning(
+                f"[{i}/{total}] body {lens_id}: source_investigation_id {src_inv_id} "
+                f"not in this project's CPTs/boreholes — dropped (dangling polymorphic FK)"
+            )
+            dropped += 1
+            continue
+
+        # Extent FK checks — strip unresolvable extents rather than dropping the body.
+        kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
+        for side in _EXTENT_SIDES:
+            kind_key = f"extent_{side}_kind"
+            target_key = f"extent_{side}_target_contact_id"
+            neighbour_key = f"extent_{side}_neighbour_inv_id"
+            extent_kind = kwargs.get(kind_key)
+            if extent_kind in _TARGET_KINDS:
+                target_id = _uuid(kwargs.get(target_key))
+                if target_id is None:
+                    logger.warning(
+                        f"[{i}/{total}] body {lens_id}: {kind_key}='to_target' "
+                        f"but {target_key} is NULL — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                    kwargs[target_key] = None
+                elif target_id not in valid_contact_ids:
+                    logger.warning(
+                        f"[{i}/{total}] body {lens_id}: {target_key} {target_id} "
+                        f"not in this project's contacts — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                    kwargs[target_key] = None
+            elif extent_kind in _NEIGHBOUR_KINDS:
+                nbr_id = _uuid(kwargs.get(neighbour_key))
+                if nbr_id is None:
+                    logger.warning(
+                        f"[{i}/{total}] body {lens_id}: {kind_key}={extent_kind!r} "
+                        f"but {neighbour_key} is NULL — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                elif nbr_id not in valid_inv_ids:
+                    logger.warning(
+                        f"[{i}/{total}] body {lens_id}: {neighbour_key} {nbr_id} "
+                        f"not in this project's investigations — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                    kwargs[neighbour_key] = None
+
+        kwargs["app_project_id"] = project_id
+        session.add(BodyOrm(**kwargs))
+        existing.add(lens_id)
+        new_lenses += 1
+        logger.debug(f"[{i}/{total}] body {lens_id} queued for insert")
+
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} "
+            f"body/bodies (model/formation/investigation not in project or missing FK)"
+        )
+    return new_lenses, skipped, dropped
+
+
+async def _restore_formation_absences(
+    session: AsyncSession,
+    project_id: UUID,
+    formation_absences_payload: list[dict[str, Any]],
+    valid_formation_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert formation-absence rows from the bundle.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    formation_absences_payload : list[dict[str, Any]]
+        Raw formation-absence dicts from the bundle.
+    valid_formation_ids : set[UUID]
+        Pre-computed union of DB + payload formation ids.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_absences, skipped_absences, dropped_absences)``.
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(FormationAbsenceOrm.id)
+                .join(
+                    GeologicalFormationOrm,
+                    FormationAbsenceOrm.formation_id == GeologicalFormationOrm.id,
+                )
+                .where(GeologicalFormationOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_absences = 0
+    skipped = 0
+    dropped = 0
+    total = len(formation_absences_payload)
+    logger.info(f"restore_project_bundle({project_id}): restoring {total} formation absence(s)")
+    for i, ab_payload in enumerate(formation_absences_payload, start=1):
+        ab_id = _uuid(ab_payload.get("id"))
+        if ab_id is None:
+            logger.debug(f"[{i}/{total}] formation absence skipped — payload has no id")
+            skipped += 1
+            continue
+        if ab_id in existing:
+            logger.debug(f"[{i}/{total}] formation absence {ab_id} already present — skipped")
+            skipped += 1
+            continue
+        ab_fid = _uuid(ab_payload.get("formation_id"))
+        if ab_fid is None:
+            logger.warning(f"[{i}/{total}] formation absence {ab_id} has no formation_id — dropped")
+            dropped += 1
+            continue
+        if ab_fid not in valid_formation_ids:
+            logger.warning(
+                f"[{i}/{total}] formation absence {ab_id} → formation {ab_fid} "
+                f"not in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        kwargs = _apply_json_to_kwargs(FormationAbsenceOrm, ab_payload)
+        session.add(FormationAbsenceOrm(**kwargs))
+        new_absences += 1
+        logger.debug(f"[{i}/{total}] formation absence {ab_id} queued for insert")
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} "
+            f"formation absence(s) (formation not in project or missing formation_id)"
+        )
+    return new_absences, skipped, dropped
+
+
+async def _restore_contact_edges(
+    session: AsyncSession,
+    project_id: UUID,
+    litho_contact_correlation_edges_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert litho contact correlation edge rows from the bundle.
+
+    Restored AFTER geological_models exist (model_id FK must resolve).
+    Both contact endpoints (contact_a_id, contact_b_id) must resolve to
+    formation_contact rows belonging to this project's models.
+
+    This restore block does NOT touch seeded_formation_contact_ids on any
+    cross-section row — structural proof that the #57/applyUpdatedSection
+    trap cannot recur here.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    litho_contact_correlation_edges_payload : list[dict[str, Any]]
+        Raw correlation-edge dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — used to include contacts queued in this
+        transaction when validating edge endpoints.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_edges, skipped_edges, dropped_edges)``.
+    """
+    valid_contact_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(FormationContactOrm.id)
+                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Also include contacts queued in this transaction (not yet flushed).
+    for m_payload in geological_models_payload:
+        for c in m_payload.get("contacts") or []:
+            cid = _uuid(c.get("id"))
+            if cid is not None:
+                valid_contact_ids.add(cid)
+
+    existing = set(
+        (
+            await session.execute(
+                select(LithoContactCorrelationEdgeOrm.id)
+                .join(
+                    GeologicalModelOrm,
+                    LithoContactCorrelationEdgeOrm.model_id == GeologicalModelOrm.id,
+                )
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_edges = 0
+    skipped = 0
+    dropped = 0
+    total = len(litho_contact_correlation_edges_payload)
+    logger.info(
+        f"restore_project_bundle({project_id}): restoring {total} litho contact correlation edge(s)"
+    )
+    for i, ce_payload in enumerate(litho_contact_correlation_edges_payload, start=1):
+        ce_id = _uuid(ce_payload.get("id"))
+        if ce_id is None:
+            logger.debug(f"[{i}/{total}] litho contact edge skipped — payload has no id")
+            skipped += 1
+            continue
+        if ce_id in existing:
+            logger.debug(f"[{i}/{total}] litho contact edge {ce_id} already present — skipped")
+            skipped += 1
+            continue
+        ce_model_id = _uuid(ce_payload.get("model_id"))
+        if ce_model_id is None:
+            logger.warning(f"[{i}/{total}] litho contact edge {ce_id} has no model_id — dropped")
+            dropped += 1
+            continue
+        if ce_model_id not in valid_model_ids:
+            logger.warning(
+                f"[{i}/{total}] litho contact edge {ce_id} → model "
+                f"{ce_model_id} not in this project — dropped (bundle-injection guard)"
+            )
+            dropped += 1
+            continue
+        ca_id = _uuid(ce_payload.get("contact_a_id"))
+        cb_id = _uuid(ce_payload.get("contact_b_id"))
+        if ca_id is None or cb_id is None:
+            logger.warning(
+                f"[{i}/{total}] litho contact edge {ce_id} missing contact endpoint(s) — dropped"
+            )
+            dropped += 1
+            continue
+        if ca_id not in valid_contact_ids or cb_id not in valid_contact_ids:
+            logger.warning(
+                f"[{i}/{total}] litho contact edge {ce_id}: contact "
+                f"endpoint(s) not present in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        kwargs = _apply_json_to_kwargs(LithoContactCorrelationEdgeOrm, ce_payload)
+        session.add(LithoContactCorrelationEdgeOrm(**kwargs))
+        new_edges += 1
+        logger.debug(f"[{i}/{total}] litho contact edge {ce_id} queued for insert")
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} "
+            f"litho contact correlation edge(s) (model/contact not in project or missing FK)"
+        )
+    return new_edges, skipped, dropped
+
+
+async def _restore_lens_shapes_and_nodes(
+    session: AsyncSession,
+    project_id: UUID,
+    body_boundary_shapes_payload: list[dict[str, Any]],
+    body_boundary_nodes_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int, int]:
+    """Insert body-boundary shape + node rows from the bundle.
+
+    Shapes are restored AFTER geological_models (shape.model_id FK).
+    Nodes are restored AFTER shapes (node.shape_id FK).  Both are
+    idempotent by id; dangling FKs are dropped with a warning.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    body_boundary_shapes_payload : list[dict[str, Any]]
+        Raw shape dicts from the bundle.
+    body_boundary_nodes_payload : list[dict[str, Any]]
+        Raw node dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int, int]
+        ``(new_shapes, dropped_shapes, new_nodes, dropped_nodes)``.
+    """
+    existing_shapes: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLensShapeOrm.id)
+                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    valid_shape_ids: set[UUID] = set(existing_shapes)
+    new_shapes = 0
+    dropped_shapes = 0
+    for shape_payload in body_boundary_shapes_payload:
+        sid = _uuid(shape_payload.get("id"))
+        mid = _uuid(shape_payload.get("model_id"))
+        if sid is None or mid is None:
+            dropped_shapes += 1
+            continue
+        if sid in existing_shapes:
+            valid_shape_ids.add(sid)
+            continue
+        if mid not in valid_model_ids:
+            logger.warning(
+                f"restore_project_bundle({project_id}): lens shape {sid} → model {mid} "
+                f"not in this project — dropped (dangling FK)"
+            )
+            dropped_shapes += 1
+            continue
+        session.add(LithoLensShapeOrm(**_apply_json_to_kwargs(LithoLensShapeOrm, shape_payload)))
+        valid_shape_ids.add(sid)
+        new_shapes += 1
+
+    existing_nodes: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLensBoundaryNodeOrm.id)
+                .join(LithoLensShapeOrm, LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id)
+                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_nodes = 0
+    dropped_nodes = 0
+    for node_payload in body_boundary_nodes_payload:
+        nid = _uuid(node_payload.get("id"))
+        shid = _uuid(node_payload.get("shape_id"))
+        if nid is None or shid is None:
+            dropped_nodes += 1
+            continue
+        if nid in existing_nodes:
+            continue
+        if shid not in valid_shape_ids:
+            logger.warning(
+                f"restore_project_bundle({project_id}): lens boundary node {nid} → shape {shid} "
+                f"not in this project — dropped (dangling FK)"
+            )
+            dropped_nodes += 1
+            continue
+        session.add(
+            LithoLensBoundaryNodeOrm(
+                **_apply_json_to_kwargs(LithoLensBoundaryNodeOrm, node_payload)
+            )
+        )
+        new_nodes += 1
+    if dropped_shapes or dropped_nodes:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped_shapes} lens shape(s) "
+            f"+ {dropped_nodes} lens boundary node(s) (dangling FK)"
+        )
+    return new_shapes, dropped_shapes, new_nodes, dropped_nodes
+
+
 async def _restore_project_bundle_impl(
     session: AsyncSession,
     project_id: UUID,
@@ -858,7 +1993,60 @@ async def _restore_project_bundle_impl(
     The ``project_id`` from the URL takes precedence over any id in the
     payload — that's what makes the endpoint URL-driven and prevents a
     crafted body from sneaking the wrong id past the router.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Canonical project id (URL-driven — wins over any id in the payload).
+    project_payload : dict[str, Any]
+        Raw project metadata dict from the bundle.
+    cpts_payload : list[dict[str, Any]]
+        CPT dicts from the bundle.
+    boreholes_payload : list[dict[str, Any]]
+        Borehole dicts (with full child tree) from the bundle.
+    geological_formations_payload : list[dict[str, Any]] | None
+        Formation rows; ``None`` → empty (legacy caller compat).
+    geological_models_payload : list[dict[str, Any]] | None
+        Model rows with nested contacts / surfaces / litho_layers.
+    cross_sections_payload : list[dict[str, Any]] | None
+        Cross-section rows.
+    investigation_reviews_payload : list[dict[str, Any]] | None
+        Per-(project, investigation) review rows.
+    geotechnical_units_payload : list[dict[str, Any]] | None
+        Geotechnical unit rows (FK to formations).
+    bodies_payload : list[dict[str, Any]] | None
+        Body (lens) rows.
+    formation_absences_payload : list[dict[str, Any]] | None
+        Formation-absence rows.
+    litho_contact_correlation_edges_payload : list[dict[str, Any]] | None
+        Litho contact correlation edge rows.
+    body_boundary_shapes_payload : list[dict[str, Any]] | None
+        Lens boundary shape rows.
+    body_boundary_nodes_payload : list[dict[str, Any]] | None
+        Lens boundary node rows.
+    logger : GroundModelLogger
+        Caller's typed logger.
+    replace : bool
+        When ``True``, wipe the project's child collections before
+        inserting (revert-to-last-save, debt #160) — the project ends
+        up matching the bundle exactly.  When ``False`` (default),
+        existing rows are skipped; the open-from-file path.
+
+    Returns
+    -------
+    ProjectOrm
+        The project row (created or pre-existing).
+
+    Raises
+    ------
+    BundleIntegrityError
+        On ``replace=True`` when the bundle is self-inconsistent
+        (contacts/layers reference formation ids absent from the bundle).
+        Protects against silently wiping valid DB state for a broken file.
     """
+    # Normalise None → [] so every phase helper can iterate without guard.
     geological_formations_payload = geological_formations_payload or []
     geological_models_payload = geological_models_payload or []
     cross_sections_payload = cross_sections_payload or []
@@ -869,6 +2057,7 @@ async def _restore_project_bundle_impl(
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
+
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -883,47 +2072,40 @@ async def _restore_project_bundle_impl(
     else:
         logger.info(f"project {project_id} already exists — leaving metadata untouched")
 
-    # ---- Replace mode: wipe child collections before re-inserting --------
+    # ---- Replace mode: pre-wipe integrity guard --------------------------
     # Revert-to-last-save (debt #160). Runs after the project shell is
-    # resolved (kept) and before any insert, in this same transaction, so the
-    # net effect is "project's children == the bundle exactly".
+    # resolved and before any insert, in this same transaction, so the net
+    # effect is "project's children == the bundle exactly".
+    #
+    # Pre-wipe guard (2026-05-31): when the bundle is self-inconsistent
+    # (layers/contacts reference formation_ids not in geological_formations),
+    # the post-wipe insert would silently drop those rows as orphans.  The
+    # non-replace open-from-file path stays tolerant so legacy bundles still
+    # open; the destructive replace path must NOT wipe valid DB state to make
+    # room for a broken file.  Count orphans up front → actionable error.
     if replace:
-        # Pre-wipe integrity guard (2026-05-31 dogfeed fix). When the inbound
-        # bundle is self-inconsistent (layers/contacts reference formation_ids
-        # not in the bundle's formation array), the post-wipe insert silently
-        # drops those rows as orphans. The non-replace open-from-file path
-        # stays tolerant on purpose so legacy bundles still open; the
-        # destructive ``replace`` path must NOT wipe valid DB state to make
-        # room for a broken file. Counting orphans up front lets the user see
-        # an actionable error instead of "all my data is gone".
-        bundle_fids: set[UUID] = set()
-        for f_payload in geological_formations_payload:
-            fid_raw = f_payload.get("id")
-            if fid_raw is None:
-                continue
-            bundle_fids.add(UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw)
-
-        def _ref_fid(raw: object) -> UUID | None:
-            if raw is None:
-                return None
-            return UUID(raw) if isinstance(raw, str) else raw  # type: ignore[return-value]
+        bundle_fids: set[UUID] = {
+            _uuid(f.get("id"))  # type: ignore[misc]
+            for f in geological_formations_payload
+            if f.get("id") is not None
+        } - {None}
 
         orphan_layer_count = 0
         orphan_contact_count = 0
         orphan_fids: set[UUID] = set()
         for m_payload in geological_models_payload:
             for c in m_payload.get("contacts") or []:
-                fid = _ref_fid(c.get("formation_id"))
+                fid = _uuid(c.get("formation_id"))
                 if fid is not None and fid not in bundle_fids:
                     orphan_contact_count += 1
                     orphan_fids.add(fid)
             for layer in m_payload.get("litho_layers") or []:
-                fid = _ref_fid(layer.get("formation_id"))
+                fid = _uuid(layer.get("formation_id"))
                 if fid is not None and fid not in bundle_fids:
                     orphan_layer_count += 1
                     orphan_fids.add(fid)
         for u_payload in geotechnical_units_payload:
-            fid = _ref_fid(u_payload.get("formation_id"))
+            fid = _uuid(u_payload.get("formation_id"))
             if fid is not None and fid not in bundle_fids:
                 orphan_fids.add(fid)
         if orphan_fids:
@@ -940,145 +2122,44 @@ async def _restore_project_bundle_impl(
             )
         await _wipe_project_scoped_rows(session, project_id, logger=logger)
 
-    # ---- CPTs ------------------------------------------------------------
-    existing_cpt_ids = set(
-        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
-        .scalars()
-        .all()
-    )
-    new_cpts = 0
-    total_cpts = len(cpts_payload)
-    logger.info(f"restoring {total_cpts} cpt(s) for project {project_id}")
-    skipped_cpts = 0
-    for i, cpt_payload in enumerate(cpts_payload, start=1):
-        cpt_id_raw = cpt_payload.get("id")
-        if cpt_id_raw is None:
-            # Bulk-loop DoD: log what was NOT restored + why, not just
-            # the happy path — a silent `continue` hides malformed rows.
-            logger.debug(f"[{i}/{total_cpts}] cpt skipped — payload has no id")
-            skipped_cpts += 1
-            continue
-        cpt_id = UUID(cpt_id_raw) if isinstance(cpt_id_raw, str) else cpt_id_raw
-        if cpt_id in existing_cpt_ids:
-            logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} already present — skipped")
-            skipped_cpts += 1
-            continue
-        # Debt #112: guard against a malicious bundle that embeds a
-        # depths_m array with millions of entries.  The bundle schema uses
-        # list[dict[str,Any]] so Pydantic has no visibility into the inner
-        # arrays; the cap lives here.  Over-cap → skip the series so the
-        # CPT still appears on the map, just without depth data.
-        n_rows = _series_row_count(cpt_payload)
-        if n_rows is not None and n_rows > _MAX_CPT_SERIES_ROWS:
-            logger.warning(
-                f"[{i}/{total_cpts}] cpt {cpt_id}: series has {n_rows} rows "
-                f"(cap {_MAX_CPT_SERIES_ROWS}) — series dropped (debt #112)"
-            )
-            # Build CPT without series by removing the key so _build_cpt
-            # doesn't create a CptSeriesOrm for it.
-            cpt_payload = {k: v for k, v in cpt_payload.items() if k != "series"}
-        session.add(_build_cpt(cpt_payload, project_id))
-        new_cpts += 1
-        logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} queued for insert")
-    logger.info(
-        f"cpt restore: {new_cpts} new, {skipped_cpts} skipped "
-        f"(of {total_cpts}) for project {project_id}"
+    # ---- Phase 1: CPTs ---------------------------------------------------
+    new_cpts = await _restore_cpts(session, project_id, cpts_payload, logger=logger)
+
+    # ---- Phase 2: Boreholes ----------------------------------------------
+    new_boreholes = await _restore_boreholes(session, project_id, boreholes_payload, logger=logger)
+
+    # ---- Phase 3: Geological formations ----------------------------------
+    new_formations = await _restore_formations(session, project_id, geological_formations_payload)
+
+    # ---- Phase 4: Geotechnical units (FK → formations) -------------------
+    new_units = await _restore_geotech_units(session, project_id, geotechnical_units_payload)
+
+    # ---- Pre-model validation set ----------------------------------------
+    # Computed AFTER formations so newly-queued payload ids are included.
+    valid_formation_ids = await _build_valid_formation_ids(
+        session, project_id, geological_formations_payload
     )
 
-    # ---- Boreholes -------------------------------------------------------
-    existing_bh_ids = set(
-        (
-            await session.execute(
-                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_boreholes = 0
-    total_bh = len(boreholes_payload)
-    logger.info(f"restoring {total_bh} borehole(s) for project {project_id}")
-    skipped_bh = 0
-    for i, bh_payload in enumerate(boreholes_payload, start=1):
-        bh_id_raw = bh_payload.get("id")
-        if bh_id_raw is None:
-            logger.debug(f"[{i}/{total_bh}] borehole skipped — payload has no id")
-            skipped_bh += 1
-            continue
-        bh_id = UUID(bh_id_raw) if isinstance(bh_id_raw, str) else bh_id_raw
-        if bh_id in existing_bh_ids:
-            logger.debug(f"[{i}/{total_bh}] borehole {bh_id} already present — skipped")
-            skipped_bh += 1
-            continue
-        session.add(_build_borehole(bh_payload, project_id))
-        new_boreholes += 1
-        logger.debug(f"[{i}/{total_bh}] borehole {bh_id} queued for insert")
-    logger.info(
-        f"borehole restore: {new_boreholes} new, {skipped_bh} skipped "
-        f"(of {total_bh}) for project {project_id}"
+    # ---- Phase 5: Geological models + nested contacts / surfaces / layers -
+    new_models, new_contacts = await _restore_geological_models(
+        session,
+        project_id,
+        geological_models_payload,
+        valid_formation_ids,
+        logger=logger,
     )
 
-    # ---- Geological formations -------------------------------------------
-    # Formations are project-scoped (not nested under a model), so each
-    # row carries its own id and is deduped against what the DB already
-    # has for this project.
-    existing_formation_ids = set(
-        (
-            await session.execute(
-                select(GeologicalFormationOrm.id).where(
-                    GeologicalFormationOrm.app_project_id == project_id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_formations = 0
-    for f_payload in geological_formations_payload:
-        f_id_raw = f_payload.get("id")
-        if f_id_raw is None:
-            continue
-        f_id = UUID(f_id_raw) if isinstance(f_id_raw, str) else f_id_raw
-        if f_id in existing_formation_ids:
-            continue
-        kwargs = _apply_json_to_kwargs(GeologicalFormationOrm, f_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(GeologicalFormationOrm(**kwargs))
-        new_formations += 1
+    # ---- Phase 6: Cross-sections -----------------------------------------
+    new_sections = await _restore_cross_sections(session, project_id, cross_sections_payload)
 
-    # ---- Geotechnical units ---------------------------------------------
-    # Flat array — each row carries its own ``geological_formation_id`` so
-    # the restore order is "formations first, then units", same as any
-    # FK-respecting load. The session.flush below the loop materialises
-    # the formation rows so the unit's FK lookup succeeds even on a
-    # cold-restore (the formation was inserted three statements ago and
-    # hasn't been flushed yet).
-    existing_unit_ids = set(
-        (
-            await session.execute(
-                select(GeotechnicalUnitOrm.id).where(
-                    GeotechnicalUnitOrm.app_project_id == project_id
-                )
-            )
-        )
-        .scalars()
-        .all()
+    # ---- Phase 7: Investigation reviews (FK → CPT / borehole) ------------
+    new_reviews, dropped_reviews = await _restore_investigation_reviews(
+        session, project_id, investigation_reviews_payload, logger=logger
     )
-    new_units = 0
-    for u_payload in geotechnical_units_payload:
-        u_id_raw = u_payload.get("id")
-        if u_id_raw is None:
-            continue
-        u_id = UUID(u_id_raw) if isinstance(u_id_raw, str) else u_id_raw
-        if u_id in existing_unit_ids:
-            continue
-        kwargs = _apply_json_to_kwargs(GeotechnicalUnitOrm, u_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(GeotechnicalUnitOrm(**kwargs))
-        new_units += 1
 
-    # ---- Geological models + their formation contacts --------------------
-    existing_model_ids = set(
+    # ---- Valid model ids for FK guards on subsequent phases --------------
+    # Re-queried after model inserts so all queued models are included.
+    valid_model_ids: set[UUID] = set(
         (
             await session.execute(
                 select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
@@ -1087,780 +2168,48 @@ async def _restore_project_bundle_impl(
         .scalars()
         .all()
     )
-    # Build the set of formation_ids actually present after restore
-    # (formations just created in this transaction + formations that
-    # already existed in the DB for this project). Contacts that
-    # reference a formation_id NOT in this set are orphaned — typically
-    # because an older save lost the formation row before the
-    # "include-by-reference" save fix landed. Skipping them prevents
-    # an FK-violation 500 and lets the rest of the file open.
-    existing_formation_ids = set(
-        (
-            await session.execute(
-                select(GeologicalFormationOrm.id).where(
-                    GeologicalFormationOrm.app_project_id == project_id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    valid_formation_ids = existing_formation_ids | {
-        UUID(f["id"]) if isinstance(f.get("id"), str) else f["id"]
-        for f in geological_formations_payload
-        if f.get("id") is not None
-    }
-    new_models = 0
-    new_contacts = 0
-    skipped_orphan_contacts = 0
-    for m_payload in geological_models_payload:
-        m_id_raw = m_payload.get("id")
-        if m_id_raw is None:
-            continue
-        m_id = UUID(m_id_raw) if isinstance(m_id_raw, str) else m_id_raw
-        if m_id in existing_model_ids:
-            # Existing model wins (DB-authoritative when present). The
-            # nested contacts are skipped wholesale rather than per-id —
-            # mixing a live model with bundled contacts would silently
-            # merge two interpretations.
-            continue
-        contacts_payload = m_payload.get("contacts") or []
-        model_kwargs = _apply_json_to_kwargs(GeologicalModelOrm, m_payload)
-        model_kwargs["app_project_id"] = project_id
-        # Senior-review S6: ``kind`` is a plain VARCHAR with no DB CHECK.
-        # A bundle from a future build (or a hand-edited .strix) with an
-        # unknown kind would restore silently and then behave as
-        # ``geological`` in the crossing validator
-        # (``kind in NON_STRATIGRAPHIC_KINDS`` is False for an unknown
-        # value). Coerce an unrecognised kind to the geological backbone
-        # — the safe default (it KEEPS crossing validation rather than
-        # silently disabling it) — and log it loudly.
-        bundled_kind = model_kwargs.get("kind")
-        if bundled_kind is not None and bundled_kind not in MODEL_KINDS:
-            logger.warning(
-                f"restore: model {m_id} has unknown kind "
-                f"{bundled_kind!r} — coercing to 'geological'"
-            )
-            model_kwargs["kind"] = MODEL_KIND_GEOLOGICAL
-        model = GeologicalModelOrm(**model_kwargs)
-        valid_contacts: list[FormationContactOrm] = []
-        for c in contacts_payload:
-            fid_raw = c.get("formation_id")
-            if fid_raw is None:
-                skipped_orphan_contacts += 1
-                continue
-            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
-            if fid not in valid_formation_ids:
-                # Orphan reference — formation was lost from the
-                # bundle (or never persisted) but the contact survived.
-                # Skip rather than blow up the entire restore on a
-                # foreign key violation.
-                skipped_orphan_contacts += 1
-                continue
-            valid_contacts.append(
-                FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
-            )
-        model.contacts = valid_contacts
-        # Cached TIN surfaces ride along under each model in v3+
-        # bundles. Older v3 saves (pre-surface-cache landing)
-        # have no ``surfaces`` key — default to empty list, which
-        # the next contact mutation refreshes via the recompute
-        # hook. Skip surfaces whose formation_id isn't in the
-        # restored set (mirror the orphan-contact tolerance).
-        surfaces_payload = m_payload.get("surfaces") or []
-        # Pre-count contacts per formation in this model so the
-        # restored surface's claimed ``source_contact_count`` can be
-        # sanity-checked against reality. A mismatch is the cheap
-        # cross-bundle staleness signal — we don't need full checksum
-        # recompute (which would require reloading anchors); a contact
-        # count drift already proves the surface is out of date.
-        contacts_per_formation: dict[UUID, int] = {}
-        for c in valid_contacts:
-            contacts_per_formation[c.formation_id] = (
-                contacts_per_formation.get(c.formation_id, 0) + 1
-            )
-        valid_surfaces: list[FormationSurfaceOrm] = []
-        forced_stale = 0
-        oversized_surfaces = 0
-        for s in surfaces_payload:
-            fid_raw = s.get("formation_id")
-            if fid_raw is None:
-                continue
-            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
-            if fid not in valid_formation_ids:
-                continue
-            kwargs = _apply_json_to_kwargs(FormationSurfaceOrm, s)
-            # Debt #19: cap the untrusted TIN blobs at the restore
-            # boundary. A claimed source_contact_count, or a vertices /
-            # triangles array, beyond the sane ceiling is treated as
-            # corrupt/hostile — keep the surface row but blank the
-            # geometry and force is_stale so the user rebuilds, rather
-            # than letting an unbounded JSONB array reach PostgreSQL and
-            # OOM the asyncio process.
-            verts = kwargs.get("vertices") or []
-            tris = kwargs.get("triangles") or []
-            claimed_count = kwargs.get("source_contact_count")
-            if (
-                (claimed_count is not None and claimed_count > _MAX_SURFACE_SOURCE_CONTACTS)
-                or len(verts) > _MAX_TIN_ARRAY_LEN
-                or len(tris) > _MAX_TIN_ARRAY_LEN
-            ):
-                logger.warning(
-                    f"restore_project_bundle({project_id}): surface for "
-                    f"formation {fid} exceeds size caps "
-                    f"(claimed={claimed_count}, verts={len(verts)}, "
-                    f"tris={len(tris)}) — geometry dropped, is_stale forced"
-                )
-                kwargs["vertices"] = []
-                kwargs["triangles"] = []
-                kwargs["is_stale"] = True
-                oversized_surfaces += 1
-                valid_surfaces.append(FormationSurfaceOrm(**kwargs))
-                continue
-            # Bundle may have been saved before the ``is_stale``
-            # column existed (older v3 saves) — default to False
-            # via the column server-default. For bundles that DO
-            # carry the field, trust it unless the contact count
-            # disagrees with what we just restored — in that case
-            # force is_stale=True. The user clicks Build to refresh.
-            actual = contacts_per_formation.get(fid, 0)
-            claimed = kwargs.get("source_contact_count")
-            if claimed is not None and claimed != actual:
-                kwargs["is_stale"] = True
-                forced_stale += 1
-            valid_surfaces.append(FormationSurfaceOrm(**kwargs))
-        if forced_stale:
-            logger.info(
-                f"restore_project_bundle({project_id}): forced is_stale=True on "
-                f"{forced_stale} surface(s) — restored contact count drifted from "
-                f"saved source_contact_count"
-            )
-        if oversized_surfaces:
-            logger.warning(
-                f"restore_project_bundle({project_id}): dropped geometry on "
-                f"{oversized_surfaces} surface(s) exceeding the bundle TIN size "
-                f"caps (debt #19) — is_stale forced, rebuild required"
-            )
-        model.surfaces = valid_surfaces
-        # A4 — Shape A litho layers ride alongside contacts on each
-        # model. v4 bundles emit them explicitly; v3 bundles do not,
-        # so the default-empty payload list is correct for the legacy
-        # case (the FC→LL mirror trigger materialises layers from the
-        # contacts that follow).
-        #
-        # Coexistence rule for v4 restore:
-        # * For every accepted layer there's a matching FormationContact
-        #   in ``contacts_payload`` with the same id. The FC→LL trigger
-        #   creates the layer row when the contact INSERTs (status =
-        #   'accepted'), so we MUST NOT also INSERT the same id
-        #   explicitly — that would conflict on the pkey. We skip
-        #   those and let the trigger do the work.
-        # * For pending / rejected layers there's no matching FC
-        #   (only accepted boundaries land in formation_contact). The
-        #   trigger never touches those rows, so we INSERT them
-        #   explicitly to preserve status.
-        layers_payload = m_payload.get("litho_layers") or []
-        contact_ids_in_payload = {
-            UUID(c["id"]) if isinstance(c.get("id"), str) else c["id"]
-            for c in contacts_payload
-            if c.get("id") is not None
-        }
-        valid_layers: list[LithoLayerOrm] = []
-        skipped_orphan_layers = 0
-        skipped_layers_with_matching_fc = 0
-        for layer_payload in layers_payload:
-            fid_raw = layer_payload.get("formation_id")
-            if fid_raw is None:
-                skipped_orphan_layers += 1
-                continue
-            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
-            if fid not in valid_formation_ids:
-                skipped_orphan_layers += 1
-                continue
-            lid_raw = layer_payload.get("id")
-            lid = UUID(lid_raw) if isinstance(lid_raw, str) else lid_raw
-            if lid in contact_ids_in_payload:
-                # Trigger handles it via the contact INSERT.
-                skipped_layers_with_matching_fc += 1
-                continue
-            valid_layers.append(
-                LithoLayerOrm(**_apply_json_to_kwargs(LithoLayerOrm, layer_payload))
-            )
-        model.litho_layers = valid_layers
-        if skipped_orphan_layers:
-            logger.warning(
-                f"restore_project_bundle({project_id}): skipped "
-                f"{skipped_orphan_layers} orphan-formation litho layers "
-                f"(missing formation row in bundle)"
-            )
-        if skipped_layers_with_matching_fc:
-            logger.debug(
-                f"restore_project_bundle({project_id}): skipped explicit "
-                f"INSERT for {skipped_layers_with_matching_fc} layers — "
-                f"FC→LL trigger materialises them from contact INSERTs"
-            )
-        session.add(model)
-        new_models += 1
-        new_contacts += len(valid_contacts)
-    if skipped_orphan_contacts:
-        logger.warning(
-            f"restore_project_bundle({project_id}): skipped "
-            f"{skipped_orphan_contacts} orphan-formation contacts "
-            f"(missing formation row in bundle)"
-        )
 
-    # ---- Cross-sections --------------------------------------------------
-    existing_section_ids = set(
-        (
-            await session.execute(
-                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_sections = 0
-    for s_payload in cross_sections_payload:
-        s_id_raw = s_payload.get("id")
-        if s_id_raw is None:
-            continue
-        s_id = UUID(s_id_raw) if isinstance(s_id_raw, str) else s_id_raw
-        if s_id in existing_section_ids:
-            continue
-        kwargs = _apply_json_to_kwargs(CrossSectionOrm, s_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(CrossSectionOrm(**kwargs))
-        new_sections += 1
-
-    # ---- Investigation reviews -------------------------------------------
-    # Per-(project, investigation) decisions. Dedup by id like the other
-    # arrays; an existing row wins (DB-authoritative when present). The
-    # target_kind/target_id pair is enforced unique at the DB level, so
-    # two payloads for the same target would fail at commit — callers
-    # shouldn't construct that case.
-    #
-    # Target-existence validation: the polymorphic anchor has no DB FK,
-    # so a malformed (or hand-edited) bundle could otherwise plant a
-    # review pointing at nothing. The PUT router does this check per
-    # write; we mirror it here per-restore to keep both write surfaces
-    # consistent. CPTs and boreholes were just inserted above (or
-    # already existed), so the validation set is complete by this point.
-    valid_cpt_ids = set(
-        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
-        .scalars()
-        .all()
-    )
-    valid_borehole_ids = set(
-        (
-            await session.execute(
-                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
+    # ---- Phase 8: Bodies (lenses) ----------------------------------------
+    new_lenses, skipped_lenses, dropped_lenses = await _restore_bodies(
+        session,
+        project_id,
+        bodies_payload,
+        cpts_payload,
+        boreholes_payload,
+        valid_formation_ids,
+        valid_model_ids,
+        geological_models_payload,
+        logger=logger,
     )
 
-    existing_review_ids = set(
-        (
-            await session.execute(
-                select(InvestigationReviewOrm.id).where(
-                    InvestigationReviewOrm.app_project_id == project_id
-                )
-            )
-        )
-        .scalars()
-        .all()
+    # ---- Phase 9: Formation absences -------------------------------------
+    new_absences, skipped_absences, dropped_absences = await _restore_formation_absences(
+        session,
+        project_id,
+        formation_absences_payload,
+        valid_formation_ids,
+        logger=logger,
     )
-    new_reviews = 0
-    dropped_reviews = 0
-    for r_payload in investigation_reviews_payload:
-        r_id_raw = r_payload.get("id")
-        if r_id_raw is None:
-            continue
-        r_id = UUID(r_id_raw) if isinstance(r_id_raw, str) else r_id_raw
-        if r_id in existing_review_ids:
-            continue
-        # Target validation. Skip-with-warning beats raise so a single
-        # bad row doesn't sabotage an otherwise valid bundle restore;
-        # the dropped count surfaces in the log for the user to chase.
-        target_kind = r_payload.get("target_kind")
-        target_id_raw = r_payload.get("target_id")
-        if target_kind is None or target_id_raw is None:
-            dropped_reviews += 1
-            continue
-        target_id = UUID(target_id_raw) if isinstance(target_id_raw, str) else target_id_raw
-        valid_targets = valid_cpt_ids if target_kind == "cpt" else valid_borehole_ids
-        if target_id not in valid_targets:
-            logger.warning(
-                f"restore_project_bundle({project_id}): dropping orphan "
-                f"review row {r_id} → {target_kind} {target_id} (target "
-                f"not present in this project)"
-            )
-            dropped_reviews += 1
-            continue
-        kwargs = _apply_json_to_kwargs(InvestigationReviewOrm, r_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(InvestigationReviewOrm(**kwargs))
-        new_reviews += 1
 
-    # ---- Litho correlation edges (Phase 2) ----------------------------------
-    # Restored AFTER geological_models exist (their model_id FK must resolve).
-    # The edge table has no app_project_id column; we scope the existence
-    # check through the model ids that belong to this project.  This also
-    # acts as the bundle-injection guard: an edge whose model_id isn't in
-    # this project's model set is silently dropped rather than raising an FK
-    # violation (a crafted or merged bundle can't plant foreign edges).
-    #
-    # Correlations are MODEL-level, not section-level.  This restore block
-    # does NOT touch seeded_formation_contact_ids on any cross-section row —
-    # structural proof that the #57/applyUpdatedSection trap cannot recur here.
-    valid_model_ids_for_edges = set(
-        (
-            await session.execute(
-                select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
+    # ---- Phase 10: Litho contact correlation edges -----------------------
+    new_contact_edges, skipped_contact_edges, dropped_contact_edges = await _restore_contact_edges(
+        session,
+        project_id,
+        litho_contact_correlation_edges_payload,
+        valid_model_ids,
+        geological_models_payload,
+        logger=logger,
     )
-    # ---- Bodies (slice 4.1 — replaces litho_lenses) --------------------------
-    # Restored AFTER geological_models (body.model_id FK) and formations
-    # (body.formation_id FK).  Each body row carries app_project_id directly.
-    #
-    # Extent guards (slice 4.1): for extent_<side>_kind == 'to_target' the
-    # target_contact_id must resolve to a formation_contact row belonging to
-    # this project; for 'pinch_out_halfway' / 'extrapolated' the
-    # neighbour_inv_id must resolve to a CPT or borehole in this project.
-    # 'open' and NULL kinds require no extra check.  Unresolvable extents are
-    # stripped (set to NULL) rather than dropping the whole body — losing the
-    # extent hint is less destructive than losing the body entirely.
-    #
-    # source_investigation_id guard: if the polymorphic investigation id does
-    # not resolve to any CPT or borehole in this project, the body is dropped
-    # with a warning (consistent with today's drop-orphan pattern).
-    valid_investigation_ids = valid_cpt_ids | valid_borehole_ids
-    # Also include investigations that were queued in this transaction
-    # (payload walks) but not yet flushed.
-    for cpt_payload in cpts_payload:
-        cpt_id_raw = cpt_payload.get("id")
-        if cpt_id_raw is not None:
-            valid_investigation_ids.add(
-                UUID(cpt_id_raw) if isinstance(cpt_id_raw, str) else cpt_id_raw
-            )
-    for bh_p in boreholes_payload:
-        bh_id_raw = bh_p.get("id")
-        if bh_id_raw is not None:
-            valid_investigation_ids.add(
-                UUID(bh_id_raw) if isinstance(bh_id_raw, str) else bh_id_raw
-            )
-    # Build the set of formation_contact ids already in the DB for this
-    # project — used to validate 'to_target' extents without a flush.
-    valid_contact_ids_for_bodies: set[UUID] = set(
-        (
-            await session.execute(
-                select(FormationContactOrm.id)
-                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # Include contacts that were queued in this transaction (nested in models).
-    for m_payload in geological_models_payload:
-        for c in m_payload.get("contacts") or []:
-            c_id_raw = c.get("id")
-            if c_id_raw is not None:
-                valid_contact_ids_for_bodies.add(
-                    UUID(c_id_raw) if isinstance(c_id_raw, str) else c_id_raw
-                )
 
-    existing_lens_ids = set(
-        (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
-        .scalars()
-        .all()
+    # ---- Phase 11: Lens boundary shapes + nodes --------------------------
+    new_shapes, dropped_shapes, new_nodes, dropped_nodes = await _restore_lens_shapes_and_nodes(
+        session,
+        project_id,
+        body_boundary_shapes_payload,
+        body_boundary_nodes_payload,
+        valid_model_ids,
+        logger=logger,
     )
-    new_lenses = 0
-    skipped_lenses = 0
-    dropped_lenses = 0
-    total_lenses = len(bodies_payload)
-    logger.info(f"restore_project_bundle({project_id}): restoring {total_lenses} body/bodies")
-    for i, lens_payload in enumerate(bodies_payload, start=1):
-        lens_id_raw = lens_payload.get("id")
-        if lens_id_raw is None:
-            logger.debug(f"[{i}/{total_lenses}] body skipped — payload has no id")
-            skipped_lenses += 1
-            continue
-        lens_id = UUID(lens_id_raw) if isinstance(lens_id_raw, str) else lens_id_raw
-        if lens_id in existing_lens_ids:
-            logger.debug(f"[{i}/{total_lenses}] body {lens_id} already present — skipped")
-            skipped_lenses += 1
-            continue
-        # Bundle-injection guard: model must belong to this project.
-        model_id_raw = lens_payload.get("model_id")
-        if model_id_raw is None:
-            logger.warning(f"[{i}/{total_lenses}] body {lens_id} has no model_id — dropped")
-            dropped_lenses += 1
-            continue
-        model_id = UUID(model_id_raw) if isinstance(model_id_raw, str) else model_id_raw
-        if model_id not in valid_model_ids_for_edges:
-            logger.warning(
-                f"[{i}/{total_lenses}] body {lens_id} → model {model_id} "
-                f"not in this project — dropped (bundle-injection guard)"
-            )
-            dropped_lenses += 1
-            continue
-        # Formation FK guard.
-        pf_raw = lens_payload.get("formation_id")
-        if pf_raw is None:
-            logger.warning(f"[{i}/{total_lenses}] body {lens_id} missing formation_id — dropped")
-            dropped_lenses += 1
-            continue
-        pf_id = UUID(pf_raw) if isinstance(pf_raw, str) else pf_raw
-        if pf_id not in valid_formation_ids:
-            logger.warning(
-                f"[{i}/{total_lenses}] body {lens_id}: formation_id {pf_id} "
-                f"not present in this project — dropped (dangling FK)"
-            )
-            dropped_lenses += 1
-            continue
-        # source_investigation_id guard: the polymorphic investigation must
-        # exist in this project's CPT or borehole set.
-        src_inv_raw = lens_payload.get("source_investigation_id")
-        if src_inv_raw is None:
-            logger.warning(
-                f"[{i}/{total_lenses}] body {lens_id} missing source_investigation_id — dropped"
-            )
-            dropped_lenses += 1
-            continue
-        src_inv_id = UUID(src_inv_raw) if isinstance(src_inv_raw, str) else src_inv_raw
-        if src_inv_id not in valid_investigation_ids:
-            logger.warning(
-                f"[{i}/{total_lenses}] body {lens_id}: source_investigation_id {src_inv_id} "
-                f"not in this project's CPTs/boreholes — dropped (dangling polymorphic FK)"
-            )
-            dropped_lenses += 1
-            continue
-        # Extent integrity: strip unresolvable extents rather than dropping
-        # the whole body — losing an extent hint is less destructive than
-        # losing the body. 'open' and NULL kinds need no FK check.
-        _EXTENT_SIDES = ("left", "right")
-        _TARGET_KINDS = frozenset({"to_target"})
-        _NEIGHBOUR_KINDS = frozenset({"pinch_out_halfway", "extrapolated"})
-        kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
-        for side in _EXTENT_SIDES:
-            kind_key = f"extent_{side}_kind"
-            target_key = f"extent_{side}_target_contact_id"
-            neighbour_key = f"extent_{side}_neighbour_inv_id"
-            extent_kind = kwargs.get(kind_key)
-            if extent_kind in _TARGET_KINDS:
-                target_raw = kwargs.get(target_key)
-                if target_raw is None:
-                    logger.warning(
-                        f"[{i}/{total_lenses}] body {lens_id}: {kind_key}='to_target' "
-                        f"but {target_key} is NULL — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                    kwargs[target_key] = None
-                else:
-                    target_id = UUID(target_raw) if isinstance(target_raw, str) else target_raw
-                    if target_id not in valid_contact_ids_for_bodies:
-                        logger.warning(
-                            f"[{i}/{total_lenses}] body {lens_id}: {target_key} {target_id} "
-                            f"not in this project's contacts — stripping extent"
-                        )
-                        kwargs[kind_key] = None
-                        kwargs[target_key] = None
-            elif extent_kind in _NEIGHBOUR_KINDS:
-                nbr_raw = kwargs.get(neighbour_key)
-                if nbr_raw is None:
-                    logger.warning(
-                        f"[{i}/{total_lenses}] body {lens_id}: {kind_key}={extent_kind!r} "
-                        f"but {neighbour_key} is NULL — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                else:
-                    nbr_id = UUID(nbr_raw) if isinstance(nbr_raw, str) else nbr_raw
-                    if nbr_id not in valid_investigation_ids:
-                        logger.warning(
-                            f"[{i}/{total_lenses}] body {lens_id}: {neighbour_key} {nbr_id} "
-                            f"not in this project's investigations — stripping extent"
-                        )
-                        kwargs[kind_key] = None
-                        kwargs[neighbour_key] = None
-        kwargs["app_project_id"] = project_id
-        session.add(BodyOrm(**kwargs))
-        existing_lens_ids.add(lens_id)
-        new_lenses += 1
-        logger.debug(f"[{i}/{total_lenses}] body {lens_id} queued for insert")
-    if dropped_lenses:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped_lenses} "
-            f"body/bodies (model/formation/investigation not in project or missing FK)"
-        )
-
-    # ---- Formation absences (Position 4) -----------------------------------
-    # Restored AFTER geological formations (absence.formation_id FK must
-    # resolve).  ``valid_formation_ids`` was populated during the formation
-    # restore section above and covers both pre-existing and freshly-queued
-    # formation ids.
-    existing_absence_ids = set(
-        (
-            await session.execute(
-                select(FormationAbsenceOrm.id)
-                .join(
-                    GeologicalFormationOrm,
-                    FormationAbsenceOrm.formation_id == GeologicalFormationOrm.id,
-                )
-                .where(GeologicalFormationOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_absences = 0
-    skipped_absences = 0
-    dropped_absences = 0
-    total_absences = len(formation_absences_payload)
-    logger.info(
-        f"restore_project_bundle({project_id}): restoring {total_absences} formation absence(s)"
-    )
-    for i, ab_payload in enumerate(formation_absences_payload, start=1):
-        ab_id_raw = ab_payload.get("id")
-        if ab_id_raw is None:
-            logger.debug(f"[{i}/{total_absences}] formation absence skipped — payload has no id")
-            skipped_absences += 1
-            continue
-        ab_id = UUID(ab_id_raw) if isinstance(ab_id_raw, str) else ab_id_raw
-        if ab_id in existing_absence_ids:
-            logger.debug(
-                f"[{i}/{total_absences}] formation absence {ab_id} already present — skipped"
-            )
-            skipped_absences += 1
-            continue
-        # Formation FK guard.
-        fa_id_raw = ab_payload.get("formation_id")
-        if fa_id_raw is None:
-            logger.warning(
-                f"[{i}/{total_absences}] formation absence {ab_id} has no formation_id — dropped"
-            )
-            dropped_absences += 1
-            continue
-        ab_formation_id = UUID(fa_id_raw) if isinstance(fa_id_raw, str) else fa_id_raw
-        if ab_formation_id not in valid_formation_ids:
-            logger.warning(
-                f"[{i}/{total_absences}] formation absence {ab_id} → formation {ab_formation_id} "
-                f"not in this project — dropped (dangling FK)"
-            )
-            dropped_absences += 1
-            continue
-        kwargs = _apply_json_to_kwargs(FormationAbsenceOrm, ab_payload)
-        session.add(FormationAbsenceOrm(**kwargs))
-        new_absences += 1
-        logger.debug(f"[{i}/{total_absences}] formation absence {ab_id} queued for insert")
-    if dropped_absences:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped_absences} "
-            f"formation absence(s) (formation not in project or missing formation_id)"
-        )
-
-    # ---- Litho contact correlation edges (#133 Phase 2+3) -------------------
-    # Restored AFTER geological_models + formation_contacts exist.  Both
-    # contact_a_id and contact_b_id FK into formation_contact; model_id FK
-    # into geological_model.  ``valid_model_ids_for_edges`` was built during
-    # the litho-correlation-edges restore section above.
-    #
-    # Build the set of formation_contact ids that now exist for this project.
-    # Contacts are nested under models in the bundle, so the authoritative set
-    # is: DB contacts for the project's models UNION contacts carried in the
-    # models payload (just inserted above, not yet flushed).
-    valid_contact_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(FormationContactOrm.id)
-                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # Also include contacts that were queued for insert in this transaction
-    # (not yet flushed) — their ids live in the restored model.contacts lists.
-    for m_payload in geological_models_payload:
-        for c in m_payload.get("contacts") or []:
-            c_id_raw = c.get("id")
-            if c_id_raw is not None:
-                valid_contact_ids.add(UUID(c_id_raw) if isinstance(c_id_raw, str) else c_id_raw)
-
-    existing_contact_edge_ids = set(
-        (
-            await session.execute(
-                select(LithoContactCorrelationEdgeOrm.id)
-                .join(
-                    GeologicalModelOrm,
-                    LithoContactCorrelationEdgeOrm.model_id == GeologicalModelOrm.id,
-                )
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_contact_edges = 0
-    skipped_contact_edges = 0
-    dropped_contact_edges = 0
-    total_contact_edges = len(litho_contact_correlation_edges_payload)
-    logger.info(
-        f"restore_project_bundle({project_id}): restoring "
-        f"{total_contact_edges} litho contact correlation edge(s)"
-    )
-    for i, ce_payload in enumerate(litho_contact_correlation_edges_payload, start=1):
-        ce_id_raw = ce_payload.get("id")
-        if ce_id_raw is None:
-            logger.debug(
-                f"[{i}/{total_contact_edges}] litho contact edge skipped — payload has no id"
-            )
-            skipped_contact_edges += 1
-            continue
-        ce_id = UUID(ce_id_raw) if isinstance(ce_id_raw, str) else ce_id_raw
-        if ce_id in existing_contact_edge_ids:
-            logger.debug(
-                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} already present — skipped"
-            )
-            skipped_contact_edges += 1
-            continue
-        # Bundle-injection guard: model must belong to this project.
-        model_id_raw = ce_payload.get("model_id")
-        if model_id_raw is None:
-            logger.warning(
-                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} has no model_id — dropped"
-            )
-            dropped_contact_edges += 1
-            continue
-        ce_model_id = UUID(model_id_raw) if isinstance(model_id_raw, str) else model_id_raw
-        if ce_model_id not in valid_model_ids_for_edges:
-            logger.warning(
-                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} → model "
-                f"{ce_model_id} not in this project — dropped (bundle-injection guard)"
-            )
-            dropped_contact_edges += 1
-            continue
-        # Contact FK guard: both endpoints must be formation_contact rows
-        # belonging to this project's models.
-        ca_raw = ce_payload.get("contact_a_id")
-        cb_raw = ce_payload.get("contact_b_id")
-        if ca_raw is None or cb_raw is None:
-            logger.warning(
-                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} "
-                f"missing contact endpoint(s) — dropped"
-            )
-            dropped_contact_edges += 1
-            continue
-        ca_id = UUID(ca_raw) if isinstance(ca_raw, str) else ca_raw
-        cb_id = UUID(cb_raw) if isinstance(cb_raw, str) else cb_raw
-        if ca_id not in valid_contact_ids or cb_id not in valid_contact_ids:
-            logger.warning(
-                f"[{i}/{total_contact_edges}] litho contact edge {ce_id}: contact "
-                f"endpoint(s) not present in this project — dropped (dangling FK)"
-            )
-            dropped_contact_edges += 1
-            continue
-        kwargs = _apply_json_to_kwargs(LithoContactCorrelationEdgeOrm, ce_payload)
-        session.add(LithoContactCorrelationEdgeOrm(**kwargs))
-        new_contact_edges += 1
-        logger.debug(f"[{i}/{total_contact_edges}] litho contact edge {ce_id} queued for insert")
-    if dropped_contact_edges:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped_contact_edges} "
-            f"litho contact correlation edge(s) (model/contact not in project or missing FK)"
-        )
-
-    # ---- Lens boundary shapes + nodes (#163f Slice 2) ----------------------
-    # Shapes restored AFTER geological_models (shape.model_id FK).  Nodes
-    # restored AFTER shapes (node.shape_id FK).  Idempotent by id; dangling
-    # FKs dropped with a warning, mirroring the sections above.
-    existing_shape_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(LithoLensShapeOrm.id)
-                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    valid_shape_ids: set[UUID] = set(existing_shape_ids)
-    new_lens_shapes = 0
-    dropped_lens_shapes = 0
-    for shape_payload in body_boundary_shapes_payload:
-        sid_raw = shape_payload.get("id")
-        mid_raw = shape_payload.get("model_id")
-        if sid_raw is None or mid_raw is None:
-            dropped_lens_shapes += 1
-            continue
-        sid = UUID(sid_raw) if isinstance(sid_raw, str) else sid_raw
-        mid = UUID(mid_raw) if isinstance(mid_raw, str) else mid_raw
-        if sid in existing_shape_ids:
-            valid_shape_ids.add(sid)
-            continue
-        if mid not in valid_model_ids_for_edges:
-            logger.warning(
-                f"restore_project_bundle({project_id}): lens shape {sid} → model {mid} "
-                f"not in this project — dropped (dangling FK)"
-            )
-            dropped_lens_shapes += 1
-            continue
-        session.add(LithoLensShapeOrm(**_apply_json_to_kwargs(LithoLensShapeOrm, shape_payload)))
-        valid_shape_ids.add(sid)
-        new_lens_shapes += 1
-
-    existing_node_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(LithoLensBoundaryNodeOrm.id)
-                .join(
-                    LithoLensShapeOrm,
-                    LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id,
-                )
-                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_lens_nodes = 0
-    dropped_lens_nodes = 0
-    for node_payload in body_boundary_nodes_payload:
-        nid_raw = node_payload.get("id")
-        shid_raw = node_payload.get("shape_id")
-        if nid_raw is None or shid_raw is None:
-            dropped_lens_nodes += 1
-            continue
-        nid = UUID(nid_raw) if isinstance(nid_raw, str) else nid_raw
-        shid = UUID(shid_raw) if isinstance(shid_raw, str) else shid_raw
-        if nid in existing_node_ids:
-            continue
-        if shid not in valid_shape_ids:
-            logger.warning(
-                f"restore_project_bundle({project_id}): lens boundary node {nid} → shape {shid} "
-                f"not in this project — dropped (dangling FK)"
-            )
-            dropped_lens_nodes += 1
-            continue
-        session.add(
-            LithoLensBoundaryNodeOrm(
-                **_apply_json_to_kwargs(LithoLensBoundaryNodeOrm, node_payload)
-            )
-        )
-        new_lens_nodes += 1
-    if dropped_lens_shapes or dropped_lens_nodes:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped_lens_shapes} lens shape(s) "
-            f"+ {dropped_lens_nodes} lens boundary node(s) (dangling FK)"
-        )
 
     await session.flush()
     logger.info(
