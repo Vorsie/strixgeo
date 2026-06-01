@@ -259,6 +259,7 @@ async def detect_bodies(
 async def suggest_body_pinch_outs(
     project_id: UUID,
     model_id: UUID,
+    section_id: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> SuggestPinchOutsResponse:
     """Run SuggestBodyPinchOuts — returns ephemeral candidates, no DB writes.
@@ -274,6 +275,11 @@ async def suggest_body_pinch_outs(
         Project scope guard.
     model_id : UUID
         Must be a lithostratigraphic model in this project.
+    section_id : UUID | None
+        Active cross-section. When given, adjacency follows the section's
+        along-axis column order (so suggestions target the neighbouring
+        column, not a UUID-random one). Omit for the section-agnostic
+        fallback.
     session : AsyncSession
         Database session provided by DI.
 
@@ -300,6 +306,7 @@ async def suggest_body_pinch_outs(
         candidates = await SuggestBodyPinchOuts(session).execute(
             project_id=project_id,
             model_id=model_id,
+            section_id=section_id,
         )
     except ValueError as exc:
         raise HTTPException(
