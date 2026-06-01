@@ -45,8 +45,6 @@ from uuid import UUID
 
 from groundmodel.domain.services.lens_inference_constants import (
     ENGINE_OWNED_SOURCES,
-    KIND_BOREHOLE,
-    KIND_CPT,
     MIN_OVERLAP_RATIO,
     SOURCE_INFERRED,
 )

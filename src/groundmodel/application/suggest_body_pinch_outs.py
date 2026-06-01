@@ -35,7 +35,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.shared.constants.extent_kind import is_user_claimed_extent_kind
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 

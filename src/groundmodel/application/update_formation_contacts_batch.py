@@ -25,9 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.domain.value_objects.formation_contact_result import (
     FormationContactResult,
 )
-from groundmodel.infrastructure.db.models.formation_contact_orm import (
-    FormationContactOrm,
-)
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
