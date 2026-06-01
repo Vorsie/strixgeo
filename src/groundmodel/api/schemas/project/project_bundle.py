@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Bounds for the StratigraphyLumping sub-object. The .gmproj file is the
 # highest-trust on-disk input we accept (a crafted/corrupted bundle is the
@@ -145,6 +145,45 @@ _MAX_FORMATION_ABSENCES_PER_BUNDLE = 25_000
 # surface (#112) while staying far above any real project (#163f).
 _MAX_LITHO_LENS_SHAPES_PER_BUNDLE = 10_000
 _MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE = 200_000
+
+# Per-item dict key/value length caps for body_boundary_shapes and
+# body_boundary_nodes. The ORM columns are short (UUID/float/int/String(16));
+# 256 chars per key and 4 096 chars per value are generous while capping the
+# per-item DoS surface that the list-length bounds alone cannot close.
+_MAX_BOUNDARY_ITEM_KEY_LEN = 256
+_MAX_BOUNDARY_ITEM_VALUE_LEN = 4_096
+
+
+def _validate_bounded_dict_list(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Validate that each item dict's keys and string values are bounded.
+
+    Raises ``ValueError`` if any key exceeds ``_MAX_BOUNDARY_ITEM_KEY_LEN``
+    or any string value exceeds ``_MAX_BOUNDARY_ITEM_VALUE_LEN``.
+
+    Parameters
+    ----------
+    items : list[dict[str, Any]]
+        The list of raw item dicts from the bundle payload.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        The validated items (unchanged).
+    """
+    for item in items:
+        for k, v in item.items():
+            if len(k) > _MAX_BOUNDARY_ITEM_KEY_LEN:
+                raise ValueError(
+                    f"Bundle item key too long ({len(k)} > {_MAX_BOUNDARY_ITEM_KEY_LEN}): {k[:64]!r}…"
+                )
+            if isinstance(v, str) and len(v) > _MAX_BOUNDARY_ITEM_VALUE_LEN:
+                raise ValueError(
+                    f"Bundle item value for key {k!r} too long "
+                    f"({len(v)} > {_MAX_BOUNDARY_ITEM_VALUE_LEN})"
+                )
+    return items
 
 
 class ProjectBundleRequest(BaseModel):
@@ -250,6 +289,30 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE,
     )
+
+    @field_validator("body_boundary_shapes", "body_boundary_nodes", mode="after")
+    @classmethod
+    def _bound_boundary_item_dicts(cls, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Enforce per-item key/value length bounds on boundary payload dicts.
+
+        The list-length ``max_length`` cap (above) limits the number of items;
+        this validator closes the per-item DoS surface — a crafted bundle
+        cannot ship a single item with a 1 GB string value and bypass the
+        envelope-size middleware (which checks the raw byte budget, not
+        per-field semantics).
+
+        Parameters
+        ----------
+        items : list[dict[str, Any]]
+            The list of raw item dicts from the bundle payload.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            The validated items, unchanged.
+        """
+        return _validate_bounded_dict_list(items)
+
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
     # On restore: stored as bundle metadata only; NEVER re-applied
