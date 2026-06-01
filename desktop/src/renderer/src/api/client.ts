@@ -993,36 +993,6 @@ export interface CrossingValidationResponse {
   issues: GapIssueResponse[]
 }
 
-/**
- * Request body for the pinch-out extrapolation endpoint.
- *
- * ``dry_run: true`` computes the tip geometry WITHOUT persisting anything —
- * used by the ghost-preview step before the engineer confirms.
- * ``dry_run: false`` (default) is the commit path.
- */
-export interface PinchOutExtrapolationRequest {
-  formation_id: string
-  target_formation_id: string
-  section_id: string
-  direction: 'left' | 'right'
-  dip_override_m_per_m?: number | null
-  offset_m?: number | null
-  dry_run?: boolean
-}
-
-/**
- * Response from the pinch-out extrapolation endpoint (both dry_run and commit).
- *
- * On ``dry_run=true``: ``created_contact_ids`` is ``[]``, ``updated_section`` is ``null``.
- * On commit: ``created_contact_ids`` carries 2 synthetic contact ids.
- */
-export interface PinchOutExtrapolationResponse {
-  created_contact_ids: string[]
-  tip_elevation_m: number
-  tip_along_m: number
-  updated_section: CrossSectionResponse | null
-}
-
 /** Body returned by ``POST /projects/{pid}/geology/models/{mid}/ground-surface/build``.
  *
  * Represents the DEM-sampled ground-surface TIN for the model's investigation
@@ -2419,75 +2389,6 @@ export const api = {
     ): Promise<CrossingValidationResponse> =>
       get(`/projects/${projectId}/geology/models/${modelId}/validate/crossings`),
 
-    // Pinch-out extrapolation — computes the tip where a formation's
-    // thickness shrinks to zero against the next-deeper formation.
-    //
-    // ``dry_run: true`` (ghost-preview step): same geometry path, no
-    // DB writes.  Returns tip_along_m / tip_elevation_m for the
-    // frontend wedge preview; created_contact_ids is [].
-    // ``dry_run: false`` (default / commit step): inserts two synthetic
-    // contacts and marks the surface stale.
-    //
-    // 422 on uncomputable geometry (diverging surfaces, missing TIN).
-    // 409 on idempotent re-call (existing synthetic contacts returned).
-    extrapolatePinchOut: async (
-      projectId: string,
-      modelId: string,
-      body: PinchOutExtrapolationRequest,
-    ): Promise<PinchOutExtrapolationResponse> => {
-      const res = await fetch(
-        `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/pinch-out`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-      )
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}))
-        // 409 = idempotent (existing contacts returned in the body).
-        // The caller decides whether to surface these or show a message.
-        if (res.status === 409) {
-          const existing = detail.detail?.existing_contact_ids as string[] | undefined
-          // The 409 still carries the section the idempotent path seeded
-          // server-side — surface it so the caller can refresh local
-          // seeded state (review B2/S3).
-          const updatedSection = (detail.detail?.updated_section ?? null) as
-            | CrossSectionResponse
-            | null
-          throw Object.assign(
-            new Error(
-              detail.detail?.message ??
-                'Pinch-out already exists for this formation.',
-            ),
-            {
-              code: 'pinch_out_already_exists',
-              existingContactIds: existing ?? [],
-              updatedSection,
-            },
-          )
-        }
-        // Preserve the backend's `code` discriminator on the thrown
-        // error so callers can branch on it without substring-matching
-        // the message. The current set of codes:
-        //   - "pinch_out_geometry_error" (HTTP 422): uncomputable tip;
-        //     the auto-retry-with-opposite-direction path in
-        //     handlePreviewPinchOut keys on this (debt #62 item 2).
-        const code = detail.detail?.code as string | undefined
-        throw Object.assign(
-          new Error(
-            detail.detail?.message ?? detail.detail ?? `Pinch-out failed: ${res.status}`,
-          ),
-          { status: res.status, code },
-        )
-      }
-      return res.json() as Promise<PinchOutExtrapolationResponse>
-    },
-
-    // Litho slice 3/4 — read-only segmentation suggestions for one
-    // investigation (CPT: Robertson-2015/2009; borehole: DOV
-    // hoofdnaam mapping). Model must be kind='lithostratigraphic'
-    // (422 otherwise). Nothing is written; the user accepts a layer
     // → it becomes a FormationContact via the normal createContact.
     suggestLitho: (
       projectId: string,

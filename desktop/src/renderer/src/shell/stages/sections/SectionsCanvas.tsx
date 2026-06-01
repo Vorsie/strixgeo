@@ -121,11 +121,6 @@ export default function SectionsCanvas(): JSX.Element {
       handleCreateManualLithoGhost,
       handleExtendLithoGhostToNearestContacts,
       clearBulkLithoGhosts,
-      pinchOutPreview,
-      pinchOutLoading,
-      handlePreviewPinchOut,
-      handleCommitPinchOut,
-      clearPinchOutPreview,
       backdropSurfacesByFormationId,
       handleLoadBackdropSurfaces,
       refetchFormations,
@@ -268,16 +263,6 @@ export default function SectionsCanvas(): JSX.Element {
     [selectedSectionId, visibleSections],
   )
 
-  // Review B1: a pinch-out preview is computed in ONE section's local
-  // (along, elevation) frame. If the user switches sections without
-  // confirming/dismissing, the stale ghost would render at the wrong
-  // place on the new section AND Confirm would commit against the old
-  // section's geometry. Clear the preview on any section switch.
-  // selectedSectionId is a primitive, so this fires once per real
-  // switch, not per render.
-  useEffect(() => {
-    clearPinchOutPreview()
-  }, [selectedSectionId, clearPinchOutPreview])
 
   // Axis flag — defined early so both Slice 2 and Slice 4 blocks can use it.
   const isLitho = sectionModelAxis === 'lithostratigraphic'
@@ -2080,85 +2065,6 @@ export default function SectionsCanvas(): JSX.Element {
     visibleBoreholes,
   ])
 
-  // Pinch-out ghost state — wired on whichever axis is active. Backend
-  // ``ExtrapolatePinchOut`` is formation-id-keyed and works for either
-  // model kind; only the frontend gate needs to flip (#118). The active
-  // model + its kind are threaded through ``handlePreviewPinchOut`` so
-  // the commit path refreshes the right contact list (litho vs geo).
-  //
-  // The onPreviewPinchOut callback derives direction (defaults 'right'
-  // — the UX default is toward the termination edge which is typically
-  // the section's right end; useGeologicalModel.handlePreviewPinchOut
-  // auto-retries the opposite direction when the requested one returns
-  // a geometry-uncomputable 422, debt #62 item 2) and target formation
-  // (the next formation by display_order below the pinching one). A
-  // future picker overrides both heuristics; until then the auto-retry
-  // is the safety net for west-pinching formations / R→L sections.
-  const pinchOutGhostState = useMemo(() => {
-    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
-    if (!axisModel) return undefined
-    const sectionId = selectedSection?.id ?? null
-    if (sectionId === null) return undefined
-    const modelKind: 'geological' | 'lithostratigraphic' = isLitho
-      ? 'lithostratigraphic'
-      : 'geological'
-    return {
-      preview: pinchOutPreview,
-      loading: pinchOutLoading,
-      formations: axisFormations,
-      onPreviewPinchOut: (
-        _contactId: string,
-        formationId: string,
-        _anchorKind: 'cpt' | 'borehole',
-        _anchorId: string,
-      ) => {
-        // Derive target formation: the next-older (deeper) formation by
-        // display_order below the pinching one. The pinching formation
-        // has the highest display_order among the ones visible on this
-        // section; the target is the one with display_order one step lower.
-        // ``axisFormations`` is already axis-swapped (litho or geo) so
-        // the same sort logic works on either model kind.
-        const sorted = [...axisFormations].sort((a, b) => b.display_order - a.display_order)
-        const pinchingIdx = sorted.findIndex(f => f.id === formationId)
-        const targetFormation =
-          pinchingIdx >= 0 && pinchingIdx + 1 < sorted.length
-            ? sorted[pinchingIdx + 1]
-            : null
-        if (!targetFormation) {
-          log.warn(
-            'section',
-            `pinchOut: no target formation below ${formationId} — need at least 2 formations`,
-          )
-          return
-        }
-        void handlePreviewPinchOut({
-          formationId,
-          targetFormationId: targetFormation.id,
-          sectionId,
-          modelId: axisModel.id,
-          modelKind,
-          direction: 'right',
-        })
-      },
-      onConfirm: () => {
-        if (!selectedSection) return
-        void handleCommitPinchOut(applyUpdatedSection)
-      },
-      onDismiss: clearPinchOutPreview,
-    }
-  }, [
-    isLitho,
-    activeGeologicalModel,
-    activeLithoModel,
-    selectedSection,
-    pinchOutPreview,
-    pinchOutLoading,
-    axisFormations,
-    handlePreviewPinchOut,
-    handleCommitPinchOut,
-    clearPinchOutPreview,
-    applyUpdatedSection,
-  ])
 
   // -------------------------------------------------------------------------
   // Inspect-lens-body panel derived values.
@@ -2286,7 +2192,6 @@ export default function SectionsCanvas(): JSX.Element {
           }
           lithoGhostState={lithoGhostState}
           bulkLithoGhostState={bulkLithoGhostState}
-          pinchOutGhostState={pinchOutGhostState}
           // Geological surface backdrop (#60): only on the litho axis and only
           // when at least one geological formation exists. The geological
           // ``formations`` list is already loaded by the model bootstrap; the

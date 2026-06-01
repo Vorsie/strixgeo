@@ -92,9 +92,6 @@ import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
 /** Stable empty map so the BodyExtentOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
-import PinchOutGhostOverlay, {
-  PinchOutConfirmPanel,
-} from './sections/PinchOutGhostOverlay'
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -551,61 +548,6 @@ interface Props {
     onExtendToNearest?: (anchorId: string, idx: number) => { ok: boolean; reason?: string }
   }
   /**
-   * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
-   * dashed semi-transparent wedge renders from the formation's last real
-   * contact toward the computed tip, with a floating Confirm/Dismiss
-   * panel.  Absent / undefined = no overlay (zero regression).
-   *
-   * ``onPreviewPinchOut`` is the invocation path from the contact
-   * context menu — it receives the contact id + formation id + anchor
-   * so the caller can resolve the target formation and direction
-   * through a picker or inline heuristic before calling the dry_run
-   * endpoint.
-   */
-  pinchOutGhostState?: {
-    /** Active dry_run preview. Null = no ghost rendered. */
-    preview: {
-      tip_along_m: number
-      tip_elevation_m: number
-      formation_id: string
-      target_formation_id: string
-      direction: 'left' | 'right'
-      section_id: string
-      model_id: string
-    } | null
-    /** True while a dry_run or commit call is in flight. */
-    loading: boolean
-    /** Formation vocabulary — used by the overlay for colour + name. */
-    formations: readonly GeologicalFormationResponse[]
-    /**
-     * Fired when the user right-clicks a contact and picks
-     * "Extrapolate pinch-out…".  The caller owns the formation +
-     * direction picker flow and eventually calls the dry_run endpoint
-     * to populate ``preview``.
-     *
-     * Parameters
-     * ----------
-     * contactId
-     *     The id of the right-clicked contact.
-     * formationId
-     *     Formation the contact belongs to.
-     * anchorKind
-     *     ``'cpt'`` or ``'borehole'``.
-     * anchorId
-     *     Id of the CPT or borehole the contact is anchored to.
-     */
-    onPreviewPinchOut: (
-      contactId: string,
-      formationId: string,
-      anchorKind: 'cpt' | 'borehole',
-      anchorId: string,
-    ) => void
-    /** Fire to commit the active preview (calls the commit endpoint). */
-    onConfirm: () => void
-    /** Fire to dismiss the preview without committing. */
-    onDismiss: () => void
-  }
-  /**
    * Callback from SectionsCanvas — fired when the user picks
    * "Inspect lens body…" from a body chip's context menu (#101 Blocker 1).
    * Opens ``InspectLensBodyPanel`` at the SectionsCanvas level.
@@ -801,7 +743,6 @@ export default function SectionPanel({
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
   bulkLithoGhostState,
-  pinchOutGhostState,
   onInspectLensBody,
   onPropagateAdmixtures,
   undoStack,
@@ -3177,27 +3118,6 @@ export default function SectionPanel({
                 ),
               )}
 
-            {/* Pinch-out ghost-wedge overlay (ghost-UX slice).  Renders a
-                dashed semi-transparent triangle from the pinching
-                formation's last real contact toward the computed tip.
-                Shown only after the engineer triggers a dry_run via the
-                contact context menu.  Absent when no preview is active or
-                the prop is not wired. */}
-            {pinchOutGhostState && (
-              <PinchOutGhostOverlay
-                preview={pinchOutGhostState.preview}
-                loading={pinchOutGhostState.loading}
-                contacts={contacts}
-                formations={pinchOutGhostState.formations}
-                placedColumns={visibleColumns}
-                alongMToScreenX={warpedXToScreen}
-                levelToScreen={levelToScreen}
-                plotTop={MARGIN.top}
-                plotBottom={MARGIN.top + plotHeight}
-                onConfirm={pinchOutGhostState.onConfirm}
-                onDismiss={pinchOutGhostState.onDismiss}
-              />
-            )}
 
             {/* Litho correlation overlay: body chips, contact-level edges,
                 and contact gesture hit-targets (#133 Phase 1 + #135).
@@ -3385,24 +3305,6 @@ export default function SectionPanel({
                 : undefined
             }
             onClose={dismissContextMenu}
-          />
-        )}
-        {/* Pinch-out confirm/dismiss panel.  Rendered OUTSIDE the SVG
-            so pointer events work reliably without foreignObject quirks.
-            Sits in the top-right corner of the section panel. */}
-        {pinchOutGhostState && (
-          <PinchOutConfirmPanel
-            preview={pinchOutGhostState.preview}
-            loading={pinchOutGhostState.loading}
-            formationName={
-              pinchOutGhostState.preview
-                ? (pinchOutGhostState.formations.find(
-                    f => f.id === pinchOutGhostState.preview!.formation_id,
-                  )?.name ?? 'Formation')
-                : ''
-            }
-            onConfirm={pinchOutGhostState.onConfirm}
-            onDismiss={pinchOutGhostState.onDismiss}
           />
         )}
 
