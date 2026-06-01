@@ -363,6 +363,46 @@ export default function BodyExtentOverlay({
       _neighboursByContact.get(e.contact_b_id)!.add(e.contact_a_id)
     }
 
+    /**
+     * Recover the detector's exact framing pair (``cid_above``, ``cid_below``)
+     * for an extent-based body from the correlation graph.
+     *
+     * ``detect_body_extents`` frames a body by the two source-investigation
+     * contacts that are BOTH correlated to a target contact, adjacent in
+     * depth, with the shallower one carrying the body's formation. Those
+     * contacts are computed at detect time but never stored on the body row,
+     * so we re-derive them here. Pinning the framing to the target's correlated
+     * contacts (rather than the formation_id alone) keeps the wedge at the
+     * RIGHT depth when the same formation appears at several depths on the
+     * source — the formation_id-only proxy picked the shallowest occurrence and
+     * drew the lens too high (dogfeed 2026-06-01).
+     */
+    function _deriveFramingFromTarget(
+      targetContactId: string | null | undefined,
+      sourceInvId: string,
+      formationId: string,
+    ): [string, string] | null {
+      if (!targetContactId) return null
+      const neigh = _neighboursByContact.get(targetContactId)
+      if (!neigh) return null
+      // Source-investigation contacts correlated to this target, top → base.
+      const sourceNeigh = [...neigh]
+        .map(id => _contactById.get(id))
+        .filter(
+          (c): c is FormationContactResponse =>
+            c !== undefined && _anchorIdOf(c) === sourceInvId,
+        )
+        .sort((a, b) => a.depth_top_m - b.depth_top_m)
+      // The adjacent correlated pair whose shallower contact carries the body's
+      // formation is the detector's (cid_above, cid_below).
+      for (let i = 0; i < sourceNeigh.length - 1; i += 1) {
+        if (sourceNeigh[i].formation_id === formationId) {
+          return [sourceNeigh[i].id, sourceNeigh[i + 1].id]
+        }
+      }
+      return null
+    }
+
     // --- Resolve each body to its rendered wedge descriptors -----------------
     const _resolved: ResolvedBody[] = []
 
@@ -550,29 +590,43 @@ export default function BodyExtentOverlay({
           .slice()
           .sort((a, b) => a.depth_top_m - b.depth_top_m)
 
-        // Frame the body by ITS OWN formation's layer on the source
-        // investigation — NOT the whole-column depth span. A body is a single
-        // formation's lens: its top boundary is the source contact carrying
-        // ``body.formation_id``; its base is the next-deeper contact (the
-        // overlying formation's top, boundary-centric).
-        //
-        // The dropped ``content_key`` column means ``BodyListItem`` no longer
-        // ships the body's framing pair, so the previous shallowest+deepest
-        // fallback framed every detected body from the top of the column to
-        // the bottom of the column — the section-filling-triangle bug
-        // (dogfeed 2026-06-01). Framing by ``formation_id`` keeps each wedge
-        // only as tall as its own layer.
-        //
-        // Stacked same-formation bodies (edge case §10 #5 of the spec) use the
-        // first matching contact; per-``body_ordinal`` disambiguation is a
-        // follow-up if dogfeed shows it.
-        const topIdx = sortedByDepth.findIndex(c => c.formation_id === body.formation_id)
-        const aboveContactId: string | null = topIdx === -1 ? null : sortedByDepth[topIdx].id
-        // No deeper contact → the body's formation is the deepest present and
-        // has no base contact to taper from; skip rather than draw a wrong
-        // full-height wedge.
-        const belowContactId: string | null =
-          topIdx === -1 ? null : (sortedByDepth[topIdx + 1]?.id ?? null)
+        // Frame the body by the detector's actual (cid_above, cid_below) pair,
+        // recovered from the correlation graph via the body's target contact.
+        // This pins the wedge to the right depth even when the same formation
+        // appears at several depths on the source (stacked bodies) — the
+        // ``content_key`` column that used to carry the framing pair was dropped
+        // in the body-with-extent refactor, and the formation_id-only proxy
+        // picked the shallowest occurrence, drawing the lens too high
+        // (dogfeed 2026-06-01).
+        let aboveContactId: string | null
+        let belowContactId: string | null
+
+        const framing =
+          _deriveFramingFromTarget(
+            body.extent_left_target_contact_id,
+            body.source_investigation_id,
+            body.formation_id,
+          ) ??
+          _deriveFramingFromTarget(
+            body.extent_right_target_contact_id,
+            body.source_investigation_id,
+            body.formation_id,
+          )
+
+        if (framing) {
+          ;[aboveContactId, belowContactId] = framing
+        } else {
+          // Fallback — user-claimed bodies (pinch_out_halfway / extrapolated /
+          // open) carry no target contact, and detector bodies whose framing
+          // edges aren't on this section can't be recovered. Frame by the
+          // formation's own layer: its top contact + the next-deeper contact.
+          const topIdx = sortedByDepth.findIndex(c => c.formation_id === body.formation_id)
+          aboveContactId = topIdx === -1 ? null : sortedByDepth[topIdx].id
+          // No deeper contact → the body's formation is the deepest present and
+          // has no base contact to taper from; skip rather than draw a wrong
+          // full-height wedge.
+          belowContactId = topIdx === -1 ? null : (sortedByDepth[topIdx + 1]?.id ?? null)
+        }
 
         if (!aboveContactId || !belowContactId) continue
 
