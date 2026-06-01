@@ -73,6 +73,9 @@ export default function SectionsToolbar(): JSX.Element {
       handleReseedLithoAdmixtures,
       handleAutoCorrelate,
       handleClearSuggestions,
+      // #163c nonce bump — forces SectionsCanvas to re-list bodies after the
+      // toolbar's "Delete all detected lenses" bulk delete.
+      requestCorrelationEdgesRefetch,
       // Debt #92 "new tests" filter: scope the Suggest split-button's
       // "for new tests" item to anchors not yet in the active litho
       // model's contact set. Build / Dedupe / Sync moved with their
@@ -114,6 +117,9 @@ export default function SectionsToolbar(): JSX.Element {
   const [detectingLenses, setDetectingLenses] = useState(false)
   // Suggest pinch-outs (#body-with-extent Slice 7.3) — busy flag.
   const [suggestingPinchOuts, setSuggestingPinchOuts] = useState(false)
+  // Delete all detected bodies — busy flag + irreversible-confirm modal state.
+  const [deletingDetectedBodies, setDeletingDetectedBodies] = useState(false)
+  const [deleteBodiesConfirmOpen, setDeleteBodiesConfirmOpen] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -381,6 +387,51 @@ export default function SectionsToolbar(): JSX.Element {
       setSuggestingPinchOuts(false)
     }
   }, [activeLithoModel, project.id, setPinchOutCandidates, suggestingPinchOuts, toast])
+
+  // Delete all detected bodies (dogfeed 2026-06-01): bulk-clear every
+  // purely-detected body wedge in one gesture. The backend preserves
+  // user-named + user-claimed ("accepted") bodies (provenance rule), so the
+  // engineer's committed interpretation survives. Also clears the ephemeral
+  // pinch-out ghost candidates and bumps the refetch nonce so the overlay
+  // updates immediately. Gated behind a confirmation modal (irreversible).
+  const handleDeleteDetectedBodies = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || deletingDetectedBodies) return
+    log.info('sections', `deleteDetectedBodies: model=${activeLithoModel.id}`)
+    setDeletingDetectedBodies(true)
+    try {
+      const result = await api.geology.clearDetectedBodies(project.id, activeLithoModel.id)
+      log.success(
+        'sections',
+        `deleteDetectedBodies: deleted=${result.bodies_deleted} ` +
+          `preserved=${result.bodies_preserved}`,
+      )
+      // Drop any amber pinch-out ghosts too — they reference bodies that may
+      // no longer exist.
+      setPinchOutCandidates([])
+      // Force the canvas to re-list bodies so the wedges disappear at once.
+      requestCorrelationEdgesRefetch?.()
+      toast(
+        'success',
+        result.bodies_preserved > 0
+          ? `Deleted ${result.bodies_deleted} detected ${result.bodies_deleted === 1 ? 'lens' : 'lenses'}; ` +
+              `kept ${result.bodies_preserved} accepted.`
+          : `Deleted ${result.bodies_deleted} detected ${result.bodies_deleted === 1 ? 'lens' : 'lenses'}.`,
+      )
+    } catch (err) {
+      log.error('sections', 'deleteDetectedBodies: failed', err)
+      toast('error', 'Delete all detected lenses failed — try again.')
+    } finally {
+      setDeletingDetectedBodies(false)
+      setDeleteBodiesConfirmOpen(false)
+    }
+  }, [
+    activeLithoModel,
+    deletingDetectedBodies,
+    project.id,
+    requestCorrelationEdgesRefetch,
+    setPinchOutCandidates,
+    toast,
+  ])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -971,74 +1022,65 @@ export default function SectionsToolbar(): JSX.Element {
               },
             ]}
           />
-          {/* Detect lenses (owner directive 2026-05-31) — explicit verb
-              that runs the correlation-graph lens detector and reconciles
-              ``LithoLensOrm`` rows.  Replaces the auto-detect that used to
-              fire from every edge mutation (correlate / uncorrelate /
-              accept) and every destructive op (delete contact, delete
-              layer, cross-merge).  A manual correlate that incidentally
-              closed a lens topology was silently spawning a lens row —
-              this verb gives the engineer explicit control over when
-              lens rows materialise. */}
-          <ToolbarButton
-            icon={<ScanSearch size={13} />}
-            label={detectingLenses ? 'Detecting…' : 'Detect lenses'}
-            onClick={() => { void handleDetectLenses() }}
-            disabled={!activeLithoModel || detectingLenses}
-            busy={detectingLenses}
-            testid="litho-detect-lenses"
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : detectingLenses
-                  ? 'Detecting lenses…'
-                  : 'Detect lenses: scan the approved contact-correlation graph for closed #135 topologies and materialise / reconcile lens rows. Idempotent — safe to re-run.'
-            }
-          />
-          {/* Suggest pinch-outs (#body-with-extent Slice 7.3) — scans the
-              correlation graph for bodies whose geometry implies a lateral
-              wedge-out and surfaces ghost candidates in the section view
-              for the user to claim or dismiss. */}
-          <ToolbarButton
-            icon={<Sparkles size={13} />}
-            label={suggestingPinchOuts ? 'Suggesting…' : 'Suggest pinch-outs'}
-            onClick={() => { void handleSuggestBodyPinchOuts() }}
-            disabled={!activeLithoModel || suggestingPinchOuts}
-            busy={suggestingPinchOuts}
-            testid="body-suggest-pinch-outs"
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : suggestingPinchOuts
-                  ? 'Scanning for pinch-out candidates…'
-                  : 'Suggest pinch-outs: scan the correlation graph for bodies that can be claimed as pinch-out wedges and render amber ghost candidates in the section view.'
-            }
-          />
-          {/* Materialise lens companions (#133 Task 20) — model-level
-              operation that creates perpendicular companion sections for
-              every LithoLens whose primary section is fully correlated.
-              Ideally disabled when zero lenses are missing companions, but
-              ``SectionsToolbar`` does not have direct access to
-              ``lithoLenses`` + ``crossSections``; pragmatic gate mirrors
-              the Accept button (model + section).  The server returns
-              counters either way; toast shows "0 created" when nothing
-              applies. */}
-          <ToolbarButton
+          {/* Bodies dropdown (dogfeed 2026-06-01) — congregates every body /
+              lens action under one trigger to keep the toolbar uncluttered:
+              Detect lenses, Suggest pinch-outs, Materialise lens companions,
+              and the bulk "Delete all detected lenses". Each item keeps its
+              original testid + busy-aware label; the destructive delete opens
+              a confirmation modal (irreversible). */}
+          <ToolbarDropdown
             icon={<Layers size={13} />}
-            label={materialisingCompanions ? 'Materialising…' : 'Materialise lens companions'}
-            onClick={() => { void handleMaterialiseLensCompanions() }}
-            disabled={!activeLithoModel || !hasSection || materialisingCompanions}
-            busy={materialisingCompanions}
-            testid="litho-materialise-lens-companions"
+            label="Bodies"
+            disabled={!activeLithoModel}
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model first'
-                : !hasSection
-                  ? 'Open a cross-section to materialise lens companions'
-                  : materialisingCompanions
-                    ? 'Materialising lens companions…'
-                    : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated'
+                : 'Detect, suggest, materialise, or clear body (lens) wedges'
             }
+            testid="litho-bodies-dropdown"
+            items={[
+              {
+                label: detectingLenses ? 'Detecting…' : 'Detect lenses',
+                icon: <ScanSearch size={12} />,
+                onClick: () => { void handleDetectLenses() },
+                disabled: detectingLenses,
+                testid: 'litho-detect-lenses',
+                title:
+                  'Scan the approved contact-correlation graph for closed #135 topologies and materialise / reconcile lens rows. Idempotent — safe to re-run.',
+              },
+              {
+                label: suggestingPinchOuts ? 'Suggesting…' : 'Suggest pinch-outs',
+                icon: <Sparkles size={12} />,
+                onClick: () => { void handleSuggestBodyPinchOuts() },
+                disabled: suggestingPinchOuts,
+                testid: 'body-suggest-pinch-outs',
+                title:
+                  'Scan the correlation graph for bodies that can be claimed as pinch-out wedges and render amber ghost candidates in the section view.',
+              },
+              {
+                label: materialisingCompanions
+                  ? 'Materialising…'
+                  : 'Materialise lens companions',
+                icon: <GitMerge size={12} />,
+                onClick: () => { void handleMaterialiseLensCompanions() },
+                disabled: !hasSection || materialisingCompanions,
+                testid: 'litho-materialise-lens-companions',
+                title: !hasSection
+                  ? 'Open a cross-section to materialise lens companions'
+                  : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated',
+              },
+              {
+                label: deletingDetectedBodies
+                  ? 'Deleting…'
+                  : 'Delete all detected lenses',
+                icon: <Trash2 size={12} />,
+                onClick: () => setDeleteBodiesConfirmOpen(true),
+                disabled: deletingDetectedBodies,
+                testid: 'litho-delete-detected-bodies',
+                title:
+                  'Hard-delete every machine-detected lens wedge in this model. Bodies you named or claimed (accepted) are preserved.',
+              },
+            ]}
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
               admixtures on the ghost suggestions before accepting. The
@@ -1276,6 +1318,55 @@ export default function SectionsToolbar(): JSX.Element {
               disabled={deleting}
             >
               {deleting ? 'Deleting…' : 'Delete cross-section'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete-all-detected-bodies confirmation (dogfeed 2026-06-01).
+          Irreversible (hard-deletes DB rows) → Modal with default-focus on
+          Cancel and an action-named danger button. Named / claimed bodies
+          are preserved by the backend; the copy says so. */}
+      <Modal
+        open={deleteBodiesConfirmOpen}
+        onCancel={() => setDeleteBodiesConfirmOpen(false)}
+        labelledBy="delete-bodies-title"
+        busy={deletingDetectedBodies}
+        cardClassName="w-80"
+      >
+        <div className="p-5">
+          <h2
+            id="delete-bodies-title"
+            className="text-sm font-semibold text-text-primary mb-1"
+          >
+            Delete all detected lenses?
+          </h2>
+          <p className="text-xs text-text-muted mb-4">
+            Every machine-detected lens wedge in this model will be permanently
+            deleted. Lenses you named or claimed (accepted) are kept. This
+            cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              // reason: autoFocus on Cancel is the safe default for a
+              // destructive-confirm modal (docs/ux.md) — the user must
+              // actively choose the destructive action.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onClick={() => setDeleteBodiesConfirmOpen(false)}
+              disabled={deletingDetectedBodies}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void handleDeleteDetectedBodies()}
+              disabled={deletingDetectedBodies}
+            >
+              {deletingDetectedBodies ? 'Deleting…' : 'Delete detected lenses'}
             </Button>
           </div>
         </div>

@@ -78,6 +78,10 @@ vi.mock('../../../api/client', async () => {
           skipped_unfinished_section: 0,
           errored: 0,
         }),
+        clearDetectedBodies: vi.fn().mockResolvedValue({
+          bodies_deleted: 0,
+          bodies_preserved: 0,
+        }),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -149,6 +153,7 @@ function makeCtx(overrides: {
   handleAutoCorrelate?: () => Promise<void>
   handleClearSuggestions?: () => Promise<void>
   toast?: () => void
+  setPinchOutCandidates?: (candidates: unknown[]) => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
   const enterCorrelateMode = overrides.enterCorrelateMode ?? vi.fn()
@@ -376,7 +381,7 @@ function makeCtx(overrides: {
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
       pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
+      setPinchOutCandidates: overrides.setPinchOutCandidates ?? vi.fn(),
     },
     overlays: {
       demSource: null,
@@ -982,7 +987,13 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
-  it('M1-1: button is present and enabled with litho model + section', () => {
+  // The Materialise action now lives inside the "Bodies" dropdown
+  // (dogfeed 2026-06-01). Open the dropdown trigger before querying the item.
+  const openBodies = (): void => {
+    fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
+  }
+
+  it('M1-1: item is present and enabled with litho model + section', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -990,6 +1001,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
         selectedSectionId: 'sec-1',
       }),
     )
+    openBodies()
     const btn = screen.getByTestId('litho-materialise-lens-companions')
     expect(btn).not.toBeNull()
     expect(btn).not.toBeDisabled()
@@ -1013,6 +1025,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
       }),
     )
 
+    openBodies()
     const btn = screen.getByTestId('litho-materialise-lens-companions')
     await act(async () => { fireEvent.click(btn) })
 
@@ -1025,10 +1038,9 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     expect(message).toContain('2')
     expect(message).toContain('1')
     expect(message).toMatch(/created/i)
-    expect(btn).not.toBeDisabled()
   })
 
-  it('M1-3: API error â†’ toasts error, button re-enables', async () => {
+  it('M1-3: API error â†’ toasts error', async () => {
     vi.mocked(api.geology.materialiseLensCompanions).mockRejectedValueOnce(new Error('server error'))
     const toast = vi.fn()
 
@@ -1041,14 +1053,14 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
       }),
     )
 
+    openBodies()
     const btn = screen.getByTestId('litho-materialise-lens-companions')
     await act(async () => { fireEvent.click(btn) })
 
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Materialise lens companions failed'))
-    expect(btn).not.toBeDisabled()
   })
 
-  it('M1-4: button disabled when no section selected', () => {
+  it('M1-4: item disabled when no section selected', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -1056,7 +1068,78 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
         selectedSectionId: null,
       }),
     )
+    openBodies()
     expect(screen.getByTestId('litho-materialise-lens-companions')).toBeDisabled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Delete all detected lenses (dogfeed 2026-06-01)
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar Delete all detected lenses', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
+
+  const openBodies = (): void => {
+    fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
+  }
+
+  it('DDB-1: confirming the modal calls clearDetectedBodies + clears ghosts + toasts', async () => {
+    vi.mocked(api.geology.clearDetectedBodies).mockResolvedValueOnce({
+      bodies_deleted: 4,
+      bodies_preserved: 2,
+    })
+    const toast = vi.fn()
+    const setPinchOutCandidates = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+        setPinchOutCandidates,
+      }),
+    )
+
+    openBodies()
+    // Open the confirm modal from the dropdown item.
+    fireEvent.click(screen.getByTestId('litho-delete-detected-bodies'))
+    // Confirm in the modal (the danger button is labelled with the action).
+    await act(async () => {
+      fireEvent.click(screen.getByText('Delete detected lenses'))
+    })
+
+    expect(api.geology.clearDetectedBodies).toHaveBeenCalledWith('proj-1', 'model-litho-1')
+    expect(setPinchOutCandidates).toHaveBeenCalledWith([])
+    expect(toast).toHaveBeenCalledTimes(1)
+    const [level, message] = toast.mock.calls[0] as [string, string]
+    expect(level).toBe('success')
+    expect(message).toContain('4')
+    expect(message).toContain('2') // preserved count surfaced
+  })
+
+  it('DDB-2: API error toasts an error', async () => {
+    vi.mocked(api.geology.clearDetectedBodies).mockRejectedValueOnce(new Error('boom'))
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+      }),
+    )
+
+    openBodies()
+    fireEvent.click(screen.getByTestId('litho-delete-detected-bodies'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('Delete detected lenses'))
+    })
+
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Delete all detected lenses failed'))
   })
 })
 
