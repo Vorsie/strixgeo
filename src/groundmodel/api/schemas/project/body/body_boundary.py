@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 BodyRenderStyle = Literal["straight", "blocky", "rounded"]
+
+# A real lens boundary shape has at most a handful of control nodes — a
+# generous cap of 10 000 stops a malformed PUT from allocating an
+# arbitrarily large structure in Pydantic + triggering a bulk INSERT
+# into litho_lens_boundary_node.  Same family as the bundle caps in
+# project_bundle.py (debt #112 / S3).
+_MAX_BOUNDARY_NODES = 10_000
 
 
 class BodyBoundaryNodeItem(BaseModel):
@@ -32,6 +39,11 @@ class BodyBoundaryWriteRequest(BaseModel):
     so callers need not pre-sort.  An empty list clears that boundary's
     nodes.
 
+    ``max_length`` on each list defends against a malformed PUT that ships
+    100 000 nodes — the server would have to allocate + INSERT all of them
+    with no cap (debt #112 / S3).  A real lens boundary never exceeds a
+    handful of control points; 10 000 is a generous ceiling.
+
     Attributes
     ----------
     upper_nodes : list[BodyBoundaryNodeItem]
@@ -42,8 +54,12 @@ class BodyBoundaryWriteRequest(BaseModel):
         How the boundary is interpolated between nodes.
     """
 
-    upper_nodes: list[BodyBoundaryNodeItem] = Field(default_factory=list)
-    lower_nodes: list[BodyBoundaryNodeItem] = Field(default_factory=list)
+    upper_nodes: Annotated[
+        list[BodyBoundaryNodeItem], Field(default_factory=list, max_length=_MAX_BOUNDARY_NODES)
+    ]
+    lower_nodes: Annotated[
+        list[BodyBoundaryNodeItem], Field(default_factory=list, max_length=_MAX_BOUNDARY_NODES)
+    ]
     render_style: BodyRenderStyle = "straight"
 
 
