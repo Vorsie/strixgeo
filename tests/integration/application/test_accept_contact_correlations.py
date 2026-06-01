@@ -402,14 +402,14 @@ async def test_accept_does_not_auto_fire_lens_detection(
     )
 
     assert result.edges_accepted == 4, f"Expected 4 edges accepted; got {result.edges_accepted}"
-    # AcceptResult.lenses_created / .lenses_removed are kept on the
+    # AcceptResult.bodies_created / .bodies_removed are kept on the
     # response shape for client compatibility but are ALWAYS 0 since
-    # 2026-05-31.
-    assert result.lenses_created == 0, (
-        f"Accept must not auto-fire lens detection; got {result.lenses_created}"
+    # 2026-05-31 (renamed from lenses_created/lenses_removed in Slice 3.3).
+    assert result.bodies_created == 0, (
+        f"Accept must not auto-fire body detection; got {result.bodies_created}"
     )
-    assert result.lenses_removed == 0, (
-        f"Accept must not auto-fire lens detection; got {result.lenses_removed}"
+    assert result.bodies_removed == 0, (
+        f"Accept must not auto-fire body detection; got {result.bodies_removed}"
     )
 
     # The lens row has NOT materialised yet — verify and then exercise the
@@ -485,8 +485,8 @@ async def test_accept_is_idempotent_when_nothing_unapproved(
         f"Expected edges_accepted=0 (nothing to flip); got {result.edges_accepted}"
     )
     # Downstream calls must have run without raising.
-    assert result.lenses_created == 0
-    assert result.lenses_removed == 0
+    assert result.bodies_created == 0
+    assert result.bodies_removed == 0
     # The edge remains approved.
     row = await db_session.get(LithoContactCorrelationEdgeOrm, edge.id)
     assert row is not None

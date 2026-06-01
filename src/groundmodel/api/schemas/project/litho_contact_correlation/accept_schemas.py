@@ -29,12 +29,15 @@ class AcceptContactCorrelationsResponse(BaseModel):
     edges_accepted : int
         Number of edge rows flipped from ``user_approved=False`` to
         ``True`` in this call.
-    lenses_created : int
-        Net-new ``LithoLensOrm`` rows inserted by the downstream lens
-        detector.
-    lenses_removed : int
-        ``LithoLensOrm`` rows deleted because their topological body is
-        no longer bounded by two approved edges.
+    bodies_created : int
+        Net-new body rows inserted by the downstream detector.
+        Always ``0`` from the accept flow — body materialisation runs
+        only on the explicit ``POST .../bodies/detect`` verb.
+        Renamed from ``lenses_created`` in Slice 3.3 (2026-06-01).
+    bodies_removed : int
+        Body rows deleted because their topology is no longer bounded.
+        Always ``0`` from the accept flow — see ``bodies_created``.
+        Renamed from ``lenses_removed`` in Slice 3.3 (2026-06-01).
     ordinals_changed : int
         Diagnostic count of formation instance-ordinal changes triggered
         by the resolver.  Populated when ``ResolveLithoInstances``
@@ -42,6 +45,6 @@ class AcceptContactCorrelationsResponse(BaseModel):
     """
 
     edges_accepted: int
-    lenses_created: int
-    lenses_removed: int
+    bodies_created: int
+    bodies_removed: int
     ordinals_changed: int

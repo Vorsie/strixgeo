@@ -21,8 +21,8 @@ atomic transaction as the approval flip.
 
 Lens detection is NOT fired here (owner directive 2026-05-31): the
 explicit ``POST .../lenses/detect`` verb is the only entry point that
-materialises or reconciles ``LithoLensOrm`` rows.  The ``lenses_created``
-and ``lenses_removed`` fields on :class:`AcceptResult` stay on the
+materialises or reconciles ``LithoLensOrm`` rows.  The ``bodies_created``
+and ``bodies_removed`` fields on :class:`AcceptResult` stay on the
 response shape for client compatibility but are always ``0`` from this
 flow.
 """
@@ -53,20 +53,22 @@ class AcceptResult:
     ----------
     edges_accepted : int
         Number of edge rows whose ``user_approved`` flipped from False to True.
-    lenses_created : int
+    bodies_created : int
         Always ``0`` — kept on the response for client compatibility.
-        Lens materialisation now runs only on the explicit
-        ``POST .../lenses/detect`` verb (owner directive 2026-05-31).
-    lenses_removed : int
-        Always ``0`` — see ``lenses_created`` above.
+        Body materialisation now runs only on the explicit
+        ``POST .../bodies/detect`` verb (owner directive 2026-05-31).
+        Renamed from ``lenses_created`` in Slice 3.3 (2026-06-01).
+    bodies_removed : int
+        Always ``0`` — see ``bodies_created`` above.
+        Renamed from ``lenses_removed`` in Slice 3.3 (2026-06-01).
     ordinals_changed : int
         Number of formations whose ``instance_ordinal`` changed during the
         resolver step (from ``ResolveLithoInstances``).
     """
 
     edges_accepted: int
-    lenses_created: int
-    lenses_removed: int
+    bodies_created: int
+    bodies_removed: int
     ordinals_changed: int
 
 
@@ -223,11 +225,11 @@ class AcceptContactCorrelations(GroundModelLogger):
         self.success(
             f"AcceptContactCorrelations: accepted={edges_accepted} "
             f"ordinals_changed={ordinals_changed} "
-            f"lenses_created=0 lenses_removed=0"
+            f"bodies_created=0 bodies_removed=0"
         )
         return AcceptResult(
             edges_accepted=edges_accepted,
-            lenses_created=0,
-            lenses_removed=0,
+            bodies_created=0,
+            bodies_removed=0,
             ordinals_changed=ordinals_changed,
         )

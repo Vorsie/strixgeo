@@ -296,7 +296,7 @@ async def test_accept_returns_200_with_count_shape(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    for field in ("edges_accepted", "lenses_created", "lenses_removed", "ordinals_changed"):
+    for field in ("edges_accepted", "bodies_created", "bodies_removed", "ordinals_changed"):
         assert field in body, f"Missing field: {field}"
         assert isinstance(body[field], int)
 

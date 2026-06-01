@@ -443,8 +443,8 @@ async def accept_contact_correlations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
     return AcceptContactCorrelationsResponse(
         edges_accepted=result.edges_accepted,
-        lenses_created=result.lenses_created,
-        lenses_removed=result.lenses_removed,
+        bodies_created=result.bodies_created,
+        bodies_removed=result.bodies_removed,
         ordinals_changed=result.ordinals_changed,
     )
 
@@ -503,8 +503,8 @@ async def accept_single_contact_correlation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
     return AcceptContactCorrelationsResponse(
         edges_accepted=result.edges_accepted,
-        lenses_created=result.lenses_created,
-        lenses_removed=result.lenses_removed,
+        bodies_created=result.bodies_created,
+        bodies_removed=result.bodies_removed,
         ordinals_changed=result.ordinals_changed,
     )
 
