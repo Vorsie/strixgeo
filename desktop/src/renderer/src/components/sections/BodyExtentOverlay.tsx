@@ -41,6 +41,24 @@ import {
 import { computeDipExtrapolationEndpoint } from '../../utils/dipExtrapolationFrontend'
 import type { PlacedColumn } from './utils'
 
+/**
+ * Compute the midpoint ``farPoint`` between the source column and its
+ * neighbour, at the vertical midpoint between the top and base contacts.
+ * Used by the ``pinch_out_halfway`` extent kind and as the fallback for a
+ * degenerate ``extrapolated`` result.
+ */
+export function halfwayFarPoint(
+  col: { along: number },
+  neighbourCol: { along: number },
+  topSource: { elevation_m: number },
+  baseSource: { elevation_m: number },
+): { along_m: number; elevation_m: number } {
+  return {
+    along_m: (col.along + neighbourCol.along) / 2,
+    elevation_m: (topSource.elevation_m + baseSource.elevation_m) / 2,
+  }
+}
+
 const BOUNDARY_COLOR = '#10b981' // emerald — matches correlation-edge colour
 const FILL_COLOR = '#38bdf8' // sky — body fill
 const FILL_OPACITY = 0.22
@@ -374,13 +392,7 @@ export default function BodyExtentOverlay({
           towardAlong = targetCol.along
           break
         }
-        case 'pinch_out_halfway': {
-          if (!neighbourInvId) return null
-          const neighbourCol = colByInv.get(neighbourInvId)
-          if (!neighbourCol) return null
-          towardAlong = neighbourCol.along
-          break
-        }
+        case 'pinch_out_halfway':
         case 'extrapolated': {
           if (!neighbourInvId) return null
           const neighbourCol = colByInv.get(neighbourInvId)
@@ -421,9 +433,7 @@ export default function BodyExtentOverlay({
         }
         case 'pinch_out_halfway': {
           const neighbourCol = colByInv.get(neighbourInvId!)!
-          const midAlong = (col.along + neighbourCol.along) / 2
-          const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
-          farPoint = { along_m: midAlong, elevation_m: midElev }
+          farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
           break
         }
         case 'extrapolated': {
@@ -442,9 +452,7 @@ export default function BodyExtentOverlay({
               `[BodyExtentOverlay] Dip extrapolation degenerate for body ${body.id} ` +
               `side ${side} — falling back to halfway midpoint.`,
             )
-            const midAlong = (col.along + neighbourCol.along) / 2
-            const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
-            farPoint = { along_m: midAlong, elevation_m: midElev }
+            farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
           } else {
             farPoint = { along_m: result.along, elevation_m: result.elevation }
             isExtrapolated = true
@@ -763,9 +771,7 @@ export default function BodyExtentOverlay({
       if (!topSource || !baseSource) continue
 
       // Halfway midpoint (pinch_out_halfway geometry).
-      const midAlong = (sourceCol.along + neighbourCol.along) / 2
-      const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
-      const farPoint: WorldPt = { along_m: midAlong, elevation_m: midElev }
+      const farPoint: WorldPt = halfwayFarPoint(sourceCol, neighbourCol, topSource, baseSource)
 
       const topSrc = toScreen(topSource)
       const baseSrc = toScreen(baseSource)
