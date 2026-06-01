@@ -11,6 +11,9 @@
 //       SBT_dom    — dominant SBT zone over the series (heuristic:
 //                    Ic via Robertson 2015 from robertson_2015.py via the
 //                    plot endpoint; mode of zone-from-Ic per row).
+//   - Ic curve + SBT zone chart: click a CPT row to expand the
+//     CptIcSbtChart below the table (debt #22 — lifted from CptChart).
+//     Borehole rows collapse the chart (no Ic series available).
 //
 // Phase 5 fills in (placeholder columns shown muted with "Phase 5"):
 //   - φ′, c′, cu, E50, OCR, Vs, G0, M.
@@ -30,6 +33,7 @@ import { ArrowUpDown, Beaker } from 'lucide-react'
 
 import { EmptyState } from '../../../EmptyState'
 import { useShell } from '../../../ShellContext'
+import CptIcSbtChart from '../CptIcSbtChart'
 
 type Row = {
   id: string
@@ -85,6 +89,10 @@ export default function PerTestTab(): JSX.Element {
 
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortAsc, setSortAsc] = useState(true)
+  // Expanded CPT row — clicking a CPT row opens the Ic/SBT chart below the
+  // table. Clicking the same row again collapses it. Borehole rows don't
+  // carry an Ic series, so they always collapse the chart.
+  const [expandedCptId, setExpandedCptId] = useState<string | null>(null)
 
   const rows = useMemo<Row[]>(() => {
     const cptRows: Row[] = cpts.map(c => {
@@ -159,85 +167,142 @@ export default function PerTestTab(): JSX.Element {
     )
   }
 
+  const expandedPlot = expandedCptId !== null ? plotMap.get(expandedCptId) ?? null : null
+  const expandedName = expandedCptId !== null
+    ? (rows.find(r => r.id === expandedCptId)?.name ?? undefined)
+    : undefined
+
+  function handleRowClick(r: Row): void {
+    if (r.kind !== 'CPT') {
+      // Boreholes have no Ic series — clicking collapses any open chart.
+      setExpandedCptId(null)
+      return
+    }
+    setExpandedCptId(prev => (prev === r.id ? null : r.id))
+  }
+
   return (
-    <div className="h-full overflow-auto">
-      <table className="w-full text-[11px] border-collapse">
-        <thead className="sticky top-0 bg-surface-sunken text-text-secondary">
-          <tr className="border-b border-border-subtle">
-            <SortableHeader
-              label="Name"
-              active={sortKey === 'name'}
-              asc={sortAsc}
-              onClick={() => toggleSort('name')}
-            />
-            <SortableHeader
-              label="Kind"
-              active={sortKey === 'kind'}
-              asc={sortAsc}
-              onClick={() => toggleSort('kind')}
-            />
-            <SortableHeader
-              label="Depth (m)"
-              active={sortKey === 'depth_m'}
-              asc={sortAsc}
-              onClick={() => toggleSort('depth_m')}
-            />
-            <th className="px-2 py-1.5 text-left font-medium">x / y</th>
-            <SortableHeader
-              label="Ic̄ (Robertson 2015)"
-              active={sortKey === 'ic_avg'}
-              asc={sortAsc}
-              onClick={() => toggleSort('ic_avg')}
-            />
-            <th className="px-2 py-1.5 text-left font-medium">SBT (dominant)</th>
-            {/* Phase 5 columns — visible but muted so the engineer sees
-                the surface that will populate later. */}
-            <PhaseFiveHeader label="φ′" />
-            <PhaseFiveHeader label="c′" />
-            <PhaseFiveHeader label="cu" />
-            <PhaseFiveHeader label="E50" />
-            <PhaseFiveHeader label="OCR" />
-            <PhaseFiveHeader label="Vs" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr
-              key={r.id}
-              className="border-b border-border-subtle hover:bg-surface-sunken/40"
-              data-testid={`parameters-row-${r.id}`}
-            >
-              <td className="px-2 py-1 font-medium">{r.name}</td>
-              <td className="px-2 py-1 text-text-secondary">{r.kind}</td>
-              <td className="px-2 py-1 tabular-nums">
-                {r.depth_m === null ? '—' : r.depth_m.toFixed(1)}
-              </td>
-              <td className="px-2 py-1 tabular-nums text-text-muted">
-                {r.location_x.toFixed(0)} / {r.location_y.toFixed(0)}
-              </td>
-              <td className="px-2 py-1 tabular-nums">
-                {r.ic_avg === null ? <span className="text-text-muted">—</span> : r.ic_avg.toFixed(2)}
-              </td>
-              <td className="px-2 py-1 text-text-secondary">
-                {r.sbt_dom ?? <span className="text-text-muted">—</span>}
-              </td>
-              <PhaseFiveCell />
-              <PhaseFiveCell />
-              <PhaseFiveCell />
-              <PhaseFiveCell />
-              <PhaseFiveCell />
-              <PhaseFiveCell />
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Scrollable table */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="w-full text-[11px] border-collapse">
+          <thead className="sticky top-0 bg-surface-sunken text-text-secondary">
+            <tr className="border-b border-border-subtle">
+              <SortableHeader
+                label="Name"
+                active={sortKey === 'name'}
+                asc={sortAsc}
+                onClick={() => toggleSort('name')}
+              />
+              <SortableHeader
+                label="Kind"
+                active={sortKey === 'kind'}
+                asc={sortAsc}
+                onClick={() => toggleSort('kind')}
+              />
+              <SortableHeader
+                label="Depth (m)"
+                active={sortKey === 'depth_m'}
+                asc={sortAsc}
+                onClick={() => toggleSort('depth_m')}
+              />
+              <th className="px-2 py-1.5 text-left font-medium">x / y</th>
+              <SortableHeader
+                label="Ic̄ (Robertson 2015)"
+                active={sortKey === 'ic_avg'}
+                asc={sortAsc}
+                onClick={() => toggleSort('ic_avg')}
+              />
+              <th className="px-2 py-1.5 text-left font-medium">SBT (dominant)</th>
+              {/* Phase 5 columns — visible but muted so the engineer sees
+                  the surface that will populate later. */}
+              <PhaseFiveHeader label="φ′" />
+              <PhaseFiveHeader label="c′" />
+              <PhaseFiveHeader label="cu" />
+              <PhaseFiveHeader label="E50" />
+              <PhaseFiveHeader label="OCR" />
+              <PhaseFiveHeader label="Vs" />
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle">
-        {rows.length} test{rows.length === 1 ? '' : 's'} · Ic̄ shown when
-        the plot data is loaded (open the CPT once to populate). Future:
-        click any row to expand the raincloud plot, switch correlation
-        method, wire probabilistic distribution, or compare against
-        other tests.
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const isExpanded = expandedCptId === r.id
+              const hasSeries  = r.kind === 'CPT' && plotMap.has(r.id)
+              return (
+                <tr
+                  key={r.id}
+                  // CPT rows with a loaded series are clickable to expand the
+                  // Ic/SBT chart. Rows without a series still register the click
+                  // so the user can see the "open the CPT once" hint in the footer.
+                  className={
+                    'border-b border-border-subtle ' +
+                    (r.kind === 'CPT'
+                      ? 'cursor-pointer hover:bg-surface-sunken/60 ' + (isExpanded ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/40')
+                      : 'hover:bg-surface-sunken/40')
+                  }
+                  aria-selected={isExpanded}
+                  onClick={() => handleRowClick(r)}
+                  data-testid={`parameters-row-${r.id}`}
+                >
+                  <td className="px-2 py-1 font-medium">
+                    {r.name}
+                    {/* Expansion caret for CPT rows — visual affordance */}
+                    {r.kind === 'CPT' && hasSeries && (
+                      <span
+                        className="ml-1 text-text-muted text-[9px]"
+                        aria-hidden="true"
+                      >
+                        {isExpanded ? '▲' : '▼'}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 text-text-secondary">{r.kind}</td>
+                  <td className="px-2 py-1 tabular-nums">
+                    {r.depth_m === null ? '—' : r.depth_m.toFixed(1)}
+                  </td>
+                  <td className="px-2 py-1 tabular-nums text-text-muted">
+                    {r.location_x.toFixed(0)} / {r.location_y.toFixed(0)}
+                  </td>
+                  <td className="px-2 py-1 tabular-nums">
+                    {r.ic_avg === null ? <span className="text-text-muted">—</span> : r.ic_avg.toFixed(2)}
+                  </td>
+                  <td className="px-2 py-1 text-text-secondary">
+                    {r.sbt_dom ?? <span className="text-text-muted">—</span>}
+                  </td>
+                  <PhaseFiveCell />
+                  <PhaseFiveCell />
+                  <PhaseFiveCell />
+                  <PhaseFiveCell />
+                  <PhaseFiveCell />
+                  <PhaseFiveCell />
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <div className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle">
+          {rows.length} test{rows.length === 1 ? '' : 's'} · Ic̄ shown when
+          the plot data is loaded (open the CPT once to populate). Click a CPT
+          row to expand the Ic / SBT zone chart. Future: raincloud plot,
+          correlation method picker, probabilistic distribution, cross-test
+          comparison.
+        </div>
       </div>
+
+      {/* Ic / SBT zone chart — shown when a CPT row with a loaded series is expanded */}
+      {expandedPlot && expandedPlot.ic && expandedPlot.ic.length > 0 && (
+        <div
+          className="border-t-2 border-status-amber shrink-0 bg-surface-app overflow-auto"
+          style={{ maxHeight: 440 }}
+          data-testid="parameters-ic-sbt-panel"
+        >
+          <CptIcSbtChart
+            plot={expandedPlot}
+            title={expandedName}
+            heightPx={380}
+          />
+        </div>
+      )}
     </div>
   )
 }
