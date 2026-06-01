@@ -25,7 +25,7 @@
  * runs its action and then closes the menu automatically.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 /** One selectable row in a {@link ContextMenu}. */
 export interface ContextMenuItem {
@@ -47,6 +47,13 @@ export interface ContextMenuItem {
   testid?: string
   /** Stable React key; falls back to ``label``. */
   key?: string
+  /** Nested submenu. When present (and non-empty), this row expands a child
+   *  panel on hover / click instead of firing an action — the item's own
+   *  ``onClick`` is ignored and a ``▸`` affordance is drawn. One level of
+   *  nesting only. **Currently honoured by the ``portal="svg"`` variant only**
+   *  (the canvas menus); the DOM variants render the parent row as a plain
+   *  button and ignore the submenu. No DOM caller uses submenus today. */
+  submenu?: ContextMenuItem[]
 }
 
 interface BaseProps {
@@ -106,6 +113,10 @@ const SVG_ITEM_STYLE: React.CSSProperties = {
 
 export default function ContextMenu(props: Props): JSX.Element {
   const { items, header, onClose, ariaLabel, testid, minWidth = 200 } = props
+
+  // Which submenu (by key/label) is currently expanded — SVG variant only.
+  // Declared unconditionally (hooks rule) even though only the SVG branch reads it.
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
 
   // Esc closes the menu in every variant (debt #164 unifies this).
   useEffect(() => {
@@ -169,31 +180,85 @@ export default function ContextMenu(props: Props): JSX.Element {
               {header}
             </div>
           )}
-          {visibleItems.map(item => (
-            <button
-              key={item.key ?? item.label}
-              type="button"
-              data-testid={item.testid}
-              role="menuitem"
-              disabled={item.disabled}
-              title={item.reason}
-              style={{
-                ...SVG_ITEM_STYLE,
-                ...(item.danger ? { color: 'var(--color-text-danger, #f87171)' } : {}),
-                ...(item.disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
-                ...(item.topBorder
-                  ? { borderTop: '1px solid var(--color-border-default, #334155)' }
-                  : {}),
-              }}
-              onClick={() => {
-                if (item.disabled) return
-                item.onClick()
-                onClose()
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+          {visibleItems.map(item => {
+            // Leaf row: fires its action then closes the whole menu.
+            const leafButton = (it: ContextMenuItem): JSX.Element => (
+              <button
+                key={it.key ?? it.label}
+                type="button"
+                data-testid={it.testid}
+                role="menuitem"
+                disabled={it.disabled}
+                title={it.reason}
+                style={{
+                  ...SVG_ITEM_STYLE,
+                  ...(it.danger ? { color: 'var(--color-text-danger, #f87171)' } : {}),
+                  ...(it.disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+                  ...(it.topBorder
+                    ? { borderTop: '1px solid var(--color-border-default, #334155)' }
+                    : {}),
+                }}
+                onClick={() => {
+                  if (it.disabled) return
+                  it.onClick()
+                  onClose()
+                }}
+              >
+                {it.label}
+              </button>
+            )
+
+            const subItems = (item.submenu ?? []).filter(
+              (s): s is ContextMenuItem => Boolean(s),
+            )
+            if (subItems.length === 0) return leafButton(item)
+
+            // Parent row: hover / click expands a child panel to the right.
+            // The row itself has no action — it only toggles its submenu.
+            const itemKey = item.key ?? item.label
+            const open = openSubmenu === itemKey
+            return (
+              <div
+                key={itemKey}
+                style={{ position: 'relative' }}
+                onMouseEnter={() => setOpenSubmenu(itemKey)}
+                onMouseLeave={() => setOpenSubmenu(s => (s === itemKey ? null : s))}
+              >
+                <button
+                  type="button"
+                  data-testid={item.testid}
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={open}
+                  style={{
+                    ...SVG_ITEM_STYLE,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    ...(item.topBorder
+                      ? { borderTop: '1px solid var(--color-border-default, #334155)' }
+                      : {}),
+                  }}
+                  onClick={() => setOpenSubmenu(s => (s === itemKey ? null : itemKey))}
+                >
+                  <span>{item.label}</span>
+                  <span aria-hidden style={{ opacity: 0.6 }}>
+                    ▸
+                  </span>
+                </button>
+                {open && (
+                  <div
+                    role="menu"
+                    aria-label={item.label}
+                    style={{ ...SVG_PANEL_STYLE, left: '100%', top: 0, minWidth }}
+                  >
+                    {subItems.map(leafButton)}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
         {/* Backdrop — catches right-click-to-dismiss (the document listener
             only watches left clicks). stopPropagation on the left click so it
