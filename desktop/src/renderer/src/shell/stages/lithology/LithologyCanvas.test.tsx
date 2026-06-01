@@ -20,7 +20,7 @@ import type {
   GeologicalFormationResponse,
   GeologicalModelResponse,
 } from '../../../api/client'
-import LithologyCanvas from './LithologyCanvas'
+import LithologyCanvas, { resetLithoSplitViewportCallback } from './LithologyCanvas'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -433,6 +433,18 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     renderCanvas(ctx)
 
     expect(screen.getByTestId('geology-3d-viewer')).toBeInTheDocument()
+  })
+
+  // C3: resetLithoSplitViewportCallback is exported (debt #64 resolved).
+  //     LithologyStage's toolbar Reset calls this to collapse the split viewport.
+  it('C3 -- resetLithoSplitViewportCallback is callable after canvas mounts', () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+    renderCanvas(ctx)
+
+    // The module-level ref is set by the canvas on render.
+    // Calling it resets split state; must not throw.
+    expect(() => resetLithoSplitViewportCallback.current?.()).not.toThrow()
   })
 })
 
