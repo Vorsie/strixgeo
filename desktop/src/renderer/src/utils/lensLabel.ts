@@ -1,42 +1,77 @@
 /**
  * Display-label helpers for lenses (bodies).
  *
- * A lens is auto-labelled by its main lithology + a stacking number so it is
- * readable on the section without the user having to name every one
+ * A lens is auto-labelled by its **parent geological formation** + a **depth
+ * rank** (shallowest = 1, deepest = N), computed dynamically per formation
+ * label so it stays correct as lenses are added/removed/moved
  * (dogfeed 2026-06-01). The label is COMPUTED, never stored: the body's
  * ``name`` column stays reserved for an explicit user name, which is also the
  * "kept / accepted" marker that protects a lens from "Delete all detected
  * lenses" + the detector reconcile. Auto-writing ``name`` would make every
- * lens un-deletable, so the auto-label lives at the presentation boundary only.
+ * lens un-deletable, so the auto-label lives at the presentation boundary.
  *
- * Stacking number = ``body_ordinal + 1`` (the per-formation-instance ordinal
- * the correlation resolver already assigns, 0-based → shown 1-based).
+ * Cross-section / 3D-consistent naming (the same physical body keeping one
+ * identity across sections) is a separate, harder problem — see debt #194.
  */
 
-/** ``"{lithology} {stacking number}"`` — the auto-generated lens label. */
-export function lensAutoLabel(lithologyOrName: string, bodyOrdinal: number): string {
-  return `${lithologyOrName} ${bodyOrdinal + 1}`
+/** ``"{formation} {depth rank}"`` — the auto-generated lens label. */
+export function lensAutoLabel(formationLabel: string, depthRank: number): string {
+  return `${formationLabel} ${depthRank}`
 }
 
 /**
  * The label to show for a lens: the user's explicit ``name`` when set,
- * otherwise the auto-label (lithology + stacking number).
+ * otherwise the auto-label (parent formation + depth rank).
  *
  * Parameters
  * ----------
  * name
  *     The body's explicit ``name`` (``null`` / blank when un-named).
- * lithologyOrName
- *     The body's formation lithology (e.g. ``"ZAND"``) or, failing that, its
- *     formation name — the caller resolves this from the formation set.
- * bodyOrdinal
- *     The body's ``body_ordinal`` (0-based).
+ * formationLabel
+ *     The body's parent geological formation label (or a fallback the caller
+ *     resolves, e.g. the lithology) used for the auto-name.
+ * depthRank
+ *     1-based depth rank within the formation group (1 = shallowest).
  */
 export function lensDisplayLabel(
   name: string | null | undefined,
-  lithologyOrName: string,
-  bodyOrdinal: number,
+  formationLabel: string,
+  depthRank: number,
 ): string {
   const trimmed = name?.trim()
-  return trimmed && trimmed.length > 0 ? trimmed : lensAutoLabel(lithologyOrName, bodyOrdinal)
+  return trimmed && trimmed.length > 0 ? trimmed : lensAutoLabel(formationLabel, depthRank)
+}
+
+/**
+ * Assign each lens a 1-based depth rank within its formation-label group.
+ *
+ * Lenses sharing a ``label`` are sorted by ``depth`` ascending (shallowest
+ * first) and numbered 1..N. Id is the tiebreaker for deterministic output.
+ *
+ * Parameters
+ * ----------
+ * items
+ *     One entry per body: ``{ id, label, depth }`` where ``depth`` is the
+ *     body's representative depth-below-surface (smaller = shallower).
+ *
+ * Returns
+ * -------
+ * Map<string, number>
+ *     body id → depth rank (1 = shallowest in its label group).
+ */
+export function computeDepthStacking(
+  items: readonly { id: string; label: string; depth: number }[],
+): Map<string, number> {
+  const groups = new Map<string, { id: string; depth: number }[]>()
+  for (const it of items) {
+    const arr = groups.get(it.label)
+    if (arr) arr.push({ id: it.id, depth: it.depth })
+    else groups.set(it.label, [{ id: it.id, depth: it.depth }])
+  }
+  const out = new Map<string, number>()
+  for (const arr of groups.values()) {
+    arr.sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id))
+    arr.forEach((e, i) => out.set(e.id, i + 1))
+  }
+  return out
 }
