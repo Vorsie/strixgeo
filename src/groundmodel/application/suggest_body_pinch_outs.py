@@ -71,10 +71,15 @@ class PinchOutCandidate:
         investigation in the section's along axis.  ``"left"`` = lower
         along-distance; ``"right"`` = higher (UUID rank in the no-section
         fallback).
-    suggested_neighbour_investigation_id : UUID
-        The nearest adjacent investigation on ``side``.  The frontend
-        pre-fills this as the default target when the user clicks to
-        commit via ``ClaimBodyExtent``.
+    kind : Literal["pinch_out_halfway", "open"]
+        The extent kind the candidate would claim. ``"pinch_out_halfway"``
+        for an interior pinch-out toward ``suggested_neighbour_investigation_id``;
+        ``"open"`` for an EDGE test that has no neighbour on ``side`` — we
+        don't know what's beyond the furthest test, so it opens to the
+        section boundary (only emitted when a section is given).
+    suggested_neighbour_investigation_id : UUID | None
+        The nearest adjacent investigation on ``side`` (the halfway target).
+        ``None`` for an ``"open"`` edge candidate.
     """
 
     body_id: UUID | None
@@ -82,7 +87,8 @@ class PinchOutCandidate:
     above_contact_id: UUID
     below_contact_id: UUID
     side: Literal["left", "right"]
-    suggested_neighbour_investigation_id: UUID
+    kind: Literal["pinch_out_halfway", "open"]
+    suggested_neighbour_investigation_id: UUID | None
 
 
 class SuggestBodyPinchOuts(GroundModelLogger):
@@ -298,8 +304,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 if not left_paired and not left_claimed:
                     left_neighbours = [n for n in ordered if position[n] < src_pos]
                     if left_neighbours:
-                        # Nearest left neighbour (largest position below source).
-                        suggested = left_neighbours[-1]
+                        # Interior: pinch out halfway to the nearest left neighbour.
                         candidates.append(
                             PinchOutCandidate(
                                 body_id=body_id,
@@ -307,7 +312,22 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
                                 side="left",
-                                suggested_neighbour_investigation_id=suggested,
+                                kind="pinch_out_halfway",
+                                suggested_neighbour_investigation_id=left_neighbours[-1],
+                            )
+                        )
+                    elif section_id is not None:
+                        # Section EDGE (leftmost test): nothing to the left, no
+                        # data beyond — open the layer to the section boundary.
+                        candidates.append(
+                            PinchOutCandidate(
+                                body_id=body_id,
+                                source_investigation_id=inv_id,
+                                above_contact_id=above_id,
+                                below_contact_id=below_id,
+                                side="left",
+                                kind="open",
+                                suggested_neighbour_investigation_id=None,
                             )
                         )
 
@@ -316,8 +336,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 if not right_paired and not right_claimed:
                     right_neighbours = [n for n in ordered if position[n] > src_pos]
                     if right_neighbours:
-                        # Nearest right neighbour (smallest position above source).
-                        suggested = right_neighbours[0]
+                        # Interior: pinch out halfway to the nearest right neighbour.
                         candidates.append(
                             PinchOutCandidate(
                                 body_id=body_id,
@@ -325,7 +344,21 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
                                 side="right",
-                                suggested_neighbour_investigation_id=suggested,
+                                kind="pinch_out_halfway",
+                                suggested_neighbour_investigation_id=right_neighbours[0],
+                            )
+                        )
+                    elif section_id is not None:
+                        # Section EDGE (rightmost test): open to the boundary.
+                        candidates.append(
+                            PinchOutCandidate(
+                                body_id=body_id,
+                                source_investigation_id=inv_id,
+                                above_contact_id=above_id,
+                                below_contact_id=below_id,
+                                side="right",
+                                kind="open",
+                                suggested_neighbour_investigation_id=None,
                             )
                         )
 
