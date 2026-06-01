@@ -1453,10 +1453,15 @@ export function setBaseUrl(url: string): void {
   _base = url
 }
 
+// Strip query-string before logging so future license keys / session tokens
+// that might land in query params don't end up in the renderer log stream.
+// The thrown Error messages retain the full path for developer diagnostics.
+const stripQuery = (p: string): string => p.split('?')[0]
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${_base}${path}`)
   if (!res.ok) {
-    log.error('api', 'GET', path, res.status)
+    log.error('api', 'GET', stripQuery(path), res.status)
     throw new Error(`GET ${path} → ${res.status}`)
   }
   return res.json()
@@ -1468,7 +1473,7 @@ async function del(path: string): Promise<void> {
     // Surface the server's `detail` (e.g. the 409 "delete the dependent
     // model first" guard) instead of an opaque "→ 409" — mirrors patch/put.
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'DELETE', path, res.status)
+    log.error('api', 'DELETE', stripQuery(path), res.status)
     throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
   }
 }
@@ -1481,7 +1486,7 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PATCH', path, res.status)
+    log.error('api', 'PATCH', stripQuery(path), res.status)
     throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
   }
   return res.json()
@@ -1495,7 +1500,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PUT', path, res.status)
+    log.error('api', 'PUT', stripQuery(path), res.status)
     throw new Error(detail.detail ?? `PUT ${path} → ${res.status}`)
   }
   return res.json()
@@ -1510,7 +1515,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${_base}${path}`, init)
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'POST', path, res.status)
+    log.error('api', 'POST', stripQuery(path), res.status)
     throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
   }
   return res.json()
