@@ -33,6 +33,10 @@ import { EmptyState } from '../shell/EmptyState'
 import type {
   AdmixtureItem,
   BoreholeListItem,
+  BodyBoundaryNode,
+  BodyBoundaryResponse,
+  BodyListItem,
+  BodyRenderStyle,
   CptListItem,
   BoreholeDetailResponse,
   CptPlotResponse,
@@ -42,12 +46,8 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
-  LensBoundaryNode,
-  LensBoundaryResponse,
-  LensRenderStyle,
   LithoContactCorrelationEdge,
   LithoLayerSuggestion,
-  LithoLensListItem,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
@@ -83,12 +83,12 @@ import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
-import LensWedgeOverlay from './sections/LensWedgeOverlay'
+import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
-/** Stable empty map so the LensWedgeOverlay prop identity doesn't churn. */
-const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, LensBoundaryResponse> = new Map()
+/** Stable empty map so the BodyExtentOverlay prop identity doesn't churn. */
+const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
 import PinchOutGhostOverlay, {
   PinchOutConfirmPanel,
 } from './sections/PinchOutGhostOverlay'
@@ -701,19 +701,19 @@ interface Props {
    */
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
   /**
-   * Detected lens bodies for the active litho model (#163f Slice 2). When
-   * present, rendered as shapeable wedges by ``LensWedgeOverlay``. Absent =
-   * no lens wedges.
+   * Detected body list for the active litho model (#163f Slice 6). When
+   * present, rendered as shapeable wedges by ``BodyExtentOverlay``. Absent =
+   * no body wedges.
    */
-  lenses?: readonly LithoLensListItem[]
-  /** Stored boundary shape per lens id (render style + control nodes). */
-  lensBoundaries?: ReadonlyMap<string, LensBoundaryResponse>
-  /** Full-replace a lens's boundary shape after a ghost-node drag/add. */
+  lenses?: readonly BodyListItem[]
+  /** Stored boundary shape per body id (render style + control nodes). */
+  lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
+  /** Full-replace a body's boundary shape after a ghost-node drag/add. */
   onSaveLensShape?: (
-    lensId: string,
-    upperNodes: LensBoundaryNode[],
-    lowerNodes: LensBoundaryNode[],
-    style: LensRenderStyle,
+    bodyId: string,
+    upperNodes: BodyBoundaryNode[],
+    lowerNodes: BodyBoundaryNode[],
+    style: BodyRenderStyle,
   ) => void
   /** Right-click a wedge → dissolve the lens by deleting its defining edges. */
   onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
@@ -885,7 +885,7 @@ export default function SectionPanel({
     (level: number) => MARGIN.top + (effLevelMax - level) * scaleV,
     [effLevelMax, scaleV],
   )
-  // Inverses of the forward transforms (#163f) — used by LensWedgeOverlay to
+  // Inverses of the forward transforms (#163f) — used by BodyExtentOverlay to
   // map a dragged ghost node's screen position back to section-local
   // (along_m, elevation_m). Must invert the SAME forward transform used to
   // render so render + commit stay consistent.
@@ -2280,7 +2280,7 @@ export default function SectionPanel({
     [warpAnchors, xToScreen, scaleH],
   )
 
-  // Warp-aware screen→along inverse for LensWedgeOverlay (dogfeed
+  // Warp-aware screen→along inverse for BodyExtentOverlay (dogfeed
   // 2026-05-31 follow-up).  Earlier version lived above ``warpAnchors``
   // and read ``warpAnchorsRef.current``, but React updates refs in a
   // ``useEffect`` AFTER the render that built them — so on the render
@@ -3139,13 +3139,13 @@ export default function SectionPanel({
                 onRequestAcceptEdge={onRequestAcceptEdge}
               />
             )}
-            {/* Lens wedges (#163f Slice 2) — detected lenses rendered as
-                shapeable tapering wedges with draggable ghost nodes. Litho
-                axis only; isolated from CorrelationEdgesOverlay. */}
+            {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
+                to_target / pinch_out_halfway / extrapolated / open / null.
+                Litho axis only; isolated from CorrelationEdgesOverlay. */}
             {axisMode === 'lithostratigraphic' && lenses !== undefined && (
-              <LensWedgeOverlay
-                lenses={lenses}
-                boundariesByLensId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
+              <BodyExtentOverlay
+                bodies={lenses}
+                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
                 contacts={correlateContacts}
                 placedColumns={visibleColumns}
                 contactEdges={contactEdges ?? []}
@@ -3159,6 +3159,9 @@ export default function SectionPanel({
                 screenToLevel={screenToLevel}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
+                // Section endpoints for the ``open`` extent kind.
+                sectionStartScreenX={warpedXToScreen(0)}
+                sectionEndScreenX={warpedXToScreen(lengthM)}
                 onSaveLensShape={onSaveLensShape}
                 onDeleteLens={onDeleteLens}
               />
