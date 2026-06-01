@@ -86,7 +86,6 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
-import { lensDisplayLabel } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
@@ -853,13 +852,17 @@ export default function SectionPanel({
   } | null>(null)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
-  // formation_id → lithology label for the lens auto-name (lithology +
-  // stacking number). Prefer the lithology code; fall back to the formation
-  // name. Consumed by BodyExtentOverlay's wedge label.
+  // formation_id → label for the lens auto-name. Prefer the PARENT geological
+  // formation (owner directive 2026-06-01: lenses are named after the parent
+  // formation + a depth rank); fall back to the lithology, then the unit name.
+  // Consumed by BodyExtentOverlay's wedge label (which appends the depth rank).
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
-      m.set(f.id, (f.lithology ?? '').trim() || f.name)
+      m.set(
+        f.id,
+        (f.parent_formation_name ?? '').trim() || (f.lithology ?? '').trim() || f.name,
+      )
     }
     return m
   }, [formations])
@@ -3310,13 +3313,9 @@ export default function SectionPanel({
                 y={bodyCtxMenu.svgY}
                 body={bodyCtxMenu.body}
                 displayLabel={
-                  formationLabelById.get(bodyCtxMenu.body.formation_id)
-                    ? lensDisplayLabel(
-                        bodyCtxMenu.body.name,
-                        formationLabelById.get(bodyCtxMenu.body.formation_id)!,
-                        bodyCtxMenu.body.body_ordinal,
-                      )
-                    : undefined
+                  bodyCtxMenu.body.name?.trim() ||
+                  formationLabelById.get(bodyCtxMenu.body.formation_id) ||
+                  undefined
                 }
                 onClaimExtent={(bodyId, side, kind) => {
                   onClaimBodyExtent?.(bodyId, side, kind)
