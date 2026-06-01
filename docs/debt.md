@@ -67,7 +67,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -427,57 +427,27 @@ it does network I/O), dry-run default, with this safety bar baked in:
   always no-stamp + instruct-reimport. No live-DOV integration test
   needed before the trigger.
 
-## 22. CPT detail chart conflates raw curves with Ic/SBT interpretation (low — Parameters-stage trigger)
+## 22. CPT detail chart conflates raw curves with Ic/SBT interpretation — RESOLVED 2026-06-01
 
-**What.** The CPT detail chart (``CptChart.tsx``) renders the raw
-measured curves (qc / fs / Rf / u2) AND the Robertson Ic curve +
-SBT zone bands + zone labels + a second x-axis tick row in one
-cramped column. Ic/SBT is *interpretation*, not raw data; on a
-narrow detail pane it reads as clutter, and the pale domain SBT
-pastels on the dark hero surface are unavoidably low-contrast
-(domain hues — Tier 5 — can't be repainted; only the chrome over
-them was de-flipped to dark in the dark-legibility pass).
+**Resolved.** ``CptChart.tsx`` is now raw-only: the Robertson Ic curve,
+SBT zone bands, zone labels, second x-axis tick row, Ic legend entry,
+and SBT colour-key strip were all removed. ``CptChart`` renders only the
+measured channels (qc / fs / Rf / u2 / Qt).
 
-**Why deferred.** The workflow-spine puts interpretation in the
-Geotech / Parameters stage (Phase 5). Splitting Ic/SBT into its
-own parameter view is naturally that stage's work, not a
-standalone chart refactor now — doing it early duplicates effort
-the stage will redo. The de-flip fix made the interim state
-usable (Ic curve/labels legible again in both themes).
+The Ic curve + SBT zone bands live in a new dedicated component:
+``desktop/src/renderer/src/shell/stages/parameters/CptIcSbtChart.tsx``.
+It is embedded in the Parameters stage's per-test tab
+(``PerTestTab.tsx``) — clicking a CPT row with a loaded Ic series
+expands the chart in a panel below the table.
 
-**When to revisit.** When the Geotech / Parameters stage is built
-(Phase 5). Move the Ic curve + SBT zones + zone labels out of the
-raw-curve detail chart into the parameter view there; the raw
-CptChart then shows only measured curves.
+Data source unchanged: the same ``plot.ic`` field from the
+``/cpt/{id}/plot`` endpoint, sourced from
+``robertson_2015.ic_series_2015``. No backend change.
 
-**Related (litho slice 3, 2026-05-17):** the litho segmenter
-classifies CPT lithology via a faithful port of Daniel Verastegui's
-Robertson **2015** Qtn/F/Ic + **2009** chart-zone method
-(``domain/services/robertson_2015.py``).
-
-**Reconciliation shipped 2026-05-21.** The ``/cpt/{id}/plot`` endpoint
-(and ``/cpt/plot-batch``) now sources Ic from
-``robertson_2015.ic_series_2015`` — a thin wrapper around the same
-2015 stress + Qtn/F/Ic pipeline the litho segmenter uses — instead of
-the frozen Robertson **1990** preview in
-``cpt_interpretation.calculate_ic_series``. Response shape unchanged
-(still ``ic: list[float | None]``). Chart legend label + Parameters
-``PerTestTab`` Ic̄ column header updated from "Robertson 1990" to
-"Robertson 2015". 3 new unit pins on the wrapper (empty/length/None-
-propagation); existing pins on the iterative Qtn/F/Ic core are
-unchanged. 1046 vitest + 913 unit + tsc clean.
-
-The two-method-disagreement-at-zone-boundaries note is now retired —
-the whole app is consistent on Daniel's method. The frozen Robertson
-1990 ``cpt_interpretation`` module stays in place as a domain peer
-(other callers may exist for historical analysis); it just is no
-longer the chart's data source.
-
-**Still open under #22.** The FULL Ic/SBT-into-Parameters-stage split
-remains a Phase 5 deliverable — that's the bigger work the original
-entry calls out. The reconciliation above closes only the "two
-methods diverging" half of the debt. CLAUDE.md Tier E keeps #22 until
-the full split lands.
+Tests: 9 new pins in ``CptIcSbtChart.test.tsx`` (IC1–IC7 + two title
+props); ``CptChart.test.tsx`` updated — the old "renders Ic SBT strip"
+pin is now the inverse "does NOT render Ic / SBT" pin. 1548 vitest +
+tsc clean. 1549 total (1 pre-existing skip).
 
 ## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E)
 
