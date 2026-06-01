@@ -21,6 +21,7 @@ from groundmodel.api.schemas.project.cross_section import (
     CrossSectionUpdateRequest,
 )
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
+from groundmodel.application.section_snapshot import SectionSnapshot
 from groundmodel.infrastructure.codelists.horizontal_crs import (
     horizontal_crs_label,
     is_supported_section_crs,
@@ -80,6 +81,81 @@ def _require_supported_section_crs(epsg: int | None, *, context: str) -> None:
             "requires metres (e.g. Belgian Lambert 72 / RD New). Set a "
             "metric Default horizontal CRS in Project metadata."
         ),
+    )
+
+
+async def _build_export_snapshot(
+    session: AsyncSession,
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+) -> SectionSnapshot:
+    """Load a section snapshot and validate its CRS for export.
+
+    Combines the three boilerplate steps repeated by every section-export
+    handler: ``BuildSectionSnapshot``, ``ParseError → 404``, and the
+    defence-in-depth CRS allowlist check (debt #31).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope guard — passed through to the snapshot builder.
+    section_id : UUID
+        Section to export.
+    model_id : UUID
+        Geological model whose contacts to include.
+
+    Returns
+    -------
+    SectionSnapshot
+        Snapshot ready for any section-export handler.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the section / model / project cannot be resolved.
+    HTTPException(400)
+        When the section carries a non-metric CRS (debt #31).
+    """
+    try:
+        snapshot = await BuildSectionSnapshot(session).execute(
+            app_project_id=project_id,
+            section_id=section_id,
+            model_id=model_id,
+        )
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
+    return snapshot
+
+
+def _section_safe_name(section_name: str) -> str:
+    """Sanitise a section name into a safe filename stem.
+
+    Strips characters that cause problems in filenames or
+    ``Content-Disposition`` headers (forward slashes, control chars,
+    double-quotes, etc.). Falls back to ``"section"`` when nothing
+    safe remains.
+
+    Parameters
+    ----------
+    section_name : str
+        Raw section name from the snapshot.
+
+    Returns
+    -------
+    str
+        Alphanumeric + ``-_`` filename stem, stripped of leading/trailing
+        spaces.
+    """
+    return (
+        "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in section_name).strip()
+        or "section"
     )
 
 
@@ -255,35 +331,9 @@ async def export_section_dxf(
         failure mode is "this id doesn't exist in this project".
     """
     logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/dxf (model={model_id})")
-    try:
-        snapshot = await BuildSectionSnapshot(session).execute(
-            app_project_id=project_id,
-            section_id=section_id,
-            model_id=model_id,
-        )
-    except ParseError as exc:
-        # The use case raises ParseError for not-found / degenerate
-        # cases; surface as 404 with the underlying message.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    # Defence in depth: a section created before the create-time CRS
-    # guard landed (debt #31), or via a direct API call, could still
-    # carry a geographic CRS. Reject here too rather than emit garbage.
-    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
-
+    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = DxfSectionExporter().export(snapshot)
-    # Sanitise the section name for the filename — DXF receivers
-    # don't like names with forward slashes, control chars, etc.
-    safe_name = (
-        "".join(
-            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
-        ).strip()
-        or "section"
-    )
-    filename = f"{safe_name}.dxf"
+    filename = f"{_section_safe_name(snapshot.section_name)}.dxf"
     return Response(
         content=payload,
         media_type="application/dxf",
@@ -344,20 +394,7 @@ async def export_section_pdf(
     )
 
     logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/pdf (model={model_id})")
-    try:
-        snapshot = await BuildSectionSnapshot(session).execute(
-            app_project_id=project_id,
-            section_id=section_id,
-            model_id=model_id,
-        )
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
-
+    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     effective_title = title or f"Cross-section: {snapshot.section_name}"
     metadata = ReportMetadata(
         title=effective_title,
@@ -365,13 +402,7 @@ async def export_section_pdf(
         notes=notes or "",
     )
     payload = SectionPdfReportExporter().export(snapshot, metadata)
-    safe_name = (
-        "".join(
-            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
-        ).strip()
-        or "section"
-    )
-    filename = f"{safe_name}.pdf"
+    filename = f"{_section_safe_name(snapshot.section_name)}.pdf"
     return Response(
         content=payload,
         media_type="application/pdf",
@@ -423,29 +454,9 @@ async def export_section_plaxis2d(
     logger.info(
         f"GET /projects/{project_id}/sections/{section_id}/export/plaxis2d (model={model_id})"
     )
-    try:
-        snapshot = await BuildSectionSnapshot(session).execute(
-            app_project_id=project_id,
-            section_id=section_id,
-            model_id=model_id,
-        )
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    # Same defence-in-depth CRS guard as the DXF export (debt #31).
-    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
-
+    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = PlaxisSectionExporter().export(snapshot)
-    safe_name = (
-        "".join(
-            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
-        ).strip()
-        or "section"
-    )
-    filename = f"{safe_name}_plaxis2d.py"
+    filename = f"{_section_safe_name(snapshot.section_name)}_plaxis2d.py"
     return Response(
         content=payload,
         media_type="text/x-python",
