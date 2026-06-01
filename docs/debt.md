@@ -4852,5 +4852,26 @@ corridor OR when the `suggest-pinch-outs` verb wall-clock crosses 200 ms.
 `upper_nodes` and `lower_nodes` now carry `Annotated[list[…], Field(max_length=10_000)]`.
 See #112 resolution above.
 
+## 176. Logging cleanups — exporter instrumentation + renderer log wrapper — RESOLVED 2026-06-01
+
+**L1 — `SectionPdfReportExporter` instrumentation:** Already DoD-compliant at review time.
+INFO entry (section id, model id, investigation count, formation count) and SUCCESS exit
+(byte size) were already present. No change needed.
+
+**L2 — `GeoStudioExporter` / `DSheetExporter` audit:** Both are Phase-5 stubs that only
+raise `NotImplementedError`. Nothing to instrument — skipped with note.
+
+**L3 — Renderer `console.*` → `log.*` migration:** Migrated all raw `console.*` sites in the
+four listed files to the `log.*` wrapper (`log.debug`, `log.warn`). Added `log` import to
+`client.ts`, `LithoCompositionPickerDialog.tsx`, and `ContactsLayer.tsx` (already present in
+`useGeologicalModel.ts`). Removed now-redundant `eslint-disable-next-line no-console`
+suppressions in LithoCompositionPickerDialog. `lithoLayerMerge.ts` had zero console calls —
+nothing to migrate. Sites: client.ts (2), useGeologicalModel.ts (3), LithoCompositionPickerDialog.tsx (3),
+ContactsLayer.tsx (5).
+
+**L4 — `api/client.ts` fetch error boundary:** Added `log.error('api', method, path, status)`
+at every non-2xx branch in the five central fetch helpers (`get`, `del`, `patch`, `put`, `post`).
+Single seam — every standard API call flows through one of these five.
+
 ## (end)
 
