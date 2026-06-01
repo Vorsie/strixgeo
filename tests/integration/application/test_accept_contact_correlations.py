@@ -23,10 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
-from groundmodel.infrastructure.db.models.body_orm import (
-    BodyOrm as LithoLensOrm,
-)  # TODO: slice 2 — full rename
+from groundmodel.application.detect_bodies import DetectBodies
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm as LithoLensOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -425,7 +423,7 @@ async def test_accept_does_not_auto_fire_lens_detection(
         f"AcceptContactCorrelations must not materialise lens rows; got {len(interim_lenses)}"
     )
 
-    await DetectLithoLenses(db_session).execute(
+    await DetectBodies(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )

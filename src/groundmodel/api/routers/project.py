@@ -25,7 +25,7 @@ from groundmodel.api.schemas.project.project_response import ProjectResponse
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -312,20 +312,22 @@ async def restore_project(
         ) from err
 
     # ------------------------------------------------------------------ #
-    # Lens reconciliation on restore (owner directive 2026-05-31).        #
+    # Body reconciliation on restore (owner directive 2026-05-31).        #
     #                                                                      #
-    # Bundles saved under the pre-2026-05-31 unilateral lens-detection rule #
-    # carry ``LithoLensOrm`` rows that the new bilateral rule would no    #
-    # longer materialise.  Without this pass those stale rows would         #
-    # silently survive every open + save cycle.                            #
+    # Bundles saved under the pre-2026-05-31 unilateral detection rule    #
+    # carry ``BodyOrm`` rows that the new bilateral rule would no longer  #
+    # materialise.  Without this pass those stale rows would silently     #
+    # survive every open + save cycle.                                     #
     #                                                                      #
-    # ``DetectLithoLenses`` step 7 carries a ``preserve-named`` guard, so  #
-    # user-named lens rows ride through untouched even when the topology   #
-    # no longer matches — named rows are intentional and can only be       #
-    # removed via the explicit DELETE /lenses/{lens_id} endpoint.          #
+    # ``DetectBodies`` reconcile step carries a ``preserve-named`` guard, #
+    # so user-named rows ride through untouched even when the topology no  #
+    # longer matches — named rows are intentional and can only be removed  #
+    # via the explicit DELETE /lenses/{lens_id} endpoint.  The            #
+    # ``preserve-claimed`` guard additionally protects rows with a         #
+    # user-claimed extent kind.                                            #
     #                                                                      #
     # Resolver runs first so ``instance_ordinal`` values are current; both #
-    # passes flush only and ride the outer transaction's commit below.    #
+    # passes flush only and ride the outer transaction's commit below.     #
     # ------------------------------------------------------------------ #
     litho_model_ids = list(
         (
@@ -344,17 +346,17 @@ async def restore_project(
             model_id=litho_model_id,
             commit=False,
         )
-        result = await DetectLithoLenses(session).execute(
+        result = await DetectBodies(session).execute(
             project_id=project_id,
             model_id=litho_model_id,
             prefer_section_id=None,
         )
-        if result.lenses_removed > 0 or result.lenses_created > 0:
+        if result.bodies_removed > 0 or result.bodies_created > 0:
             logger.info(
                 f"restore_project_bundle({project_id}): reconciled litho model "
-                f"{litho_model_id} — created={result.lenses_created} "
-                f"removed={result.lenses_removed} "
-                f"skipped_unresolved_ordinal={result.lenses_skipped_unresolved_ordinal}"
+                f"{litho_model_id} — created={result.bodies_created} "
+                f"removed={result.bodies_removed} "
+                f"skipped_unresolved_ordinal={result.bodies_skipped_unresolved_ordinal}"
             )
 
     await session.commit()

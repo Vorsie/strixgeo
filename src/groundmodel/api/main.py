@@ -24,7 +24,7 @@ from groundmodel.api.routers import (
     project,
     virtuele_boring,
 )
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -41,11 +41,11 @@ logger = LoggerFactory.get_logger(__name__)
 _DB_PROBE_TIMEOUT_SECONDS = 5.0
 
 
-async def _sweep_stale_lenses() -> None:
-    """Reconcile ``LithoLensOrm`` rows across every litho model on boot.
+async def _sweep_stale_bodies() -> None:
+    """Reconcile ``BodyOrm`` rows across every litho model on boot.
 
     Bundles + DBs predating the 2026-05-31 bilateral-pinch-out rule carry
-    auto-detected lens rows that the new rule would no longer materialise.
+    auto-detected body rows that the new rule would no longer materialise.
     Without this sweep those stale rows survive every open + save cycle —
     the dogfeed report that triggered the fix.
 
@@ -53,16 +53,17 @@ async def _sweep_stale_lenses() -> None:
     --------------
     Open a single session, query every lithostratigraphic model in the DB,
     run ``ResolveLithoInstances`` (keep ordinals current) +
-    ``DetectLithoLenses`` (apply the bilateral rule, reconcile stale rows)
+    ``DetectBodies`` (apply the bilateral rule, reconcile stale rows)
     per model.  Each model runs in its own commit so a single bad model
     doesn't abort the rest.
 
     Safety
     ------
-    ``DetectLithoLenses`` step 7 carries a ``preserve-named`` guard —
-    user-named lens rows ride through untouched even when the topology no
+    ``DetectBodies`` reconcile step carries a ``preserve-named`` guard —
+    user-named body rows ride through untouched even when the topology no
     longer matches.  Named rows can only be removed via the explicit
-    ``DELETE /lenses/{lens_id}`` endpoint.
+    ``DELETE /lenses/{lens_id}`` endpoint.  The ``preserve-claimed`` guard
+    additionally protects any row with a user-claimed extent kind.
 
     Failures are logged but do not block startup; a broken sweep should
     not stop the app from serving requests (subsequent ``POST .../lenses/
@@ -92,27 +93,27 @@ async def _sweep_stale_lenses() -> None:
                         model_id=model_id,
                         commit=False,
                     )
-                    result = await DetectLithoLenses(session).execute(
+                    result = await DetectBodies(session).execute(
                         project_id=project_id,
                         model_id=model_id,
                         prefer_section_id=None,
                     )
                     await session.commit()
                     swept_models += 1
-                    total_created += result.lenses_created
-                    total_removed += result.lenses_removed
-                    total_skipped += result.lenses_skipped_unresolved_ordinal
+                    total_created += result.bodies_created
+                    total_removed += result.bodies_removed
+                    total_skipped += result.bodies_skipped_unresolved_ordinal
                 except Exception as model_exc:  # noqa: BLE001
                     await session.rollback()
                     logger.warning(
-                        f"startup lens sweep: model {model_id} (project {project_id}) "
+                        f"startup body sweep: model {model_id} (project {project_id}) "
                         f"failed — {type(model_exc).__name__}: {model_exc}; continuing"
                     )
         if swept_models == 0:
-            logger.info("startup lens sweep: no lithostratigraphic models — nothing to do")
+            logger.info("startup body sweep: no lithostratigraphic models — nothing to do")
         else:
             logger.success(
-                f"startup lens sweep: reconciled {swept_models} model(s) — "
+                f"startup body sweep: reconciled {swept_models} model(s) — "
                 f"created={total_created} removed={total_removed} "
                 f"skipped_unresolved_ordinal={total_skipped}"
             )
@@ -120,7 +121,7 @@ async def _sweep_stale_lenses() -> None:
         # A connection failure is the most common cause; the DB probe
         # above already logs an actionable hint.  Don't double-log the
         # whole traceback here — startup must continue either way.
-        logger.warning(f"startup lens sweep skipped: {type(exc).__name__}: {exc}")
+        logger.warning(f"startup body sweep skipped: {type(exc).__name__}: {exc}")
 
 
 async def _probe_database() -> None:
@@ -167,7 +168,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("DOV parse pool started (max_workers=4)")
 
     await _probe_database()
-    await _sweep_stale_lenses()
+    await _sweep_stale_bodies()
     try:
         yield
     finally:

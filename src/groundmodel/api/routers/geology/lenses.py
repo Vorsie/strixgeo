@@ -58,7 +58,7 @@ from groundmodel.api.schemas.project.litho_lens_boundary import (
 )
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_lens_metadata import DeleteLensMetadata
-from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.lens_boundary import (
     BoundaryNode,
     GetLensBoundary,
@@ -213,24 +213,24 @@ async def detect_litho_lenses(
                 "lens detection only runs on lithostratigraphic models."
             ),
         )
-    result = await DetectLithoLenses(session).execute(
+    result = await DetectBodies(session).execute(
         project_id=project_id,
         model_id=model_id,
         prefer_section_id=None,
     )
-    # DetectLithoLenses flushes but does NOT commit (it's designed to
+    # DetectBodies flushes but does NOT commit (it's designed to
     # compose inside larger transactions).  This explicit endpoint owns
     # the commit boundary.
     await session.commit()
     logger.success(
         f"detect_litho_lenses: project={project_id} model={model_id} "
-        f"created={result.lenses_created} removed={result.lenses_removed} "
-        f"skipped_unresolved_ordinal={result.lenses_skipped_unresolved_ordinal}"
+        f"created={result.bodies_created} removed={result.bodies_removed} "
+        f"skipped_unresolved_ordinal={result.bodies_skipped_unresolved_ordinal}"
     )
     return DetectLensesResponse(
-        lenses_created=result.lenses_created,
-        lenses_removed=result.lenses_removed,
-        lenses_skipped_unresolved_ordinal=result.lenses_skipped_unresolved_ordinal,
+        lenses_created=result.bodies_created,
+        lenses_removed=result.bodies_removed,
+        lenses_skipped_unresolved_ordinal=result.bodies_skipped_unresolved_ordinal,
     )
 
 
