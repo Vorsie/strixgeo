@@ -131,4 +131,7 @@ DOV_GML_TAG_PREFIX = f"{{{DOV_GML_NAMESPACE}}}"
 # Permkey format: digits, letters, hyphens, dots, underscores only (e.g. "2009-000089").
 # Anything else is rejected so a malformed key can't escape the cache directory
 # via "../" path-traversal tricks.
-DOV_VALID_PERMKEY_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+# Debt #113: use \A/\Z (true string anchors) instead of ^/$ (line anchors) so a
+# multi-line permkey string like "abc\n../evil" doesn't slip through.  This is
+# consistent with virtuele_boring_client.py which already uses \A/\Z.
+DOV_VALID_PERMKEY_RE = re.compile(r"\A[A-Za-z0-9._-]+\Z")
