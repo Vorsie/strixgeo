@@ -14,6 +14,12 @@
 //   BE12 mousedown on boundary hit-band adds a node, committed on mouseup.
 //   BE13 legacy content_key path (no extent fields) still renders a wedge.
 //   BE14 bilateral closure renders secondary wedge to the other target.
+//
+// Ghost candidate rendering (Task 7.4):
+//   BE-GHOST-RENDER ghost candidate for a source on this section renders as a
+//                   dashed amber pinch-halfway wedge.
+//   BE-GHOST-CLICK  clicking the ghost fill calls onClaimGhostCandidate with
+//                   the exact PinchOutCandidate object.
 
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +29,7 @@ import type {
   BodyListItem,
   FormationContactResponse,
   LithoContactCorrelationEdge,
+  PinchOutCandidate,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import BodyExtentOverlay, { type Props } from './BodyExtentOverlay'
@@ -358,5 +365,50 @@ describe('BodyExtentOverlay', () => {
     })
     expect(queryByTestId('body-extent-B1')).not.toBeNull()
     expect(queryByTestId(`body-extent-B1::${CT2}`)).not.toBeNull()
+  })
+
+  it('BE-GHOST-RENDER — ghost candidate for a source on this section renders dashed amber wedge', () => {
+    // A PinchOutCandidate whose source_investigation_id is on this section
+    // and whose suggested_neighbour_investigation_id is also on this section
+    // should render a dashed amber ghost fill path.
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_TOP,
+      below_contact_id: CS_BASE,
+      side: 'left',
+      suggested_neighbour_investigation_id: NEIGHBOUR_INV,
+    }
+    const onClaimGhostCandidate = vi.fn()
+    const { queryByTestId } = renderOverlay({
+      bodies: [],
+      ghostCandidates: [candidate],
+      onClaimGhostCandidate,
+    })
+    // Ghost fill path exists and is testid-accessible.
+    expect(queryByTestId('body-ghost-fill-inv-source-left')).not.toBeNull()
+  })
+
+  it('BE-GHOST-CLICK — clicking ghost fill calls onClaimGhostCandidate with the candidate', () => {
+    // Clicking the ghost wedge fill should invoke onClaimGhostCandidate with
+    // the exact PinchOutCandidate object (not a subset — caller needs body_id,
+    // source_investigation_id, side, above/below contact ids).
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_TOP,
+      below_contact_id: CS_BASE,
+      side: 'left',
+      suggested_neighbour_investigation_id: NEIGHBOUR_INV,
+    }
+    const onClaimGhostCandidate = vi.fn()
+    const { getByTestId } = renderOverlay({
+      bodies: [],
+      ghostCandidates: [candidate],
+      onClaimGhostCandidate,
+    })
+    fireEvent.click(getByTestId('body-ghost-fill-inv-source-left'))
+    expect(onClaimGhostCandidate).toHaveBeenCalledTimes(1)
+    expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
   })
 })
