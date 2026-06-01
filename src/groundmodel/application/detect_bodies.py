@@ -301,7 +301,24 @@ class DetectBodies(GroundModelLogger):
 
         # ------------------------------------------------------------------ #
         # 7. Upsert body rows for every valid candidate + write extents.      #
+        #                                                                      #
+        # Pre-fetch all existing BodyOrm rows for this model in one query and  #
+        # build a lookup dict keyed by (formation_id, body_ordinal).  This     #
+        # turns the per-candidate SELECT into a dict lookup, eliminating the   #
+        # N+1 round-trip pattern (E1 audit).  The same dict is reused in       #
+        # step 8 for reconciliation so the total body-table SELECT count is     #
+        # 1 regardless of how many candidates the detector emits.              #
         # ------------------------------------------------------------------ #
+        all_bodies_stmt = select(BodyOrm).where(BodyOrm.model_id == model_id)
+        existing_bodies_map: dict[tuple[UUID, int], BodyOrm] = {
+            (b.formation_id, b.body_ordinal): b
+            for b in (await self._session.execute(all_bodies_stmt)).scalars().all()
+        }
+        self.debug(
+            f"DetectBodies: pre-fetched {len(existing_bodies_map)} existing body row(s) "
+            "for upsert loop (eliminates N+1 SELECT)"
+        )
+
         target_set: set[tuple[UUID, int]] = set()
         bodies_created = 0
         bodies_skipped_unresolved_ordinal = 0
@@ -330,12 +347,8 @@ class DetectBodies(GroundModelLogger):
             if primary_sid is None and prefer_section_id is not None:
                 primary_sid = prefer_section_id
 
-            existing_stmt = select(BodyOrm).where(
-                BodyOrm.model_id == model_id,
-                BodyOrm.formation_id == d.formation_id,
-                BodyOrm.body_ordinal == ordinal,
-            )
-            existing = (await self._session.execute(existing_stmt)).scalar_one_or_none()
+            # Dict lookup replaces the per-iteration SELECT (E1 audit fix).
+            existing = existing_bodies_map.get((d.formation_id, ordinal))
 
             if existing is None:
                 self._session.add(
@@ -404,15 +417,15 @@ class DetectBodies(GroundModelLogger):
         # - name IS NOT NULL → user-named body; skip (preserve-named guard).  #
         # - Either side carries a user-claimed extent kind → skip.            #
         #   (preserve-claimed guard).                                          #
+        #                                                                      #
+        # Reuse the pre-fetched dict from step 7 — no second SELECT needed.   #
+        # Newly-created rows are in target_set so the loop skips them even     #
+        # though they are not yet visible in existing_bodies_map (they were    #
+        # session.add()'d but not yet flushed — the target_set guard fires     #
+        # before the preserve checks, so correctness is maintained).           #
         # ------------------------------------------------------------------ #
-        existing_bodies = (
-            (await self._session.execute(select(BodyOrm).where(BodyOrm.model_id == model_id)))
-            .scalars()
-            .all()
-        )
-
         bodies_removed = 0
-        for body in existing_bodies:
+        for body in existing_bodies_map.values():
             if (body.formation_id, body.body_ordinal) in target_set:
                 continue
             # Preserve-named guard.
