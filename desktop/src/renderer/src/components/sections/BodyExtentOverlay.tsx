@@ -30,6 +30,7 @@ import type {
   BodyRenderStyle,
   FormationContactResponse,
   LithoContactCorrelationEdge,
+  PinchOutCandidate,
 } from '../../api/client'
 import {
   bodyBoundaryPolyline,
@@ -45,6 +46,11 @@ const FILL_COLOR = '#38bdf8' // sky — body fill
 const FILL_OPACITY = 0.22
 const NODE_R = 5
 const HIT_STROKE = 12 // transparent click-band width along each boundary
+
+// Ghost candidate styling — amber dashed wedge, 30% fill opacity.
+const GHOST_STROKE_COLOR = '#f59e0b' // amber-400
+const GHOST_FILL_OPACITY = 0.18
+const GHOST_STROKE_DASH = '6 3'
 
 // Arrow-head half-angle in degrees; drawn at the dip-extrapolation endpoint.
 const DIP_ARROW_SIZE = 7
@@ -154,6 +160,19 @@ export interface Props {
    * have a matching ``BodyListItem`` in the ``bodies`` prop.
    */
   onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
+  /**
+   * Auto-suggest pinch-out candidates (from the "Suggest pinch-outs" toolbar
+   * verb). Each candidate is rendered as a dashed amber ghost wedge at the
+   * halfway midpoint between the source and suggested-neighbour columns.
+   * Absent or empty = no ghost overlay.
+   */
+  ghostCandidates?: readonly PinchOutCandidate[]
+  /**
+   * Fired when the user clicks a ghost candidate wedge — signals that the
+   * user accepts this suggested pinch-out; the parent should call
+   * ``claimBodyExtent`` with the candidate's fields.
+   */
+  onClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +244,8 @@ export default function BodyExtentOverlay({
   onSaveLensShape,
   onDeleteLens,
   onBodyContextMenu,
+  ghostCandidates,
+  onClaimGhostCandidate,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
@@ -713,6 +734,58 @@ export default function BodyExtentOverlay({
     })
   }
 
+  // --- Resolve ghost candidates into screen-space wedge geometry --------------
+  // Each candidate is a pinch_out_halfway wedge from the source column to the
+  // midpoint between source and suggested neighbour. Only candidates whose
+  // source AND neighbour investigations are placed on this section are shown.
+  interface GhostWedge {
+    candidate: PinchOutCandidate
+    testId: string
+    upperScreen: { x: number; y: number }[]
+    lowerScreen: { x: number; y: number }[]
+    fillD: string
+  }
+  const ghostWedges: GhostWedge[] = []
+  if (ghostCandidates) {
+    for (const candidate of ghostCandidates) {
+      const sourceCol = colByInv.get(candidate.source_investigation_id)
+      const neighbourCol = colByInv.get(candidate.suggested_neighbour_investigation_id)
+      if (!sourceCol || !neighbourCol) continue
+
+      const aboveC = contactById.get(candidate.above_contact_id)
+      const belowC = contactById.get(candidate.below_contact_id)
+      if (!aboveC || !belowC) continue
+
+      // Source edge facing the neighbour.
+      const towardAlong = neighbourCol.along
+      const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
+      const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
+      if (!topSource || !baseSource) continue
+
+      // Halfway midpoint (pinch_out_halfway geometry).
+      const midAlong = (sourceCol.along + neighbourCol.along) / 2
+      const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
+      const farPoint: WorldPt = { along_m: midAlong, elevation_m: midElev }
+
+      const topSrc = toScreen(topSource)
+      const baseSrc = toScreen(baseSource)
+      const far = toScreen(farPoint)
+
+      const upperScreen = [far, topSrc]
+      const lowerScreen = [far, baseSrc]
+      const fillPts = [...upperScreen, ...lowerScreen.slice().reverse()]
+      const fillD = fillPts.length >= 3 ? `${polylinePath(fillPts)} Z` : ''
+
+      ghostWedges.push({
+        candidate,
+        testId: `body-ghost-fill-${candidate.source_investigation_id}-${candidate.side}`,
+        upperScreen,
+        lowerScreen,
+        fillD,
+      })
+    }
+  }
+
   return (
     <g ref={rootRef} data-testid="body-extent-overlay" style={{ pointerEvents: 'none' }}>
       {resolved.map(body => {
@@ -868,6 +941,50 @@ export default function BodyExtentOverlay({
           </g>
         )
       })}
+      {/* Ghost pinch-out candidates — dashed amber wedges. */}
+      {ghostWedges.map(ghost => (
+        <g key={`ghost-${ghost.candidate.source_investigation_id}-${ghost.candidate.side}`}>
+          {ghost.fillD && (
+            <path
+              data-testid={ghost.testId}
+              d={ghost.fillD}
+              fill={GHOST_STROKE_COLOR}
+              fillOpacity={GHOST_FILL_OPACITY}
+              stroke={GHOST_STROKE_COLOR}
+              strokeWidth={1.4}
+              strokeDasharray={GHOST_STROKE_DASH}
+              style={{
+                pointerEvents: onClaimGhostCandidate ? 'auto' : 'none',
+                cursor: onClaimGhostCandidate ? 'pointer' : undefined,
+              }}
+              onClick={
+                onClaimGhostCandidate
+                  ? e => {
+                      e.stopPropagation()
+                      onClaimGhostCandidate(ghost.candidate)
+                    }
+                  : undefined
+              }
+            />
+          )}
+          <path
+            d={polylinePath(ghost.upperScreen)}
+            fill="none"
+            stroke={GHOST_STROKE_COLOR}
+            strokeWidth={1.4}
+            strokeDasharray={GHOST_STROKE_DASH}
+            pointerEvents="none"
+          />
+          <path
+            d={polylinePath(ghost.lowerScreen)}
+            fill="none"
+            stroke={GHOST_STROKE_COLOR}
+            strokeWidth={1.4}
+            strokeDasharray={GHOST_STROKE_DASH}
+            pointerEvents="none"
+          />
+        </g>
+      ))}
     </g>
   )
 }
