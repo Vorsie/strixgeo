@@ -141,8 +141,19 @@ export interface Props {
    * Right-click a wedge body → dissolve the lens. Receives the three defining
    * contact ids; the caller deletes the two correlation edges so the detector
    * no longer reconstructs the body. Absent = no delete affordance.
+   *
+   * @deprecated Use ``onBodyContextMenu`` instead. Kept for legacy
+   *   ``content_key``-based bodies until all callers migrate.
    */
   onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
+  /**
+   * Right-click a body wedge or fill area → open the body context menu.
+   * Receives the full ``BodyListItem`` plus SVG-canvas screen coordinates of
+   * the pointer (relative to the SVG element, for the ContextMenu anchor).
+   * When present, takes precedence over ``onDeleteLens`` for all bodies that
+   * have a matching ``BodyListItem`` in the ``bodies`` prop.
+   */
+  onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -213,11 +224,13 @@ export default function BodyExtentOverlay({
   sectionEndScreenX,
   onSaveLensShape,
   onDeleteLens,
+  onBodyContextMenu,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
 
   // --- world-coordinate lookup maps ----------------------------------------
+  const bodyById = new Map(bodies.map(b => [b.id, b]))
   const contactById = new Map(contacts.map(c => [c.id, c]))
   const colByInv = new Map<
     string,
@@ -754,17 +767,35 @@ export default function BodyExtentOverlay({
                 fillOpacity={FILL_OPACITY}
                 stroke="none"
                 style={{
-                  pointerEvents: onDeleteLens ? 'auto' : 'none',
-                  cursor: onDeleteLens ? 'context-menu' : undefined,
+                  pointerEvents: (onBodyContextMenu ?? onDeleteLens) ? 'auto' : 'none',
+                  cursor: (onBodyContextMenu ?? onDeleteLens) ? 'context-menu' : undefined,
                 }}
                 onContextMenu={
-                  onDeleteLens
+                  onBodyContextMenu
                     ? e => {
                         e.preventDefault()
                         e.stopPropagation()
-                        onDeleteLens(body.aboveId, body.belowId, body.targetId)
+                        const svgRect =
+                          rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+                        const svgX = e.clientX - (svgRect?.left ?? 0)
+                        const svgY = e.clientY - (svgRect?.top ?? 0)
+                        const bodyItem = bodyById.get(body.bodyId)
+                        if (bodyItem !== undefined) {
+                          onBodyContextMenu(bodyItem, svgX, svgY)
+                        } else if (onDeleteLens) {
+                          // Fallback for legacy content_key bodies not in the
+                          // bodies list (should not happen in practice, but
+                          // defensive fallback keeps old behaviour intact).
+                          onDeleteLens(body.aboveId, body.belowId, body.targetId)
+                        }
                       }
-                    : undefined
+                    : onDeleteLens
+                      ? e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          onDeleteLens(body.aboveId, body.belowId, body.targetId)
+                        }
+                      : undefined
                 }
               />
             )}
