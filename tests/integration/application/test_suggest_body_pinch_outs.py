@@ -590,7 +590,16 @@ async def test_section_along_order_picks_adjacent_column_not_uuid_neighbour(
     right = next(
         c for c in sec_candidates if c.source_investigation_id == bh_source.id and c.side == "right"
     )
+    assert right.kind == "pinch_out_halfway"
     assert right.suggested_neighbour_investigation_id == bh_mid.id
+
+    # bh_source is the section's LEFT edge — no data beyond it, so its left
+    # side gets an OPEN candidate (kind='open', no neighbour).
+    left_open = next(
+        c for c in sec_candidates if c.source_investigation_id == bh_source.id and c.side == "left"
+    )
+    assert left_open.kind == "open"
+    assert left_open.suggested_neighbour_investigation_id is None
 
     # Without the section → the UUID-adjacent neighbour (far) — the old behaviour.
     nosec_candidates = await SuggestBodyPinchOuts(db_session).execute(
