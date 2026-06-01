@@ -645,12 +645,14 @@ async def propagate_correlated_admixtures(
     )
     all_formations = list((await session.execute(all_formations_stmt)).scalars().all())
     name_map: dict[UUID, str] = {f.id: f.name for f in all_formations}
+    code_map: dict[UUID, str | None] = {f.id: f.code for f in all_formations}
 
     enriched: list[GeologicalFormationResponse] = []
     for f_orm in result.updated_formations:
         resp = GeologicalFormationResponse.model_validate(f_orm)
         if f_orm.parent_formation_id is not None:
             resp.parent_formation_name = name_map.get(f_orm.parent_formation_id)
+            resp.parent_formation_code = code_map.get(f_orm.parent_formation_id)
         enriched.append(resp)
 
     return PropagateAdmixturesResponse(
