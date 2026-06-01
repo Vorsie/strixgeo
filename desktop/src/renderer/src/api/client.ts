@@ -310,22 +310,13 @@ export interface BodyListItem {
   content_key?: string | null
 }
 
-// Backwards-compat alias — SectionPanel migrated to BodyListItem in slice 6;
-// remaining callers (LithologyInspector, SectionsCanvas) migrate in slice 7+.
-export type LithoLensListItem = BodyListItem
-
 // Slice 5: one control node on a body boundary (section-local).
 export interface BodyBoundaryNode {
   along_m: number
   elevation_m: number
 }
 
-// Backwards-compat alias — consumed by InspectLensBodyPanel + SectionsCanvas (migrate slice 7+).
-export type LensBoundaryNode = BodyBoundaryNode
-
 export type BodyRenderStyle = 'straight' | 'blocky' | 'rounded'
-// Backwards-compat alias — consumed by InspectLensBodyPanel + SectionsCanvas (migrate slice 7+).
-export type LensRenderStyle = BodyRenderStyle
 
 // Slice 5: GET/PUT .../bodies/{id}/boundary payload — the user-authored shape.
 export interface BodyBoundaryResponse {
@@ -336,9 +327,6 @@ export interface BodyBoundaryResponse {
   upper_nodes: BodyBoundaryNode[]
   lower_nodes: BodyBoundaryNode[]
 }
-
-// Backwards-compat alias — consumed by SectionsCanvas + InspectLensBodyPanel (migrate slice 7+).
-export type LensBoundaryResponse = BodyBoundaryResponse
 
 // Slice 5: one pinch-out candidate from POST .../bodies/suggest-pinch-outs.
 export interface PinchOutCandidate {
