@@ -176,7 +176,8 @@ def _validate_bounded_dict_list(
         for k, v in item.items():
             if len(k) > _MAX_BOUNDARY_ITEM_KEY_LEN:
                 raise ValueError(
-                    f"Bundle item key too long ({len(k)} > {_MAX_BOUNDARY_ITEM_KEY_LEN}): {k[:64]!r}…"
+                    f"Bundle item key too long "
+                    f"({len(k)} > {_MAX_BOUNDARY_ITEM_KEY_LEN}): {k[:64]!r}…"
                 )
             if isinstance(v, str) and len(v) > _MAX_BOUNDARY_ITEM_VALUE_LEN:
                 raise ValueError(
