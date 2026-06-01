@@ -859,9 +859,14 @@ export default function SectionPanel({
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
-      const base = lensFormationBase(f.parent_formation_code, f.lithology)
-      // Degrade gracefully when neither code nor lithology resolves: fall back
-      // to the parent name / unit name so the lens still has *some* label.
+      // Litho units carry the soil in ``litho_main_soil_code`` (e.g. ZAND);
+      // ``lithology`` is a separate, usually-null field. Use the main soil.
+      const base = lensFormationBase(
+        f.parent_formation_code,
+        f.litho_main_soil_code ?? f.lithology,
+      )
+      // Degrade gracefully when neither code nor soil resolves: fall back to
+      // the parent name / unit name so the lens still has *some* label.
       m.set(f.id, base || (f.parent_formation_name ?? '').trim() || f.name)
     }
     return m
