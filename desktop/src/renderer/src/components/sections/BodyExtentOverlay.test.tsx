@@ -464,6 +464,29 @@ describe('BodyExtentOverlay', () => {
     expect(sourceEdge.y).toBeCloseTo(98, 1) // lower fX at 8 m
     expect(sourceEdge.y).not.toBeCloseTo(92, 1) // NOT the shallow fX at 2 m
   })
+
+  it('BE17 — unnamed body shows the auto-label (lithology + stacking number)', () => {
+    const { getByTestId } = renderOverlay({
+      formationLabelById: new Map([['f1', 'ZAND']]),
+    })
+    // Default makeBody has name=null, formation_id='f1', body_ordinal=0.
+    expect(getByTestId('body-label-B1').textContent).toBe('ZAND 1')
+  })
+
+  it('BE18 — explicit name overrides the auto-label', () => {
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          name: 'Channel sand',
+          content_key: LEGACY_KEY,
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: CT,
+        }),
+      ],
+      formationLabelById: new Map([['f1', 'ZAND']]),
+    })
+    expect(getByTestId('body-label-B1').textContent).toBe('Channel sand')
+  })
 })
 
 // ---------------------------------------------------------------------------

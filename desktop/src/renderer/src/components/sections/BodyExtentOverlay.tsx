@@ -39,6 +39,7 @@ import {
   resolveLensRoles,
 } from '../../utils/bodyExtent'
 import { computeDipExtrapolationEndpoint } from '../../utils/dipExtrapolationFrontend'
+import { lensDisplayLabel } from '../../utils/lensLabel'
 import { log } from '../../utils/log'
 import type { PlacedColumn } from './utils'
 
@@ -126,6 +127,13 @@ export interface Props {
   boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse>
   /** Section-filtered litho contacts (for anchor depths). */
   contacts: readonly FormationContactResponse[]
+  /**
+   * formation_id → lithology label (e.g. ``"ZAND"``) for the auto-name. When a
+   * body has no explicit ``name``, its wedge is labelled
+   * ``"{lithology} {body_ordinal + 1}"``. Absent / missing entry → the wedge
+   * shows the explicit name only (or nothing when also un-named).
+   */
+  formationLabelById?: ReadonlyMap<string, string>
   /** Placed columns (carry ``proj.along`` + surface elevation). */
   placedColumns: readonly PlacedColumn[]
   /** Approved correlation edges — drives the pinch/top/base role resolution
@@ -250,6 +258,7 @@ export default function BodyExtentOverlay({
   bodies,
   boundariesByBodyId,
   contacts,
+  formationLabelById,
   placedColumns,
   contactEdges,
   alongToScreenX,
@@ -921,6 +930,24 @@ export default function BodyExtentOverlay({
             ? dipArrowPath(dipArrowScreen, body.extrapolationDirectionSign)
             : ''
 
+        // Auto-label (lithology + stacking number), or the explicit name when
+        // set. Rendered once per body (primary wedge) at the triangle centroid
+        // with a dark halo so it reads over the teal fill.
+        const labelBodyItem = bodyById.get(body.bodyId)
+        const lithoLabel = labelBodyItem
+          ? formationLabelById?.get(labelBodyItem.formation_id)
+          : undefined
+        const wedgeLabel =
+          labelBodyItem && lithoLabel
+            ? lensDisplayLabel(labelBodyItem.name, lithoLabel, labelBodyItem.body_ordinal)
+            : (labelBodyItem?.name?.trim() ?? '')
+        const labelCentroid = ((): { x: number; y: number } => {
+          const t = toScreen(body.topSource)
+          const b = toScreen(body.baseSource)
+          const f = toScreen(body.farPoint)
+          return { x: (t.x + b.x + f.x) / 3, y: (t.y + b.y + f.y) / 3 }
+        })()
+
         return (
           <g key={`body-extent-${body.wedgeKey}`} data-testid={`body-extent-${body.wedgeKey}`}>
             {fillD && (
@@ -1006,6 +1033,26 @@ export default function BodyExtentOverlay({
                 stroke="none"
                 pointerEvents="none"
               />
+            )}
+            {/* Auto-name label (lithology + stacking number) — primary wedge
+                only, with a dark halo so it reads over the teal fill. */}
+            {body.isPrimary && wedgeLabel && (
+              <text
+                data-testid={`body-label-${body.wedgeKey}`}
+                x={labelCentroid.x}
+                y={labelCentroid.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={11}
+                fontWeight={600}
+                fill="#e2e8f0"
+                stroke="#0f172a"
+                strokeWidth={3}
+                paintOrder="stroke"
+                pointerEvents="none"
+              >
+                {wedgeLabel}
+              </text>
             )}
             {/* Draggable ghost nodes (hollow circles). Primary non-open wedge only. */}
             {canEditShape &&
