@@ -60,6 +60,34 @@ def test_g3dv3_endpoint_contains_known_formations() -> None:
         assert known in names, f"{known!r} should be in the catalog"
 
 
+# ---------------------------------------------------------------------------
+# GET /codelists/formal-stratigraphy (informal→formal link)
+# ---------------------------------------------------------------------------
+
+
+def test_formal_stratigraphy_endpoint_returns_full_catalog() -> None:
+    """Returns the full DOV formal-stratigraphy catalog with the expected shape."""
+    client = TestClient(app, base_url="http://127.0.0.1")
+    response = client.get("/codelists/formal-stratigraphy")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert "units" in body
+    assert len(body["units"]) == 403
+    assert set(body["units"][0].keys()) == {"code", "name_nl", "age_rank", "color_hex"}
+
+
+def test_formal_stratigraphy_endpoint_contains_quartair_codes() -> None:
+    """The Quartair codes the lens auto-name relies on are present + correctly named."""
+    client = TestClient(app, base_url="http://127.0.0.1")
+    units = client.get("/codelists/formal-stratigraphy").json()["units"]
+    by_code = {u["code"]: u["name_nl"] for u in units}
+
+    assert by_code.get("QH") == "Quartair Holoceen"
+    assert by_code.get("QP") == "Quartair Pleistoceen"
+    assert by_code.get("Bm") == "Formatie van Boom"
+
+
 def test_g3dv3_endpoint_includes_members() -> None:
     """Both formations and members ship in the response."""
     client = TestClient(app, base_url="http://127.0.0.1")
