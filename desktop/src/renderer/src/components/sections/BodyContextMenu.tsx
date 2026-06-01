@@ -1,9 +1,12 @@
 /**
  * Right-click context menu for a body wedge on the cross-section.
  *
- * Provides per-side claim submenus (Claim left / right extent) with four
- * kind choices each, plus "Clear left extent" / "Clear right extent" when a
- * side is already claimed.  Also exposes "Name body" and "Dissolve body".
+ * Renders four top-level rows — "Left extent", "Right extent", "Name body…"
+ * and "Dissolve body" — keeping the menu compact. Each side row expands a
+ * nested submenu (via ``ContextMenuItem.submenu``) carrying the three claim
+ * kinds, plus a "Clear extent" row when that side is already claimed. When a
+ * side is claimed, its current kind is shown inline on the parent row
+ * (e.g. "Left extent: open").
  *
  * Rendered inside the SVG canvas via ContextMenu's ``portal="svg"`` variant
  * so it floats above the wedge geometry without fighting the DOM stacking
@@ -51,6 +54,10 @@ const KIND_LABELS: Record<ClaimableKind, string> = {
 
 /** data-testid values for menu items (referenced in BodyContextMenu.test.tsx). */
 export const TESTIDS = {
+  /** The "Left extent" / "Right extent" submenu PARENT rows. Hover/click one
+   *  to reveal its claim + clear items. */
+  sideLeft: 'body-ctx-side-left',
+  sideRight: 'body-ctx-side-right',
   claimLeft: (kind: ClaimableKind) => `body-ctx-claim-left-${kind}`,
   claimRight: (kind: ClaimableKind) => `body-ctx-claim-right-${kind}`,
   clearLeft: 'body-ctx-clear-left',
@@ -105,91 +112,77 @@ export default function BodyContextMenu({
   const leftClaimed = body.extent_left_kind !== null
   const rightClaimed = body.extent_right_kind !== null
 
-  // Build claim items for one side.
-  function claimItems(side: 'left' | 'right'): ContextMenuItem[] {
-    return CLAIMABLE_KINDS.map(kind => ({
+  /**
+   * Build the submenu rows for one side: the three claim kinds, plus a
+   * "Clear extent" row when that side is already claimed.
+   */
+  function sideSubmenu(side: 'left' | 'right'): ContextMenuItem[] {
+    const claimed = side === 'left' ? leftClaimed : rightClaimed
+    const rows: ContextMenuItem[] = CLAIMABLE_KINDS.map(kind => ({
       label: `${KIND_LABELS[kind]} ${side === 'left' ? '←' : '→'}`,
       testid: side === 'left' ? TESTIDS.claimLeft(kind) : TESTIDS.claimRight(kind),
       key: `claim-${side}-${kind}`,
-      onClick: () => { onClaimExtent(body.id, side, kind) },
+      onClick: () => {
+        onClaimExtent(body.id, side, kind)
+      },
     }))
+    if (claimed) {
+      rows.push({
+        label: 'Clear extent',
+        testid: side === 'left' ? TESTIDS.clearLeft : TESTIDS.clearRight,
+        key: `clear-${side}`,
+        danger: true,
+        topBorder: true,
+        onClick: () => {
+          onClearExtent(body.id, side)
+        },
+      })
+    }
+    return rows
   }
 
+  // Parent rows carry the current claim kind inline (when claimed) and expand
+  // their per-side submenu on hover/click. The parent's own onClick is a no-op
+  // — ContextMenu toggles the submenu instead of firing it.
+  const leftLabel = leftClaimed ? `Left extent: ${body.extent_left_kind}` : 'Left extent'
+  const rightLabel = rightClaimed ? `Right extent: ${body.extent_right_kind}` : 'Right extent'
+
   const items: (ContextMenuItem | false | null)[] = [
-    // Header "Claim left extent" section
-    ...(!leftClaimed
-      ? [
-          {
-            label: 'Claim left extent →',
-            key: 'claim-left-header',
-            disabled: true,
-            onClick: () => { /* group header — disabled */ },
-          } satisfies ContextMenuItem,
-          ...claimItems('left'),
-        ]
-      : [
-          {
-            label: `Left extent: ${body.extent_left_kind ?? 'none'}`,
-            key: 'left-claimed-info',
-            disabled: true,
-            onClick: () => { /* info row */ },
-          } satisfies ContextMenuItem,
-          {
-            label: 'Clear left extent',
-            testid: TESTIDS.clearLeft,
-            key: 'clear-left',
-            danger: true,
-            onClick: () => { onClearExtent(body.id, 'left') },
-          } satisfies ContextMenuItem,
-          ...claimItems('left'),
-        ]),
-
-    // Separator before right side
-    { label: '─', key: 'sep-1', disabled: true, topBorder: true, onClick: () => { /* sep */ } } satisfies ContextMenuItem,
-
-    // Header "Claim right extent" section
-    ...(!rightClaimed
-      ? [
-          {
-            label: 'Claim right extent →',
-            key: 'claim-right-header',
-            disabled: true,
-            onClick: () => { /* group header */ },
-          } satisfies ContextMenuItem,
-          ...claimItems('right'),
-        ]
-      : [
-          {
-            label: `Right extent: ${body.extent_right_kind ?? 'none'}`,
-            key: 'right-claimed-info',
-            disabled: true,
-            onClick: () => { /* info row */ },
-          } satisfies ContextMenuItem,
-          {
-            label: 'Clear right extent',
-            testid: TESTIDS.clearRight,
-            key: 'clear-right',
-            danger: true,
-            onClick: () => { onClearExtent(body.id, 'right') },
-          } satisfies ContextMenuItem,
-          ...claimItems('right'),
-        ]),
-
-    // Separator before body-level verbs
-    { label: '─', key: 'sep-2', disabled: true, topBorder: true, onClick: () => { /* sep */ } } satisfies ContextMenuItem,
-
+    {
+      label: leftLabel,
+      key: 'side-left',
+      testid: TESTIDS.sideLeft,
+      submenu: sideSubmenu('left'),
+      onClick: () => {
+        /* submenu parent — no direct action */
+      },
+    },
+    {
+      label: rightLabel,
+      key: 'side-right',
+      testid: TESTIDS.sideRight,
+      submenu: sideSubmenu('right'),
+      onClick: () => {
+        /* submenu parent — no direct action */
+      },
+    },
     {
       label: 'Name body…',
       testid: TESTIDS.nameBody,
       key: 'name-body',
-      onClick: () => { onNameBody(body.id) },
+      topBorder: true,
+      onClick: () => {
+        onNameBody(body.id)
+      },
     },
     {
       label: 'Dissolve body',
       testid: TESTIDS.dissolveBody,
       key: 'dissolve-body',
       danger: true,
-      onClick: () => { onDissolveBody(body.id) },
+      onClick: () => {
+        onDissolveBody(body.id)
+      },
     },
   ]
 

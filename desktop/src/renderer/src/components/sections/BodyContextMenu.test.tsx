@@ -1,6 +1,11 @@
 // Unit tests for BodyContextMenu (#body-with-extent Slice 7.1).
 //
-//   BCM1  unclaimed body shows all three claim items for each side.
+// The claim + clear rows live in per-side SUBMENUS (decluttered 2026-06-01):
+// the top level shows "Left extent" / "Right extent" parent rows; opening one
+// (click) reveals its three claim kinds + a Clear row when that side is
+// claimed. Tests open the relevant submenu before asserting its rows.
+//
+//   BCM1  unclaimed body shows all three claim items for each side (in submenu).
 //   BCM2  claimed left side shows Clear item.
 //   BCM3  each claim item fires onClaimExtent with correct args.
 //   BCM4  Clear fires onClearExtent with correct body id + side.
@@ -32,11 +37,13 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
-    // Three claim kinds for left
+    // Open the left submenu → its three claim kinds appear.
+    fireEvent.click(screen.getByTestId(TESTIDS.sideLeft))
     expect(screen.getByTestId(TESTIDS.claimLeft('pinch_out_halfway'))).toBeDefined()
     expect(screen.getByTestId(TESTIDS.claimLeft('extrapolated'))).toBeDefined()
     expect(screen.getByTestId(TESTIDS.claimLeft('open'))).toBeDefined()
-    // Three claim kinds for right
+    // Open the right submenu → its three claim kinds appear.
+    fireEvent.click(screen.getByTestId(TESTIDS.sideRight))
     expect(screen.getByTestId(TESTIDS.claimRight('pinch_out_halfway'))).toBeDefined()
     expect(screen.getByTestId(TESTIDS.claimRight('extrapolated'))).toBeDefined()
     expect(screen.getByTestId(TESTIDS.claimRight('open'))).toBeDefined()
@@ -57,8 +64,10 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
+    fireEvent.click(screen.getByTestId(TESTIDS.sideLeft))
     expect(screen.getByTestId(TESTIDS.clearLeft)).toBeDefined()
-    // Right is not claimed, so no clearRight
+    // Right is not claimed → no clearRight even after opening its submenu.
+    fireEvent.click(screen.getByTestId(TESTIDS.sideRight))
     expect(screen.queryByTestId(TESTIDS.clearRight)).toBeNull()
   })
 
@@ -78,6 +87,7 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
+    fireEvent.click(screen.getByTestId(TESTIDS.sideRight))
     fireEvent.click(screen.getByTestId(TESTIDS.claimRight('extrapolated')))
     expect(onClaimExtent).toHaveBeenCalledOnce()
     expect(onClaimExtent).toHaveBeenCalledWith('B1', 'right', 'extrapolated')
@@ -99,6 +109,7 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
+    fireEvent.click(screen.getByTestId(TESTIDS.sideLeft))
     fireEvent.click(screen.getByTestId(TESTIDS.clearLeft))
     expect(onClearExtent).toHaveBeenCalledOnce()
     expect(onClearExtent).toHaveBeenCalledWith('B1', 'left')
@@ -164,7 +175,9 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
+    fireEvent.click(screen.getByTestId(TESTIDS.sideLeft))
     expect(screen.getByTestId(TESTIDS.clearLeft)).toBeDefined()
+    fireEvent.click(screen.getByTestId(TESTIDS.sideRight))
     expect(screen.getByTestId(TESTIDS.clearRight)).toBeDefined()
   })
 })
