@@ -41,20 +41,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.project.body import (
+    BodyBoundaryNodeItem,
+    BodyBoundaryResponse,
+    BodyBoundaryWriteRequest,
+    BodyListItem,
+    DetectBodiesResponse,
+    NameBodyRequest,
+    NameBodyResponse,
+)
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.litho_lens import (
-    DetectLensesResponse,
     FormationAbsenceItem,
-    LithoLensListItem,
-    NameLensBodyRequest,
-    NameLensBodyResponse,
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,
-)
-from groundmodel.api.schemas.project.litho_lens_boundary import (
-    LensBoundaryNodeItem,
-    LensBoundaryResponse,
-    LensBoundaryWriteRequest,
 )
 from groundmodel.application.body_boundary import (
     BodyNoPrimarySectionError,
@@ -95,7 +95,7 @@ router = APIRouter()
 
 @router.get(
     "/models/{model_id}/lenses",
-    response_model=list[LithoLensListItem],
+    response_model=list[BodyListItem],
 )
 async def list_litho_lenses(
     project_id: UUID,
@@ -121,8 +121,8 @@ async def list_litho_lenses(
 
     Returns
     -------
-    list[LithoLensListItem]
-        All named lens bodies in this model, oldest-first.
+    list[BodyListItem]
+        All named bodies in this model, oldest-first.
 
     Raises
     ------
@@ -158,16 +158,16 @@ async def list_litho_lenses(
 
 @router.post(
     "/models/{model_id}/lenses/detect",
-    response_model=DetectLensesResponse,
+    response_model=DetectBodiesResponse,
 )
 async def detect_litho_lenses(
     project_id: UUID,
     model_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> DetectLensesResponse:
+) -> DetectBodiesResponse:
     """Run the explicit "Detect lenses" pass on a lithostratigraphic model.
 
-    Materialises ``LithoLensOrm`` rows for #135 lens topologies in the
+    Materialises ``BodyOrm`` rows for #135 lens topologies in the
     user-approved contact-edge graph and removes rows whose body no
     longer matches.  Idempotent.
 
@@ -176,7 +176,7 @@ async def detect_litho_lenses(
     contact, delete layer, contact cross-merge).  Owner directive
     removed those auto-fires — a single manual correlate that
     incidentally closed a lens topology was silently spawning a
-    ``LithoLensOrm`` row.  This endpoint is now the only entry point.
+    ``BodyOrm`` row.  This endpoint is now the only entry point.
 
     Parameters
     ----------
@@ -189,8 +189,8 @@ async def detect_litho_lenses(
 
     Returns
     -------
-    DetectLensesResponse
-        Counts of created, removed, and ordinal-skipped lens rows.
+    DetectBodiesResponse
+        Counts of created, removed, and ordinal-skipped body rows.
 
     Raises
     ------
@@ -209,7 +209,7 @@ async def detect_litho_lenses(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Model {model_id} is of kind {model.kind!r}; "
-                "lens detection only runs on lithostratigraphic models."
+                "body detection only runs on lithostratigraphic models."
             ),
         )
     result = await DetectBodies(session).execute(
@@ -226,10 +226,10 @@ async def detect_litho_lenses(
         f"created={result.bodies_created} removed={result.bodies_removed} "
         f"skipped_unresolved_ordinal={result.bodies_skipped_unresolved_ordinal}"
     )
-    return DetectLensesResponse(
-        lenses_created=result.bodies_created,
-        lenses_removed=result.bodies_removed,
-        lenses_skipped_unresolved_ordinal=result.bodies_skipped_unresolved_ordinal,
+    return DetectBodiesResponse(
+        bodies_created=result.bodies_created,
+        bodies_removed=result.bodies_removed,
+        bodies_skipped_unresolved_ordinal=result.bodies_skipped_unresolved_ordinal,
     )
 
 
@@ -240,18 +240,18 @@ async def detect_litho_lenses(
 
 @router.post(
     "/models/{model_id}/lenses",
-    response_model=NameLensBodyResponse,
+    response_model=NameBodyResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def name_lens_body(
     project_id: UUID,
     model_id: UUID,
-    request: NameLensBodyRequest,
+    request: NameBodyRequest,
     session: AsyncSession = Depends(get_session),
-) -> NameLensBodyResponse:
-    """Attach a name to a lens body identified by (formation_id, body_ordinal).
+) -> NameBodyResponse:
+    """Attach a name to a body identified by (formation_id, body_ordinal).
 
-    Creates a ``LithoLensOrm`` metadata row if none exists for the
+    Creates a ``BodyOrm`` metadata row if none exists for the
     ``(model_id, formation_id, body_ordinal)`` triple; updates the name
     field if a row already exists.  The body itself is defined by the
     correlation resolver — this endpoint only attaches a label to it.
@@ -264,15 +264,15 @@ async def name_lens_body(
         Project scope guard.
     model_id : UUID
         Must be a lithostratigraphic model in this project.
-    request : NameLensBodyRequest
+    request : NameBodyRequest
         Body: formation_id, body_ordinal, name, optional primary_section_id.
     session : AsyncSession
         Database session provided by DI.
 
     Returns
     -------
-    NameLensBodyResponse
-        The lens metadata row id and a ``was_created`` flag.
+    NameBodyResponse
+        The body metadata row id and a ``was_created`` flag.
 
     Raises
     ------
@@ -295,7 +295,7 @@ async def name_lens_body(
                 "code": "wrong_model_kind",
                 "message": (
                     f"Model {model_id} has kind='{model.kind}'; "
-                    f"lenses require kind='{MODEL_KIND_LITHOSTRATIGRAPHIC}'."
+                    f"bodies require kind='{MODEL_KIND_LITHOSTRATIGRAPHIC}'."
                 ),
             },
         )
@@ -312,10 +312,10 @@ async def name_lens_body(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "name_lens_error", "message": str(exc)},
+            detail={"code": "name_body_error", "message": str(exc)},
         ) from exc
 
-    return NameLensBodyResponse(lens_id=result.lens_id, was_created=result.was_created)
+    return NameBodyResponse(body_id=result.lens_id, was_created=result.was_created)
 
 
 # ---------------------------------------------------------------------------
@@ -382,25 +382,18 @@ async def delete_lens_metadata(
 # ---------------------------------------------------------------------------
 
 
-def _boundary_response(state) -> LensBoundaryResponse:  # noqa: ANN001 — internal mapper
-    """Map a ``BodyBoundaryState`` to the API response schema.
-
-    ``LensBoundaryResponse`` still carries ``lens_id`` + ``content_key`` for
-    now (Slice 3 will rename the schema); we map ``body_id`` → ``lens_id``
-    and pass ``content_key=None`` as a neutral value until the schema is
-    updated.
-    """
-    return LensBoundaryResponse(
-        lens_id=state.body_id,
-        content_key=None,  # content_key dropped in slice-1 schema rename
+def _boundary_response(state) -> BodyBoundaryResponse:  # noqa: ANN001 — internal mapper
+    """Map a ``BodyBoundaryState`` to the API response schema."""
+    return BodyBoundaryResponse(
+        body_id=state.body_id,
         render_style=state.render_style,  # type: ignore[arg-type]
         primary_section_id=state.primary_section_id,
         upper_nodes=[
-            LensBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
+            BodyBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
             for n in state.upper_nodes
         ],
         lower_nodes=[
-            LensBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
+            BodyBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
             for n in state.lower_nodes
         ],
     )
@@ -408,14 +401,14 @@ def _boundary_response(state) -> LensBoundaryResponse:  # noqa: ANN001 — inter
 
 @router.get(
     "/models/{model_id}/lenses/{lens_id}/boundary",
-    response_model=LensBoundaryResponse,
+    response_model=BodyBoundaryResponse,
 )
 async def get_lens_boundary(
     project_id: UUID,
     model_id: UUID,
     lens_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> LensBoundaryResponse:
+) -> BodyBoundaryResponse:
     """Return the user-authored boundary shape for a body (#body-with-extent).
 
     Empty node lists + ``render_style='straight'`` when no custom shape is
@@ -431,7 +424,7 @@ async def get_lens_boundary(
 
     Returns
     -------
-    LensBoundaryResponse
+    BodyBoundaryResponse
 
     Raises
     ------
@@ -452,15 +445,15 @@ async def get_lens_boundary(
 
 @router.put(
     "/models/{model_id}/lenses/{lens_id}/boundary",
-    response_model=LensBoundaryResponse,
+    response_model=BodyBoundaryResponse,
 )
 async def put_lens_boundary(
     project_id: UUID,
     model_id: UUID,
     lens_id: UUID,
-    request: LensBoundaryWriteRequest,
+    request: BodyBoundaryWriteRequest,
     session: AsyncSession = Depends(get_session),
-) -> LensBoundaryResponse:
+) -> BodyBoundaryResponse:
     """Full-replace the boundary shape for a body (#body-with-extent).
 
     Sorts + re-indexes the node lists server-side. Persisted under the body's
@@ -471,14 +464,14 @@ async def put_lens_boundary(
     project_id, model_id, lens_id : UUID
         Scope + target body id (``lens_id`` param name kept for URL
         stability until Slice 3 renames the endpoint).
-    request : LensBoundaryWriteRequest
+    request : BodyBoundaryWriteRequest
         upper/lower nodes + render style.
     session : AsyncSession
         DB session.
 
     Returns
     -------
-    LensBoundaryResponse
+    BodyBoundaryResponse
         The saved state.
 
     Raises

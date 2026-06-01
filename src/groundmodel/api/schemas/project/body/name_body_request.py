@@ -1,4 +1,4 @@
-"""Pydantic schema: :class:`NameLensBodyRequest` and :class:`NameLensBodyResponse`."""
+"""Pydantic schemas: :class:`NameBodyRequest` and :class:`NameBodyResponse`."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-class NameLensBodyRequest(BaseModel):
+class NameBodyRequest(BaseModel):
     """Body of ``POST .../geology/models/{model_id}/lenses``.
 
-    Creates or updates a human-readable label for a lens body.  The body
-    is identified by its ``(formation_id, body_ordinal)`` pair, which is
+    Creates or updates a human-readable label for a body.  The body is
+    identified by its ``(formation_id, body_ordinal)`` pair, which is
     assigned by the correlation resolver and must be known by the caller
     before invoking this endpoint.
 
@@ -22,7 +22,7 @@ class NameLensBodyRequest(BaseModel):
     body_ordinal : int
         Zero-based ordinal from the correlation resolver.
     name : str
-        Human-readable label (max 120 chars, non-empty).
+        Human-readable label (1–120 characters, non-empty).
     primary_section_id : UUID | None
         The cross-section from which the naming gesture was invoked.
         Stored so the perpendicular-companion use case can locate the
@@ -35,17 +35,17 @@ class NameLensBodyRequest(BaseModel):
     primary_section_id: UUID | None = None
 
 
-class NameLensBodyResponse(BaseModel):
+class NameBodyResponse(BaseModel):
     """Response of ``POST .../geology/models/{model_id}/lenses``.
 
     Attributes
     ----------
-    lens_id : UUID
-        The ``LithoLensOrm`` row id (new or pre-existing).
+    body_id : UUID
+        The ``BodyOrm`` row id (new or pre-existing).
     was_created : bool
         ``True`` when a new row was inserted; ``False`` when an existing
         row was updated in-place.
     """
 
-    lens_id: UUID
+    body_id: UUID
     was_created: bool
