@@ -66,16 +66,23 @@ async def project_with_layers(db_session: AsyncSession) -> dict:
         epsg=31370,
         total_depth_m=10.0,
     )
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="G",
+        kind="geological",
+    )
     model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"
     )
-    db_session.add_all([bh1, bh2, model, sand])
+    db_session.add_all([bh1, bh2, geo_model, model, sand])
     await db_session.flush()
     layers = [
         LithoLayerOrm(

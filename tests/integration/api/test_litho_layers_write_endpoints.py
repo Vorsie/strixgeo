@@ -49,11 +49,18 @@ async def project_with_two_layers(
         epsg=31370,
         total_depth_m=10.0,
     )
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Geo M",
+        kind="geological",
+    )
     model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="Litho M",
         kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),
@@ -61,7 +68,7 @@ async def project_with_two_layers(
         name="SAND",
         color="#fdcb6e",
     )
-    db_session.add_all([bh, model, formation])
+    db_session.add_all([bh, geo_model, model, formation])
     await db_session.flush()
 
     upper = LithoLayerOrm(
