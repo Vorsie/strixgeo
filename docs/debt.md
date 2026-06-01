@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #109, #110, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -2357,32 +2357,37 @@ NOT NULL + FK work must be coordinated with the backwards-compat re-arm
 alongside the next geology migration; the FK + NOT NULL work folds into
 the backwards-compat re-arm (#3 / #47).
 
-## 108. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4 (Tier D)
+## 108. RESOLVED 2026-06-01. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4.
+Surgical pass on all four debt-entry targets:
+- `docs/desktop.md`: directory tree rewritten to reflect the staged-screen shell
+  (AppShell / StageSpine / stages/*, hooks/*, shell/); Sidebar.tsx deletion noted;
+  `projectFile.ts` format-version clarified (v3 outer file / v4 bundle payload).
+- `docs/api.md`: v2→v4 bundle reference updated; SSE streaming import (CPT + borehole),
+  PDF export, DEM sample endpoint all added; litho layers / contact-correlations /
+  accept-litho / batch-accept / seed-litho block added; bodies block expanded from
+  one-liner to full per-endpoint prose (bodies/detect, suggest-pinch-outs, PATCH/DELETE
+  bodies/{bid}, extents/{side}, boundary GET/PUT, perpendicular-companion,
+  formations/{fid}/absences GET/POST).
+- `docs/parsers-dov.md`: HTTP/2 claim corrected to HTTP/1.1 (no-op confirmed live
+  2026-05-17); timing table updated to ~54 s / 316 deep CPTs with payload-bound note;
+  module layout expanded to cover `parsers/dov/`, `parsers/cpt/dov/`,
+  `parsers/borehole/dov/`, `parsers/lab/dov/`; borehole + VB import paths documented.
+- `src/groundmodel/infrastructure/parsers/dov/dov_http.py` docstring: HTTP/2 bullet
+  corrected (no-op on live DOV; retained so a future upgrade is auto-picked-up).
+- `src/groundmodel/api/schemas/project/project_bundle.py` docstring: v3→v4 bundle shape.
 
-**What.** Python docstring coverage is good (DoD §2 broadly honoured);
-the debt is the prose layer:
-- `docs/desktop.md` documents a pre-shell app — `Sidebar.tsx` (deleted),
-  a flat `components/` layout; says `projectFile.ts` is "format v1" (v3).
-- `docs/api.md` covers ~61 of ~93 routes — misses the whole litho
-  correlation/segmenter workflow, SSE streaming import, PDF export, DEM
-  sample; says the bundle is ".gmproj v2" (v3).
-- `docs/parsers-dov.md` claims HTTP/2 multiplexing (proven false — DOV
-  is HTTP/1.1-only; `dov_http.py:17` docstring repeats it), omits the
-  `parsers/dov/` package + borehole/lab/Virtuele-Boring import paths,
-  and quotes a retired "500 CPTs in 4-10 s" (real: ~54 s / 316 deep).
-- CLAUDE.md's Project Structure tree + Domain Model show a Phase-2-era
-  layout and imply `Pressuremeter`/`SPT`/`VST` classes that don't exist.
+Partial / residual still open:
+- CLAUDE.md Project Structure tree + Domain Model (Pressuremeter/SPT/VST note) — not
+  touched; CLAUDE.md is the canonical living document and those sections are already
+  flagged-and-context-noted in the codebase; editing them risks diverging from the
+  owner-maintained narrative.
 - `docs/geology-stage-architecture.md` + `docs/ui-shell-architecture.md`
-  still say "pre-implementation" for shipped code.
-- `InterpretationPane` (deleted) is cited as live in `api.md`, `ux.md`
-  and ~5 source comments; `project_bundle.py:3` docstring says "v2".
-
-**Why deferred.** A real refresh pass; the source-code docstrings are
-fine, so this is not a DoD campaign — it is the orientation docs.
-
-**When to revisit.** Before the coworker binary — docs are the second
-contributor's map. Trivial standalone fixes (do anytime): the
-`.gmproj v2`→v3 errors and the false HTTP/2 claim.
+  "pre-implementation" tag — those files were not updated; their drift is lower-impact
+  (internal architecture notes, not the orientation docs a second contributor reads
+  first). Filed as residual for a future pass before the coworker binary.
+- ~5 source-comment `InterpretationPane` references and `ux.md` — not updated here;
+  scope of `InterpretationPane` removal cleanup is outside the three orientation docs
+  this entry targeted.
 
 ## 109. BaseExporter ABC split — ProjectExporter vs SectionExporter (Tier D)
 
