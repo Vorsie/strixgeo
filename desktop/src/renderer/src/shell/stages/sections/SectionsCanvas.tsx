@@ -727,31 +727,44 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Body context menu handlers — wired from BodyContextMenu via SectionPanel.
 
-  // Claim a user-extent on a body.  Looks up the body row from lensList to
-  // supply formation_id + source_investigation_id for the POST.  409 (existing
-  // user-claim from detector) surfaces a toast; Task 7.5 will promote this to
-  // the provenance-conflict dialog.
-  const handleClaimBodyExtent = useCallback(
+  // Low-level claim helper — calls the API directly WITHOUT the 409 → dialog
+  // branch.  Used on the retry path inside the ProvenanceConflictDialog onApply
+  // handler so a race between clear and re-claim cannot reopen the dialog.
+  // On success it updates local state (refetch + success toast).
+  // On any error — including ProvenanceViolationError — it rethrows so the
+  // caller decides what to show.
+  const _doClaimExtent = useCallback(
     async (bodyId: string, side: 'left' | 'right', kind: ClaimableKind): Promise<void> => {
       if (!activeLithoModel) return
       const body = lensList.find(b => b.id === bodyId)
       if (!body) {
-        log.warn('section', `claim-body-extent: body ${bodyId} not found in lensList`)
+        log.warn('section', `_doClaimExtent: body ${bodyId} not found in lensList`)
         return
       }
+      await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
+        formation_id: body.formation_id,
+        source_investigation_id: body.source_investigation_id,
+        side,
+        kind,
+      })
+      void refetchLensData()
+      toast('success', `Extent claimed: ${side} → ${kind}`)
+    },
+    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+  )
+
+  // Claim a user-extent on a body.  Looks up the body row from lensList to
+  // supply formation_id + source_investigation_id for the POST.  409 (existing
+  // detector claim) surfaces the ProvenanceConflictDialog so the user can
+  // choose to overwrite.  Delegates the actual API call to _doClaimExtent.
+  const handleClaimBodyExtent = useCallback(
+    async (bodyId: string, side: 'left' | 'right', kind: ClaimableKind): Promise<void> => {
       log.info(
         'section',
         `claim-body-extent: body=${bodyId} side=${side} kind=${kind}`,
       )
       try {
-        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          formation_id: body.formation_id,
-          source_investigation_id: body.source_investigation_id,
-          side,
-          kind,
-        })
-        void refetchLensData()
-        toast('success', `Extent claimed: ${side} → ${kind}`)
+        await _doClaimExtent(bodyId, side, kind)
       } catch (err: unknown) {
         if (err instanceof ProvenanceViolationError) {
           // HTTP 409: the detector already claimed this side with 'to_target'.
@@ -765,7 +778,7 @@ export default function SectionsCanvas(): JSX.Element {
         }
       }
     },
-    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+    [_doClaimExtent, toast],
   )
 
   // Clear one side's user extent.  204 = body reaped; 200 = still alive.
@@ -2378,17 +2391,27 @@ export default function SectionsCanvas(): JSX.Element {
             side={provenanceConflict.side}
             kind={provenanceConflict.kind}
             onApply={() => {
-              // Clear the existing detector claim then retry the user claim.
+              // Clear the existing detector claim then retry via _doClaimExtent
+              // (NOT handleClaimBodyExtent) so a second 409 — caused by a
+              // concurrent DetectBodies sweep racing between clear and re-claim
+              // — does NOT reopen the dialog.  Instead it shows a toast.
               const { bodyId, side, kind } = provenanceConflict
               setProvenanceConflict(null)
               void (async () => {
                 if (!activeLithoModel) return
                 try {
                   await api.geology.clearBodyExtent(project.id, activeLithoModel.id, bodyId, side)
-                  await handleClaimBodyExtent(bodyId, side, kind)
+                  await _doClaimExtent(bodyId, side, kind)
                 } catch (err) {
-                  toast('error', 'Failed to apply claim after conflict resolution.')
-                  log.warn('section', 'provenance-conflict apply: failed', err)
+                  if (err instanceof ProvenanceViolationError) {
+                    // Rare race: a DetectBodies sweep re-claimed the side
+                    // between our clear and re-claim.  Don't reopen the dialog.
+                    toast('error', "Couldn't claim extent — try again.")
+                    log.warn('section', 'provenance-conflict apply: re-claimed by detector', err)
+                  } else {
+                    toast('error', 'Failed to apply claim after conflict resolution.')
+                    log.warn('section', 'provenance-conflict apply: failed', err)
+                  }
                 }
               })()
             }}
