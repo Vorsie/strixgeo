@@ -1430,6 +1430,22 @@ export class DuplicateContactError extends Error {
   }
 }
 
+/** Thrown when POST /models/{mid}/bodies returns HTTP 409 (provenance rule §5.2):
+ * a detector-set ``to_target`` extent already occupies the requested side and
+ * must be explicitly cleared via ClearBodyExtent before the user can claim it.
+ * Carries the side + kind so the ProvenanceConflictDialog can retry the claim
+ * after the user confirms they want to overwrite. */
+export class ProvenanceViolationError extends Error {
+  side: 'left' | 'right'
+  kind: string
+  constructor(side: 'left' | 'right', kind: string, message?: string) {
+    super(message ?? `Provenance conflict on side=${side}`)
+    this.name = 'ProvenanceViolationError'
+    this.side = side
+    this.kind = kind
+  }
+}
+
 let _base = 'http://127.0.0.1:8765'
 
 export function setBaseUrl(url: string): void {
@@ -2685,7 +2701,9 @@ export const api = {
 
     // Claim a user-extent on a body (creates body row if needed).
     // Returns the full BodyListItem after claim.
-    claimBodyExtent: (
+    // Throws ProvenanceViolationError on HTTP 409 (detector-set extent on that
+    // side; caller must clear first or open the ProvenanceConflictDialog).
+    claimBodyExtent: async (
       projectId: string,
       modelId: string,
       request: {
@@ -2696,8 +2714,29 @@ export const api = {
         neighbour_inv_id?: string | null
         primary_section_id?: string | null
       },
-    ): Promise<BodyListItem> =>
-      post(`/projects/${projectId}/geology/models/${modelId}/bodies`, request),
+    ): Promise<BodyListItem> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/bodies`
+      const res = await fetch(`${_base}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        // HTTP 409 = provenance rule §5.2: detector already claimed this side.
+        // Throw a typed error so the caller can open the ProvenanceConflictDialog
+        // rather than falling through to a generic error toast.
+        if (res.status === 409 && detail.detail?.code === 'provenance_violation') {
+          throw new ProvenanceViolationError(
+            request.side,
+            request.kind,
+            detail.detail.message,
+          )
+        }
+        throw new Error(detail.detail?.message ?? detail.detail ?? `POST ${path} → ${res.status}`)
+      }
+      return res.json() as Promise<BodyListItem>
+    },
 
     // Clear one side's extent back to NULL.
     // Returns the updated BodyListItem, or null when the body row is reaped
