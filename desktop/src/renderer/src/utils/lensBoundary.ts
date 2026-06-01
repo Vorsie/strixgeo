@@ -1,11 +1,15 @@
-// Pure helpers for lens-boundary shaping (#163f Slice 2 frontend).
+// Pure helpers for body-boundary shaping (#163f Slice 2 frontend, renamed Slice 5).
 //
 // Mirrors the backend geometry (lens_boundary_geometry.py) so the section
-// overlay can render the wedge, and derives the lens's pinch/top/base roles
+// overlay can render the wedge, and derives the body's pinch/top/base roles
 // from its stable content_key + the correlation edges — no extra backend
 // call needed. No React, no I/O.
 
-import type { LensBoundaryNode, LensRenderStyle } from '../api/client'
+import type { BodyBoundaryNode, BodyRenderStyle } from '../api/client'
+
+// Backwards-compat aliases used by LensWedgeOverlay (renamed in slice 6).
+type LensBoundaryNode = BodyBoundaryNode
+type LensRenderStyle = BodyRenderStyle
 
 /** Merge anchor endpoints + control nodes into one list sorted by along_m. */
 function mergeSorted(
@@ -31,7 +35,7 @@ function stepify(points: readonly LensBoundaryNode[]): LensBoundaryNode[] {
 }
 
 /**
- * Renderable polyline for one lens boundary, mirroring the backend.
+ * Renderable polyline for one body boundary, mirroring the backend.
  * ``straight`` / ``rounded`` return the merged points verbatim (the rounded
  * curve is applied at render time via d3); ``blocky`` returns the staircase.
  */

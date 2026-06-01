@@ -244,16 +244,16 @@ export interface GeologicalFormationUpdatePayload {
   parent_formation_id?: string | null
 }
 
-// Position 4: request body for POST .../lenses (name/upsert a lens body).
-export interface NameLensBodyRequest {
+// Slice 5: request body for PATCH .../bodies/{id} (update a body row).
+export interface NameBodyRequest {
   formation_id: string
   body_ordinal: number
   name: string
   primary_section_id?: string | null
 }
 
-// Position 4: response from POST .../lenses.
-export interface NameLensBodyResponse {
+// Slice 5: response from PATCH .../bodies/{id}.
+export interface NameBodyResponse {
   lens_id: string
   was_created: boolean
 }
@@ -283,40 +283,74 @@ export interface UpsertFormationAbsenceResponse {
   was_created: boolean
 }
 
-// Position 4: lightweight list item from GET .../lenses.
-// A row is METADATA attached to a body identified by (formation_id, body_ordinal).
-export interface LithoLensListItem {
+// Slice 5: body list item from GET .../bodies — matches BodyListItem backend schema.
+// A row carries the full metadata for one body (formerly lens) in a litho model.
+export interface BodyListItem {
   id: string
   app_project_id: string
   model_id: string
   formation_id: string
   body_ordinal: number
+  source_investigation_id: string
   name: string | null
   primary_section_id: string | null
-  /** Stable identity of the lens body (#163f) — sorted hash of its 3 defining
-   *  contact ids. Lets the frontend derive the wedge + join to the boundary
-   *  shape. Null on rows not re-detected since the shaping feature shipped. */
-  content_key: string | null
+  extent_left_kind: string | null
+  extent_left_target_contact_id: string | null
+  extent_left_neighbour_inv_id: string | null
+  extent_right_kind: string | null
+  extent_right_target_contact_id: string | null
+  extent_right_neighbour_inv_id: string | null
   created_at: string
   updated_at: string
+  /** Stable identity of the body (#163f) — sorted hash of its 3 defining
+   *  contact ids. Populated by the correlation-graph detector.
+   *  Null on rows not yet detected since the shaping feature shipped.
+   *  @deprecated Consumed by LensWedgeOverlay (slice 6 drops this field). */
+  content_key?: string | null
 }
 
-// #163f: one control node on a lens boundary (section-local).
-export interface LensBoundaryNode {
+// Backwards-compat alias — callers migrated in slice 6+; keep for now so
+// the slice-6 overlay rewrite has a clean cut-point.
+export type LithoLensListItem = BodyListItem
+
+// Slice 5: one control node on a body boundary (section-local).
+export interface BodyBoundaryNode {
   along_m: number
   elevation_m: number
 }
 
-export type LensRenderStyle = 'straight' | 'blocky' | 'rounded'
+// Backwards-compat alias — consumed by lensBoundary.ts + LensWedgeOverlay (slice 6).
+export type LensBoundaryNode = BodyBoundaryNode
 
-// #163f: GET/PUT .../lenses/{id}/boundary payload — the user-authored shape.
-export interface LensBoundaryResponse {
+export type BodyRenderStyle = 'straight' | 'blocky' | 'rounded'
+// Backwards-compat alias — consumed by the renderer (slice 6 renames the overlay).
+export type LensRenderStyle = BodyRenderStyle
+
+// Slice 5: GET/PUT .../bodies/{id}/boundary payload — the user-authored shape.
+export interface BodyBoundaryResponse {
   lens_id: string
   content_key: string | null
-  render_style: LensRenderStyle
+  render_style: BodyRenderStyle
   primary_section_id: string | null
-  upper_nodes: LensBoundaryNode[]
-  lower_nodes: LensBoundaryNode[]
+  upper_nodes: BodyBoundaryNode[]
+  lower_nodes: BodyBoundaryNode[]
+}
+
+// Backwards-compat alias — consumed by SectionsCanvas + SectionPanel + overlay (slice 6).
+export type LensBoundaryResponse = BodyBoundaryResponse
+
+// Slice 5: one pinch-out candidate from POST .../bodies/suggest-pinch-outs.
+export interface PinchOutCandidate {
+  body_id: string | null
+  source_investigation_id: string
+  above_contact_id: string
+  below_contact_id: string
+  side: 'left' | 'right'
+  suggested_neighbour_investigation_id: string
+}
+
+export interface SuggestPinchOutsResponse {
+  candidates: PinchOutCandidate[]
 }
 
 // Phase-2 Slice 3: one edge in the litho correlation graph.
@@ -2548,64 +2582,173 @@ export const api = {
         { formation_id: formationId, admixtures },
       ),
 
-    // --- Litho lens (Position 4) ----------------------------------------------
+    // --- Body (formerly lens) CRUD (Slice 3 backend / Slice 5 FE rename) ------
     //
-    // List all named lens bodies for a lithostratigraphic model.
-    // Used by LithologyInspector to build per-formation lens-count badges.
+    // List all body rows for a lithostratigraphic model.
+    // Used by LithologyInspector to build per-formation body-count badges.
+    listBodies: (
+      projectId: string,
+      modelId: string,
+    ): Promise<BodyListItem[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/bodies`),
+
+    // Backwards-compat alias — slice-6 callers switch to listBodies directly.
     listLenses: (
       projectId: string,
       modelId: string,
-    ): Promise<LithoLensListItem[]> =>
-      get(`/projects/${projectId}/geology/models/${modelId}/lenses`),
+    ): Promise<BodyListItem[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/bodies`),
 
-    // #163f: read the user-authored boundary shape for a lens body.
+    // Read the user-authored boundary shape for a body.
     // Empty node lists + 'straight' when no custom shape is stored.
+    getBodyBoundary: (
+      projectId: string,
+      modelId: string,
+      bodyId: string,
+    ): Promise<BodyBoundaryResponse> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/boundary`),
+
+    // Backwards-compat alias — slice-6 callers switch to getBodyBoundary directly.
     getLensBoundary: (
       projectId: string,
       modelId: string,
       lensId: string,
-    ): Promise<LensBoundaryResponse> =>
-      get(`/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/boundary`),
+    ): Promise<BodyBoundaryResponse> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary`),
 
-    // #163f: full-replace the boundary shape (nodes + render style). The
-    // server sorts + re-indexes the node lists. 422 if the lens has no
-    // content_key (re-correlate) or no primary section.
+    // Full-replace the boundary shape (nodes + render style). The server sorts
+    // + re-indexes the node lists. 422 if the body has no content_key
+    // (re-correlate) or no primary section.
+    saveBodyBoundary: (
+      projectId: string,
+      modelId: string,
+      bodyId: string,
+      body: {
+        upper_nodes: BodyBoundaryNode[]
+        lower_nodes: BodyBoundaryNode[]
+        render_style: BodyRenderStyle
+      },
+    ): Promise<BodyBoundaryResponse> =>
+      put(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/boundary`, body),
+
+    // Backwards-compat alias — slice-6 callers switch to saveBodyBoundary directly.
     saveLensBoundary: (
       projectId: string,
       modelId: string,
       lensId: string,
       body: {
-        upper_nodes: LensBoundaryNode[]
-        lower_nodes: LensBoundaryNode[]
-        render_style: LensRenderStyle
+        upper_nodes: BodyBoundaryNode[]
+        lower_nodes: BodyBoundaryNode[]
+        render_style: BodyRenderStyle
       },
-    ): Promise<LensBoundaryResponse> =>
-      put(`/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/boundary`, body),
+    ): Promise<BodyBoundaryResponse> =>
+      put(`/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary`, body),
 
-    // Upsert the human label for a lens body identified by
-    // (formation_id, body_ordinal).  Creates a LithoLensOrm row on first
-    // call; updates the name on subsequent calls.
+    // PATCH body row (currently: name update). Creates a body row on first
+    // call when name is provided; updates on subsequent calls.
+    nameBody: (
+      projectId: string,
+      modelId: string,
+      bodyId: string,
+      body: NameBodyRequest,
+    ): Promise<NameBodyResponse> =>
+      patch(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`,
+        body,
+      ),
+
+    // Backwards-compat alias — callers in slice-6 switch to nameBody directly.
     nameLensBody: (
       projectId: string,
       modelId: string,
-      body: NameLensBodyRequest,
-    ): Promise<NameLensBodyResponse> =>
-      post(`/projects/${projectId}/geology/models/${modelId}/lenses`, body),
+      body: NameBodyRequest,
+    ): Promise<NameBodyResponse> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/bodies`, body),
 
-    // Delete a lens metadata row.  Does NOT delete absence records —
+    // Delete a body metadata row.  Does NOT delete absence records —
     // they are formation-scoped and survive independently.
-    deleteLens: async (
+    deleteBody: async (
       projectId: string,
       modelId: string,
-      lensId: string,
+      bodyId: string,
     ): Promise<void> => {
-      const path = `/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}`
+      const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`
       const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}))
         throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
       }
     },
+
+    // Backwards-compat alias — slice-6 callers switch to deleteBody directly.
+    deleteLens: async (
+      projectId: string,
+      modelId: string,
+      lensId: string,
+    ): Promise<void> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}`
+      const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+    },
+
+    // Claim a user-extent on a body (creates body row if needed).
+    // Returns the full BodyListItem after claim.
+    claimBodyExtent: (
+      projectId: string,
+      modelId: string,
+      request: {
+        formation_id: string
+        source_investigation_id: string
+        side: 'left' | 'right'
+        kind: 'pinch_out_halfway' | 'extrapolated' | 'open'
+        neighbour_inv_id?: string | null
+        primary_section_id?: string | null
+      },
+    ): Promise<BodyListItem> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/bodies`, request),
+
+    // Clear one side's extent back to NULL.
+    // Returns the updated BodyListItem, or null when the body row is reaped
+    // (both sides cleared and no name).
+    clearBodyExtent: async (
+      projectId: string,
+      modelId: string,
+      bodyId: string,
+      side: 'left' | 'right',
+    ): Promise<BodyListItem | null> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/extents/${side}`
+      const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+      // 204 = body was reaped; 200 = body still alive, body contains the row.
+      if (res.status === 204) return null
+      return res.json() as Promise<BodyListItem>
+    },
+
+    // Ephemeral: returns pinch-out candidates for the model based on the
+    // current correlation graph topology.
+    suggestBodyPinchOuts: (
+      projectId: string,
+      modelId: string,
+    ): Promise<SuggestPinchOutsResponse> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/bodies/suggest-pinch-outs`, {}),
+
+    // PATCH a body row (currently: name update).
+    updateBody: (
+      projectId: string,
+      modelId: string,
+      bodyId: string,
+      request: NameBodyRequest,
+    ): Promise<NameBodyResponse> =>
+      patch(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`,
+        request,
+      ),
 
     // Fetch all absence records for a formation (used by InspectLensBodyPanel).
     listFormationAbsences: (
@@ -2659,19 +2802,19 @@ export const api = {
         {},
       ),
 
-    // Auto-create a perpendicular companion section for a lens (#101 Slice 4).
+    // Auto-create a perpendicular companion section for a body (#101 Slice 4).
     // Idempotent: returns the existing companion section if one already exists.
-    // The companion section is centred on the lens centroid and extends to the
+    // The companion section is centred on the body centroid and extends to the
     // nearest investigation on each side (fallback: max(2×buffer, 100 m)).
     // The caller should add the returned section to the local section list and
     // offer to navigate to it.
     createPerpendicularCompanion: (
       projectId: string,
       modelId: string,
-      lensId: string,
+      bodyId: string,
     ): Promise<CrossSectionResponse> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/perpendicular-companion`,
+        `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/perpendicular-companion`,
         {},
       ),
 
@@ -2741,18 +2884,30 @@ export const api = {
         {},
       ),
 
-    // --- Detect lenses (explicit verb, owner directive 2026-05-31) ------------
+    // --- Detect bodies (explicit verb, owner directive 2026-05-31) ------------
     //
-    // Runs the correlation-graph lens detector and reconciles LithoLensOrm
-    // rows for one lithostratigraphic model.  Replaces the auto-detect that
-    // used to fire from every edge mutation (correlate / uncorrelate /
-    // accept) and every destructive op (delete contact, delete layer,
-    // cross-merge).  A single manual correlate was silently spawning a lens
-    // when it incidentally closed a #135 topology; this verb is the only
-    // path that materialises lens rows now.
+    // Runs the correlation-graph body detector and reconciles body rows for
+    // one lithostratigraphic model.  Replaces the auto-detect that used to
+    // fire from every edge mutation.  A single manual correlate was silently
+    // spawning a body when it incidentally closed a #135 topology; this verb
+    // is the only path that materialises body rows now.
     //
     // Idempotent — re-running with no topology change returns
     // lenses_created=0 lenses_removed=0.
+    detectBodies: (
+      projectId: string,
+      modelId: string,
+    ): Promise<{
+      lenses_created: number
+      lenses_removed: number
+      lenses_skipped_unresolved_ordinal: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
+        {},
+      ),
+
+    // Backwards-compat alias — SectionsToolbar migrated in slice 6.
     detectLithoLenses: (
       projectId: string,
       modelId: string,
@@ -2762,15 +2917,30 @@ export const api = {
       lenses_skipped_unresolved_ordinal: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/lenses/detect`,
+        `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
         {},
       ),
 
-    // --- Materialise lens companion sections (#133 Phase 3) -------------------
+    // --- Materialise body companion sections (#133 Phase 3) -------------------
     //
-    // For every LithoLens without a companion section, gate on all contacts
-    // in its primary section having at least one approved edge, then create
-    // a perpendicular companion section.
+    // For every body without a companion section, gate on all contacts in its
+    // primary section having at least one approved edge, then create a
+    // perpendicular companion section.
+    materialiseBodyCompanions: (
+      projectId: string,
+      modelId: string,
+    ): Promise<{
+      companion_sections_created: number
+      skipped_no_primary: number
+      skipped_unfinished_section: number
+      errored: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
+        {},
+      ),
+
+    // Backwards-compat alias — SectionsToolbar migrated in slice 6.
     materialiseLensCompanions: (
       projectId: string,
       modelId: string,
@@ -2781,7 +2951,7 @@ export const api = {
       errored: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
+        `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
         {},
       ),
 
