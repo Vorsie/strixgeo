@@ -424,6 +424,46 @@ describe('BodyExtentOverlay', () => {
     expect(sourceEdge.y).toBeCloseTo(94, 1)
     expect(sourceEdge.y).not.toBeCloseTo(91, 1)
   })
+
+  it('BE16 — stacked formation: wedge frames the occurrence its target correlates to, not the shallowest', () => {
+    // Regression (dogfeed 2026-06-01, screenshot): formation ``fX`` appears at
+    // TWO depths on the source — 2 m (upper) and 8 m (lower). The body's target
+    // contact correlates to the LOWER occurrence (8 m). The wedge must frame at
+    // 8 m (elev 2 → screen y 98), NOT the shallowest fX at 2 m (elev 8 → y 92)
+    // which the formation_id-only proxy picked.
+    const srcContacts = [
+      { ...contact('s-fx-hi', 'inv-s3', 2), formation_id: 'fX' },
+      { ...contact('s-other', 'inv-s3', 3), formation_id: 'fOther' },
+      { ...contact('s-fx-lo', 'inv-s3', 8), formation_id: 'fX' },
+      { ...contact('s-fy', 'inv-s3', 10), formation_id: 'fY' },
+      { ...contact('ct3', 'inv-T3', 9), formation_id: 'fX' },
+    ] as FormationContactResponse[]
+    const cols = [column('inv-s3', 50, 10), column('inv-T3', 0, 10)]
+    // Target ct3 correlates to the LOWER fX pair (8 m top + 10 m base).
+    const edges3 = [edge('ct3', 's-fx-lo'), edge('ct3', 's-fy')]
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          formation_id: 'fX',
+          content_key: null,
+          source_investigation_id: 'inv-s3',
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 'ct3',
+        }),
+      ],
+      contacts: srcContacts,
+      placedColumns: cols,
+      contactEdges: edges3,
+    })
+    const d = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const pts = Array.from(d.matchAll(/[ML]\s*([-\d.]+),([-\d.]+)/g)).map(m => ({
+      x: parseFloat(m[1]),
+      y: parseFloat(m[2]),
+    }))
+    const sourceEdge = pts.reduce((a, b) => (b.x > a.x ? b : a))
+    expect(sourceEdge.y).toBeCloseTo(98, 1) // lower fX at 8 m
+    expect(sourceEdge.y).not.toBeCloseTo(92, 1) // NOT the shallow fX at 2 m
+  })
 })
 
 // ---------------------------------------------------------------------------
