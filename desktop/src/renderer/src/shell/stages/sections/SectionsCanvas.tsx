@@ -46,6 +46,7 @@ import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPa
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
 import ProvenanceConflictDialog from '../../../components/sections/ProvenanceConflictDialog'
+import { ProvenanceViolationError } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -752,11 +753,11 @@ export default function SectionsCanvas(): JSX.Element {
         void refetchLensData()
         toast('success', `Extent claimed: ${side} → ${kind}`)
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        if (msg.includes('409') || msg.includes('Conflict')) {
-          // Provenance conflict — the detector already claimed this side.
-          // Surface the conflict dialog so the user can choose to overwrite.
-          log.info('section', `claim-body-extent: 409 conflict for body=${bodyId} side=${side}`)
+        if (err instanceof ProvenanceViolationError) {
+          // HTTP 409: the detector already claimed this side with 'to_target'.
+          // Surface the conflict dialog so the user can choose to overwrite
+          // after explicitly clearing the detector's claim.
+          log.info('section', `claim-body-extent: 409 provenance conflict for body=${bodyId} side=${side}`)
           setProvenanceConflict({ bodyId, side, kind })
         } else {
           toast('error', 'Failed to claim extent.')
