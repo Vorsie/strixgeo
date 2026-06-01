@@ -15,6 +15,10 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
+    FormalStratigraphyEntry,
+    get_formal_stratigraphy,
+)
 from groundmodel.infrastructure.codelists.g3dv3_catalog import (
     G3Dv3Unit,
     get_catalog,
@@ -82,4 +86,66 @@ async def get_g3dv3_catalog() -> G3Dv3CatalogResponse:
     catalog = get_catalog()
     return G3Dv3CatalogResponse(
         units=[G3Dv3UnitResponse.from_unit(u) for u in catalog.all_units()],
+    )
+
+
+class FormalStratigraphyUnitResponse(BaseModel):
+    """One DOV formal-stratigraphy unit, serialised for the frontend.
+
+    Powers the "Formal stratigraphy" autocomplete in the formation dialog so
+    the engineer can LINK an informal formation (e.g. "Quartair: Holocene
+    afzettingen") to its formal code ("QH"). The chosen ``code`` is stored on
+    the formation and drives the lens auto-name.
+
+    Attributes
+    ----------
+    code : str
+        The DOV formal-stratigraphy code (e.g. ``"QH"``, ``"Bm"``, ``"KoAa"``).
+    name_nl : str
+        The canonical Dutch name (e.g. ``"Quartair Holoceen"``,
+        ``"Formatie van Boom"``).
+    age_rank : int or None
+        G3Dv3 age rank when recoverable; ``None`` otherwise.
+    color_hex : str or None
+        G3Dv3 prescribed RGB colour when available; ``None`` otherwise.
+    """
+
+    code: str
+    name_nl: str
+    age_rank: int | None
+    color_hex: str | None
+
+    @classmethod
+    def from_entry(cls, entry: FormalStratigraphyEntry) -> FormalStratigraphyUnitResponse:
+        """Build a response object from a ``FormalStratigraphyEntry``."""
+        return cls(
+            code=entry.code,
+            name_nl=entry.full_name_nl,
+            age_rank=entry.age_rank,
+            color_hex=entry.color_hex,
+        )
+
+
+class FormalStratigraphyCatalogResponse(BaseModel):
+    """Top-level response wrapper for ``GET /codelists/formal-stratigraphy``."""
+
+    units: list[FormalStratigraphyUnitResponse]
+
+
+@router.get("/formal-stratigraphy", response_model=FormalStratigraphyCatalogResponse)
+async def get_formal_stratigraphy_catalog() -> FormalStratigraphyCatalogResponse:
+    """Return every DOV formal-stratigraphy unit (code + canonical Dutch name).
+
+    The catalog is a process-singleton (lru_cache), so this handler is a
+    serialise + return; the frontend caches it after the first call. Lets the
+    formation dialog offer an informal→formal link.
+
+    Returns
+    -------
+    FormalStratigraphyCatalogResponse
+        ``{"units": [...]}`` — 403 units on today's catalog.
+    """
+    catalog = get_formal_stratigraphy()
+    return FormalStratigraphyCatalogResponse(
+        units=[FormalStratigraphyUnitResponse.from_entry(e) for e in catalog.all_entries()],
     )
