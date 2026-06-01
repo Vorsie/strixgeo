@@ -197,6 +197,10 @@ export interface GeologicalFormationResponse {
   // time; never stored in the DB. null on geological rows and on orphaned
   // litho units whose parent id is not present in the project set.
   parent_formation_name: string | null
+  // Server-resolved ``code`` of the parent geological formation (DOV codelist
+  // code). Drives the lens auto-name (``{parent code}{lithology abbrev}{depth
+  // rank}`` e.g. ``QPSa1``). null on geological rows / parents without a code.
+  parent_formation_code?: string | null
   // Debt #87: true when parent_formation_id was inferred via TIN extrapolation
   // (no geology contact at this investigation covered the suggestion's depth).
   // The LithologyInspector renders an amber dot + tooltip + confirm dialog
