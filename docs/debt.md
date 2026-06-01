@@ -4851,21 +4851,6 @@ CLAUDE.md). Both sides are consistent at the stale name; no data loss.
 **When to revisit.** Next bundle-format change (`format_version` bump) OR
 when backwards-compat is re-armed — whichever comes first.
 
-## 183. E1 — `DetectBodies` N+1 SELECT in upsert loop (Tier D — backend, M)
-
-**What.** In `DetectBodies.execute`, the upsert loop fires one
-`SELECT FROM body WHERE (model_id, formation_id, body_ordinal)` per detected
-candidate.  For a section with 50 formations this is 50+ round-trips where 1
-bulk prefetch would serve.  Primary fix: load `{(formation_id, body_ordinal):
-BodyOrm}` for the whole model before the loop and answer from the dict.
-
-**Why deferred.** Current project scales (~10–20 formations per section) sit
-well under 500 ms; the N+1 is invisible in wall-clock today.
-
-**When to revisit.** When a Detect click exceeds 500 ms wall-clock, OR before
-the debt #155-class measurement on bodies surfaces if that scan includes this
-use case.
-
 ## 184. E2 — `BodyExtentOverlay` resolve pass + index Maps not memoized (Tier E — frontend, M)
 
 **What.** `BodyExtentOverlay` builds its Map indexes (`contactsByInv`,
@@ -4906,22 +4891,6 @@ candidates within the depth-window band.
 **When to revisit.** When typical projects exceed 100 investigations in a
 corridor OR when the `suggest-pinch-outs` verb wall-clock crosses 200 ms.
 
-## 187. S2 — `ClaimBodyExtent` doesn't project-scope `source_investigation_id` / `neighbour_inv_id` (Tier B — backend, S)
-
-**What.** The claim use case validates `source_investigation_id` and
-`neighbour_inv_id` for logical consistency (not-equal, not-null) but does not
-check that these UUIDs belong to the same project as `project_id`.  A
-malicious client could plant a cross-project investigation UUID in a body row
-via the claim endpoint.  The bundle restore path at lines 1480–1496 of
-`project_bundle.py` validates these; the live claim path does not.
-
-**Fix.** After the formation/model scope guards, add:
-`await load_scoped_or_raise(session, BoreholeOrm | CptOrm, source_investigation_id, project_id, label="SourceInvestigation")`.
-Mirror for `neighbour_inv_id` when not None.  The polymorphic lookup (borehole
-OR CPT) may need a helper or two-step try-borehole / fall-through-to-CPT pattern.
-
-**When to revisit.** Before first non-solo distribution (Tier B alongside #4).
-
 ## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded (folds under #112)
 
 **What.** `BodyBoundaryWriteRequest.upper_nodes` and `lower_nodes` use
@@ -4934,21 +4903,6 @@ gap tracked in debt #112 (bundle/restore + API input bounds); fold this item
 into that work.
 
 **When to revisit.** Alongside debt #112 (commercial hardening pass).
-
-## 189. S4 — Cross-project IDOR regression tests missing for body endpoints (Tier B — testing, S)
-
-**What.** The scope guards on the body endpoints are correct (and S1 above
-adds the model-scope guard to `ClearBodyExtent`), but there is no test that
-would catch a future regression where a body, boundary, or absence endpoint
-accidentally omits the project/model scope check.  A cross-project request
-with a foreign body_id would either 200 (wrong) or 404 (correct — but only if
-the guard stays).
-
-**Fix.** Add a parameterised `"foreign project_id → 404"` test for each new
-body endpoint (claim, clear, boundary GET/PUT, detect, suggest-pinch-outs,
-recompute-absences).
-
-**When to revisit.** Before first non-solo distribution (Tier B alongside #4).
 
 ## (end)
 
