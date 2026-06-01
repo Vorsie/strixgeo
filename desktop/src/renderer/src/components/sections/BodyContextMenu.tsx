@@ -33,6 +33,9 @@ export interface BodyContextMenuProps {
   y: number
   /** The body the user right-clicked. */
   body: BodyListItem
+  /** Display label for the header (auto-name = lithology + stacking number, or
+   *  the explicit name when set). Falls back to the raw ``name`` when absent. */
+  displayLabel?: string
   /** Fired when the user picks a "Claim <side> extent → <kind>" item. */
   onClaimExtent: (bodyId: string, side: 'left' | 'right', kind: ClaimableKind) => void
   /** Fired when the user picks "Clear <side> extent". */
@@ -103,6 +106,7 @@ export default function BodyContextMenu({
   x,
   y,
   body,
+  displayLabel,
   onClaimExtent,
   onClearExtent,
   onNameBody,
@@ -193,7 +197,7 @@ export default function BodyContextMenu({
       y={y}
       width={300}
       height={500}
-      header={`Body${body.name ? ` · ${body.name}` : ''}`}
+      header={`Lens · ${displayLabel ?? body.name ?? body.id.slice(0, 8)}`}
       ariaLabel="Body extent actions"
       testid="body-context-menu"
       items={items}
