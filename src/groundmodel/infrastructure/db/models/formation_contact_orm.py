@@ -66,6 +66,10 @@ class FormationContactOrm(Base):
             name="formation_contact_anchor_xor",
         ),
         Index("idx_formation_contact_model_borehole", "model_id", "borehole_id"),
+        # CPT-anchor fast lookup — mirrors idx_formation_contact_model_borehole for CPT
+        # anchors. Created by migration u5v6w7x8y9z0; declared here so SQLAlchemy's
+        # autogenerate does not emit a spurious DROP on the next ``alembic revision``.
+        Index("idx_formation_contact_model_cpt", "model_id", "cpt_id"),
         Index("idx_formation_contact_model_formation", "model_id", "formation_id"),
         # Partial unique indexes enforce "no exact-duplicate contacts"
         # at the DB layer — same (model, formation, anchor, depth) cannot
