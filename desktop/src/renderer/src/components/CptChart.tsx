@@ -66,8 +66,6 @@ const FS_MAX = 1     // MPa
 const RF_MAX = 10    // %
 const U2_MIN = -100  // kPa
 const U2_MAX = 300   // kPa
-const IC_MAX = 4     // dimensionless
-
 // Curve colours are CSS custom properties defined in index.css.
 // Light values (:root) are the original hard-coded constants so the
 // light theme is byte-identical after this change. Dark values (.dark)
@@ -81,26 +79,12 @@ const FS_CLR = 'var(--chart-clr-fs)'
 const RF_CLR = 'var(--chart-clr-rf)'
 const U2_CLR = 'var(--chart-clr-u2)'
 const QT_CLR = 'var(--chart-clr-qt)'
-const IC_CLR = 'var(--chart-clr-ic)'
 const PD_CLR = 'var(--chart-clr-pd)'
 
 // Chrome-only colours — not domain curves, but axis/grid chrome.
 // These also need contrast against the dark surface.
 const SURFACE_REF_CLR   = 'var(--chart-surface-ref)'
 const SURFACE_LABEL_CLR = 'var(--chart-surface-label)'
-const IC_BOUNDARY_CLR   = 'var(--chart-ic-boundary)'
-const IC_ZONE_LABEL_CLR = 'var(--chart-ic-zone-label)'
-
-const IC_ZONES = [
-  { x1: 0,    x2: 1.31, fill: '#fef9c3', label: 'Sand'      },
-  { x1: 1.31, x2: 2.05, fill: '#ffedd5', label: 'Sand mix'  },
-  { x1: 2.05, x2: 2.60, fill: '#dcfce7', label: 'Silt mix'  },
-  { x1: 2.60, x2: 2.95, fill: '#dbeafe', label: 'Clay'      },
-  { x1: 2.95, x2: 3.60, fill: '#fef3c7', label: 'Organic'   },
-  { x1: 3.60, x2: 4.00, fill: '#f3e8ff', label: 'Sensitive' },
-] as const
-
-const IC_ZONE_BOUNDARIES = [1.31, 2.05, 2.60, 2.95, 3.60]
 
 // ── Depth-gap detection ─────────────────────────────────────────────────────
 
@@ -114,7 +98,6 @@ export interface CptDataPoint {
   rf: number | null
   u2_kpa: number | null
   qt: number | null
-  ic: number | null
 }
 
 /**
@@ -160,7 +143,6 @@ export function injectDepthGaps(
         rf: null,
         u2_kpa: null,
         qt: null,
-        ic: null,
       })
     }
     result.push(curr)
@@ -253,7 +235,9 @@ export default function CptChart({
     // line is wanted. The two are physically different quantities, never
     // both populated at once.
     qt:      plot.q_total_mpa ? (plot.q_total_mpa[i] ?? null) : null,
-    ic:      plot.ic     ?  (plot.ic[i]         ?? null) : null,
+    // Ic is intentionally absent here — Ic/SBT is interpretation, not a
+    // raw measurement. The Ic curve + SBT zone bands live in the Parameters
+    // stage's per-test tab (CptIcSbtChart.tsx). See debt #22 (2026-06-01).
   }))
   // Inject null-sentinel rows at depth discontinuities so the chart
   // lines break instead of interpolating across real no-data gaps
@@ -346,7 +330,6 @@ export default function CptChart({
   const hasRf  = plot.rf_pct != null
   const hasU2  = plot.u2_mpa != null
   const hasQt  = plot.q_total_mpa != null
-  const hasIc  = plot.ic != null
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
   const fmtLevel   = makeLevelFmt(elevationM)
@@ -511,42 +494,11 @@ export default function CptChart({
     )
   }
 
-  function renderIcPanel(isLeft: boolean, isRight: boolean) {
-    return (
-      <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
-        <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
-        {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
-        {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
-        <XAxis xAxisId="ic" type="number" orientation="top" domain={[0, IC_MAX]}
-          tick={{ fontSize: 11 }} ticks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]}
-        />
-        <XAxis xAxisId="icb" type="number" orientation="bottom" domain={[0, IC_MAX]}
-          tick={{ fontSize: 11 }} ticks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]}
-        />
-        {IC_ZONES.map(z => (
-          <ReferenceArea key={`zone-${z.x1}`} yAxisId="y" xAxisId="ic"
-            x1={z.x1} x2={z.x2} fill={z.fill} fillOpacity={1}
-          />
-        ))}
-        {IC_ZONE_BOUNDARIES.map(v => (
-          <ReferenceLine key={`line-${v}`} yAxisId="y" xAxisId="ic" x={v}
-            stroke={IC_BOUNDARY_CLR} strokeWidth={0.8} />
-        ))}
-        {surfaceElevationRef('ic')}
-        {preDrillZone('ic')}
-        {contactOverlayLines('ic', false)}
-        <Tooltip contentStyle={{ fontSize: 10 }}
-          formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)}`, key]}
-          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
-        />
-        <Line yAxisId="y" xAxisId="ic" dataKey="ic" name="Ic"
-          stroke={IC_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
-      </ComposedChart>
-    )
-  }
+  // renderIcPanel removed — Ic/SBT chart lives in Parameters stage (debt #22, 2026-06-01).
 
   const leftmost  = showU2 ? 'u2' : 'qcfs'
-  const rightmost = hasIc ? 'ic' : (hasRf ? 'rf' : 'qcfs')
+  // Ic panel removed (debt #22, 2026-06-01) — rightmost is now rf or qcfs.
+  const rightmost = hasRf ? 'rf' : 'qcfs'
   const isZoomed  = zoomDomain[0] !== 0 || zoomDomain[1] !== maxDepth
 
   return (
@@ -584,7 +536,7 @@ export default function CptChart({
           {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
           {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
           {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
-          {hasIc  && <LegendItem color={IC_CLR} label="Ic (interpretation, Robertson 2015)" />}
+          {/* Ic legend removed — Ic/SBT chart lives in Parameters stage (debt #22) */}
           {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
         </div>
         <div className="flex items-center gap-1 shrink-0 text-gray-400 dark:text-slate-400 text-[10px] select-none">
@@ -681,20 +633,7 @@ export default function CptChart({
         </div>
       </div>
 
-      {/* Ic SBT zone colour key */}
-      {hasIc && (
-        <div className="flex items-center gap-2 px-4 pb-1 shrink-0 flex-wrap">
-          <span className="text-[9px] text-gray-400 dark:text-slate-500 mr-1">SBT:</span>
-          {IC_ZONES.map(z => (
-            <div key={z.x1} className="flex items-center gap-1 text-[9px] text-gray-500 dark:text-slate-400">
-              {/* Domain fill: Robertson SBT zone colour — hue must not change (ux.md Tier 5).
-                  The swatch border shifts to a dark-mode-visible slate on dark backgrounds. */}
-              <div className="w-3 h-2.5 rounded-sm border border-gray-200 dark:border-slate-600" style={{ background: z.fill }} />
-              {z.label}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* SBT zone colour key removed — Ic/SBT chart lives in Parameters stage (debt #22) */}
 
       {/* Panels — scroll to zoom at cursor, drag to pan */}
       <div
@@ -715,7 +654,7 @@ export default function CptChart({
           </div>
         )}
 
-        <div style={{ flex: 2, position: 'relative' }} className={`min-w-0${(hasRf || hasIc) ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
+        <div style={{ flex: 2, position: 'relative' }} className={`min-w-0${hasRf ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
           <ResponsiveContainer width="100%" height="100%">
             {renderQcFsPanel(leftmost === 'qcfs', rightmost === 'qcfs')}
           </ResponsiveContainer>
@@ -726,43 +665,16 @@ export default function CptChart({
         </div>
 
         {hasRf && (
-          <div style={{ flex: 1, position: 'relative' }} className={`min-w-0${hasIc ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
+          <div style={{ flex: 1, position: 'relative' }} className="min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              {/* leftmost is among u2/qcfs only (line 548) — `rf` is
+              {/* leftmost is among u2/qcfs only — `rf` is
                   never the leftmost. Pass literal false. */}
               {renderRfPanel(false, rightmost === 'rf')}
             </ResponsiveContainer>
             <ChartLabel left={{ color: RF_CLR, text: 'Rf (%)' }} />
           </div>
         )}
-
-        {hasIc && (
-          // Debt #22: thicker amber-tinted left border marks the
-          // measurement / interpretation partition. The Ic column
-          // carries the Robertson Ic curve + SBT zone bands — both
-          // are interpretation, not measured data. Phase 5 will move
-          // this panel out of the raw-curve chart entirely (into the
-          // Parameters stage); the border is the interim cue so a
-          // user reading the chart today doesn't read the curve as
-          // just another measured channel. ``border-l-status-amber``
-          // matches the same dirty-marker hue the app uses elsewhere
-          // for "needs attention" (CLAUDE.md / docs/ux.md). The
-          // raw-data columns still have their own gray-border-r
-          // dividers between qc / Rf / etc. — the visual hierarchy
-          // is "subtle gray for inside the measured group, bolder
-          // amber on the boundary between measured and interpreted".
-          <div
-            style={{ flex: 1, position: 'relative' }}
-            className="min-w-0 border-l-2 border-l-status-amber"
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              {/* leftmost is among u2/qcfs only — `ic` is never the
-                  leftmost. Pass literal false. */}
-              {renderIcPanel(false, rightmost === 'ic')}
-            </ResponsiveContainer>
-            <IcZoneLabelsOverlay />
-          </div>
-        )}
+        {/* Ic panel removed — Ic/SBT chart lives in Parameters stage (debt #22, 2026-06-01) */}
 
         {/* DOV Virtuele Boring depth overlay — renders only when
             the user toggled it on in this pane AND the section
@@ -804,49 +716,7 @@ function ChartLabel({ left, right }: { left: LabelEntry; right?: LabelEntry; bot
   )
 }
 
-// Short labels for narrow zones in the Ic panel overlay
-const IC_ZONE_SHORT: Record<string, string> = {
-  'Sand': 'Sand', 'Sand mix': 'S.mix', 'Silt mix': 'Silt',
-  'Clay': 'Clay', 'Organic': 'Org.', 'Sensitive': 'Sens.',
-}
-
-function IcZoneLabelsOverlay() {
-  // Labels are rotated 90° so they read bottom-to-top inside their zone column.
-  // This keeps each label horizontally inside its zone regardless of chart width
-  // (no diagonal overflow into neighbouring zones or the depth axis on the right).
-  return (
-    <div
-      className="absolute pointer-events-none select-none"
-      style={{ bottom: 32, left: Y_W, right: Y_W, height: 44 }}
-    >
-      {IC_ZONES.map(z => {
-        const centerPct = ((z.x1 + z.x2) / 2 / IC_MAX) * 100
-        return (
-          <span
-            key={z.x1}
-            style={{
-              position:        'absolute',
-              bottom:          2,
-              left:            `${centerPct}%`,
-              transform:       'translate(-50%, 0) rotate(-90deg)',
-              transformOrigin: 'center bottom',
-              fontSize:        8,
-              // IC_ZONE_LABEL_CLR is a CSS var; the span is a plain DOM
-              // element inside the chart overlay div, so var() resolves
-              // against :root / .dark on <html> just like any other element.
-              color:           IC_ZONE_LABEL_CLR,
-              fontWeight:      500,
-              whiteSpace:      'nowrap',
-              lineHeight:      1,
-            }}
-          >
-            {IC_ZONE_SHORT[z.label] ?? z.label}
-          </span>
-        )
-      })}
-    </div>
-  )
-}
+// IcZoneLabelsOverlay and IC_ZONE_SHORT removed — moved to CptIcSbtChart.tsx (debt #22, 2026-06-01).
 
 function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
