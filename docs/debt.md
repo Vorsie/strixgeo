@@ -4796,5 +4796,159 @@ the canvas updates without a reload. **Effort.** S. Likely also worth: a follow-
 to let per-edge delete reach off-section edges (or surface a model-wide suggestion
 count so the user knows there are off-section suggestions to clear).
 
+# ═══ Body-with-extent audit (2026-06-01) ═══
+
+Four parallel agents (reuse / correctness / efficiency / security) reviewed
+the ~50-commit body-with-extent refactor diff on `develop`. Goals 1+2 from
+this pass were shipped immediately (C1 blocker fix, R2/R3 refactor, S1 scope
+guard). Items below are the deferred findings — each one is real but not
+blocking the geotech stage.
+
+## 180. R1 — `BodyExtentOverlay` double-switch in `resolveSide` (Tier E — frontend, S)
+
+**What.** `BodyExtentOverlay.tsx`'s `resolveSide` helper has two `switch`
+statements: the first dispatch for `pinch_out_halfway` and `extrapolated`
+produce identical branches; the `midpoint` fallback formula is duplicated 3×
+across the function. If a 5th extent kind is ever added, both switches need
+updating and the midpoint logic is a copy-paste landmine.
+
+**Why deferred.** Purely cosmetic; no correctness risk; the tests (BE1–BE14)
+would catch drift. No new extent kind is planned for Phase 4.
+
+**When to revisit.** Before any 5th extent kind lands, or when the function
+exceeds ~80 lines and readability blocks a reviewer.
+
+## 181. C2 — `ProvenanceConflictDialog.onApply` retry race (Tier B — frontend, S)
+
+**What.** When the user clicks "Apply" in `ProvenanceConflictDialog`, the
+`onApply` handler calls `handleClearBodyExtent` then re-enters
+`handleClaimBodyExtent`. `handleClaimBodyExtent` has its own 409-branch —
+if a concurrent `DetectBodies` sweep re-claims the side between the clear and
+the re-claim, the dialog can re-open after dismiss (race condition leading to
+double-dialog).
+
+**Fix.** Extract a `_doClaimExtent` helper that only does the claim (no
+conflict-dialog branching); use it in the `onApply` retry path. The outer
+`handleClaimBodyExtent` keeps the full branch for new claims.
+
+**Why deferred.** Non-solo distribution hasn't shipped; only one user;
+concurrent detect sweeps are explicit user actions, not background daemon
+work.
+
+**When to revisit.** Before any non-solo distribution (Tier B alongside #4).
+
+## 182. C3 — Bundle JSON keys `litho_lens_shapes` / `litho_lens_boundary_nodes` stale (Tier B — backend, S)
+
+**What.** The table rename renamed use cases and ORM classes but the bundle
+wire-format JSON keys (`litho_lens_shapes`, `litho_lens_boundary_nodes`) were
+not updated to match the new `body_boundary_shape` / `body_boundary_node`
+names. Round-trip works today because both sides agree on the old names, but
+the mismatch will confuse the next developer who touches the bundle format.
+
+**Why deferred.** Pre-ship amnesty applies (backwards-compat suspended per
+CLAUDE.md). Both sides are consistent at the stale name; no data loss.
+
+**When to revisit.** Next bundle-format change (`format_version` bump) OR
+when backwards-compat is re-armed — whichever comes first.
+
+## 183. E1 — `DetectBodies` N+1 SELECT in upsert loop (Tier D — backend, M)
+
+**What.** In `DetectBodies.execute`, the upsert loop fires one
+`SELECT FROM body WHERE (model_id, formation_id, body_ordinal)` per detected
+candidate.  For a section with 50 formations this is 50+ round-trips where 1
+bulk prefetch would serve.  Primary fix: load `{(formation_id, body_ordinal):
+BodyOrm}` for the whole model before the loop and answer from the dict.
+
+**Why deferred.** Current project scales (~10–20 formations per section) sit
+well under 500 ms; the N+1 is invisible in wall-clock today.
+
+**When to revisit.** When a Detect click exceeds 500 ms wall-clock, OR before
+the debt #155-class measurement on bodies surfaces if that scan includes this
+use case.
+
+## 184. E2 — `BodyExtentOverlay` resolve pass + index Maps not memoized (Tier E — frontend, M)
+
+**What.** `BodyExtentOverlay` builds its Map indexes (`contactsByInv`,
+`columnByInv`), runs the `resolveSide` filter/sort, and calls the whole
+`resolveSide` logic on every render — including drag `mousemove` frames.  At
+~5 bodies per section this is invisible; at ~20 it may contribute to jank.
+
+**Fix.** Wrap the Map builds + the resolved-side array in
+`useMemo([bodies, contacts, placedColumns, contactEdges, boundariesByBodyId, drag])`.
+
+**When to revisit.** When section render becomes visibly janky during a
+boundary-node drag, OR when body count per section exceeds ~20.
+
+## 185. E3 — `refetchLensData` fires N boundary GETs per body list update (Tier D — backend/frontend, M)
+
+**What.** Every accept/correlate/detect triggers `refetchLensData`, which
+calls `GET /bodies/{bid}/boundary` once per body in `lensList` — so N bodies
+= N sequential GET requests.  This is the pre-existing lens pattern; the
+body-with-extent refactor increased the exposure (more paths now call
+`refetchLensData`).
+
+**Fix.** Add a `GET /models/{mid}/bodies?include_boundaries=true` bulk
+endpoint (bodies + their boundary nodes in one response).
+
+**When to revisit.** When a section commonly has > 15 bodies and the
+post-detect refetch latency is felt by the user.
+
+## 186. E4 — `SuggestBodyPinchOuts` neighbour search is O(I²×C) (Tier D — backend, S)
+
+**What.** `SuggestBodyPinchOuts._find_neighbours` iterates `all_invs` twice
+per source pair (inner loop + corridor filter) without any spatial index or
+pre-sort + bisect.  For typical 50-investigation corridors this is ~2,500
+comparisons — fine; at 100 investigations it hits ~10,000.
+
+**Fix.** Pre-sort `all_invs` by `along_m` once; use `bisect_left` to find
+candidates within the depth-window band.
+
+**When to revisit.** When typical projects exceed 100 investigations in a
+corridor OR when the `suggest-pinch-outs` verb wall-clock crosses 200 ms.
+
+## 187. S2 — `ClaimBodyExtent` doesn't project-scope `source_investigation_id` / `neighbour_inv_id` (Tier B — backend, S)
+
+**What.** The claim use case validates `source_investigation_id` and
+`neighbour_inv_id` for logical consistency (not-equal, not-null) but does not
+check that these UUIDs belong to the same project as `project_id`.  A
+malicious client could plant a cross-project investigation UUID in a body row
+via the claim endpoint.  The bundle restore path at lines 1480–1496 of
+`project_bundle.py` validates these; the live claim path does not.
+
+**Fix.** After the formation/model scope guards, add:
+`await load_scoped_or_raise(session, BoreholeOrm | CptOrm, source_investigation_id, project_id, label="SourceInvestigation")`.
+Mirror for `neighbour_inv_id` when not None.  The polymorphic lookup (borehole
+OR CPT) may need a helper or two-step try-borehole / fall-through-to-CPT pattern.
+
+**When to revisit.** Before first non-solo distribution (Tier B alongside #4).
+
+## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded (folds under #112)
+
+**What.** `BodyBoundaryWriteRequest.upper_nodes` and `lower_nodes` use
+`Field(default_factory=list)` without `max_length`.  A malformed request with
+100,000 nodes would force the endpoint to allocate and commit a large payload
+with no server-side cap.
+
+**Fix.** Add `max_length=10_000` to each field.  This is the same family of
+gap tracked in debt #112 (bundle/restore + API input bounds); fold this item
+into that work.
+
+**When to revisit.** Alongside debt #112 (commercial hardening pass).
+
+## 189. S4 — Cross-project IDOR regression tests missing for body endpoints (Tier B — testing, S)
+
+**What.** The scope guards on the body endpoints are correct (and S1 above
+adds the model-scope guard to `ClearBodyExtent`), but there is no test that
+would catch a future regression where a body, boundary, or absence endpoint
+accidentally omits the project/model scope check.  A cross-project request
+with a foreign body_id would either 200 (wrong) or 404 (correct — but only if
+the guard stays).
+
+**Fix.** Add a parameterised `"foreign project_id → 404"` test for each new
+body endpoint (claim, clear, boundary GET/PUT, detect, suggest-pinch-outs,
+recompute-absences).
+
+**When to revisit.** Before first non-solo distribution (Tier B alongside #4).
+
 ## (end)
 
