@@ -43,6 +43,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { log } from '../../utils/log'
 
 import type {
   BoreholeListItem,
@@ -2243,7 +2244,7 @@ export default function ContactsLayer({
           }
         }
         if (creates.length > 0) {
-          console.debug('[drag-commit] shift-paint-through', {
+          log.debug('contacts', '[drag-commit] shift-paint-through', {
             count: creates.length,
             stampColumns: stamps.length,
           })
@@ -2259,7 +2260,7 @@ export default function ContactsLayer({
         // boundary so the user can paste a console dump showing exactly
         // what FE sent on a buggy drag.
         const original = final.contactsInDrag.find(c => c.contactId === final.contactId)?.originalDepthM
-        console.debug('[drag-commit] single-no-anchor', {
+        log.debug('contacts', '[drag-commit] single-no-anchor', {
           contactId: final.contactId,
           originalDepthM: original,
           newDepthM: final.currentDepthM,
@@ -2292,7 +2293,7 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
-        console.debug('[drag-commit] batch-same-column', {
+        log.debug('contacts', '[drag-commit] batch-same-column', {
           deltaM,
           direction: deltaM < 0 ? 'UP' : 'DOWN',
           count: updates.length,
@@ -2327,7 +2328,7 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
-        console.debug('[drag-commit] cross-column-alt-move', {
+        log.debug('contacts', '[drag-commit] cross-column-alt-move', {
           deltaM,
           direction: deltaM < 0 ? 'UP' : 'DOWN',
           count: updates.length,
@@ -2370,7 +2371,7 @@ export default function ContactsLayer({
             ? 'high'
             : 'medium',
       }))
-      console.debug('[drag-commit] cross-column-copy', {
+      log.debug('contacts', '[drag-commit] cross-column-copy', {
         deltaM,
         direction: deltaM < 0 ? 'UP' : 'DOWN',
         count: creates.length,
