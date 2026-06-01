@@ -77,15 +77,15 @@ class BundleIntegrityError(ValueError):
     """
 
 
-from groundmodel.infrastructure.db.models.body_boundary_node_orm import (
-    BodyBoundaryNodeOrm as LithoLensBoundaryNodeOrm,  # TODO: slice 4 — full rename + content_key→body_id pivot
-)
-from groundmodel.infrastructure.db.models.body_boundary_shape_orm import (
-    BodyBoundaryShapeOrm as LithoLensShapeOrm,  # TODO: slice 4 — full rename + content_key→body_id pivot
-)
-from groundmodel.infrastructure.db.models.body_orm import (
-    BodyOrm as LithoLensOrm,  # TODO: slice 4 — full rename + source_investigation_id wiring
-)
+from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+
+# Legacy aliases used by residual references in the restore path (lens shapes /
+# nodes sections still use the old names internally — renamed in slice 4).
+LithoLensOrm = BodyOrm
+LithoLensShapeOrm = BodyBoundaryShapeOrm
+LithoLensBoundaryNodeOrm = BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -503,12 +503,14 @@ async def _build_project_bundle_impl(
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
         "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
-        # Lens metadata + absence rows (#101 R4 Position 4). Slim shapes:
-        # litho_lenses carries (formation_id, body_ordinal, name, primary_section_id).
+        # Body rows (slice 4.1 rename from litho_lenses). Each row carries the
+        # full BodyOrm column set: id, model_id, formation_id, body_ordinal,
+        # source_investigation_id, name, primary_section_id, and the six extent
+        # columns (extent_left/right_kind / target_contact_id / neighbour_inv_id).
         # formation_absences carries (formation_id, investigation_kind,
         # investigation_id, source). Bundles saved before these fields existed
         # open cleanly via the schema's default_factory=list.
-        "litho_lenses": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
+        "bodies": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
         "formation_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
         # Contact-level correlation edges (#133 Phase 2+3). Each row carries
         # (model_id, contact_a_id, contact_b_id, source, user_approved).
@@ -518,7 +520,7 @@ async def _build_project_bundle_impl(
             _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
         ],
         # Lens boundary shapes + control nodes (#163f Slice 2). Shapes carry
-        # (model_id, content_key, render_style); nodes carry (shape_id,
+        # (model_id, body_id, render_style); nodes carry (shape_id,
         # boundary, node_index, along_m, elevation_m). Additive — bundles saved
         # before these existed open cleanly via default_factory=list.
         "litho_lens_shapes": [_column_to_json(s, _SKIP_COLUMNS) for s in lens_shapes],
@@ -531,7 +533,7 @@ async def _build_project_bundle_impl(
         f"+ {len(formations)} formations + {len(units)} geotech units "
         f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews + {len(contact_edges)} litho contact correlation edges "
-        f"+ {len(lenses)} litho lenses + {len(absences)} formation absences"
+        f"+ {len(lenses)} bodies + {len(absences)} formation absences"
     )
     return bundle
 
@@ -794,7 +796,7 @@ async def _restore_project_bundle_impl(
     cross_sections_payload: list[dict[str, Any]] | None = None,
     investigation_reviews_payload: list[dict[str, Any]] | None = None,
     geotechnical_units_payload: list[dict[str, Any]] | None = None,
-    litho_lenses_payload: list[dict[str, Any]] | None = None,
+    bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
@@ -829,7 +831,7 @@ async def _restore_project_bundle_impl(
     cross_sections_payload = cross_sections_payload or []
     investigation_reviews_payload = investigation_reviews_payload or []
     geotechnical_units_payload = geotechnical_units_payload or []
-    litho_lenses_payload = litho_lenses_payload or []
+    bodies_payload = bodies_payload or []
     formation_absences_payload = formation_absences_payload or []
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     litho_lens_shapes_payload = litho_lens_shapes_payload or []
@@ -1374,46 +1376,89 @@ async def _restore_project_bundle_impl(
         .scalars()
         .all()
     )
-    # ---- Litho lenses (Position 4) -----------------------------------------
-    # Restored AFTER geological_models (lens.model_id FK must resolve) and
-    # formations (lens.formation_id FK must resolve).  Each lens row
-    # carries app_project_id directly, so the existence check + injection
-    # guard are straightforward.
-    existing_lens_ids = set(
+    # ---- Bodies (slice 4.1 — replaces litho_lenses) --------------------------
+    # Restored AFTER geological_models (body.model_id FK) and formations
+    # (body.formation_id FK).  Each body row carries app_project_id directly.
+    #
+    # Extent guards (slice 4.1): for extent_<side>_kind == 'to_target' the
+    # target_contact_id must resolve to a formation_contact row belonging to
+    # this project; for 'pinch_out_halfway' / 'extrapolated' the
+    # neighbour_inv_id must resolve to a CPT or borehole in this project.
+    # 'open' and NULL kinds require no extra check.  Unresolvable extents are
+    # stripped (set to NULL) rather than dropping the whole body — losing the
+    # extent hint is less destructive than losing the body entirely.
+    #
+    # source_investigation_id guard: if the polymorphic investigation id does
+    # not resolve to any CPT or borehole in this project, the body is dropped
+    # with a warning (consistent with today's drop-orphan pattern).
+    valid_investigation_ids = valid_cpt_ids | valid_borehole_ids
+    # Also include investigations that were queued in this transaction
+    # (payload walks) but not yet flushed.
+    for cpt_payload in cpts_payload:
+        cpt_id_raw = cpt_payload.get("id")
+        if cpt_id_raw is not None:
+            valid_investigation_ids.add(
+                UUID(cpt_id_raw) if isinstance(cpt_id_raw, str) else cpt_id_raw
+            )
+    for bh_p in boreholes_payload:
+        bh_id_raw = bh_p.get("id")
+        if bh_id_raw is not None:
+            valid_investigation_ids.add(
+                UUID(bh_id_raw) if isinstance(bh_id_raw, str) else bh_id_raw
+            )
+    # Build the set of formation_contact ids already in the DB for this
+    # project — used to validate 'to_target' extents without a flush.
+    valid_contact_ids_for_bodies: set[UUID] = set(
         (
             await session.execute(
-                select(LithoLensOrm.id).where(LithoLensOrm.app_project_id == project_id)
+                select(FormationContactOrm.id)
+                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
             )
         )
+        .scalars()
+        .all()
+    )
+    # Include contacts that were queued in this transaction (nested in models).
+    for m_payload in geological_models_payload:
+        for c in m_payload.get("contacts") or []:
+            c_id_raw = c.get("id")
+            if c_id_raw is not None:
+                valid_contact_ids_for_bodies.add(
+                    UUID(c_id_raw) if isinstance(c_id_raw, str) else c_id_raw
+                )
+
+    existing_lens_ids = set(
+        (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
         .scalars()
         .all()
     )
     new_lenses = 0
     skipped_lenses = 0
     dropped_lenses = 0
-    total_lenses = len(litho_lenses_payload)
-    logger.info(f"restore_project_bundle({project_id}): restoring {total_lenses} litho lens(es)")
-    for i, lens_payload in enumerate(litho_lenses_payload, start=1):
+    total_lenses = len(bodies_payload)
+    logger.info(f"restore_project_bundle({project_id}): restoring {total_lenses} body/bodies")
+    for i, lens_payload in enumerate(bodies_payload, start=1):
         lens_id_raw = lens_payload.get("id")
         if lens_id_raw is None:
-            logger.debug(f"[{i}/{total_lenses}] litho lens skipped — payload has no id")
+            logger.debug(f"[{i}/{total_lenses}] body skipped — payload has no id")
             skipped_lenses += 1
             continue
         lens_id = UUID(lens_id_raw) if isinstance(lens_id_raw, str) else lens_id_raw
         if lens_id in existing_lens_ids:
-            logger.debug(f"[{i}/{total_lenses}] litho lens {lens_id} already present — skipped")
+            logger.debug(f"[{i}/{total_lenses}] body {lens_id} already present — skipped")
             skipped_lenses += 1
             continue
         # Bundle-injection guard: model must belong to this project.
         model_id_raw = lens_payload.get("model_id")
         if model_id_raw is None:
-            logger.warning(f"[{i}/{total_lenses}] litho lens {lens_id} has no model_id — dropped")
+            logger.warning(f"[{i}/{total_lenses}] body {lens_id} has no model_id — dropped")
             dropped_lenses += 1
             continue
         model_id = UUID(model_id_raw) if isinstance(model_id_raw, str) else model_id_raw
         if model_id not in valid_model_ids_for_edges:
             logger.warning(
-                f"[{i}/{total_lenses}] litho lens {lens_id} → model {model_id} "
+                f"[{i}/{total_lenses}] body {lens_id} → model {model_id} "
                 f"not in this project — dropped (bundle-injection guard)"
             )
             dropped_lenses += 1
@@ -1421,29 +1466,90 @@ async def _restore_project_bundle_impl(
         # Formation FK guard.
         pf_raw = lens_payload.get("formation_id")
         if pf_raw is None:
-            logger.warning(
-                f"[{i}/{total_lenses}] litho lens {lens_id} missing formation_id — dropped"
-            )
+            logger.warning(f"[{i}/{total_lenses}] body {lens_id} missing formation_id — dropped")
             dropped_lenses += 1
             continue
         pf_id = UUID(pf_raw) if isinstance(pf_raw, str) else pf_raw
         if pf_id not in valid_formation_ids:
             logger.warning(
-                f"[{i}/{total_lenses}] litho lens {lens_id}: formation_id {pf_id} "
+                f"[{i}/{total_lenses}] body {lens_id}: formation_id {pf_id} "
                 f"not present in this project — dropped (dangling FK)"
             )
             dropped_lenses += 1
             continue
-        kwargs = _apply_json_to_kwargs(LithoLensOrm, lens_payload)
+        # source_investigation_id guard: the polymorphic investigation must
+        # exist in this project's CPT or borehole set.
+        src_inv_raw = lens_payload.get("source_investigation_id")
+        if src_inv_raw is None:
+            logger.warning(
+                f"[{i}/{total_lenses}] body {lens_id} missing source_investigation_id — dropped"
+            )
+            dropped_lenses += 1
+            continue
+        src_inv_id = UUID(src_inv_raw) if isinstance(src_inv_raw, str) else src_inv_raw
+        if src_inv_id not in valid_investigation_ids:
+            logger.warning(
+                f"[{i}/{total_lenses}] body {lens_id}: source_investigation_id {src_inv_id} "
+                f"not in this project's CPTs/boreholes — dropped (dangling polymorphic FK)"
+            )
+            dropped_lenses += 1
+            continue
+        # Extent integrity: strip unresolvable extents rather than dropping
+        # the whole body — losing an extent hint is less destructive than
+        # losing the body. 'open' and NULL kinds need no FK check.
+        _EXTENT_SIDES = ("left", "right")
+        _TARGET_KINDS = frozenset({"to_target"})
+        _NEIGHBOUR_KINDS = frozenset({"pinch_out_halfway", "extrapolated"})
+        kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
+        for side in _EXTENT_SIDES:
+            kind_key = f"extent_{side}_kind"
+            target_key = f"extent_{side}_target_contact_id"
+            neighbour_key = f"extent_{side}_neighbour_inv_id"
+            extent_kind = kwargs.get(kind_key)
+            if extent_kind in _TARGET_KINDS:
+                target_raw = kwargs.get(target_key)
+                if target_raw is None:
+                    logger.warning(
+                        f"[{i}/{total_lenses}] body {lens_id}: {kind_key}='to_target' "
+                        f"but {target_key} is NULL — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                    kwargs[target_key] = None
+                else:
+                    target_id = UUID(target_raw) if isinstance(target_raw, str) else target_raw
+                    if target_id not in valid_contact_ids_for_bodies:
+                        logger.warning(
+                            f"[{i}/{total_lenses}] body {lens_id}: {target_key} {target_id} "
+                            f"not in this project's contacts — stripping extent"
+                        )
+                        kwargs[kind_key] = None
+                        kwargs[target_key] = None
+            elif extent_kind in _NEIGHBOUR_KINDS:
+                nbr_raw = kwargs.get(neighbour_key)
+                if nbr_raw is None:
+                    logger.warning(
+                        f"[{i}/{total_lenses}] body {lens_id}: {kind_key}={extent_kind!r} "
+                        f"but {neighbour_key} is NULL — stripping extent"
+                    )
+                    kwargs[kind_key] = None
+                else:
+                    nbr_id = UUID(nbr_raw) if isinstance(nbr_raw, str) else nbr_raw
+                    if nbr_id not in valid_investigation_ids:
+                        logger.warning(
+                            f"[{i}/{total_lenses}] body {lens_id}: {neighbour_key} {nbr_id} "
+                            f"not in this project's investigations — stripping extent"
+                        )
+                        kwargs[kind_key] = None
+                        kwargs[neighbour_key] = None
         kwargs["app_project_id"] = project_id
-        session.add(LithoLensOrm(**kwargs))
+        session.add(BodyOrm(**kwargs))
         existing_lens_ids.add(lens_id)
         new_lenses += 1
-        logger.debug(f"[{i}/{total_lenses}] litho lens {lens_id} queued for insert")
+        logger.debug(f"[{i}/{total_lenses}] body {lens_id} queued for insert")
     if dropped_lenses:
         logger.warning(
             f"restore_project_bundle({project_id}): dropped {dropped_lenses} "
-            f"litho lens(es) (model/formation not in project or missing FK)"
+            f"body/bodies (model/formation/investigation not in project or missing FK)"
         )
 
     # ---- Formation absences (Position 4) -----------------------------------
@@ -1771,7 +1877,7 @@ class ProjectBundleService(GroundModelLogger):
         cross_sections_payload: list[dict[str, Any]] | None = None,
         investigation_reviews_payload: list[dict[str, Any]] | None = None,
         geotechnical_units_payload: list[dict[str, Any]] | None = None,
-        litho_lenses_payload: list[dict[str, Any]] | None = None,
+        bodies_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
         litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
@@ -1803,7 +1909,7 @@ class ProjectBundleService(GroundModelLogger):
             cross_sections_payload,
             investigation_reviews_payload,
             geotechnical_units_payload,
-            litho_lenses_payload,
+            bodies_payload,
             formation_absences_payload,
             litho_contact_correlation_edges_payload,
             litho_lens_shapes_payload,
@@ -1836,7 +1942,7 @@ async def restore_project_bundle(
     cross_sections_payload: list[dict[str, Any]] | None = None,
     investigation_reviews_payload: list[dict[str, Any]] | None = None,
     geotechnical_units_payload: list[dict[str, Any]] | None = None,
-    litho_lenses_payload: list[dict[str, Any]] | None = None,
+    bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
@@ -1855,7 +1961,7 @@ async def restore_project_bundle(
         cross_sections_payload,
         investigation_reviews_payload,
         geotechnical_units_payload,
-        litho_lenses_payload,
+        bodies_payload,
         formation_absences_payload,
         litho_contact_correlation_edges_payload,
         litho_lens_shapes_payload,
