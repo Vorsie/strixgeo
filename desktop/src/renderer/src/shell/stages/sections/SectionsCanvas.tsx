@@ -915,17 +915,22 @@ export default function SectionsCanvas(): JSX.Element {
           toast('error', 'Ghost candidate contact not found.')
           return
         }
+        // Edge candidates open to the section boundary (no neighbour);
+        // interior candidates pinch out halfway toward the neighbour.
         await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
           formation_id: aboveContact.formation_id,
           source_investigation_id: candidate.source_investigation_id,
           side: candidate.side,
-          kind: 'pinch_out_halfway',
-          neighbour_inv_id: candidate.suggested_neighbour_investigation_id,
+          kind: candidate.kind,
+          neighbour_inv_id:
+            candidate.kind === 'open'
+              ? null
+              : candidate.suggested_neighbour_investigation_id,
         })
         // Clear the candidates list so the ghost disappears.
         setPinchOutCandidates([])
         void refetchLensData()
-        toast('success', 'Pinch-out claimed.')
+        toast('success', candidate.kind === 'open' ? 'Layer open-ended.' : 'Pinch-out claimed.')
       } catch (err) {
         toast('error', 'Failed to claim pinch-out.')
         log.warn('section', 'handleClaimGhostCandidate: failed', err)
