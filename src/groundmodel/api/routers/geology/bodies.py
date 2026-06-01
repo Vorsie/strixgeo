@@ -69,6 +69,7 @@ from groundmodel.api.schemas.project.body import (
     BodyBoundaryWriteRequest,
     BodyListItem,
     ClaimBodyExtentRequest,
+    ClearDetectedBodiesResponse,
     DetectBodiesResponse,
     NameBodyRequest,
     NameBodyResponse,
@@ -92,6 +93,7 @@ from groundmodel.application.claim_body_extent import ClaimBodyExtent, Provenanc
 from groundmodel.application.clear_body_extent import ClearBodyExtent
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
+from groundmodel.application.delete_detected_bodies import DeleteDetectedBodies
 from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
@@ -494,6 +496,61 @@ async def update_body(
 # ---------------------------------------------------------------------------
 # Delete body
 # ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/models/{model_id}/bodies",
+    response_model=ClearDetectedBodiesResponse,
+)
+async def delete_detected_bodies_endpoint(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ClearDetectedBodiesResponse:
+    """Bulk-delete the purely-detected bodies of a litho model.
+
+    Backs the Sections toolbar's "Delete all detected lenses" action: it
+    clears every machine-suggested body wedge in one gesture while
+    preserving the interpretation the engineer committed.
+
+    Preserve rules (spec §5.2, identical to the ``DetectBodies`` reconcile):
+
+    * user-named bodies (``name`` set), and
+    * bodies with a user-claimed extent kind
+      (``pinch_out_halfway`` / ``extrapolated`` / ``open``)
+
+    are left intact.  Only purely-detected (``to_target`` / unset) bodies go.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Model scope guard.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    ClearDetectedBodiesResponse
+        Count of bodies deleted + count preserved.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+
+    deleted, preserved = await DeleteDetectedBodies(session).execute(
+        project_id=project_id,
+        model_id=model_id,
+    )
+    return ClearDetectedBodiesResponse(bodies_deleted=deleted, bodies_preserved=preserved)
 
 
 @router.delete(
