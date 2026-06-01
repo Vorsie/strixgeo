@@ -4790,24 +4790,15 @@ collapsed into a shared fall-through (`case 'pinch_out_halfway': case 'extrapola
 in switch #1 (towardAlong derivation). Module-scope `halfwayFarPoint` helper extracted
 (exported); three inline midpoint copies replaced. HFP1-HFP3 pin the helper contract.
 
-## 181. C2 — `ProvenanceConflictDialog.onApply` retry race (Tier B — frontend, S)
-
-**What.** When the user clicks "Apply" in `ProvenanceConflictDialog`, the
-`onApply` handler calls `handleClearBodyExtent` then re-enters
-`handleClaimBodyExtent`. `handleClaimBodyExtent` has its own 409-branch —
-if a concurrent `DetectBodies` sweep re-claims the side between the clear and
-the re-claim, the dialog can re-open after dismiss (race condition leading to
-double-dialog).
-
-**Fix.** Extract a `_doClaimExtent` helper that only does the claim (no
-conflict-dialog branching); use it in the `onApply` retry path. The outer
-`handleClaimBodyExtent` keeps the full branch for new claims.
-
-**Why deferred.** Non-solo distribution hasn't shipped; only one user;
-concurrent detect sweeps are explicit user actions, not background daemon
-work.
-
-**When to revisit.** Before any non-solo distribution (Tier B alongside #4).
+## 181. C2 — RESOLVED 2026-06-01. `_doClaimExtent` helper extracted in `SectionsCanvas.tsx`.
+`_doClaimExtent(bodyId, side, kind)` calls `api.geology.claimBodyExtent` directly
+with no 409→dialog branch — it updates local state on success and rethrows all errors.
+`handleClaimBodyExtent` delegates to `_doClaimExtent` and wraps with the
+`ProvenanceViolationError → setProvenanceConflict` branch for first-time claims.
+`onApply` now calls `_doClaimExtent` instead of `handleClaimBodyExtent`; if the retry
+still hits 409 (concurrent DetectBodies sweep between clear and re-claim) it shows
+`"Couldn't claim extent — try again."` toast without reopening the dialog.
+BPR-1/BPR-2/BPR-3 in `SectionsCanvas.provenance.test.tsx` pin the three paths.
 
 ## 182. C3 — RESOLVED 2026-06-01. Bundle JSON keys renamed `litho_lens_shapes` → `body_boundary_shapes` and `litho_lens_boundary_nodes` → `body_boundary_nodes` in lockstep across Pydantic schema (`ProjectBundleRequest` / `ProjectBundleResponse`), repository build/restore paths, router kwarg forwarding, frontend `ProjectBundleResponse` type (`client.ts`), `ProjectFileV3` type + `buildProjectFile` / `parseProjectFile` / `isProjectFileV3` (`projectFile.ts`), `useProject.ts` revert path, and three integration test files. `rg` confirms zero stale occurrences across `src/`, `desktop/src/`, `tests/`. 1133 unit + 38 integration tests green.
 
