@@ -39,6 +39,7 @@ import {
   resolveLensRoles,
 } from '../../utils/bodyExtent'
 import { computeDipExtrapolationEndpoint } from '../../utils/dipExtrapolationFrontend'
+import { log } from '../../utils/log'
 import type { PlacedColumn } from './utils'
 
 /**
@@ -464,8 +465,9 @@ export default function BodyExtentOverlay({
             })
             if (result === null) {
               // Degenerate — fall back to halfway like pinch_out_halfway.
-              console.warn(
-                `[BodyExtentOverlay] Dip extrapolation degenerate for body ${body.id} ` +
+              log.warn(
+                'body-extent',
+                `Dip extrapolation degenerate for body ${body.id} ` +
                 `side ${side} — falling back to halfway midpoint.`,
               )
               farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
