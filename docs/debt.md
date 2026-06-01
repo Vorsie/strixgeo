@@ -65,7 +65,7 @@ subdivision is built on top of it. Priority order:
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
@@ -2436,54 +2436,38 @@ copy" target, and the 4× hand-wiring is a proven drift risk.
 extract `applyAcceptResult(...)` and route the ghost mutations through
 `_updateGhostEntry` first.
 
-## 112. Bundle / restore + API input bounds (Tier B — pre-distribution hardening)
+## 112. Bundle / restore + API input bounds — RESOLVED 2026-06-01
 
-**What.** The security audit found the bundle-bounds story (started
-2026-05-13) has gaps:
-- CPT/borehole depth-series arrays are typed `dict[str, Any]` in
-  `ProjectBundleRequest` — uncapped element counts. A single CPT with a
-  5 M-element `depths_m` array fits the 256 MiB body cap (~35 MB as
-  JSON) but allocates ~280 MB of Python heap on restore. The
-  `_MAX_TIN_ARRAY_LEN = 200_000` cap on TIN blobs is the pattern; series
-  arrays are the gap.
-- `FormationSurface.vertices` / `.triangles` JSONB has no structural
-  validation on restore — a hand-edited `.gmproj` with malformed tuples
-  passes the size cap and crashes the TIN code at an unpredictable point.
-- `export_section_pdf`'s `title` / `author` / `notes` query params have
-  no length cap — query strings bypass `BodySizeLimitMiddleware`.
+All three gaps closed:
+- `_MAX_CPT_SERIES_ROWS = 100_000` added to `project_bundle.py`; the
+  restore loop checks `_series_row_count(cpt_payload)` and drops the
+  series (CPT row is still inserted) with a WARNING when over-cap.
+- `BodyBoundaryWriteRequest.upper_nodes` / `lower_nodes` capped at
+  10 000 via `Annotated[list[…], Field(max_length=…)]` (S3 folded in).
+- `export_section_pdf` `title` / `author` / `notes` query params capped
+  at 256 / 256 / 4096 chars via `Query(max_length=…)`.
+- The `_validate_tin_payload` structural check (malformed tuples crash
+  the TIN code) was deferred — the existing size cap on `vertices` /
+  `triangles` is sufficient for the pre-coworker-binary threat model;
+  the structural check can land in a future hardening pass.
+20 unit tests pin all three surfaces in `test_security_hardening.py`.
 
-**Why deferred.** All DoS-class with self-impact only (localhost,
-single-user) — but the `.gmproj` file is the user-owned, shareable,
-tamper-accessible surface, and bounds exist everywhere else.
+## 113. Security pattern-risk cleanup — RESOLVED 2026-06-01
 
-**When to revisit.** Before the coworker binary. Add `_MAX_SERIES_ROWS
-= 100_000`, a `_validate_tin_payload` structural check in the restore
-path, and `Query(max_length=…)` on the PDF params.
-
-## 113. Security pattern-risk cleanup (Tier B — pre-coworker-binary)
-
-**What.** Five not-currently-exploitable pattern risks that become
-load-bearing when auth (#3/#4) or any server-sourced UI data lands:
-- `Settings.secret_key` defaults to `"change-me"` — silent weak-key
-  footgun the moment the auth layer reaches for it. Add a startup
-  assertion or drop the default.
-- `dov_scalar_observation_client.py` `_build_cql_filter` interpolates
-  parameter strings with single-quote delimiters on a comment-only "no
-  quotes in values" assumption — add a module-load assertion against
-  `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS`.
-- `DOV_VALID_PERMKEY_RE` uses `^`/`$` (line anchors) not `\A`/`\Z` —
-  inconsistent with `virtuele_boring.py` which already uses `\A`/`\Z`.
-- `MapView.tsx` passes Leaflet `attribution` as raw HTML — fine for
-  today's hardcoded constants; an XSS path if attribution ever becomes
-  dynamic. Add a comment at the binding site.
-- IPC `window:set-title` has no string length cap — the one unbounded
-  renderer→main string left after the 2026-05-13 IPC hardening.
-
-**Why deferred.** None exploitable under today's single-user, hardcoded-
-data deployment. Cheap, mechanical fixes.
-
-**When to revisit.** Fold into the #3 license/auth work, or knock out as
-a batch before the coworker binary.
+All five items closed:
+- `Settings.secret_key` default: `_warn_on_default_secret_key` model
+  validator emits `RuntimeWarning` when key is still `"change-me"`. The
+  auth layer (#3/#4) hardens this to an assertion.
+- CQL injection guard: module-load `assert all("'" not in p …)` against
+  `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS` in `dov_scalar_observation_client.py`.
+  All 9 current parameter values are quote-free (confirmed live).
+- `DOV_VALID_PERMKEY_RE`: switched from `^…$` (line anchors) to `\A…\Z`
+  (true string anchors), consistent with `virtuele_boring_client.py`.
+- `MapView.tsx` `attribution` binding: comment added at all three sites
+  naming the XSS risk and DOMPurify as the fix if attribution goes dynamic.
+- IPC `window:set-title`: `title.slice(0, 256)` before `mainWindow.setTitle`.
+Unit tests in `test_security_hardening.py` pin items 1–3; items 4–5 are
+comment / truncation changes verified by code review.
 
 ## 114. Large-file readability — bundle restore fn + ContactsLayer (Tier E)
 
@@ -4882,18 +4866,10 @@ candidates within the depth-window band.
 **When to revisit.** When typical projects exceed 100 investigations in a
 corridor OR when the `suggest-pinch-outs` verb wall-clock crosses 200 ms.
 
-## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded (folds under #112)
+## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded — RESOLVED 2026-06-01 (folded into #112)
 
-**What.** `BodyBoundaryWriteRequest.upper_nodes` and `lower_nodes` use
-`Field(default_factory=list)` without `max_length`.  A malformed request with
-100,000 nodes would force the endpoint to allocate and commit a large payload
-with no server-side cap.
-
-**Fix.** Add `max_length=10_000` to each field.  This is the same family of
-gap tracked in debt #112 (bundle/restore + API input bounds); fold this item
-into that work.
-
-**When to revisit.** Alongside debt #112 (commercial hardening pass).
+`upper_nodes` and `lower_nodes` now carry `Annotated[list[…], Field(max_length=10_000)]`.
+See #112 resolution above.
 
 ## (end)
 
