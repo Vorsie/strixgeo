@@ -1727,8 +1727,8 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
         bodies_payload=snapshot["bodies"],
         formation_absences_payload=snapshot["formation_absences"],
         litho_contact_correlation_edges_payload=snapshot["litho_contact_correlation_edges"],
-        litho_lens_shapes_payload=snapshot["litho_lens_shapes"],
-        litho_lens_boundary_nodes_payload=snapshot["litho_lens_boundary_nodes"],
+        body_boundary_shapes_payload=snapshot["body_boundary_shapes"],
+        body_boundary_nodes_payload=snapshot["body_boundary_nodes"],
         replace=True,
     )
     await db_session.commit()

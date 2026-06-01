@@ -75,8 +75,8 @@ async def _restore_bundle(
         bodies_payload=bundle.get("bodies", []),
         formation_absences_payload=bundle.get("formation_absences", []),
         litho_contact_correlation_edges_payload=bundle.get("litho_contact_correlation_edges", []),
-        litho_lens_shapes_payload=bundle.get("litho_lens_shapes", []),
-        litho_lens_boundary_nodes_payload=bundle.get("litho_lens_boundary_nodes", []),
+        body_boundary_shapes_payload=bundle.get("body_boundary_shapes", []),
+        body_boundary_nodes_payload=bundle.get("body_boundary_nodes", []),
         replace=replace,
     )
     await db_session.commit()

@@ -213,8 +213,8 @@ async def test_bundle_serialises_shape_and_body_id(db_session: AsyncSession, sce
 
     assert bundle["bodies"], "body row must be bundled"
     # body_id FK is present on the shape row (content_key was dropped in slice 1)
-    shapes = bundle["litho_lens_shapes"]
-    nodes = bundle["litho_lens_boundary_nodes"]
+    shapes = bundle["body_boundary_shapes"]
+    nodes = bundle["body_boundary_nodes"]
     assert len(shapes) == 1
     assert str(shapes[0]["body_id"]) == str(body.id)
     assert shapes[0]["render_style"] == "blocky"
