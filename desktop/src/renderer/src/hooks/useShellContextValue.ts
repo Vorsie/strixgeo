@@ -88,6 +88,8 @@ export interface UseShellContextValueArgs {
   exitCorrelateMode: ShellContextValue['sections']['exitCorrelateMode']
   armCorrelationSource: ShellContextValue['sections']['armCorrelationSource']
   clearCorrelationSource: ShellContextValue['sections']['clearCorrelationSource']
+  pinchOutCandidates: ShellContextValue['sections']['pinchOutCandidates']
+  setPinchOutCandidates: ShellContextValue['sections']['setPinchOutCandidates']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -183,7 +185,7 @@ export function useShellContextValue(
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
-    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource, demSource, demOverlay,
+    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource, pinchOutCandidates, setPinchOutCandidates, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
@@ -302,6 +304,8 @@ export function useShellContextValue(
       exitCorrelateMode,
       armCorrelationSource,
       clearCorrelationSource,
+      pinchOutCandidates,
+      setPinchOutCandidates,
     },
     overlays: {
       demSource,
