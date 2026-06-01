@@ -211,7 +211,7 @@ async def test_bundle_serialises_shape_and_body_id(db_session: AsyncSession, sce
     project_row = await db_session.get(type(proj), proj.id)
     bundle = await build_project_bundle(db_session, project_row)
 
-    assert bundle["litho_lenses"], "body row must be bundled"
+    assert bundle["bodies"], "body row must be bundled"
     # body_id FK is present on the shape row (content_key was dropped in slice 1)
     shapes = bundle["litho_lens_shapes"]
     nodes = bundle["litho_lens_boundary_nodes"]

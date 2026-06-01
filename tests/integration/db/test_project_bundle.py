@@ -1717,7 +1717,7 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
         snapshot["cross_sections"],
         snapshot["investigation_reviews"],
         geotechnical_units_payload=snapshot["geotechnical_units"],
-        litho_lenses_payload=snapshot["litho_lenses"],
+        bodies_payload=snapshot["bodies"],
         formation_absences_payload=snapshot["formation_absences"],
         litho_contact_correlation_edges_payload=snapshot["litho_contact_correlation_edges"],
         litho_lens_shapes_payload=snapshot["litho_lens_shapes"],
