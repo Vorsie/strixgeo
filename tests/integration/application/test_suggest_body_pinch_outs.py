@@ -23,12 +23,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.suggest_body_pinch_outs import (
-    PinchOutCandidate,
-    SuggestBodyPinchOuts,
-)
+from groundmodel.application.suggest_body_pinch_outs import SuggestBodyPinchOuts
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -518,3 +516,89 @@ async def test_no_persistence_side_effects(
     assert count_after == count_before, (
         f"SuggestBodyPinchOuts wrote {count_after - count_before} unexpected BodyOrm row(s)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Section-along-order adjacency (dogfeed 2026-06-01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_section_along_order_picks_adjacent_column_not_uuid_neighbour(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """With a section, the suggested neighbour is the along-section-adjacent
+    column — not the UUID-adjacent one.
+
+    The pinch-out suggest used to pick the neighbour by UUID ordering, which is
+    unrelated to where columns sit on the section, so it visibly "skipped" the
+    intervening column. Setup forces the two orders to disagree:
+
+        UUID order:  source < far < mid
+        Section (x): source < mid  < far
+
+    so the source's right neighbour is ``mid`` on the section but ``far`` by UUID.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-sec")
+    f_body = _formation(project, parent, name="KLEI-SBPO-sec-body", ordinal=0)
+    f_below = _formation(project, parent, name="ZAND-SBPO-sec-below", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-SBPO-sec-other", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_body, f_below, f_other])
+    await db_session.flush()
+
+    bh_source = _borehole(project.id, suffix="SEC-S", x=150000.0)
+    bh_far = _borehole(project.id, suffix="SEC-F", x=150100.0)
+    bh_mid = _borehole(project.id, suffix="SEC-M", x=150050.0)
+    # Force UUID order source < far < mid (≠ along/x order source < mid < far).
+    bh_source.id = UUID(int=0x10)
+    bh_far.id = UUID(int=0x20)
+    bh_mid.id = UUID(int=0x30)
+    db_session.add_all([bh_source, bh_far, bh_mid])
+    await db_session.flush()
+
+    c_top = _contact(litho, f_body, bh_source, depth=2.0)
+    c_base = _contact(litho, f_below, bh_source, depth=6.0)
+    c_far = _contact(litho, f_other, bh_far, depth=3.0)
+    c_mid = _contact(litho, f_other, bh_mid, depth=3.0)
+    db_session.add_all([c_top, c_base, c_far, c_mid])
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="SEC",
+        description=None,
+        start_x=149900.0,
+        start_y=200000.0,
+        end_x=150200.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    # With the section → along-adjacent neighbour (mid).
+    sec_candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id, model_id=litho.id, section_id=section.id
+    )
+    right = next(
+        c for c in sec_candidates if c.source_investigation_id == bh_source.id and c.side == "right"
+    )
+    assert right.suggested_neighbour_investigation_id == bh_mid.id
+
+    # Without the section → the UUID-adjacent neighbour (far) — the old behaviour.
+    nosec_candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id, model_id=litho.id
+    )
+    right_nosec = next(
+        c
+        for c in nosec_candidates
+        if c.source_investigation_id == bh_source.id and c.side == "right"
+    )
+    assert right_nosec.suggested_neighbour_investigation_id == bh_far.id
