@@ -554,3 +554,151 @@ async def test_invalid_kind_raises(
             side="left",
             kind="banana",
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 11 (S2 audit): source_investigation_id from a different project raises
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_source_investigation_id_from_different_project_raises(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """S2 audit: ClaimBodyExtent must reject a source_investigation_id that
+    belongs to a different project (cross-project investigation scope guard).
+
+    A malicious client could plant a foreign investigation UUID in the body
+    row, leaking cross-project geometry pointers.  The use case must catch
+    this before any INSERT.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-CBE-t11")
+    formation = _formation(project, parent, name="KLEI body t11", ordinal=0)
+    bh_in_project = _borehole(project.id, suffix="S11", x=160000.0)
+
+    # A second project with its own borehole — the attacker's investigation.
+    other_project = ProjectOrm(id=uuid7(), name="other-project-t11", status="active")
+    db_session.add(other_project)
+    bh_foreign = BoreholeOrm(
+        id=uuid7(),
+        name="BH-FOREIGN-11",
+        app_project_id=other_project.id,
+        project_id="OTHER",
+        test_id="BH-OTHER-11",
+        location_x=999000.0,
+        location_y=999000.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(bh_foreign)
+
+    db_session.add_all([geo, litho, parent, formation, bh_in_project])
+    await db_session.commit()
+
+    # Claim using a source_investigation_id that belongs to other_project.
+    with pytest.raises(ValueError, match="source_investigation_id"):
+        await ClaimBodyExtent(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+            formation_id=formation.id,
+            source_investigation_id=bh_foreign.id,  # cross-project — must be rejected
+            side="left",
+            kind=EXTENT_KIND_OPEN,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 12 (S2 audit): neighbour_inv_id from a different project raises
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_neighbour_inv_id_from_different_project_raises(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """S2 audit: ClaimBodyExtent must reject a neighbour_inv_id that belongs
+    to a different project (kind=pinch_out_halfway).
+
+    A foreign neighbour UUID in the body row would cause the renderer to
+    attempt a cross-project neighbour lookup silently.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-CBE-t12")
+    formation = _formation(project, parent, name="KLEI body t12", ordinal=0)
+    bh_source = _borehole(project.id, suffix="S12", x=161000.0)
+
+    other_project = ProjectOrm(id=uuid7(), name="other-project-t12", status="active")
+    db_session.add(other_project)
+    bh_foreign_neighbour = BoreholeOrm(
+        id=uuid7(),
+        name="BH-FOREIGN-NBR-12",
+        app_project_id=other_project.id,
+        project_id="OTHER",
+        test_id="BH-OTHER-NBR-12",
+        location_x=999100.0,
+        location_y=999000.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(bh_foreign_neighbour)
+
+    db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.commit()
+
+    # source is valid; neighbour is from a different project.
+    with pytest.raises(ValueError, match="neighbour_inv_id"):
+        await ClaimBodyExtent(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+            formation_id=formation.id,
+            source_investigation_id=bh_source.id,
+            side="right",
+            kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
+            neighbour_inv_id=bh_foreign_neighbour.id,  # cross-project — must be rejected
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 13 (S2 audit): valid in-project ids succeed (regression guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_valid_in_project_investigations_succeed(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """S2 audit: ClaimBodyExtent must accept source + neighbour ids that both
+    belong to the same project (regression guard — the happy path still works
+    after the scope-guard addition).
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-CBE-t13")
+    formation = _formation(project, parent, name="KLEI body t13", ordinal=0)
+    bh_source = _borehole(project.id, suffix="S13", x=162000.0)
+    bh_neighbour = _borehole(project.id, suffix="N13", x=162300.0)
+
+    db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
+    await db_session.commit()
+
+    # Both investigations are in-project — must succeed without raising.
+    body = await ClaimBodyExtent(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        formation_id=formation.id,
+        source_investigation_id=bh_source.id,
+        side="left",
+        kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
+        neighbour_inv_id=bh_neighbour.id,
+    )
+
+    assert body.id is not None
+    assert body.source_investigation_id == bh_source.id
+    assert body.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY
+    assert body.extent_left_neighbour_inv_id == bh_neighbour.id
