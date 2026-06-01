@@ -368,7 +368,11 @@ export default function SectionsToolbar(): JSX.Element {
     log.info('sections', `suggestBodyPinchOuts: model=${activeLithoModel.id}`)
     setSuggestingPinchOuts(true)
     try {
-      const result = await api.geology.suggestBodyPinchOuts(project.id, activeLithoModel.id)
+      const result = await api.geology.suggestBodyPinchOuts(
+        project.id,
+        activeLithoModel.id,
+        selectedSectionId,
+      )
       setPinchOutCandidates(result.candidates)
       log.success(
         'sections',
@@ -386,7 +390,14 @@ export default function SectionsToolbar(): JSX.Element {
     } finally {
       setSuggestingPinchOuts(false)
     }
-  }, [activeLithoModel, project.id, setPinchOutCandidates, suggestingPinchOuts, toast])
+  }, [
+    activeLithoModel,
+    project.id,
+    selectedSectionId,
+    setPinchOutCandidates,
+    suggestingPinchOuts,
+    toast,
+  ])
 
   // Delete all detected bodies (dogfeed 2026-06-01): bulk-clear every
   // purely-detected body wedge in one gesture. The backend preserves
