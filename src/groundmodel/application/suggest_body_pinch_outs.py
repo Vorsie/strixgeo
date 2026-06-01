@@ -9,14 +9,16 @@ claim.
 
 Refreshed on every "Suggest pinch-outs" verb click.
 
-Adjacent investigation definition (v1)
----------------------------------------
-Without a section reference (no ``prefer_section_id``), adjacency is
-determined by UUID ordering among the model's participant investigations.
-The nearest lower-UUID investigation is the "left" neighbour; the
-nearest higher-UUID is the "right" neighbour.  This is a
-section-agnostic fallback; slice 7 (frontend) can refine by passing a
-``prefer_section_id`` so the backend resolves along-axis order instead.
+Adjacent investigation definition
+---------------------------------
+When ``section_id`` is given (the frontend always passes the active
+section), adjacency follows the section's ALONG-AXIS order: each source's
+neighbours are the investigations immediately lower / higher in
+along-distance on the section line — exactly the column order the user
+sees. Without a section, the fallback is UUID ordering, which is unrelated
+to the column layout and visibly "skips" intervening columns
+(dogfeed 2026-06-01) — so callers should pass the section whenever one is
+active.
 """
 
 from __future__ import annotations
@@ -30,10 +32,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
+)
+from groundmodel.infrastructure.gis.section_projection import (
+    SectionEndpoints,
+    project_point_onto_line,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -59,8 +68,9 @@ class PinchOutCandidate:
         The deeper contact of the source pair.
     side : Literal["left", "right"]
         Direction of the suggested pinch-out relative to the source
-        investigation in the section's along axis.  ``"left"`` = lower-
-        UUID side; ``"right"`` = higher-UUID side (v1 fallback ordering).
+        investigation in the section's along axis.  ``"left"`` = lower
+        along-distance; ``"right"`` = higher (UUID rank in the no-section
+        fallback).
     suggested_neighbour_investigation_id : UUID
         The nearest adjacent investigation on ``side``.  The frontend
         pre-fills this as the default target when the user clicks to
@@ -107,6 +117,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
+        section_id: UUID | None = None,
     ) -> list[PinchOutCandidate]:
         """Generate pinch-out candidates for the given model.
 
@@ -117,6 +128,14 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             (raises ``ValueError`` otherwise).
         model_id : UUID
             The lithostratigraphic model to inspect.
+        section_id : UUID | None
+            When given, adjacency is the SECTION's along-axis order: each
+            source is paired with its immediate along-section neighbours and
+            "left"/"right" mean lower/higher along-distance on the section
+            line.  This is what the user sees on screen — without it the
+            v1 fallback uses UUID ordering, which is unrelated to the
+            column layout and visibly "skips" intervening columns
+            (dogfeed 2026-06-01).  Off-section investigations are excluded.
 
         Returns
         -------
@@ -211,11 +230,22 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 bodies_by_inv_formation[key] = b
 
         # ------------------------------------------------------------------ #
-        # 4. Sort all participating investigations for adjacency queries.     #
-        # UUID ordering is the v1 fallback when no section context is given;  #
-        # deterministic and cheap.                                             #
+        # 4. Build an ordering POSITION per investigation for adjacency.       #
+        # With a section: along-distance on the section line (what the user    #
+        # sees). Without: a UUID rank fallback (v1 — unrelated to the column   #
+        # layout, which is the "skips a column" bug; section is preferred).    #
         # ------------------------------------------------------------------ #
-        all_invs: list[UUID] = sorted(stacks.keys())
+        position: dict[UUID, float]
+        if section_id is not None:
+            position = await self._section_along_positions(
+                project_id=project_id,
+                section_id=section_id,
+                participant_ids=set(stacks.keys()),
+            )
+        else:
+            position = {iid: float(i) for i, iid in enumerate(sorted(stacks.keys()))}
+
+        ordered: list[UUID] = sorted(position.keys(), key=lambda iid: position[iid])
 
         # ------------------------------------------------------------------ #
         # 5. Iterate source pairs and emit candidates.                        #
@@ -223,6 +253,11 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         candidates: list[PinchOutCandidate] = []
 
         for inv_id, entries in stacks.items():
+            # In section mode, a source that isn't on this section has no
+            # along-position — skip it (its candidates wouldn't render anyway).
+            if inv_id not in position:
+                continue
+            src_pos = position[inv_id]
             for i in range(len(entries) - 1):
                 _, above_id, above_formation = entries[i]
                 _, below_id, _below_formation = entries[i + 1]
@@ -236,13 +271,16 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 # A side is "paired" when both the above and below
                 # contacts of this source pair share at least one approved
                 # edge to the same neighbour investigation on that side.
-                # "Same side" = lower UUID (left) or higher UUID (right).
+                # "Same side" = lower along-position (left) or higher (right);
+                # off-section paired neighbours are ignored (not in position).
                 above_neighbours = contact_neighbour_invs.get(above_id, set())
                 below_neighbours = contact_neighbour_invs.get(below_id, set())
                 paired_neighbours = above_neighbours & below_neighbours
 
-                left_paired = any(n < inv_id for n in paired_neighbours)
-                right_paired = any(n > inv_id for n in paired_neighbours)
+                left_paired = any(position[n] < src_pos for n in paired_neighbours if n in position)
+                right_paired = any(
+                    position[n] > src_pos for n in paired_neighbours if n in position
+                )
 
                 # A side is "claimed" when the existing body row already
                 # carries a non-NULL extent kind on that side (any kind —
@@ -256,11 +294,11 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 )
 
                 # Left-side candidate: no approved bilateral pairing AND
-                # no existing extent claim.
+                # no existing extent claim. "Left" = lower along-position.
                 if not left_paired and not left_claimed:
-                    left_neighbours = [n for n in all_invs if n < inv_id]
+                    left_neighbours = [n for n in ordered if position[n] < src_pos]
                     if left_neighbours:
-                        # Nearest lower-UUID neighbour.
+                        # Nearest left neighbour (largest position below source).
                         suggested = left_neighbours[-1]
                         candidates.append(
                             PinchOutCandidate(
@@ -274,11 +312,11 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                         )
 
                 # Right-side candidate: no approved bilateral pairing AND
-                # no existing extent claim.
+                # no existing extent claim. "Right" = higher along-position.
                 if not right_paired and not right_claimed:
-                    right_neighbours = [n for n in all_invs if n > inv_id]
+                    right_neighbours = [n for n in ordered if position[n] > src_pos]
                     if right_neighbours:
-                        # Nearest higher-UUID neighbour.
+                        # Nearest right neighbour (smallest position above source).
                         suggested = right_neighbours[0]
                         candidates.append(
                             PinchOutCandidate(
@@ -293,3 +331,83 @@ class SuggestBodyPinchOuts(GroundModelLogger):
 
         self.info(f"SuggestBodyPinchOuts: {len(candidates)} candidate(s) for model={model_id}")
         return candidates
+
+    async def _section_along_positions(
+        self,
+        *,
+        project_id: UUID,
+        section_id: UUID,
+        participant_ids: set[UUID],
+    ) -> dict[UUID, float]:
+        """Project each participant investigation onto the section line.
+
+        Mirrors ``AutoCorrelateContactEdges._section_along_adjacency`` but
+        returns the per-investigation along-distance (not just consecutive
+        pairs), since the pinch-out pass needs left/right comparison and
+        nearest-neighbour lookup, not only immediate adjacency.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project — the section must belong to it (scope guard).
+        section_id : UUID
+            The cross-section whose along-axis defines order.
+        participant_ids : set[UUID]
+            Investigations with at least one contact in the model.
+
+        Returns
+        -------
+        dict[UUID, float]
+            ``{investigation_id: along_distance}`` for every in-corridor,
+            non-excluded participant projected onto the section line. Omits
+            off-section / excluded / unprojectable investigations.
+
+        Raises
+        ------
+        ValueError
+            When the section does not exist in ``project_id``.
+        """
+        section = (
+            await self._session.execute(
+                select(CrossSectionOrm).where(
+                    CrossSectionOrm.id == section_id,
+                    CrossSectionOrm.app_project_id == project_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if section is None:
+            raise ValueError(f"Section {section_id} not found in project {project_id}")
+
+        endpoints = SectionEndpoints(
+            start_x=section.start_x,
+            start_y=section.start_y,
+            end_x=section.end_x,
+            end_y=section.end_y,
+        )
+        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
+
+        cpt_locs = (
+            await self._session.execute(
+                select(CptOrm.id, CptOrm.location_x, CptOrm.location_y).where(
+                    CptOrm.app_project_id == project_id,
+                )
+            )
+        ).all()
+        bh_locs = (
+            await self._session.execute(
+                select(BoreholeOrm.id, BoreholeOrm.location_x, BoreholeOrm.location_y).where(
+                    BoreholeOrm.app_project_id == project_id,
+                )
+            )
+        ).all()
+
+        along: dict[UUID, float] = {}
+        for r in (*cpt_locs, *bh_locs):
+            if r.id not in participant_ids or r.id in excluded:
+                continue
+            res = project_point_onto_line(endpoints, r.location_x, r.location_y)
+            if res is None:
+                continue
+            if abs(res.offset) <= section.projection_buffer_m:
+                along[r.id] = res.along
+        return along
