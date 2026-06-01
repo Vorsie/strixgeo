@@ -4675,27 +4675,16 @@ recurred 3× (memory). **C10** several `shell/stages/*` canvas tests are render-
 assertion, rename pure mounts to explicit "smoke". **Effort.** M (C8/C9/C10), L (C7,
 pairs with the #111/#175b split).
 
-## 177. `_reorder_by_age` assigns youngest formation the LOWEST display_order (Tier D — backend, S)
+## 177. `_reorder_by_age` assigns youngest formation the LOWEST display_order — RESOLVED 2026-06-01
 
-**What.** `RebuildModelSurfaces._reorder_by_age` calls `infer_age_order` which returns
-formations **youngest-first** (`result[0]` = youngest), then assigns `display_order = slot`
-directly from that sequence — so the youngest formation gets `display_order=0` (the lowest).
-CLAUDE.md specifies "lower `display_order` = older formation (deeper in the stratigraphic
-column)", meaning younger should receive the HIGHER slot. The current code assigns exactly
-backwards: youngest→0 (lowest/oldest slot), oldest→N-1 (highest/youngest slot). The bug
-causes Build's auto-reorder to produce a reversed stratigraphic column, which the GeologyInspector
-then shows bottom-up instead of top-down. **Fix.** In `_reorder_by_age`, reverse `non_pinned_sequence`
-before zipping with `free_slots`, OR assign `display_order = (max_slot - slot)`. Test RS5 in
-`tests/integration/application/test_rebuild_model_surfaces.py` is `xfail(strict=True)` and will
-become a passing regression guard once this is fixed.
-
-**Why deferred.** Noticed during #116 test writing; no user-filed dogfeed yet (Build
-auto-reorder is rarely used at this stage of development). The incorrect ordering is
-consistent (Build always does the same wrong thing), and the engineer can correct it
-by dragging in GeologyInspector.
-
-**When to revisit.** Before the first external user distribution, or whenever
-"Build 3D model" auto-reorder is validated against real stratigraphy.
+`_reorder_by_age` now reverses `infer_age_order`'s youngest-first output before
+slot assignment, so the oldest contact-bearing formation gets the lowest free
+slot and the youngest gets the highest, matching the CLAUDE.md "lower
+`display_order` = older" convention. Orphan formations still append at the
+end (high display_order / youngest slots), preserving the "manual drag-reorder
+on an unplaced formation survives Build" property. RS5 in
+`tests/integration/application/test_rebuild_model_surfaces.py` is no longer
+`xfail` — it's a passing regression guard.
 
 ## 176. Logging cleanups — exporter instrumentation + renderer `log` wrapper (Tier E, S)
 

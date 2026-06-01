@@ -371,44 +371,33 @@ async def test_orphan_stale_surface_is_cleared(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug: _reorder_by_age assigns slot 0 (lowest display_order) to the "
-        "YOUNGEST formation because infer_age_order returns youngest-first and "
-        "the caller assigns display_order=slot directly.  CLAUDE.md specifies "
-        "'lower display_order = older' so younger should receive the HIGHER "
-        "slot — the assignment must be reversed.  Filed as new debt; test "
-        "stays xfail(strict=True) so it becomes a passing regression guard "
-        "once the bug is fixed."
-    ),
-)
 @pytest.mark.asyncio
 async def test_age_reorder_assigns_display_order_from_contact_depths(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """_reorder_by_age should assign display_order so younger (shallower)
-    formations receive a HIGHER display_order than older (deeper) ones,
-    matching the CLAUDE.md convention "lower display_order = older formation."
+    """_reorder_by_age assigns display_order so younger (shallower) formations
+    receive a HIGHER display_order than older (deeper) ones, matching the
+    CLAUDE.md convention "lower display_order = older formation."
 
-    Setup: three formations created in WRONG order (youngest assigned
-    display_order=2, oldest assigned display_order=0 — inverted vs. depths).
-    Contacts place formation A at depth ~2m, B at ~5m, C at ~10m.  After
-    correct rebuild:
+    Setup: three formations created with display_orders INVERTED vs. their
+    contact depths (youngest given the LOWEST display_order, oldest given
+    the HIGHEST). Contacts place formation A at depth ~2 m, B at ~5 m, C
+    at ~10 m. After correct rebuild:
     - Formation A (shallowest / youngest) → HIGHEST display_order.
     - Formation C (deepest / oldest)     → LOWEST display_order.
 
-    Currently FAILS because _reorder_by_age assigns the lowest slot (0) to
-    the youngest formation instead of the oldest — see xfail reason above.
+    Regression guard for debt #177 (age-reorder direction inversion,
+    resolved 2026-06-01).
     """
     model = _geo_model(project)
-    # Intentionally create with display_orders inverted vs. contact depths.
+    # Intentionally create with display_orders INVERTED vs. contact depths.
+    # The rebuild must flip them to match the CLAUDE.md convention.
     f_young = _formation(
-        project, name="RS5-Young-A", display_order=2
-    )  # shallowest, should be youngest
+        project, name="RS5-Young-A", display_order=0
+    )  # shallowest, should END UP highest
     f_mid = _formation(project, name="RS5-Mid-B", display_order=1)  # middle depth
-    f_old = _formation(project, name="RS5-Old-C", display_order=0)  # deepest, should be oldest
+    f_old = _formation(project, name="RS5-Old-C", display_order=2)  # deepest, should END UP lowest
     bh1 = _borehole(project.id, suffix="RS5-BH1", x=157_000.0)
     bh2 = _borehole(project.id, suffix="RS5-BH2", x=157_200.0)
     bh3 = _borehole(project.id, suffix="RS5-BH3", x=157_100.0, y=200_200.0)

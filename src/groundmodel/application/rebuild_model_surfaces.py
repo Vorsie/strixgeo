@@ -264,17 +264,32 @@ class RebuildModelSurfaces(GroundModelLogger):
         # orphans append in their current display_order so a manual
         # drag-reorder on an unplaced formation survives Build. Pinned
         # formations are removed from the re-flow entirely.
-        age_ordered = infer_age_order(
-            contacts_by_anchor=contacts_by_anchor,
-            all_formation_ids=list(with_contacts),
+        #
+        # ``infer_age_order`` returns YOUNGEST-FIRST. CLAUDE.md
+        # ("display_order is the age axis") specifies lower
+        # display_order = OLDER, so the contact-bearing run must be
+        # reversed before slot assignment — oldest gets the lowest
+        # free_slot, youngest the highest. Orphans append AFTER the
+        # contact-bearing run so they fall in the youngest-end slots
+        # (preserving the "manual drag-reorder on an unplaced formation
+        # survives Build" property — they stay at the high-display_order
+        # end where the inspector renders them at the top). Resolves
+        # debt #177 (age-reorder direction inversion).
+        age_ordered_oldest_first = list(
+            reversed(
+                infer_age_order(
+                    contacts_by_anchor=contacts_by_anchor,
+                    all_formation_ids=list(with_contacts),
+                )
+            )
         )
         orphans = sorted(
             (f for f in all_formations if f.id not in with_contacts),
             key=lambda f: f.display_order,
         )
-        non_pinned_sequence: list[UUID] = [fid for fid in age_ordered if fid not in pinned_ids] + [
-            f.id for f in orphans if f.id not in pinned_ids
-        ]
+        non_pinned_sequence: list[UUID] = [
+            fid for fid in age_ordered_oldest_first if fid not in pinned_ids
+        ] + [f.id for f in orphans if f.id not in pinned_ids]
 
         # Free slots = 0..N-1 minus the indices the pinned formations
         # hold. Assign the non-pinned sequence into them in order, so
