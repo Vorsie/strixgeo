@@ -1,6 +1,6 @@
 """Integration tests for DetectBodies.
 
-Six cases:
+Seven cases:
 1. Bilateral closure (#135 topology, four correlated contacts from A → two
    distinct targets B and C) materialises a BodyOrm row with both extents
    populated (kind='to_target') after the explicit Detect verb runs.
@@ -13,6 +13,9 @@ Six cases:
 6. Provenance rule — a body with extent_left_kind='pinch_out_halfway'
    survives a Detect pass that would otherwise write 'to_target' on the left;
    the user-claimed kind is preserved, the right extent is still updated.
+7. E1 regression — executing DetectBodies for a 5-body model issues exactly
+   one SELECT against the body table (the bulk pre-fetch), regardless of
+   how many candidates the detector emits.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -707,4 +710,128 @@ async def test_provenance_rule_user_claimed_extent_is_preserved(
     assert updated.extent_right_kind == EXTENT_KIND_TO_TARGET, (
         f"Detector must update unclaimed right extent to 'to_target'; "
         f"got {updated.extent_right_kind!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: E1 regression — exactly one body-table SELECT per DetectBodies call
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_detect_bodies_issues_one_body_table_select(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """DetectBodies issues exactly one SELECT against the body table per call.
+
+    Regression guard for the E1 audit fix: the upsert loop and the reconcile
+    step both used to issue per-iteration SELECTs against ``body``.  After the
+    bulk pre-fetch fix the total body-table SELECT count must be 1 regardless
+    of how many candidates the detector emits.
+
+    Setup:  5 independent body formations (each enclosed in its own bilateral
+    closure) sharing one source borehole (bh_a) and two target boreholes (bh_b,
+    bh_c).  Each body i uses a distinct ``f_body_i`` formation so DetectBodies
+    sees 5 distinct candidates.
+
+    Measurement:  ``before_cursor_execute`` listener on the synchronous engine
+    (accessed via ``session.sync_session.get_bind()``) counts every SQL
+    statement whose normalised text contains ``FROM body`` or
+    ``SELECT … body``.  The expected count is 1.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-t7")
+
+    # 5 body formations, each with a cap formation above and below.
+    # Using a simple two-contact enclosure per body (cap/body contact pair).
+    n_bodies = 5
+    f_caps: list[GeologicalFormationOrm] = []
+    f_bodies: list[GeologicalFormationOrm] = []
+    for i in range(n_bodies):
+        f_caps.append(_formation(project, parent, name=f"ZAND cap t7_{i}", soil_code="ZAND"))
+        f_bodies.append(_formation(project, parent, name=f"KLEI body t7_{i}", soil_code="KLEI"))
+
+    # Three boreholes: A is the source, B and C are the bilateral targets.
+    bh_a = _borehole(project.id, suffix="A07", x=155000.0)
+    bh_b = _borehole(project.id, suffix="B07", x=155300.0)
+    bh_c = _borehole(project.id, suffix="C07", x=154700.0)
+
+    db_session.add_all([geo, litho, parent, bh_a, bh_b, bh_c, *f_caps, *f_bodies])
+    await db_session.flush()
+
+    # Per-body contacts on bh_a: alternating cap / body depths so each body
+    # is properly enclosed (cap contact above, body contact just below).
+    # bh_b and bh_c each get one contact per body at the midpoint depth.
+    contacts_a: list[FormationContactOrm] = []
+    contacts_b: list[FormationContactOrm] = []
+    contacts_c: list[FormationContactOrm] = []
+    for i in range(n_bodies):
+        base_depth = float(i * 4)
+        # Cap contact (top of the enclosing sand) — part of the bilateral stack.
+        c_cap = _contact(litho, f_caps[i], bh_a, depth=base_depth)
+        # Body contact (top of the enclosed clay) — this is the body formation.
+        c_body = _contact(litho, f_bodies[i], bh_a, depth=base_depth + 1.0)
+        contacts_a.append(c_cap)
+        contacts_a.append(c_body)
+        contacts_b.append(_contact(litho, f_bodies[i], bh_b, depth=base_depth + 0.5))
+        contacts_c.append(_contact(litho, f_bodies[i], bh_c, depth=base_depth + 0.5))
+
+    db_session.add_all([*contacts_a, *contacts_b, *contacts_c])
+    await db_session.flush()
+
+    # Wire bilateral edges for each body: cap + body contacts on bh_a
+    # correlate to bh_b and bh_c respectively.  Each body needs 4 edges.
+    for i in range(n_bodies):
+        c_cap = contacts_a[i * 2]
+        c_body = contacts_a[i * 2 + 1]
+        c_b = contacts_b[i]
+        c_c = contacts_c[i]
+        for ca, cb in [(c_cap, c_b), (c_body, c_b), (c_cap, c_c), (c_body, c_c)]:
+            db_session.add(_raw_edge(litho, ca, cb, user_approved=True, source="manual"))
+
+    await db_session.commit()
+
+    # Resolve instance ordinals so the detector can use them.
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+    await db_session.commit()
+
+    # ------------------------------------------------------------------ #
+    # Instrument the synchronous engine to count body-table SELECTs.     #
+    # ------------------------------------------------------------------ #
+    sync_engine = db_session.sync_session.get_bind()
+    body_selects: list[str] = []
+
+    def _count_body_selects(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,  # noqa: FBT001
+    ) -> None:
+        """Append statement to body_selects when it targets the body table."""
+        # Normalise whitespace to make the check robust across formatting.
+        normalised = " ".join(statement.split()).upper()
+        if "FROM BODY" in normalised or "SELECT" in normalised and " BODY " in normalised:
+            body_selects.append(statement)
+
+    event.listen(sync_engine, "before_cursor_execute", _count_body_selects)
+    try:
+        result = await DetectBodies(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+        )
+        await db_session.commit()
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _count_body_selects)
+
+    assert result.bodies_created == n_bodies, (
+        f"Expected {n_bodies} bodies created; got {result.bodies_created}"
+    )
+    assert len(body_selects) == 1, (
+        f"E1 regression: DetectBodies must issue exactly 1 body-table SELECT "
+        f"(the bulk pre-fetch); got {len(body_selects)}.\n"
+        f"Statements observed:\n" + "\n---\n".join(body_selects)
     )
