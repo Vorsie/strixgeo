@@ -1,0 +1,587 @@
+"""Integration tests for RebuildModelSurfaces — debt #116.
+
+Seven cases:
+
+RS1. Happy path — geological model with N contacts across two formations →
+     N surface rows rebuilt, all is_stale=False, RebuildOutcome.formations_rebuilt > 0.
+
+RS2. Empty model — no contacts, no stale orphan surfaces → no-op (0 rebuilt, 0 considered).
+
+RS3. Staleness cleared — create contacts + surface with is_stale=True, run rebuild →
+     is_stale flipped to False on every surface row.
+
+RS4. Orphan stale surface — delete the contact that seeded a surface but leave the
+     is_stale=True surface row behind (simulates "last contact deleted" path) →
+     rebuild clears the orphan surface.
+
+RS5. Age-reorder (geological model) — three formations created in reverse age order →
+     after rebuild their display_order is reassigned to match the data-driven
+     youngest-on-top ordering.
+
+RS6. Litho model kind-scope guard — _reorder_by_age MUST NOT reorder a
+     lithostratigraphic model's formations (debt #69 regression guard).
+
+RS7. Idempotent rebuild — two consecutive rebuild calls on the same model produce
+     the same RebuildOutcome.formations_rebuilt; the surface geometry is stable.
+"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+import pytest
+import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+
+# ---------------------------------------------------------------------------
+# Private fixture helpers
+# ---------------------------------------------------------------------------
+
+
+def _borehole(project_id: UUID, *, suffix: str, x: float, y: float = 200_000.0) -> BoreholeOrm:
+    """Minimal borehole with a known location + elevation (needed for TIN points)."""
+    return BoreholeOrm(
+        id=uuid7(),
+        name=f"BH-{suffix}",
+        app_project_id=project_id,
+        project_id="REBUILD_TESTS",
+        test_id=f"BH-REBUILD-{suffix}",
+        location_x=x,
+        location_y=y,
+        elevation_m=5.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+
+
+def _geo_model(project: ProjectOrm) -> GeologicalModelOrm:
+    """Unsaved geological GeologicalModelOrm."""
+    return GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Geo-REBUILD",
+        kind="geological",
+    )
+
+
+def _litho_model(project: ProjectOrm, geo: GeologicalModelOrm) -> GeologicalModelOrm:
+    """Unsaved lithostratigraphic GeologicalModelOrm."""
+    return GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho-REBUILD",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo.id,
+    )
+
+
+def _formation(
+    project: ProjectOrm,
+    *,
+    name: str,
+    display_order: int = 0,
+    pinned_order: bool = False,
+) -> GeologicalFormationOrm:
+    """Unsaved geological-level GeologicalFormationOrm (no parent → geo-level)."""
+    return GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name=name,
+        color="#aabbcc",
+        display_order=display_order,
+        pinned_order=pinned_order,
+    )
+
+
+def _litho_formation(
+    project: ProjectOrm,
+    parent: GeologicalFormationOrm,
+    *,
+    name: str,
+    display_order: int = 0,
+) -> GeologicalFormationOrm:
+    """Unsaved litho-level GeologicalFormationOrm (has parent → litho-level)."""
+    return GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name=name,
+        color="#ccddee",
+        display_order=display_order,
+        parent_formation_id=parent.id,
+        litho_main_soil_code="ZAND",
+    )
+
+
+def _contact(
+    model: GeologicalModelOrm,
+    formation: GeologicalFormationOrm,
+    borehole: BoreholeOrm,
+    *,
+    depth: float,
+) -> FormationContactOrm:
+    """Unsaved FormationContactOrm."""
+    return FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=borehole.id,
+        depth_top_m=depth,
+        source="borehole_observation",
+        confidence="medium",
+    )
+
+
+def _stale_surface(
+    model: GeologicalModelOrm,
+    formation: GeologicalFormationOrm,
+    *,
+    is_stale: bool = True,
+) -> FormationSurfaceOrm:
+    """Unsaved FormationSurfaceOrm with empty geometry (tests staleness logic)."""
+    return FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        method="tin",
+        vertices=[],
+        triangles=[],
+        source_contact_count=0,
+        source_contact_checksum=b"stale_seed",
+        is_stale=is_stale,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared project fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def project(db_session: AsyncSession) -> ProjectOrm:
+    """Bare active project for rebuild-surfaces tests."""
+    proj = ProjectOrm(id=uuid7(), name="rebuild surfaces test", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    return proj
+
+
+# ---------------------------------------------------------------------------
+# RS1: happy path — contacts on two formations → both surfaces rebuilt
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_happy_path_rebuilds_all_formations_with_contacts(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A geological model with contacts on two formations rebuilds both surfaces.
+
+    - RebuildOutcome.formations_considered == 2
+    - RebuildOutcome.formations_rebuilt >= 1  (force=True always re-triangulates)
+    - Both FormationSurface rows exist with is_stale=False after rebuild.
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS1-Formation-A", display_order=0)
+    f2 = _formation(project, name="RS1-Formation-B", display_order=1)
+    # Three boreholes spread in X to give the TIN enough distinct (x,y) points.
+    bh1 = _borehole(project.id, suffix="RS1-BH1", x=150_000.0)
+    bh2 = _borehole(project.id, suffix="RS1-BH2", x=150_200.0)
+    bh3 = _borehole(project.id, suffix="RS1-BH3", x=150_100.0, y=200_200.0)
+
+    db_session.add_all([model, f1, f2, bh1, bh2, bh3])
+    await db_session.flush()
+
+    # Three contacts per formation → non-degenerate TIN triangulation possible.
+    contacts = [
+        _contact(model, f1, bh1, depth=3.0),
+        _contact(model, f1, bh2, depth=3.5),
+        _contact(model, f1, bh3, depth=3.2),
+        _contact(model, f2, bh1, depth=8.0),
+        _contact(model, f2, bh2, depth=8.5),
+        _contact(model, f2, bh3, depth=8.2),
+    ]
+    db_session.add_all(contacts)
+    await db_session.commit()
+
+    outcome = await RebuildModelSurfaces(db_session).execute(model.id)
+
+    assert outcome.formations_considered == 2, (
+        f"RS1: expected 2 formations considered; got {outcome.formations_considered}"
+    )
+    assert outcome.formations_rebuilt >= 1, (
+        f"RS1: expected at least 1 formation rebuilt; got {outcome.formations_rebuilt}"
+    )
+
+    surfaces = (
+        (
+            await db_session.execute(
+                select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(surfaces) == 2, f"RS1: expected 2 surface rows; got {len(surfaces)}"
+    for s in surfaces:
+        assert s.is_stale is False, (
+            f"RS1: surface for formation {s.formation_id} must have is_stale=False after rebuild"
+        )
+
+
+# ---------------------------------------------------------------------------
+# RS2: empty model → no-op
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_empty_model_is_noop(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A model with no contacts and no stale surfaces returns a zero-count outcome."""
+    model = _geo_model(project)
+    db_session.add(model)
+    await db_session.commit()
+
+    outcome = await RebuildModelSurfaces(db_session).execute(model.id)
+
+    assert outcome.formations_considered == 0, (
+        f"RS2: expected 0 formations considered on empty model; got {outcome.formations_considered}"
+    )
+    assert outcome.formations_rebuilt == 0, (
+        f"RS2: expected 0 formations rebuilt on empty model; got {outcome.formations_rebuilt}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RS3: pre-existing stale surface → is_stale cleared by rebuild
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_flag_is_cleared_after_rebuild(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A surface row with is_stale=True must have is_stale=False after a rebuild.
+
+    Simulates the scenario where a contact mutation (PATCH depth) flipped
+    is_stale=True on the cached surface, and the user clicks "Build 3D model".
+    The rebuild should always produce is_stale=False regardless of whether
+    the geometry changed.
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS3-Formation-Stale", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS3-BH1", x=155_000.0)
+    bh2 = _borehole(project.id, suffix="RS3-BH2", x=155_200.0)
+    bh3 = _borehole(project.id, suffix="RS3-BH3", x=155_100.0, y=200_200.0)
+
+    db_session.add_all([model, f1, bh1, bh2, bh3])
+    await db_session.flush()
+
+    contacts = [
+        _contact(model, f1, bh1, depth=4.0),
+        _contact(model, f1, bh2, depth=4.5),
+        _contact(model, f1, bh3, depth=4.2),
+    ]
+    db_session.add_all(contacts)
+
+    # Plant a stale surface row (simulates a contact mutation that ran
+    # mark_surfaces_stale but the user hasn't clicked Build yet).
+    stale = _stale_surface(model, f1, is_stale=True)
+    db_session.add(stale)
+    await db_session.commit()
+
+    # Pre-condition: surface is stale.
+    pre_surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.id == stale.id)
+        )
+    ).scalar_one()
+    assert pre_surface.is_stale is True, "RS3 pre-condition: surface must be stale before rebuild"
+
+    await RebuildModelSurfaces(db_session).execute(model.id)
+    await db_session.refresh(stale)
+
+    assert stale.is_stale is False, (
+        f"RS3: is_stale must be False after rebuild; got {stale.is_stale!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RS4: orphan stale surface (contact deleted, surface row survives) → cleared
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_orphan_stale_surface_is_cleared(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """After deleting the last contact on a formation, a rebuild clears the
+    orphan surface row (sets is_stale=False or removes it).
+
+    The use-case docstring documents this as the "orphan stale surface" path:
+    the contact-based query misses formations whose last contact was deleted,
+    but the stale-surface query picks them up so the "N unbuilt edits" badge
+    doesn't stick forever.
+    """
+    model = _geo_model(project)
+    f_orphan = _formation(project, name="RS4-Orphan", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS4-BH1", x=156_000.0)
+
+    db_session.add_all([model, f_orphan, bh1])
+    await db_session.flush()
+
+    # Insert a stale surface row with NO matching contact — simulates the
+    # state after a contact delete that called mark_surfaces_stale but left
+    # the surface row behind with is_stale=True.
+    orphan_surface = _stale_surface(model, f_orphan, is_stale=True)
+    db_session.add(orphan_surface)
+    await db_session.commit()
+
+    outcome = await RebuildModelSurfaces(db_session).execute(model.id)
+
+    # The orphan formation must have been picked up.
+    assert outcome.formations_considered >= 1, (
+        f"RS4: orphan stale formation must be considered; got {outcome.formations_considered}"
+    )
+
+    # After rebuild, the orphan surface row must have is_stale=False.
+    await db_session.refresh(orphan_surface)
+    assert orphan_surface.is_stale is False, (
+        f"RS4: orphan surface must have is_stale=False after rebuild; "
+        f"got {orphan_surface.is_stale!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RS5: age-reorder — display_order corrected by contact data
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Bug: _reorder_by_age assigns slot 0 (lowest display_order) to the "
+        "YOUNGEST formation because infer_age_order returns youngest-first and "
+        "the caller assigns display_order=slot directly.  CLAUDE.md specifies "
+        "'lower display_order = older' so younger should receive the HIGHER "
+        "slot — the assignment must be reversed.  Filed as new debt; test "
+        "stays xfail(strict=True) so it becomes a passing regression guard "
+        "once the bug is fixed."
+    ),
+)
+@pytest.mark.asyncio
+async def test_age_reorder_assigns_display_order_from_contact_depths(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """_reorder_by_age should assign display_order so younger (shallower)
+    formations receive a HIGHER display_order than older (deeper) ones,
+    matching the CLAUDE.md convention "lower display_order = older formation."
+
+    Setup: three formations created in WRONG order (youngest assigned
+    display_order=2, oldest assigned display_order=0 — inverted vs. depths).
+    Contacts place formation A at depth ~2m, B at ~5m, C at ~10m.  After
+    correct rebuild:
+    - Formation A (shallowest / youngest) → HIGHEST display_order.
+    - Formation C (deepest / oldest)     → LOWEST display_order.
+
+    Currently FAILS because _reorder_by_age assigns the lowest slot (0) to
+    the youngest formation instead of the oldest — see xfail reason above.
+    """
+    model = _geo_model(project)
+    # Intentionally create with display_orders inverted vs. contact depths.
+    f_young = _formation(
+        project, name="RS5-Young-A", display_order=2
+    )  # shallowest, should be youngest
+    f_mid = _formation(project, name="RS5-Mid-B", display_order=1)  # middle depth
+    f_old = _formation(project, name="RS5-Old-C", display_order=0)  # deepest, should be oldest
+    bh1 = _borehole(project.id, suffix="RS5-BH1", x=157_000.0)
+    bh2 = _borehole(project.id, suffix="RS5-BH2", x=157_200.0)
+    bh3 = _borehole(project.id, suffix="RS5-BH3", x=157_100.0, y=200_200.0)
+
+    db_session.add_all([model, f_young, f_mid, f_old, bh1, bh2, bh3])
+    await db_session.flush()
+
+    # Contacts: younger (A) shallower than mid (B) shallower than older (C).
+    contacts = [
+        _contact(model, f_young, bh1, depth=2.0),
+        _contact(model, f_young, bh2, depth=2.2),
+        _contact(model, f_young, bh3, depth=2.1),
+        _contact(model, f_mid, bh1, depth=5.0),
+        _contact(model, f_mid, bh2, depth=5.2),
+        _contact(model, f_mid, bh3, depth=5.1),
+        _contact(model, f_old, bh1, depth=10.0),
+        _contact(model, f_old, bh2, depth=10.2),
+        _contact(model, f_old, bh3, depth=10.1),
+    ]
+    db_session.add_all(contacts)
+    await db_session.commit()
+
+    outcome = await RebuildModelSurfaces(db_session).execute(model.id)
+
+    # At least one formation got reordered (we deliberately started wrong).
+    reordered = outcome.formations_reordered
+    assert reordered >= 1, (
+        f"RS5: expected at least one reorder; got formations_reordered={reordered}"
+    )
+
+    await db_session.refresh(f_young)
+    await db_session.refresh(f_mid)
+    await db_session.refresh(f_old)
+
+    # Younger (shallower) must have HIGHER display_order than older (deeper).
+    assert f_young.display_order > f_old.display_order, (
+        f"RS5: younger formation must have higher display_order than older; "
+        f"got f_young={f_young.display_order}, f_old={f_old.display_order}"
+    )
+    assert f_mid.display_order > f_old.display_order, (
+        f"RS5: mid formation must have higher display_order than older; "
+        f"got f_mid={f_mid.display_order}, f_old={f_old.display_order}"
+    )
+    assert f_young.display_order > f_mid.display_order, (
+        f"RS5: younger formation must have higher display_order than mid; "
+        f"got f_young={f_young.display_order}, f_mid={f_mid.display_order}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RS6: litho model kind-scope guard — _reorder_by_age skips litho models
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_litho_model_reorder_is_skipped(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Debt #69 regression: rebuilding a lithostratigraphic model MUST NOT
+    trigger _reorder_by_age (which would clobber per-instance ordinal
+    display_orders that AcceptLithoSuggestions._recompute_litho_display_orders
+    just set).
+
+    Verify that formations_reordered == 0 when the model kind is
+    'lithostratigraphic', even when the contact data would imply a different
+    age ordering.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    geo_parent = _formation(project, name="RS6-Geo-Parent", display_order=0)
+    # Two litho units with intentionally wrong display_orders.
+    f_a = _litho_formation(project, geo_parent, name="RS6-Litho-A", display_order=5)
+    f_b = _litho_formation(project, geo_parent, name="RS6-Litho-B", display_order=1)
+    bh1 = _borehole(project.id, suffix="RS6-BH1", x=158_000.0)
+    bh2 = _borehole(project.id, suffix="RS6-BH2", x=158_200.0)
+    bh3 = _borehole(project.id, suffix="RS6-BH3", x=158_100.0, y=200_200.0)
+
+    db_session.add_all([geo, litho, geo_parent, f_a, f_b, bh1, bh2, bh3])
+    await db_session.flush()
+
+    contacts = [
+        _contact(litho, f_a, bh1, depth=2.0),
+        _contact(litho, f_a, bh2, depth=2.2),
+        _contact(litho, f_a, bh3, depth=2.1),
+        _contact(litho, f_b, bh1, depth=6.0),
+        _contact(litho, f_b, bh2, depth=6.2),
+        _contact(litho, f_b, bh3, depth=6.1),
+    ]
+    db_session.add_all(contacts)
+    await db_session.commit()
+
+    original_order_a = f_a.display_order
+    original_order_b = f_b.display_order
+
+    outcome = await RebuildModelSurfaces(db_session).execute(litho.id)
+
+    # Age-reorder must be skipped for litho models.
+    assert outcome.formations_reordered == 0, (
+        f"RS6: lithostratigraphic rebuild MUST NOT reorder formations; "
+        f"got formations_reordered={outcome.formations_reordered}"
+    )
+
+    await db_session.refresh(f_a)
+    await db_session.refresh(f_b)
+
+    # display_orders must be untouched.
+    assert f_a.display_order == original_order_a, (
+        f"RS6: f_a.display_order changed from {original_order_a} to {f_a.display_order}"
+    )
+    assert f_b.display_order == original_order_b, (
+        f"RS6: f_b.display_order changed from {original_order_b} to {f_b.display_order}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RS7: idempotent rebuild — second call produces same rebuilt count
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_idempotent_rebuild(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Two consecutive rebuilds on an unchanged model produce the same
+    formations_rebuilt count.
+
+    RebuildModelSurfaces always uses force=True so both runs re-triangulate.
+    The first run builds the surfaces; the second run rebuilds them from the
+    same input → identical output, stable is_stale=False state.
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS7-Formation-A", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS7-BH1", x=159_000.0)
+    bh2 = _borehole(project.id, suffix="RS7-BH2", x=159_200.0)
+    bh3 = _borehole(project.id, suffix="RS7-BH3", x=159_100.0, y=200_200.0)
+
+    db_session.add_all([model, f1, bh1, bh2, bh3])
+    await db_session.flush()
+
+    contacts = [
+        _contact(model, f1, bh1, depth=3.0),
+        _contact(model, f1, bh2, depth=3.5),
+        _contact(model, f1, bh3, depth=3.2),
+    ]
+    db_session.add_all(contacts)
+    await db_session.commit()
+
+    outcome1 = await RebuildModelSurfaces(db_session).execute(model.id)
+    outcome2 = await RebuildModelSurfaces(db_session).execute(model.id)
+
+    # Both runs must rebuild (force=True bypasses the checksum short-circuit).
+    rebuilt1 = outcome1.formations_rebuilt
+    assert rebuilt1 >= 1, (
+        f"RS7: first rebuild should produce formations_rebuilt >= 1; got {rebuilt1}"
+    )
+    rebuilt2 = outcome2.formations_rebuilt
+    assert rebuilt2 == rebuilt1, (
+        f"RS7: second rebuild must produce same count as first; got {rebuilt2} != {rebuilt1}"
+    )
+
+    surfaces = (
+        (
+            await db_session.execute(
+                select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for s in surfaces:
+        assert s.is_stale is False, (
+            f"RS7: all surfaces must have is_stale=False after second rebuild; "
+            f"formation_id={s.formation_id}"
+        )
