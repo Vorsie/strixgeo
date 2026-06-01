@@ -45,6 +45,7 @@ import CompanionOfferDialog from '../../../components/sections/CompanionOfferDia
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
+import ProvenanceConflictDialog from '../../../components/sections/ProvenanceConflictDialog'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -213,6 +214,15 @@ export default function SectionsCanvas(): JSX.Element {
     lensId: string
     lensName: string | null
     modelId: string
+  } | null>(null)
+
+  // Provenance-conflict dialog — opened when claimBodyExtent returns 409
+  // (detector already claimed the requested side). The user picks between
+  // "Apply my claim" (overwrite) or "Keep current" (keep detector claim).
+  const [provenanceConflict, setProvenanceConflict] = useState<{
+    bodyId: string
+    side: 'left' | 'right'
+    kind: ClaimableKind
   } | null>(null)
 
   // Inspect-lens-body panel state (#101 Blocker 1) — opened by right-clicking
@@ -744,8 +754,10 @@ export default function SectionsCanvas(): JSX.Element {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('409') || msg.includes('Conflict')) {
-          // Provenance conflict — Task 7.5 will surface a dialog here.
-          toast('error', 'Extent already claimed by detector — clear it first.')
+          // Provenance conflict — the detector already claimed this side.
+          // Surface the conflict dialog so the user can choose to overwrite.
+          log.info('section', `claim-body-extent: 409 conflict for body=${bodyId} side=${side}`)
+          setProvenanceConflict({ bodyId, side, kind })
         } else {
           toast('error', 'Failed to claim extent.')
           log.warn('section', 'handleClaimBodyExtent: failed', err)
@@ -2356,6 +2368,33 @@ export default function SectionsCanvas(): JSX.Element {
           onCancel={handleSnapDialogCancel}
           busy={lithoGeoSnapBusy}
         />
+        {/* Provenance-conflict dialog — opened when claimBodyExtent returns
+            409 (the detector already claimed the requested side). */}
+        {provenanceConflict !== null && (
+          <ProvenanceConflictDialog
+            open={provenanceConflict !== null}
+            bodyId={provenanceConflict.bodyId}
+            side={provenanceConflict.side}
+            kind={provenanceConflict.kind}
+            onApply={() => {
+              // Clear the existing detector claim then retry the user claim.
+              const { bodyId, side, kind } = provenanceConflict
+              setProvenanceConflict(null)
+              void (async () => {
+                if (!activeLithoModel) return
+                try {
+                  await api.geology.clearBodyExtent(project.id, activeLithoModel.id, bodyId, side)
+                  await handleClaimBodyExtent(bodyId, side, kind)
+                } catch (err) {
+                  toast('error', 'Failed to apply claim after conflict resolution.')
+                  log.warn('section', 'provenance-conflict apply: failed', err)
+                }
+              })()
+            }}
+            onKeepCurrent={() => setProvenanceConflict(null)}
+            onClose={() => setProvenanceConflict(null)}
+          />
+        )}
       </>
     )
   }
