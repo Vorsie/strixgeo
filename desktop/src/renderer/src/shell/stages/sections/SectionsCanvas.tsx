@@ -27,11 +27,11 @@ import { Loader2, Route } from 'lucide-react'
 import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
-  LensBoundaryNode,
-  LensBoundaryResponse,
-  LensRenderStyle,
+  BodyBoundaryNode,
+  BodyBoundaryResponse,
+  BodyRenderStyle,
   LithoContactCorrelationEdge,
-  LithoLensListItem,
+  BodyListItem,
   PinchOutCandidate,
 } from '../../../api/client'
 import type {
@@ -230,7 +230,7 @@ export default function SectionsCanvas(): JSX.Element {
   // Carries the lens list fetched lazily on open so the panel can show the
   // existing name (if any) and enable the perpendicular-companion path.
   const [inspectTarget, setInspectTarget] = useState<InspectLensBodyTarget | null>(null)
-  const [inspectLenses, setInspectLenses] = useState<LithoLensListItem[]>([])
+  const [inspectLenses, setInspectLenses] = useState<BodyListItem[]>([])
 
   // Sections need a projected METRIC horizontal CRS — same gate as the
   // toolbar (debt #31). Degrees (EPSG:4326) would silently produce
@@ -443,9 +443,9 @@ export default function SectionsCanvas(): JSX.Element {
   // #163f Slice 2 — detected lenses + their boundary shapes for LensWedge
   // Overlay. Mirrors the contact-edge fetch (same nonce trigger: lenses are
   // derived from approved edges, so they refresh whenever edges do).
-  const [lensList, setLensList] = useState<LithoLensListItem[]>([])
+  const [lensList, setLensList] = useState<BodyListItem[]>([])
   const [lensBoundaries, setLensBoundaries] = useState<
-    ReadonlyMap<string, LensBoundaryResponse>
+    ReadonlyMap<string, BodyBoundaryResponse>
   >(new Map())
 
   const refetchLensData = useCallback(async () => {
@@ -486,9 +486,9 @@ export default function SectionsCanvas(): JSX.Element {
   const handleSaveLensShape = useCallback(
     async (
       lensId: string,
-      upperNodes: LensBoundaryNode[],
-      lowerNodes: LensBoundaryNode[],
-      style: LensRenderStyle,
+      upperNodes: BodyBoundaryNode[],
+      lowerNodes: BodyBoundaryNode[],
+      style: BodyRenderStyle,
     ): Promise<void> => {
       if (!activeLithoModel) return
       try {
@@ -2114,7 +2114,7 @@ export default function SectionsCanvas(): JSX.Element {
     return m
   }, [visibleCpts, visibleBoreholes])
 
-  const existingLens = useMemo((): LithoLensListItem | null => {
+  const existingLens = useMemo((): BodyListItem | null => {
     if (inspectTarget === null) return null
     return (
       inspectLenses.find(
