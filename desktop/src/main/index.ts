@@ -641,9 +641,14 @@ ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects()
 // Window title — driven by the renderer so the title stays in sync with
 // the live project state (name + dirty marker). Empty / undefined falls
 // back to the default app title.
+// Debt #113: cap the title string so a renderer bug or a crafted IPC call
+// can't inject an unbounded string into the OS title bar / log lines.
+// 256 chars covers any real project name + dirty asterisk comfortably.
+const _WINDOW_TITLE_MAX_LEN = 256
 ipcMain.handle('window:set-title', (_event, title: string | null) => {
   if (mainWindow === null) return
-  mainWindow.setTitle(title && title !== '' ? title : 'Strix')
+  const safe = title && title !== '' ? title.slice(0, _WINDOW_TITLE_MAX_LEN) : 'Strix'
+  mainWindow.setTitle(safe)
 })
 
 // Renderer's response to ``app:before-quit``. ``allowed=true`` means the
