@@ -122,8 +122,8 @@ export interface ProjectBundleResponse {
   investigation_reviews: Record<string, unknown>[]
   /** Contact-level correlation edges (#133 Phase 2+3). Absent in older bundles. */
   litho_contact_correlation_edges?: Record<string, unknown>[]
-  /** Litho lens metadata rows (Position 4). Absent in older bundles. */
-  litho_lenses?: Record<string, unknown>[]
+  /** Body (litho lens) metadata rows (slice 4.1 rename). Absent in older bundles. */
+  bodies?: Record<string, unknown>[]
   /** Formation absence records (Position 4). Absent in older bundles. */
   formation_absences?: Record<string, unknown>[]
   /** Lens boundary shapes + control nodes (#163f Slice 2). Absent in older bundles. */
