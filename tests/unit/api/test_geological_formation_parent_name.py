@@ -301,3 +301,47 @@ def test_n8_parent_code_none_when_code_map_omitted() -> None:
     name_map = _build_parent_name_map([geo_row, litho_row])  # type: ignore[arg-type]
     enriched = _enrich_formation(litho_row, name_map)  # type: ignore[arg-type]  # no code_map
     assert enriched.parent_formation_code is None
+
+
+def test_n9_parent_code_resolved_from_regional_ref() -> None:
+    """ "Fill from boreholes" stores the formal code in ``regional_ref`` → resolved.
+
+    The parent has no manual ``code`` link but its ``regional_ref`` carries the
+    DOV formal-stratigraphy code "QP"; the resolver canonicalises it through the
+    formal lexicon so the litho child's ``parent_formation_code`` is "QP".
+    """
+    project_id = uuid4()
+    parent_id = uuid4()
+    geo_row = _make_orm(
+        id=parent_id,
+        app_project_id=project_id,
+        name="Quartair: Pleistocene afzettingen",
+        code=None,
+        regional_ref="QP",
+    )
+    litho_row = _make_orm(
+        app_project_id=project_id,
+        name="ZAND",
+        parent_formation_id=parent_id,
+        lithology="ZAND",
+    )
+    listed = _enrich_formation_list([geo_row, litho_row])  # type: ignore[arg-type]
+    litho_resp = next(r for r in listed if r.parent_formation_id == parent_id)
+    assert litho_resp.parent_formation_code == "QP"
+
+
+def test_n10_manual_code_link_wins_over_regional_ref() -> None:
+    """An explicit ``code`` (manual informal→formal link) overrides ``regional_ref``."""
+    project_id = uuid4()
+    parent_id = uuid4()
+    geo_row = _make_orm(
+        id=parent_id,
+        app_project_id=project_id,
+        name="Some formation",
+        code="Bm",
+        regional_ref="QP",
+    )
+    litho_row = _make_orm(app_project_id=project_id, name="ZAND", parent_formation_id=parent_id)
+    listed = _enrich_formation_list([geo_row, litho_row])  # type: ignore[arg-type]
+    litho_resp = next(r for r in listed if r.parent_formation_id == parent_id)
+    assert litho_resp.parent_formation_code == "Bm"
