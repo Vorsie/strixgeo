@@ -62,12 +62,26 @@ from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP,
     DOV_OBSERVATIE_WFS_PARENT_LINK_PROP,
     DOV_OBSERVATIE_WFS_RESULTAAT_PROP,
+    DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS,
     DOV_WFS_OBSERVATIES_LAYER,
 )
 from groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row import (
     ScalarObservationWfsRow,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Debt #113: CQL injection guard — _build_cql_filter interpolates parameter
+# values inside single-quoted CQL literals with no escaping.  Every value in
+# DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS has been probed live and contains no
+# single-quote character; this assertion fires at module load so a future
+# addition that accidentally introduces one is caught immediately, not at
+# query time against a live WFS endpoint.
+_ALL_PARAM_VALUES = {param for _, param in DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS}
+assert all("'" not in p for p in _ALL_PARAM_VALUES), (
+    "DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS contains a value with a single-quote "
+    "character — _build_cql_filter would produce a broken/injectable CQL string.  "
+    "Escape the value or remove it from the tuple before adding it.  (debt #113)"
+)
 
 
 class DovScalarObservationClient(GroundModelLogger):
