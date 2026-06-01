@@ -2,12 +2,15 @@
 
 The bundle carries a project's complete state — header metadata,
 every CPT (with series), every borehole (with its full child tree),
-and every per-project decision (geological model, cross-sections,
-investigation reviews, view-state toggles). It powers the .gmproj
-v3 file format: ``GET /projects/{id}/bundle`` is called on File →
-Save and embedded in the file; the same shape is sent back to
+every per-project decision (geological model, cross-sections,
+investigation reviews, view-state toggles), litho_layer rows,
+contact-correlation edges, bodies, formation absences, and boundary
+shapes. This is the v4 bundle shape. The desktop client wraps it in a
+v3 .gmproj file (``format_version: 3`` outer envelope; the bundle payload
+inside is the v4 shape). ``GET /projects/{id}/bundle`` is called on
+File → Save and embedded in the file; the same shape is sent back to
 ``POST /projects/{id}/restore`` when opening a file whose DB row is
-missing.
+missing. Both v3 and v4 bundles are accepted on restore.
 
 The round-trip is idempotent: re-restoring a bundle whose rows already
 exist (by id) returns them as-is rather than failing or duplicating.
