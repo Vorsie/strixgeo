@@ -4878,5 +4878,31 @@ envelope-size middleware. Added `_validate_bounded_dict_list` helper (256-char k
 closed-set enum values from Python constants that are never user-supplied. Not injectable;
 stylistic only. Filed as a "watch: don't extend this pattern" note, not a blocking fix.
 
+## 193. FC→LL trigger identity collision in v4 bundle restore (Tier E — backend, M)
+
+**What.** `test_bundle_v4_litho_layers.py` triggers ~16 `SAWarning` lines during the
+restore path: "New instance <LithoLayerOrm> with identity key ... conflicts with
+persistent instance" + "Identity map already had an identity for ... replacing it
+with newly flushed object". Same UUID, two Python instances — one staged from the
+bundle's `litho_layers` payload, the other materialised by the FC→LL trigger when
+the matching `FormationContactOrm` is inserted.
+
+The existing guard at `project_bundle.py:1328` (`if lid in contact_ids_in_payload:
+skipped_fc_trigger += 1; continue`) catches the cases where the layer payload's id
+matches a contact payload's id. The remaining collisions occur when an accepted
+layer in the bundle has the same UUID as a contact processed elsewhere in the
+restore — e.g. orphan-formation contact skipped at line 1244 (the layer still
+inserts) or a subtle flush ordering between Python-staged LithoLayer and the
+contact-INSERT trigger.
+
+**Why deferred.** Tests pass; behaviour is correct (the second instance overwrites
+the first, no data loss). Diagnosing the exact path needs FC→LL trigger interaction
+analysis + an integration test reproducing one collision in isolation. Not a runtime
+bug — just warning noise.
+
+**When to revisit.** When the FC→LL trigger gets another extension (e.g. a third
+shape variant), OR when an actual restore bug surfaces that the warnings make harder
+to diagnose. Until then the warning noise stays.
+
 ## (end)
 
