@@ -695,9 +695,6 @@ function truncateToWidth(text: string, widthPx: number): string {
   return `${text.slice(0, Math.max(1, maxChars - 1))}…`
 }
 
-/** Alias kept for this module's callers — delegates to the shared helper. */
-const itemBottomDepth = columnMaxDepthM
-
 /** Find the column whose centre is closest to ``cursorSvgX``, but
  * only if within the column's half-width plus the attraction
  * hysteresis. ``null`` when the cursor is in dead space between
@@ -754,6 +751,217 @@ function isTypingTarget(target: EventTarget | null): boolean {
   const tag = target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   return target.isContentEditable
+}
+
+/**
+ * Stage-A data-classification pass — pure function of data + horizontal
+ * layout.  Deliberately receives no vertical-axis inputs (levelToScreen /
+ * plotTop / plotBottom) so callers can keep it memoised across vertical pan
+ * and zoom.
+ *
+ * Produces:
+ * - ``slabs``: one LayerSlabData per (column, contact) pair, carrying
+ *   everything the render pass needs except screen-Y coordinates.
+ * - ``polylineData``: one PolylineDataLine per formation, vertices sorted
+ *   left-to-right and in stratigraphic age order (ascending display_order).
+ *
+ * Synthetic lens-tip contacts (no borehole/CPT anchor, world position set)
+ * are folded into the polyline accumulator when sectionLine and
+ * alongMToScreenX are provided; they contribute no slabs.
+ */
+export function computeSlabsAndPolylines(
+  contacts: readonly FormationContactResponse[],
+  formations: readonly GeologicalFormationResponse[],
+  placedColumns: readonly PlacedColumn[],
+  excludedBoreholeIds: ReadonlySet<string> | undefined,
+  sectionLine: SectionLine2D | undefined,
+  alongMToScreenX: ((alongM: number) => number) | undefined,
+): { slabs: LayerSlabData[]; polylineData: PolylineDataLine[] } {
+  if (contacts.length === 0) {
+    return { slabs: [] as LayerSlabData[], polylineData: [] as PolylineDataLine[] }
+  }
+
+  const formationById = new Map<string, GeologicalFormationResponse>()
+  for (const f of formations) formationById.set(f.id, f)
+
+  // Pre-index contacts by anchor id so the per-column loop is O(K)
+  // (K = contacts at this anchor) rather than O(M) (M = all contacts
+  // in the project). On a 200-column / 500-contact project this drops
+  // the inner work from ~100k iterations per pan to ~500.
+  const contactsByAnchorId = new Map<string, FormationContactResponse[]>()
+  for (const c of contacts) {
+    const anchorId = c.borehole_id ?? c.cpt_id
+    if (!anchorId) continue
+    if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
+    const bucket = contactsByAnchorId.get(anchorId)
+    if (bucket) {
+      bucket.push(c)
+    } else {
+      contactsByAnchorId.set(anchorId, [c])
+    }
+  }
+
+  const slabsOut: LayerSlabData[] = []
+  // Polyline accumulator keyed by formation id; each entry collects
+  // vertices in any order, sorted left-to-right at the end.
+  type PolyAcc = { color: string; name: string; vertices: PolylineVertexData[] }
+  const byFormation = new Map<string, PolyAcc>()
+
+  for (const col of placedColumns) {
+    const item = col.proj.item as { id: string; elevation_m: number | null }
+    if (item.elevation_m === null) continue
+    const colContacts = contactsByAnchorId.get(item.id)
+    if (!colContacts || colContacts.length === 0) continue
+    // Sort ascending by depth — the per-column slab loop assumes
+    // it; the polyline pass doesn't care but using the same order
+    // keeps memory access patterns contiguous.
+    const sorted = [...colContacts].sort((a, b) => a.depth_top_m - b.depth_top_m)
+    const surfaceElevationM = item.elevation_m
+    const bottomCap = columnMaxDepthM(col)
+    const halfW = col.width / 2
+
+    for (let i = 0; i < sorted.length; i += 1) {
+      const contact = sorted[i]
+      const formation = formationById.get(contact.formation_id)
+      if (!formation) continue
+      const topDepth = contact.depth_top_m
+      const nextDepth = sorted[i + 1]?.depth_top_m
+      // bottomDepth: nearest-known lower bound. Fall-through order
+      // matches geological convention — next pick wins, then the
+      // investigation's recorded bottom, finally null (renders as
+      // "extends to plotBottom" in the projection step).
+      const bottomDepthM = nextDepth !== undefined ? nextDepth : (bottomCap ?? null)
+      // Display label: prefer the human/resolved NAME over the raw DOV
+      // formal code. (Revised 2026-05-18.) The previous regional_ref-first
+      // rule meant a formation that was first created from a formal-
+      // primary borehole displayed its raw code (e.g. "KoRo") while a
+      // sibling formation that happened to be created informal-first
+      // showed its full name — an inconsistent, code-vs-name mix on the
+      // same section, and a direct violation of the project rule "store
+      // the raw upstream token, translate at the presentation boundary"
+      // (the #59 lexicon + #58 bridge already put the correct full name
+      // in `name`; regional_ref stays the raw code purely for
+      // provenance). Fall back to regional_ref only when name is somehow
+      // empty. Long names still truncate to the band width below, so the
+      // zoomed-out scannability concern is handled by truncation, not by
+      // surfacing codes.
+      // Litho units carry a raw-token ``name`` ("KLEI", "KLEI (KL:Z)")
+      // auto-generated by AcceptLithoSuggestions. Translate it at the
+      // presentation boundary via ``formatLithoDisplayName`` (debt #96 —
+      // the raw "Klei" was leaking onto the section band). Geological
+      // formations keep their user-curated ``name``.
+      const displayLabel =
+        formation.litho_main_soil_code != null
+          ? formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
+          : (formation.name ?? formation.regional_ref)
+      slabsOut.push({
+        contactId: contact.id,
+        anchorId: item.id,
+        anchorKind: col.kind,
+        formationId: contact.formation_id,
+        formationName: displayLabel,
+        color: formation.color,
+        topDepthM: topDepth,
+        bottomDepthM,
+        surfaceElevationM,
+        segLeftX: col.nudgedX - halfW,
+        segRightX: col.nudgedX + halfW,
+        labelX: col.nudgedX,
+      })
+
+      // Same iteration also populates the polyline accumulator —
+      // saves a second walk of the sorted list.
+      const acc =
+        byFormation.get(contact.formation_id) ??
+        ({ color: formation.color, name: displayLabel, vertices: [] } as PolyAcc)
+      acc.vertices.push({
+        contactId: contact.id,
+        formationId: contact.formation_id,
+        topDepthM: topDepth,
+        surfaceElevationM,
+        screenX: col.nudgedX,
+        sortKey: col.nudgedX,
+      })
+      byFormation.set(contact.formation_id, acc)
+    }
+  }
+
+  // Synthetic lens-tip contacts (#101 Slice 6).
+  // These have no borehole/CPT anchor — skipped by the anchorId
+  // pre-index above.  Their world position (synthetic_x/y) is
+  // projected onto the section line to get an along-distance in
+  // metres, then mapped to a screen X via alongMToScreenX.
+  // Requires both sectionLine and alongMToScreenX to be wired;
+  // when absent the synthetics silently render nothing.
+  if (sectionLine && alongMToScreenX) {
+    const { startX, startY, endX, endY } = sectionLine
+    const dx = endX - startX
+    const dy = endY - startY
+    const len = Math.hypot(dx, dy)
+    if (len > 0) {
+      const ux = dx / len
+      const uy = dy / len
+      for (const c of contacts) {
+        // Only synthetic contacts (no anchor, world position set).
+        if (c.borehole_id || c.cpt_id) continue
+        if (c.synthetic_x === null || c.synthetic_y === null || c.synthetic_elevation_m === null)
+          continue
+        const formation = formationById.get(c.formation_id)
+        if (!formation) continue
+        const rx = c.synthetic_x - startX
+        const ry = c.synthetic_y - startY
+        const alongM = rx * ux + ry * uy
+        const screenX = alongMToScreenX(alongM)
+        // Set surfaceElevationM = synthetic_elevation_m, topDepthM = 0
+        // so the projection step computes:
+        //   screenY = levelToScreen(surfaceElevationM - topDepthM)
+        //           = levelToScreen(synthetic_elevation_m)
+        // which places the vertex at the correct absolute elevation.
+        const displayLabel =
+          formation.litho_main_soil_code != null
+            ? formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
+            : (formation.name ?? formation.regional_ref)
+        const acc =
+          byFormation.get(c.formation_id) ??
+          ({
+            color: formation.color,
+            name: displayLabel,
+            vertices: [],
+          } as PolyAcc)
+        acc.vertices.push({
+          contactId: c.id,
+          formationId: c.formation_id,
+          topDepthM: 0,
+          surfaceElevationM: c.synthetic_elevation_m,
+          screenX,
+          sortKey: screenX,
+        })
+        byFormation.set(c.formation_id, acc)
+      }
+    }
+  }
+
+  const polylinesOut: PolylineDataLine[] = []
+  for (const [formationId, acc] of byFormation) {
+    acc.vertices.sort((a, b) => a.sortKey - b.sortKey)
+    polylinesOut.push({
+      formationId,
+      color: acc.color,
+      name: acc.name,
+      vertices: acc.vertices,
+    })
+  }
+  // Stratigraphic order = age axis. Lower display_order = older
+  // formation; sort ASCENDING so older paints first and younger
+  // formations render ON TOP. Ties + unknown formations sink to
+  // the back (defensive — formationById should always have it).
+  polylinesOut.sort(
+    (a, b) =>
+      (formationById.get(a.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER) -
+      (formationById.get(b.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER),
+  )
+
+  return { slabs: slabsOut, polylineData: polylinesOut }
 }
 
 export default function ContactsLayer({
@@ -955,217 +1163,23 @@ export default function ContactsLayer({
     setSelection(new Set())
     setLastSelectionContactId(null)
   }, [selectionResetSignal])
-  // Stage A — data-classification pass. Produces ``LayerSlabData[]``
-  // and ``PolylineVertexData[]`` from data + horizontal layout only.
-  // Crucially excludes ``levelToScreen`` / ``plotTop`` / ``plotBottom``
-  // from the deps so vertical pan / zoom keeps this memo cached: only
-  // a horizontal pan, a contact edit, an exclusion-set toggle, or a
-  // formation rename invalidates the slab geometry. Debt #29.
-  //
-  // The previous implementation re-ran the full O(N×M) anchor match
-  // on every pan frame because ``levelToScreen`` was in the dep
-  // array. The new version (a) drops ``levelToScreen`` so vertical
-  // pan doesn't invalidate, and (b) pre-indexes ``contacts`` by
-  // anchor id so the inner loop is O(K) per column rather than O(M).
-  const { slabs, polylineData } = useMemo(() => {
-    if (contacts.length === 0) {
-      return { slabs: [] as LayerSlabData[], polylineData: [] as PolylineDataLine[] }
-    }
-
-    const formationById = new Map<string, GeologicalFormationResponse>()
-    for (const f of formations) formationById.set(f.id, f)
-
-    // Pre-index contacts by anchor id so the per-column loop is O(K)
-    // (K = contacts at this anchor) rather than O(M) (M = all
-    // contacts in the project). On a 200-column / 500-contact project
-    // this drops the inner work from ~100k iterations per pan to
-    // ~500.
-    const contactsByAnchorId = new Map<string, FormationContactResponse[]>()
-    for (const c of contacts) {
-      const anchorId = c.borehole_id ?? c.cpt_id
-      if (!anchorId) continue
-      if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
-      const bucket = contactsByAnchorId.get(anchorId)
-      if (bucket) {
-        bucket.push(c)
-      } else {
-        contactsByAnchorId.set(anchorId, [c])
-      }
-    }
-
-    const slabsOut: LayerSlabData[] = []
-    // Polyline accumulator keyed by formation id; each entry collects
-    // vertices in any order, sorted left-to-right at the end.
-    type PolyAcc = { color: string; name: string; vertices: PolylineVertexData[] }
-    const byFormation = new Map<string, PolyAcc>()
-
-    for (const col of placedColumns) {
-      const item = col.proj.item as { id: string; elevation_m: number | null }
-      if (item.elevation_m === null) continue
-      const colContacts = contactsByAnchorId.get(item.id)
-      if (!colContacts || colContacts.length === 0) continue
-      // Sort ascending by depth — the per-column slab loop assumes
-      // it; the polyline pass doesn't care but using the same order
-      // keeps memory access patterns contiguous.
-      const sorted = [...colContacts].sort((a, b) => a.depth_top_m - b.depth_top_m)
-      const surfaceElevationM = item.elevation_m
-      const bottomCap = itemBottomDepth(col)
-      const halfW = col.width / 2
-
-      for (let i = 0; i < sorted.length; i += 1) {
-        const contact = sorted[i]
-        const formation = formationById.get(contact.formation_id)
-        if (!formation) continue
-        const topDepth = contact.depth_top_m
-        const nextDepth = sorted[i + 1]?.depth_top_m
-        // bottomDepth: nearest-known lower bound. Fall-through order
-        // matches geological convention — next pick wins, then the
-        // investigation's recorded bottom, finally null (renders as
-        // "extends to plotBottom" in the projection step).
-        const bottomDepthM =
-          nextDepth !== undefined ? nextDepth : bottomCap ?? null
-        // Display label: prefer the human/resolved NAME over the raw DOV
-        // formal code. (Revised 2026-05-18.) The previous regional_ref-first
-        // rule meant a formation that was first created from a formal-
-        // primary borehole displayed its raw code (e.g. "KoRo") while a
-        // sibling formation that happened to be created informal-first
-        // showed its full name — an inconsistent, code-vs-name mix on the
-        // same section, and a direct violation of the project rule "store
-        // the raw upstream token, translate at the presentation boundary"
-        // (the #59 lexicon + #58 bridge already put the correct full name
-        // in `name`; regional_ref stays the raw code purely for
-        // provenance). Fall back to regional_ref only when name is somehow
-        // empty. Long names still truncate to the band width below, so the
-        // zoomed-out scannability concern is handled by truncation, not by
-        // surfacing codes.
-        // Litho units carry a raw-token ``name`` ("KLEI", "KLEI (KL:Z)")
-        // auto-generated by AcceptLithoSuggestions. Translate it at the
-        // presentation boundary via ``formatLithoDisplayName`` (debt #96 —
-        // the raw "Klei" was leaking onto the section band). Geological
-        // formations keep their user-curated ``name``.
-        const displayLabel =
-          formation.litho_main_soil_code != null
-            ? formatLithoDisplayName(
-                formation.litho_main_soil_code,
-                formation.litho_admixtures,
-              )
-            : (formation.name ?? formation.regional_ref)
-        slabsOut.push({
-          contactId: contact.id,
-          anchorId: item.id,
-          anchorKind: col.kind,
-          formationId: contact.formation_id,
-          formationName: displayLabel,
-          color: formation.color,
-          topDepthM: topDepth,
-          bottomDepthM,
-          surfaceElevationM,
-          segLeftX: col.nudgedX - halfW,
-          segRightX: col.nudgedX + halfW,
-          labelX: col.nudgedX,
-        })
-
-        // Same iteration also populates the polyline accumulator —
-        // saves a second walk of the sorted list.
-        const acc =
-          byFormation.get(contact.formation_id) ??
-          ({ color: formation.color, name: displayLabel, vertices: [] } as PolyAcc)
-        acc.vertices.push({
-          contactId: contact.id,
-          formationId: contact.formation_id,
-          topDepthM: topDepth,
-          surfaceElevationM,
-          screenX: col.nudgedX,
-          sortKey: col.nudgedX,
-        })
-        byFormation.set(contact.formation_id, acc)
-      }
-    }
-
-    // Synthetic lens-tip contacts (#101 Slice 6).
-    // These have no borehole/CPT anchor — skipped by the anchorId
-    // pre-index above.  Their world position (synthetic_x/y) is
-    // projected onto the section line to get an along-distance in
-    // metres, then mapped to a screen X via alongMToScreenX.
-    // Requires both sectionLine and alongMToScreenX to be wired;
-    // when absent the synthetics silently render nothing.
-    if (sectionLine && alongMToScreenX) {
-      const { startX, startY, endX, endY } = sectionLine
-      const dx = endX - startX
-      const dy = endY - startY
-      const len = Math.hypot(dx, dy)
-      if (len > 0) {
-        const ux = dx / len
-        const uy = dy / len
-        for (const c of contacts) {
-          // Only synthetic contacts (no anchor, world position set).
-          if (c.borehole_id || c.cpt_id) continue
-          if (
-            c.synthetic_x === null ||
-            c.synthetic_y === null ||
-            c.synthetic_elevation_m === null
-          )
-            continue
-          const formation = formationById.get(c.formation_id)
-          if (!formation) continue
-          const rx = c.synthetic_x - startX
-          const ry = c.synthetic_y - startY
-          const alongM = rx * ux + ry * uy
-          const screenX = alongMToScreenX(alongM)
-          // Set surfaceElevationM = synthetic_elevation_m, topDepthM = 0
-          // so the projection step computes:
-          //   screenY = levelToScreen(surfaceElevationM - topDepthM)
-          //           = levelToScreen(synthetic_elevation_m)
-          // which places the vertex at the correct absolute elevation.
-          const displayLabel =
-            formation.litho_main_soil_code != null
-              ? formatLithoDisplayName(
-                  formation.litho_main_soil_code,
-                  formation.litho_admixtures,
-                )
-              : (formation.name ?? formation.regional_ref)
-          const acc =
-            byFormation.get(c.formation_id) ??
-            ({
-              color: formation.color,
-              name: displayLabel,
-              vertices: [],
-            } as PolyAcc)
-          acc.vertices.push({
-            contactId: c.id,
-            formationId: c.formation_id,
-            topDepthM: 0,
-            surfaceElevationM: c.synthetic_elevation_m,
-            screenX,
-            sortKey: screenX,
-          })
-          byFormation.set(c.formation_id, acc)
-        }
-      }
-    }
-
-    const polylinesOut: PolylineDataLine[] = []
-    for (const [formationId, acc] of byFormation) {
-      acc.vertices.sort((a, b) => a.sortKey - b.sortKey)
-      polylinesOut.push({
-        formationId,
-        color: acc.color,
-        name: acc.name,
-        vertices: acc.vertices,
-      })
-    }
-    // Stratigraphic order = age axis. Lower display_order = older
-    // formation; sort ASCENDING so older paints first and younger
-    // formations render ON TOP. Ties + unknown formations sink to
-    // the back (defensive — formationById should always have it).
-    polylinesOut.sort(
-      (a, b) =>
-        (formationById.get(a.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER) -
-        (formationById.get(b.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER),
-    )
-
-    return { slabs: slabsOut, polylineData: polylinesOut }
-  }, [contacts, formations, placedColumns, excludedBoreholeIds, sectionLine, alongMToScreenX])
+  // Stage A — data-classification pass. Delegated to the module-level
+  // ``computeSlabsAndPolylines`` pure function so it is unit-testable
+  // without mounting the component. Crucially excludes
+  // ``levelToScreen`` / ``plotTop`` / ``plotBottom`` from the deps so
+  // vertical pan / zoom keeps this memo cached. Debt #29.
+  const { slabs, polylineData } = useMemo(
+    () =>
+      computeSlabsAndPolylines(
+        contacts,
+        formations,
+        placedColumns,
+        excludedBoreholeIds,
+        sectionLine,
+        alongMToScreenX,
+      ),
+    [contacts, formations, placedColumns, excludedBoreholeIds, sectionLine, alongMToScreenX],
+  )
 
   // Stage B — cheap screen-space projection. O(N) per render with no
   // allocation beyond the output arrays; runs on every pan / zoom but
