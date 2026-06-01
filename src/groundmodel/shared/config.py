@@ -1,8 +1,14 @@
 """Application settings loaded from environment variables."""
 
+import warnings
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# Sentinel value written in the codebase default so callers can cheaply
+# detect the un-overridden case without importing the whole settings module.
+_SECRET_KEY_DEFAULT = "change-me"
 
 
 def _default_dov_cache_dir() -> Path:
@@ -29,7 +35,35 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel"
     debug: bool = False
     log_level: str = "INFO"
-    secret_key: str = "change-me"
+    # Debt #113: the default is intentionally the well-known sentinel "change-me"
+    # so a startup warning fires loudly before auth routes ever use it.  Set
+    # SECRET_KEY in the environment or .env — any non-default value silences
+    # the warning.  The auth layer (#3/#4) will harden this to a hard error.
+    secret_key: str = _SECRET_KEY_DEFAULT
+
+    @model_validator(mode="after")
+    def _warn_on_default_secret_key(self) -> "Settings":
+        """Emit a RuntimeWarning when secret_key is still the shipped default.
+
+        A hard error would break dev setups that haven't set SECRET_KEY yet;
+        a warning surfaces loudly in logs without blocking startup.  When auth
+        (#3/#4) lands this becomes a hard assertion.
+
+        Returns
+        -------
+        Settings
+            Self — required by the ``mode="after"`` validator protocol.
+        """
+        if self.secret_key == _SECRET_KEY_DEFAULT:
+            warnings.warn(
+                "SECRET_KEY is still the default 'change-me' value.  "
+                "Set SECRET_KEY in your environment or .env file before "
+                "deploying or enabling auth (debt #113).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        return self
+
     # Where to cache downloaded DOV sondering XMLs. Reused across imports so the same
     # CPT is never downloaded twice. DOV measurement data is historical, so cached
     # entries are valid indefinitely. Override with DOV_CACHE_DIR env var.
