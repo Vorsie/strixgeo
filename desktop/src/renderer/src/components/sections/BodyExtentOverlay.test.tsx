@@ -465,12 +465,12 @@ describe('BodyExtentOverlay', () => {
     expect(sourceEdge.y).not.toBeCloseTo(92, 1) // NOT the shallow fX at 2 m
   })
 
-  it('BE17 — unnamed body shows the auto-label (lithology + stacking number)', () => {
+  it('BE17 — unnamed body shows the auto-label (base + depth rank, no space)', () => {
     const { getByTestId } = renderOverlay({
-      formationLabelById: new Map([['f1', 'ZAND']]),
+      formationLabelById: new Map([['f1', 'QPSa']]),
     })
     // Default makeBody has name=null, formation_id='f1', body_ordinal=0.
-    expect(getByTestId('body-label-B1').textContent).toBe('ZAND 1')
+    expect(getByTestId('body-label-B1').textContent).toBe('QPSa1')
   })
 
   it('BE18 — explicit name overrides the auto-label', () => {
@@ -490,8 +490,8 @@ describe('BodyExtentOverlay', () => {
 
   it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
     // Two ``fSand`` lenses on the same source at different depths; each closes
-    // to its own target. The shallow one (3 m) must label "Sand 1", the deep
-    // one (9 m) "Sand 2" — dynamic depth rank, not the stored body_ordinal.
+    // to its own target. The shallow one (3 m) must label "QPSa1", the deep
+    // one (9 m) "QPSa2" — dynamic depth rank, not the stored body_ordinal.
     const srcContacts = [
       { ...contact('a-top', 'inv-s4', 3), formation_id: 'fSand' },
       { ...contact('a-base', 'inv-s4', 4), formation_id: 'fOther' },
@@ -531,10 +531,10 @@ describe('BodyExtentOverlay', () => {
       contacts: srcContacts,
       placedColumns: cols,
       contactEdges: edges4,
-      formationLabelById: new Map([['fSand', 'Sand']]),
+      formationLabelById: new Map([['fSand', 'QPSa']]),
     })
-    expect(getByTestId('body-label-BA').textContent).toBe('Sand 1')
-    expect(getByTestId('body-label-BB').textContent).toBe('Sand 2')
+    expect(getByTestId('body-label-BA').textContent).toBe('QPSa1')
+    expect(getByTestId('body-label-BB').textContent).toBe('QPSa2')
   })
 })
 

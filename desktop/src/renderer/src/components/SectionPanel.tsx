@@ -86,6 +86,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
+import { lensFormationBase } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
@@ -852,17 +853,16 @@ export default function SectionPanel({
   } | null>(null)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
-  // formation_id → label for the lens auto-name. Prefer the PARENT geological
-  // formation (owner directive 2026-06-01: lenses are named after the parent
-  // formation + a depth rank); fall back to the lithology, then the unit name.
-  // Consumed by BodyExtentOverlay's wedge label (which appends the depth rank).
+  // formation_id → lens auto-name BASE: parent geological formation DOV code +
+  // lithology abbreviation, e.g. "QP" + "Sa" → "QPSa" (owner directive
+  // 2026-06-01). BodyExtentOverlay appends the depth rank → "QPSa1".
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
-      m.set(
-        f.id,
-        (f.parent_formation_name ?? '').trim() || (f.lithology ?? '').trim() || f.name,
-      )
+      const base = lensFormationBase(f.parent_formation_code, f.lithology)
+      // Degrade gracefully when neither code nor lithology resolves: fall back
+      // to the parent name / unit name so the lens still has *some* label.
+      m.set(f.id, base || (f.parent_formation_name ?? '').trim() || f.name)
     }
     return m
   }, [formations])
