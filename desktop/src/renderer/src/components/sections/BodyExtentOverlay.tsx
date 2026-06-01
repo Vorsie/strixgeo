@@ -545,37 +545,34 @@ export default function BodyExtentOverlay({
         })
         if (sourceContacts.length < 2) continue
 
-        // Sort by depth ascending to get top (shallow) and base (deep).
+        // Sort by depth ascending so the contact list reads top → base.
         const sortedByDepth = sourceContacts
           .slice()
           .sort((a, b) => a.depth_top_m - b.depth_top_m)
-        // Use the content_key if available to get the two source contacts;
-        // otherwise use the two shallowest/deepest contacts on the source.
-        let aboveContactId: string | null = null
-        let belowContactId: string | null = null
 
-        if (body.content_key) {
-          const ids = parseContentKey(body.content_key)
-          const roles = resolveLensRoles(ids, _edgePairs, _depthByContact)
-          if (roles) {
-            // Verify both source contacts are on the source investigation.
-            const aboveInv = _invByContact.get(roles.aboveId)
-            const belowInv = _invByContact.get(roles.belowId)
-            if (
-              aboveInv === body.source_investigation_id &&
-              belowInv === body.source_investigation_id
-            ) {
-              aboveContactId = roles.aboveId
-              belowContactId = roles.belowId
-            }
-          }
-        }
-
-        // Fall back to using the shallow+deep contacts on the source investigation.
-        if (aboveContactId === null || belowContactId === null) {
-          aboveContactId = sortedByDepth[0]?.id ?? null
-          belowContactId = sortedByDepth[sortedByDepth.length - 1]?.id ?? null
-        }
+        // Frame the body by ITS OWN formation's layer on the source
+        // investigation — NOT the whole-column depth span. A body is a single
+        // formation's lens: its top boundary is the source contact carrying
+        // ``body.formation_id``; its base is the next-deeper contact (the
+        // overlying formation's top, boundary-centric).
+        //
+        // The dropped ``content_key`` column means ``BodyListItem`` no longer
+        // ships the body's framing pair, so the previous shallowest+deepest
+        // fallback framed every detected body from the top of the column to
+        // the bottom of the column — the section-filling-triangle bug
+        // (dogfeed 2026-06-01). Framing by ``formation_id`` keeps each wedge
+        // only as tall as its own layer.
+        //
+        // Stacked same-formation bodies (edge case §10 #5 of the spec) use the
+        // first matching contact; per-``body_ordinal`` disambiguation is a
+        // follow-up if dogfeed shows it.
+        const topIdx = sortedByDepth.findIndex(c => c.formation_id === body.formation_id)
+        const aboveContactId: string | null = topIdx === -1 ? null : sortedByDepth[topIdx].id
+        // No deeper contact → the body's formation is the deepest present and
+        // has no base contact to taper from; skip rather than draw a wrong
+        // full-height wedge.
+        const belowContactId: string | null =
+          topIdx === -1 ? null : (sortedByDepth[topIdx + 1]?.id ?? null)
 
         if (!aboveContactId || !belowContactId) continue
 
