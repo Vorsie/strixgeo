@@ -2322,40 +2322,47 @@ cases so the API boundary stops leaking.
 
 ## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D)
 
-**Partially resolved 2026-06-01.** First-wave migrations landed:
+**Partially resolved 2026-06-01 (waves 1 + 2).** All landed migrations:
 `a1c2d3e4f5a6` (domain-invariant CHECKs: `geological_model.kind`,
 `formation_contact.source`, `body.body_ordinal >= 0`,
 `body.extent_<side>_kind` enums), `b2d3e4f5a6b7` (kind ↔
 `parent_geological_model_id` NULL invariant — geological MUST have NULL
 parent, litho/geotech MUST have non-NULL parent), `c3e4f5a6b7c8`
 (partial-unique dedup indexes on cpt + borehole `(app_project_id,
-project_id, test_id) WHERE app_project_id IS NOT NULL`). 10 integration
-tests pin each constraint at `tests/integration/db/test_schema_invariants.py`.
-The 3 migrations include data-correction passes for any pre-existing
-violating rows (pre-ship amnesty).
+project_id, test_id) WHERE app_project_id IS NOT NULL`), `t4u5v6w7x8y9`
+(partial-unique `UNIQUE(app_project_id, kind) WHERE is_active = TRUE` —
+at most one active model per project per kind; dedup-correction pass for
+any pre-existing duplicate-active rows), `u5v6w7x8y9z0` (read indexes:
+`idx_formation_contact_model_cpt` on `formation_contact(model_id, cpt_id)`,
+`idx_litho_contact_corr_model_contact_a/b` on
+`litho_contact_correlation_edge(model_id, contact_a_id)` and `…contact_b_id`).
+13 integration tests pin all constraints at
+`tests/integration/db/test_schema_invariants.py`.
 
 **Still open:**
-- `geological_formation` has no constraint co-nullating its litho-only
-  columns; the documented `litho_main_soil_code IS NULL OR
-  parent_formation_id IS NOT NULL` CHECK (#87 residual) is still unbuilt.
-  A geological row that ever acquired a `litho_main_soil_code` would be
-  silently matched as a litho unit by the accept find-or-create scan.
+- `geological_formation` litho-column co-nullation CHECK: the intended
+  `litho_main_soil_code IS NULL OR parent_formation_id IS NOT NULL`
+  invariant CANNOT be added as a DB constraint yet. `AcceptLithoSuggestions`
+  legitimately creates `GeologicalFormationOrm` rows with
+  `litho_main_soil_code` AND `parent_formation_id=NULL` as an "orphan
+  accept" fallback when no geological TIN surfaces exist (documented as
+  `orphan_formation_ids` in `AcceptLithoSuggestionsResult`; debt #87 tracks
+  the manual-confirm/reassign flow). Adding the CHECK would break this
+  path. Revisit when debt #87 lands and the accept-path is redesigned to
+  disallow orphan units entirely, or when the accept path is made to always
+  assign a parent.
 - `cpt.app_project_id` / `borehole.app_project_id` are `nullable=True`
   (Phase-1 leftover) and no table has a real FK to `project` — orphan
   rows are possible. Folds into the backwards-compat re-arm (#3 / #47).
-- `geological_model.is_active` has no `UNIQUE(app_project_id, kind)
-  WHERE is_active` partial index — two actives render non-deterministically.
-- Missing read indexes: `formation_contact(model_id, cpt_id)`,
-  `litho_correlation_edge(model_id, formation_a_id)` + `(…_b_id)`.
 
-**Why deferred (remaining).** No current correctness failure under
-single-user use; each fix is one Alembic migration. The app_project_id
-NOT NULL + FK work must be coordinated with the backwards-compat re-arm
-(#47) and a one-time orphan/NULL backfill.
+**Why deferred (remaining).** The orphan-accept path is an intentional
+application-layer design (not a schema bug); the app_project_id NOT NULL
++ FK work must be coordinated with the backwards-compat re-arm (#47)
+and a one-time orphan/NULL backfill.
 
-**When to revisit.** Bundle a single "schema hardening II" migration
-alongside the next geology migration; the FK + NOT NULL work folds into
-the backwards-compat re-arm (#3 / #47).
+**When to revisit.** Co-nullation CHECK: when debt #87 (orphan-unit
+inspector + reassign/detach flow) lands and the accept path is hardened.
+FK + NOT NULL: the backwards-compat re-arm (#3 / #47).
 
 ## 108. RESOLVED 2026-06-01. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4.
 Surgical pass on all four debt-entry targets:
