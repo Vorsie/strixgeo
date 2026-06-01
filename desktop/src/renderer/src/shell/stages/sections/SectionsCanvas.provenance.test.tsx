@@ -21,7 +21,8 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsCanvas from './SectionsCanvas'
 import { ProvenanceViolationError } from '../../../api/client'
-import type { BodyListItem, GeologicalModelResponse } from '../../../api/client'
+import type { GeologicalModelResponse } from '../../../api/client'
+import { makeBody } from '../../../components/sections/__tests__/bodyTestFixtures'
 
 // ---------------------------------------------------------------------------
 // Mocks — SectionPanel + MapView (same pattern as SectionsCanvas.p2.test.tsx)
@@ -86,28 +87,6 @@ vi.mock('../../../api/client', async () => {
 const noopAsync = (): Promise<void> => Promise.resolve()
 const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
 
-/** Minimal BodyListItem for a body that lives on bodyId='body-1'. */
-function makeBodyListItem(id = 'body-1'): BodyListItem {
-  return {
-    id,
-    app_project_id: 'proj-1',
-    model_id: 'litho-model-1',
-    formation_id: 'form-1',
-    body_ordinal: 0,
-    source_investigation_id: 'inv-src-1',
-    name: null,
-    primary_section_id: null,
-    content_key: null,
-    extent_left_kind: null,
-    extent_left_target_contact_id: null,
-    extent_left_neighbour_inv_id: null,
-    extent_right_kind: null,
-    extent_right_target_contact_id: null,
-    extent_right_neighbour_inv_id: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  }
-}
 
 function makeLithoModel(id = 'litho-model-1'): GeologicalModelResponse {
   return {
@@ -431,7 +410,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   capturedOnClaimBodyExtent = undefined
   // Return the body in the lensList so _doClaimExtent can look it up.
-  mockListLenses.mockResolvedValue([makeBodyListItem()])
+  mockListLenses.mockResolvedValue([makeBody({ id: 'body-1' })])
   mockGetLensBoundary.mockResolvedValue({ lens_id: 'body-1', content_key: null, render_style: 'straight', upper_nodes: [], lower_nodes: [] })
   mockClaimBodyExtent.mockReset()
   mockClearBodyExtent.mockReset()
@@ -485,7 +464,7 @@ describe('SectionsCanvas — ProvenanceConflictDialog retry-race (C2 audit)', ()
       if (callCount === 1) {
         return Promise.reject(new ProvenanceViolationError('left', 'pinch_out_halfway'))
       }
-      return Promise.resolve(makeBodyListItem())
+      return Promise.resolve(makeBody({ id: 'body-1' }))
     })
     mockClearBodyExtent.mockResolvedValue(null) // body reaped (204 path)
 
