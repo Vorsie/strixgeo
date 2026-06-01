@@ -698,6 +698,14 @@ POST   /projects/{pid}/geology/models/{mid}/bodies/suggest-pinch-outs
 PATCH  /projects/{pid}/geology/models/{mid}/bodies/{bid}
                                 Update a body's human-readable name
                                 (NameBody use case).
+DELETE /projects/{pid}/geology/models/{mid}/bodies
+                                Bulk-delete the purely-detected bodies of the
+                                model (DeleteDetectedBodies). Preserves
+                                user-named + user-claimed ("accepted") bodies
+                                (provenance rule §5.2). Returns
+                                ClearDetectedBodiesResponse
+                                {bodies_deleted, bodies_preserved}. Backs the
+                                toolbar "Delete all detected lenses".
 DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}
                                 Hard-delete the BodyOrm metadata row.
                                 Formation absence rows + synthetic contacts
