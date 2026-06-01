@@ -38,6 +38,11 @@ Columns whose investigation has no recorded surface elevation are
 dropped (a Plaxis borehole needs an absolute Head). The script's
 print summary reports how many were skipped so the engineer knows to
 set Z on those investigations in Strix and re-export.
+
+Shared script primitives (imports/connect, materials, global-layers,
+material_variable_name, py_str) live in ``plaxis_script_helpers`` —
+the 3D exporter (``PlaxisExporter``) uses the same helpers, so a
+Plaxis-API change is fixed in one place (debt #110 / #169).
 """
 
 from __future__ import annotations
@@ -50,6 +55,11 @@ from groundmodel.application.section_snapshot import (
     SectionFormation,
     SectionInvestigationProjection,
     SectionSnapshot,
+)
+from groundmodel.infrastructure.exporters.plaxis_script_helpers import (
+    emit_global_layers,
+    emit_imports_and_connect,
+    emit_materials,
 )
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 
@@ -113,7 +123,7 @@ class PlaxisSectionExporter(SectionExporter):
         lines.extend(
             self._emit_header(snapshot, len(exportable), formations_top_down, skipped_no_z)
         )
-        lines.extend(self._emit_imports_and_connect())
+        lines.extend(emit_imports_and_connect())
 
         if not formations_top_down or not exportable:
             lines.append(
@@ -127,8 +137,8 @@ class PlaxisSectionExporter(SectionExporter):
             )
             return "\n".join(lines).encode("utf-8")
 
-        lines.extend(self._emit_materials(formations_top_down))
-        lines.extend(self._emit_global_layers(formations_top_down))
+        lines.extend(emit_materials(formations_top_down))
+        lines.extend(emit_global_layers(formations_top_down))
         lines.extend(self._emit_boreholes(exportable, depth_by_inv_form, formations_top_down))
         lines.append("")
         lines.append(
@@ -206,57 +216,6 @@ class PlaxisSectionExporter(SectionExporter):
         )
         return header
 
-    def _emit_imports_and_connect(self) -> list[str]:
-        """Emit the imports + remote-server connection block."""
-        return [
-            "from plxscripting.easy import new_server",
-            "",
-            'HOST = "localhost"',
-            "PORT = 10000",
-            'PASSWORD = ""  # set this to the password configured in PLAXIS',
-            "",
-            "s_i, g_i = new_server(HOST, PORT, password=PASSWORD)",
-            "g_i.new()",
-            "",
-        ]
-
-    def _emit_materials(self, formations: list[SectionFormation]) -> list[str]:
-        """Emit one Mohr-Coulomb soilmat per formation, indexed by name."""
-        lines = [
-            "# ---- Soil materials (Mohr-Coulomb placeholders) ----",
-            "materials = {}",
-        ]
-        for f in formations:
-            var = self._material_variable_name(f.name)
-            lines.append(f"{var} = g_i.soilmat()")
-            lines.append(f"{var}.Identification = {self._py_str(f.name)}")
-            # SoilModel = 1 -> Mohr-Coulomb in every PLAXIS release we
-            # care about (2018+). The numeric enum has been stable.
-            lines.append(f"{var}.SoilModel = 1")
-            lines.append(f"materials[{self._py_str(f.name)}] = {var}")
-        lines.append("")
-        return lines
-
-    def _emit_global_layers(self, formations: list[SectionFormation]) -> list[str]:
-        """Emit the global soil-layer stack — top-down, one per formation.
-
-        Layer index i in the emitted code matches the index used by
-        ``setsoillayerlevel`` per borehole. ``formations`` is already
-        sorted top-down by the caller.
-        """
-        lines = [
-            "# ---- Global soil layer stack (top-down: youngest first) ----",
-            "# Layer index i below corresponds to formations[i] in the",
-            "# stratigraphic order Strix exported. Plaxis layer 0 is the",
-            "# topmost (youngest) formation in the soil column.",
-        ]
-        for i, f in enumerate(formations):
-            mat_var = self._material_variable_name(f.name)
-            lines.append(f"g_i.soillayer(0)  # layer {i}: {f.name}")
-            lines.append(f"g_i.Soillayers[{i}].Soil.Material = {mat_var}")
-        lines.append("")
-        return lines
-
     def _emit_boreholes(
         self,
         exportable: list[SectionInvestigationProjection],
@@ -327,31 +286,3 @@ class PlaxisSectionExporter(SectionExporter):
             lines.append("")
 
         return lines
-
-    # ------------------------------------------------------------------
-    # Helpers — pure, no logging, easy to unit-test
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _material_variable_name(name: str) -> str:
-        """Turn a formation name into a safe lowercase Python identifier.
-
-        Plaxis material identifiers accept spaces and Dutch accents but
-        the emitted Python variable cannot. Maps non-alphanumeric chars
-        to ``_``, collapses runs, and prefixes ``mat_`` so the result
-        is unambiguous and readable in the script.
-        """
-        safe = "".join(ch if ch.isalnum() else "_" for ch in name)
-        while "__" in safe:
-            safe = safe.replace("__", "_")
-        safe = safe.strip("_") or "unnamed"
-        return f"mat_{safe}".lower()
-
-    @staticmethod
-    def _py_str(s: str) -> str:
-        """Format a Python string literal that survives a round-trip.
-
-        Uses ``repr`` so Unicode (Boom Klei, Diest Zand) survives
-        without hand-rolled escaping that would mis-handle non-ASCII.
-        """
-        return repr(s)

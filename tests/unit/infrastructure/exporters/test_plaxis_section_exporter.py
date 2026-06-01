@@ -33,6 +33,9 @@ from groundmodel.application.section_snapshot import (
     SectionInvestigationProjection,
     SectionSnapshot,
 )
+from groundmodel.infrastructure.exporters.plaxis_script_helpers import (
+    material_variable_name,
+)
 from groundmodel.infrastructure.exporters.plaxis_section_exporter import (
     PlaxisSectionExporter,
 )
@@ -251,8 +254,10 @@ def test_absent_formation_collapses_to_zero_thickness() -> None:
 
 
 def test_material_variable_name_sanitisation() -> None:
-    fn = PlaxisSectionExporter._material_variable_name
-    assert fn("Boom Klei") == "mat_boom_klei"
-    assert fn("Diest  Zand") == "mat_diest_zand"  # collapsed double space
-    assert fn("Kortrijk (Ieper)") == "mat_kortrijk_ieper"
-    assert fn("///") == "mat_unnamed"
+    # material_variable_name was extracted to plaxis_script_helpers (debt #110);
+    # the test is kept here (not moved) because this file is the canonical home
+    # for Plaxis 2D exporter behaviour assertions.
+    assert material_variable_name("Boom Klei") == "mat_boom_klei"
+    assert material_variable_name("Diest  Zand") == "mat_diest_zand"  # collapsed double space
+    assert material_variable_name("Kortrijk (Ieper)") == "mat_kortrijk_ieper"
+    assert material_variable_name("///") == "mat_unnamed"
