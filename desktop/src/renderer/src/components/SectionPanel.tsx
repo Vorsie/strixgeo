@@ -84,6 +84,7 @@ import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
+import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
@@ -717,6 +718,27 @@ interface Props {
   ) => void
   /** Right-click a wedge → dissolve the lens by deleting its defining edges. */
   onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
+  /**
+   * Claim a user extent on a body (one side at a time). Fired from the
+   * ``BodyContextMenu`` when the user picks a "Claim <side>" item.
+   */
+  onClaimBodyExtent?: (bodyId: string, side: 'left' | 'right', kind: ClaimableKind) => void
+  /**
+   * Clear one side's user extent. Fired from the ``BodyContextMenu`` when the
+   * user picks "Clear <side> extent".
+   */
+  onClearBodyExtent?: (bodyId: string, side: 'left' | 'right') => void
+  /**
+   * Open the name-body dialog / flow. Fired from the ``BodyContextMenu`` when
+   * the user picks "Name body".
+   */
+  onNameBody?: (bodyId: string) => void
+  /**
+   * Dissolve a body (delete both its defining correlation edges so the
+   * detector no longer reconstructs it). Fired from the ``BodyContextMenu``
+   * when the user picks "Dissolve body".
+   */
+  onDissolveBody?: (bodyId: string) => void
 }
 
 export default function SectionPanel({
@@ -781,6 +803,10 @@ export default function SectionPanel({
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
+  onClaimBodyExtent,
+  onClearBodyExtent,
+  onNameBody,
+  onDissolveBody,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2056,6 +2082,23 @@ export default function SectionPanel({
     dismiss: dismissContextMenu,
   } = useColumnContextMenu(visibleColumns, containerRef)
 
+  // Body context menu state — opened by right-clicking a body wedge
+  // in BodyExtentOverlay.  Closed by the menu's own onClose or by the
+  // section-wide Esc handler below.
+  const [bodyCtxMenu, setBodyCtxMenu] = useState<{
+    body: BodyListItem
+    svgX: number
+    svgY: number
+  } | null>(null)
+  const dismissBodyCtxMenu = useCallback(() => setBodyCtxMenu(null), [])
+
+  const handleBodyContextMenu = useCallback(
+    (body: BodyListItem, svgX: number, svgY: number): void => {
+      setBodyCtxMenu({ body, svgX, svgY })
+    },
+    [],
+  )
+
   // Remove-from-section handler — appends the column's id to the
   // section's excluded_{cpt,borehole}_ids list and PATCHes. The
   // backend's section projection already filters by these arrays,
@@ -2106,7 +2149,9 @@ export default function SectionPanel({
       ) {
         return
       }
-      if (contextMenu !== null) {
+      if (bodyCtxMenu !== null) {
+        dismissBodyCtxMenu()
+      } else if (contextMenu !== null) {
         dismissContextMenu()
       } else if (focusedColumn !== null) {
         exitFocus()
@@ -2120,7 +2165,7 @@ export default function SectionPanel({
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, onClose])
+  }, [bodyCtxMenu, contextMenu, focusedColumn, exitFocus, dismissContextMenu, dismissBodyCtxMenu, onClose])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -3164,6 +3209,11 @@ export default function SectionPanel({
                 sectionEndScreenX={warpedXToScreen(lengthM)}
                 onSaveLensShape={onSaveLensShape}
                 onDeleteLens={onDeleteLens}
+                onBodyContextMenu={
+                  onClaimBodyExtent ?? onClearBodyExtent ?? onNameBody ?? onDissolveBody
+                    ? handleBodyContextMenu
+                    : undefined
+                }
               />
             )}
 
@@ -3221,6 +3271,34 @@ export default function SectionPanel({
             >
               {yAxisLabel}
             </text>
+
+            {/* Body context menu — portal="svg" renders inside the SVG
+                via foreignObject.  Opened by right-clicking a body wedge
+                in BodyExtentOverlay (onBodyContextMenu handler above). */}
+            {bodyCtxMenu !== null && (
+              <BodyContextMenu
+                x={bodyCtxMenu.svgX}
+                y={bodyCtxMenu.svgY}
+                body={bodyCtxMenu.body}
+                onClaimExtent={(bodyId, side, kind) => {
+                  onClaimBodyExtent?.(bodyId, side, kind)
+                  dismissBodyCtxMenu()
+                }}
+                onClearExtent={(bodyId, side) => {
+                  onClearBodyExtent?.(bodyId, side)
+                  dismissBodyCtxMenu()
+                }}
+                onNameBody={bodyId => {
+                  onNameBody?.(bodyId)
+                  dismissBodyCtxMenu()
+                }}
+                onDissolveBody={bodyId => {
+                  onDissolveBody?.(bodyId)
+                  dismissBodyCtxMenu()
+                }}
+                onClose={dismissBodyCtxMenu}
+              />
+            )}
           </svg>
         )}
         {!size && (
