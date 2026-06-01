@@ -28,11 +28,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
+  FormalStratigraphyUnitResponse,
   G3Dv3UnitResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
 } from '../../api/client'
+import { useFormalStratigraphyCatalog } from '../../hooks/useFormalStratigraphyCatalog'
 import { useG3Dv3Catalog } from '../../hooks/useG3Dv3Catalog'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
@@ -85,6 +87,34 @@ export function rankFormationSuggestions(
   return [...prefixHits, ...substringHits].slice(0, limit)
 }
 
+/**
+ * Rank formal-stratigraphy suggestions for the given query.
+ *
+ * Prefix matches (on the Dutch name OR the code) rank first, then substring
+ * matches — so "holoc" surfaces "Quartair Holoceen (QH)" and "qh" surfaces it
+ * by code. Exported for the test harness.
+ */
+export function rankFormalSuggestions(
+  units: FormalStratigraphyUnitResponse[],
+  query: string,
+  limit: number = MAX_SUGGESTIONS,
+): FormalStratigraphyUnitResponse[] {
+  const q = query.trim().toLowerCase()
+  if (q === '') return []
+  const prefixHits: FormalStratigraphyUnitResponse[] = []
+  const substringHits: FormalStratigraphyUnitResponse[] = []
+  for (const u of units) {
+    const name = u.name_nl.toLowerCase()
+    const code = u.code.toLowerCase()
+    if (name.startsWith(q) || code.startsWith(q)) {
+      prefixHits.push(u)
+    } else if (name.includes(q) || code.includes(q)) {
+      substringHits.push(u)
+    }
+  }
+  return [...prefixHits, ...substringHits].slice(0, limit)
+}
+
 export default function FormationDialog({
   open,
   initialValue,
@@ -99,7 +129,22 @@ export default function FormationDialog({
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Informal→formal link: the chosen DOV formal-stratigraphy code (stored in
+  // the formation's ``code``) + a separate search box. ``formalCode`` is the
+  // link; ``formalQuery`` is just the autocomplete search text.
+  const [formalCode, setFormalCode] = useState<string | null>(null)
+  const [formalQuery, setFormalQuery] = useState('')
+  const [formalOpen, setFormalOpen] = useState(false)
+  const [formalActiveIndex, setFormalActiveIndex] = useState(0)
+
   const { units: catalogUnits } = useG3Dv3Catalog()
+  const { units: formalUnits } = useFormalStratigraphyCatalog()
+
+  // Resolve the linked code → canonical name for the "currently linked" badge.
+  const formalLinkedName = useMemo(
+    () => formalUnits?.find(u => u.code === formalCode)?.name_nl ?? null,
+    [formalUnits, formalCode],
+  )
 
   // Reset + prefill on open. Without this the dialog leaks state
   // across cancel / re-open and edit / create cycles.
@@ -108,6 +153,10 @@ export default function FormationDialog({
     setName(initialValue?.name ?? '')
     setColor(initialValue?.color ?? DEFAULT_COLOR)
     setRegionalRef(initialValue?.regional_ref ?? '')
+    setFormalCode(initialValue?.code ?? null)
+    setFormalQuery('')
+    setFormalOpen(false)
+    setFormalActiveIndex(0)
     setBusy(false)
     setSuggestionsOpen(false)
     setActiveIndex(0)
@@ -120,6 +169,17 @@ export default function FormationDialog({
       catalogUnits === null ? [] : rankFormationSuggestions(catalogUnits, name),
     [catalogUnits, name],
   )
+
+  const formalSuggestions = useMemo(
+    () => (formalUnits === null ? [] : rankFormalSuggestions(formalUnits, formalQuery)),
+    [formalUnits, formalQuery],
+  )
+
+  function applyFormalSuggestion(unit: FormalStratigraphyUnitResponse): void {
+    setFormalCode(unit.code)
+    setFormalQuery('')
+    setFormalOpen(false)
+  }
 
   function applySuggestion(unit: G3Dv3UnitResponse): void {
     setName(unit.name_nl)
@@ -138,9 +198,29 @@ export default function FormationDialog({
         name: trimmedName,
         color,
         regional_ref: trimmedRef === '' ? null : trimmedRef,
+        // The informal→formal link: store the chosen formal-stratigraphy code
+        // on the formation (drives the lens auto-name). null = unlinked.
+        code: formalCode,
       })
     } finally {
       setBusy(false)
+    }
+  }
+
+  function handleFormalKey(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (!formalOpen || formalSuggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setFormalActiveIndex(i => (i + 1) % formalSuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setFormalActiveIndex(i => (i - 1 + formalSuggestions.length) % formalSuggestions.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      applyFormalSuggestion(formalSuggestions[formalActiveIndex])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setFormalOpen(false)
     }
   }
 
@@ -297,6 +377,89 @@ export default function FormationDialog({
               placeholder="e.g. stratigraphic chart code"
               className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
             />
+          </div>
+        </div>
+
+        {/* Informal→formal stratigraphy link. Picking a DOV formal unit stores
+            its code on the formation; the lens auto-name reads it. */}
+        <div className="mb-3">
+          <label
+            htmlFor="formation-formal"
+            className="block text-xs font-medium text-gray-600 mb-1"
+          >
+            Formal stratigraphy{' '}
+            <span className="text-gray-400">(optional — sets the lens code)</span>
+          </label>
+          {formalCode !== null && (
+            <div
+              className="flex items-center gap-2 mb-2 text-sm"
+              data-testid="formation-formal-linked"
+            >
+              <span className="font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                {formalCode}
+              </span>
+              <span className="text-gray-700 truncate">{formalLinkedName ?? ''}</span>
+              <button
+                type="button"
+                onClick={() => setFormalCode(null)}
+                disabled={busy}
+                data-testid="formation-formal-clear"
+                className="ml-auto text-xs text-gray-400 hover:text-red-600"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <div className="relative">
+            <input
+              id="formation-formal"
+              type="text"
+              value={formalQuery}
+              onChange={e => {
+                setFormalQuery(e.target.value)
+                setFormalOpen(true)
+                setFormalActiveIndex(0)
+              }}
+              onFocus={() => setFormalOpen(true)}
+              onBlur={() => setTimeout(() => setFormalOpen(false), 120)}
+              onKeyDown={handleFormalKey}
+              disabled={busy}
+              placeholder="Search formal unit (e.g. Holoceen, QH)…"
+              autoComplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={formalOpen && formalSuggestions.length > 0}
+              aria-controls="formation-formal-suggestions"
+              data-testid="formation-formal-input"
+              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+            />
+            {formalOpen && formalSuggestions.length > 0 && (
+              <ul
+                id="formation-formal-suggestions"
+                role="listbox"
+                className="absolute left-0 right-0 top-full mt-1 z-10 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded shadow-md"
+              >
+                {formalSuggestions.map((u, i) => (
+                  <li
+                    key={u.code}
+                    role="option"
+                    aria-selected={i === formalActiveIndex}
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      applyFormalSuggestion(u)
+                    }}
+                    onMouseEnter={() => setFormalActiveIndex(i)}
+                    data-testid={`formation-formal-option-${u.code}`}
+                    className={`flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer ${
+                      i === formalActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="text-gray-800 truncate">{u.name_nl}</span>
+                    <span className="ml-auto text-xs text-gray-400 font-mono">{u.code}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 

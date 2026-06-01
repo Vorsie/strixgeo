@@ -9,8 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { G3Dv3CatalogResponse, GeologicalFormationResponse } from '../../api/client'
 import { api } from '../../api/client'
+import { _resetFormalStratigraphyCatalogCacheForTesting } from '../../hooks/useFormalStratigraphyCatalog'
 import { _resetG3Dv3CatalogCacheForTesting } from '../../hooks/useG3Dv3Catalog'
-import FormationDialog, { rankFormationSuggestions } from './FormationDialog'
+import FormationDialog, { rankFormalSuggestions, rankFormationSuggestions } from './FormationDialog'
 
 const TEST_CATALOG: G3Dv3CatalogResponse = {
   units: [
@@ -81,12 +82,22 @@ function makeFormation(
   }
 }
 
+const TEST_FORMAL_CATALOG = {
+  units: [
+    { code: 'QH', name_nl: 'Quartair Holoceen', age_rank: null, color_hex: null },
+    { code: 'QP', name_nl: 'Quartair Pleistoceen', age_rank: null, color_hex: null },
+    { code: 'Bm', name_nl: 'Formatie van Boom', age_rank: 43, color_hex: '#2c73b9' },
+  ],
+}
+
 beforeEach(() => {
   _resetG3Dv3CatalogCacheForTesting()
+  _resetFormalStratigraphyCatalogCacheForTesting()
   // Default to an empty/no-op catalog response so dialog tests that
   // don't care about autocomplete behave like the pre-G3Dv3 build.
   // Individual tests override this for the autocomplete cases.
   vi.spyOn(api.codelists, 'g3dv3').mockResolvedValue({ units: [] })
+  vi.spyOn(api.codelists, 'formalStratigraphy').mockResolvedValue({ units: [] })
 })
 
 afterEach(() => {
@@ -321,5 +332,60 @@ describe('FormationDialog — G3Dv3 autocomplete', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'My Custom Fill', regional_ref: null }),
     )
+  })
+})
+
+describe('FormationDialog — formal stratigraphy link', () => {
+  it('rankFormalSuggestions matches on name prefix and code', () => {
+    const u = TEST_FORMAL_CATALOG.units
+    expect(rankFormalSuggestions(u, 'holoc').map(x => x.code)).toEqual(['QH'])
+    // Code prefix match.
+    expect(rankFormalSuggestions(u, 'qp').map(x => x.code)).toEqual(['QP'])
+    // Substring on name ("boom").
+    expect(rankFormalSuggestions(u, 'boom').map(x => x.code)).toEqual(['Bm'])
+    expect(rankFormalSuggestions(u, '')).toEqual([])
+  })
+
+  it('picking a formal unit submits its code on the formation', async () => {
+    vi.spyOn(api.codelists, 'formalStratigraphy').mockResolvedValue(TEST_FORMAL_CATALOG)
+    const onSubmit = vi.fn()
+    render(
+      <FormationDialog open initialValue={null} onSubmit={onSubmit} onCancel={vi.fn()} />,
+    )
+    await waitFor(() => expect(api.codelists.formalStratigraphy).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: 'Quartair: Holocene' } })
+    // Search the formal field, then pick "Quartair Holoceen (QH)".
+    fireEvent.change(screen.getByTestId('formation-formal-input'), { target: { value: 'holoc' } })
+    await waitFor(() => expect(screen.getByTestId('formation-formal-option-QH')).toBeTruthy())
+    fireEvent.mouseDown(screen.getByTestId('formation-formal-option-QH'))
+
+    // The linked badge appears with the chosen code.
+    expect(screen.getByTestId('formation-formal-linked').textContent).toContain('QH')
+
+    fireEvent.click(screen.getByRole('button', { name: /Create/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ code: 'QH' }))
+  })
+
+  it('prefills the linked code in edit mode and can clear it', async () => {
+    vi.spyOn(api.codelists, 'formalStratigraphy').mockResolvedValue(TEST_FORMAL_CATALOG)
+    const onSubmit = vi.fn()
+    render(
+      <FormationDialog
+        open
+        initialValue={makeFormation({ name: 'Boom Klei', code: 'Bm' })}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(api.codelists.formalStratigraphy).toHaveBeenCalled())
+    // Badge shows the prefilled link (code + resolved name).
+    await waitFor(() =>
+      expect(screen.getByTestId('formation-formal-linked').textContent).toContain('Bm'),
+    )
+    // Clear unlinks → submit sends code: null.
+    fireEvent.click(screen.getByTestId('formation-formal-clear'))
+    fireEvent.click(screen.getByRole('button', { name: /Save/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ code: null }))
   })
 })
