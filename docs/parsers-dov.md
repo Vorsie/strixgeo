@@ -4,12 +4,33 @@ DOV (Databank Ondergrond Vlaanderen) CPTs are imported via `POST /cpt/import-dov
 
 **Pipeline (5 phases, all timed in logs):**
 
-| Phase | What | Typical time (500 CPTs cold / warm cache) |
+| Phase | What | Typical time (316 deep CPTs cold / warm cache) |
 |---|---|---|
-| 1+2 | WFS query + parallel download + stream-parse | 4–10 s / 0.2–0.5 s |
-| 3 | Batch dedup (one IN-query for all test_ids) | <10 ms |
-| 4 | Persist (one INSERT per CPT, no commit) | ~80 ms |
+| 1 | WFS index + bbox-split | ~1 s |
+| 2 | Parallel download + stream-parse | ~50 s (payload-bound; see note) |
+| 3 | Batch dedup (one IN-query for all test_ids) | ~20 ms |
+| 4 | Persist (ORM map + session.add × N, no commit) | ~200 ms |
 | 5 | Single transaction commit | ~300 ms |
+
+**Performance note:** Wall-clock is dominated by Phase 2 and is
+**payload-size-bound, not request-count-bound.** A typical deep CPT
+(~1 000–1 600 rows, some 3 000+) decodes to ~0.5 MB of XML; ×316 CPTs ≈
+~157 MB to pull and parse. Shallow-CPT bboxes run much faster (~6–10 ×
+faster per CPT) because the payloads are smaller. The figure of "500
+CPTs in 4–10 s" quoted in older notes was measured against a shallow-CPT
+bbox and does not generalise to deep-CPT projects.
+
+**HTTP/1.1 — HTTP/2 negotiation confirmed absent (live probe 2026-05-17).**
+The client is configured with ``http2=True`` (``httpx[http2]``, ALPN
+offered), but live probes against the real
+``xdov/proxy/export/sondering/*`` and WFS endpoints both returned
+``HTTP/1.1`` — DOV's front end does not offer h2. The ``http2=True``
+setting is therefore a no-op and the old "HTTP/2 multiplexes fetches over
+one TLS connection" bullet in earlier notes was incorrect. gzip is in
+effect (``Content-Encoding: gzip`` / ``Vary: accept-encoding``) — wire
+transfers are already compressed. The performance ceiling for cold deep-
+CPT imports is set by DOV's HTTP/1.1 serving rate, not by anything
+client-side.
 
 **Frontend flow:**
 1. User clicks "Import from DOV" → map switches to crosshair draw mode (`BboxDrawer`).
@@ -22,7 +43,10 @@ DOV (Databank Ondergrond Vlaanderen) CPTs are imported via `POST /cpt/import-dov
    - Transforms bbox to Lambert72 (EPSG:31370) via pyproj `always_xy=True`.
    - WFS `resultType=hits` count check; auto-splits into 4 quadrants if `> 500` features (recursive, max depth 5).
    - Streams: each XML download immediately runs the parse callback in the same async task — parse wall time is hidden inside download wait. Concurrency limited by `DOV_DOWNLOAD_PARALLELISM` (50, in `dov_constants.py`).
-   - HTTP/2 client (`httpx[http2]`, `follow_redirects=True`) multiplexes requests over one TLS connection.
+   - ``httpx.AsyncClient`` with ``http2=True`` + ``follow_redirects=True``. Note:
+     DOV's endpoints are HTTP/1.1-only (no h2 negotiated — live probe 2026-05-17);
+     the ``http2=True`` flag is configured in ``dov_http.py`` but is a no-op against
+     this server. Connection pool is still kept warm via ``max_keepalive_connections=100``.
    - **Cache check first** — `DovXmlCache.get(permkey)` skips the network entirely on hit.
 2. `_repo.find_existing_test_ids("DOV", test_ids, app_project_id)` — single batch IN-query.
 3. For each non-duplicate: `ImportCpt.persist(result, name, app_project_id, commit=False, skip_duplicate_check=True)` — `add()` only, no per-row flush, no per-row commit.
@@ -56,9 +80,67 @@ Important schema quirk: only the `<dov-schema>` root is in the DOV namespace —
 - `TimeoutException` → 504
 - `HTTPStatusError` / other `RequestError` → 502 with upstream details
 
-**Module layout** under `infrastructure/parsers/cpt/dov/`:
-- `dov_constants.py` — all module-level constants (URLs, namespaces, parallelism, regexes, transformer)
-- `dov_parser.py` — XML → `GEFParseResult`
-- `dov_client.py` — async WFS + parallel XML downloads (with optional cache)
-- `dov_xml_cache.py` — filesystem cache, atomic writes, permkey validation
-- `__init__.py` — package marker (kept explicit for setuptools / mypy / pytest)
+**Module layout** under `infrastructure/parsers/`:
+
+```
+parsers/
+├── dov/                              Shared DOV HTTP + WFS infrastructure
+│   ├── dov_http.py                   make_dov_async_client() — single factory for
+│   │                                 all DOV callers; fixture-mode toggle
+│   ├── dov_common.py                 Shared DOV-domain constants (base URLs, etc.)
+│   ├── dov_fixture_transport.py      In-process httpx mock for integration tests
+│   ├── dov_wfs_bbox.py               WFS bbox-split logic (recursive quadrant)
+│   ├── dov_wfs_client_base.py        Async WFS base client
+│   ├── dov_wfs_download.py           Parallel XML download orchestrator
+│   ├── dov_wfs_helpers.py            WFS response helpers
+│   ├── dov_wfs_request.py            WFS request builder
+│   ├── dov_xml_helpers.py            ElementTree namespace helpers
+│   ├── virtuele_boring_client.py     DOV Virtuele Boring doorprik REST client
+│   ├── virtuele_boring_constants.py  VB API URLs + lagenmodel codes
+│   └── virtuele_boring_result.py     VB parse result type
+│
+├── cpt/dov/                          CPT-specific DOV import
+│   ├── dov_constants.py              CPT-specific constants (namespaces, parallelism,
+│   │                                 regexes, transformer, WFS feature type)
+│   ├── dov_parser.py                 CPT XML → GEFParseResult
+│   ├── dov_client.py                 Async WFS + parallel XML downloads + cache
+│   └── dov_xml_cache.py              Filesystem cache, atomic writes, permkey validation
+│
+├── borehole/dov/                     Borehole-specific DOV import
+│   ├── dov_constants.py              Borehole WFS URLs, namespaces, parallelism
+│   ├── dov_boring_parser.py          Core boring XML → BoreholeParseResult (header +
+│   │                                 drill segments + field log intervals)
+│   ├── dov_client.py                 WFS bbox fetch + parallel XML downloads
+│   ├── dov_interpretation_client.py  Fetch + parse interpretation streams (8 types)
+│   ├── dov_interpretation_parser.py  Interpretation XML → ObservationLayer rows
+│   ├── dov_sample_client.py          Fetch sample WFS rows
+│   ├── borehole_parse_result.py      BoreholeParseResult + ancillary types
+│   ├── borehole_wfs_row.py           WFS row → lightweight header struct
+│   ├── interpretation_parse_result.py
+│   ├── interpretation_wfs_row.py
+│   └── sample_wfs_row.py
+│
+└── lab/dov/                          Lab-test DOV import
+    ├── dov_constants.py              Lab WFS URLs + parameter mappings
+    ├── dov_grain_size_client.py      Grain-size (GrainSize) WFS + XML fetch
+    ├── dov_grain_size_parser.py      XML → GrainSizeParseResult
+    ├── dov_scalar_observation_client.py  Scalar lab tests (catch-all family)
+    ├── grain_size_parse_result.py
+    ├── grain_size_wfs_row.py
+    └── scalar_observation_wfs_row.py
+```
+
+**Borehole DOV import pipeline** (`ImportBoreholeDov`):
+Same 5-phase shape as the CPT pipeline. Phase 2 runs 8 parallel
+interpretation-stream fetches + sample fetch per borehole. Measured wall-clock
+on a real 168-borehole bbox: boreholes ~3.5 s · interpretations ~7.6 s ·
+grain-size ~7.9 s (small payloads, no per-item XML → ~7× faster per item than
+deep CPTs). Endpoint: ``POST /borehole/import-dov`` (sync) + ``POST
+/borehole/import-dov/stream`` (SSE async).
+
+**Virtuele Boring** (`virtuele_boring_client.py`):
+DOV's per-point subsurface model API. ``GET /dov/virtuele-boring/lagenmodellen``
+lists 12 available layered models (g3dv3_F, hcovv2_H/S/B, OMAv1.1, …).
+``GET /projects/{pid}/virtuele-boring/predictions?models=A,B`` fetches one
+``doorprik`` call per (investigation, model); informative-only overlay, no DB
+writes. Results are ``predictions_by_model`` keyed by the requested model codes.
