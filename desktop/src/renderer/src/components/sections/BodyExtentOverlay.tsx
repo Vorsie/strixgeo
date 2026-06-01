@@ -39,7 +39,7 @@ import {
   resolveLensRoles,
 } from '../../utils/bodyExtent'
 import { computeDipExtrapolationEndpoint } from '../../utils/dipExtrapolationFrontend'
-import { lensDisplayLabel } from '../../utils/lensLabel'
+import { computeDepthStacking, lensDisplayLabel } from '../../utils/lensLabel'
 import { log } from '../../utils/log'
 import type { PlacedColumn } from './utils'
 
@@ -295,6 +295,7 @@ export default function BodyExtentOverlay({
     colByInv,
     resolved,
     worldPtEdge,
+    stackingByBodyId,
   } = useMemo(() => {
     const _bodyById = new Map(bodies.map(b => [b.id, b]))
     const _contactById = new Map(contacts.map(c => [c.id, c]))
@@ -414,6 +415,9 @@ export default function BodyExtentOverlay({
 
     // --- Resolve each body to its rendered wedge descriptors -----------------
     const _resolved: ResolvedBody[] = []
+    // One entry per body for the depth-rank auto-label (shallowest = 1). Depth
+    // is the framing top contact's depth-below-surface.
+    const _stackingItems: { id: string; label: string; depth: number }[] = []
 
     for (const body of bodies) {
       const sourceCol = _colByInv.get(body.source_investigation_id)
@@ -639,6 +643,18 @@ export default function BodyExtentOverlay({
 
         if (!aboveContactId || !belowContactId) continue
 
+        // Record this body for the depth-rank auto-label. Depth = framing top
+        // contact's depth-below-surface; label = parent formation (the caller
+        // resolves formationLabelById to parent_formation_name).
+        const _stackLabel = formationLabelById?.get(body.formation_id)
+        if (_stackLabel) {
+          _stackingItems.push({
+            id: body.id,
+            label: _stackLabel,
+            depth: _depthByContact.get(aboveContactId) ?? 0,
+          })
+        }
+
         // Resolve left side.
         if (isExtentKind(body.extent_left_kind)) {
           const leftResolved = resolveSide(
@@ -737,15 +753,17 @@ export default function BodyExtentOverlay({
       colByInv: _colByInv,
       resolved: _resolved,
       worldPtEdge: _worldPtEdge,
+      stackingByBodyId: computeDepthStacking(_stackingItems),
     }
-  // reason: screenXToAlong + sectionStartScreenX + sectionEndScreenX are consumed
-  // inside the memo (the ``open`` extent kind uses them to compute towardAlong
-  // via the warp-aware inverse). They are stable between drag events and change
-  // only when the section line or column spacing changes, which also changes
-  // the body geometry — so including them is correct.
+  // reason: screenXToAlong + sectionStartScreenX + sectionEndScreenX +
+  // formationLabelById are consumed inside the memo (open-extent towardAlong via
+  // the warp-aware inverse; the auto-label depth-rank grouping). They are stable
+  // between drag events and change only when the section line / column spacing /
+  // formation set changes, which also changes the body geometry — so including
+  // them is correct.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bodies, contacts, placedColumns, contactEdges, boundariesByBodyId,
-      screenXToAlong, sectionStartScreenX, sectionEndScreenX])
+      screenXToAlong, sectionStartScreenX, sectionEndScreenX, formationLabelById])
 
   // --- Drag lifecycle -------------------------------------------------------
   useEffect(() => {
@@ -792,6 +810,12 @@ export default function BodyExtentOverlay({
       y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(p.elevation_m))),
     }
   }
+
+  // Label font scales with the vertical zoom (screen px per metre) so the
+  // auto-name shrinks when zoomed out and grows when zoomed in, clamped to a
+  // legible range (dogfeed 2026-06-01).
+  const pxPerMeter = Math.abs(levelToScreen(1) - levelToScreen(0))
+  const labelFontSize = Math.max(8, Math.min(24, Math.round(pxPerMeter * 0.9)))
 
   function startAddNode(
     body: ResolvedBody,
@@ -934,18 +958,22 @@ export default function BodyExtentOverlay({
         // set. Rendered once per body (primary wedge) at the triangle centroid
         // with a dark halo so it reads over the teal fill.
         const labelBodyItem = bodyById.get(body.bodyId)
-        const lithoLabel = labelBodyItem
+        const formationLabel = labelBodyItem
           ? formationLabelById?.get(labelBodyItem.formation_id)
           : undefined
+        const depthRank = stackingByBodyId.get(body.bodyId) ?? 1
         const wedgeLabel =
-          labelBodyItem && lithoLabel
-            ? lensDisplayLabel(labelBodyItem.name, lithoLabel, labelBodyItem.body_ordinal)
+          labelBodyItem && formationLabel
+            ? lensDisplayLabel(labelBodyItem.name, formationLabel, depthRank)
             : (labelBodyItem?.name?.trim() ?? '')
+        // Centre on the wedge's medial axis: midpoint between the source-edge
+        // mid-elevation and the far tip.
         const labelCentroid = ((): { x: number; y: number } => {
           const t = toScreen(body.topSource)
           const b = toScreen(body.baseSource)
           const f = toScreen(body.farPoint)
-          return { x: (t.x + b.x + f.x) / 3, y: (t.y + b.y + f.y) / 3 }
+          const sourceMid = { x: (t.x + b.x) / 2, y: (t.y + b.y) / 2 }
+          return { x: (sourceMid.x + f.x) / 2, y: (sourceMid.y + f.y) / 2 }
         })()
 
         return (
@@ -1043,11 +1071,11 @@ export default function BodyExtentOverlay({
                 y={labelCentroid.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={11}
+                fontSize={labelFontSize}
                 fontWeight={600}
                 fill="#e2e8f0"
                 stroke="#0f172a"
-                strokeWidth={3}
+                strokeWidth={Math.max(2, labelFontSize / 4)}
                 paintOrder="stroke"
                 pointerEvents="none"
               >

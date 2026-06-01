@@ -487,6 +487,55 @@ describe('BodyExtentOverlay', () => {
     })
     expect(getByTestId('body-label-B1').textContent).toBe('Channel sand')
   })
+
+  it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
+    // Two ``fSand`` lenses on the same source at different depths; each closes
+    // to its own target. The shallow one (3 m) must label "Sand 1", the deep
+    // one (9 m) "Sand 2" — dynamic depth rank, not the stored body_ordinal.
+    const srcContacts = [
+      { ...contact('a-top', 'inv-s4', 3), formation_id: 'fSand' },
+      { ...contact('a-base', 'inv-s4', 4), formation_id: 'fOther' },
+      { ...contact('b-top', 'inv-s4', 9), formation_id: 'fSand' },
+      { ...contact('b-base', 'inv-s4', 10), formation_id: 'fOther2' },
+      { ...contact('tA', 'inv-T4', 3), formation_id: 'fSand' },
+      { ...contact('tB', 'inv-T4', 9), formation_id: 'fSand' },
+    ] as FormationContactResponse[]
+    const cols = [column('inv-s4', 50, 12), column('inv-T4', 0, 12)]
+    const edges4 = [
+      edge('tA', 'a-top'),
+      edge('tA', 'a-base'),
+      edge('tB', 'b-top'),
+      edge('tB', 'b-base'),
+    ]
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          id: 'BA',
+          formation_id: 'fSand',
+          body_ordinal: 0,
+          source_investigation_id: 'inv-s4',
+          content_key: null,
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 'tA',
+        }),
+        makeBody({
+          id: 'BB',
+          formation_id: 'fSand',
+          body_ordinal: 1,
+          source_investigation_id: 'inv-s4',
+          content_key: null,
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 'tB',
+        }),
+      ],
+      contacts: srcContacts,
+      placedColumns: cols,
+      contactEdges: edges4,
+      formationLabelById: new Map([['fSand', 'Sand']]),
+    })
+    expect(getByTestId('body-label-BA').textContent).toBe('Sand 1')
+    expect(getByTestId('body-label-BB').textContent).toBe('Sand 2')
+  })
 })
 
 // ---------------------------------------------------------------------------
