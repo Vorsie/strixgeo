@@ -4809,19 +4809,7 @@ work.
 
 **When to revisit.** Before any non-solo distribution (Tier B alongside #4).
 
-## 182. C3 — Bundle JSON keys `litho_lens_shapes` / `litho_lens_boundary_nodes` stale (Tier B — backend, S)
-
-**What.** The table rename renamed use cases and ORM classes but the bundle
-wire-format JSON keys (`litho_lens_shapes`, `litho_lens_boundary_nodes`) were
-not updated to match the new `body_boundary_shape` / `body_boundary_node`
-names. Round-trip works today because both sides agree on the old names, but
-the mismatch will confuse the next developer who touches the bundle format.
-
-**Why deferred.** Pre-ship amnesty applies (backwards-compat suspended per
-CLAUDE.md). Both sides are consistent at the stale name; no data loss.
-
-**When to revisit.** Next bundle-format change (`format_version` bump) OR
-when backwards-compat is re-armed — whichever comes first.
+## 182. C3 — RESOLVED 2026-06-01. Bundle JSON keys renamed `litho_lens_shapes` → `body_boundary_shapes` and `litho_lens_boundary_nodes` → `body_boundary_nodes` in lockstep across Pydantic schema (`ProjectBundleRequest` / `ProjectBundleResponse`), repository build/restore paths, router kwarg forwarding, frontend `ProjectBundleResponse` type (`client.ts`), `ProjectFileV3` type + `buildProjectFile` / `parseProjectFile` / `isProjectFileV3` (`projectFile.ts`), `useProject.ts` revert path, and three integration test files. `rg` confirms zero stale occurrences across `src/`, `desktop/src/`, `tests/`. 1133 unit + 38 integration tests green.
 
 ## 184. E2 — RESOLVED 2026-06-01. Map builds (`bodyById`, `contactById`, `colByInv`,
 `invByContact`, `depthByContact`, `edgePairs`, `neighboursByContact`) and the full
