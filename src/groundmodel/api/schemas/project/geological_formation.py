@@ -156,5 +156,11 @@ class GeologicalFormationResponse(BaseModel):
     # time; never stored in the DB.  None on geological rows and on orphaned
     # litho units whose parent id is not present in the project set.
     parent_formation_name: str | None = None
+    # Server-resolved ``code`` of the parent geological formation (the DOV
+    # codelist code), resolved from the project formation id→code map at
+    # response time; never stored on the litho row. Drives the lens auto-name
+    # (``{parent code}{lithology abbrev}{depth rank}`` e.g. ``QPSa1``). None on
+    # geological rows and on orphans / parents without a code.
+    parent_formation_code: str | None = None
     created_at: datetime
     updated_at: datetime
