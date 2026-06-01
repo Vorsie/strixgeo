@@ -51,6 +51,7 @@ export default function SectionsToolbar(): JSX.Element {
       correlateMode,
       enterCorrelateMode,
       exitCorrelateMode,
+      setPinchOutCandidates,
     },
     geoModel: {
       activeGeologicalModel,
@@ -111,6 +112,8 @@ export default function SectionsToolbar(): JSX.Element {
   // "Detect lenses" verb.  Replaces the auto-detect that used to fire from
   // every edge mutation + destructive op.
   const [detectingLenses, setDetectingLenses] = useState(false)
+  // Suggest pinch-outs (#body-with-extent Slice 7.3) — busy flag.
+  const [suggestingPinchOuts, setSuggestingPinchOuts] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -350,6 +353,34 @@ export default function SectionsToolbar(): JSX.Element {
       setDetectingLenses(false)
     }
   }, [activeLithoModel, detectingLenses, project.id, toast])
+
+  // Suggest pinch-outs (#body-with-extent Slice 7.3): call the
+  // suggest-pinch-outs endpoint and store candidates on the sections bus so
+  // SectionsCanvas can pass them to BodyExtentOverlay as ghost wedges.
+  const handleSuggestBodyPinchOuts = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || suggestingPinchOuts) return
+    log.info('sections', `suggestBodyPinchOuts: model=${activeLithoModel.id}`)
+    setSuggestingPinchOuts(true)
+    try {
+      const result = await api.geology.suggestBodyPinchOuts(project.id, activeLithoModel.id)
+      setPinchOutCandidates(result.candidates)
+      log.success(
+        'sections',
+        `suggestBodyPinchOuts: ${result.candidates.length} candidate(s)`,
+      )
+      toast(
+        'success',
+        result.candidates.length === 0
+          ? 'No pinch-out candidates found.'
+          : `${result.candidates.length} pinch-out candidate${result.candidates.length === 1 ? '' : 's'} suggested.`,
+      )
+    } catch (err) {
+      log.error('sections', 'suggestBodyPinchOuts: failed', err)
+      toast('error', 'Suggest pinch-outs failed — try again.')
+    } finally {
+      setSuggestingPinchOuts(false)
+    }
+  }, [activeLithoModel, project.id, setPinchOutCandidates, suggestingPinchOuts, toast])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -962,6 +993,25 @@ export default function SectionsToolbar(): JSX.Element {
                 : detectingLenses
                   ? 'Detecting lenses…'
                   : 'Detect lenses: scan the approved contact-correlation graph for closed #135 topologies and materialise / reconcile lens rows. Idempotent — safe to re-run.'
+            }
+          />
+          {/* Suggest pinch-outs (#body-with-extent Slice 7.3) — scans the
+              correlation graph for bodies whose geometry implies a lateral
+              wedge-out and surfaces ghost candidates in the section view
+              for the user to claim or dismiss. */}
+          <ToolbarButton
+            icon={<Sparkles size={13} />}
+            label={suggestingPinchOuts ? 'Suggesting…' : 'Suggest pinch-outs'}
+            onClick={() => { void handleSuggestBodyPinchOuts() }}
+            disabled={!activeLithoModel || suggestingPinchOuts}
+            busy={suggestingPinchOuts}
+            testid="body-suggest-pinch-outs"
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : suggestingPinchOuts
+                  ? 'Scanning for pinch-out candidates…'
+                  : 'Suggest pinch-outs: scan the correlation graph for bodies that can be claimed as pinch-out wedges and render amber ghost candidates in the section view.'
             }
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
