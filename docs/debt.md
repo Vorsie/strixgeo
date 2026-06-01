@@ -4779,19 +4779,10 @@ this pass were shipped immediately (C1 blocker fix, R2/R3 refactor, S1 scope
 guard). Items below are the deferred findings — each one is real but not
 blocking the geotech stage.
 
-## 180. R1 — `BodyExtentOverlay` double-switch in `resolveSide` (Tier E — frontend, S)
-
-**What.** `BodyExtentOverlay.tsx`'s `resolveSide` helper has two `switch`
-statements: the first dispatch for `pinch_out_halfway` and `extrapolated`
-produce identical branches; the `midpoint` fallback formula is duplicated 3×
-across the function. If a 5th extent kind is ever added, both switches need
-updating and the midpoint logic is a copy-paste landmine.
-
-**Why deferred.** Purely cosmetic; no correctness risk; the tests (BE1–BE14)
-would catch drift. No new extent kind is planned for Phase 4.
-
-**When to revisit.** Before any 5th extent kind lands, or when the function
-exceeds ~80 lines and readability blocks a reviewer.
+## 180. R1 — RESOLVED 2026-06-01. `pinch_out_halfway` and `extrapolated` switch arms
+collapsed into a shared fall-through (`case 'pinch_out_halfway': case 'extrapolated':`)
+in switch #1 (towardAlong derivation). Module-scope `halfwayFarPoint` helper extracted
+(exported); three inline midpoint copies replaced. HFP1-HFP3 pin the helper contract.
 
 ## 181. C2 — `ProvenanceConflictDialog.onApply` retry race (Tier B — frontend, S)
 
@@ -4826,18 +4817,14 @@ CLAUDE.md). Both sides are consistent at the stale name; no data loss.
 **When to revisit.** Next bundle-format change (`format_version` bump) OR
 when backwards-compat is re-armed — whichever comes first.
 
-## 184. E2 — `BodyExtentOverlay` resolve pass + index Maps not memoized (Tier E — frontend, M)
-
-**What.** `BodyExtentOverlay` builds its Map indexes (`contactsByInv`,
-`columnByInv`), runs the `resolveSide` filter/sort, and calls the whole
-`resolveSide` logic on every render — including drag `mousemove` frames.  At
-~5 bodies per section this is invisible; at ~20 it may contribute to jank.
-
-**Fix.** Wrap the Map builds + the resolved-side array in
-`useMemo([bodies, contacts, placedColumns, contactEdges, boundariesByBodyId, drag])`.
-
-**When to revisit.** When section render becomes visibly janky during a
-boundary-node drag, OR when body count per section exceeds ~20.
+## 184. E2 — RESOLVED 2026-06-01. Map builds (`bodyById`, `contactById`, `colByInv`,
+`invByContact`, `depthByContact`, `edgePairs`, `neighboursByContact`) and the full
+`resolved` array construction wrapped in a single `useMemo` with deps
+`[bodies, contacts, placedColumns, contactEdges, boundariesByBodyId, screenXToAlong,
+sectionStartScreenX, sectionEndScreenX]`. Drag-mousemove renders (which only change
+`drag` state) now skip the O(bodies × contacts) pass entirely. `worldPtEdge` exposed
+from the memo return for the ghost-candidate section. E2-RERENDER pins correctness
+across re-renders.
 
 ## 185. E3 — `refetchLensData` fires N boundary GETs per body list update (Tier D — backend/frontend, M)
 
