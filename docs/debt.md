@@ -4904,5 +4904,36 @@ bug — just warning noise.
 shape variant), OR when an actual restore bug surfaces that the warnings make harder
 to diagnose. Until then the warning noise stays.
 
+
+## 194. Cross-section / 3D-consistent lens naming algorithm (Tier D — lands with the 2D→3D step)
+
+**What.** Lens auto-labels are currently computed **per 2D section**:
+`{parent geological formation} {depth rank}` where the depth rank
+(shallowest = 1) is ranked within the bodies visible on *that* section
+(`computeDepthStacking` in `desktop/src/renderer/src/utils/lensLabel.ts`,
+fed by `BodyExtentOverlay`). When the same physical body is correlated
+across multiple sections — and especially once the user builds the 3D
+model from several sections — the same lens can get a different number on
+each section, because the ranking set differs. A 3D-consistent naming
+algorithm must assign one stable identity/label per physical body across
+all sections it appears on (and surface that label uniformly in 2D, the
+inspector, exports, and 3D).
+
+**Why deferred.** Owner directive 2026-06-01: "i'll first do the 3
+sections and then we'll add a button that writes new sections to correlate
+to go to 3D." The per-section dynamic label is correct + useful for the
+2D editing workflow happening now; the cross-section identity problem only
+bites once multiple sections share bodies. Doing it now would be designing
+a layer we haven't needed yet. The auto-label is a pure presentation
+computation (the body `name` column stays the explicit user name / keep
+marker), so swapping the ranking source for a global one later is a
+contained change — no stored data to migrate.
+
+**When to revisit.** When the "write new sections to correlate → go to 3D"
+button lands (the owner's next-but-one step). At that point: define the
+global body-identity key (likely the resolver's connected-component /
+`body_ordinal` lineage across sections), rank once globally, and feed the
+same label map into every section overlay + the inspector + exports.
+
 ## (end)
 
