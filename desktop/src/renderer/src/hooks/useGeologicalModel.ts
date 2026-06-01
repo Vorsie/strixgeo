@@ -354,6 +354,14 @@ export interface UseGeologicalModelResult {
    *  section-local mutations — correlation create/delete, lens-shape edits —
    *  that don't go through this hook's own handlers. */
   markMutated: () => void
+  /** Bump the correlation-edges refetch nonce (#163c). Re-exported from the
+   *  injected coordinator dep so bus consumers (the Sections toolbar) can force
+   *  ``SectionsCanvas`` to re-list its correlation edges + bodies after a
+   *  body-level mutation that doesn't flow through this hook (e.g. the toolbar's
+   *  "Delete all detected lenses"). Optional only so the many hand-rolled
+   *  geoModel test mocks need not supply it — the real hook always returns it;
+   *  call sites guard with ``?.()``. */
+  requestCorrelationEdgesRefetch?: () => void
   /** Break the litho↔geo coupling on a single lithostratigraphic contact.
    *
    * Nulls ``parent_geo_contact_id`` — does NOT move/delete either contact or
@@ -5377,6 +5385,7 @@ export function useGeologicalModel({
     handleBatchUpdateContacts,
     handleDeleteContact,
     markMutated,
+    requestCorrelationEdgesRefetch,
     handleUnlinkLithoFromGeo,
     handleLinkLithoToGeo,
     handleAutoPopulateFromStratigraphy,
