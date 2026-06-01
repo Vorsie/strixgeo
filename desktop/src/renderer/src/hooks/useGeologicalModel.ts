@@ -3842,11 +3842,26 @@ export function useGeologicalModel({
   // unified Map. Used by every per-anchor update site (single accept,
   // single reject, bulk accept, bulk reject, edit, ...). The closure
   // reads no external state besides the setter — stable dep list.
+  //
+  // Two call forms:
+  //   _updateGhostEntry(anchorId, partial)
+  //     — when the new partial is known before the setState call (no
+  //       dependency on existing entry fields).
+  //   _updateGhostEntry(anchorId, existing => partial)
+  //     — when the new partial must be derived from the existing entry
+  //       (e.g. adding an index to an existing Set). The updater runs
+  //       inside setState so it always sees the latest Map snapshot.
   const _updateGhostEntry = useCallback(
-    (anchorId: string, partial: Partial<BulkAnchorGhost>): void => {
+    (
+      anchorId: string,
+      updater:
+        | Partial<BulkAnchorGhost>
+        | ((existing: BulkAnchorGhost) => Partial<BulkAnchorGhost>),
+    ): void => {
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
+        const partial = typeof updater === 'function' ? updater(existing) : updater
         const next = new Map(prev)
         next.set(anchorId, { ...existing, ...partial })
         return next
@@ -3857,17 +3872,13 @@ export function useGeologicalModel({
 
   const handleRejectBulkLitho = useCallback(
     (anchorId: string, idx: number): void => {
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
+      _updateGhostEntry(anchorId, existing => {
         const nextRejected = new Set(existing.rejected)
         nextRejected.add(idx)
-        const next = new Map(prev)
-        next.set(anchorId, { ...existing, rejected: nextRejected })
-        return next
+        return { rejected: nextRejected }
       })
     },
-    [],
+    [_updateGhostEntry],
   )
 
   /**
@@ -3876,6 +3887,9 @@ export function useGeologicalModel({
    */
   const handleUnrejectBulkLitho = useCallback(
     (anchorId: string, idx: number): void => {
+      // Direct setState (not _updateGhostEntry): the guard `!rejected.has(idx)`
+      // returns `prev` unchanged, preserving Map identity and skipping a re-render.
+      // _updateGhostEntry always produces a new Map so it cannot short-circuit here.
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing || !existing.rejected.has(idx)) return prev
@@ -4363,23 +4377,16 @@ export function useGeologicalModel({
           ...result.created_contact_ids,
           ...result.found_contact_ids,
         ]
-        setGhostsByAnchor(prev => {
-          const focusedId = focusedSuggestAnchorIdRef.current
-          if (focusedId === null) return prev
-          const existing = prev.get(focusedId)
-          if (!existing) return prev
-          const nextAccepted = new Set(existing.accepted)
-          nextAccepted.add(idx)
-          const nextContactIds = new Map(existing.contactIdsByAcceptedIdx ?? [])
-          nextContactIds.set(idx, allContactIds)
-          const next = new Map(prev)
-          next.set(focusedId, {
-            ...existing,
-            accepted: nextAccepted,
-            contactIdsByAcceptedIdx: nextContactIds,
+        const focusedAcceptId = focusedSuggestAnchorIdRef.current
+        if (focusedAcceptId !== null) {
+          _updateGhostEntry(focusedAcceptId, existing => {
+            const nextAccepted = new Set(existing.accepted)
+            nextAccepted.add(idx)
+            const nextContactIds = new Map(existing.contactIdsByAcceptedIdx ?? [])
+            nextContactIds.set(idx, allContactIds)
+            return { accepted: nextAccepted, contactIdsByAcceptedIdx: nextContactIds }
           })
-          return next
-        })
+        }
         // Refetch litho contacts so the committed contact lands in
         // local state. Without this the section view keeps rendering
         // off stale `lithoContacts` — when the user focuses a
@@ -4395,7 +4402,7 @@ export function useGeologicalModel({
         refetchFormations()
         // Record the accept on the undo stack (dogfeed 2026-05-22 —
         // accept was the one mutation Ctrl+Z couldn't reach).
-        const focusedId = focusedSuggestAnchorIdRef.current
+        // Re-uses focusedAcceptId (same ref, same call frame).
         pushAcceptLithoUndo(
           `Accept litho layer (${layer.suggested_lithology})`,
           model.id,
@@ -4405,7 +4412,7 @@ export function useGeologicalModel({
               createdContactIds: result.created_contact_ids.slice(),
               createdFormationIds: result.created_formation_ids.slice(),
               acceptedEntries:
-                focusedId !== null ? [{ anchorId: focusedId, idx }] : [],
+                focusedAcceptId !== null ? [{ anchorId: focusedAcceptId, idx }] : [],
             },
           ],
           onSectionUpdated ?? null,
@@ -4435,6 +4442,7 @@ export function useGeologicalModel({
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
       effectiveLithoSuggestionAt,
+      _updateGhostEntry,
       refetchLithoContacts,
       refetchFormations,
       toast,
@@ -4513,17 +4521,14 @@ export function useGeologicalModel({
         }
         // Mark all pending layers accepted in the focused entry
         // (debt #77 — single + bulk now share the unified Map).
-        setGhostsByAnchor(prev => {
-          const focusedId = focusedSuggestAnchorIdRef.current
-          if (focusedId === null) return prev
-          const existing = prev.get(focusedId)
-          if (!existing) return prev
-          const nextAccepted = new Set(existing.accepted)
-          for (const i of pendingIndices) nextAccepted.add(i)
-          const next = new Map(prev)
-          next.set(focusedId, { ...existing, accepted: nextAccepted })
-          return next
-        })
+        const focusedAllId = focusedSuggestAnchorIdRef.current
+        if (focusedAllId !== null) {
+          _updateGhostEntry(focusedAllId, existing => {
+            const nextAccepted = new Set(existing.accepted)
+            for (const i of pendingIndices) nextAccepted.add(i)
+            return { accepted: nextAccepted }
+          })
+        }
         // Refetch litho contacts so the committed contacts land in
         // local state — without this the previous investigation's
         // committed contacts vanish from the section view when the
@@ -4534,7 +4539,7 @@ export function useGeologicalModel({
         // update automatically.
         refetchFormations()
         // One undo entry for the whole accept-all (dogfeed 2026-05-22).
-        const focusedId = focusedSuggestAnchorIdRef.current
+        // Re-uses focusedAllId (same ref, same call frame).
         pushAcceptLithoUndo(
           `Accept all litho layers (${pendingLayers.length})`,
           model.id,
@@ -4544,8 +4549,8 @@ export function useGeologicalModel({
               createdContactIds: result.created_contact_ids.slice(),
               createdFormationIds: result.created_formation_ids.slice(),
               acceptedEntries:
-                focusedId !== null
-                  ? pendingIndices.map(i => ({ anchorId: focusedId, idx: i }))
+                focusedAllId !== null
+                  ? pendingIndices.map(i => ({ anchorId: focusedAllId, idx: i }))
                   : [],
             },
           ],
@@ -4569,6 +4574,7 @@ export function useGeologicalModel({
       lithoSuggestionInvestigationId,
       lithoSuggestionRejected,
       effectiveLithoSuggestionAt,
+      _updateGhostEntry,
       refetchLithoContacts,
       refetchFormations,
       toast,
@@ -4579,25 +4585,28 @@ export function useGeologicalModel({
 
   const handleRejectLithoSuggestion = useCallback((idx: number): void => {
     // Update the focused entry in the unified Map (debt #77).
-    setGhostsByAnchor(prev => {
-      const focusedId = focusedSuggestAnchorIdRef.current
-      if (focusedId === null) return prev
-      const existing = prev.get(focusedId)
-      if (!existing) return prev
-      const nextRejected = new Set(existing.rejected)
-      nextRejected.add(idx)
-      const next = new Map(prev)
-      next.set(focusedId, { ...existing, rejected: nextRejected })
-      return next
-    })
+    const focusedId = focusedSuggestAnchorIdRef.current
+    if (focusedId !== null) {
+      _updateGhostEntry(focusedId, existing => {
+        const nextRejected = new Set(existing.rejected)
+        nextRejected.add(idx)
+        return { rejected: nextRejected }
+      })
+    }
     log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
-  }, [])
+  // reason: focusedSuggestAnchorIdRef is a ref (always current); _updateGhostEntry
+  // is a stable useCallback with an empty dep array.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_updateGhostEntry])
 
   /**
    * Undo a prior reject — return the ghost layer to pending state.
    * Debt #80 (2026-05-20 dogfeed). No-op when idx wasn't rejected.
    */
   const handleUnrejectLithoSuggestion = useCallback((idx: number): void => {
+    // Direct setState (not _updateGhostEntry): the guard `!rejected.has(idx)`
+    // returns `prev` unchanged, preserving Map identity and skipping a re-render.
+    // _updateGhostEntry always produces a new Map so it cannot short-circuit here.
     setGhostsByAnchor(prev => {
       const focusedId = focusedSuggestAnchorIdRef.current
       if (focusedId === null) return prev
@@ -4793,14 +4802,10 @@ export function useGeologicalModel({
           onSectionUpdated(result.updated_section)
         }
         // Mark this idx accepted on the anchor (unified Map — debt #77).
-        setGhostsByAnchor(prev => {
-          const existing = prev.get(anchorId)
-          if (!existing) return prev
+        _updateGhostEntry(anchorId, existing => {
           const nextAccepted = new Set(existing.accepted)
           nextAccepted.add(idx)
-          const next = new Map(prev)
-          next.set(anchorId, { ...existing, accepted: nextAccepted })
-          return next
+          return { accepted: nextAccepted }
         })
         refetchLithoContacts()
         refetchFormations()
@@ -4831,6 +4836,7 @@ export function useGeologicalModel({
     [
       project,
       ghostsByAnchor,
+      _updateGhostEntry,
       refetchLithoContacts,
       refetchFormations,
       toast,
