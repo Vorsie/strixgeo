@@ -86,6 +86,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
+import { lensDisplayLabel } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
@@ -851,6 +852,17 @@ export default function SectionPanel({
     lithoGhostAnchorIds: Set<string>
   } | null>(null)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
+
+  // formation_id → lithology label for the lens auto-name (lithology +
+  // stacking number). Prefer the lithology code; fall back to the formation
+  // name. Consumed by BodyExtentOverlay's wedge label.
+  const formationLabelById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const f of formations) {
+      m.set(f.id, (f.lithology ?? '').trim() || f.name)
+    }
+    return m
+  }, [formations])
 
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
@@ -3206,6 +3218,7 @@ export default function SectionPanel({
                 bodies={lenses}
                 boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
                 contacts={correlateContacts}
+                formationLabelById={formationLabelById}
                 placedColumns={visibleColumns}
                 contactEdges={contactEdges ?? []}
                 // Use the SAME warped forward + inverse the columns and
@@ -3296,6 +3309,15 @@ export default function SectionPanel({
                 x={bodyCtxMenu.svgX}
                 y={bodyCtxMenu.svgY}
                 body={bodyCtxMenu.body}
+                displayLabel={
+                  formationLabelById.get(bodyCtxMenu.body.formation_id)
+                    ? lensDisplayLabel(
+                        bodyCtxMenu.body.name,
+                        formationLabelById.get(bodyCtxMenu.body.formation_id)!,
+                        bodyCtxMenu.body.body_ordinal,
+                      )
+                    : undefined
+                }
                 onClaimExtent={(bodyId, side, kind) => {
                   onClaimBodyExtent?.(bodyId, side, kind)
                   dismissBodyCtxMenu()
