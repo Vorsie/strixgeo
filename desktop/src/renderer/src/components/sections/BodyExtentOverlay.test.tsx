@@ -31,7 +31,7 @@ import type {
   PinchOutCandidate,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
-import BodyExtentOverlay, { type Props } from './BodyExtentOverlay'
+import BodyExtentOverlay, { halfwayFarPoint, type Props } from './BodyExtentOverlay'
 import { makeBody } from './__tests__/bodyTestFixtures'
 
 afterEach(() => cleanup())
@@ -383,5 +383,48 @@ describe('BodyExtentOverlay', () => {
     fireEvent.click(getByTestId('body-ghost-fill-inv-source-left'))
     expect(onClaimGhostCandidate).toHaveBeenCalledTimes(1)
     expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// R1 helper — halfwayFarPoint contract
+// ---------------------------------------------------------------------------
+//
+//   HFP1 returns the midpoint along between source and neighbour columns,
+//        and the vertical midpoint between topSource and baseSource elevations.
+//   HFP2 handles asymmetric column positions correctly (neighbour left of source).
+//   HFP3 equal elevations produce the same elevation as both inputs.
+
+describe('halfwayFarPoint', () => {
+  it('HFP1 — midpoint along + elevation between source and neighbour', () => {
+    const result = halfwayFarPoint(
+      { along: 40 },
+      { along: 100 },
+      { elevation_m: 8 },
+      { elevation_m: 4 },
+    )
+    expect(result.along_m).toBeCloseTo(70, 10) // (40 + 100) / 2
+    expect(result.elevation_m).toBeCloseTo(6, 10) // (8 + 4) / 2
+  })
+
+  it('HFP2 — neighbour to the LEFT of source (negative direction)', () => {
+    const result = halfwayFarPoint(
+      { along: 100 },
+      { along: 20 },
+      { elevation_m: 10 },
+      { elevation_m: 6 },
+    )
+    expect(result.along_m).toBeCloseTo(60, 10) // (100 + 20) / 2
+    expect(result.elevation_m).toBeCloseTo(8, 10) // (10 + 6) / 2
+  })
+
+  it('HFP3 — equal top/base elevations produce the same elevation in the result', () => {
+    const result = halfwayFarPoint(
+      { along: 0 },
+      { along: 60 },
+      { elevation_m: 5 },
+      { elevation_m: 5 },
+    )
+    expect(result.elevation_m).toBeCloseTo(5, 10)
   })
 })
