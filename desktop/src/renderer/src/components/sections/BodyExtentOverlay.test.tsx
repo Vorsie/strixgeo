@@ -26,13 +26,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   BodyBoundaryResponse,
-  BodyListItem,
   FormationContactResponse,
   LithoContactCorrelationEdge,
   PinchOutCandidate,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import BodyExtentOverlay, { type Props } from './BodyExtentOverlay'
+import { makeBody } from './__tests__/bodyTestFixtures'
 
 afterEach(() => cleanup())
 
@@ -82,33 +82,6 @@ function edge(a: string, b: string): LithoContactCorrelationEdge {
     user_approved: true,
     created_at: '2026-01-01T00:00:00Z',
   } as LithoContactCorrelationEdge
-}
-
-/**
- * Build a BodyListItem with extent fields for a body at ``inv-source`` (along=50)
- * with target on ``inv-T`` (along=0).
- */
-function makeBody(overrides: Partial<BodyListItem> = {}): BodyListItem {
-  return {
-    id: 'B1',
-    app_project_id: 'p1',
-    model_id: 'm1',
-    formation_id: 'f1',
-    body_ordinal: 0,
-    source_investigation_id: 'inv-source',
-    name: null,
-    primary_section_id: 's1',
-    content_key: null,
-    extent_left_kind: null,
-    extent_left_target_contact_id: null,
-    extent_left_neighbour_inv_id: null,
-    extent_right_kind: null,
-    extent_right_target_contact_id: null,
-    extent_right_neighbour_inv_id: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  }
 }
 
 // Source contacts: top at 3 m, base at 7 m on ``inv-source`` (along=50, elev=10).

@@ -11,33 +11,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { BodyListItem } from '../../api/client'
 import BodyContextMenu, { TESTIDS } from './BodyContextMenu'
+import { makeBody } from './__tests__/bodyTestFixtures'
 
 afterEach(() => cleanup())
-
-function makeBody(overrides: Partial<BodyListItem> = {}): BodyListItem {
-  return {
-    id: 'B1',
-    app_project_id: 'p1',
-    model_id: 'm1',
-    formation_id: 'f1',
-    body_ordinal: 0,
-    source_investigation_id: 'inv-src',
-    name: null,
-    primary_section_id: null,
-    content_key: null,
-    extent_left_kind: null,
-    extent_left_target_contact_id: null,
-    extent_left_neighbour_inv_id: null,
-    extent_right_kind: null,
-    extent_right_target_contact_id: null,
-    extent_right_neighbour_inv_id: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  }
-}
 
 describe('BodyContextMenu', () => {
   it('BCM1 — unclaimed body shows all three claim items for each side', () => {
