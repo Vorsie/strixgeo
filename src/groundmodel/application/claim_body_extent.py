@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -47,6 +47,51 @@ from groundmodel.shared.constants.extent_kind import (
     is_user_claimed_extent_kind,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+async def _validate_investigation_in_project(
+    session: AsyncSession,
+    inv_id: UUID,
+    project_id: UUID,
+    *,
+    label: str,
+) -> None:
+    """Assert that ``inv_id`` belongs to a CPT or borehole in ``project_id``.
+
+    The investigation id is polymorphic — it may reference either ``cpt`` or
+    ``borehole``.  The check mirrors the bundle-restore validation in
+    ``project_bundle.py`` (lines 1480–1496): try CPT first, then borehole,
+    raise ``ValueError`` if neither matches.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    inv_id : UUID
+        The polymorphic investigation id to check.
+    project_id : UUID
+        The project the investigation must belong to.
+    label : str
+        Human-readable name for the id in the error message
+        (e.g. ``"source_investigation_id"``, ``"neighbour_inv_id"``).
+
+    Raises
+    ------
+    ValueError
+        When ``inv_id`` does not resolve to a CPT or borehole in
+        ``project_id``.  The same message is used for both "wrong project"
+        and "does not exist" cases so the caller cannot distinguish them.
+    """
+    # One round-trip with a UNION — returns a row iff the id is in scope.
+    stmt = text(
+        "SELECT 1 FROM cpt WHERE id = :inv_id AND app_project_id = :pid "
+        "UNION "
+        "SELECT 1 FROM borehole WHERE id = :inv_id AND app_project_id = :pid "
+        "LIMIT 1"
+    )
+    row = (await session.execute(stmt, {"inv_id": inv_id, "pid": project_id})).first()
+    if row is None:
+        raise ValueError(f"{label} {inv_id} not found in project {project_id}")
 
 
 class ProvenanceViolationError(ValueError):
@@ -162,6 +207,26 @@ class ClaimBodyExtent(GroundModelLogger):
             project_id,
             label="Formation",
         )
+
+        # ----- Cross-project investigation guards (S2 audit) ---------------
+        # Validate that the polymorphic investigation ids belong to this
+        # project.  The body row stores these as bare UUIDs with no FK
+        # constraint (mirrors the formation_contact.borehole_id / cpt_id
+        # pattern — spec §4.2), so the DB won't catch a cross-project UUID
+        # at insert time; we must check explicitly.
+        await _validate_investigation_in_project(
+            self._session,
+            source_investigation_id,
+            project_id,
+            label="source_investigation_id",
+        )
+        if neighbour_inv_id is not None:
+            await _validate_investigation_in_project(
+                self._session,
+                neighbour_inv_id,
+                project_id,
+                label="neighbour_inv_id",
+            )
 
         # ----- Resolve body_ordinal from formation ------------------------
         # instance_ordinal is set by the resolver; use 0 as fallback when
