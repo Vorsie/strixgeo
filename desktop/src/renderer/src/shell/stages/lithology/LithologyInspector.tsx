@@ -39,10 +39,10 @@ import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type {
+  BodyListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
   LithoContactCorrelationEdge,
-  LithoLensListItem,
 } from '../../../api/client'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
@@ -110,7 +110,7 @@ export default function LithologyInspector(): JSX.Element {
   const [lastResolvedEdgeCount, setLastResolvedEdgeCount] = useState<number | null>(null)
 
   // #101 Slice 6: lens list for per-formation lens-count badges.
-  const [lenses, setLenses] = useState<LithoLensListItem[]>([])
+  const [lenses, setLenses] = useState<BodyListItem[]>([])
 
   const [resolving, setResolving] = useState(false)
 
