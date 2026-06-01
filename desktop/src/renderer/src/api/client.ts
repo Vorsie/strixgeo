@@ -2811,8 +2811,16 @@ export const api = {
     suggestBodyPinchOuts: (
       projectId: string,
       modelId: string,
-    ): Promise<SuggestPinchOutsResponse> =>
-      post(`/projects/${projectId}/geology/models/${modelId}/bodies/suggest-pinch-outs`, {}),
+      // Active section → adjacency follows the section's column order (not a
+      // UUID-random "skip a column" order). Omit for the section-agnostic pass.
+      sectionId?: string | null,
+    ): Promise<SuggestPinchOutsResponse> => {
+      const q = sectionId ? `?section_id=${encodeURIComponent(sectionId)}` : ''
+      return post(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/suggest-pinch-outs${q}`,
+        {},
+      )
+    },
 
     // PATCH a body row (currently: name update).
     updateBody: (
