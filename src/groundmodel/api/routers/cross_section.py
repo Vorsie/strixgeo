@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -296,9 +296,12 @@ async def export_section_pdf(
     project_id: UUID,
     section_id: UUID,
     model_id: UUID,
-    title: str | None = None,
-    author: str | None = None,
-    notes: str | None = None,
+    # Query-param length caps (debt #112): query strings bypass
+    # BodySizeLimitMiddleware, so we cap them here. 256 chars covers any
+    # reasonable report title / author name; 4096 covers a multi-line note.
+    title: str | None = Query(default=None, max_length=256),
+    author: str | None = Query(default=None, max_length=256),
+    notes: str | None = Query(default=None, max_length=4096),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Export the section as a PDF project report (debt #52 slice 1).
