@@ -384,6 +384,46 @@ describe('BodyExtentOverlay', () => {
     expect(onClaimGhostCandidate).toHaveBeenCalledTimes(1)
     expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
   })
+
+  it('BE15 — multi-formation source frames the wedge to the body’s own layer, not the whole column', () => {
+    // Regression for the section-filling-triangle bug (dogfeed 2026-06-01):
+    // source ``inv-src2`` carries THREE formations — fA (1 m), fMID (4 m),
+    // fC (8 m). The body is formation ``fMID``. Its wedge TOP must sit at the
+    // fMID contact (4 m → elev 6 → screen y 94), NOT at the column top fA
+    // (1 m → elev 9 → screen y 91) which the old shallowest+deepest fallback
+    // produced.
+    const srcContacts = [
+      { ...contact('c-fa', 'inv-src2', 1), formation_id: 'fA' },
+      { ...contact('c-fmid', 'inv-src2', 4), formation_id: 'fMID' },
+      { ...contact('c-fc', 'inv-src2', 8), formation_id: 'fC' },
+      { ...contact('ct2', 'inv-T2', 5), formation_id: 'fMID' },
+    ] as FormationContactResponse[]
+    const cols = [column('inv-src2', 50, 10), column('inv-T2', 0, 10)]
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          formation_id: 'fMID',
+          content_key: null,
+          source_investigation_id: 'inv-src2',
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 'ct2',
+        }),
+      ],
+      contacts: srcContacts,
+      placedColumns: cols,
+      contactEdges: [],
+    })
+    const d = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const pts = Array.from(d.matchAll(/[ML]\s*([-\d.]+),([-\d.]+)/g)).map(m => ({
+      x: parseFloat(m[1]),
+      y: parseFloat(m[2]),
+    }))
+    // The source-edge endpoint is the max-x point (source column at along=50,
+    // target at along=0). Its y must be the fMID top (94), not the column top (91).
+    const sourceEdge = pts.reduce((a, b) => (b.x > a.x ? b : a))
+    expect(sourceEdge.y).toBeCloseTo(94, 1)
+    expect(sourceEdge.y).not.toBeCloseTo(91, 1)
+  })
 })
 
 // ---------------------------------------------------------------------------
