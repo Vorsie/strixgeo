@@ -702,8 +702,8 @@ export function useProject(): UseProject {
           bodies: parsed.bodies,
           formation_absences: parsed.formation_absences,
           litho_contact_correlation_edges: parsed.litho_contact_correlation_edges,
-          litho_lens_shapes: parsed.litho_lens_shapes,
-          litho_lens_boundary_nodes: parsed.litho_lens_boundary_nodes,
+          body_boundary_shapes: parsed.body_boundary_shapes,
+          body_boundary_nodes: parsed.body_boundary_nodes,
         },
         true,
       )

@@ -78,11 +78,11 @@ export interface ProjectFileV3 {
    */
   formation_absences: Record<string, unknown>[]
   /**
-   * Lens boundary shapes + control nodes (#163f Slice 2).
+   * Body boundary shapes + control nodes (#163f Slice 2).
    * Absent in files saved before this field shipped — normalised to [] on parse.
    */
-  litho_lens_shapes: Record<string, unknown>[]
-  litho_lens_boundary_nodes: Record<string, unknown>[]
+  body_boundary_shapes: Record<string, unknown>[]
+  body_boundary_nodes: Record<string, unknown>[]
   /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
@@ -115,8 +115,8 @@ export function buildProjectFile(
     litho_contact_correlation_edges: bundle.litho_contact_correlation_edges ?? [],
     bodies: bundle.bodies ?? [],
     formation_absences: bundle.formation_absences ?? [],
-    litho_lens_shapes: bundle.litho_lens_shapes ?? [],
-    litho_lens_boundary_nodes: bundle.litho_lens_boundary_nodes ?? [],
+    body_boundary_shapes: bundle.body_boundary_shapes ?? [],
+    body_boundary_nodes: bundle.body_boundary_nodes ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -161,11 +161,11 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.formation_absences === undefined) {
     candidate.formation_absences = []
   }
-  if (candidate.litho_lens_shapes === undefined) {
-    candidate.litho_lens_shapes = []
+  if (candidate.body_boundary_shapes === undefined) {
+    candidate.body_boundary_shapes = []
   }
-  if (candidate.litho_lens_boundary_nodes === undefined) {
-    candidate.litho_lens_boundary_nodes = []
+  if (candidate.body_boundary_nodes === undefined) {
+    candidate.body_boundary_nodes = []
   }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
@@ -201,9 +201,8 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
       Array.isArray(v.litho_contact_correlation_edges)) &&
     (v.bodies === undefined || Array.isArray(v.bodies)) &&
     (v.formation_absences === undefined || Array.isArray(v.formation_absences)) &&
-    (v.litho_lens_shapes === undefined || Array.isArray(v.litho_lens_shapes)) &&
-    (v.litho_lens_boundary_nodes === undefined ||
-      Array.isArray(v.litho_lens_boundary_nodes)) &&
+    (v.body_boundary_shapes === undefined || Array.isArray(v.body_boundary_shapes)) &&
+    (v.body_boundary_nodes === undefined || Array.isArray(v.body_boundary_nodes)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
