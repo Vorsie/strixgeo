@@ -32,6 +32,7 @@ import type {
   LensRenderStyle,
   LithoContactCorrelationEdge,
   LithoLensListItem,
+  PinchOutCandidate,
 } from '../../../api/client'
 import type {
   ContactGestureState,
@@ -155,6 +156,8 @@ export default function SectionsCanvas(): JSX.Element {
       exitCorrelateMode,
       armCorrelationSource,
       clearCorrelationSource,
+      pinchOutCandidates,
+      setPinchOutCandidates,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -816,6 +819,38 @@ export default function SectionsCanvas(): JSX.Element {
       }
     },
     [activeLithoModel, project.id, refetchLensData, toast],
+  )
+
+  // Accept a ghost pinch-out candidate — claims the suggested extent on the
+  // backend, clears the candidates list, and refreshes body data.
+  const handleClaimGhostCandidate = useCallback(
+    async (candidate: PinchOutCandidate): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info('section', `claim-ghost-candidate: body=${candidate.body_id ?? 'new'} inv=${candidate.source_investigation_id} side=${candidate.side}`)
+      try {
+        // Look up formation_id from the above contact.
+        const aboveContact = lithoContacts.find(c => c.id === candidate.above_contact_id)
+        if (!aboveContact) {
+          toast('error', 'Ghost candidate contact not found.')
+          return
+        }
+        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
+          formation_id: aboveContact.formation_id,
+          source_investigation_id: candidate.source_investigation_id,
+          side: candidate.side,
+          kind: 'pinch_out_halfway',
+          neighbour_inv_id: candidate.suggested_neighbour_investigation_id,
+        })
+        // Clear the candidates list so the ghost disappears.
+        setPinchOutCandidates([])
+        void refetchLensData()
+        toast('success', 'Pinch-out claimed.')
+      } catch (err) {
+        toast('error', 'Failed to claim pinch-out.')
+        log.warn('section', 'handleClaimGhostCandidate: failed', err)
+      }
+    },
+    [activeLithoModel, project.id, lithoContacts, setPinchOutCandidates, refetchLensData, toast],
   )
 
   // Right-click "Delete contact" gesture from the section overlay.
@@ -2226,6 +2261,9 @@ export default function SectionsCanvas(): JSX.Element {
           onClearBodyExtent={isLitho ? (bid, side) => void handleClearBodyExtent(bid, side) : undefined}
           onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
+          // #body-with-extent Slice 7.4 — ghost candidate rendering.
+          ghostCandidates={isLitho ? pinchOutCandidates : undefined}
+          onClaimGhostCandidate={isLitho ? candidate => void handleClaimGhostCandidate(candidate) : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
