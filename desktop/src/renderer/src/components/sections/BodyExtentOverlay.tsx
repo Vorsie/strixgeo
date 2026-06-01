@@ -108,6 +108,40 @@ function polylinePath(pts: readonly { x: number; y: number }[]): string {
   return `M ${pts.map(p => `${p.x},${p.y}`).join(' L ')}`
 }
 
+/**
+ * Area centroid of a closed polygon (the lens fill shape) — the true visual
+ * centre to anchor the auto-label on, for any shape (wedge, open band,
+ * bilateral). Uses the standard signed-area centroid formula so a shared/
+ * duplicated tip vertex doesn't bias the result (the plain vertex average
+ * would). Falls back to the vertex mean when the polygon is degenerate
+ * (near-zero area — a collinear sliver).
+ */
+function polygonCentroid(
+  pts: readonly { x: number; y: number }[],
+): { x: number; y: number } {
+  const n = pts.length
+  if (n === 0) return { x: 0, y: 0 }
+  let area = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < n; i += 1) {
+    const a = pts[i]
+    const b = pts[(i + 1) % n]
+    const cross = a.x * b.y - b.x * a.y
+    area += cross
+    cx += (a.x + b.x) * cross
+    cy += (a.y + b.y) * cross
+  }
+  area *= 0.5
+  if (Math.abs(area) < 1e-6) {
+    return {
+      x: pts.reduce((s, p) => s + p.x, 0) / n,
+      y: pts.reduce((s, p) => s + p.y, 0) / n,
+    }
+  }
+  return { x: cx / (6 * area), y: cy / (6 * area) }
+}
+
 /** Build an SVG triangle marker pointing in the direction of ``dx`` (left=-1, right=+1). */
 function dipArrowPath(tip: { x: number; y: number }, directionSign: number): string {
   const size = DIP_ARROW_SIZE
@@ -966,15 +1000,16 @@ export default function BodyExtentOverlay({
           labelBodyItem && formationLabel
             ? lensDisplayLabel(labelBodyItem.name, formationLabel, depthRank)
             : (labelBodyItem?.name?.trim() ?? '')
-        // Centre on the wedge's medial axis: midpoint between the source-edge
-        // mid-elevation and the far tip.
-        const labelCentroid = ((): { x: number; y: number } => {
-          const t = toScreen(body.topSource)
-          const b = toScreen(body.baseSource)
-          const f = toScreen(body.farPoint)
-          const sourceMid = { x: (t.x + b.x) / 2, y: (t.y + b.y) / 2 }
-          return { x: (sourceMid.x + f.x) / 2, y: (sourceMid.y + f.y) / 2 }
-        })()
+        // Centre the label on the lens fill's area centroid (true visual
+        // centre for any shape — wedge / band / bilateral). Empty fill → fall
+        // back to the source-edge midpoint.
+        const labelCentroid =
+          fillPts.length >= 3
+            ? polygonCentroid(fillPts)
+            : {
+                x: (toScreen(body.topSource).x + toScreen(body.baseSource).x) / 2,
+                y: (toScreen(body.topSource).y + toScreen(body.baseSource).y) / 2,
+              }
 
         return (
           <g key={`body-extent-${body.wedgeKey}`} data-testid={`body-extent-${body.wedgeKey}`}>

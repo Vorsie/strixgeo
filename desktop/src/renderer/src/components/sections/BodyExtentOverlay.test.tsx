@@ -473,6 +473,24 @@ describe('BodyExtentOverlay', () => {
     expect(getByTestId('body-label-B1').textContent).toBe('QPSa1')
   })
 
+  it('BE17b — label is centred within the wedge horizontal span (not at an edge)', () => {
+    const { getByTestId } = renderOverlay({
+      formationLabelById: new Map([['f1', 'QPSa']]),
+    })
+    const labelX = parseFloat(getByTestId('body-label-B1').getAttribute('x') ?? 'NaN')
+    // Wedge horizontal extent from the two boundary paths.
+    const allX = ['body-boundary-upper-B1', 'body-boundary-lower-B1'].flatMap(id =>
+      Array.from(
+        (getByTestId(id).getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
+      ).map(m => parseFloat(m[1])),
+    )
+    const minX = Math.min(...allX)
+    const maxX = Math.max(...allX)
+    // Strictly inside the span — not clamped to either end.
+    expect(labelX).toBeGreaterThan(minX)
+    expect(labelX).toBeLessThan(maxX)
+  })
+
   it('BE18 — explicit name overrides the auto-label', () => {
     const { getByTestId } = renderOverlay({
       bodies: [
