@@ -43,11 +43,21 @@ from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_OPEN,
     EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_TO_TARGET,
+    EXTENT_SIDES,
     is_user_claimed_extent_kind,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-_VALID_SIDES = ("left", "right")
+
+class ProvenanceViolationError(ValueError):
+    """Raised when a user-claim would overwrite a detector-set ``to_target`` extent.
+
+    Subclasses ``ValueError`` so existing bare ``except ValueError`` catchers
+    still fire, but the router can catch *this* class first and map it to a
+    dedicated HTTP 409 response rather than the generic 422.
+    """
+
+
 _VALID_CLAIM_KINDS = (
     EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_EXTRAPOLATED,
@@ -125,7 +135,7 @@ class ClaimBodyExtent(GroundModelLogger):
             ``to_target`` extent without clearing first).
         """
         # ----- Input validation -------------------------------------------
-        if side not in _VALID_SIDES:
+        if side not in EXTENT_SIDES:
             raise ValueError(f"side must be 'left' or 'right', got {side!r}")
         if kind not in _VALID_CLAIM_KINDS:
             raise ValueError(
@@ -200,8 +210,10 @@ class ClaimBodyExtent(GroundModelLogger):
 
             # Provenance rule §5.2: refuse to overwrite a detector-set
             # 'to_target' extent.  The user must call ClearBodyExtent first.
+            # Raises ProvenanceViolationError (subclass of ValueError) so the
+            # router can map it to HTTP 409 while other ValueErrors stay 422.
             if existing_kind == EXTENT_KIND_TO_TARGET:
-                raise ValueError(
+                raise ProvenanceViolationError(
                     f"Cannot overwrite detector-set 'to_target' extent on "
                     f"side={side!r}. Clear the existing extent first via "
                     "ClearBodyExtent."
