@@ -340,7 +340,10 @@ export interface PinchOutCandidate {
   above_contact_id: string
   below_contact_id: string
   side: 'left' | 'right'
-  suggested_neighbour_investigation_id: string
+  // 'pinch_out_halfway' (interior) or 'open' (edge test → opens to the boundary).
+  kind: 'pinch_out_halfway' | 'open'
+  // null for an 'open' edge candidate (no halfway target).
+  suggested_neighbour_investigation_id: string | null
 }
 
 export interface SuggestPinchOutsResponse {
