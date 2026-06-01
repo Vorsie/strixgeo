@@ -42,6 +42,7 @@ import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
+import NameBodyDialog from '../../../components/sections/NameBodyDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
@@ -225,6 +226,11 @@ export default function SectionsCanvas(): JSX.Element {
     side: 'left' | 'right'
     kind: ClaimableKind
   } | null>(null)
+
+  // Name-body dialog state (dogfeed 2026-06-01) — replaces the dead-end
+  // window.prompt (Electron disables prompt()). Non-null while the dialog is
+  // open; carries the body id + its current name for the rename pre-fill.
+  const [namingBody, setNamingBody] = useState<{ id: string; currentName: string } | null>(null)
 
   // Inspect-lens-body panel state (#101 Blocker 1) — opened by right-clicking
   // a body chip in CorrelationEdgesOverlay → "Inspect lens body…".
@@ -800,33 +806,50 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Name a body via a native prompt (quick path; full rename in the
   // InspectLensBodyPanel).
+  // Open the name dialog for a body. (The actual PATCH happens in
+  // ``submitBodyName`` on dialog submit — window.prompt is a dead end in
+  // Electron, so naming goes through a Modal.)
   const handleNameBody = useCallback(
-    async (bodyId: string): Promise<void> => {
+    (bodyId: string): void => {
       if (!activeLithoModel) return
       const body = lensList.find(b => b.id === bodyId)
       if (!body) {
         log.warn('section', `name-body: body ${bodyId} not found in lensList`)
         return
       }
-      const newName = window.prompt('Enter a name for this body:', body.name ?? '')
-      if (newName === null) return // cancelled
-      const trimmed = newName.trim()
-      if (trimmed === '') return
-      log.info('section', `name-body: body=${bodyId} name="${trimmed}"`)
+      setNamingBody({ id: bodyId, currentName: body.name ?? '' })
+    },
+    [activeLithoModel, lensList],
+  )
+
+  // Commit the name entered in NameBodyDialog. A named body is preserved by
+  // the detector reconcile + bulk "Delete all detected lenses" — naming is how
+  // the user keeps ("accepts") a detected lens.
+  const submitBodyName = useCallback(
+    async (name: string): Promise<void> => {
+      if (!activeLithoModel || namingBody === null) return
+      const body = lensList.find(b => b.id === namingBody.id)
+      if (!body) {
+        setNamingBody(null)
+        return
+      }
+      log.info('section', `name-body: body=${namingBody.id} name="${name}"`)
       try {
-        await api.geology.nameBody(project.id, activeLithoModel.id, bodyId, {
+        await api.geology.nameBody(project.id, activeLithoModel.id, namingBody.id, {
           formation_id: body.formation_id,
           body_ordinal: body.body_ordinal,
-          name: trimmed,
+          name,
         })
         void refetchLensData()
-        toast('success', `Body named: ${trimmed}`)
+        toast('success', `Lens named: ${name}`)
       } catch (err) {
-        toast('error', 'Failed to name body.')
-        log.warn('section', 'handleNameBody: failed', err)
+        toast('error', 'Failed to name lens.')
+        log.warn('section', 'submitBodyName: failed', err)
+      } finally {
+        setNamingBody(null)
       }
     },
-    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+    [activeLithoModel, namingBody, project.id, lensList, refetchLensData, toast],
   )
 
   // Dissolve a body — deletes the body row and all its correlation edges.
@@ -2419,6 +2442,15 @@ export default function SectionsCanvas(): JSX.Element {
             onClose={() => setProvenanceConflict(null)}
           />
         )}
+
+        {/* Name / rename a lens (body). Replaces the dead-end window.prompt —
+            Electron disables prompt() in the renderer. */}
+        <NameBodyDialog
+          open={namingBody !== null}
+          initialName={namingBody?.currentName ?? ''}
+          onSubmit={submitBodyName}
+          onCancel={() => setNamingBody(null)}
+        />
       </>
     )
   }
