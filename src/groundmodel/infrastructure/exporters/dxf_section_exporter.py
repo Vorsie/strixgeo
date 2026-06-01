@@ -59,7 +59,7 @@ import ezdxf
 from ezdxf.colors import RGB
 
 from groundmodel.application.section_snapshot import SectionSnapshot
-from groundmodel.infrastructure.exporters.base_exporter import BaseExporter
+from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 
 # DXF layer name for the investigation column track. Single layer so
 # the user can toggle "show / hide all columns" in CAD without
@@ -73,23 +73,20 @@ _INVESTIGATIONS_LAYER = "Investigations"
 _FORMATION_LAYER_PREFIX = "GeoModel-"
 
 
-class DxfSectionExporter(BaseExporter):
+class DxfSectionExporter(SectionExporter):
     """Serialise a ``SectionSnapshot`` to DXF bytes."""
 
     def __init__(self) -> None:
         """Initialise with the standard module-named logger."""
         super().__init__(__name__)
 
-    def export(self, snapshot: SectionSnapshot) -> bytes:  # type: ignore[override]
+    def export(self, snapshot: SectionSnapshot) -> bytes:
         """Build the DXF and return the serialised bytes.
 
         Parameters
         ----------
         snapshot : SectionSnapshot
-            Materialised section geometry. Note: the base class
-            signature names ``GroundModelSnapshot``; this exporter
-            overrides the input type because it's section-scoped.
-            The type ignore is intentional and documented here.
+            Materialised section geometry.
 
         Returns
         -------

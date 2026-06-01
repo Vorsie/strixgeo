@@ -46,10 +46,10 @@ from groundmodel.application.ground_model_snapshot import (
     GroundModelSnapshot,
     LayerGeometry,
 )
-from groundmodel.infrastructure.exporters.base_exporter import BaseExporter
+from groundmodel.infrastructure.exporters.project_exporter import ProjectExporter
 
 
-class PlaxisExporter(BaseExporter):
+class PlaxisExporter(ProjectExporter):
     """Exports a ground-model snapshot to a runnable Plaxis 3D Python script."""
 
     def __init__(self) -> None:

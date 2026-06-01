@@ -92,10 +92,10 @@ class ReportMetadata:
 class SectionPdfReportExporter(GroundModelLogger):
     """Render a SectionSnapshot + ReportMetadata to PDF bytes.
 
-    Does NOT inherit from ``BaseExporter`` because ``BaseExporter``'s
-    ``export(snapshot)`` signature is single-arg.  This exporter needs
-    the metadata bundle alongside the snapshot.  The shared logging
-    via ``GroundModelLogger`` is preserved.
+    Does NOT inherit from ``SectionExporter`` because its
+    ``export(snapshot, metadata)`` signature carries a second argument
+    (the user-editable header fields).  The shared logging via
+    ``GroundModelLogger`` is preserved.
     """
 
     def __init__(self) -> None:

@@ -1,10 +1,10 @@
 """GeoStudio format exporter (stub — Phase 4)."""
 
 from groundmodel.application.ground_model_snapshot import GroundModelSnapshot
-from groundmodel.infrastructure.exporters.base_exporter import BaseExporter
+from groundmodel.infrastructure.exporters.project_exporter import ProjectExporter
 
 
-class GeoStudioExporter(BaseExporter):
+class GeoStudioExporter(ProjectExporter):
     """Exports a ground-model snapshot to GeoStudio slope-stability format."""
 
     def __init__(self) -> None:

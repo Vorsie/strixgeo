@@ -51,28 +51,24 @@ from groundmodel.application.section_snapshot import (
     SectionInvestigationProjection,
     SectionSnapshot,
 )
-from groundmodel.infrastructure.exporters.base_exporter import BaseExporter
+from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 
 
-class PlaxisSectionExporter(BaseExporter):
+class PlaxisSectionExporter(SectionExporter):
     """Exports ONE cross-section's drawn geology to a Plaxis 2D script."""
 
     def __init__(self) -> None:
         """Initialise with the standard module-named logger."""
         super().__init__(__name__)
 
-    def export(self, snapshot: SectionSnapshot) -> bytes:  # type: ignore[override]  # BaseExporter.export() takes GroundModelSnapshot; section exporter takes SectionSnapshot — intentional narrowing, same return type
+    def export(self, snapshot: SectionSnapshot) -> bytes:
         """Serialise the section snapshot to a ``plxscripting`` script.
 
         Parameters
         ----------
         snapshot : SectionSnapshot
             Section geometry assembled by
-            ``application/build_section_snapshot.py``. The base-class
-            signature names ``GroundModelSnapshot``; this exporter
-            overrides the input type because it is section-scoped
-            (same intentional, documented override as
-            ``DxfSectionExporter``).
+            ``application/build_section_snapshot.py``.
 
         Returns
         -------

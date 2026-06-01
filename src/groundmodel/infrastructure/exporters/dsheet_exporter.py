@@ -1,10 +1,10 @@
 """D-Sheet Piling format exporter (stub — Phase 4)."""
 
 from groundmodel.application.ground_model_snapshot import GroundModelSnapshot
-from groundmodel.infrastructure.exporters.base_exporter import BaseExporter
+from groundmodel.infrastructure.exporters.project_exporter import ProjectExporter
 
 
-class DSheetExporter(BaseExporter):
+class DSheetExporter(ProjectExporter):
     """Exports a ground-model snapshot to D-Sheet Piling format."""
 
     def __init__(self) -> None:
