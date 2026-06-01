@@ -290,8 +290,8 @@ async def restore_project(
             bodies_payload=request.bodies,
             formation_absences_payload=request.formation_absences,
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
-            litho_lens_shapes_payload=request.litho_lens_shapes,
-            litho_lens_boundary_nodes_payload=request.litho_lens_boundary_nodes,
+            body_boundary_shapes_payload=request.body_boundary_shapes,
+            body_boundary_nodes_payload=request.body_boundary_nodes,
             replace=replace,
         )
     except BundleIntegrityError as err:

@@ -528,14 +528,12 @@ async def _build_project_bundle_impl(
         "litho_contact_correlation_edges": [
             _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
         ],
-        # Lens boundary shapes + control nodes (#163f Slice 2). Shapes carry
+        # Body boundary shapes + control nodes (#163f Slice 2). Shapes carry
         # (model_id, body_id, render_style); nodes carry (shape_id,
         # boundary, node_index, along_m, elevation_m). Additive — bundles saved
         # before these existed open cleanly via default_factory=list.
-        "litho_lens_shapes": [_column_to_json(s, _SKIP_COLUMNS) for s in lens_shapes],
-        "litho_lens_boundary_nodes": [
-            _column_to_json(n, _SKIP_COLUMNS) for n in lens_boundary_nodes
-        ],
+        "body_boundary_shapes": [_column_to_json(s, _SKIP_COLUMNS) for s in lens_shapes],
+        "body_boundary_nodes": [_column_to_json(n, _SKIP_COLUMNS) for n in lens_boundary_nodes],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
@@ -834,8 +832,8 @@ async def _restore_project_bundle_impl(
     bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
-    litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
-    litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+    body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
+    body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -869,8 +867,8 @@ async def _restore_project_bundle_impl(
     bodies_payload = bodies_payload or []
     formation_absences_payload = formation_absences_payload or []
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
-    litho_lens_shapes_payload = litho_lens_shapes_payload or []
-    litho_lens_boundary_nodes_payload = litho_lens_boundary_nodes_payload or []
+    body_boundary_shapes_payload = body_boundary_shapes_payload or []
+    body_boundary_nodes_payload = body_boundary_nodes_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -1796,7 +1794,7 @@ async def _restore_project_bundle_impl(
     valid_shape_ids: set[UUID] = set(existing_shape_ids)
     new_lens_shapes = 0
     dropped_lens_shapes = 0
-    for shape_payload in litho_lens_shapes_payload:
+    for shape_payload in body_boundary_shapes_payload:
         sid_raw = shape_payload.get("id")
         mid_raw = shape_payload.get("model_id")
         if sid_raw is None or mid_raw is None:
@@ -1835,7 +1833,7 @@ async def _restore_project_bundle_impl(
     )
     new_lens_nodes = 0
     dropped_lens_nodes = 0
-    for node_payload in litho_lens_boundary_nodes_payload:
+    for node_payload in body_boundary_nodes_payload:
         nid_raw = node_payload.get("id")
         shid_raw = node_payload.get("shape_id")
         if nid_raw is None or shid_raw is None:
@@ -1929,8 +1927,8 @@ class ProjectBundleService(GroundModelLogger):
         bodies_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
-        litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
-        litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+        body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
+        body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
     ) -> ProjectOrm:
@@ -1961,8 +1959,8 @@ class ProjectBundleService(GroundModelLogger):
             bodies_payload,
             formation_absences_payload,
             litho_contact_correlation_edges_payload,
-            litho_lens_shapes_payload,
-            litho_lens_boundary_nodes_payload,
+            body_boundary_shapes_payload,
+            body_boundary_nodes_payload,
             logger=self,
             replace=replace,
         )
@@ -1994,8 +1992,8 @@ async def restore_project_bundle(
     bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
-    litho_lens_shapes_payload: list[dict[str, Any]] | None = None,
-    litho_lens_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+    body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
+    body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
 ) -> ProjectOrm:
@@ -2013,7 +2011,7 @@ async def restore_project_bundle(
         bodies_payload,
         formation_absences_payload,
         litho_contact_correlation_edges_payload,
-        litho_lens_shapes_payload,
-        litho_lens_boundary_nodes_payload,
+        body_boundary_shapes_payload,
+        body_boundary_nodes_payload,
         replace=replace,
     )

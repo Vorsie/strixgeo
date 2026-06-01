@@ -1,4 +1,5 @@
 // Typed fetch wrappers for the Ground Model FastAPI backend.
+import { log } from '../utils/log'
 
 // Borehole filter axis — which categorical field the user is filtering by.
 // Lifted to a shared type because both the map's layer-control and the
@@ -126,9 +127,9 @@ export interface ProjectBundleResponse {
   bodies?: Record<string, unknown>[]
   /** Formation absence records (Position 4). Absent in older bundles. */
   formation_absences?: Record<string, unknown>[]
-  /** Lens boundary shapes + control nodes (#163f Slice 2). Absent in older bundles. */
-  litho_lens_shapes?: Record<string, unknown>[]
-  litho_lens_boundary_nodes?: Record<string, unknown>[]
+  /** Body boundary shapes + control nodes (#163f Slice 2). Absent in older bundles. */
+  body_boundary_shapes?: Record<string, unknown>[]
+  body_boundary_nodes?: Record<string, unknown>[]
 }
 
 // Investigation-review response — per-(project, investigation) row:
@@ -1454,7 +1455,10 @@ export function setBaseUrl(url: string): void {
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${_base}${path}`)
-  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
+  if (!res.ok) {
+    log.error('api', 'GET', path, res.status)
+    throw new Error(`GET ${path} → ${res.status}`)
+  }
   return res.json()
 }
 
@@ -1464,6 +1468,7 @@ async function del(path: string): Promise<void> {
     // Surface the server's `detail` (e.g. the 409 "delete the dependent
     // model first" guard) instead of an opaque "→ 409" — mirrors patch/put.
     const detail = await res.json().catch(() => ({}))
+    log.error('api', 'DELETE', path, res.status)
     throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
   }
 }
@@ -1476,6 +1481,7 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
+    log.error('api', 'PATCH', path, res.status)
     throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
   }
   return res.json()
@@ -1489,6 +1495,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
+    log.error('api', 'PUT', path, res.status)
     throw new Error(detail.detail ?? `PUT ${path} → ${res.status}`)
   }
   return res.json()
@@ -1503,6 +1510,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${_base}${path}`, init)
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
+    log.error('api', 'POST', path, res.status)
     throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
   }
   return res.json()
@@ -2138,7 +2146,7 @@ export const api = {
       // so callers can detect absorption and prune local state.
       // Diagnostic: drag-up cross-merge regression repro (2026-05-26) —
       // logs the PATCH body and HTTP status on every drag commit.
-      console.debug('[api.updateContact] →', { contactId, modelId, patch: body })
+      log.debug('api', '[api.updateContact] →', { contactId, modelId, patch: body })
       const res = await fetch(
         `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
         {
@@ -2147,7 +2155,7 @@ export const api = {
           body: JSON.stringify(body),
         },
       )
-      console.debug('[api.updateContact] ←', { contactId, status: res.status })
+      log.debug('api', '[api.updateContact] ←', { contactId, status: res.status })
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}))
         throw new Error(detail.detail ?? `PATCH contacts/${contactId} → ${res.status}`)

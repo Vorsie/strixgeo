@@ -236,14 +236,14 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
-    # Lens boundary shapes + control nodes (#163f Slice 2).  Additive — absent
+    # Body boundary shapes + control nodes (#163f Slice 2).  Additive — absent
     # in older bundles; default_factory=list. Restore order: shapes after
     # geological_models (model_id FK), nodes after shapes (shape_id FK).
-    litho_lens_shapes: list[dict[str, Any]] = Field(
+    body_boundary_shapes: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=_MAX_LITHO_LENS_SHAPES_PER_BUNDLE,
     )
-    litho_lens_boundary_nodes: list[dict[str, Any]] = Field(
+    body_boundary_nodes: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=_MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE,
     )
@@ -278,9 +278,9 @@ class ProjectBundleResponse(BaseModel):
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
     # in bundles saved before this field shipped.
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
-    # Lens boundary shapes + control nodes (#163f Slice 2).  Additive.
-    litho_lens_shapes: list[dict[str, Any]] = Field(default_factory=list)
-    litho_lens_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    # Body boundary shapes + control nodes (#163f Slice 2).  Additive.
+    body_boundary_shapes: list[dict[str, Any]] = Field(default_factory=list)
+    body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
