@@ -995,27 +995,9 @@ async def _restore_formations(
     int
         Number of formation rows newly inserted.
     """
-    existing = set(
-        (
-            await session.execute(
-                select(GeologicalFormationOrm.id).where(
-                    GeologicalFormationOrm.app_project_id == project_id
-                )
-            )
-        )
-        .scalars()
-        .all()
+    return await _restore_flat_rows(
+        session, project_id, GeologicalFormationOrm, geological_formations_payload
     )
-    new_formations = 0
-    for f_payload in geological_formations_payload:
-        f_id = _uuid(f_payload.get("id"))
-        if f_id is None or f_id in existing:
-            continue
-        kwargs = _apply_json_to_kwargs(GeologicalFormationOrm, f_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(GeologicalFormationOrm(**kwargs))
-        new_formations += 1
-    return new_formations
 
 
 async def _restore_geotech_units(
@@ -1043,27 +1025,56 @@ async def _restore_geotech_units(
     int
         Number of unit rows newly inserted.
     """
+    return await _restore_flat_rows(
+        session, project_id, GeotechnicalUnitOrm, geotechnical_units_payload
+    )
+
+
+async def _restore_flat_rows(
+    session: AsyncSession,
+    project_id: UUID,
+    orm_cls: type[Any],
+    payload: list[dict[str, Any]],
+) -> int:
+    """Insert project-scoped ORM rows from the bundle, skipping existing ids.
+
+    Shared by ``_restore_formations``, ``_restore_geotech_units``, and
+    ``_restore_cross_sections`` — all three follow the identical pattern of
+    deduping against the DB by id and inserting new rows with
+    ``app_project_id`` injected.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project (injected into every new row as ``app_project_id``).
+    orm_cls : type[Any]
+        The ORM class to instantiate (must have ``id`` + ``app_project_id``
+        columns that ``_apply_json_to_kwargs`` maps to).
+    payload : list[dict[str, Any]]
+        Raw item dicts from the bundle.
+
+    Returns
+    -------
+    int
+        Number of rows newly inserted.
+    """
     existing = set(
-        (
-            await session.execute(
-                select(GeotechnicalUnitOrm.id).where(
-                    GeotechnicalUnitOrm.app_project_id == project_id
-                )
-            )
-        )
+        (await session.execute(select(orm_cls.id).where(orm_cls.app_project_id == project_id)))
         .scalars()
         .all()
     )
-    new_units = 0
-    for u_payload in geotechnical_units_payload:
-        u_id = _uuid(u_payload.get("id"))
-        if u_id is None or u_id in existing:
+    inserted = 0
+    for item in payload:
+        item_id = _uuid(item.get("id"))
+        if item_id is None or item_id in existing:
             continue
-        kwargs = _apply_json_to_kwargs(GeotechnicalUnitOrm, u_payload)
+        kwargs = _apply_json_to_kwargs(orm_cls, item)
         kwargs["app_project_id"] = project_id
-        session.add(GeotechnicalUnitOrm(**kwargs))
-        new_units += 1
-    return new_units
+        session.add(orm_cls(**kwargs))
+        inserted += 1
+    return inserted
 
 
 async def _build_valid_formation_ids(
@@ -1323,25 +1334,7 @@ async def _restore_cross_sections(
     int
         Number of cross-section rows newly inserted.
     """
-    existing = set(
-        (
-            await session.execute(
-                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    new_sections = 0
-    for s_payload in cross_sections_payload:
-        s_id = _uuid(s_payload.get("id"))
-        if s_id is None or s_id in existing:
-            continue
-        kwargs = _apply_json_to_kwargs(CrossSectionOrm, s_payload)
-        kwargs["app_project_id"] = project_id
-        session.add(CrossSectionOrm(**kwargs))
-        new_sections += 1
-    return new_sections
+    return await _restore_flat_rows(session, project_id, CrossSectionOrm, cross_sections_payload)
 
 
 async def _restore_investigation_reviews(
