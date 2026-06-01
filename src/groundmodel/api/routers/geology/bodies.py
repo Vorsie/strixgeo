@@ -88,7 +88,7 @@ from groundmodel.application.body_boundary import (
     GetBodyBoundary,
     SaveBodyBoundary,
 )
-from groundmodel.application.claim_body_extent import ClaimBodyExtent
+from groundmodel.application.claim_body_extent import ClaimBodyExtent, ProvenanceViolationError
 from groundmodel.application.clear_body_extent import ClearBodyExtent
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
@@ -371,6 +371,15 @@ async def claim_body_extent(
             neighbour_inv_id=request.neighbour_inv_id,
             primary_section_id=request.primary_section_id,
         )
+    except ProvenanceViolationError as exc:
+        # Provenance rule §5.2: detector-set extent cannot be overwritten
+        # without an explicit ClearBodyExtent call.  409 signals a conflict
+        # state the user must explicitly resolve (distinct from 422 which
+        # signals a plain validation error the client sent bad data for).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "provenance_violation", "message": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -574,6 +583,7 @@ async def clear_body_extent(
     try:
         body = await ClearBodyExtent(session).execute(
             project_id=project_id,
+            model_id=model_id,
             body_id=body_id,
             side=side,
         )
