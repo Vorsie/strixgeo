@@ -2698,6 +2698,22 @@ export const api = {
       }
     },
 
+    // Bulk-delete every purely-detected body of a litho model. Preserves
+    // user-named + user-claimed ("accepted") bodies (backend provenance rule).
+    // Returns the deleted / preserved counts for the toolbar toast.
+    clearDetectedBodies: async (
+      projectId: string,
+      modelId: string,
+    ): Promise<{ bodies_deleted: number; bodies_preserved: number }> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/bodies`
+      const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+      return res.json() as Promise<{ bodies_deleted: number; bodies_preserved: number }>
+    },
+
     // Backwards-compat alias — slice-6 callers switch to deleteBody directly.
     deleteLens: async (
       projectId: string,
