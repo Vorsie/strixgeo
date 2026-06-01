@@ -699,7 +699,7 @@ export function useProject(): UseProject {
           geological_models: parsed.geological_models,
           cross_sections: parsed.cross_sections,
           investigation_reviews: parsed.investigation_reviews,
-          litho_lenses: parsed.litho_lenses,
+          bodies: parsed.bodies,
           formation_absences: parsed.formation_absences,
           litho_contact_correlation_edges: parsed.litho_contact_correlation_edges,
           litho_lens_shapes: parsed.litho_lens_shapes,
