@@ -21,7 +21,7 @@
  * set (stored per body) and is limited to wedge-kind sides.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
   BodyBoundaryNode,
@@ -268,390 +268,422 @@ export default function BodyExtentOverlay({
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
 
-  // --- world-coordinate lookup maps ----------------------------------------
-  const bodyById = new Map(bodies.map(b => [b.id, b]))
-  const contactById = new Map(contacts.map(c => [c.id, c]))
-  const colByInv = new Map<
-    string,
-    { along: number; surfaceElevM: number; nudgedX: number; width: number }
-  >()
-  for (const col of placedColumns) {
-    const elev = col.proj.item.elevation_m
-    if (elev !== null && elev !== undefined) {
-      colByInv.set(col.proj.item.id, {
-        along: col.proj.along,
-        surfaceElevM: elev,
-        nudgedX: col.nudgedX,
-        width: col.width,
-      })
-    }
-  }
-
-  const anchorIdOf = (c: FormationContactResponse): string | null =>
-    c.cpt_id ?? c.borehole_id ?? null
-
-  const depthByContact = new Map<string, number>(contacts.map(c => [c.id, c.depth_top_m]))
-
-  const invByContact = new Map<string, string>()
-  for (const c of contacts) {
-    const inv = anchorIdOf(c)
-    if (inv !== null) invByContact.set(c.id, inv)
-  }
-
-  /**
-   * Column-edge world point — elevation is derived from the contact's
-   * depth below the surface; along_m is the column's EDGE FACING
-   * ``otherSideAlong`` (warp-aware inverse so spacing != 100% works).
-   */
-  function worldPtEdge(contactId: string, otherSideAlong: number): WorldPt | null {
-    const c = contactById.get(contactId)
-    if (!c) return null
-    const inv = anchorIdOf(c)
-    if (inv === null) return null
-    const col = colByInv.get(inv)
-    if (!col) return null
-    const halfW = col.width / 2
-    // The facing edge is the one closer to the other side of the wedge.
-    const edgeX = col.nudgedX + (otherSideAlong > col.along ? +halfW : -halfW)
-    return { along_m: screenXToAlong(edgeX), elevation_m: col.surfaceElevM - c.depth_top_m }
-  }
-
-  /**
-   * Column-edge world point for the source side facing a given neighbour
-   * along, returning both the top-contact and base-contact elevations.
-   */
-  function sourcePair(
-    aboveContactId: string,
-    belowContactId: string,
-    towardAlong: number,
-  ): { topSource: WorldPt; baseSource: WorldPt } | null {
-    const topSource = worldPtEdge(aboveContactId, towardAlong)
-    const baseSource = worldPtEdge(belowContactId, towardAlong)
-    if (!topSource || !baseSource) return null
-    return { topSource, baseSource }
-  }
-
-  // --- Build per-body neighbour map (approved edges) -----------------------
-  const edgePairs = contactEdges.map(e => ({ a: e.contact_a_id, b: e.contact_b_id }))
-  const neighboursByContact = new Map<string, Set<string>>()
-  for (const e of contactEdges) {
-    if (!neighboursByContact.has(e.contact_a_id)) {
-      neighboursByContact.set(e.contact_a_id, new Set())
-    }
-    if (!neighboursByContact.has(e.contact_b_id)) {
-      neighboursByContact.set(e.contact_b_id, new Set())
-    }
-    neighboursByContact.get(e.contact_a_id)!.add(e.contact_b_id)
-    neighboursByContact.get(e.contact_b_id)!.add(e.contact_a_id)
-  }
-
-  // --- Resolve each body to its rendered wedge descriptors -----------------
-  const resolved: ResolvedBody[] = []
-
-  for (const body of bodies) {
-    const sourceCol = colByInv.get(body.source_investigation_id)
-    if (!sourceCol) continue // source not on this section
-
-    const boundary = boundariesByBodyId.get(body.id)
-    const style: BodyRenderStyle = boundary?.render_style ?? 'straight'
-    const storedUpperNodes = boundary?.upper_nodes ?? []
-    const storedLowerNodes = boundary?.lower_nodes ?? []
-
-    // Helper to resolve one side (left or right).
-    // ``col`` is the resolved source column (already validated non-null by the caller).
-    function resolveSide(
-      side: 'left' | 'right',
-      col: { along: number; surfaceElevM: number; nudgedX: number; width: number },
-      aboveContactId: string | null,
-      belowContactId: string | null,
-      extentKindRaw: string | null,
-      targetContactId: string | null,
-      neighbourInvId: string | null,
-      isPrimary: boolean,
-    ): ResolvedBody | null {
-      if (!isExtentKind(extentKindRaw)) return null
-      if (!aboveContactId || !belowContactId) return null
-
-      const aboveContact = contactById.get(aboveContactId)
-      const belowContact = contactById.get(belowContactId)
-      if (!aboveContact || !belowContact) return null
-
-      // Determine the along direction for this side.
-      // "left" means the endpoint is to the LEFT of the source column;
-      // "right" means to the RIGHT. The neighbour/target column gives us
-      // the definitive along; for ``open`` we use the section endpoint.
-      let towardAlong: number
-
-      switch (extentKindRaw) {
-        case 'to_target': {
-          if (!targetContactId) return null
-          const targetInv = invByContact.get(targetContactId)
-          if (!targetInv) return null
-          const targetCol = colByInv.get(targetInv)
-          if (!targetCol) return null
-          towardAlong = targetCol.along
-          break
-        }
-        case 'pinch_out_halfway':
-        case 'extrapolated': {
-          if (!neighbourInvId) return null
-          const neighbourCol = colByInv.get(neighbourInvId)
-          if (!neighbourCol) return null
-          towardAlong = neighbourCol.along
-          break
-        }
-        case 'open': {
-          // For open extents, the endpoint is at the section boundary.
-          // Convert section-boundary screen X back to along via the
-          // warp-aware inverse, choosing the correct end.
-          towardAlong = side === 'left'
-            ? screenXToAlong(sectionStartScreenX)
-            : screenXToAlong(sectionEndScreenX)
-          break
-        }
-        default:
-          return null
+  // --- world-coordinate lookup maps + resolve pass ----------------------------
+  // Memoized so that drag-mousemove renders (which only change ``drag``) do not
+  // rebuild all Maps and re-run the O(bodies × contacts) resolve loop on every
+  // animation frame.  ``drag`` is included because ``resolveSide`` reads
+  // ``storedUpperNodes`` / ``storedLowerNodes`` which are constant, but the
+  // live node positions for the dragged body are overridden from ``drag`` in the
+  // render section below — the memo itself doesn't need ``drag`` for correctness.
+  // However, the ghost-candidate section below does not use ``drag`` at all.
+  // The memo deps are all inputs to the resolve pass; none of the screen-space
+  // transforms (``alongToScreenX``, ``levelToScreen``) are consumed here —
+  // those only apply in the render section.
+  const {
+    bodyById,
+    contactById,
+    colByInv,
+    resolved,
+    worldPtEdge,
+  } = useMemo(() => {
+    const _bodyById = new Map(bodies.map(b => [b.id, b]))
+    const _contactById = new Map(contacts.map(c => [c.id, c]))
+    const _colByInv = new Map<
+      string,
+      { along: number; surfaceElevM: number; nudgedX: number; width: number }
+    >()
+    for (const col of placedColumns) {
+      const elev = col.proj.item.elevation_m
+      if (elev !== null && elev !== undefined) {
+        _colByInv.set(col.proj.item.id, {
+          along: col.proj.along,
+          surfaceElevM: elev,
+          nudgedX: col.nudgedX,
+          width: col.width,
+        })
       }
+    }
 
-      const pair = sourcePair(aboveContactId, belowContactId, towardAlong)
-      if (!pair) return null
-      const { topSource, baseSource } = pair
+    const _anchorIdOf = (c: FormationContactResponse): string | null =>
+      c.cpt_id ?? c.borehole_id ?? null
 
-      // Compute the far endpoint based on kind.
-      let farPoint: WorldPt
-      let isOpen = false
-      let isExtrapolated = false
+    const _depthByContact = new Map<string, number>(contacts.map(c => [c.id, c.depth_top_m]))
 
-      switch (extentKindRaw) {
-        case 'to_target': {
-          const targetInv = invByContact.get(targetContactId!)!
-          // Pinch at the target column's edge facing the source.
-          const pinch = worldPtEdge(targetContactId!, col.along)
-          if (!pinch) return null
-          farPoint = pinch
-          break
+    const _invByContact = new Map<string, string>()
+    for (const c of contacts) {
+      const inv = _anchorIdOf(c)
+      if (inv !== null) _invByContact.set(c.id, inv)
+    }
+
+    /**
+     * Column-edge world point — elevation is derived from the contact's
+     * depth below the surface; along_m is the column's EDGE FACING
+     * ``otherSideAlong`` (warp-aware inverse so spacing != 100% works).
+     */
+    function _worldPtEdge(contactId: string, otherSideAlong: number): WorldPt | null {
+      const c = _contactById.get(contactId)
+      if (!c) return null
+      const inv = _anchorIdOf(c)
+      if (inv === null) return null
+      const col = _colByInv.get(inv)
+      if (!col) return null
+      const halfW = col.width / 2
+      // The facing edge is the one closer to the other side of the wedge.
+      const edgeX = col.nudgedX + (otherSideAlong > col.along ? +halfW : -halfW)
+      return { along_m: screenXToAlong(edgeX), elevation_m: col.surfaceElevM - c.depth_top_m }
+    }
+
+    /**
+     * Column-edge world point for the source side facing a given neighbour
+     * along, returning both the top-contact and base-contact elevations.
+     */
+    function _sourcePair(
+      aboveContactId: string,
+      belowContactId: string,
+      towardAlong: number,
+    ): { topSource: WorldPt; baseSource: WorldPt } | null {
+      const topSource = _worldPtEdge(aboveContactId, towardAlong)
+      const baseSource = _worldPtEdge(belowContactId, towardAlong)
+      if (!topSource || !baseSource) return null
+      return { topSource, baseSource }
+    }
+
+    // --- Build per-body neighbour map (approved edges) -----------------------
+    const _edgePairs = contactEdges.map(e => ({ a: e.contact_a_id, b: e.contact_b_id }))
+    const _neighboursByContact = new Map<string, Set<string>>()
+    for (const e of contactEdges) {
+      if (!_neighboursByContact.has(e.contact_a_id)) {
+        _neighboursByContact.set(e.contact_a_id, new Set())
+      }
+      if (!_neighboursByContact.has(e.contact_b_id)) {
+        _neighboursByContact.set(e.contact_b_id, new Set())
+      }
+      _neighboursByContact.get(e.contact_a_id)!.add(e.contact_b_id)
+      _neighboursByContact.get(e.contact_b_id)!.add(e.contact_a_id)
+    }
+
+    // --- Resolve each body to its rendered wedge descriptors -----------------
+    const _resolved: ResolvedBody[] = []
+
+    for (const body of bodies) {
+      const sourceCol = _colByInv.get(body.source_investigation_id)
+      if (!sourceCol) continue // source not on this section
+
+      const boundary = boundariesByBodyId.get(body.id)
+      const style: BodyRenderStyle = boundary?.render_style ?? 'straight'
+      const storedUpperNodes = boundary?.upper_nodes ?? []
+      const storedLowerNodes = boundary?.lower_nodes ?? []
+
+      // Helper to resolve one side (left or right).
+      // ``col`` is the resolved source column (already validated non-null by the caller).
+      function resolveSide(
+        side: 'left' | 'right',
+        col: { along: number; surfaceElevM: number; nudgedX: number; width: number },
+        aboveContactId: string | null,
+        belowContactId: string | null,
+        extentKindRaw: string | null,
+        targetContactId: string | null,
+        neighbourInvId: string | null,
+        isPrimary: boolean,
+      ): ResolvedBody | null {
+        if (!isExtentKind(extentKindRaw)) return null
+        if (!aboveContactId || !belowContactId) return null
+
+        const aboveContact = _contactById.get(aboveContactId)
+        const belowContact = _contactById.get(belowContactId)
+        if (!aboveContact || !belowContact) return null
+
+        // Determine the along direction for this side.
+        // "left" means the endpoint is to the LEFT of the source column;
+        // "right" means to the RIGHT. The neighbour/target column gives us
+        // the definitive along; for ``open`` we use the section endpoint.
+        let towardAlong: number
+
+        switch (extentKindRaw) {
+          case 'to_target': {
+            if (!targetContactId) return null
+            const targetInv = _invByContact.get(targetContactId)
+            if (!targetInv) return null
+            const targetCol = _colByInv.get(targetInv)
+            if (!targetCol) return null
+            towardAlong = targetCol.along
+            break
+          }
+          case 'pinch_out_halfway':
+          case 'extrapolated': {
+            if (!neighbourInvId) return null
+            const neighbourCol = _colByInv.get(neighbourInvId)
+            if (!neighbourCol) return null
+            towardAlong = neighbourCol.along
+            break
+          }
+          case 'open': {
+            // For open extents, the endpoint is at the section boundary.
+            // Convert section-boundary screen X back to along via the
+            // warp-aware inverse, choosing the correct end.
+            towardAlong = side === 'left'
+              ? screenXToAlong(sectionStartScreenX)
+              : screenXToAlong(sectionEndScreenX)
+            break
+          }
+          default:
+            return null
         }
-        case 'pinch_out_halfway': {
-          const neighbourCol = colByInv.get(neighbourInvId!)!
-          farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
-          break
-        }
-        case 'extrapolated': {
-          const neighbourCol = colByInv.get(neighbourInvId!)!
-          const result = computeDipExtrapolationEndpoint({
-            sourceAboveAlong: col.along,
-            sourceAboveElevation: topSource.elevation_m,
-            sourceBelowAlong: col.along,
-            sourceBelowElevation: baseSource.elevation_m,
-            neighbourAlong: neighbourCol.along,
-            neighbourSurfaceElevation: neighbourCol.surfaceElevM,
-          })
-          if (result === null) {
-            // Degenerate — fall back to halfway like pinch_out_halfway.
-            console.warn(
-              `[BodyExtentOverlay] Dip extrapolation degenerate for body ${body.id} ` +
-              `side ${side} — falling back to halfway midpoint.`,
-            )
+
+        const pair = _sourcePair(aboveContactId, belowContactId, towardAlong)
+        if (!pair) return null
+        const { topSource, baseSource } = pair
+
+        // Compute the far endpoint based on kind.
+        let farPoint: WorldPt
+        let isOpen = false
+        let isExtrapolated = false
+
+        switch (extentKindRaw) {
+          case 'to_target': {
+            // Pinch at the target column's edge facing the source.
+            const pinch = _worldPtEdge(targetContactId!, col.along)
+            if (!pinch) return null
+            farPoint = pinch
+            break
+          }
+          case 'pinch_out_halfway': {
+            const neighbourCol = _colByInv.get(neighbourInvId!)!
             farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
-          } else {
-            farPoint = { along_m: result.along, elevation_m: result.elevation }
-            isExtrapolated = true
+            break
           }
-          break
+          case 'extrapolated': {
+            const neighbourCol = _colByInv.get(neighbourInvId!)!
+            const result = computeDipExtrapolationEndpoint({
+              sourceAboveAlong: col.along,
+              sourceAboveElevation: topSource.elevation_m,
+              sourceBelowAlong: col.along,
+              sourceBelowElevation: baseSource.elevation_m,
+              neighbourAlong: neighbourCol.along,
+              neighbourSurfaceElevation: neighbourCol.surfaceElevM,
+            })
+            if (result === null) {
+              // Degenerate — fall back to halfway like pinch_out_halfway.
+              console.warn(
+                `[BodyExtentOverlay] Dip extrapolation degenerate for body ${body.id} ` +
+                `side ${side} — falling back to halfway midpoint.`,
+              )
+              farPoint = halfwayFarPoint(col, neighbourCol, topSource, baseSource)
+            } else {
+              farPoint = { along_m: result.along, elevation_m: result.elevation }
+              isExtrapolated = true
+            }
+            break
+          }
+          case 'open': {
+            // Parallel-sided band — far point is at section edge, body mid-elevation.
+            const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
+            farPoint = { along_m: towardAlong, elevation_m: midElev }
+            isOpen = true
+            break
+          }
+          default:
+            return null
         }
-        case 'open': {
-          // Parallel-sided band — far point is at section edge, body mid-elevation.
-          const midElev = (topSource.elevation_m + baseSource.elevation_m) / 2
-          farPoint = { along_m: towardAlong, elevation_m: midElev }
-          isOpen = true
-          break
-        }
-        default:
-          return null
-      }
 
-      // Direction sign for dip arrow: +1 if endpoint is to the right, -1 if left.
-      const extrapolationDirectionSign = farPoint.along_m > col.along ? 1 : -1
+        // Direction sign for dip arrow: +1 if endpoint is to the right, -1 if left.
+        const extrapolationDirectionSign = farPoint.along_m > col.along ? 1 : -1
 
-      // For the dissolve gesture we need the lens roles; use the content_key
-      // when available (legacy lens bodies); otherwise derive from edge graph.
-      let aboveId = aboveContactId
-      let belowId = belowContactId
-      let targetId = targetContactId ?? aboveContactId // fallback — won't be used for non-target kinds
+        // For the dissolve gesture we need the lens roles; use the content_key
+        // when available (legacy lens bodies); otherwise derive from edge graph.
+        let aboveId = aboveContactId
+        let belowId = belowContactId
+        let targetId = targetContactId ?? aboveContactId // fallback — won't be used for non-target kinds
 
-      if (extentKindRaw === 'to_target' && targetContactId) {
-        targetId = targetContactId
-      } else if (body.content_key) {
-        const ids = parseContentKey(body.content_key)
-        const roles = resolveLensRoles(ids, edgePairs, depthByContact)
-        if (roles) {
-          aboveId = roles.aboveId
-          belowId = roles.belowId
-          targetId = roles.targetId
-        }
-      }
-
-      return {
-        bodyId: body.id,
-        wedgeKey: isPrimary ? body.id : `${body.id}::${side}`,
-        isPrimary,
-        style,
-        upperNodes: isPrimary ? storedUpperNodes : [],
-        lowerNodes: isPrimary ? storedLowerNodes : [],
-        topSource,
-        baseSource,
-        farPoint,
-        isOpen,
-        isExtrapolated,
-        extrapolationDirectionSign,
-        aboveId,
-        belowId,
-        targetId,
-      }
-    }
-
-    // --- Try the new extent_<side>_kind fields first ----------------------
-    // A body with extent fields set uses the per-side dispatch.
-    const hasExtentFields =
-      isExtentKind(body.extent_left_kind) || isExtentKind(body.extent_right_kind)
-
-    if (hasExtentFields) {
-      // Find the framing contacts. For extent-based bodies, the framing
-      // contacts are the contacts on the source investigation that form
-      // the body's top and base. We derive them from the correlation graph.
-      //
-      // Collect contacts on the source investigation.
-      const sourceContacts = contacts.filter(c => {
-        const inv = anchorIdOf(c)
-        return inv === body.source_investigation_id
-      })
-      if (sourceContacts.length < 2) continue
-
-      // Sort by depth ascending to get top (shallow) and base (deep).
-      const sortedByDepth = sourceContacts
-        .slice()
-        .sort((a, b) => a.depth_top_m - b.depth_top_m)
-      // Use the content_key if available to get the two source contacts;
-      // otherwise use the two shallowest/deepest contacts on the source.
-      let aboveContactId: string | null = null
-      let belowContactId: string | null = null
-
-      if (body.content_key) {
-        const ids = parseContentKey(body.content_key)
-        const roles = resolveLensRoles(ids, edgePairs, depthByContact)
-        if (roles) {
-          // Verify both source contacts are on the source investigation.
-          const aboveInv = invByContact.get(roles.aboveId)
-          const belowInv = invByContact.get(roles.belowId)
-          if (
-            aboveInv === body.source_investigation_id &&
-            belowInv === body.source_investigation_id
-          ) {
-            aboveContactId = roles.aboveId
-            belowContactId = roles.belowId
+        if (extentKindRaw === 'to_target' && targetContactId) {
+          targetId = targetContactId
+        } else if (body.content_key) {
+          const ids = parseContentKey(body.content_key)
+          const roles = resolveLensRoles(ids, _edgePairs, _depthByContact)
+          if (roles) {
+            aboveId = roles.aboveId
+            belowId = roles.belowId
+            targetId = roles.targetId
           }
         }
+
+        return {
+          bodyId: body.id,
+          wedgeKey: isPrimary ? body.id : `${body.id}::${side}`,
+          isPrimary,
+          style,
+          upperNodes: isPrimary ? storedUpperNodes : [],
+          lowerNodes: isPrimary ? storedLowerNodes : [],
+          topSource,
+          baseSource,
+          farPoint,
+          isOpen,
+          isExtrapolated,
+          extrapolationDirectionSign,
+          aboveId,
+          belowId,
+          targetId,
+        }
       }
 
-      // Fall back to using the shallow+deep contacts on the source investigation.
-      if (aboveContactId === null || belowContactId === null) {
-        aboveContactId = sortedByDepth[0]?.id ?? null
-        belowContactId = sortedByDepth[sortedByDepth.length - 1]?.id ?? null
+      // --- Try the new extent_<side>_kind fields first ----------------------
+      // A body with extent fields set uses the per-side dispatch.
+      const hasExtentFields =
+        isExtentKind(body.extent_left_kind) || isExtentKind(body.extent_right_kind)
+
+      if (hasExtentFields) {
+        // Find the framing contacts. For extent-based bodies, the framing
+        // contacts are the contacts on the source investigation that form
+        // the body's top and base. We derive them from the correlation graph.
+        //
+        // Collect contacts on the source investigation.
+        const sourceContacts = contacts.filter(c => {
+          const inv = _anchorIdOf(c)
+          return inv === body.source_investigation_id
+        })
+        if (sourceContacts.length < 2) continue
+
+        // Sort by depth ascending to get top (shallow) and base (deep).
+        const sortedByDepth = sourceContacts
+          .slice()
+          .sort((a, b) => a.depth_top_m - b.depth_top_m)
+        // Use the content_key if available to get the two source contacts;
+        // otherwise use the two shallowest/deepest contacts on the source.
+        let aboveContactId: string | null = null
+        let belowContactId: string | null = null
+
+        if (body.content_key) {
+          const ids = parseContentKey(body.content_key)
+          const roles = resolveLensRoles(ids, _edgePairs, _depthByContact)
+          if (roles) {
+            // Verify both source contacts are on the source investigation.
+            const aboveInv = _invByContact.get(roles.aboveId)
+            const belowInv = _invByContact.get(roles.belowId)
+            if (
+              aboveInv === body.source_investigation_id &&
+              belowInv === body.source_investigation_id
+            ) {
+              aboveContactId = roles.aboveId
+              belowContactId = roles.belowId
+            }
+          }
+        }
+
+        // Fall back to using the shallow+deep contacts on the source investigation.
+        if (aboveContactId === null || belowContactId === null) {
+          aboveContactId = sortedByDepth[0]?.id ?? null
+          belowContactId = sortedByDepth[sortedByDepth.length - 1]?.id ?? null
+        }
+
+        if (!aboveContactId || !belowContactId) continue
+
+        // Resolve left side.
+        if (isExtentKind(body.extent_left_kind)) {
+          const leftResolved = resolveSide(
+            'left',
+            sourceCol,
+            aboveContactId,
+            belowContactId,
+            body.extent_left_kind,
+            body.extent_left_target_contact_id,
+            body.extent_left_neighbour_inv_id,
+            true, // left side = primary for edge-anchoring purposes
+          )
+          if (leftResolved) _resolved.push(leftResolved)
+        }
+
+        // Resolve right side.
+        if (isExtentKind(body.extent_right_kind)) {
+          const rightResolved = resolveSide(
+            'right',
+            sourceCol,
+            aboveContactId,
+            belowContactId,
+            body.extent_right_kind,
+            body.extent_right_target_contact_id,
+            body.extent_right_neighbour_inv_id,
+            !isExtentKind(body.extent_left_kind), // only primary if no left side
+          )
+          if (rightResolved) _resolved.push(rightResolved)
+        }
+        continue
       }
 
-      if (!aboveContactId || !belowContactId) continue
+      // --- Legacy content_key path (pre-extent bodies) ----------------------
+      // This mirrors the original LensWedgeOverlay logic exactly.
+      if (!body.content_key) continue
+      const ids = parseContentKey(body.content_key)
+      if (ids.length !== 3) continue
+      if (!ids.every(id => _contactById.has(id))) continue
+      const roles = resolveLensRoles(ids, _edgePairs, _depthByContact)
+      if (roles === null) continue
 
-      // Resolve left side.
-      if (isExtentKind(body.extent_left_kind)) {
-        const leftResolved = resolveSide(
-          'left',
-          sourceCol,
-          aboveContactId,
-          belowContactId,
-          body.extent_left_kind,
-          body.extent_left_target_contact_id,
-          body.extent_left_neighbour_inv_id,
-          true, // left side = primary for edge-anchoring purposes
-        )
-        if (leftResolved) resolved.push(leftResolved)
-      }
+      const sourceInvId = _invByContact.get(roles.aboveId)
+      const primaryTargetInv = _invByContact.get(roles.targetId)
+      if (sourceInvId === undefined || primaryTargetInv === undefined) continue
+      const legacySourceCol = _colByInv.get(sourceInvId)
+      if (!legacySourceCol) continue
 
-      // Resolve right side.
-      if (isExtentKind(body.extent_right_kind)) {
-        const rightResolved = resolveSide(
-          'right',
-          sourceCol,
-          aboveContactId,
-          belowContactId,
-          body.extent_right_kind,
-          body.extent_right_target_contact_id,
-          body.extent_right_neighbour_inv_id,
-          !isExtentKind(body.extent_left_kind), // only primary if no left side
-        )
-        if (rightResolved) resolved.push(rightResolved)
+      // Find all common targets (bilateral closure).
+      const aboveNeigh = _neighboursByContact.get(roles.aboveId) ?? new Set<string>()
+      const belowNeigh = _neighboursByContact.get(roles.belowId) ?? new Set<string>()
+      const commonTargets: string[] = []
+      for (const candidate of aboveNeigh) {
+        if (!belowNeigh.has(candidate)) continue
+        const candInv = _invByContact.get(candidate)
+        if (candInv === undefined || candInv === sourceInvId) continue
+        commonTargets.push(candidate)
       }
-      continue
+      const orderedTargets = [
+        roles.targetId,
+        ...commonTargets.filter(t => t !== roles.targetId).sort(),
+      ]
+
+      for (const targetId of orderedTargets) {
+        const isPrimary = targetId === roles.targetId
+        const targetCol = _colByInv.get(_invByContact.get(targetId)!)
+        if (!targetCol) continue
+
+        const topSource = _worldPtEdge(roles.aboveId, targetCol.along)
+        const baseSource = _worldPtEdge(roles.belowId, targetCol.along)
+        const pinch = _worldPtEdge(targetId, legacySourceCol.along)
+        if (!topSource || !baseSource || !pinch) continue
+
+        _resolved.push({
+          bodyId: body.id,
+          wedgeKey: isPrimary ? body.id : `${body.id}::${targetId}`,
+          isPrimary,
+          style,
+          upperNodes: isPrimary ? storedUpperNodes : [],
+          lowerNodes: isPrimary ? storedLowerNodes : [],
+          topSource,
+          baseSource,
+          farPoint: pinch,
+          isOpen: false,
+          isExtrapolated: false,
+          extrapolationDirectionSign: 1,
+          aboveId: roles.aboveId,
+          belowId: roles.belowId,
+          targetId,
+        })
+      }
     }
 
-    // --- Legacy content_key path (pre-extent bodies) ----------------------
-    // This mirrors the original LensWedgeOverlay logic exactly.
-    if (!body.content_key) continue
-    const ids = parseContentKey(body.content_key)
-    if (ids.length !== 3) continue
-    if (!ids.every(id => contactById.has(id))) continue
-    const roles = resolveLensRoles(ids, edgePairs, depthByContact)
-    if (roles === null) continue
-
-    const sourceInvId = invByContact.get(roles.aboveId)
-    const primaryTargetInv = invByContact.get(roles.targetId)
-    if (sourceInvId === undefined || primaryTargetInv === undefined) continue
-    const legacySourceCol = colByInv.get(sourceInvId)
-    if (!legacySourceCol) continue
-
-    // Find all common targets (bilateral closure).
-    const aboveNeigh = neighboursByContact.get(roles.aboveId) ?? new Set<string>()
-    const belowNeigh = neighboursByContact.get(roles.belowId) ?? new Set<string>()
-    const commonTargets: string[] = []
-    for (const candidate of aboveNeigh) {
-      if (!belowNeigh.has(candidate)) continue
-      const candInv = invByContact.get(candidate)
-      if (candInv === undefined || candInv === sourceInvId) continue
-      commonTargets.push(candidate)
+    return {
+      bodyById: _bodyById,
+      contactById: _contactById,
+      colByInv: _colByInv,
+      resolved: _resolved,
+      worldPtEdge: _worldPtEdge,
     }
-    const orderedTargets = [
-      roles.targetId,
-      ...commonTargets.filter(t => t !== roles.targetId).sort(),
-    ]
-
-    for (const targetId of orderedTargets) {
-      const isPrimary = targetId === roles.targetId
-      const targetCol = colByInv.get(invByContact.get(targetId)!)
-      if (!targetCol) continue
-
-      const topSource = worldPtEdge(roles.aboveId, targetCol.along)
-      const baseSource = worldPtEdge(roles.belowId, targetCol.along)
-      const pinch = worldPtEdge(targetId, legacySourceCol.along)
-      if (!topSource || !baseSource || !pinch) continue
-
-      resolved.push({
-        bodyId: body.id,
-        wedgeKey: isPrimary ? body.id : `${body.id}::${targetId}`,
-        isPrimary,
-        style,
-        upperNodes: isPrimary ? storedUpperNodes : [],
-        lowerNodes: isPrimary ? storedLowerNodes : [],
-        topSource,
-        baseSource,
-        farPoint: pinch,
-        isOpen: false,
-        isExtrapolated: false,
-        extrapolationDirectionSign: 1,
-        aboveId: roles.aboveId,
-        belowId: roles.belowId,
-        targetId,
-      })
-    }
-  }
+  // reason: screenXToAlong + sectionStartScreenX + sectionEndScreenX are consumed
+  // inside the memo (the ``open`` extent kind uses them to compute towardAlong
+  // via the warp-aware inverse). They are stable between drag events and change
+  // only when the section line or column spacing changes, which also changes
+  // the body geometry — so including them is correct.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodies, contacts, placedColumns, contactEdges, boundariesByBodyId,
+      screenXToAlong, sectionStartScreenX, sectionEndScreenX])
 
   // --- Drag lifecycle -------------------------------------------------------
   useEffect(() => {
