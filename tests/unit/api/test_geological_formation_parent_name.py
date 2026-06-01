@@ -23,9 +23,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
-import pytest
-
 from groundmodel.api.routers.geology.formations import (
+    _build_parent_code_map,
     _build_parent_name_map,
     _enrich_formation,
     _enrich_formation_list,
@@ -105,6 +104,7 @@ def _make_orm(
         instance_ordinal=instance_ordinal,
         instance_ordinal_locked=instance_ordinal_locked,
         parent_formation_name=None,  # not an ORM column — present so model_validate finds it
+        parent_formation_code=None,  # not an ORM column — server-resolved, defaults None
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -247,3 +247,57 @@ def test_n6_enrich_formation_list_self_referential() -> None:
     # Both litho units reference the same parent.
     for resp in [r for r in results if r.parent_formation_id == parent_id]:
         assert resp.parent_formation_name == "Boom Klei"
+
+
+# ---------------------------------------------------------------------------
+# N7 — parent_formation_code resolved from the parent's DOV code
+# ---------------------------------------------------------------------------
+
+
+def test_n7_litho_unit_parent_code_resolved() -> None:
+    """A litho unit's parent_formation_code resolves from the parent's ``code``.
+
+    Drives the lens auto-name ``{parent code}{lithology abbrev}{depth rank}``
+    (e.g. ``QPSa1``).
+    """
+    project_id = uuid4()
+    parent_id = uuid4()
+
+    geo_row = _make_orm(
+        id=parent_id,
+        app_project_id=project_id,
+        name="Quartair: Pleistocene afzettingen",
+        code="QP",
+    )
+    litho_row = _make_orm(
+        app_project_id=project_id,
+        name="ZAND",
+        parent_formation_id=parent_id,
+        lithology="ZAND",
+    )
+
+    name_map = _build_parent_name_map([geo_row, litho_row])  # type: ignore[arg-type]
+    code_map = _build_parent_code_map([geo_row, litho_row])  # type: ignore[arg-type]
+    enriched = _enrich_formation(litho_row, name_map, code_map)  # type: ignore[arg-type]
+
+    assert enriched.parent_formation_code == "QP"
+    # _enrich_formation_list resolves it too (same self-referential map).
+    listed = _enrich_formation_list([geo_row, litho_row])  # type: ignore[arg-type]
+    litho_resp = next(r for r in listed if r.parent_formation_id == parent_id)
+    assert litho_resp.parent_formation_code == "QP"
+
+
+def test_n8_parent_code_none_when_code_map_omitted() -> None:
+    """``_enrich_formation`` without a code_map leaves parent_formation_code None.
+
+    Pins the backwards-compatible optional ``code_map`` parameter.
+    """
+    project_id = uuid4()
+    parent_id = uuid4()
+    geo_row = _make_orm(id=parent_id, app_project_id=project_id, name="Diest", code="D")
+    litho_row = _make_orm(
+        app_project_id=project_id, name="ZAND", parent_formation_id=parent_id, lithology="ZAND"
+    )
+    name_map = _build_parent_name_map([geo_row, litho_row])  # type: ignore[arg-type]
+    enriched = _enrich_formation(litho_row, name_map)  # type: ignore[arg-type]  # no code_map
+    assert enriched.parent_formation_code is None
