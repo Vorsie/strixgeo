@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
 import { api } from '../api/client'
-import type { CrossSectionResponse, FormationContactResponse } from '../api/client'
+import type { CrossSectionResponse, FormationContactResponse, PinchOutCandidate } from '../api/client'
 import { addAllToSet } from '../utils/sets'
 import { projectPointOntoLine } from '../utils/sectionProjection'
 import { wgs84ToProjected } from './useWgs84'
@@ -150,6 +150,18 @@ export interface UseSectionsResult {
   armCorrelationSource: (source: CorrelationSource) => void
   /** Clear armed source without exiting mode (Esc layer 1). */
   clearCorrelationSource: () => void
+
+  // ---------------------------------------------------------------------------
+  // Pinch-out candidates (#body-with-extent Slice 7.3).
+  // Ephemeral — cleared when the section changes or the axis switches.
+  // ---------------------------------------------------------------------------
+  /**
+   * Candidates returned by the last "Suggest pinch-outs" run on the
+   * active litho model.  Empty until the toolbar button fires.
+   */
+  pinchOutCandidates: PinchOutCandidate[]
+  /** Replace the candidate list (called by SectionsToolbar after the API call). */
+  setPinchOutCandidates: (candidates: PinchOutCandidate[]) => void
 }
 
 /** Shape of a borehole list-item as seen by the hook (x/y only needed). */
@@ -277,6 +289,9 @@ export function useSections({
   // global coordinator selection (which is only set by map/data clicks).
   // Session-only: reset when the section changes.
   const [sectionFocusedColumn, setSectionFocusedColumn] = useState<FocusTarget | null>(null)
+  // Pinch-out candidates (#body-with-extent Slice 7.3) — ephemeral result
+  // from "Suggest pinch-outs".  Reset on section change or axis switch.
+  const [pinchOutCandidates, setPinchOutCandidates] = useState<PinchOutCandidate[]>([])
   // Reset the focused column whenever the selected section changes so
   // a stale focus from section A doesn't carry over to section B.
   const prevSectionIdRef = useRef<string | null>(null)
@@ -778,5 +793,7 @@ export function useSections({
     exitCorrelateMode,
     armCorrelationSource,
     clearCorrelationSource,
+    pinchOutCandidates,
+    setPinchOutCandidates,
   }
 }
