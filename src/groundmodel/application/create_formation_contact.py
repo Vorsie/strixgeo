@@ -28,6 +28,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.domain.value_objects.formation_contact_result import (
+    FormationContactResult,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -83,7 +86,7 @@ class CreateFormationContact(GroundModelLogger):
         observation_id: UUID | None = None,
         observation_layer_id: UUID | None = None,
         notes: str | None = None,
-    ) -> FormationContactOrm:
+    ) -> FormationContactResult:
         """Insert a contact under ``model_id`` and commit.
 
         Parameters
@@ -110,8 +113,11 @@ class CreateFormationContact(GroundModelLogger):
 
         Returns
         -------
-        FormationContactOrm
-            The freshly-inserted row with all DB defaults populated.
+        FormationContactResult
+            Immutable snapshot of the freshly-inserted row with all DB
+            defaults populated.  The ORM row is refreshed before the
+            snapshot is taken so all server-side defaults (``created_at``,
+            ``updated_at``, etc.) are present.
 
         Raises
         ------
@@ -211,4 +217,4 @@ class CreateFormationContact(GroundModelLogger):
         await self._session.commit()
         await self._session.refresh(contact)
         self.success(f"Formation contact created: {contact.id}")
-        return contact
+        return FormationContactResult.from_orm(contact)

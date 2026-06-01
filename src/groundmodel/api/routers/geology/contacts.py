@@ -82,6 +82,9 @@ from groundmodel.application.update_formation_contacts_batch import (
 )
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.domain.value_objects.formation_contact_result import (
+    FormationContactResult,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -158,7 +161,7 @@ async def create_contact(
     model_id: UUID,
     request: FormationContactCreateRequest,
     session: AsyncSession = Depends(get_session),
-) -> FormationContactOrm:
+) -> FormationContactResult:
     """Create a new formation contact under a model.
 
     Parameters
@@ -175,8 +178,8 @@ async def create_contact(
 
     Returns
     -------
-    FormationContactOrm
-        The created contact row (HTTP 201).
+    FormationContactResult
+        Snapshot of the created contact row (HTTP 201).
 
     Raises
     ------
@@ -294,7 +297,7 @@ async def update_contact(
     contact_id: UUID,
     request: FormationContactUpdateRequest,
     session: AsyncSession = Depends(get_session),
-) -> FormationContactOrm:
+) -> FormationContactResult:
     """Partial update on a contact (depth, formation, anchor, confidence, notes).
 
     The anchor pair (``borehole_id`` / ``cpt_id``) is updatable so
@@ -371,7 +374,7 @@ async def unlink_geo_from_contact(
     model_id: UUID,
     contact_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> FormationContactOrm:
+) -> FormationContactResult:
     """Break the litho↔geo coupling on a single lithostratigraphic contact.
 
     Nulls ``parent_geo_contact_id`` on the contact.  The geological
@@ -392,9 +395,9 @@ async def unlink_geo_from_contact(
 
     Returns
     -------
-    FormationContactOrm
-        The updated contact row with ``parent_geo_contact_id`` set to None
-        (HTTP 200).
+    FormationContactResult
+        Snapshot of the updated contact row with ``parent_geo_contact_id``
+        set to None (HTTP 200).
 
     Raises
     ------
@@ -444,7 +447,7 @@ async def link_geo_to_contact(
     model_id: UUID,
     contact_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> FormationContactOrm | None:
+) -> FormationContactResult | None:
     """Link a lithostratigraphic contact to the nearest geological contact.
 
     Manual inverse of the auto-link that fires on accept (#162).  Lets the
@@ -475,9 +478,9 @@ async def link_geo_to_contact(
 
     Returns
     -------
-    FormationContactOrm | None
-        The updated litho contact (HTTP 200), or ``None`` when no geo
-        contact is within tolerance.
+    FormationContactResult | None
+        Snapshot of the updated litho contact (HTTP 200), or ``None`` when
+        no geo contact is within tolerance.
 
     Raises
     ------

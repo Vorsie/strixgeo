@@ -46,6 +46,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.value_objects.formation_contact_result import (
+    FormationContactResult,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -69,7 +72,7 @@ class UpdateFormationContact(GroundModelLogger):
         self,
         contact_id: UUID,
         patch: dict[str, Any],
-    ) -> FormationContactOrm | None:
+    ) -> FormationContactResult | None:
         """Apply ``patch`` to ``contact_id``.
 
         When ``depth_top_m`` is the only changing field and the dragger
@@ -89,8 +92,9 @@ class UpdateFormationContact(GroundModelLogger):
 
         Returns
         -------
-        FormationContactOrm | None
-            The refreshed row after a normal update, or ``None`` when:
+        FormationContactResult | None
+            Immutable snapshot of the refreshed row after a normal update,
+            or ``None`` when:
 
             * the row vanished between the router's scope check and this
               call (TOCTOU race) — router maps to 404; or
@@ -304,7 +308,7 @@ class UpdateFormationContact(GroundModelLogger):
             f"depth_top_m={getattr(updated, 'depth_top_m', '?')} "
             f"formation_id={getattr(updated, 'formation_id', '?')}"
         )
-        return updated
+        return FormationContactResult.from_orm(updated)
 
     async def _propagate_coupled_depth(
         self,

@@ -36,6 +36,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -63,7 +64,7 @@ class LinkLithoToGeo(GroundModelLogger):
         project_id: UUID,
         contact_id: UUID,
         tolerance_m: float = 0.20,
-    ) -> FormationContactOrm | None:
+    ) -> FormationContactResult | None:
         """Link the litho contact to the nearest geo contact within tolerance.
 
         Parameters
@@ -79,10 +80,11 @@ class LinkLithoToGeo(GroundModelLogger):
 
         Returns
         -------
-        FormationContactOrm | None
-            The updated litho contact with ``parent_geo_contact_id`` set, or
-            ``None`` when no geo contact is within ``tolerance_m`` or when the
-            litho model has no parent geological model.
+        FormationContactResult | None
+            Immutable snapshot of the updated litho contact with
+            ``parent_geo_contact_id`` set, or ``None`` when no geo contact
+            is within ``tolerance_m`` or when the litho model has no parent
+            geological model.
 
         Raises
         ------
@@ -160,7 +162,7 @@ class LinkLithoToGeo(GroundModelLogger):
             f"LinkLithoToGeo: contact {contact_id} linked to geo contact "
             f"{geo_contact_id} (depth {contact.depth_top_m:.3f}m)"
         )
-        return contact
+        return FormationContactResult.from_orm(contact)
 
     async def _load_geo_contacts_at_inv(
         self,

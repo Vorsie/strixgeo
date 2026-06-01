@@ -19,6 +19,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
@@ -49,7 +50,7 @@ class UnlinkLithoFromGeo(GroundModelLogger):
         *,
         project_id: UUID,
         contact_id: UUID,
-    ) -> FormationContactOrm | None:
+    ) -> FormationContactResult | None:
         """Remove the geo coupling from a litho contact.
 
         Parameters
@@ -62,9 +63,10 @@ class UnlinkLithoFromGeo(GroundModelLogger):
 
         Returns
         -------
-        FormationContactOrm | None
-            The updated contact row (``parent_geo_contact_id`` is now None),
-            or ``None`` when the contact does not exist.
+        FormationContactResult | None
+            Immutable snapshot of the updated contact row
+            (``parent_geo_contact_id`` is now ``None``), or ``None`` when
+            the contact does not exist.
 
         Raises
         ------
@@ -92,9 +94,9 @@ class UnlinkLithoFromGeo(GroundModelLogger):
         contact.parent_geo_contact_id = None
 
         await self._session.commit()
-        # Refresh after commit so Pydantic's from_attributes serialisation can
-        # read scalar columns without triggering a lazy-load MissingGreenlet
-        # error (same pattern as CreateFormationContact).
+        # Refresh after commit so scalar columns (updated_at, etc.) are
+        # populated before the snapshot is taken — same pattern as
+        # CreateFormationContact.
         await self._session.refresh(contact)
         self.success(f"UnlinkLithoFromGeo: contact {contact_id} unlinked from geo coupling")
-        return contact
+        return FormationContactResult.from_orm(contact)

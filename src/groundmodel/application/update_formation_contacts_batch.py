@@ -22,6 +22,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.value_objects.formation_contact_result import (
+    FormationContactResult,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -44,7 +47,7 @@ class UpdateFormationContactsBatch(GroundModelLogger):
         self,
         model_id: UUID,
         entries: list[tuple[UUID, dict[str, Any]]],
-    ) -> list[FormationContactOrm] | None:
+    ) -> list[FormationContactResult] | None:
         """Apply every ``(contact_id, patch)`` tuple under one transaction.
 
         Parameters
@@ -60,11 +63,11 @@ class UpdateFormationContactsBatch(GroundModelLogger):
 
         Returns
         -------
-        list[FormationContactOrm] | None
-            Updated rows in the SAME order as ``entries`` so the
-            client can patch its local state by index. ``None`` when
-            any entry's contact is missing or out of scope — no rows
-            mutated in that case.
+        list[FormationContactResult] | None
+            Immutable snapshots of the updated rows in the SAME order as
+            ``entries`` so the client can patch its local state by index.
+            ``None`` when any entry's contact is missing or out of scope
+            — no rows mutated in that case.
         """
         if not entries:
             self.warning("Batch update called with empty entries — no-op")
@@ -128,4 +131,4 @@ class UpdateFormationContactsBatch(GroundModelLogger):
             f"Batch contact update committed: model={model_id} "
             f"count={len(entries)} surfaces_marked_stale={len(affected)}"
         )
-        return [by_id[cid] for cid in contact_ids]
+        return [FormationContactResult.from_orm(by_id[cid]) for cid in contact_ids]
