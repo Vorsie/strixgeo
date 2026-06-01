@@ -512,4 +512,6 @@ GET    /projects/{pid}/virtuele-boring/predictions?models=A,B
                                             only — no rows persisted.
 ```
 
+Bodies (lateral extents): `POST/GET /projects/{pid}/geology/models/{mid}/bodies`, `POST .../bodies/detect`, `POST .../bodies/suggest-pinch-outs`, `PATCH/DELETE .../bodies/{bid}`, `DELETE .../bodies/{bid}/extents/{side}`, `GET/PUT .../bodies/{bid}/boundary`, `POST .../bodies/{bid}/perpendicular-companion`. Full detail in `docs/superpowers/specs/2026-05-31-body-with-extent-design.md`.
+
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
