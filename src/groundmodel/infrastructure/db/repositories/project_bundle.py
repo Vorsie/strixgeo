@@ -1122,6 +1122,48 @@ async def _build_valid_formation_ids(
     return db_ids | payload_ids  # type: ignore[return-value]
 
 
+async def _build_valid_model_ids(
+    session: AsyncSession,
+    project_id: UUID,
+    geological_models_payload: list[dict[str, Any]],
+) -> set[UUID]:
+    """Return the union of DB-persisted + bundle-carried geological model ids.
+
+    Mirrors ``_build_valid_formation_ids``: avoids a mid-transaction autoflush
+    by unioning already-in-DB ids with payload ids known at parse time.  Used
+    by phases that follow the model-insert phase (bodies, absences, contact
+    edges, etc.) to gate FK-guard checks without forcing SQLAlchemy to flush
+    all pending model rows.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geological_models_payload : list[dict[str, Any]]
+        Raw geological model dicts from the bundle.
+
+    Returns
+    -------
+    set[UUID]
+        All valid geological model ids for this project.
+    """
+    db_ids = set(
+        (
+            await session.execute(
+                select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    payload_ids = {
+        _uuid(m.get("id")) for m in geological_models_payload if m.get("id") is not None
+    } - {None}
+    return db_ids | payload_ids  # type: ignore[return-value]
+
+
 async def _restore_geological_models(
     session: AsyncSession,
     project_id: UUID,
@@ -2151,16 +2193,10 @@ async def _restore_project_bundle_impl(
     )
 
     # ---- Valid model ids for FK guards on subsequent phases --------------
-    # Re-queried after model inserts so all queued models are included.
-    valid_model_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    # Built from DB ids (pre-restore) + payload ids — mirrors
+    # _build_valid_formation_ids to avoid a mid-transaction autoflush that
+    # would materialise all pending model rows before the session commits.
+    valid_model_ids = await _build_valid_model_ids(session, project_id, geological_models_payload)
 
     # ---- Phase 8: Bodies (lenses) ----------------------------------------
     new_lenses, skipped_lenses, dropped_lenses = await _restore_bodies(
