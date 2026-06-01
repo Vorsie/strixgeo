@@ -60,6 +60,14 @@ _USER_CLAIMED_KINDS: frozenset[str] = frozenset(
 )
 
 
+# --- Side constants ----------------------------------------------------------
+
+#: The two valid side values for body extent columns.  Used as the canonical
+#: validation guard in ClaimBodyExtent and ClearBodyExtent so neither
+#: use case defines its own local tuple (single source of truth).
+EXTENT_SIDES: tuple[str, str] = ("left", "right")
+
+
 def is_user_claimed_extent_kind(kind: str | None) -> bool:
     """Return True iff ``kind`` represents a user-claimed extent.
 
