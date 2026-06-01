@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -2493,19 +2493,7 @@ own focused pass (it is a recurring bug site).
 
 ## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D)
 
-**What.** Two non-trivial modules have no unit tests (DoD §4):
-- `application/rebuild_model_surfaces.py` — the user's manual TIN-repair
-  escape hatch; the contact→formation grouping logic has no CI gate.
-- `infrastructure/exporters/section_pdf_report_exporter.py` — #52 slice
-  1; a substantial ReportLab/matplotlib layout engine. `test_pdf_layout.py`
-  covers the `packed_column_positions` pure helper but not the exporter,
-  and slices B/C/D will land on top of untested code.
-
-**Why deferred.** Both work; the gap is a regression net, not a bug.
-
-**When to revisit.** Add `test_rebuild_model_surfaces.py` (no-contacts,
-two-formation, one-formation-raises) opportunistically; add the exporter
-test before #52 slice B.
+RESOLVED 2026-06-01. `tests/integration/application/test_rebuild_model_surfaces.py` (RS1–RS7: happy path, empty model, stale-flag clear, orphan stale surface, age-reorder direction, litho kind-scope guard, idempotent rebuild) and `tests/integration/exporters/test_section_pdf_report_exporter.py` (PE1–PE6: valid PDF magic, Info-dict metadata, multi-investigation, empty section, notes block, no-contacts) added. RS5 is `xfail(strict=True)` — it exposed a direction bug in `_reorder_by_age` (see #175); the xfail becomes the regression guard once #175 is fixed.
 
 ## 118. Wire pinch-out gesture for the Litho axis (Tier G — session 2026-05-24 blocker)
 
@@ -4650,10 +4638,7 @@ the labelled rows. **Why.** Next settings/inspector form re-hand-rolls them.
 
 ## 174. Backend test gaps — mutation use cases + 3 exporters (Tier D — backend, M; extends #116)
 
-**What.** Zero-coverage, highest-risk first: **C1** `RebuildModelSurfaces`
-(`_reorder_by_age` carries #35 pin handling + #69 kind-scoping + orphan-stale
-pickup — a regression silently renumbers formations); **C2** `SectionPdfReportExporter`
-(ReportLab/matplotlib layout, user-facing); **C3** `GeoStudioExporter` +
+**What.** C1 (`RebuildModelSurfaces`) and C2 (`SectionPdfReportExporter`) covered by #116 (2026-06-01). Zero-coverage remaining: **C3** `GeoStudioExporter` +
 `DSheetExporter` (no tests, while Plaxis exporters are tested — exports are the
 handoff); **C4** `SuggestLithoContacts` use-case wiring (owns a cross-project scope
 guard + TAW conversion + observation-priority fallback — security-relevant,
@@ -4679,6 +4664,28 @@ recurred 3× (memory). **C10** several `shell/stages/*` canvas tests are render-
 ("renders without crash") on interactive logic — audit each for ≥1 behavioural
 assertion, rename pure mounts to explicit "smoke". **Effort.** M (C8/C9/C10), L (C7,
 pairs with the #111/#175b split).
+
+## 177. `_reorder_by_age` assigns youngest formation the LOWEST display_order (Tier D — backend, S)
+
+**What.** `RebuildModelSurfaces._reorder_by_age` calls `infer_age_order` which returns
+formations **youngest-first** (`result[0]` = youngest), then assigns `display_order = slot`
+directly from that sequence — so the youngest formation gets `display_order=0` (the lowest).
+CLAUDE.md specifies "lower `display_order` = older formation (deeper in the stratigraphic
+column)", meaning younger should receive the HIGHER slot. The current code assigns exactly
+backwards: youngest→0 (lowest/oldest slot), oldest→N-1 (highest/youngest slot). The bug
+causes Build's auto-reorder to produce a reversed stratigraphic column, which the GeologyInspector
+then shows bottom-up instead of top-down. **Fix.** In `_reorder_by_age`, reverse `non_pinned_sequence`
+before zipping with `free_slots`, OR assign `display_order = (max_slot - slot)`. Test RS5 in
+`tests/integration/application/test_rebuild_model_surfaces.py` is `xfail(strict=True)` and will
+become a passing regression guard once this is fixed.
+
+**Why deferred.** Noticed during #116 test writing; no user-filed dogfeed yet (Build
+auto-reorder is rarely used at this stage of development). The incorrect ordering is
+consistent (Build always does the same wrong thing), and the engineer can correct it
+by dragging in GeologyInspector.
+
+**When to revisit.** Before the first external user distribution, or whenever
+"Build 3D model" auto-reorder is validated against real stratigraphy.
 
 ## 176. Logging cleanups — exporter instrumentation + renderer `log` wrapper (Tier E, S)
 
