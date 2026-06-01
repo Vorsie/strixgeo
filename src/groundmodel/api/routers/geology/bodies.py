@@ -326,6 +326,7 @@ async def suggest_body_pinch_outs(
                 above_contact_id=c.above_contact_id,
                 below_contact_id=c.below_contact_id,
                 side=c.side,
+                kind=c.kind,
                 suggested_neighbour_investigation_id=c.suggested_neighbour_investigation_id,
             )
             for c in candidates
