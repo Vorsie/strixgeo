@@ -28,7 +28,7 @@
 // the contract the Phase-5 work will fill in. Lab-test rows slot into
 // the same table when the per-sample lab parameters land.
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ArrowUpDown, Beaker } from 'lucide-react'
 
 import { EmptyState } from '../../../EmptyState'
@@ -94,11 +94,27 @@ export default function PerTestTab(): JSX.Element {
   // carry an Ic series, so they always collapse the chart.
   const [expandedCptId, setExpandedCptId] = useState<string | null>(null)
 
-  const rows = useMemo<Row[]>(() => {
-    const cptRows: Row[] = cpts.map(c => {
-      const plot = plotMap.get(c.id)
-      // Ic average — drop nulls (no fs, qc<=0, etc.). Returns null
-      // when there's no series OR when every point is null.
+  // Derived-stats cache: { ic_avg, sbt_dom } per CPT id.
+  //
+  // The filter+reduce+sbtZoneFromIc pipeline is O(series_length) per CPT.
+  // Without a cache, every setPlotMap(prev => new Map(prev).set(id, plot))
+  // creates a new Map reference and forces the rows useMemo to rerun the
+  // pipeline across ALL previously-loaded CPTs — O(N × series) per chart open.
+  //
+  // The ref persists across renders without triggering re-renders itself.
+  // The rows useMemo reads from it and adds new entries as plotMap grows;
+  // entries already in the cache are never recomputed.
+  type DerivedStats = { ic_avg: number | null; sbt_dom: string | null }
+  const derivedStatsCacheRef = useRef<Map<string, DerivedStats>>(new Map())
+
+  // Derived stats useMemo — only computes for CPT ids not yet in the cache.
+  // Returns the cache map (stable reference when nothing new was added).
+  const derivedStatsByCpt = useMemo<Map<string, DerivedStats>>(() => {
+    const cache = derivedStatsCacheRef.current
+    let updated = false
+    for (const [id] of plotMap) {
+      if (cache.has(id)) continue
+      const plot = plotMap.get(id)
       let icAvg: number | null = null
       let sbtDom: string | null = null
       if (plot && plot.ic && plot.ic.length > 0) {
@@ -108,6 +124,18 @@ export default function PerTestTab(): JSX.Element {
           sbtDom = modeNonNull(plot.ic.map(v => (v === null ? null : sbtZoneFromIc(v))))
         }
       }
+      cache.set(id, { ic_avg: icAvg, sbt_dom: sbtDom })
+      updated = true
+    }
+    // Return a new Map only when entries were added so rows useMemo can
+    // detect the stable-vs-changed reference and skip recomputation.
+    return updated ? new Map(cache) : cache
+  }, [plotMap])
+
+  const rows = useMemo<Row[]>(() => {
+    const cptRows: Row[] = cpts.map(c => {
+      // Read from the per-CPT cache — O(1), never recomputes a loaded series.
+      const stats = derivedStatsByCpt.get(c.id) ?? { ic_avg: null, sbt_dom: null }
       return {
         id: c.id,
         name: c.name,
@@ -115,8 +143,8 @@ export default function PerTestTab(): JSX.Element {
         depth_m: c.max_depth_m,
         location_x: c.location_x,
         location_y: c.location_y,
-        ic_avg: icAvg,
-        sbt_dom: sbtDom,
+        ic_avg: stats.ic_avg,
+        sbt_dom: stats.sbt_dom,
       }
     })
     const bhRows: Row[] = boreholes.map(b => ({
@@ -145,7 +173,7 @@ export default function PerTestTab(): JSX.Element {
     }
     all.sort((a, b) => (sortAsc ? cmp(a, b) : -cmp(a, b)))
     return all
-  }, [cpts, boreholes, plotMap, sortKey, sortAsc])
+  }, [cpts, boreholes, derivedStatsByCpt, sortKey, sortAsc])
 
   function toggleSort(key: SortKey): void {
     if (sortKey === key) {
