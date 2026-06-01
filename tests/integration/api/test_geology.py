@@ -1651,28 +1651,21 @@ async def test_rebuild_auto_reorders_display_order_by_per_anchor_depth(
 ) -> None:
     """Build auto-derives display_order from contact depths.
 
-    The user creates formations in their natural top-down workflow
-    order (Antropogeen first, then Quartair, then Aalbeke), giving
-    display_orders 0/1/2 in CREATION order. But contacts are placed
-    at depths 0.5 m / 3 m / 15 m respectively — Antropogeen IS the
-    youngest, so the natural creation order already matches the
-    desired age order in this fixture (display_order 0 = youngest).
-    To make the test non-trivial we then REVERSE the order so
-    Antropogeen carries the highest display_order; Build must
-    detect the mismatch and restore the data-driven order.
+    CLAUDE.md "display_order is the age axis": lower display_order =
+    OLDER (deeper in the stratigraphic column). Three formations are
+    created via the API which defaults display_order=0 for all of them
+    (no explicit ordering passed). Contacts place them at depths 15 m /
+    3 m / 0.5 m — Aalbeke deepest (oldest), Antropogeen shallowest
+    (youngest). Build infers the age order from contact depths and
+    assigns display_orders so oldest = lowest, youngest = highest.
     """
     project, borehole = project_with_borehole
-    # Three formations in DELIBERATELY inverted display_order: the
-    # one that ends up being placed deepest (oldest) is created
-    # first → gets display_order=0 → would be labelled "oldest" by
-    # any convention; the shallowest goes last → display_order=2.
+    # All three created with default display_order=0; Build must
+    # disambiguate from contact depths and assign 0/1/2 by age.
     aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
     quartair = await _create_formation(async_client, project.id, name="Quartair")
     antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
     model = await _create_model(async_client, project.id)
-    # Contacts placed at depths matching real geology — Antropogeen
-    # shallowest, Aalbeke deepest — but on display_order they're
-    # currently 2 / 1 / 0 respectively (inverted).
     await _create_contact(
         async_client, project.id, model["id"], antropogeen["id"], borehole.id, depth=0.5
     )
@@ -1688,20 +1681,18 @@ async def test_rebuild_auto_reorders_display_order_by_per_anchor_depth(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # Creation order put them at 0/1/2; age order wants 2/1/0.
-    # The middle index (Quartair) coincides at 1 in both, so only
-    # the two endpoints move → reordered=2.
+    # All started at 0; after assignment Aalbeke stays at 0, the other
+    # two move (Quartair→1, Antropogeen→2) → reordered=2.
     assert body["formations_reordered"] == 2
 
-    # Verify by re-fetching the formations — they should now be in
-    # age order: Antropogeen=0 (youngest), Quartair=1, Aalbeke=2.
+    # Verify display_orders: oldest=0, youngest=2 per CLAUDE.md convention.
     list_resp = await async_client.get(
         f"/projects/{project.id}/geology/formations",
     )
     rows = {f["name"]: f for f in list_resp.json()}
-    assert rows["Antropogeen"]["display_order"] == 0
+    assert rows["Aalbeke"]["display_order"] == 0  # oldest
     assert rows["Quartair"]["display_order"] == 1
-    assert rows["Aalbeke"]["display_order"] == 2
+    assert rows["Antropogeen"]["display_order"] == 2  # youngest
 
 
 async def test_geo_rebuild_does_not_renumber_litho_unit_display_orders(
@@ -1829,19 +1820,21 @@ async def test_rebuild_keeps_pinned_formation_order(
 ) -> None:
     """Build must NOT re-order a formation the user pinned (debt #35).
 
-    Engineer creates Aalbeke / Quartair / Antropogeen (creation order
-    → display_order 0 / 1 / 2). Contacts say Antropogeen is youngest
-    (0.5 m), Quartair 3 m, Aalbeke deepest (15 m), so unconstrained
-    age inference would want 0 / 1 / 2 = Antropogeen / Quartair /
-    Aalbeke. But the engineer deliberately pins Aalbeke at the TOP
-    (display_order 0) — an unusual-stratigraphy call the data can't
-    see. Build must leave Aalbeke at 0 and flow only the non-pinned
-    formations into the remaining slots.
+    CLAUDE.md: lower display_order = OLDER. Engineer creates Antropogeen /
+    Quartair / Aalbeke (creation order → display_order 0 / 1 / 2). Contacts
+    say Antropogeen is youngest (0.5 m), Quartair 3 m, Aalbeke deepest
+    (15 m), so unconstrained age inference would want display_order 0 / 1
+    / 2 = Aalbeke (oldest) / Quartair / Antropogeen (youngest) — the
+    OPPOSITE of creation order. But the engineer pins Aalbeke at the
+    youngest end (display_order 2) — an unusual-stratigraphy call the
+    data can't see. Build must leave Aalbeke at 2 and flow only the
+    non-pinned formations into the remaining slots.
     """
     project, borehole = project_with_borehole
-    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
-    quartair = await _create_formation(async_client, project.id, name="Quartair")
+    # Creation order: Antropogeen=0, Quartair=1, Aalbeke=2 (inverted vs age).
     antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
+    quartair = await _create_formation(async_client, project.id, name="Quartair")
+    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
     model = await _create_model(async_client, project.id)
     await _create_contact(
         async_client, project.id, model["id"], antropogeen["id"], borehole.id, depth=0.5
@@ -1853,12 +1846,14 @@ async def test_rebuild_keeps_pinned_formation_order(
         async_client, project.id, model["id"], aalbeke["id"], borehole.id, depth=15.0
     )
 
-    # The engineer drag-pins Aalbeke at the top (display_order stays 0,
-    # pinned_order=True) — exactly what the GeologyInspector drag-end
-    # PATCH sends.
+    # Engineer pins Aalbeke at the youngest slot (display_order=2,
+    # which is its CURRENT creation-order value), declaring "yes I
+    # know this is the deepest/oldest formation, but I want it at the
+    # top of the inspector for this project". pinned_order=True freezes
+    # display_order at its current value.
     pin_resp = await async_client.patch(
         f"/projects/{project.id}/geology/formations/{aalbeke['id']}",
-        json={"display_order": 0, "pinned_order": True},
+        json={"display_order": 2, "pinned_order": True},
     )
     assert pin_resp.status_code == 200, pin_resp.text
     assert pin_resp.json()["pinned_order"] is True
@@ -1867,20 +1862,24 @@ async def test_rebuild_keeps_pinned_formation_order(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
     )
     assert resp.status_code == 200, resp.text
-    # Aalbeke is skipped (pinned). Antropogeen (was 2) and Quartair
-    # (was 1) flow into free slots {1, 2} in age order → both change.
-    assert resp.json()["formations_reordered"] == 2
+    # Aalbeke is skipped (pinned at 2). Free slots = {0, 1}.
+    # Non-pinned age-ordered oldest-first: [Quartair, Antropogeen] — but
+    # Antropogeen is YOUNGER than Quartair, so oldest-first puts Quartair
+    # first. Assigns Quartair→0 (was 1, no change), Antropogeen→1 (was 0,
+    # changed). Only Antropogeen moves → reordered=1.
+    assert resp.json()["formations_reordered"] == 1
 
     rows = {
         f["name"]: f
         for f in (await async_client.get(f"/projects/{project.id}/geology/formations")).json()
     }
     # Pinned formation untouched — order AND flag preserved.
-    assert rows["Aalbeke"]["display_order"] == 0
+    assert rows["Aalbeke"]["display_order"] == 2
     assert rows["Aalbeke"]["pinned_order"] is True
-    # Non-pinned re-flowed by age into the slots Aalbeke didn't hold.
+    # Non-pinned re-flowed by age into the slots Aalbeke didn't hold,
+    # oldest-first: Quartair (older) → 0, Antropogeen (younger) → 1.
+    assert rows["Quartair"]["display_order"] == 0
     assert rows["Antropogeen"]["display_order"] == 1
-    assert rows["Quartair"]["display_order"] == 2
     # A second Build re-triangulates (force) but the REORDER is a no-op
     # — order now matches and the pin holds.
     resp2 = await async_client.post(
