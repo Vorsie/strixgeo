@@ -350,6 +350,7 @@ describe('BodyExtentOverlay', () => {
       above_contact_id: CS_TOP,
       below_contact_id: CS_BASE,
       side: 'left',
+      kind: 'pinch_out_halfway',
       suggested_neighbour_investigation_id: NEIGHBOUR_INV,
     }
     const onClaimGhostCandidate = vi.fn()
@@ -372,6 +373,7 @@ describe('BodyExtentOverlay', () => {
       above_contact_id: CS_TOP,
       below_contact_id: CS_BASE,
       side: 'left',
+      kind: 'pinch_out_halfway',
       suggested_neighbour_investigation_id: NEIGHBOUR_INV,
     }
     const onClaimGhostCandidate = vi.fn()
@@ -383,6 +385,31 @@ describe('BodyExtentOverlay', () => {
     fireEvent.click(getByTestId('body-ghost-fill-inv-source-left'))
     expect(onClaimGhostCandidate).toHaveBeenCalledTimes(1)
     expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
+  })
+
+  it('BE-GHOST-OPEN — an open edge candidate (no neighbour) renders a band to the section boundary', () => {
+    // Edge-test candidate: kind='open', neighbour=null. It must still render
+    // (the halfway path would have bailed on the missing neighbour).
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_TOP,
+      below_contact_id: CS_BASE,
+      side: 'left',
+      kind: 'open',
+      suggested_neighbour_investigation_id: null,
+    }
+    const { getByTestId } = renderOverlay({
+      bodies: [],
+      ghostCandidates: [candidate],
+      onClaimGhostCandidate: vi.fn(),
+    })
+    const fill = getByTestId('body-ghost-fill-inv-source-left')
+    // Open band reaches the LEFT section boundary (sectionStartScreenX = -20).
+    const xs = Array.from(
+      (fill.getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
+    ).map(m => parseFloat(m[1]))
+    expect(Math.min(...xs)).toBeCloseTo(-20, 0)
   })
 
   it('BE15 — multi-formation source frames the wedge to the body’s own layer, not the whole column', () => {

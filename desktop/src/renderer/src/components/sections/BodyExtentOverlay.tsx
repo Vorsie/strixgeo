@@ -909,28 +909,42 @@ export default function BodyExtentOverlay({
   if (ghostCandidates) {
     for (const candidate of ghostCandidates) {
       const sourceCol = colByInv.get(candidate.source_investigation_id)
-      const neighbourCol = colByInv.get(candidate.suggested_neighbour_investigation_id)
-      if (!sourceCol || !neighbourCol) continue
-
+      if (!sourceCol) continue
       const aboveC = contactById.get(candidate.above_contact_id)
       const belowC = contactById.get(candidate.below_contact_id)
       if (!aboveC || !belowC) continue
 
-      // Source edge facing the neighbour.
-      const towardAlong = neighbourCol.along
-      const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
-      const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
-      if (!topSource || !baseSource) continue
+      let upperScreen: { x: number; y: number }[]
+      let lowerScreen: { x: number; y: number }[]
 
-      // Halfway midpoint (pinch_out_halfway geometry).
-      const farPoint: WorldPt = halfwayFarPoint(sourceCol, neighbourCol, topSource, baseSource)
+      if (candidate.kind === 'open') {
+        // Edge test — open the layer to the section boundary on ``side``
+        // (parallel band, no taper). No neighbour.
+        const boundaryScreenX =
+          candidate.side === 'left' ? sectionStartScreenX : sectionEndScreenX
+        const boundaryAlong = screenXToAlong(boundaryScreenX)
+        const topSource = worldPtEdge(candidate.above_contact_id, boundaryAlong)
+        const baseSource = worldPtEdge(candidate.below_contact_id, boundaryAlong)
+        if (!topSource || !baseSource) continue
+        const topFar: WorldPt = { along_m: boundaryAlong, elevation_m: topSource.elevation_m }
+        const baseFar: WorldPt = { along_m: boundaryAlong, elevation_m: baseSource.elevation_m }
+        upperScreen = [toScreen(topSource), toScreen(topFar)]
+        lowerScreen = [toScreen(baseSource), toScreen(baseFar)]
+      } else {
+        // Interior — pinch out halfway toward the suggested neighbour.
+        const neighbourId = candidate.suggested_neighbour_investigation_id
+        const neighbourCol = neighbourId ? colByInv.get(neighbourId) : undefined
+        if (!neighbourCol) continue
+        const towardAlong = neighbourCol.along
+        const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
+        const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
+        if (!topSource || !baseSource) continue
+        const farPoint: WorldPt = halfwayFarPoint(sourceCol, neighbourCol, topSource, baseSource)
+        const far = toScreen(farPoint)
+        upperScreen = [far, toScreen(topSource)]
+        lowerScreen = [far, toScreen(baseSource)]
+      }
 
-      const topSrc = toScreen(topSource)
-      const baseSrc = toScreen(baseSource)
-      const far = toScreen(farPoint)
-
-      const upperScreen = [far, topSrc]
-      const lowerScreen = [far, baseSrc]
       const fillPts = [...upperScreen, ...lowerScreen.slice().reverse()]
       const fillD = fillPts.length >= 3 ? `${polylinePath(fillPts)} Z` : ''
 
