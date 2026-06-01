@@ -34,6 +34,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
+import { log } from '../../utils/log'
 import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR, LITHOLOGY_LABELS } from '../../utils/lithoConstants'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import Button from '../ui/Button'
@@ -297,11 +298,9 @@ export default function LithoCompositionPickerDialog({
       // nothing"): trace each leg of the flow so the user can pin
       // the silent-failure point from the console next time. The
       // log calls are cheap and gated on the parent's logger.
-      // eslint-disable-next-line no-console
-      console.debug('[litho-picker] create confirm', { mainCode, admixtures })
+      log.debug('litho-picker', 'create confirm', { mainCode, admixtures })
       const result = await onCreateLithoUnit(mainCode, admixtures)
-      // eslint-disable-next-line no-console
-      console.debug('[litho-picker] create result', { result })
+      log.debug('litho-picker', 'create result', { result })
       if (result !== null) {
         // onCreateLithoUnit already created the formation AND the contact
         // AND seeded the section server-side (accept-litho-suggestions +
@@ -316,9 +315,9 @@ export default function LithoCompositionPickerDialog({
         // sees "save did nothing" with no signal why. Most common
         // cause: SectionsCanvas guard `!activeLithoModel ||
         // !selectedSection` fires (also logged backend-side).
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[litho-picker] onCreateLithoUnit returned null — no contact created. ' +
+        log.warn(
+          'litho-picker',
+          'onCreateLithoUnit returned null — no contact created. ' +
             'Likely cause: no active litho model OR no selected section ' +
             'at the moment the dialog confirmed. Check the section is open.',
         )
