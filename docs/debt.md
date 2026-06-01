@@ -2322,10 +2322,19 @@ cases so the API boundary stops leaking.
 
 ## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D)
 
-**What.** The architecture audit found the schema relies on
-application-layer convention where a DB constraint should hold:
-- `geological_model.kind` has no `CHECK (kind IN (...))` — an unknown
-  kind from a future build restores silently as `'geological'`.
+**Partially resolved 2026-06-01.** First-wave migrations landed:
+`a1c2d3e4f5a6` (domain-invariant CHECKs: `geological_model.kind`,
+`formation_contact.source`, `body.body_ordinal >= 0`,
+`body.extent_<side>_kind` enums), `b2d3e4f5a6b7` (kind ↔
+`parent_geological_model_id` NULL invariant — geological MUST have NULL
+parent, litho/geotech MUST have non-NULL parent), `c3e4f5a6b7c8`
+(partial-unique dedup indexes on cpt + borehole `(app_project_id,
+project_id, test_id) WHERE app_project_id IS NOT NULL`). 10 integration
+tests pin each constraint at `tests/integration/db/test_schema_invariants.py`.
+The 3 migrations include data-correction passes for any pre-existing
+violating rows (pre-ship amnesty).
+
+**Still open:**
 - `geological_formation` has no constraint co-nullating its litho-only
   columns; the documented `litho_main_soil_code IS NULL OR
   parent_formation_id IS NOT NULL` CHECK (#87 residual) is still unbuilt.
@@ -2333,17 +2342,18 @@ application-layer convention where a DB constraint should hold:
   silently matched as a litho unit by the accept find-or-create scan.
 - `cpt.app_project_id` / `borehole.app_project_id` are `nullable=True`
   (Phase-1 leftover) and no table has a real FK to `project` — orphan
-  rows are possible.
+  rows are possible. Folds into the backwards-compat re-arm (#3 / #47).
 - `geological_model.is_active` has no `UNIQUE(app_project_id, kind)
   WHERE is_active` partial index — two actives render non-deterministically.
 - Missing read indexes: `formation_contact(model_id, cpt_id)`,
   `litho_correlation_edge(model_id, formation_a_id)` + `(…_b_id)`.
 
-**Why deferred.** No current correctness failure under single-user use;
-each fix is one Alembic migration. Several must be coordinated with the
-backwards-compat re-arm (#47) and a one-time orphan/NULL backfill.
+**Why deferred (remaining).** No current correctness failure under
+single-user use; each fix is one Alembic migration. The app_project_id
+NOT NULL + FK work must be coordinated with the backwards-compat re-arm
+(#47) and a one-time orphan/NULL backfill.
 
-**When to revisit.** Bundle a single "schema hardening" migration
+**When to revisit.** Bundle a single "schema hardening II" migration
 alongside the next geology migration; the FK + NOT NULL work folds into
 the backwards-compat re-arm (#3 / #47).
 
