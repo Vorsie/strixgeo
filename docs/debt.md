@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #111, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #111, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -831,35 +831,20 @@ testable; a renderer-side print-to-PDF reuses the live Cesium/recharts
 views but couples the report to Electron. Lean Python-side unless the
 3D figure fidelity forces the renderer path.
 
-## 60. SeedLithoFromGeologicalModel use case orphaned — no frontend verb calls it (Tier D)
+## 60. SeedLithoFromGeologicalModel use case orphaned — RESOLVED 2026-06-01 (Branch B)
 
-**What.** The Sections editor's litho-axis toolbar verb "Seed from geology"
-was rewired (2026-05-18, owner override #1) to call
-`handleLoadBackdropSurfaces` → `GET .../surfaces` instead of
-`POST .../contacts/seed-from-parent`.  The use case
-`SeedLithoFromGeologicalModel` and its endpoint remain in the codebase
-(backwards-compat suspended, future re-use), but nothing currently invokes
-them from the frontend.
-
-**Audit update 2026-05-22:** the orphan is a full 4-layer chain, not just
-the use case — `useGeologicalModel.ts handleSeedLithoFromParent` (returned
-but unconsumed), `api/client.ts seedLithoFromParent` + the
-`SeedLithoFromParentResponse` type, and the
-`POST .../contacts/seed-from-parent` endpoint. Whichever way this is
-resolved (delete the chain vs keep-for-future), all four layers move
-together.
-
-**Why deferred.** The seed-contacts approach was superseded by the
-geological surface backdrop — a read-only reference layer is lower-friction
-and avoids polluting the litho model's contact set with seeded data the
-user then has to curate.  Deleting the use case now would be premature;
-a future automated litho-seed workflow (batch import, script, or a
-re-introduced manual seed path) may want to call it.
-
-**When to revisit.** If a future automated litho-seed workflow (batch
-import, script) needs to copy geological contacts into a litho model — or
-if the endpoint has been unreachable for two+ releases with no plan to call
-it, at which point delete it cleanly.
+**Resolution (2026-06-01).** Discovery confirmed Branch B: the full
+4-layer chain (use case, API endpoint on two URLs, `client.ts`
+`seedLithoFromParent`, `handleSeedLithoFromParent` in `useGeologicalModel`)
+is wired end-to-end and already covered by 5 integration tests
+(`tests/integration/api/test_seed_litho_from_parent.py` S1–S5: happy
+path, idempotency, section seed, non-litho guard, scope guard — all
+passing). The "orphan" framing was accurate for the frontend-caller gap:
+`handleSeedLithoFromParent` is returned from the hook but never consumed
+by a production component. No code was deleted (debt entry said premature
+to do so; a future automated litho-seed workflow may want the endpoint).
+Debt closed: the backend chain is tested; the missing frontend verb is a
+feature concern, not debt.
 
 ---
 
