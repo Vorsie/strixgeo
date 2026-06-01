@@ -1559,6 +1559,21 @@ export interface G3Dv3CatalogResponse {
   units: G3Dv3UnitResponse[]
 }
 
+// One DOV formal-stratigraphy unit — powers the informal→formal link in the
+// formation dialog (picking one stores its `code` on the formation).
+export interface FormalStratigraphyUnitResponse {
+  /** DOV formal-stratigraphy code (e.g. "QH", "QP", "Bm", "KoAa"). */
+  code: string
+  /** Canonical Dutch name (e.g. "Quartair Holoceen", "Formatie van Boom"). */
+  name_nl: string
+  age_rank: number | null
+  color_hex: string | null
+}
+
+export interface FormalStratigraphyCatalogResponse {
+  units: FormalStratigraphyUnitResponse[]
+}
+
 // ---------------------------------------------------------------------------
 // Virtuele Boring (DOV synthetic-borehole overlays) — informative-only
 // per-investigation predictions from DOV's 3D models. Two surfaces:
@@ -3203,6 +3218,8 @@ export const api = {
   // (BRO, multilingual labels) plug in here.
   codelists: {
     g3dv3: (): Promise<G3Dv3CatalogResponse> => get('/codelists/g3dv3'),
+    formalStratigraphy: (): Promise<FormalStratigraphyCatalogResponse> =>
+      get('/codelists/formal-stratigraphy'),
   },
 
   // Virtuele Boring — DOV synthetic-borehole overlays (informative
