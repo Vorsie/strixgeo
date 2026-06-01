@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #111, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -2409,25 +2409,29 @@ for this backend-only debt item):
   Each of the three section-export handlers (`/export/dxf`, `/export/pdf`,
   `/export/plaxis2d`) is now 2-3 lines of unique logic.
 
-## 111. useGeologicalModel duplication — litho-accept block + bypassed helper (Tier D)
+## 111. useGeologicalModel duplication — litho-accept block + bypassed helper — RESOLVED 2026-06-01
 
-**What.** In `useGeologicalModel.ts`:
-- The four litho-accept handlers (`handleAcceptLithoSuggestion`,
-  `…AllLithoSuggestions`, `…BulkLitho`, `…AllBulkLitho`) each repeat the
-  same ~40-line post-success block (parent-summary toast, stale-TIN
-  count, `onSectionUpdated`, ghost accept-marking, two refetches,
-  `pushAcceptLithoUndo`). #87 and #91 each had to be hand-wired into all
-  four sites — the next response-field addition repeats that 4×.
-- The `setGhostsByAnchor` accept-marking immutable-update is spelled out
-  inline at 5 sites despite a purpose-built `_updateGhostEntry` helper
-  that the reject/unreject/edit handlers also bypass.
+The two halves are both closed:
 
-**Why deferred.** No bug; but it is exactly the "extract on the second
-copy" target, and the 4× hand-wiring is a proven drift risk.
+**Payload half (shipped 2026-05-29):** `utils/lithoAccept.ts` —
+`buildLithoAcceptBody` / `lithoAcceptTuningParams` / `recordCreatedRows`.
 
-**When to revisit.** Next time a litho-accept response field is added —
-extract `applyAcceptResult(...)` and route the ghost mutations through
-`_updateGhostEntry` first.
+**Ghost-mutation half (shipped 2026-06-01):** `_updateGhostEntry` extended
+to accept a function form `(existing: BulkAnchorGhost) => Partial<BulkAnchorGhost>`
+so callers whose partial depends on existing state (Set mutations) can compute
+it inside the setState callback and stay atomic. Five sites migrated:
+`handleRejectBulkLitho`, `handleAcceptBulkLitho`, `handleRejectLithoSuggestion`,
+`handleAcceptLithoSuggestion`, `handleAcceptAllLithoSuggestions`.
+Two "unreject" sites kept as direct `setGhostsByAnchor`: they guard on
+`!rejected.has(idx)` and return `prev` unchanged — `_updateGhostEntry` always
+produces a new Map and cannot short-circuit the no-op case.
+
+The "extract `applyAcceptResult(...)`" idea was evaluated and declined: the
+~40-line "post-success block" varies enough across the four accept handlers
+(different ghost-marking shape, different undo labels, `handleAcceptAllBulkLitho`
+uses a `BatchAcceptLithoSuggestionsResponse` rather than the single-accept type)
+that extraction would require passing ~6 callbacks — more plumbing than the
+inline code it replaces. The counterweight rule applies.
 
 ## 112. Bundle / restore + API input bounds — RESOLVED 2026-06-01
 
