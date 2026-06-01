@@ -269,6 +269,88 @@ async def test_cpt_dedup_partial_unique(db_session: AsyncSession, project: Proje
         await db_session.flush()
 
 
+# ---------------------------------------------------------------------------
+# Migration t4u5v6w7x8y9 — is_active partial UNIQUE per (app_project_id, kind)
+# ---------------------------------------------------------------------------
+
+
+async def test_two_active_geological_models_same_project_rejected(
+    db_session: AsyncSession, project: ProjectOrm
+) -> None:
+    """Two is_active=True geological models in the same project raises IntegrityError.
+
+    Invariant: at most one active model per (app_project_id, kind).
+    The partial unique uq_geological_model_one_active_per_kind enforces this at the DB level.
+    """
+    db_session.add(
+        GeologicalModelOrm(
+            id=uuid7(),
+            app_project_id=project.id,
+            name="G1",
+            kind="geological",
+            is_active=True,
+        )
+    )
+    await db_session.flush()
+
+    db_session.add(
+        GeologicalModelOrm(
+            id=uuid7(),
+            app_project_id=project.id,
+            name="G2",
+            kind="geological",
+            is_active=True,
+        )
+    )
+    with pytest.raises(IntegrityError, match="uq_geological_model_one_active_per_kind"):
+        await db_session.flush()
+
+
+async def test_active_geological_and_active_litho_same_project_accepted(
+    db_session: AsyncSession, project: ProjectOrm, geo_model: GeologicalModelOrm
+) -> None:
+    """One active geological + one active lithostratigraphic in the same project is allowed.
+
+    Different kinds have independent active pointers (CLAUDE.md three-level hierarchy).
+    The partial unique covers (app_project_id, kind) — same project but different kind
+    means no conflict.
+    """
+    # Activate the geo_model fixture.
+    geo_model.is_active = True
+    await db_session.flush()
+
+    litho = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho refinement",
+        kind="lithostratigraphic",
+        is_active=True,
+        parent_geological_model_id=geo_model.id,
+    )
+    db_session.add(litho)
+    await db_session.flush()  # must not raise — different kinds
+
+
+async def test_inactive_models_not_constrained(
+    db_session: AsyncSession, project: ProjectOrm
+) -> None:
+    """Multiple INACTIVE models of the same kind in the same project is allowed.
+
+    The partial unique applies only WHERE is_active = TRUE.
+    """
+    for i in range(3):
+        db_session.add(
+            GeologicalModelOrm(
+                id=uuid7(),
+                app_project_id=project.id,
+                name=f"inactive-{i}",
+                kind="geological",
+                is_active=False,
+            )
+        )
+    await db_session.flush()  # must not raise — all inactive
+
+
 async def test_cpt_dedup_partial_unique_ignores_null_project(
     db_session: AsyncSession,
 ) -> None:
