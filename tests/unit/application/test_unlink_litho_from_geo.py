@@ -11,6 +11,7 @@ The DB session is fully mocked. No real DB or network I/O.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -18,6 +19,7 @@ from uuid import uuid4
 import pytest
 
 from groundmodel.application.unlink_litho_from_geo import UnlinkLithoFromGeo
+from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -26,8 +28,11 @@ from groundmodel.application.unlink_litho_from_geo import UnlinkLithoFromGeo
 PROJECT_ID = uuid4()
 OTHER_PROJECT_ID = uuid4()
 LITHO_MODEL_ID = uuid4()
+FORMATION_ID = uuid4()
+BOREHOLE_ID = uuid4()
 CONTACT_ID = uuid4()
 GEO_CONTACT_ID = uuid4()
+_NOW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 def _make_session(
@@ -39,6 +44,9 @@ def _make_session(
 
     The contact row is wired so session.get(FormationContactOrm, ...) returns
     a stub whose model → app_project_id equals ``contact_project_id``.
+
+    The stub carries all fields required by ``FormationContactResult.from_orm``
+    so the use case can construct the result dataclass after refresh.
     """
     # Two stubs: one for FormationContactOrm, one for GeologicalModelOrm.
     # The use case does two session.get calls: first for the contact,
@@ -47,7 +55,21 @@ def _make_session(
     contact_stub = SimpleNamespace(
         id=CONTACT_ID,
         model_id=LITHO_MODEL_ID,
+        formation_id=FORMATION_ID,
+        borehole_id=BOREHOLE_ID,
+        cpt_id=None,
+        synthetic_x=None,
+        synthetic_y=None,
+        synthetic_elevation_m=None,
+        depth_top_m=5.0,
+        source="manual_pick",
+        confidence="medium",
+        observation_id=None,
+        observation_layer_id=None,
         parent_geo_contact_id=parent_geo_contact_id,
+        notes=None,
+        created_at=_NOW,
+        updated_at=_NOW,
     )
 
     session = AsyncMock()
@@ -91,9 +113,10 @@ async def test_ul1_unlinks_coupled_contact_and_commits() -> None:
 
     result = await uc.execute(project_id=PROJECT_ID, contact_id=CONTACT_ID)
 
-    # Contact returned.
-    assert result is not None
-    # parent_geo_contact_id must be cleared.
+    # Returns a FormationContactResult dataclass (not the raw ORM object — debt #106).
+    assert isinstance(result, FormationContactResult)
+    assert result.id == CONTACT_ID
+    # parent_geo_contact_id must be cleared (the use case nulls it before refresh).
     assert result.parent_geo_contact_id is None
     # Exactly one commit.
     session.commit.assert_awaited_once()

@@ -79,7 +79,11 @@ async def test_within_formation_edit_flips_one_pair() -> None:
 
     result = await uc.execute(CONTACT, {"depth_top_m": 3.0})
 
-    assert result is updated
+    # Use case now returns FormationContactResult (debt #106) not the ORM row;
+    # the identity check is replaced with a non-None check + field probe.
+    assert result is not None
+    assert result.model_id == updated.model_id
+    assert result.formation_id == updated.formation_id
     uc._repo.mark_surfaces_stale.assert_awaited_once_with([(MODEL, F_OLD)])
     session.commit.assert_awaited_once()
 
@@ -215,7 +219,10 @@ async def test_drag_up_dragger_wins_crossed_peer_deleted() -> None:
     result = await uc.execute(CONTACT, {"depth_top_m": 2.0})
 
     # Dragger survives with the new depth.
-    assert result is updated_contact
+    # Use case now returns FormationContactResult (debt #106) not the ORM row.
+    assert result is not None
+    assert result.model_id == updated_contact.model_id
+    assert result.formation_id == updated_contact.formation_id
     assert uc.absorbed is False
     # SILT peer was deleted.
     session.delete.assert_awaited_once_with(silt_peer)
@@ -299,7 +306,10 @@ async def test_drag_up_no_peers_in_range_no_deletion() -> None:
 
     result = await uc.execute(CONTACT, {"depth_top_m": 2.0})
 
-    assert result is updated_contact
+    # Use case now returns FormationContactResult (debt #106) not the ORM row.
+    assert result is not None
+    assert result.model_id == updated_contact.model_id
+    assert result.formation_id == updated_contact.formation_id
     assert uc.absorbed is False
     # No peer was in the crossed range — no delete call.
     session.delete.assert_not_awaited()

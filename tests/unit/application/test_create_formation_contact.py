@@ -7,7 +7,8 @@ branches the pre-commit unit suite was previously blind to:
 * the race-loser path (``IntegrityError`` → re-query winner →
   ``DuplicateContactError``; or re-raise when it was a different
   constraint)
-* the happy path flips the (model, formation) surface stale and commits
+* the happy path flips the (model, formation) surface stale and commits,
+  and returns a ``FormationContactResult`` (not the raw ORM object)
 
 The DB session is mocked at the ``execute`` / ``commit`` / ``refresh``
 boundary and the repository is swapped for an ``AsyncMock`` — no real
@@ -17,6 +18,7 @@ DB or network I/O (matches the convention in
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -28,6 +30,7 @@ from groundmodel.application.create_formation_contact import (
     CreateFormationContact,
     DuplicateContactError,
 )
+from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
 
 MODEL = uuid4()
 FORMATION = uuid4()
@@ -89,8 +92,34 @@ async def test_duplicate_precheck_raises_before_insert() -> None:
 
 @pytest.mark.asyncio
 async def test_happy_path_flips_surface_stale_and_commits() -> None:
-    """A clean insert flips the (model, formation) surface stale + commits."""
-    contact = SimpleNamespace(id=uuid4())
+    """A clean insert returns a FormationContactResult, flips the surface stale + commits.
+
+    The use case now returns a ``FormationContactResult`` dataclass (not the raw
+    ORM row) so the API boundary no longer leaks infrastructure types (debt #106).
+    The result carries the same ``id`` as the inserted row.
+    """
+    _now = datetime(2026, 6, 1, tzinfo=UTC)
+    contact_id = uuid4()
+    # Full stub with all fields read by FormationContactResult.from_orm.
+    contact = SimpleNamespace(
+        id=contact_id,
+        model_id=MODEL,
+        formation_id=FORMATION,
+        borehole_id=BOREHOLE,
+        cpt_id=None,
+        synthetic_x=None,
+        synthetic_y=None,
+        synthetic_elevation_m=None,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="medium",
+        observation_id=None,
+        observation_layer_id=None,
+        parent_geo_contact_id=None,
+        notes=None,
+        created_at=_now,
+        updated_at=_now,
+    )
     session = AsyncMock()
     # session.get: formation check, then borehole check (VULN-9).
     session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
@@ -107,7 +136,10 @@ async def test_happy_path_flips_surface_stale_and_commits() -> None:
         borehole_id=BOREHOLE,
     )
 
-    assert result is contact
+    # Returns a FormationContactResult dataclass (not the raw ORM object).
+    assert isinstance(result, FormationContactResult)
+    assert result.id == contact_id
+    assert result.depth_top_m == 2.0
     # On-click build pivot: mark stale, do NOT recompute.
     uc._repo.mark_surfaces_stale.assert_awaited_once_with([(MODEL, FORMATION)])
     session.commit.assert_awaited_once()
