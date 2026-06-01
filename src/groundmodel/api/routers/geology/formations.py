@@ -27,6 +27,9 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
     GeotechnicalUnitResponse,
     GeotechnicalUnitUpdateRequest,
 )
+from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
+    get_formal_stratigraphy,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -43,6 +46,7 @@ from groundmodel.shared.constants.litho_constants import (
     NAD_CLASSES,
 )
 from groundmodel.shared.constants.model_kind import ModelKind
+from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -82,14 +86,51 @@ def _build_parent_name_map(
     return {f.id: f.name for f in formations}
 
 
+def _resolve_formal_code(formation: GeologicalFormationOrm) -> str | None:
+    """Resolve a formation's DOV formal-stratigraphy code for the lens auto-name.
+
+    Precedence:
+
+    1. **Explicit ``code``** — the manual informal→formal link set in the
+       formation dialog (the user's authoritative override). Wins outright.
+    2. **``regional_ref``** — "Fill from boreholes" stores the formal
+       stratigraphy code here (e.g. ``"QP"``; ``regional_ref`` is null for
+       informal-only formations). Canonicalised through the DOV formal
+       lexicon so case / whitespace variants normalise to the official code;
+       falls back to the raw ``regional_ref`` when the lexicon has no entry.
+    3. Else ``None``.
+
+    Parameters
+    ----------
+    formation : GeologicalFormationOrm
+        The (parent geological) formation to resolve a code for.
+
+    Returns
+    -------
+    str | None
+        The formal-stratigraphy code, or ``None`` when neither a manual link
+        nor a formal ``regional_ref`` is present.
+    """
+    code = (formation.code or "").strip()
+    if code:
+        return code
+    ref = (formation.regional_ref or "").strip()
+    if not ref:
+        return None
+    entry = get_formal_stratigraphy().resolve(normalize_formation_key(ref))
+    return entry.code if entry is not None else ref
+
+
 def _build_parent_code_map(
     formations: list[GeologicalFormationOrm],
 ) -> dict[UUID, str | None]:
-    """Build an id → code lookup from an already-loaded formation list.
+    """Build an id → formal-stratigraphy-code lookup from a formation list.
 
-    Mirrors :func:`_build_parent_name_map` for the parent geological formation
-    ``code`` (the DOV codelist code) that drives the lens auto-name. Pure dict
-    comprehension over in-memory data — no relationship traversal.
+    Mirrors :func:`_build_parent_name_map`. The code drives the lens auto-name
+    (``{parent code}{lithology abbrev}{depth rank}`` e.g. ``QPSa1``) and is
+    resolved per :func:`_resolve_formal_code` (manual ``code`` link first, then
+    the DOV-derived ``regional_ref``). Pure in-memory pass — no relationship
+    traversal; the formal catalog is a process singleton.
 
     Parameters
     ----------
@@ -99,9 +140,9 @@ def _build_parent_code_map(
     Returns
     -------
     dict[UUID, str | None]
-        ``{formation.id: formation.code}`` for every project formation.
+        ``{formation.id: resolved formal code}`` for every project formation.
     """
-    return {f.id: f.code for f in formations}
+    return {f.id: _resolve_formal_code(f) for f in formations}
 
 
 def _enrich_formation(
