@@ -134,6 +134,15 @@ _SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"
 _MAX_SURFACE_SOURCE_CONTACTS = 50_000
 _MAX_TIN_ARRAY_LEN = 200_000
 
+# Cap on CPT depth-series array length (debt #112). The series payload is
+# a dict[str, Any] — Pydantic has no visibility into the array length since
+# the bundle schema types CPTs as list[dict[str, Any]]. A malicious bundle
+# can embed depths_m with 5 M entries; at ~8 bytes/float × 6 channels that
+# is ~240 MB of Python heap just for the series. The perf baseline shows the
+# deepest real CPT is ~10 000 rows; 100 000 is 10× that and far above any
+# plausible real project. Over the cap → CPT row is skipped with a warning.
+_MAX_CPT_SERIES_ROWS = 100_000
+
 # Debt #48: the module-level `logger = LoggerFactory.get_logger(__name__)`
 # is gone. Logging now flows through `ProjectBundleService(GroundModelLogger)`
 # (defined below) so every entry-point inherits the typed logger surface
@@ -622,6 +631,32 @@ def _build_cpt(data: dict[str, Any], app_project_id: UUID) -> CptOrm:
     return cpt
 
 
+def _series_row_count(cpt_data: dict[str, Any]) -> int | None:
+    """Return the depths_m array length from a CPT bundle dict, or None.
+
+    Used by the restore path to check the series-row cap (debt #112) before
+    building the CptSeriesOrm.  Returns None when the CPT has no series or
+    when depths_m is absent.
+
+    Parameters
+    ----------
+    cpt_data : dict[str, Any]
+        Raw CPT payload from the bundle.
+
+    Returns
+    -------
+    int | None
+        Length of depths_m, or None when not present.
+    """
+    series = cpt_data.get("series")
+    if series is None:
+        return None
+    depths = series.get("depths_m")
+    if depths is None:
+        return None
+    return len(depths)
+
+
 def _build_borehole(data: dict[str, Any], app_project_id: UUID) -> BoreholeOrm:
     drill_segments = data.get("drill_segments") or []
     field_log_intervals = data.get("field_log_intervals") or []
@@ -930,6 +965,20 @@ async def _restore_project_bundle_impl(
             logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} already present — skipped")
             skipped_cpts += 1
             continue
+        # Debt #112: guard against a malicious bundle that embeds a
+        # depths_m array with millions of entries.  The bundle schema uses
+        # list[dict[str,Any]] so Pydantic has no visibility into the inner
+        # arrays; the cap lives here.  Over-cap → skip the series so the
+        # CPT still appears on the map, just without depth data.
+        n_rows = _series_row_count(cpt_payload)
+        if n_rows is not None and n_rows > _MAX_CPT_SERIES_ROWS:
+            logger.warning(
+                f"[{i}/{total_cpts}] cpt {cpt_id}: series has {n_rows} rows "
+                f"(cap {_MAX_CPT_SERIES_ROWS}) — series dropped (debt #112)"
+            )
+            # Build CPT without series by removing the key so _build_cpt
+            # doesn't create a CptSeriesOrm for it.
+            cpt_payload = {k: v for k, v in cpt_payload.items() if k != "series"}
         session.add(_build_cpt(cpt_payload, project_id))
         new_cpts += 1
         logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} queued for insert")
