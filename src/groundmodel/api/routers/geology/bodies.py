@@ -282,9 +282,18 @@ async def suggest_body_pinch_outs(
 
     Raises
     ------
-    HTTPException(422)
+    HTTPException(404)
         When the model does not exist or belongs to a different project.
     """
+    # Router-level scope guard: must return 404 (not 422) for a cross-project
+    # model id — consistent with every other model-scoped endpoint in this
+    # router.  Without this guard the use case's internal load_scoped_or_raise
+    # would raise ValueError, which the except block below maps to 422.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
     try:
         candidates = await SuggestBodyPinchOuts(session).execute(
             project_id=project_id,
@@ -356,10 +365,23 @@ async def claim_body_extent(
 
     Raises
     ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(409)
+        When a detector-set ``to_target`` extent would be overwritten
+        (provenance violation — user must call ClearBodyExtent first).
     HTTPException(422)
-        On validation failure (invalid side/kind, missing neighbour,
-        provenance violation, scope guard failure).
+        On other validation failure (invalid side/kind, missing neighbour,
+        scope guard failures for formation/investigation ids).
     """
+    # Router-level model scope guard: must return 404 (not 422) for a
+    # cross-project model id.  Without this, the use case's internal
+    # load_scoped_or_raise would raise ValueError → 422.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
     try:
         body = await ClaimBodyExtent(session).execute(
             project_id=project_id,
