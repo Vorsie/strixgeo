@@ -45,7 +45,7 @@ class DeleteBody(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
-        lens_id: UUID,
+        body_id: UUID,
     ) -> bool:
         """Delete the metadata row.
 
@@ -58,8 +58,9 @@ class DeleteBody(GroundModelLogger):
             Project scope guard.
         model_id : UUID
             Model scope guard.
-        lens_id : UUID
+        body_id : UUID
             Primary key of the ``BodyOrm`` row to delete.
+            Renamed from ``lens_id`` in Slice 3.3 (2026-06-01).
 
         Returns
         -------
@@ -67,15 +68,15 @@ class DeleteBody(GroundModelLogger):
             ``True`` when the row was found and deleted; ``False`` when it
             does not exist or is out of scope.
         """
-        self.info(f"DeleteBody.execute: project={project_id} model={model_id} lens={lens_id}")
+        self.info(f"DeleteBody.execute: project={project_id} model={model_id} body={body_id}")
 
-        body = await self._session.get(BodyOrm, lens_id)
+        body = await self._session.get(BodyOrm, body_id)
         if body is None:
-            self.warning(f"BodyOrm {lens_id} not found — no-op")
+            self.warning(f"BodyOrm {body_id} not found — no-op")
             return False
         if body.app_project_id != project_id or body.model_id != model_id:
             self.warning(
-                f"BodyOrm {lens_id} scope mismatch "
+                f"BodyOrm {body_id} scope mismatch "
                 f"(project={body.app_project_id} model={body.model_id}) — no-op"
             )
             return False
@@ -87,7 +88,7 @@ class DeleteBody(GroundModelLogger):
         await self._session.commit()
 
         self.success(
-            f"DeleteBody done: body={lens_id} "
+            f"DeleteBody done: body={body_id} "
             f"formation={formation_id} ordinal={body_ordinal} deleted"
         )
         return True

@@ -12,7 +12,7 @@ Algorithm (Q3 directive from debt #101):
    the existing row rather than creating a duplicate.
 3. Load the primary section from ``litho_lens.primary_section_id``.
 4. Compute the centroid of the lens in world space:
-   a. Collect all ``formation_contact`` rows tagged with ``lens_id``.
+   a. Collect all ``formation_contact`` rows for the formation's body.
    b. Centroid = mean of their world-x / world-y.  Anchored contacts use the
       investigation's (location_x, location_y); synthetics use synthetic_x/y.
    c. If no contacts are found (zero-contact lens), fall back to the midpoint
@@ -112,7 +112,7 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
-        lens_id: UUID,
+        body_id: UUID,
     ) -> CreatePerpendicularCompanionResult:
         """Run the perpendicular-companion creation pipeline.
 
@@ -122,8 +122,9 @@ class CreatePerpendicularCompanion(GroundModelLogger):
             Project scope guard.
         model_id : UUID
             Model scope guard.
-        lens_id : UUID
-            The lens to create a companion section for.
+        body_id : UUID
+            The body to create a companion section for.
+            Renamed from ``lens_id`` in Slice 3.3 (2026-06-01).
 
         Returns
         -------
@@ -134,22 +135,22 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the lens is not found in the project/model scope, when
-            ``primary_section_id`` is null on the lens (lens was created
+            When the body is not found in the project/model scope, when
+            ``primary_section_id`` is null on the body (body was created
             before Slice 4 and has no recorded primary section), or when
-            the primary section is missing (deleted after lens creation).
+            the primary section is missing (deleted after body creation).
         """
         self.info(
             f"CreatePerpendicularCompanion.execute: "
-            f"project={project_id} model={model_id} lens={lens_id}"
+            f"project={project_id} model={model_id} body={body_id}"
         )
 
         # ------------------------------------------------------------------
-        # 1. Load and validate the lens.
+        # 1. Load and validate the body.
         # ------------------------------------------------------------------
-        lens = await self._session.get(LithoLensOrm, lens_id)
+        lens = await self._session.get(LithoLensOrm, body_id)
         if lens is None or lens.app_project_id != project_id or lens.model_id != model_id:
-            raise ValueError(f"LithoLens {lens_id} not found in project {project_id}")
+            raise ValueError(f"LithoLens {body_id} not found in project {project_id}")
 
         # ------------------------------------------------------------------
         # 2. Model scope guard.
@@ -159,17 +160,17 @@ class CreatePerpendicularCompanion(GroundModelLogger):
             raise ValueError(f"Geological model {model_id} not found in project {project_id}")
 
         # ------------------------------------------------------------------
-        # 3. Idempotency guard — at most one companion per lens.
+        # 3. Idempotency guard — at most one companion per body.
         # ------------------------------------------------------------------
         existing_companion_stmt = (
-            select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == lens_id).limit(1)
+            select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == body_id).limit(1)
         )
         existing_companion = (
             await self._session.execute(existing_companion_stmt)
         ).scalar_one_or_none()
         if existing_companion is not None:
             self.info(
-                f"Lens {lens_id} already has companion section "
+                f"Body {body_id} already has companion section "
                 f"{existing_companion.id} — returning existing"
             )
             return CreatePerpendicularCompanionResult(
@@ -182,15 +183,15 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # ------------------------------------------------------------------
         if lens.primary_section_id is None:
             raise ValueError(
-                f"LithoLens {lens_id} has no primary_section_id — it was created "
-                "before Slice 4 (perpendicular-companion support). Re-create the lens "
+                f"Body {body_id} has no primary_section_id — it was created "
+                "before Slice 4 (perpendicular-companion support). Re-create the body "
                 "to record the primary section."
             )
         primary_section = await self._session.get(CrossSectionOrm, lens.primary_section_id)
         if primary_section is None:
             raise ValueError(
-                f"Primary section {lens.primary_section_id} for lens {lens_id} "
-                "no longer exists — it was deleted after the lens was created."
+                f"Primary section {lens.primary_section_id} for body {body_id} "
+                "no longer exists — it was deleted after the body was created."
             )
 
         # ------------------------------------------------------------------
@@ -235,7 +236,7 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         end_x = cx + perp_ux * half_pos
         end_y = cy + perp_uy * half_pos
 
-        lens_name = lens.name or f"Lens {str(lens_id)[:8]}"
+        lens_name = lens.name or f"Body {str(body_id)[:8]}"
         companion_name = f"Companion of: {lens_name}"
 
         # ------------------------------------------------------------------
@@ -254,7 +255,8 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         )
 
         # Tag as companion — must set after flush gives us the row.
-        companion.companion_lens_id = lens_id
+        # companion_lens_id is the DB column name (historical); body_id is the value.
+        companion.companion_lens_id = body_id
         companion.is_lens_companion = True
         await self._session.flush()
         await self._session.commit()
@@ -262,7 +264,7 @@ class CreatePerpendicularCompanion(GroundModelLogger):
 
         self.success(
             f"CreatePerpendicularCompanion done: companion={companion.id} "
-            f"for lens={lens_id} "
+            f"for body={body_id} "
             f"start=({start_x:.1f}, {start_y:.1f}) "
             f"end=({end_x:.1f}, {end_y:.1f})"
         )
@@ -285,7 +287,7 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         """Compute the world-space centroid of all contacts for the formation body.
 
         Position 4: body identity is ``(model_id, formation_id)``; there is no
-        ``lens_id`` column on contacts.  Anchored contacts use the
+        ``body_id`` column on contacts.  Anchored contacts use the
         investigation's ``(location_x, location_y)``; synthetics use
         ``(synthetic_x, synthetic_y)``.  Falls back to the midpoint of the
         primary section when no contacts are found.

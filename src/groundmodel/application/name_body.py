@@ -35,14 +35,15 @@ class NameBodyResult:
 
     Attributes
     ----------
-    lens_id : UUID
+    body_id : UUID
         The ``BodyOrm`` id (new or pre-existing).
+        Renamed from ``lens_id`` in Slice 3.3 (2026-06-01).
     was_created : bool
         ``True`` when a new metadata row was inserted; ``False`` when an
         existing row was updated.
     """
 
-    lens_id: UUID
+    body_id: UUID
     was_created: bool
 
 
@@ -143,7 +144,7 @@ class NameBody(GroundModelLogger):
                 f"NameBody updated: body={existing.id} "
                 f"formation={formation_id} ordinal={body_ordinal} name={name!r}"
             )
-            return NameBodyResult(lens_id=existing.id, was_created=False)
+            return NameBodyResult(body_id=existing.id, was_created=False)
 
         # ------------------------------------------------------------------
         # Insert a new metadata row.
@@ -165,4 +166,4 @@ class NameBody(GroundModelLogger):
             f"NameBody created: body={body.id} "
             f"formation={formation_id} ordinal={body_ordinal} name={name!r}"
         )
-        return NameBodyResult(lens_id=body.id, was_created=True)
+        return NameBodyResult(body_id=body.id, was_created=True)

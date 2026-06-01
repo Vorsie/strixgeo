@@ -62,7 +62,7 @@ async def _sweep_stale_bodies() -> None:
     ``DetectBodies`` reconcile step carries a ``preserve-named`` guard —
     user-named body rows ride through untouched even when the topology no
     longer matches.  Named rows can only be removed via the explicit
-    ``DELETE /lenses/{lens_id}`` endpoint.  The ``preserve-claimed`` guard
+    ``DELETE /bodies/{body_id}`` endpoint.  The ``preserve-claimed`` guard
     additionally protects any row with a user-claimed extent kind.
 
     Failures are logged but do not block startup; a broken sweep should

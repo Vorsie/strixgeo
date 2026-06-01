@@ -184,7 +184,7 @@ class MaterialiseBodyCompanions(GroundModelLogger):
                 await CreatePerpendicularCompanion(self._session).execute(
                     project_id=project_id,
                     model_id=model_id,
-                    lens_id=body.id,
+                    body_id=body.id,
                 )
                 created += 1
                 self.debug(f"{prefix} companion created")

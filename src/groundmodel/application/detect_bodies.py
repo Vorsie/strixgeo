@@ -118,7 +118,7 @@ class DetectBodies(GroundModelLogger):
     * ``name IS NOT NULL`` — the user explicitly labelled this body, so
       keep it even when the topology no longer matches the auto-detector.
       Named rows can only be removed via the explicit
-      ``DELETE /lenses/{lens_id}`` endpoint.
+      ``DELETE /bodies/{body_id}`` endpoint.
     * Either side carries a user-claimed extent kind — the user has
       explicitly asserted something about this body's lateral extent.
 

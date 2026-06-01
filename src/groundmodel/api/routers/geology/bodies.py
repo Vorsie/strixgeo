@@ -457,9 +457,7 @@ async def update_body(
             detail={"code": "name_body_error", "message": str(exc)},
         ) from exc
 
-    # NameBodyResult carries lens_id (stale field name from before the
-    # body rename; Slice 3.3 will update the result dataclass).
-    return NameBodyResponse(body_id=result.lens_id, was_created=result.was_created)
+    return NameBodyResponse(body_id=result.body_id, was_created=result.was_created)
 
 
 # ---------------------------------------------------------------------------
@@ -515,12 +513,10 @@ async def delete_body_endpoint(
             detail={"code": "body_not_found", "message": f"Body {body_id} not found."},
         )
 
-    # DeleteBody.execute accepts lens_id= (pre-rename parameter name in the
-    # use case; Slice 3.3 will update that signature).
     await DeleteBody(session).execute(
         project_id=project_id,
         model_id=model_id,
-        lens_id=body_id,
+        body_id=body_id,
     )
 
 
@@ -782,12 +778,10 @@ async def create_perpendicular_companion(
         )
 
     try:
-        # CreatePerpendicularCompanion.execute still accepts lens_id= (the
-        # use-case parameter was not renamed in Slice 2; Slice 3.3 closes it).
         result = await CreatePerpendicularCompanion(session).execute(
             project_id=project_id,
             model_id=model_id,
-            lens_id=body_id,
+            body_id=body_id,
         )
     except ValueError as exc:
         raise HTTPException(

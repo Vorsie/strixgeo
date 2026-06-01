@@ -322,7 +322,7 @@ async def restore_project(
     # ``DetectBodies`` reconcile step carries a ``preserve-named`` guard, #
     # so user-named rows ride through untouched even when the topology no  #
     # longer matches — named rows are intentional and can only be removed  #
-    # via the explicit DELETE /lenses/{lens_id} endpoint.  The            #
+    # via the explicit DELETE /bodies/{body_id} endpoint.  The            #
     # ``preserve-claimed`` guard additionally protects rows with a         #
     # user-claimed extent kind.                                            #
     #                                                                      #
