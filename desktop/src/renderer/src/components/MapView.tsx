@@ -568,6 +568,10 @@ export default function MapView({
             stays mounted across DEM toggle, theme change, and all other
             MapView re-renders; it only remounts when the user picks a
             different basemap from the new Basemap dropdown. */}
+        {/* debt #113: attribution is passed as raw HTML to Leaflet's control.
+            This is safe as long as basemap definitions stay hardcoded constants
+            (src/renderer/src/utils/basemaps.ts).  If attribution ever becomes
+            dynamic / user-supplied, sanitise with DOMPurify before binding. */}
         <TileLayer
           key={basemap.id}
           attribution={basemap.attribution}
