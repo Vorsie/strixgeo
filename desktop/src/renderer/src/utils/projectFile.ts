@@ -68,10 +68,10 @@ export interface ProjectFileV3 {
   // Contact-level correlation edges (#133 Phase 2+3).
   litho_contact_correlation_edges: Record<string, unknown>[]
   /**
-   * Litho lens metadata rows (Position 4).
+   * Body (litho lens) metadata rows (slice 4.1 rename from litho_lenses).
    * Absent in files saved before this field shipped — normalised to [] on parse.
    */
-  litho_lenses: Record<string, unknown>[]
+  bodies: Record<string, unknown>[]
   /**
    * Formation absence records (Position 4).
    * Absent in files saved before this field shipped — normalised to [] on parse.
@@ -113,7 +113,7 @@ export function buildProjectFile(
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
     litho_contact_correlation_edges: bundle.litho_contact_correlation_edges ?? [],
-    litho_lenses: bundle.litho_lenses ?? [],
+    bodies: bundle.bodies ?? [],
     formation_absences: bundle.formation_absences ?? [],
     litho_lens_shapes: bundle.litho_lens_shapes ?? [],
     litho_lens_boundary_nodes: bundle.litho_lens_boundary_nodes ?? [],
@@ -155,8 +155,8 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.litho_contact_correlation_edges === undefined) {
     candidate.litho_contact_correlation_edges = []
   }
-  if (candidate.litho_lenses === undefined) {
-    candidate.litho_lenses = []
+  if (candidate.bodies === undefined) {
+    candidate.bodies = []
   }
   if (candidate.formation_absences === undefined) {
     candidate.formation_absences = []
@@ -199,7 +199,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     // in parseProjectFile.
     (v.litho_contact_correlation_edges === undefined ||
       Array.isArray(v.litho_contact_correlation_edges)) &&
-    (v.litho_lenses === undefined || Array.isArray(v.litho_lenses)) &&
+    (v.bodies === undefined || Array.isArray(v.bodies)) &&
     (v.formation_absences === undefined || Array.isArray(v.formation_absences)) &&
     (v.litho_lens_shapes === undefined || Array.isArray(v.litho_lens_shapes)) &&
     (v.litho_lens_boundary_nodes === undefined ||
