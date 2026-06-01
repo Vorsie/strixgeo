@@ -39,7 +39,10 @@ class PinchOutCandidateItem(BaseModel):
     above_contact_id: UUID
     below_contact_id: UUID
     side: Literal["left", "right"]
-    suggested_neighbour_investigation_id: UUID
+    # 'pinch_out_halfway' (interior) or 'open' (edge test — opens to boundary).
+    kind: Literal["pinch_out_halfway", "open"] = "pinch_out_halfway"
+    # None for an 'open' edge candidate (no halfway target).
+    suggested_neighbour_investigation_id: UUID | None = None
 
 
 class SuggestPinchOutsResponse(BaseModel):
