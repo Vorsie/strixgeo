@@ -387,6 +387,55 @@ describe('BodyExtentOverlay', () => {
 })
 
 // ---------------------------------------------------------------------------
+// E2 — memoization correctness across re-renders
+// ---------------------------------------------------------------------------
+//
+//   E2-RERENDER The overlay renders correctly on initial mount, and
+//               re-rendering with identical props produces the same output
+//               (no stale data, no dropped elements).
+
+describe('BodyExtentOverlay memoization correctness', () => {
+  it('E2-RERENDER — renders correctly on initial mount and re-render with same props', () => {
+    const { queryByTestId, rerender } = renderOverlay()
+
+    // Initial render: fill + boundaries present.
+    expect(queryByTestId('body-extent-B1')).not.toBeNull()
+    expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
+    expect(queryByTestId('body-boundary-upper-B1')).not.toBeNull()
+    expect(queryByTestId('body-boundary-lower-B1')).not.toBeNull()
+
+    // Re-render with the same props (simulates a parent re-render that doesn't
+    // change any of the memo dependencies — e.g. a drag on a sibling component).
+    rerender(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[
+            makeBody({
+              content_key: LEGACY_KEY,
+              extent_left_kind: 'to_target',
+              extent_left_target_contact_id: CT,
+              extent_left_neighbour_inv_id: null,
+            }),
+          ]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          {...transforms}
+          onSaveLensShape={vi.fn()}
+        />
+      </svg>,
+    )
+
+    // All elements still present after re-render — memo didn't lose any state.
+    expect(queryByTestId('body-extent-B1')).not.toBeNull()
+    expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
+    expect(queryByTestId('body-boundary-upper-B1')).not.toBeNull()
+    expect(queryByTestId('body-boundary-lower-B1')).not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // R1 helper — halfwayFarPoint contract
 // ---------------------------------------------------------------------------
 //
