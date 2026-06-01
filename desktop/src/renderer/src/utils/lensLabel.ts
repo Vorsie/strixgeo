@@ -14,9 +14,45 @@
  * identity across sections) is a separate, harder problem — see debt #194.
  */
 
-/** ``"{formation} {depth rank}"`` — the auto-generated lens label. */
+/** ``"{base}{depth rank}"`` — the auto-generated lens label, e.g. ``"QPSa1"``
+ *  (no separator: the base is already a compact code like ``"QPSa"``). */
 export function lensAutoLabel(formationLabel: string, depthRank: number): string {
-  return `${formationLabel} ${depthRank}`
+  return `${formationLabel}${depthRank}`
+}
+
+/** Base-lithology token → 1–2 letter abbreviation (owner directive
+ *  2026-06-01): Gravel→G, Silt→Si, Sand→Sa, Clay→C, Peat→P. */
+const LITHOLOGY_ABBREV: Record<string, string> = {
+  GRIND: 'G',
+  SILT: 'Si',
+  ZAND: 'Sa',
+  KLEI: 'C',
+  VEEN: 'P',
+}
+
+/**
+ * Abbreviate a base lithology token. Unknown tokens fall back to their first
+ * two characters (title-cased) so a non-core soil still yields something.
+ */
+export function lithologyAbbrev(lithology: string | null | undefined): string {
+  const raw = lithology?.trim()
+  if (!raw) return ''
+  const known = LITHOLOGY_ABBREV[raw.toUpperCase()]
+  if (known) return known
+  return raw.charAt(0).toUpperCase() + raw.slice(1, 2).toLowerCase()
+}
+
+/**
+ * Build a lens auto-name BASE: ``{parent formation code}{lithology abbrev}``,
+ * e.g. ``"QP" + "Sa" → "QPSa"``. The depth rank is appended later by
+ * {@link lensAutoLabel}. When the parent has no DOV code, the base degrades to
+ * the lithology abbreviation alone (e.g. ``"Sa"``).
+ */
+export function lensFormationBase(
+  parentCode: string | null | undefined,
+  lithology: string | null | undefined,
+): string {
+  return `${(parentCode ?? '').trim()}${lithologyAbbrev(lithology)}`
 }
 
 /**
