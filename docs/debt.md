@@ -2254,26 +2254,33 @@ contacts keyed by `model_id`; `SectionFormation` gains optional
 
 ## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
 
-**What.** ~20+ geology use cases (`accept_litho_suggestions.py`,
-`create_formation_contact.py`, `rebuild_model_surfaces.py`,
-`recompute_formation_surface.py`, `validate_model_crossings.py`, …)
-import ORM classes, run `select(...Orm)` queries inline, and in several
-cases RETURN `*Orm` objects as their public type (`create_formation_
-contact -> FormationContactOrm`, `update_formation_contact`,
-`extrapolate_pinch_out -> list[FormationContactOrm]`). The router then
-hands the ORM object straight to FastAPI serialisation. The domain
-layer is clean (zero infra imports — verified); the application layer
-is the leak. Returning ORM types also means a new ORM column silently
-appears on the API wire (the live-API analogue of #47).
+**Partially resolved 2026-06-01.** The cheap first step (named in the
+original debt entry) landed: `FormationContactResult` dataclass added at
+`src/groundmodel/domain/value_objects/formation_contact_result.py`, and
+five use cases now return it via `from_orm(...)` instead of raw
+`FormationContactOrm` — `CreateFormationContact`,
+`UpdateFormationContact`, `UpdateFormationContactsBatch`,
+`LinkLithoToGeo`, `UnlinkLithoFromGeo`. The router consumes the
+dataclass through Pydantic's `from_attributes`; the wire shape is
+unchanged. `extrapolate_pinch_out` (the third use case originally
+called out) was retired during the body-with-extent refactor — pinch-out
+flows now live in `bodies/*` use cases.
 
-**Why deferred.** The geology use cases grew alongside the ORM;
-`GeologyRepository` exists but covers ~30% of the query surface. Not a
-runtime bug — a structural deviation from the stated layer rule.
+**Still open:** ~17 other geology use cases (`accept_litho_suggestions.py`,
+`rebuild_model_surfaces.py`, `recompute_formation_surface.py`,
+`validate_model_crossings.py`, …) still import ORM classes and run
+`select(...Orm)` queries inline. The internal-ORM usage doesn't leak
+across the API boundary (these use cases return primitives or count
+results), so the structural fix is a separate concern from the leak
+fix. `GeologyRepository` covers ~30% of the query surface today.
+
+**Why deferred (remaining).** Not a runtime bug — a structural
+deviation. The API-boundary leak is now closed; the internal-ORM-use
+pattern stays put until a real consumer (e.g. Phase 5 statistics) needs
+the queries testable in isolation.
 
 **When to revisit.** Before Phase-5 statistics work (which adds bulk
-queries that must be testable in isolation). Cheapest first step: add
-`FormationContactResult` dataclasses for the three ORM-returning use
-cases so the API boundary stops leaking.
+queries that must be testable in isolation).
 
 ## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D)
 
