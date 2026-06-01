@@ -82,16 +82,39 @@ def _build_parent_name_map(
     return {f.id: f.name for f in formations}
 
 
+def _build_parent_code_map(
+    formations: list[GeologicalFormationOrm],
+) -> dict[UUID, str | None]:
+    """Build an id → code lookup from an already-loaded formation list.
+
+    Mirrors :func:`_build_parent_name_map` for the parent geological formation
+    ``code`` (the DOV codelist code) that drives the lens auto-name. Pure dict
+    comprehension over in-memory data — no relationship traversal.
+
+    Parameters
+    ----------
+    formations : list[GeologicalFormationOrm]
+        All formations for the project, loaded within the current session.
+
+    Returns
+    -------
+    dict[UUID, str | None]
+        ``{formation.id: formation.code}`` for every project formation.
+    """
+    return {f.id: f.code for f in formations}
+
+
 def _enrich_formation(
     row: GeologicalFormationOrm,
     name_map: dict[UUID, str],
+    code_map: dict[UUID, str | None] | None = None,
 ) -> GeologicalFormationResponse:
-    """Construct a ``GeologicalFormationResponse`` with ``parent_formation_name`` resolved.
+    """Construct a ``GeologicalFormationResponse`` with parent name + code resolved.
 
     Uses ``model_validate`` (``from_attributes=True``) to copy every ORM
-    attribute, then injects the derived ``parent_formation_name`` from the
-    pre-built map.  No SQLAlchemy relationship is traversed — the name is
-    looked up in the already-loaded ``name_map``.
+    attribute, then injects the derived ``parent_formation_name`` (and, when
+    ``code_map`` is supplied, ``parent_formation_code``) from the pre-built
+    maps.  No SQLAlchemy relationship is traversed.
 
     Parameters
     ----------
@@ -99,30 +122,36 @@ def _enrich_formation(
         The ORM row to serialise.
     name_map : dict[UUID, str]
         ``{formation.id: formation.name}`` for every project formation.
+    code_map : dict[UUID, str | None] | None
+        ``{formation.id: formation.code}`` for every project formation. When
+        omitted, ``parent_formation_code`` stays ``None``.
 
     Returns
     -------
     GeologicalFormationResponse
-        Response schema with ``parent_formation_name`` populated (or ``None``
-        when the row has no parent or the parent id is absent from the map).
+        Response schema with ``parent_formation_name`` (and optionally
+        ``parent_formation_code``) populated (or ``None`` when the row has no
+        parent or the parent id is absent from the maps).
     """
     response = GeologicalFormationResponse.model_validate(row)
     if row.parent_formation_id is not None:
         # Defensive: a litho unit whose parent was deleted after creation
         # returns None instead of raising (orphan case).
         response.parent_formation_name = name_map.get(row.parent_formation_id)
-    # geological-model rows (parent_formation_id=None) → parent_formation_name stays None.
+        if code_map is not None:
+            response.parent_formation_code = code_map.get(row.parent_formation_id)
+    # geological-model rows (parent_formation_id=None) → parent fields stay None.
     return response
 
 
 def _enrich_formation_list(
     rows: list[GeologicalFormationOrm],
 ) -> list[GeologicalFormationResponse]:
-    """Enrich a list of formation ORM rows with server-resolved parent names.
+    """Enrich a list of formation ORM rows with server-resolved parent name + code.
 
-    Builds the ``id → name`` map from the same list (parent formations are
-    always in the same project-scoped list), then calls :func:`_enrich_formation`
-    for each row.  One pass — O(n) for the map build, O(n) for the list.
+    Builds the ``id → name`` + ``id → code`` maps from the same list (parent
+    formations are always in the same project-scoped list), then calls
+    :func:`_enrich_formation` for each row.  One pass — O(n).
 
     Parameters
     ----------
@@ -132,11 +161,13 @@ def _enrich_formation_list(
     Returns
     -------
     list[GeologicalFormationResponse]
-        Serialised responses with ``parent_formation_name`` resolved for each
-        litho unit (None for geological rows or orphans).
+        Serialised responses with ``parent_formation_name`` +
+        ``parent_formation_code`` resolved for each litho unit (None for
+        geological rows or orphans).
     """
     name_map = _build_parent_name_map(rows)
-    return [_enrich_formation(row, name_map) for row in rows]
+    code_map = _build_parent_code_map(rows)
+    return [_enrich_formation(row, name_map, code_map) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +235,8 @@ async def create_formation(
     # None trivially; a litho unit created here resolves its parent name.
     all_formations = await repo.list_formations(project_id)
     name_map = _build_parent_name_map(all_formations)
-    return _enrich_formation(formation, name_map)
+    code_map = _build_parent_code_map(all_formations)
+    return _enrich_formation(formation, name_map, code_map)
 
 
 @router.get("/formations", response_model=list[GeologicalFormationResponse])
@@ -349,7 +381,8 @@ async def update_formation(
     # Load the full project formation list for the parent-name map.
     all_formations = await repo.list_formations(project_id)
     name_map = _build_parent_name_map(all_formations)
-    return _enrich_formation(formation, name_map)
+    code_map = _build_parent_code_map(all_formations)
+    return _enrich_formation(formation, name_map, code_map)
 
 
 @router.delete("/formations/{formation_id}", status_code=status.HTTP_204_NO_CONTENT)
