@@ -130,14 +130,14 @@ _MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
 # v1.0 litho project is O(formations²) within each model, well under 50,000.
 _MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE = 50_000
 # A project with 500 investigations and 20 parent formations could
-# theoretically have hundreds of lenses.  10 000 is a safe ceiling well
+# theoretically have hundreds of bodies.  10 000 is a safe ceiling well
 # above any plausible real project while still capping the DoS surface.
-_MAX_LITHO_LENSES_PER_BUNDLE = 10_000
+_MAX_BODIES_PER_BUNDLE = 10_000
 # Each formation can declare at most every investigation absent.  A project
 # with 500 investigations × 50 formations is the extreme upper bound, so
 # 25 000 rows caps the space while remaining well above reality.
 _MAX_FORMATION_ABSENCES_PER_BUNDLE = 25_000
-# One shape per lens body; capped at the lens ceiling.  Each shape carries a
+# One shape per body; capped at the body ceiling.  Each shape carries a
 # small handful of boundary nodes — a generous global ceiling caps the DoS
 # surface (#112) while staying far above any real project (#163f).
 _MAX_LITHO_LENS_SHAPES_PER_BUNDLE = 10_000
@@ -205,14 +205,18 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE,
     )
-    # Litho lens metadata rows (Position 4).  Each row carries
-    # app_project_id + model_id + formation_id + body_ordinal.  Restore
-    # order: models first, then lenses (model_id FK-respecting).
+    # Body rows (replaces litho_lenses — slice 4.1 rename).  Each row carries
+    # id, model_id, formation_id, body_ordinal, source_investigation_id, name,
+    # primary_section_id, and the six extent columns (extent_left_kind /
+    # target_contact_id / neighbour_inv_id, same for right).  Restore order:
+    # models first, then bodies (model_id + formation_id FK-respecting).
     # Additive field: absence in an older bundle restores cleanly via
-    # default_factory=list.
-    litho_lenses: list[dict[str, Any]] = Field(
+    # default_factory=list.  Older bundles carrying ``litho_lenses`` key
+    # are ignored on restore (pre-ship amnesty — no upgrade path needed;
+    # the field is not read by new restores).
+    bodies: list[dict[str, Any]] = Field(
         default_factory=list,
-        max_length=_MAX_LITHO_LENSES_PER_BUNDLE,
+        max_length=_MAX_BODIES_PER_BUNDLE,
     )
     # Absence records scoped to a formation (Position 4).  Each row carries
     # formation_id so the restore order is "formations first, then absences"
@@ -266,9 +270,9 @@ class ProjectBundleResponse(BaseModel):
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
-    # Litho lens metadata rows (Position 4).  Additive — absent in bundles
-    # saved before this field existed.
-    litho_lenses: list[dict[str, Any]] = Field(default_factory=list)
+    # Body rows (replaces litho_lenses — slice 4.1 rename).  Additive — absent
+    # in bundles saved before this field existed.
+    bodies: list[dict[str, Any]] = Field(default_factory=list)
     # Absence records scoped to a formation (Position 4).  Additive.
     formation_absences: list[dict[str, Any]] = Field(default_factory=list)
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
