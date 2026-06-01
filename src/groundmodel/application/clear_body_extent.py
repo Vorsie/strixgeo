@@ -22,9 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.shared.constants.extent_kind import EXTENT_SIDES
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-_VALID_SIDES = ("left", "right")
 
 
 class ClearBodyExtent(GroundModelLogger):
@@ -48,6 +47,7 @@ class ClearBodyExtent(GroundModelLogger):
         self,
         *,
         project_id: UUID,
+        model_id: UUID,
         body_id: UUID,
         side: str,
     ) -> BodyOrm | None:
@@ -57,6 +57,10 @@ class ClearBodyExtent(GroundModelLogger):
         ----------
         project_id : UUID
             Scope guard — body must belong to this project.
+        model_id : UUID
+            Scope guard — body must belong to this model within the project.
+            Guards against cross-model clears on body ids that happen to
+            belong to a different model in the same project.
         body_id : UUID
             Primary key of the body to clear.
         side : str
@@ -71,15 +75,26 @@ class ClearBodyExtent(GroundModelLogger):
         Raises
         ------
         ValueError
-            On invalid ``side`` value, or when the body does not exist in
-            the given project (scope guard failure).
+            On invalid ``side`` value, when the body does not exist in the
+            given project (scope guard failure), or when the body belongs to
+            a different model within the same project (model scope violation).
         """
-        if side not in _VALID_SIDES:
+        if side not in EXTENT_SIDES:
             raise ValueError(f"side must be 'left' or 'right', got {side!r}")
 
         self.debug(f"ClearBodyExtent: loading body {body_id} for project {project_id}")
 
         body = await load_scoped_or_raise(self._session, BodyOrm, body_id, project_id, label="Body")
+
+        # Model scope guard: the project guard above only checks app_project_id.
+        # A body from a sibling model in the same project would pass it — add a
+        # second check so a cross-model body_id in the URL never silently mutates
+        # the wrong model's data.
+        if body.model_id != model_id:
+            raise ValueError(
+                f"Body {body_id} belongs to model {body.model_id}, "
+                f"not model {model_id} — cross-model clear is not allowed."
+            )
 
         # Clear the three per-side columns.
         # Setting target + neighbour to NULL is always correct here: the user
