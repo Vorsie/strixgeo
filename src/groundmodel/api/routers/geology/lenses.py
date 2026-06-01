@@ -56,17 +56,16 @@ from groundmodel.api.schemas.project.litho_lens_boundary import (
     LensBoundaryResponse,
     LensBoundaryWriteRequest,
 )
+from groundmodel.application.body_boundary import (
+    BodyNoPrimarySectionError,
+    BodyNotFoundError,
+    BoundaryNode,
+    GetBodyBoundary,
+    SaveBodyBoundary,
+)
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.detect_bodies import DetectBodies
-from groundmodel.application.lens_boundary import (
-    BoundaryNode,
-    GetLensBoundary,
-    LensNoPrimarySectionError,
-    LensNotDetectedError,
-    LensNotFoundError,
-    SaveLensBoundary,
-)
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
@@ -384,10 +383,16 @@ async def delete_lens_metadata(
 
 
 def _boundary_response(state) -> LensBoundaryResponse:  # noqa: ANN001 — internal mapper
-    """Map a ``LensBoundaryState`` to the API response schema."""
+    """Map a ``BodyBoundaryState`` to the API response schema.
+
+    ``LensBoundaryResponse`` still carries ``lens_id`` + ``content_key`` for
+    now (Slice 3 will rename the schema); we map ``body_id`` → ``lens_id``
+    and pass ``content_key=None`` as a neutral value until the schema is
+    updated.
+    """
     return LensBoundaryResponse(
-        lens_id=state.lens_id,
-        content_key=state.content_key,
+        lens_id=state.body_id,
+        content_key=None,  # content_key dropped in slice-1 schema rename
         render_style=state.render_style,  # type: ignore[arg-type]
         primary_section_id=state.primary_section_id,
         upper_nodes=[
@@ -411,15 +416,16 @@ async def get_lens_boundary(
     lens_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> LensBoundaryResponse:
-    """Return the user-authored boundary shape for a lens body (#163f).
+    """Return the user-authored boundary shape for a body (#body-with-extent).
 
     Empty node lists + ``render_style='straight'`` when no custom shape is
-    stored (or the lens has no stable content key yet).
+    stored yet.
 
     Parameters
     ----------
     project_id, model_id, lens_id : UUID
-        Scope + target.
+        Scope + target body id (``lens_id`` param name kept for URL
+        stability until Slice 3 renames the endpoint).
     session : AsyncSession
         DB session.
 
@@ -430,13 +436,13 @@ async def get_lens_boundary(
     Raises
     ------
     HTTPException(404)
-        When the lens is not found in the project + model scope.
+        When the body is not found in the project + model scope.
     """
     try:
-        state = await GetLensBoundary(session).execute(
-            project_id=project_id, model_id=model_id, lens_id=lens_id
+        state = await GetBodyBoundary(session).execute(
+            project_id=project_id, model_id=model_id, body_id=lens_id
         )
-    except LensNotFoundError as exc:
+    except BodyNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "lens_not_found", "message": str(exc)},
@@ -455,15 +461,16 @@ async def put_lens_boundary(
     request: LensBoundaryWriteRequest,
     session: AsyncSession = Depends(get_session),
 ) -> LensBoundaryResponse:
-    """Full-replace the boundary shape for a lens body (#163f).
+    """Full-replace the boundary shape for a body (#body-with-extent).
 
-    Sorts + re-indexes the node lists server-side. Persisted under the lens's
-    stable ``content_key`` so the shape survives a resolver re-detection.
+    Sorts + re-indexes the node lists server-side. Persisted under the body's
+    stable ``body_id`` FK so the shape survives resolver re-detection.
 
     Parameters
     ----------
     project_id, model_id, lens_id : UUID
-        Scope + target.
+        Scope + target body id (``lens_id`` param name kept for URL
+        stability until Slice 3 renames the endpoint).
     request : LensBoundaryWriteRequest
         upper/lower nodes + render style.
     session : AsyncSession
@@ -477,30 +484,25 @@ async def put_lens_boundary(
     Raises
     ------
     HTTPException(404)
-        Lens not found in scope.
+        Body not found in scope.
     HTTPException(422)
-        Lens has no content key (re-run correlation) or no primary section.
+        Body has no primary section.
     """
     try:
-        state = await SaveLensBoundary(session).execute(
+        state = await SaveBodyBoundary(session).execute(
             project_id=project_id,
             model_id=model_id,
-            lens_id=lens_id,
+            body_id=lens_id,
             upper_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.upper_nodes],
             lower_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.lower_nodes],
             render_style=request.render_style,
         )
-    except LensNotFoundError as exc:
+    except BodyNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "lens_not_found", "message": str(exc)},
         ) from exc
-    except LensNotDetectedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "lens_not_detected", "message": str(exc)},
-        ) from exc
-    except LensNoPrimarySectionError as exc:
+    except BodyNoPrimarySectionError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "no_primary_section", "message": str(exc)},
