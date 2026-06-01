@@ -28,10 +28,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  BodyBoundaryNode,
+  BodyRenderStyle,
   FormationAbsenceItem,
   GeologicalFormationResponse,
-  LensBoundaryNode,
-  LensRenderStyle,
 } from '../../api/client'
 import { api } from '../../api/client'
 import { log } from '../../utils/log'
@@ -160,10 +160,10 @@ export default function InspectLensBodyPanel({
 
   // #163f Slice 2 — lens boundary render style + the current control nodes
   // (preserved so a style change PUTs the full shape, not an empty one).
-  const [renderStyle, setRenderStyle] = useState<LensRenderStyle>('straight')
+  const [renderStyle, setRenderStyle] = useState<BodyRenderStyle>('straight')
   const [boundaryNodes, setBoundaryNodes] = useState<{
-    upper: LensBoundaryNode[]
-    lower: LensBoundaryNode[]
+    upper: BodyBoundaryNode[]
+    lower: BodyBoundaryNode[]
   }>({ upper: [], lower: [] })
   const [styleSaving, setStyleSaving] = useState(false)
 
@@ -236,7 +236,7 @@ export default function InspectLensBodyPanel({
   }, [target, existingLensId])
 
   const handleStyleChange = useCallback(
-    async (style: LensRenderStyle): Promise<void> => {
+    async (style: BodyRenderStyle): Promise<void> => {
       if (target === null || existingLensId === null) return
       const prev = renderStyle
       setRenderStyle(style) // optimistic
