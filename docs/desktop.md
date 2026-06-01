@@ -11,78 +11,113 @@ desktop/src/
     │   └── client.ts  Typed fetch wrappers; DuplicateCptError class for 409 handling
     ├── components/
     │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
-    │   ├── BboxDrawer.tsx     Inside MapContainer; crosshair draw mode for DOV bbox selection
-    │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment.
-    │   │                  Header carries the inline ``ElevationEditor`` when an
-    │   │                  ``onElevationChange`` handler is wired (Phase 3a).
-    │   ├── ElevationEditor.tsx Inline manual-Z editor shared by CptChart and
-    │   │                       BoreholeLog headers. Idle: amber "Set elevation"
-    │   │                       link when null, "Z = X.XX m TAW" + pencil hover
-    │   │                       when present. Editing: text+inputMode=decimal,
-    │   │                       Enter saves, Esc cancels, "Clear" returns the
-    │   │                       row to the "needs Z" state. Range-clamps to
-    │   │                       [-500, 9000] m client-side mirroring the
-    │   │                       ElevationPatchRequest server validator.
-    │   ├── MapView.tsx    Leaflet map: CPT + borehole markers, layer-control dropdown
-    │   │                  (Option B per-category expand), bottom-right legend.
-    │   │                  Visibility state lives in App so Sidebar can read it too.
-    │   ├── Sidebar.tsx    CPT + borehole list; sort dropdown (Default / Name / Depth);
-    │   │                  multi-select checkboxes + bulk "Remove from project"
-    │   │                  action bar; hover-trash for single-row remove. Removes are
-    │   │                  project-local (localStorage), never DB delete.
-    │   ├── BoreholeLog.tsx    Borelog SVG: lithology with patterns + admixture chips
-    │   │                       (color swatch + qualifier code), drill method, field log,
-    │   │                       sample track with lab-test family icons (★ for catch-all).
-    │   │                       Header carries the inline ``ElevationEditor`` when an
-    │   │                       ``onElevationChange`` handler is wired (Phase 3a).
-    │   ├── LabTestPanel.tsx   Slide-in detail panel; ScalarTestsSection groups catch-all
-    │   │                       tests by parametergroep, ASTM rows show D2487 description.
-    │   ├── NewProjectDialog.tsx Modal for File → New Project. Replaces the
-    │   │                        Electron-disabled ``window.prompt``. Name-only
-    │   │                        MVP today; richer metadata editor extends this
-    │   │                        component when task #16 ships.
-    │   ├── Toolbar.tsx    Import button (GEF + DOV)
-    │   └── WelcomeScreen.tsx  Shown when no project is loaded. Two-column
-    │                          layout: Create / Open card on the left, Recent
-    │                          Projects column on the right (hidden when empty).
-    │                          Engineering-app convention — no auto-reopen on
-    │                          launch (Plaxis / AutoCAD / Photoshop pattern).
+    │   ├── BboxDrawer.tsx       Inside MapContainer; crosshair draw mode for DOV bbox selection
+    │   ├── CptChart.tsx         DOV-standard chart: type-aware panels, ghost axis alignment.
+    │   │                        Header carries the inline ``ElevationEditor`` when an
+    │   │                        ``onElevationChange`` handler is wired (Phase 3a).
+    │   ├── ElevationEditor.tsx  Inline manual-Z editor shared by CptChart and
+    │   │                        BoreholeLog headers.
+    │   ├── MapView.tsx          Leaflet map: CPT + borehole markers, layer-control dropdown,
+    │   │                        bottom-right legend.
+    │   ├── BoreholeLog.tsx      Borelog SVG: lithology with patterns + admixture chips
+    │   │                        (color swatch + qualifier code), drill method, field log,
+    │   │                        sample track with lab-test family icons (★ for catch-all).
+    │   ├── LabTestPanel.tsx     Slide-in detail panel; ScalarTestsSection groups catch-all
+    │   │                        tests by parametergroep, ASTM rows show D2487 description.
+    │   ├── NewProjectDialog.tsx Modal for File → New Project.
+    │   ├── DovImportProgressPanel.tsx  SSE-streaming import progress panel (CPT + borehole).
+    │   ├── SectionPanel.tsx     Cross-section SVG canvas; contacts/litho layers/correlation
+    │   │                        overlays. Hosts ContactsLayer, CorrelationEdgesOverlay,
+    │   │                        LensWedgeOverlay, BodyExtentOverlay.
+    │   ├── SettingsDialog.tsx   Per-project litho-segmenter settings (snap tolerance, sliver
+    │   │                        guard, correlation depth window, lens max thickness, …).
+    │   └── WelcomeScreen.tsx    Shown when no project is loaded. Two-column layout:
+    │                            Create / Open card on the left, Recent Projects on the right.
+    │                            Engineering-app convention — no auto-reopen on launch.
+    ├── components/borelog/      BoreholeLog sub-components (tracks, header, legend, …)
+    ├── components/interpretation/
+    │   ├── FormationPickerDialog.tsx      Pick an existing geological formation.
+    │   ├── LithoCompositionPickerDialog.tsx  Two-tab picker: existing units + new-unit builder.
+    │   └── LithoGhostCompositionEditor.tsx   Inline admixture editor for ghost suggestion rows.
+    ├── components/sections/     Section-canvas sub-components:
+    │   ├── ContactsLayer.tsx        SVG contact lines + drag handles + snap indicators.
+    │   ├── CorrelationEdgesOverlay.tsx  Ribbon rendering for correlation edges.
+    │   ├── LensWedgeOverlay.tsx     Body (lens) wedge geometry + drag nodes.
+    │   ├── BodyExtentOverlay.tsx    Lateral-extent markers and handles.
+    │   ├── ColumnContextMenu.tsx    Right-click menu on a section column.
+    │   └── BodyContextMenu.tsx      Right-click menu on a body wedge.
+    ├── shell/
+    │   ├── AppShell.tsx       Top-level layout shell: spine + stage canvas + inspector panel.
+    │   ├── StageSpine.tsx     Left navigation spine — one button per stage.
+    │   ├── StageToolbar.tsx   Horizontal toolbar slot above the stage canvas.
+    │   ├── Inspector.tsx      Right-hand inspector panel slot.
+    │   ├── EmptyState.tsx     Shared empty / loading state primitives.
+    │   ├── ToolbarPrimitives.tsx  SplitToolbarButton + busy-spinner utilities.
+    │   ├── ShellContext.ts    React context + useShellContextValue hook for cross-stage state.
+    │   ├── useShellState.ts   Core shell state: active stage, section selection, model axis.
+    │   └── stages/
+    │       ├── data/          DataStage — CPT + borehole list, DataCanvas, DataInspector, DataToolbar.
+    │       ├── geology/       GeologyStage — GeologyCanvas (section editor), GeologyInspector,
+    │       │                  GeologyToolbar, Geology3DViewer.
+    │       ├── lithology/     LithologyStage — LithologyCanvas, LithologyInspector, LithologyToolbar.
+    │       ├── geotechnical/  GeotechnicalStage scaffold (NAD packing class, CPT-derived indicators).
+    │       ├── sections/      SectionsStage — SectionsCanvas, SectionsToolbar; the primary editing
+    │       │                  surface for all three model levels.
+    │       ├── parameters/    ParametersStage scaffold — per-test / per-unit / methods tabs.
+    │       └── export/        ExportStage hub — DXF, Plaxis 2D/3D, PDF report cards.
+    ├── hooks/
+    │   ├── useProject.ts          File-aware project hook (open/save/archive/close).
+    │   ├── useGeologicalModel.ts  Active model, contacts, litho layers, ghost suggestions,
+    │   │                          correlation edges, accept/suggest/correlate handlers.
+    │   ├── useSections.ts         Section list, active section, axis toggle.
+    │   ├── useInvestigationData.ts  CPT + borehole detail fetch (scope-guarded).
+    │   ├── useCrossingsValidation.ts  Surface-crossing validator hook.
+    │   ├── useBoundaryDrag.ts     Shared boundary-drag state machine.
+    │   ├── useDovImportStream.ts  SSE-backed import progress hook.
+    │   └── useShellContextValue.ts  Shell context value memoisation.
     ├── utils/
+    │   ├── projectFile.ts     .gmproj file format helpers (build/serialise/parse).
+    │   │                      Current format version: v3 (the only version the frontend
+    │   │                      writes; pre-v3 files fail on open with "re-save" message).
+    │   │                      v4 is a backend-only concept (the bundle API response shape
+    │   │                      includes litho_layers natively); the frontend's
+    │   │                      ``PROJECT_FILE_FORMAT_VERSION`` constant is 3 and v3 files
+    │   │                      embed the backend's v4 bundle verbatim under the v3 wrapper.
     │   ├── soilColors.ts      108-code DOV hoofdnaam lookup → English label + color
     │   ├── soilPatterns.tsx   SVG <pattern> defs (FZ/KL/SI/LE/KA/GL/ZS/XZ/NN/ST/VE/SN…)
-    │   ├── labTestLabels.ts   Translations for DOV parameter / parametergroep + USCS
-    │   │                      D2487 ASTM code descriptions (CL → "Clay (lean)", …)
+    │   ├── labTestLabels.ts   Translations for DOV parameter / parametergroep + USCS D2487
     │   ├── lithoLabels.ts     Dutch display-label helpers for lithostratigraphic units.
     │   │                      `formatLithoDisplayName(mainCode, admixtures)` composes
-    │   │                      amount adjective + soil adjective + capitalised base name
-    │   │                      (e.g. "matig kleiige Zand", "lokaal siltige Klei").
-    │   │                      BASE_LITHOLOGIES: GRIND/ZAND/SILT/KLEI/VEEN. Admixture
-    │   │                      soil codes: GL/KL/SL/ZN/VE + aliases G/K/S/V/Z.
-    │   │                      Amount codes: W=weinig, M=matig, V=veel, S=sterk, Z=zwak,
-    │   │                      WM/MV compounds. Translation at the presentation boundary —
-    │   │                      raw DOV codes stored, Dutch label shown.
-    │   ├── projectFile.ts     .gmproj file format helpers (build/serialise/parse).
-    │   │                      Format version 1 — JSON pointer to a DB row. See
-    │   │                      "Project files" below for the schema.
+    │   │                      amount adjective + soil adjective + capitalised base name.
+    │   ├── lithoConstants.ts  LITHOLOGY_COLORS, LITHOLOGY_LABELS — must stay byte-identical
+    │   │                      to the backend mirror in ``shared/constants/litho_constants.py``.
+    │   ├── lithoSegmenterPrefs.ts  read/write helpers for ``view_state.litho_segmenter.*``.
+    │   ├── bodyExtent.ts      ClaimBodyExtent client helpers + body-extent geometry.
     │   ├── verticalDatum.ts   EPSG → datum-label lookup (5710→mTAW, 5709→NAP)
-    │   └── useWgs84.ts        Lambert72 → WGS84 projection cache
-    ├── hooks/
-    │   └── useProject.ts  File-aware project hook. State: project (live
-    │                      ProjectResponse from API) + filePath (.gmproj path).
-    │                      Actions: newProject (POST + save dialog + write file,
-    │                      with archive-rollback on cancel/error), openProjectFile,
-    │                      pickAndOpenProject, updateMetadata, archiveCurrent,
-    │                      closeProject. No auto-reopen — welcome screen is the
-    │                      always-on launch surface.
-    └── App.tsx            Project gate, data loading, import handlers, toasts.
-                           Owns layer-visibility state (hidden CPT types, hidden
-                           borehole values per axis, current axis) AND project-local
-                           "removed" sets persisted to localStorage per project id.
-                           Filters cpts/boreholes via removed sets before passing
-                           anywhere user-visible.
+    │   └── useWgs84.ts        Lambert72 → WGS84 projection cache (moved to hooks/ in practice)
+    └── App.tsx                Project gate, data loading, import handlers, toasts.
 ```
 
-## Sidebar conventions
+## Shell / stage architecture
+
+The app uses a **staged-screen shell** (`shell/AppShell.tsx`):
+
+- The left `StageSpine` hosts one button per stage (Data / Geology / Lithology /
+  Geotechnical / Sections / Parameters / Export).
+- Each stage provides a `StageDescriptor` with a canvas component, toolbar component,
+  and optional inspector component, registered in `StageRegistry`.
+- Cross-stage state (active project, active geological model, active litho model, active
+  section, selection) lives in `ShellContext` — read by any stage without prop-drilling.
+- `useGeologicalModel` is the primary model-mutation hook; it is instantiated once in
+  `useShellContextValue` and shared via context.
+
+The old flat-component `Sidebar.tsx` was deleted during the shell overhaul (#12). The
+Data stage's `DataInspector` now hosts the CPT / borehole list with sort + multi-select
++ remove-from-project. Investigation-level visibility state (removed sets) persists per
+project in `localStorage`; per-project engineering decisions (review status, view toggles)
+ride in the `.gmproj` bundle, never in localStorage alone.
+
+## Sidebar / Data stage conventions
 - Sort persists per session: `localStorage["groundmodel.sidebar.sort"]`
 - Removed-from-project set persists per project: `localStorage["groundmodel.removed.{projectId}.{cpt|borehole}"]`
 - Multi-select checkbox ALWAYS visible (left of row icon); row body click opens detail
