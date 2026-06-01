@@ -51,17 +51,25 @@ async def setup(db_session: AsyncSession) -> dict:
         epsg=31370,
         total_depth_m=10.0,
     )
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="G",
+        kind="geological",
+    )
     model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     other_model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="L2",
         kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(),
@@ -70,7 +78,7 @@ async def setup(db_session: AsyncSession) -> dict:
         color="#fdcb6e",
         litho_main_soil_code="Z",
     )
-    db_session.add_all([bh, model, other_model, sand])
+    db_session.add_all([bh, geo_model, model, other_model, sand])
     await db_session.commit()
     return {
         "project": project,

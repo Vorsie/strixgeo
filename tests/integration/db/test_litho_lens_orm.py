@@ -38,13 +38,20 @@ async def _make_fixture(
     project = ProjectOrm(id=uuid7(), name="Body ORM test", status="active")
     db_session.add(project)
     await db_session.flush()
+    geo_model = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project.id, name="Geo M", kind="geological"
+    )
     model = GeologicalModelOrm(
-        id=uuid7(), app_project_id=project.id, name="Litho M", kind="lithostratigraphic"
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho M",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="ZAND", color="#fceb9a"
     )
-    db_session.add_all([model, formation])
+    db_session.add_all([geo_model, model, formation])
     await db_session.commit()
     return project, model, formation
 

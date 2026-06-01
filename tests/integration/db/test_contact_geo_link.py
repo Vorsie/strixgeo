@@ -52,6 +52,7 @@ async def _make_stack(
         app_project_id=project.id,
         name="Litho",
         kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),

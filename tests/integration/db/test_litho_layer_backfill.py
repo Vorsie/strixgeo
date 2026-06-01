@@ -79,17 +79,18 @@ async def litho_project(db_session: AsyncSession) -> ProjectOrm:
         epsg=31370,
         max_depth_m=12.0,
     )
-    litho_model = GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Litho M",
-        kind="lithostratigraphic",
-    )
     geo_model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="Geo M",
         kind="geological",
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho M",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"

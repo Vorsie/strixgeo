@@ -106,14 +106,15 @@ async def project_with_litho(db_session: AsyncSession) -> dict:
         epsg=31370,
         total_depth_m=10.0,
     )
+    geo_model = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project.id, name="G", kind="geological"
+    )
     litho_model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
-    )
-    geo_model = GeologicalModelOrm(
-        id=uuid7(), app_project_id=project.id, name="G", kind="geological"
+        parent_geological_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"
@@ -121,7 +122,7 @@ async def project_with_litho(db_session: AsyncSession) -> dict:
     clay = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="CLAY", color="#74b9ff"
     )
-    db_session.add_all([bh, litho_model, geo_model, sand, clay])
+    db_session.add_all([bh, geo_model, litho_model, sand, clay])
     await db_session.commit()
     return {
         "project": project,
@@ -347,12 +348,26 @@ async def test_v3_bundle_still_restores(db_session: AsyncSession, project_with_l
             },
         ],
         "geological_models": [
+            # Geo parent must appear before the litho model (INSERT order).
+            {
+                "id": str(p["geo_model"].id),
+                "name": p["geo_model"].name,
+                "kind": "geological",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "contacts": [],
+                "surfaces": [],
+            },
             {
                 "id": str(p["litho_model"].id),
                 "name": p["litho_model"].name,
                 "kind": "lithostratigraphic",
                 "is_active": False,
                 "excluded_borehole_ids": [],
+                # v3 bundles did not always carry parent_geological_model_id,
+                # but the new CHECK constraint requires it — include it here
+                # so the restore satisfies the DB invariant.
+                "parent_geological_model_id": str(p["geo_model"].id),
                 "contacts": [
                     {
                         "id": str(contact_id),
@@ -366,7 +381,7 @@ async def test_v3_bundle_still_restores(db_session: AsyncSession, project_with_l
                 ],
                 "surfaces": [],
                 # No litho_layers field — the v3 case.
-            }
+            },
         ],
     }
     await _restore_bundle(db_session, p["project"].id, v3_bundle)

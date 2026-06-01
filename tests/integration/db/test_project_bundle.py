@@ -1286,6 +1286,12 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
         display_order=0,
         litho_main_soil_code="ZAND",
     )
+    geo_parent = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo parent",
+        kind="geological",
+    )
     model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=source.id,
@@ -1293,8 +1299,9 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
         kind="lithostratigraphic",
         is_active=True,
         excluded_borehole_ids=[],
+        parent_geological_model_id=geo_parent.id,
     )
-    db_session.add_all([formation, model])
+    db_session.add_all([formation, geo_parent, model])
     await db_session.flush()
 
     # Two contacts at different depths on the same borehole — canonical
