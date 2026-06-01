@@ -4,7 +4,21 @@ Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the depre
 
 ```
 POST   /cpt/import              Import a GEF file (multipart form; project_id form field)
-POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id)
+POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id).
+                                Synchronous — waits for the full import to complete. For large
+                                bboxes use the streaming variant below.
+POST   /cpt/import-dov/stream   Async SSE variant. Returns ``202 Accepted``
+                                with ``{job_id}``. Connect to
+                                ``GET /cpt/import-dov/stream/{job_id}``
+                                to receive ``text/event-stream`` progress frames
+                                (``data: <json>\n\n``). Each frame carries
+                                phase, count, total, and status fields.
+                                Same import semantics as the synchronous
+                                endpoint but keeps the connection alive for
+                                the DOV download + parse phase.
+GET    /cpt/import-dov/stream/{job_id}
+                                Drain a CPT import job's SSE event queue.
+                                Closes when the job completes or errors.
 GET    /cpt/                    List CPTs (optional ?project_id=UUID filters by project)
 GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary).
                                 Requires ``?project_id=UUID`` — the CPT must
@@ -36,10 +50,21 @@ PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
 POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
                                 + grain-size + Atterberg + CaCO3 + organic-C + water-content
                                 + the ScalarLabTest catch-all from DOV bbox
-                                (Phase C1+C2+C3+C4+C5). Response carries per-test
-                                attached/failed counters in addition to the borehole
-                                counts; the catch-all reports under
+                                (Phase C1+C2+C3+C4+C5). Synchronous. Response
+                                carries per-test attached/failed counters; the
+                                catch-all reports under
                                 ``scalar_lab_tests_attached / _failed``.
+POST   /borehole/import-dov/stream
+                                Async SSE variant of ``/borehole/import-dov``.
+                                Returns ``202 Accepted`` with ``{job_id}``.
+                                Connect to
+                                ``GET /borehole/import-dov/stream/{job_id}``
+                                for ``text/event-stream`` progress frames.
+                                Same semantics + same counters in the final
+                                frame.
+GET    /borehole/import-dov/stream/{job_id}
+                                Drain a borehole import job's SSE event queue.
+                                Closes when the job completes or errors.
 GET    /borehole/{id}           Full borehole tree (header + drill segments + field log
                                 + observations with layers + admixtures + samples with
                                 grain-size + Atterberg + CaCO3 + organic + water-content
@@ -84,16 +109,27 @@ POST   /projects/{id}/archive   Soft-delete (stamps ``archived_at``).
 POST   /projects/{id}/unarchive Restore (clears ``archived_at``).
 GET    /projects/{id}/bundle    Full project snapshot — metadata + every
                                 CPT (with series) + every borehole (with
-                                full child tree). Embedded verbatim in
-                                .gmproj v2 files on save.
+                                full child tree) + geological models with
+                                contacts/litho_layers + correlation edges
+                                + bodies + formation absences + boundary
+                                shapes. Embedded verbatim in .gmproj v4
+                                files on save. The frontend's
+                                ``PROJECT_FILE_FORMAT_VERSION`` is 3
+                                (outer file wrapper); the bundle payload
+                                inside is the v4 shape. Backend supports
+                                restore from v3 and v4 bundles.
 POST   /projects/{id}/restore   Idempotently materialise a project + its
-                                CPTs + boreholes from a bundle when the
-                                DB has lost the rows (wiped local DB,
-                                fresh install). Body matches the bundle
-                                shape; id is in the URL. Existing rows
-                                are returned / skipped (no mutation);
-                                missing rows are inserted with the
-                                supplied ids. Always 200.
+                                CPTs + boreholes + geology from a bundle
+                                when the DB has lost the rows (wiped
+                                local DB, fresh install). Body matches the
+                                bundle shape (v3 or v4); id is in the
+                                URL. Existing rows are returned / skipped
+                                (no mutation); missing rows are inserted
+                                with the supplied ids. After restore,
+                                runs ResolveLithoInstances +
+                                DetectLithoLenses per litho model to
+                                reconcile any stale lens rows from older
+                                bundles. Always 200.
 
 POST   /projects/{pid}/geology/formations           Create a formation.
 GET    /projects/{pid}/geology/formations           List project formations
@@ -405,6 +441,117 @@ POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
                                                     (structural #57 guard).
                                                     Shipped in Slice 3.
 
+GET    /projects/{pid}/geology/models/{mid}/layers
+                                                    List litho_layer rows for
+                                                    a lithostratigraphic model.
+                                                    Optional filters:
+                                                    ``borehole_id``,
+                                                    ``cpt_id``,
+                                                    ``formation_id``,
+                                                    ``status`` (pending /
+                                                    accepted / rejected).
+                                                    Sorted shallowest-first.
+POST   /projects/{pid}/geology/models/{mid}/layers
+                                                    Bulk-create litho_layer rows
+                                                    from a segmenter result (CPT
+                                                    Robertson-SBT or borehole
+                                                    ObservationLayer). Replaces
+                                                    existing pending layers for
+                                                    the same anchor.
+PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}
+                                                    Update a single layer
+                                                    (depth_top_m, depth_base_m,
+                                                    formation_id, status,
+                                                    admixtures).
+POST   /projects/{pid}/geology/models/{mid}/layers/{lid}/move-boundary
+                                                    Move a shared boundary
+                                                    between two adjacent layers
+                                                    atomically.
+PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}/status
+                                                    Accept or reject a single
+                                                    pending layer.
+POST   /projects/{pid}/geology/models/{mid}/layers/batch-update
+                                                    Batch status update (accept
+                                                    or reject) for N layers.
+DELETE /projects/{pid}/geology/models/{mid}/layers/{lid}
+                                                    Delete one layer row.
+PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}/geo-contact
+                                                    Couple / uncouple a litho
+                                                    layer to a geological
+                                                    formation contact
+                                                    (``parent_geo_contact_id``
+                                                    FK; snap + propagation).
+
+POST   /projects/{pid}/geology/models/{mid}/contacts/suggest-litho
+                                                    Run the Robertson-SBT CPT
+                                                    segmenter (or borehole
+                                                    ObservationLayer reader)
+                                                    for one anchor; returns
+                                                    ephemeral ghost-layer
+                                                    candidates.  Writes
+                                                    ``pending`` litho_layer
+                                                    rows as a side-effect.
+POST   /projects/{pid}/geology/models/{mid}/contacts/accept-litho-suggestions
+                                                    Accept a set of ghost
+                                                    suggestion layers for one
+                                                    anchor.  Creates
+                                                    formation_contact rows
+                                                    (find-or-create per
+                                                    formation), runs straddle-
+                                                    split if a contact spans
+                                                    a geological boundary,
+                                                    seeds the section, runs
+                                                    inference. Returns
+                                                    AcceptLithoSuggestionsResponse.
+POST   /projects/{pid}/geology/models/{mid}/contacts/batch-accept-litho-suggestions
+                                                    Batch variant — accepts
+                                                    all anchors in one
+                                                    transaction + single
+                                                    inference recompute.
+                                                    N+2 calls → 1 call / 3
+                                                    commits.
+DELETE /projects/{pid}/geology/models/{mid}/contacts/clear-litho
+                                                    Delete all litho_layer rows
+                                                    for the model and prune
+                                                    the section's
+                                                    seeded_formation_contact_ids
+                                                    GC sweep.
+POST   /projects/{pid}/geology/models/{mid}/contacts/seed-litho
+                                                    Seed litho_layer rows from
+                                                    the parent geological model's
+                                                    formation contacts (initial
+                                                    state for the litho axis).
+
+POST   /projects/{pid}/geology/models/{mid}/contact-correlations
+                                                    Create (or confirm) a
+                                                    contact-level correlation
+                                                    edge between two litho_layer
+                                                    rows. Returns 201 when new,
+                                                    200 when existing.
+DELETE /projects/{pid}/geology/models/{mid}/contact-correlations/{cid}
+                                                    Remove one edge.
+GET    /projects/{pid}/geology/models/{mid}/contact-correlations
+                                                    List all edges for the model.
+POST   /projects/{pid}/geology/models/{mid}/contact-correlations/auto-correlate
+                                                    Run the section-order
+                                                    auto-correlate algorithm:
+                                                    groups same-lithology
+                                                    contacts by adjacency +
+                                                    depth window along the
+                                                    section, creates edges.
+POST   /projects/{pid}/geology/models/{mid}/contact-correlations/accept
+                                                    Promote pending edges to
+                                                    approved.
+POST   /projects/{pid}/geology/models/{mid}/contact-correlations/uncorrelate
+                                                    Remove an edge by its two
+                                                    endpoint contact ids.
+
+POST   /projects/{pid}/geology/models/{mid}/lenses/detect
+                                                    Explicit "Detect bodies"
+                                                    verb — materialises BodyOrm
+                                                    rows for bilateral-closure
+                                                    topologies. Idempotent.
+
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
                                             + view prefs). 422 when the
@@ -450,6 +597,26 @@ GET    /projects/{pid}/sections/{sid}/export/plaxis2d
                                             ``text/x-python`` body with a
                                             ``<section>_plaxis2d.py``
                                             ``Content-Disposition``.
+GET    /projects/{pid}/sections/{sid}/export/pdf
+                                            Export a section as a PDF report
+                                            (``SectionPdfReportExporter``).
+                                            Same ``model_id`` query param.
+                                            ``application/pdf`` response with
+                                            a ``Content-Disposition`` header.
+                                            404 when section / model / project
+                                            resolution fails.
+
+GET    /dem/sample               Sample ``n_samples`` evenly-spaced DEM
+                                 elevations along a line. Query params:
+                                 ``start_x``, ``start_y``, ``end_x``,
+                                 ``end_y``, ``epsg``, ``n_samples``
+                                 (default 200, max 2000). Returns
+                                 ``{source, samples: [{along_m,
+                                 elevation_m}]}``. Source today:
+                                 ``"dhmvii"`` (EPSG:31370 / Flanders).
+                                 Any other EPSG → 400 "no DEM source
+                                 mapped". Used by the section canvas to
+                                 draw the ground-surface polyline.
 
 GET    /projects/{pid}/reviews              List every per-(project,
                                             investigation) decision row
@@ -512,6 +679,56 @@ GET    /projects/{pid}/virtuele-boring/predictions?models=A,B
                                             only — no rows persisted.
 ```
 
-Bodies (lateral extents): `POST/GET /projects/{pid}/geology/models/{mid}/bodies`, `POST .../bodies/detect`, `POST .../bodies/suggest-pinch-outs`, `PATCH/DELETE .../bodies/{bid}`, `DELETE .../bodies/{bid}/extents/{side}`, `GET/PUT .../bodies/{bid}/boundary`, `POST .../bodies/{bid}/perpendicular-companion`. Full detail in `docs/superpowers/specs/2026-05-31-body-with-extent-design.md`.
+**Bodies (lateral extents)** — full catalogue (design doc: `docs/superpowers/specs/2026-05-31-body-with-extent-design.md`):
+
+```
+GET    /projects/{pid}/geology/models/{mid}/bodies
+                                List all body metadata rows (oldest-first).
+POST   /projects/{pid}/geology/models/{mid}/bodies/detect
+                                Explicit "Detect bodies" verb (same as
+                                /lenses/detect above — canonical path).
+                                Runs DetectBodies: materialises BodyOrm rows
+                                for bilateral-closure topologies + removes
+                                stale rows. Idempotent. 422 when model is
+                                not lithostratigraphic.
+POST   /projects/{pid}/geology/models/{mid}/bodies/suggest-pinch-outs
+                                Ephemeral only — returns PinchOutCandidateItem
+                                list (no DB writes). Frontend renders as ghost
+                                wedges; click-to-commit fires ClaimBodyExtent.
+PATCH  /projects/{pid}/geology/models/{mid}/bodies/{bid}
+                                Update a body's human-readable name
+                                (NameBody use case).
+DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}
+                                Hard-delete the BodyOrm metadata row.
+                                Formation absence rows + synthetic contacts
+                                are preserved.
+DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}/extents/{side}
+                                Clear one lateral extent back to NULL.
+                                ``side`` ∈ {left, right}. Reaps the body
+                                row when both extents are NULL and name is
+                                empty.
+GET    /projects/{pid}/geology/models/{mid}/bodies/{bid}/boundary
+                                Return the user-authored boundary shape
+                                (upper/lower control nodes + render_style).
+                                Returns straight defaults when no shape
+                                stored yet.
+PUT    /projects/{pid}/geology/models/{mid}/bodies/{bid}/boundary
+                                Full-replace the boundary shape + nodes.
+                                Serialised with an advisory lock to prevent
+                                concurrent drag-PUT races.
+POST   /projects/{pid}/geology/models/{mid}/bodies/{bid}/perpendicular-companion
+                                Auto-create a perpendicular companion
+                                cross-section centred on the body's
+                                formation-contact centroid. Idempotent —
+                                200 when companion already exists,
+                                201 when newly created.
+GET    /projects/{pid}/geology/formations/{fid}/absences
+                                List formation absence rows for one
+                                formation (absent investigations + confidence
+                                source: inferred / manual / observed).
+POST   /projects/{pid}/geology/formations/{fid}/absences
+                                Upsert a formation absence row (manual
+                                override).
+```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
