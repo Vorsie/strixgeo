@@ -50,17 +50,28 @@ Expected state: you can see litho bands in the section view with green boundary 
 
 ## Step 4 — Provenance conflict (409 path)
 
-1. Right-click the same body again.
-2. Choose **Claim left extent → Extrapolated** (this conflicts with the pinch-out just claimed in Step 3).
-3. Expected: the **Provenance Conflict Dialog** opens:
+The provenance-conflict dialog fires only when trying to overwrite an
+**auto-detector-set** `to_target` extent. User-to-user overwrite just
+succeeds silently. To reach the dialog:
+
+1. First run **Detect bodies** (the `DetectBodies` verb — either via API or
+   a toolbar button if wired) so the model has a body with `to_target` on
+   one side. Alternatively, skip ahead if you already have such a body.
+2. Right-click the body with the `to_target` extent.
+3. Choose **Claim left extent → Extrapolated** (overwriting the detector claim).
+4. Expected: the **Provenance Conflict Dialog** opens:
    - Title: "Extent already claimed"
-   - Body copy mentions the "left" side and "extrapolated" kind
-   - Three buttons: **Apply my claim** (focused), **Keep current**, **Cancel**
+   - Body copy: "The left side of this body already has an auto-detected
+     extent. Your claim (extrapolated) would overwrite it."
+   - Three buttons: **Apply my claim** (default-focused), **Keep current**, **Cancel**
 
-4. Click **Apply my claim**.
-5. Expected: the body's left extent is now `extrapolated`. A success toast appears.
+5. Click **Apply my claim**.
+6. Expected: a success toast "Extent claimed: left → extrapolated". The body's
+   left extent is now `extrapolated`.
 
-**Regression check:** if the dialog does NOT appear and you get an "Extent already claimed by detector" toast, the 409→dialog wiring is broken.
+**Note:** Claiming over a *user-set* extent (e.g. you already claimed
+`pinch_out_halfway` in Step 3) silently overwrites without a dialog — the
+provenance guard protects detector claims only.
 
 ---
 
