@@ -741,6 +741,13 @@ interface Props {
    * when the user picks "Dissolve body".
    */
   onDissolveBody?: (bodyId: string) => void
+  /** Open-end a litho layer (right-click contact → "Open-end layer →/←").
+   *  Claims an ``open`` body extent, TIN-free. Passed only on the litho axis. */
+  onOpenEndLayer?: (
+    formationId: string,
+    investigationId: string,
+    side: 'left' | 'right',
+  ) => void
   /**
    * Auto-suggest pinch-out candidates from the "Suggest pinch-outs" toolbar
    * verb. Forwarded to ``BodyExtentOverlay`` to render dashed amber ghost
@@ -817,6 +824,7 @@ export default function SectionPanel({
   onSaveLensShape,
   onDeleteLens,
   onClaimBodyExtent,
+  onOpenEndLayer,
   onClearBodyExtent,
   onNameBody,
   onDissolveBody,
@@ -2991,7 +2999,7 @@ export default function SectionPanel({
               onDeleteContact={onDeleteContact}
               onUnlinkLithoFromGeo={onUnlinkLithoFromGeo}
               onLinkLithoToGeo={onLinkLithoToGeo}
-              onPinchOutContact={pinchOutGhostState?.onPreviewPinchOut}
+              onOpenEndLayer={onOpenEndLayer}
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}

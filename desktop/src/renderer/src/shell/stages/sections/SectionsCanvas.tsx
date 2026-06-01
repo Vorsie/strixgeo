@@ -787,6 +787,38 @@ export default function SectionsCanvas(): JSX.Element {
     [_doClaimExtent, toast],
   )
 
+  // Open-end a litho LAYER from its contact right-click (replaces the retired
+  // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent for the
+  // layer's formation on its investigation — creates the body if none exists.
+  // No TIN required; the open band renders to the section boundary on ``side``.
+  const handleOpenEndLayer = useCallback(
+    async (formationId: string, investigationId: string, side: 'left' | 'right'): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info(
+        'section',
+        `open-end-layer: formation=${formationId} inv=${investigationId} side=${side}`,
+      )
+      try {
+        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
+          formation_id: formationId,
+          source_investigation_id: investigationId,
+          side,
+          kind: 'open',
+        })
+        void refetchLensData()
+        toast('success', `Layer open-ended ${side === 'left' ? '←' : '→'}`)
+      } catch (err) {
+        if (err instanceof ProvenanceViolationError) {
+          toast('error', `That side already has an extent — clear it first.`)
+        } else {
+          toast('error', 'Failed to open-end layer.')
+        }
+        log.warn('section', 'handleOpenEndLayer: failed', err)
+      }
+    },
+    [activeLithoModel, project.id, refetchLensData, toast],
+  )
+
   // Clear one side's user extent.  204 = body reaped; 200 = still alive.
   const handleClearBodyExtent = useCallback(
     async (bodyId: string, side: 'left' | 'right'): Promise<void> => {
@@ -2201,6 +2233,9 @@ export default function SectionsCanvas(): JSX.Element {
           onDeleteContact={handleDeleteContact}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
+          // Open-end a litho layer (right-click contact → "Open-end layer →/←").
+          // Litho axis only — bodies are a litho primitive.
+          onOpenEndLayer={isLitho ? handleOpenEndLayer : undefined}
           onBatchUpdateContacts={handleBatchUpdateContacts}
           onBatchCreateContacts={sectionAwareBatchCreateContacts}
           // Seed from stratigraphy: only available on the geological axis

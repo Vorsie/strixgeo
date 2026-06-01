@@ -144,11 +144,16 @@ interface Props {
    * anchorId
    *     Id of the CPT or borehole the contact is anchored to.
    */
-  onPinchOutContact?: (
-    contactId: string,
+  /** Open-end this litho layer toward ``side`` — claims an ``open`` body
+   *  extent (the lens band runs to the section boundary), TIN-free. Replaces
+   *  the retired "Extrapolate pinch-out…" contact gesture (its backend tool
+   *  was removed in the body-with-extent refactor). ``formationId`` is the
+   *  right-clicked contact's litho formation; ``investigationId`` its CPT /
+   *  borehole anchor. Absent → the item is hidden. */
+  onOpenEndLayer?: (
     formationId: string,
-    anchorKind: 'cpt' | 'borehole',
-    anchorId: string,
+    investigationId: string,
+    side: 'left' | 'right',
   ) => void
   /** All-or-nothing batch UPDATE commit. Used for:
    *
@@ -977,7 +982,7 @@ export default function ContactsLayer({
   onDeleteContact,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
-  onPinchOutContact,
+  onOpenEndLayer,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   marquee,
@@ -3540,7 +3545,7 @@ export default function ContactsLayer({
                 events; without all three they stay fully
                 non-interactive. */}
             {!correlateMode &&
-              (onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact) &&
+              (onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onOpenEndLayer) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -3556,7 +3561,7 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onPinchOutContact || onEditInGeologyStage
+                    onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onOpenEndLayer || onEditInGeologyStage
                       ? e => {
                           e.preventDefault()
                           // Resolve the parent geological contact id so the
@@ -4043,30 +4048,14 @@ export default function ContactsLayer({
                 }
               : undefined
           }
-          onPinchOut={
-            !contactMenu.isReferenceContact && onPinchOutContact
-              ? () => {
-                  const { contactId, formationId, anchorKind, anchorId } =
-                    contactMenu
+          onOpenEnd={
+            !contactMenu.isReferenceContact && onOpenEndLayer
+              ? side => {
+                  const { formationId, anchorId } = contactMenu
                   setContactMenu(null)
-                  onPinchOutContact(contactId, formationId, anchorKind, anchorId)
+                  onOpenEndLayer(formationId, anchorId, side)
                 }
               : undefined
-          }
-          // Gate the pinch-out item when the formation has no TIN
-          // surface — the backend math (slice_tin on both formations
-          // along the section line) cannot run pre-build. Tooltip +
-          // sub-label explain the prerequisite so the user sees the
-          // limit at hover instead of clicking through to a confusing
-          // 422 toast. #118 follow-up; ghost-pinch-out pre-build
-          // path is #101.
-          pinchOutDisabledReason={
-            !contactMenu.isReferenceContact &&
-            onPinchOutContact &&
-            surfacesByFormationId &&
-            !surfacesByFormationId.has(contactMenu.formationId)
-              ? "Build the 3D model first — pinch-out needs the formation’s TIN surface."
-              : null
           }
           onClose={() => setContactMenu(null)}
         />,
@@ -4166,18 +4155,10 @@ interface ContactContextMenuProps {
    * Establishes the coupling to the nearest geological contact within
    * snap tolerance.  When absent the item is hidden. */
   onLinkLithoToGeo?: () => void
-  /** Fired when the user picks "Extrapolate pinch-out…". When absent
-   * the item is hidden. */
-  onPinchOut?: () => void
-  /** Optional reason the pinch-out item should be DISABLED (rather
-   *  than hidden). When set, the item still renders so the user
-   *  knows the gesture is intended for this surface, but it is
-   *  inert + carries the reason as a tooltip. Use case: the
-   *  formation has no TIN surface yet, so the backend pinch-out
-   *  math (which needs both formations' TINs) cannot run —
-   *  clicking would surface a confusing 422 instead of explaining
-   *  the prerequisite (#118 follow-up). */
-  pinchOutDisabledReason?: string | null
+  /** Fired when the user picks "Open-end layer →/←" — claims an ``open``
+   *  body extent toward ``side`` (TIN-free). When absent the items are
+   *  hidden. */
+  onOpenEnd?: (side: 'left' | 'right') => void
   /** Fired on click-outside or Esc — closes the menu. */
   onClose: () => void
 }
@@ -4219,11 +4200,9 @@ function ContactContextMenu({
   onDelete,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
-  onPinchOut,
-  pinchOutDisabledReason,
+  onOpenEnd,
   onClose,
 }: ContactContextMenuProps): JSX.Element {
-  const pinchOutDisabled = pinchOutDisabledReason != null
   return (
     <ContextMenu
       portal="fixed"
@@ -4239,11 +4218,15 @@ function ContactContextMenu({
           onClick: onEditInGeologyStage,
           testid: 'geo-deep-link-menu-item',
         },
-        onPinchOut && {
-          label: 'Extrapolate pinch-out…',
-          onClick: onPinchOut,
-          disabled: pinchOutDisabled,
-          reason: pinchOutDisabledReason ?? undefined,
+        onOpenEnd && {
+          label: 'Open-end layer →',
+          onClick: () => onOpenEnd('right'),
+          testid: 'open-end-layer-right',
+        },
+        onOpenEnd && {
+          label: 'Open-end layer ←',
+          onClick: () => onOpenEnd('left'),
+          testid: 'open-end-layer-left',
         },
         onLinkLithoToGeo && {
           label: 'Link to geology',
