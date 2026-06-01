@@ -57,7 +57,7 @@ from groundmodel.api.schemas.project.litho_lens_boundary import (
     LensBoundaryWriteRequest,
 )
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
-from groundmodel.application.delete_lens_metadata import DeleteLensMetadata
+from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.lens_boundary import (
     BoundaryNode,
@@ -67,7 +67,7 @@ from groundmodel.application.lens_boundary import (
     LensNotFoundError,
     SaveLensBoundary,
 )
-from groundmodel.application.name_lens_body import NameLensBody
+from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
@@ -302,7 +302,7 @@ async def name_lens_body(
         )
 
     try:
-        result = await NameLensBody(session).execute(
+        result = await NameBody(session).execute(
             project_id=project_id,
             model_id=model_id,
             formation_id=request.formation_id,
@@ -371,7 +371,7 @@ async def delete_lens_metadata(
             detail={"code": "lens_not_found", "message": f"Lens {lens_id} not found."},
         )
 
-    await DeleteLensMetadata(session).execute(
+    await DeleteBody(session).execute(
         project_id=project_id,
         model_id=model_id,
         lens_id=lens_id,

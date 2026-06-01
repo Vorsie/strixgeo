@@ -1,4 +1,4 @@
-"""Integration tests for MaterialiseLensCompanions — #133 Phase 2+3.
+"""Integration tests for MaterialiseBodyCompanions — #133 Phase 2+3.
 
 Four cases:
 1. Gate-pass: LithoLens with primary section where every seeded contact
@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.materialise_lens_companions import MaterialiseLensCompanions
+from groundmodel.application.materialise_body_companions import MaterialiseBodyCompanions
 from groundmodel.infrastructure.db.models.body_orm import (
     BodyOrm as LithoLensOrm,
 )  # TODO: slice 2 — full rename
@@ -191,18 +191,28 @@ def _lens(
     project: ProjectOrm,
     model: GeologicalModelOrm,
     formation: GeologicalFormationOrm,
+    source_investigation: BoreholeOrm,
     *,
     body_ordinal: int = 0,
     primary_section_id: UUID | None = None,
     name: str | None = None,
 ) -> LithoLensOrm:
-    """Return an unsaved LithoLensOrm."""
+    """Return an unsaved LithoLensOrm.
+
+    Parameters
+    ----------
+    source_investigation : BoreholeOrm
+        The investigation (borehole or CPT) that anchors this body in the
+        correlation graph.  Required by the NOT NULL constraint on
+        ``body.source_investigation_id``.
+    """
     return LithoLensOrm(
         id=uuid7(),
         app_project_id=project.id,
         model_id=model.id,
         formation_id=formation.id,
         body_ordinal=body_ordinal,
+        source_investigation_id=source_investigation.id,
         primary_section_id=primary_section_id,
         name=name,
     )
@@ -215,8 +225,8 @@ def _lens(
 
 @pytest_asyncio.fixture
 async def project(db_session: AsyncSession) -> ProjectOrm:
-    """A bare active project for MaterialiseLensCompanions tests."""
-    proj = ProjectOrm(id=uuid7(), name="materialise lens companions test", status="active")
+    """A bare active project for MaterialiseBodyCompanions tests."""
+    proj = ProjectOrm(id=uuid7(), name="materialise body companions test", status="active")
     db_session.add(proj)
     await db_session.commit()
     return proj
@@ -274,11 +284,11 @@ async def test_gate_pass_creates_companion(
     await db_session.flush()
 
     # Lens points at this section; body_ordinal=0 (resolver not needed here).
-    the_lens = _lens(project, litho, f_lens, body_ordinal=0, primary_section_id=sec.id)
+    the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=sec.id)
     db_session.add(the_lens)
     await db_session.commit()
 
-    result = await MaterialiseLensCompanions(db_session).execute(
+    result = await MaterialiseBodyCompanions(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
@@ -353,11 +363,11 @@ async def test_gate_fail_skips_companion(
     db_session.add(sec)
     await db_session.flush()
 
-    the_lens = _lens(project, litho, f_lens, body_ordinal=0, primary_section_id=sec.id)
+    the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=sec.id)
     db_session.add(the_lens)
     await db_session.commit()
 
-    result = await MaterialiseLensCompanions(db_session).execute(
+    result = await MaterialiseBodyCompanions(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
@@ -401,16 +411,17 @@ async def test_null_primary_skipped(
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-MC3")
     f_lens = _formation(project, parent, name="KLEI lens MC3")
+    bh_a = _borehole(project.id, suffix="MC3A", x=153000.0)
 
-    db_session.add_all([geo, litho, parent, f_lens])
+    db_session.add_all([geo, litho, parent, f_lens, bh_a])
     await db_session.flush()
 
     # Lens with no primary section (primary_section_id defaults to None).
-    the_lens = _lens(project, litho, f_lens, body_ordinal=0, primary_section_id=None)
+    the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=None)
     db_session.add(the_lens)
     await db_session.commit()
 
-    result = await MaterialiseLensCompanions(db_session).execute(
+    result = await MaterialiseBodyCompanions(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
@@ -433,7 +444,7 @@ async def test_idempotent(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Running MaterialiseLensCompanions twice on the same qualifying lens
+    """Running MaterialiseBodyCompanions twice on the same qualifying lens
     creates exactly one companion section total (NOT EXISTS guard fires on
     the second pass).
     """
@@ -467,12 +478,12 @@ async def test_idempotent(
     db_session.add(sec)
     await db_session.flush()
 
-    the_lens = _lens(project, litho, f_lens, body_ordinal=0, primary_section_id=sec.id)
+    the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=sec.id)
     db_session.add(the_lens)
     await db_session.commit()
 
     # First run — should create 1 companion.
-    result1 = await MaterialiseLensCompanions(db_session).execute(
+    result1 = await MaterialiseBodyCompanions(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
@@ -481,7 +492,7 @@ async def test_idempotent(
     )
 
     # Second run — NOT EXISTS guard detects existing companion; zero new.
-    result2 = await MaterialiseLensCompanions(db_session).execute(
+    result2 = await MaterialiseBodyCompanions(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )

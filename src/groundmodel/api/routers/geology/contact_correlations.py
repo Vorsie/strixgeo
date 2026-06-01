@@ -64,7 +64,7 @@ from groundmodel.application.correlate_litho_contacts import (
     CorrelateLithoContacts,
     UncorrelateLithoContacts,
 )
-from groundmodel.application.materialise_lens_companions import MaterialiseLensCompanions
+from groundmodel.application.materialise_body_companions import MaterialiseBodyCompanions
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
@@ -550,7 +550,7 @@ async def materialise_lens_companions(
         project_id,
         detail="Geological model not found",
     )
-    result = await MaterialiseLensCompanions(session).execute(
+    result = await MaterialiseBodyCompanions(session).execute(
         project_id=project_id, model_id=model_id
     )
     return MaterialiseLensCompanionsResponse(
