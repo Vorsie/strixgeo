@@ -7,6 +7,7 @@ Coverage:
 4. Cascade: body deletion drops body_boundary_shape + body_boundary_node.
 5. Invalid side raises ValueError.
 6. Body not in project raises (scope guard).
+7. Body from a sibling model in the same project raises (S1 model scope guard).
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -184,6 +184,7 @@ async def test_clears_one_side_body_survives_other_side_set(
 
     result = await ClearBodyExtent(db_session).execute(
         project_id=project.id,
+        model_id=litho.id,
         body_id=body.id,
         side="left",
     )
@@ -245,6 +246,7 @@ async def test_clears_only_extent_body_survives_because_name_set(
 
     result = await ClearBodyExtent(db_session).execute(
         project_id=project.id,
+        model_id=litho.id,
         body_id=body.id,
         side="right",
     )
@@ -303,6 +305,7 @@ async def test_clears_only_remaining_extent_body_deleted(
 
     result = await ClearBodyExtent(db_session).execute(
         project_id=project.id,
+        model_id=litho.id,
         body_id=body_id,
         side="right",
     )
@@ -385,6 +388,7 @@ async def test_cascade_deletes_boundary_shape_and_nodes(
     # Clearing the only extent should delete the body + cascade.
     result = await ClearBodyExtent(db_session).execute(
         project_id=project.id,
+        model_id=litho.id,
         body_id=body_id,
         side="left",
     )
@@ -435,6 +439,7 @@ async def test_invalid_side_raises(
     with pytest.raises(ValueError, match="side must be 'left' or 'right'"):
         await ClearBodyExtent(db_session).execute(
             project_id=project.id,
+            model_id=litho.id,
             body_id=body.id,
             side="centre",  # invalid
         )
@@ -475,6 +480,56 @@ async def test_body_not_in_project_raises(
     with pytest.raises(ValueError, match="not found in project"):
         await ClearBodyExtent(db_session).execute(
             project_id=project.id,  # wrong project
+            model_id=litho.id,
             body_id=other_body.id,
+            side="left",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: body from a sibling model in the same project raises (S1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clear_body_extent_wrong_model_id_raises(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """S1 (audit fix): ClearBodyExtent must reject a body_id that belongs to a
+    DIFFERENT model within the same project.
+
+    The project-scope guard (app_project_id check) passes for sibling models;
+    the model_id guard catches the mismatch and raises ValueError.
+    """
+    geo = _geo_model(project)
+    # Two sibling litho models in the same project.
+    litho_a = _litho_model(project, geo)
+    litho_b = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho-CBR-sibling",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo.id,
+    )
+    parent = _geo_parent(project, name="Quat-CBR-t7")
+    formation = _formation(project, parent, name="KLEI body t7")
+    bh = _borehole(project.id, suffix="S07", x=166000.0)
+
+    db_session.add_all([geo, litho_a, litho_b, parent, formation, bh])
+    await db_session.flush()
+
+    # Body belongs to litho_a.
+    body = _body(project, litho_a, formation, bh, left_kind=EXTENT_KIND_OPEN)
+    db_session.add(body)
+    await db_session.commit()
+
+    # Attempt to clear using litho_b's model_id — must be rejected even though
+    # project_id is correct.
+    with pytest.raises(ValueError, match="cross-model clear is not allowed"):
+        await ClearBodyExtent(db_session).execute(
+            project_id=project.id,
+            model_id=litho_b.id,  # wrong model
+            body_id=body.id,
             side="left",
         )
