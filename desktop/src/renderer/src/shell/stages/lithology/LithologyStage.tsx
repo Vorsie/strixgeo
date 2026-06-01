@@ -11,13 +11,21 @@
 // Build litho triggers handleRebuildLithoSurfaces which runs Delaunay
 // on all litho contacts for the active lithostratigraphic model.
 // The stale surface count badge mirrors the geological Build button.
+//
+// Split-viewport wiring added 2026-06-01 (debt #64 resolved):
+// resetLithoSplitViewportCallback mirrors GeologyCanvas's
+// resetSplitViewportCallback — the toolbar Reset button collapses the
+// split back to a single viewport.
 
 import { useState } from 'react'
 import { Rows3, RefreshCw, Cpu } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
-import LithologyCanvas, { resetLithoCameraCallback } from './LithologyCanvas'
+import LithologyCanvas, {
+  resetLithoCameraCallback,
+  resetLithoSplitViewportCallback,
+} from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
 
@@ -102,8 +110,13 @@ function LithologyToolbar(): JSX.Element | null {
         <ToolbarButton
           icon={<RefreshCw size={13} />}
           label="Reset camera"
-          onClick={() => resetLithoCameraCallback.current?.()}
-          title="Fly the camera back to the model extent"
+          onClick={() => {
+            // Collapse split viewport (if active) then fly to model bounds —
+            // mirrors GeologyToolbar's two-step Reset behaviour.
+            resetLithoSplitViewportCallback.current?.()
+            resetLithoCameraCallback.current?.()
+          }}
+          title="Collapse any split view and fly the camera back to the model extent"
         />
       )}
     </>
