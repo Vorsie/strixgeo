@@ -67,7 +67,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -1007,26 +1007,17 @@ so they don't get re-filed as new items):
 
 ---
 
-## 64. Litho 3D viewer — split-viewport mode deferred (Tier E)
+## 64. Litho 3D viewer — split-viewport mode — RESOLVED 2026-06-01
 
-**What.** `LithologyCanvas` renders `Geology3DViewer` in
-`splitMode="single"` only. The split-line draw interaction (the
-virtual cross-section cut through the 3D TIN) is disabled —
-`onSplitPlaneDrawn` is a noop and `splitPlane` is always null.
-If a user later wants side-by-side litho 3D view (3D left,
-section slice right) or Phase 5 facies-interfingering geometry,
-`Geology3DViewer` already supports `splitMode="split"` — the
-prop exists, only the litho canvas wiring is missing.
-
-**Why deferred.** No user-reported need (the single viewport is
-adequate for model-management overview). Implementing it would
-require a `splitPlane` state + section picker on the litho stage,
-which duplicates `GeologyCanvas` logic — the rule-of-three is
-not yet met (one concrete use in GeologyCanvas, zero in litho).
-
-**When to revisit.** When a user asks for a split litho 3D view,
-or when Phase 5 interfingering geometry adds a second concrete
-use of the split-viewport in a non-Geology stage.
+`LithologyCanvas` now wires `splitMode` / `splitPlane` / `splitLine`
+state identically to `GeologyCanvas`. The `Geology3DViewer` "Split
+model" button arms the two-click draw interaction; the litho toolbar
+Reset button collapses the split via `resetLithoSplitViewportCallback`
+(same pattern as `resetSplitViewportCallback` in `GeologyCanvas`).
+`onExitSplit` is wired so the "Single view" button inside the viewer
+also collapses. No code added to `Geology3DViewer.tsx` — the wiring
+was purely in `LithologyCanvas.tsx` + `LithologyStage.tsx`. C3 test
+pins the exported callback. 53 vitest + tsc clean 2026-06-01.
 
 ---
 
