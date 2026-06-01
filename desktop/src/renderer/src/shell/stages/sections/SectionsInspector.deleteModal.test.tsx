@@ -271,6 +271,8 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
+      pinchOutCandidates: [],
+      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,
