@@ -4819,5 +4819,64 @@ ContactsLayer.tsx (5).
 at every non-2xx branch in the five central fetch helpers (`get`, `del`, `patch`, `put`, `post`).
 Single seam — every standard API call flows through one of these five.
 
+## Audit follow-up batch (2026-06-01)
+
+Nine findings from the cumulative session audit on `develop`, all resolved:
+
+**F1 — `BodyExtentOverlay` console.warn → log.warn** (commit 839d1c34).
+`BodyExtentOverlay.tsx:467` was using `console.warn` for the dip-extrapolation degenerate
+fallback — missed in the #176 sweep. Replaced with `log.warn('body-extent', …)` + added the
+`log` import. 20 existing tests stayed green.
+
+**F2 — shared `makeBody` in provenance test** (commit 4b441a46).
+`SectionsCanvas.provenance.test.tsx` had a local `makeBodyListItem` factory duplicating the
+`makeBody` fixture already in `components/sections/__tests__/bodyTestFixtures.ts`. Deleted the
+local copy; updated the 2 call sites to `makeBody({ id: 'body-1' })`.
+
+**F3 — `idx_formation_contact_model_cpt` in ORM `__table_args__`** (commit 45286908).
+Migration `u5v6w7x8y9z0` created this index on `(model_id, cpt_id)` but the ORM declaration
+was missing, so Alembic autogenerate would have emitted a spurious DROP. Added the matching
+`Index(…)` entry mirroring the adjacent `idx_formation_contact_model_borehole` declaration.
+
+**F4 — extract `_restore_flat_rows` in project_bundle.py** (commit e560bd87).
+`_restore_formations`, `_restore_geotech_units`, and `_restore_cross_sections` shared an
+identical 15-line pattern (query existing ids → skip → kwargs inject → session.add → count).
+Extracted to `_restore_flat_rows(session, project_id, orm_cls, payload)` and collapsed each
+caller to one `return await _restore_flat_rows(…)` line. All 16 bundle integration tests green.
+
+**F5 — avoid mid-transaction autoflush in restore** (commit adc3848a).
+The `valid_model_ids` computation after the model-insert phase issued a `SELECT
+GeologicalModelOrm.id` that triggered SQLAlchemy autoflush (materialising all pending model
+rows mid-transaction, defeating the single-flush pattern). Added `_build_valid_model_ids`
+mirroring the existing `_build_valid_formation_ids` pattern: union of DB ids (queried before
+any adds) + payload ids. 32 bundle integration tests green; pre-existing SAWarnings in 2 tests
+are unrelated and unchanged.
+
+**F6 — PerTestTab derived-stats cache** (commit fed2fd3b).
+Every `setPlotMap(prev => new Map(prev).set(id, plot))` changed the Map reference, forcing
+the `rows` useMemo to rerun `filter + reduce + sbtZoneFromIc` across ALL already-loaded CPTs.
+Added a `derivedStatsCacheRef` (useRef) and a two-level `derivedStatsByCpt` useMemo that only
+computes for CPT ids not yet in the cache; `rows` reads from the cache at O(1). New PT1/PT2/PT3
+tests in `PerTestTab.test.tsx` pin the cache-stability invariant.
+
+**F7 — strip query params from API error logs** (commit 7e496e02).
+All five fetch wrappers in `api/client.ts` logged the full `path` (including any `?…` query
+string) to `log.error`. Added `const stripQuery = (p: string) => p.split('?')[0]` and applied
+it to the log call in each wrapper. The thrown Error messages retain the full path for developer
+diagnostics. 35 vitest test files stayed green.
+
+**F8 — bound `body_boundary_shapes/_nodes` per-item dict shape** (commits b9af67d4 + 73d0750d).
+`ProjectBundleRequest.body_boundary_shapes` and `.body_boundary_nodes` were typed as
+`list[dict[str, Any]]` with `max_length` list-length caps but no per-item value bounds —
+a crafted bundle could ship a single item with a giant string value to bypass the
+envelope-size middleware. Added `_validate_bounded_dict_list` helper (256-char key cap,
+4 096-char string-value cap) and a `@field_validator("body_boundary_shapes",
+"body_boundary_nodes")` on `ProjectBundleRequest` that calls it. Wire type stays
+`list[dict[str, Any]]` — no cascade to the restore path. 32 bundle integration tests green.
+
+**Sec1 — f-string SQL in `ecc4014879af`** — deferred. Pre-session migration; interpolates
+closed-set enum values from Python constants that are never user-supplied. Not injectable;
+stylistic only. Filed as a "watch: don't extend this pattern" note, not a blocking fix.
+
 ## (end)
 
