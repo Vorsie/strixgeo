@@ -6,10 +6,10 @@ Builds a minimal but realistic project bundle and POSTs it to
 
 The fixture provides:
 * 1 project ("E2E Smoke Project")
-* 6 CPTs (CPTU, realistic qc/fs data across 10 m depth)
+* 8 CPTs (CPTU, realistic qc/fs data across 10 m depth) in three rows
 * 1 geological model with 3 formations + depth contacts at each CPT
 * 1 lithostratigraphic model (empty — the spec flows call suggest/accept)
-* 2 cross-sections that each corridor-include all 6 CPTs
+* 3 cross-sections; A (empty, build specs), B (body), C (crossing)
 * No boreholes, no lab tests — not needed for the 6 spec flows
 
 All UUIDs are deterministic (UUID5 off a fixed namespace + seed) so
@@ -45,6 +45,7 @@ E2E_FIXTURE_PROJECT_ID.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
@@ -62,13 +63,21 @@ API_BASE = "http://127.0.0.1:8765"
 _NS = uuid.UUID("e2e50000-0000-4000-a000-000000000001")
 
 # Lambert72 coordinates for a synthetic site near Antwerp.
-# The section buffer is 2 000 m so all 6 CPTs fall inside both sections.
+# The section buffer is 200 m; each row of CPTs falls inside its own section.
 _SITE_X = 157_500.0  # m, Lambert72
 _SITE_Y = 214_000.0  # m, Lambert72
 _EPSG = 31370  # RD New → Lambert 72 (Belgian)
 _VERTICAL_EPSG = 5710  # Ostend datum
 
-# CPT grid — 6 points on a ~300 m × 300 m grid
+# CPT grid — 8 points on three rows.
+#   Row 1 (y+0)   : CPTs 0,1,2 → Section A, kept EMPTY for build-from-scratch
+#                   specs (suggest → accept, band / contact / empty-space menus).
+#   Row 2 (y+300) : CPTs 3,4,5 → Section B, PRE-SEEDED with committed litho
+#                   contacts + a bilateral body (body/contact action specs).
+#   Row 3 (y+600) : CPTs 6,7   → Section C, PRE-SEEDED with an interfingered
+#                   crossing (auto-lens spec).
+# The three scenarios live on DISJOINT CPTs so ``auto-correlate`` — which loads
+# the whole model — can never cross-contaminate one section's data into another.
 _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 0.0),
     (150.0, 0.0),
@@ -76,6 +85,8 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 300.0),
     (150.0, 300.0),
     (300.0, 300.0),
+    (0.0, 600.0),
+    (150.0, 600.0),
 ]
 
 # Realistic CPT qc profile: stiff sand below silt below soft clay.
@@ -406,6 +417,26 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
             "view_state": {},
             "seeded_formation_contact_ids": [],
         },
+        {
+            "id": _uid("section-c"),
+            "app_project_id": project_id,
+            "name": "Section C (E2E)",
+            "description": "Third transect — pre-seeded crossing (auto-lens)",
+            "start_x": _SITE_X - 100.0,
+            "start_y": _SITE_Y + 600.0,
+            "end_x": _SITE_X + 400.0,
+            "end_y": _SITE_Y + 600.0,
+            "epsg": _EPSG,
+            "projection_buffer_m": 200.0,
+            "vertical_exaggeration": 5.0,
+            "excluded_borehole_ids": [],
+            "excluded_cpt_ids": [],
+            "min_depth_m": None,
+            "max_depth_m": None,
+            "display_order": 2,
+            "view_state": {},
+            "seeded_formation_contact_ids": [],
+        },
     ]
 
     # --- Assemble bundle -------------------------------------------------------
@@ -508,6 +539,146 @@ def _cleanup_litho_state(client: httpx.Client, api_base: str, project_id: str) -
             )
 
 
+async def _seed_action_scenarios_async(project_id: str) -> None:
+    """Seed the pre-built scenarios the UI ACTION specs drive against.
+
+    Runs AFTER the REST restore via a direct DB session — the bilateral body's
+    closure edges are cross-lithology, which the REST correlate endpoint
+    rejects. Idempotency is handled upstream: ``_cleanup_litho_state`` deletes
+    the prior run's demo formations before restore, and ``formation_id`` is
+    ``ondelete=CASCADE`` so their bodies / contacts / edges cascade away.
+
+    Seeds on DISJOINT sections so ``auto-correlate`` (which loads the whole
+    model) never cross-contaminates:
+      * Section B (CPTs 3/4/5): committed litho contacts + a bilateral body
+        (source CPT-4 cap@2 / body@4 / base@6, single targets @3 on CPT-3/5,
+        four approved edges) → body + contact action specs.
+      * Section C (CPTs 6/7): an interfingered ZAND/KLEI crossing (no edges —
+        the auto-lens spec runs auto-correlate to surface the lens diamond).
+    """
+    from uuid import UUID
+
+    from sqlalchemy import select
+    from uuid6 import uuid7
+
+    from groundmodel.application.detect_bodies import DetectBodies
+    from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+    from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm,
+    )
+    from groundmodel.infrastructure.db.session import AsyncSessionFactory
+
+    pid = UUID(project_id)
+    mid = UUID(_uid("litho-model"))
+    parent = UUID(_uid("formation-0"))  # Quaternary geological formation
+    sec_b = UUID(_uid("section-b"))
+    sec_c = UUID(_uid("section-c"))
+    cpt3, cpt4, cpt5 = UUID(_uid("cpt-3")), UUID(_uid("cpt-4")), UUID(_uid("cpt-5"))
+    cpt6, cpt7 = UUID(_uid("cpt-6")), UUID(_uid("cpt-7"))
+
+    async with AsyncSessionFactory() as s:
+
+        def form(name: str, soil: str, order: int, color: str) -> GeologicalFormationOrm:
+            f = GeologicalFormationOrm(
+                id=uuid7(),
+                app_project_id=pid,
+                name=name,
+                color=color,
+                display_order=order,
+                parent_formation_id=parent,
+                litho_main_soil_code=soil,
+            )
+            s.add(f)
+            return f
+
+        def contact(f: GeologicalFormationOrm, cpt: UUID, depth: float) -> FormationContactOrm:
+            c = FormationContactOrm(
+                id=uuid7(),
+                model_id=mid,
+                formation_id=f.id,
+                cpt_id=cpt,
+                depth_top_m=depth,
+                source="manual_pick",
+                confidence="medium",
+            )
+            s.add(c)
+            return c
+
+        def edge(ca: FormationContactOrm, cb: FormationContactOrm) -> None:
+            a, b = (ca.id, cb.id) if ca.id < cb.id else (cb.id, ca.id)
+            s.add(
+                LithoContactCorrelationEdgeOrm(
+                    id=uuid7(),
+                    model_id=mid,
+                    contact_a_id=a,
+                    contact_b_id=b,
+                    source="manual",
+                    user_approved=True,
+                )
+            )
+
+        # --- Body scenario (Section B) ---
+        f_top = form("ZAND top cap (action seed)", "ZAND", 30, "#f5c842")
+        f_body = form("KLEI body (action seed)", "KLEI", 31, "#c2a0d8")
+        f_base = form("ZAND base cap (action seed)", "ZAND", 32, "#f5c842")
+        f_tgt = form("ZAND target (action seed)", "ZAND", 33, "#f5c842")
+        await s.flush()
+        c_top = contact(f_top, cpt4, 2.0)
+        c_body = contact(f_body, cpt4, 4.0)
+        c_base = contact(f_base, cpt4, 6.0)
+        c_left = contact(f_tgt, cpt3, 3.0)
+        c_right = contact(f_tgt, cpt5, 3.0)
+        await s.flush()
+        edge(c_body, c_left)
+        edge(c_base, c_left)
+        edge(c_body, c_right)
+        edge(c_base, c_right)
+        body_contact_ids = [c_top.id, c_body.id, c_base.id, c_left.id, c_right.id]
+
+        # --- Crossing scenario (Section C) — no edges; auto-lens creates them ---
+        f_zand = form("ZAND crossing (action seed)", "ZAND", 40, "#f5c842")
+        f_klei = form("KLEI crossing (action seed)", "KLEI", 41, "#c2a0d8")
+        await s.flush()
+        x1 = contact(f_zand, cpt6, 1.0)
+        x2 = contact(f_klei, cpt6, 5.0)
+        x3 = contact(f_zand, cpt7, 5.0)
+        x4 = contact(f_klei, cpt7, 1.0)
+        crossing_contact_ids = [x1.id, x2.id, x3.id, x4.id]
+        await s.flush()
+
+        # Make the contacts visible on their sections (explicit-content invariant).
+        sb = (
+            await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_b))
+        ).scalar_one()
+        sb.seeded_formation_contact_ids = list(
+            set(sb.seeded_formation_contact_ids or []) | set(body_contact_ids)
+        )
+        sc = (
+            await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_c))
+        ).scalar_one()
+        sc.seeded_formation_contact_ids = list(
+            set(sc.seeded_formation_contact_ids or []) | set(crossing_contact_ids)
+        )
+        await s.commit()
+
+        # Resolve instance ordinals (DetectBodies needs them), then detect the
+        # bilateral body. The crossing has no edges → no body forms there.
+        await ResolveLithoInstances(s).execute(model_id=mid)
+        await s.commit()
+        res = await DetectBodies(s).execute(project_id=pid, model_id=mid, prefer_section_id=sec_b)
+        await s.commit()
+        print(
+            f"[fixture] action scenarios seeded — bodies_created={res.bodies_created} "
+            f"(body on Section B, crossing on Section C)",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     """Build and POST the synthetic fixture, then print the project UUID.
 
@@ -590,6 +761,12 @@ def main() -> None:
             sys.exit(3)
 
     print(f"[fixture] Restore OK — project {project_id}", file=sys.stderr)
+
+    # Seed the action-spec scenarios (body on Section B, crossing on Section C)
+    # via a direct DB session — see ``_seed_action_scenarios_async``.
+    print(f"[fixture] Seeding action scenarios for project {project_id} …", file=sys.stderr)
+    asyncio.run(_seed_action_scenarios_async(project_id))
+
     # Last line on stdout: bare project UUID for shell capture
     print(project_id)
 
