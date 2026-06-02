@@ -120,9 +120,29 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
  *   The application handle returned by ``launchApp``.
  */
 export async function closeApp(app: ElectronApplication): Promise<void> {
-  try {
-    await app.close()
-  } catch {
+  // ``app.close()`` requests an app quit. On a DIRTY project (a test that
+  // committed contacts / left unsaved session-imports) the renderer intercepts
+  // the quit with the unsaved-changes prompt and BLOCKS until a button is
+  // clicked — hanging teardown indefinitely. Race the close against discarding
+  // that prompt: on a clean project the close resolves first and the discard
+  // click no-ops; on a dirty one, clicking Discard lets the app quit
+  // gracefully so the spawned uvicorn is killed via ``stopApi`` rather than
+  // orphaned on :8765 (which a hard process kill would do).
+  const win = app.windows()[0] ?? null
+  const closing = app.close().catch(() => {
     // Swallow — a crashed renderer is an already-caught test failure.
+  })
+  if (win) {
+    await Promise.race([
+      closing,
+      win
+        .getByTestId('unsaved-changes-dialog')
+        .getByRole('button', { name: 'Discard' })
+        .click({ timeout: 10_000 })
+        .catch(() => {
+          // No unsaved prompt appeared (clean project) — close proceeds alone.
+        }),
+    ])
   }
+  await closing
 }
