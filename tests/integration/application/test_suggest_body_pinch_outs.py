@@ -679,5 +679,71 @@ async def test_enclosed_lens_suppresses_host_half_candidates(
     assert c_sand_low.id not in above_ids
     # The silt lens still emits (it is the real pinch-out), and its base is
     # the lower sand's top contact.
-    assert len(source_candidates) >= 1
+    assert len(source_candidates) == 2, (
+        f"Expected left + right candidate for the silt lens, got "
+        f"{len(source_candidates)}: {source_candidates}"
+    )
     assert all(c.below_contact_id == c_sand_low.id for c in source_candidates)
+
+
+# ---------------------------------------------------------------------------
+# Test 7: non-lens stack (all neighbours distinct) → units still emit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_lens_stack_still_emits_candidates(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Regression: a stack whose interior units have DISTINCT formations
+    above and below (no same-formation bracket) is not a lens — the
+    lens-aware suppression must NOT fire, so every interior unit still
+    emits its pinch-out candidate.
+
+    Topology on bh_source (depth → formation, all four distinct):
+      2.0  c_clay_top (f_clay)  ┐ clay unit  (emits)
+      4.0  c_sand     (f_sand)  ┤ sand unit  (emits)
+      6.0  c_silt     (f_silt)  ┤ silt unit  (emits)
+      10.0 c_base     (f_base)  ┘ base (deepest — frames no unit)
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t7")
+    f_clay = _formation(project, parent, name="KLEI-SBPO-t7", soil_code="KLEI", ordinal=0)
+    f_sand = _formation(project, parent, name="ZAND-SBPO-t7", soil_code="ZAND", ordinal=1)
+    f_silt = _formation(project, parent, name="SILT-SBPO-t7", soil_code="SILT", ordinal=2)
+    f_base = _formation(project, parent, name="VEEN-SBPO-t7", soil_code="VEEN", ordinal=3)
+    f_flank = _formation(project, parent, name="GRIND-SBPO-t7", soil_code="GRIND", ordinal=4)
+    db_session.add_all([geo, litho, parent, f_clay, f_sand, f_silt, f_base, f_flank])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="T7-L", x=180000.0)
+    bh_source = _borehole(project.id, suffix="T7-S", x=180500.0)
+    bh_right = _borehole(project.id, suffix="T7-R", x=181000.0)
+    db_session.add_all([bh_left, bh_source, bh_right])
+    await db_session.flush()
+
+    c_clay_top = _contact(litho, f_clay, bh_source, depth=2.0)
+    c_sand = _contact(litho, f_sand, bh_source, depth=4.0)
+    c_silt = _contact(litho, f_silt, bh_source, depth=6.0)
+    c_base = _contact(litho, f_base, bh_source, depth=10.0)
+    c_left = _contact(litho, f_flank, bh_left, depth=3.0)
+    c_right = _contact(litho, f_flank, bh_right, depth=3.0)
+    db_session.add_all([c_clay_top, c_sand, c_silt, c_base, c_left, c_right])
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+
+    source_candidates = [c for c in candidates if c.source_investigation_id == bh_source.id]
+    above_ids = {c.above_contact_id for c in source_candidates}
+
+    # No same-formation bracket → no suppression → all three interior units
+    # (clay, sand, silt) still surface as candidates; the deepest base
+    # contact frames no unit and is correctly absent.
+    assert above_ids == {c_clay_top.id, c_sand.id, c_silt.id}, (
+        f"Non-lens units must not be suppressed; got above-contacts: {above_ids}"
+    )
