@@ -2935,16 +2935,22 @@ assert each item testid → exercise one reversible action.
   → Accept-all-bulk → committed ``contact-drag-strip``s. Button/text-driven,
   no pixel math. Doubles as the data setup the context-menu specs need.
 
-**Still open (next slice) — the 4 section context menus:** contact
-(``contact-drag-strip`` right-click → delete / open-end / link-geology), body
-(``body-context-menu`` — the "name body dead-end" the owner hit), litho-band
-(``litho-band-context-menu`` → ``litho-band-remove``), empty-space
-(→ ``litho-band-add``). All are **coordinate-sensitive** (right-click a
-specific SVG column/band/wedge), and the body menu additionally needs
-correlate→detect-bodies first. These are best written against a RUNNING
-harness (right-click point + post-build timing can't be verified by tsc) on
-top of ``flow_litho_pipeline_ui``'s committed-contact state — the natural
-follow-up once the static specs above pass a green run.
+**4 section context menus SHIPPED (2026-06-02) —
+``flow_section_context_menus_ui``:** contact (``contact-drag-strip`` →
+``contact-context-menu`` + "Delete contact"), body (``body-extent-fill-{key}``
+→ ``body-context-menu`` — the "name body dead-end" the owner hit), litho-band
+(``per-column-litho-band-{key}`` → ``litho-band-remove``), empty-space
+(``per-column-rclick-capture-{id}`` → ``litho-band-add``). Every trigger has a
+stable testid, so each right-click targets the LOCATOR directly (Playwright
+dispatches contextmenu at the element box — no pixel hunting) with ``force``
+to skip the transparent-fill actionability check. Menus 2–4 build contacts via
+the Suggest→Accept pipeline; menu 4 additionally auto-correlates → accepts →
+detects-lenses to materialise a body. **Two run-validated risks remain (tsc
+can't catch them):** (a) menu 4 depends on auto-correlate closing ≥1 body on
+the synthetic geometry — if none forms, give the fixture a guaranteed
+pinch-out (a ``build_synthetic_fixture.py`` tweak, not a spec redesign);
+(b) if a full-plot overlay ever steals the empty-space right-click, menu 1
+needs a ``position`` near the column bottom instead of the box centre.
 
 **Run caveat:** the 8 specs above are tsc-clean (``tsconfig.e2e.json``) but
 were authored without a live stack in-session (pre-commit smoke self-skips
