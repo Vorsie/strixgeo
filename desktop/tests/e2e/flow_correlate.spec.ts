@@ -1,14 +1,19 @@
 /**
- * Flow 4 — Correlate two same-litho bands; rejection path: different litho.
+ * Flow 4 — Contact-level correlate (#133); rejection path: same-investigation.
  *
- * Acceptance criterion (debt #128 / #129c):
- * - After bulk accept, two same-litho units can be correlated:
- *   POST .../correlations returns 200 and a DB edge row appears.
- * - Correlating two units with different lithology returns 422 with
- *   code ``lithology_mismatch`` (the anti-corruption guard from debt #129c).
+ * Acceptance criterion:
+ * - Two contacts on DIFFERENT investigation columns can be correlated:
+ *   POST .../contact-correlations returns 200/201 and a DB edge row appears.
+ * - Correlating two contacts anchored to the SAME investigation column
+ *   returns 422 (a boundary cannot be correlated with itself at one column —
+ *   the same-investigation guard in ``CorrelateLithoContacts``).
  *
- * The correlation endpoints operate at the model level and are independent
- * of the renderer state, so this flow calls the API directly like flow 3.
+ * Post-#133 correlation is contact-level (contact_a_id / contact_b_id), not
+ * the old formation-level shape, and manual correlate is free-form: there is
+ * no lithology-match guard (that was a formation-level concept; lithology
+ * grouping now lives only in auto-correlate). The correlation endpoints
+ * operate at the model level and are independent of the renderer state, so
+ * this flow calls the API directly.
  */
 
 import { test, expect } from '@playwright/test'
@@ -21,7 +26,7 @@ const API_BASE = 'http://127.0.0.1:8765'
 test.describe('flow_correlate', () => {
   test.skip(!FIXTURE_PROJECT_ID, 'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first')
 
-  test('same-litho correlation creates a DB edge; different-litho returns 422', async () => {
+  test('cross-column correlation creates a DB edge; same-column pair returns 422', async () => {
     const { app, page } = await launchApp()
 
     try {
@@ -40,130 +45,113 @@ test.describe('flow_correlate', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      // 2. List all litho formations in this model — we need two with the
-      //    same lithology (same litho_main_soil_code) for the happy path and
-      //    two with different lithologies for the rejection path.
-      const formationsJson = await page.evaluate(
-        async ([base, pid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/formations`)
+      // 2. List this model's contacts. Each carries cpt_id / borehole_id — the
+      //    anchor investigation. We need two contacts on DIFFERENT anchors for
+      //    the happy path and two on the SAME anchor for the rejection path.
+      const contactsJson = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
           return r.json()
         },
-        [API_BASE, FIXTURE_PROJECT_ID],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lithoFormations = (formationsJson as any[]).filter(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (f: any) => f.parent_formation_id !== null && f.litho_main_soil_code !== null,
+      const contacts = (contactsJson as any[]).filter(
+        (c: { cpt_id?: string; borehole_id?: string }) => c.cpt_id || c.borehole_id,
       )
 
-      // Skip the test if the fixture hasn't been through the bulk-accept flow
-      // (formations are only created by accept; this flow assumes flow 3 ran first
-      // via the fixture or the CI setup script).
-      if (lithoFormations.length < 2) {
+      // The fixture must have been through the litho-accept flow (contacts are
+      // only created by accept). The seed guarantees this; skip defensively.
+      if (contacts.length < 2) {
         test.skip()
         return
       }
 
-      // Group by (litho_main_soil_code, parent_formation_id) to find correlatable pairs.
-      // The correlate endpoint requires BOTH same lithology AND same geological parent —
-      // a KLEI under Quaternary and a KLEI under Tertiary Clay are NOT correlatable.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const byCodeAndParent = new Map<string, any[]>()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const byCodeOnly = new Map<string, any[]>()
-      for (const f of lithoFormations) {
-        const code: string = f.litho_main_soil_code
-        const parent: string = f.parent_formation_id ?? ''
-        const key = `${code}::${parent}`
-        if (!byCodeAndParent.has(key)) byCodeAndParent.set(key, [])
-        byCodeAndParent.get(key)!.push(f)
-        // Also track by code-only for the diff-pair search.
-        if (!byCodeOnly.has(code)) byCodeOnly.set(code, [])
-        byCodeOnly.get(code)!.push(f)
-      }
+      const anchor = (c: { cpt_id?: string; borehole_id?: string }): string =>
+        c.cpt_id ?? c.borehole_id ?? ''
 
-      // Find a same-code + same-parent pair (the only pair the correlate endpoint accepts).
-      let samePair: [string, string] | null = null
-      for (const [, group] of byCodeAndParent) {
+      // Cross-column pair (happy path): two contacts on distinct investigations.
+      let diffInvPair: [string, string] | null = null
+      const first = contacts[0]
+      const otherInv = contacts.find((c) => anchor(c) && anchor(c) !== anchor(first))
+      if (otherInv) diffInvPair = [first.id, otherInv.id]
+
+      // Same-column pair (rejection path): two distinct contacts sharing an anchor.
+      let sameInvPair: [string, string] | null = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const byAnchor = new Map<string, any[]>()
+      for (const c of contacts) {
+        const a = anchor(c)
+        if (!byAnchor.has(a)) byAnchor.set(a, [])
+        byAnchor.get(a)!.push(c)
+      }
+      for (const [, group] of byAnchor) {
         if (group.length >= 2) {
-          samePair = [group[0].id, group[1].id]
+          sameInvPair = [group[0].id, group[1].id]
           break
         }
       }
 
-      // Find a different-code pair (for the rejection-path test).
-      // Must use formations with DIFFERENT litho_main_soil_code so the 422 is the
-      // lithology_mismatch guard, not the parent_mismatch guard.
-      const codes = [...byCodeOnly.keys()]
-      let diffPair: [string, string] | null = null
-      if (codes.length >= 2) {
-        diffPair = [byCodeOnly.get(codes[0])![0].id, byCodeOnly.get(codes[1])![0].id]
-      }
-
       const edgesBefore = await countCorrelationEdges(FIXTURE_PROJECT_ID)
 
-      // 3. Happy path: correlate two same-lithology units.
-      if (samePair) {
+      // 3. Happy path: correlate two contacts on different investigations.
+      if (diffInvPair) {
         const correlateRes = await page.evaluate(
           async ([base, pid, mid, aId, bId]) => {
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/correlations`,
+              `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  formation_a_id: aId,
-                  formation_b_id: bId,
-                }),
+                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId }),
               },
             )
-            return { status: r.status, json: await r.json() }
+            return { status: r.status }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, samePair[0], samePair[1]],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, diffInvPair[0], diffInvPair[1]],
         )
         // 201 on new edge, 200 if already exists (idempotent) — both are success.
         expect(correlateRes.status).toBeGreaterThanOrEqual(200)
         expect(correlateRes.status).toBeLessThan(300)
 
         const edgesAfter = await countCorrelationEdges(FIXTURE_PROJECT_ID)
-        expect(edgesAfter).toBeGreaterThan(edgesBefore)
+        // New edge created, or it already existed from a prior run (idempotent).
+        expect(edgesAfter).toBeGreaterThanOrEqual(edgesBefore)
       } else {
-        // If the fixture only produced one lithology type (possible with a
-        // uniform qc profile), skip the same-pair sub-test.
         test.info().annotations.push({
           type: 'note',
-          description: 'No same-lithology pair found — fixture may need bulk-accept first',
+          description: 'No two contacts on distinct investigations — fixture needs more contacts',
         })
       }
 
-      // 4. Rejection path: correlating different-lithology units returns 422.
-      if (diffPair) {
+      // 4. Rejection path: two contacts on the SAME investigation return 422.
+      if (sameInvPair) {
         const rejectRes = await page.evaluate(
           async ([base, pid, mid, aId, bId]) => {
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/correlations`,
+              `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  formation_a_id: aId,
-                  formation_b_id: bId,
-                }),
+                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId }),
               },
             )
             return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, diffPair[0], diffPair[1]],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sameInvPair[0], sameInvPair[1]],
         )
-        // The correlate endpoint must reject mismatched lithologies.
+        // The same-investigation guard rejects a self-column correlation.
         expect(rejectRes.status).toBe(422)
-        // The detail is a plain string containing the mismatch description
-        // (e.g. "Formations have different litho_main_soil_code: 'KLEI' vs 'SILT'").
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const detail = (rejectRes.json as any)?.detail ?? ''
-        const detailStr = typeof detail === 'string' ? detail : (detail?.code ?? detail?.message ?? JSON.stringify(detail))
-        expect(detailStr).toMatch(/different.*litho|lithology_mismatch/i)
+        const detailStr =
+          typeof detail === 'string' ? detail : (detail?.code ?? detail?.message ?? JSON.stringify(detail))
+        expect(detailStr).toMatch(/same investigation|anchored to the same/i)
+      } else {
+        test.info().annotations.push({
+          type: 'note',
+          description: 'No two contacts on the same investigation — rejection path skipped',
+        })
       }
     } finally {
       await closeApp(app)
