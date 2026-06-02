@@ -32,6 +32,12 @@ test.describe('flow_auto_lens_ui', () => {
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
+
+      // The crossing lives on two DEDICATED series-less CPTs (the fixture's
+      // _CROSSING_CPT_INDICES). Because suggest-litho returns nothing for a
+      // series-less CPT, every all-CPT litho seeder skips them — so no spec
+      // can bury the pre-seeded inversion under segmenter contacts, and this
+      // spec works identically solo and in a full suite run.
       await goToStage(page, 'Sections')
 
       // Select Section C — the pre-seeded crossing lives on it.
@@ -48,6 +54,21 @@ test.describe('flow_auto_lens_ui', () => {
       // Auto-correlate (Correlate split → caret → Auto-correlate).
       await page.getByTestId('correlate-mode-caret').click()
       await page.getByTestId('litho-auto-correlate').click()
+
+      // If an earlier spec already produced auto edges on the shared model, the
+      // toolbar opens the "Auto-correlate found existing edges" dialog (after an
+      // async pre-check) instead of firing. Race the dialog against the markers:
+      // solo run -> markers appear directly; in-suite -> the dialog wins, so
+      // Re-correlate (delete the old auto edges + rerun) to run the detection.
+      const reCorrelate = page.getByTestId('re-correlate-rerun')
+      const markers = page.getByTestId('crossing-pinch-out-markers')
+      await Promise.race([
+        reCorrelate.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+        markers.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+      ])
+      if (await reCorrelate.isVisible().catch(() => false)) {
+        await reCorrelate.click()
+      }
 
       // The crossing is surfaced as an amber lens-candidate diamond — the two
       // crossing edges were dropped, not drawn.
