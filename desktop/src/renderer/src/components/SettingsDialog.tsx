@@ -199,6 +199,7 @@ function LithoSection({
   const straddleBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
   const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
   const lensBounds = LITHO_SEGMENTER_BOUNDS.maxLensThicknessM
+  const openLenBounds = LITHO_SEGMENTER_BOUNDS.openExtentLengthM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -228,6 +229,10 @@ function LithoSection({
     Number.isFinite(draft.maxLensThicknessM) &&
     draft.maxLensThicknessM >= lensBounds.min &&
     draft.maxLensThicknessM <= lensBounds.max
+  const openLenValid =
+    Number.isFinite(draft.openExtentLengthM) &&
+    draft.openExtentLengthM >= openLenBounds.min &&
+    draft.openExtentLengthM <= openLenBounds.max
   const allValid =
     thicknessValid &&
     gunsatValid &&
@@ -235,7 +240,8 @@ function LithoSection({
     snapValid &&
     straddleValid &&
     autoCorrValid &&
-    lensValid
+    lensValid &&
+    openLenValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
@@ -245,7 +251,8 @@ function LithoSection({
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
-    draft.maxLensThicknessM !== initial.maxLensThicknessM
+    draft.maxLensThicknessM !== initial.maxLensThicknessM ||
+    draft.openExtentLengthM !== initial.openExtentLengthM
 
   return (
     <SectionShell
@@ -356,6 +363,20 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!lensValid}
+      />
+      <NumberRow
+        id="settings-open-extent-length"
+        label="Open extent length (m)"
+        hint={`How far an open-ended body extent (a body at the edge test with no neighbour on that side) draws past the test, instead of running to the section edge. Range ${openLenBounds.min}–${openLenBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.openExtentLengthM} m.`}
+        value={draft.openExtentLengthM}
+        onChange={v => setDraft({ ...draft, openExtentLengthM: v })}
+        bounds={openLenBounds}
+        sliderMin={openLenBounds.min}
+        sliderMax={openLenBounds.max}
+        step={0.5}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!openLenValid}
       />
 
       <SectionFooter
