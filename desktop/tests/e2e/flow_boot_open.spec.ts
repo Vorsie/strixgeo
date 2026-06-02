@@ -77,17 +77,19 @@ test.describe('flow_boot_open', () => {
         )
         expect(lithoModel).toBeTruthy()
 
-        // The critical regression check: GET /lenses must return 200 not 500.
-        const lensesRes = await page.evaluate(
+        // Regression check: GET /bodies must return 200 not 500. (The lens
+        // entity was retired -> BodyOrm; the /lenses endpoint is gone, so the
+        // body-list endpoint is the current equivalent.)
+        const bodiesRes = await page.evaluate(
           async ([base, pid, mid]) => {
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/lenses`,
+              `${base}/projects/${pid}/geology/models/${mid}/bodies`,
             )
             return { status: r.status }
           },
           [apiBase, FIXTURE_PROJECT_ID, lithoModel.id],
         )
-        expect(lensesRes.status).toBe(200)
+        expect(bodiesRes.status).toBe(200)
       }
 
       // 4. No console errors from 500 responses.
