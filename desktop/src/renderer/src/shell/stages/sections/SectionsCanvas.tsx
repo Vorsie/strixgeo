@@ -1454,6 +1454,11 @@ export default function SectionsCanvas(): JSX.Element {
     [project?.view_state],
   )
 
+  const openExtentLengthM = useMemo(
+    () => readLithoSegmenterPrefs(project?.view_state ?? null).openExtentLengthM,
+    [project?.view_state],
+  )
+
   const sectionAwareAcceptLithoSuggestion = useCallback(
     async (idx: number): Promise<void> => {
       const result = await handleAcceptLithoSuggestion(
@@ -2223,6 +2228,7 @@ export default function SectionsCanvas(): JSX.Element {
           // fires.  Wired only on the litho axis; ContactsLayer also
           // guards on a non-empty referenceContacts set.
           geoSnapToleranceM={isLitho ? lithoSnapToleranceM : undefined}
+          openExtentLengthM={openExtentLengthM}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
