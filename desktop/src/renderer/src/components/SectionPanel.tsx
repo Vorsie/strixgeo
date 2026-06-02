@@ -121,6 +121,7 @@ import {
   selectVisibleLabels,
   type ColumnLabelMode,
 } from '../utils/columnLabelLod'
+import { LITHO_SEGMENTER_DEFAULTS } from '../utils/lithoSegmenterPrefs'
 
 interface Props {
   section: CrossSectionResponse
@@ -3183,7 +3184,7 @@ export default function SectionPanel({
                 screenToLevel={screenToLevel}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
-                openExtentLengthM={openExtentLengthM ?? 3}
+                openExtentLengthM={openExtentLengthM ?? LITHO_SEGMENTER_DEFAULTS.openExtentLengthM}
                 onSaveLensShape={onSaveLensShape}
                 onDeleteLens={onDeleteLens}
                 onBodyContextMenu={
