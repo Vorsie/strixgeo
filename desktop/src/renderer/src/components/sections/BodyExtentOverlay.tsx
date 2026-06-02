@@ -41,6 +41,7 @@ import {
 import { computeDipExtrapolationEndpoint } from '../../utils/dipExtrapolationFrontend'
 import { computeDepthStacking, lensDisplayLabel } from '../../utils/lensLabel'
 import { log } from '../../utils/log'
+import { columnMaxDepthM } from './utils'
 import type { PlacedColumn } from './utils'
 
 /**
@@ -331,7 +332,7 @@ export default function BodyExtentOverlay({
     const _contactById = new Map(contacts.map(c => [c.id, c]))
     const _colByInv = new Map<
       string,
-      { along: number; surfaceElevM: number; nudgedX: number; width: number }
+      { along: number; surfaceElevM: number; nudgedX: number; width: number; bottomDepthM: number | null }
     >()
     for (const col of placedColumns) {
       const elev = col.proj.item.elevation_m
@@ -341,6 +342,7 @@ export default function BodyExtentOverlay({
           surfaceElevM: elev,
           nudgedX: col.nudgedX,
           width: col.width,
+          bottomDepthM: columnMaxDepthM(col),
         })
       }
     }
@@ -462,7 +464,7 @@ export default function BodyExtentOverlay({
       // ``col`` is the resolved source column (already validated non-null by the caller).
       function resolveSide(
         side: 'left' | 'right',
-        col: { along: number; surfaceElevM: number; nudgedX: number; width: number },
+        col: { along: number; surfaceElevM: number; nudgedX: number; width: number; bottomDepthM: number | null },
         aboveContactId: string | null,
         belowContactId: string | null,
         extentKindRaw: string | null,
@@ -471,11 +473,15 @@ export default function BodyExtentOverlay({
         isPrimary: boolean,
       ): ResolvedBody | null {
         if (!isExtentKind(extentKindRaw)) return null
-        if (!aboveContactId || !belowContactId) return null
+        // A null belowContactId is only valid for deepest-formation open extents.
+        if (!aboveContactId) return null
+        if (!belowContactId && extentKindRaw !== 'open') return null
 
         const aboveContact = _contactById.get(aboveContactId)
-        const belowContact = _contactById.get(belowContactId)
-        if (!aboveContact || !belowContact) return null
+        if (!aboveContact) return null
+        // For non-open kinds a belowContact is required; for open it may be null
+        // when the formation runs to the bottom of the hole (no base contact).
+        if (belowContactId !== null && !_contactById.has(belowContactId)) return null
 
         // Determine the along direction for this side.
         // "left" means the endpoint is to the LEFT of the source column;
@@ -514,9 +520,30 @@ export default function BodyExtentOverlay({
             return null
         }
 
-        const pair = _sourcePair(aboveContactId, belowContactId, towardAlong)
-        if (!pair) return null
-        const { topSource, baseSource } = pair
+        let topSource: WorldPt
+        let baseSource: WorldPt
+        if (belowContactId === null) {
+          // Deepest-formation open extent: no base contact — base is the hole
+          // bottom so the wedge aligns with the litho band (which uses
+          // columnMaxDepthM as its floor). openDeepestBaseElevation falls back
+          // to the plotBottom elevation when the column has no recorded depth.
+          if (extentKindRaw !== 'open') return null
+          const top = _worldPtEdge(aboveContactId, towardAlong)
+          if (!top) return null
+          topSource = top
+          baseSource = {
+            along_m: top.along_m,
+            elevation_m:
+              col.bottomDepthM != null
+                ? col.surfaceElevM - col.bottomDepthM
+                : screenToLevel(plotBottom),
+          }
+        } else {
+          const pair = _sourcePair(aboveContactId, belowContactId, towardAlong)
+          if (!pair) return null
+          topSource = pair.topSource
+          baseSource = pair.baseSource
+        }
 
         // Compute the far endpoint based on kind.
         let farPoint: WorldPt
@@ -577,7 +604,10 @@ export default function BodyExtentOverlay({
         // For the dissolve gesture we need the lens roles; use the content_key
         // when available (legacy lens bodies); otherwise derive from edge graph.
         let aboveId = aboveContactId
-        let belowId = belowContactId
+        // belowContactId is null for deepest-formation open extents (no base contact).
+        // Fall back to aboveContactId for the dissolve-gesture ids, which are unused
+        // for open-kind bodies (they have no correlation edges to dissolve).
+        let belowId: string = belowContactId ?? aboveContactId
         let targetId = targetContactId ?? aboveContactId // fallback — won't be used for non-target kinds
 
         if (extentKindRaw === 'to_target' && targetContactId) {
@@ -626,7 +656,13 @@ export default function BodyExtentOverlay({
           const inv = _anchorIdOf(c)
           return inv === body.source_investigation_id
         })
-        if (sourceContacts.length < 2) continue
+        // A deepest-formation open body may have only the formation's top contact
+        // (no base contact below it — the formation runs to the hole bottom).
+        // Allow it through with 1 contact when the body has an open-kind side.
+        const _hasOpenSide =
+          body.extent_left_kind === 'open' || body.extent_right_kind === 'open'
+        if (sourceContacts.length < 2 && !_hasOpenSide) continue
+        if (sourceContacts.length === 0) continue
 
         // Sort by depth ascending so the contact list reads top → base.
         const sortedByDepth = sourceContacts
@@ -671,7 +707,12 @@ export default function BodyExtentOverlay({
           belowContactId = topIdx === -1 ? null : (sortedByDepth[topIdx + 1]?.id ?? null)
         }
 
-        if (!aboveContactId || !belowContactId) continue
+        const isOpenBody =
+          body.extent_left_kind === 'open' || body.extent_right_kind === 'open'
+        if (!aboveContactId) continue
+        // A null below contact is allowed for open bodies — the deepest formation
+        // has no base contact; the base is derived from the hole bottom in resolveSide.
+        if (!belowContactId && !isOpenBody) continue
 
         // Record this body for the depth-rank auto-label. Depth = framing top
         // contact's depth-below-surface; label = parent formation (the caller
@@ -841,6 +882,18 @@ export default function BodyExtentOverlay({
     }
   }
 
+  // Base elevation of a deepest-formation open extent: the source column's
+  // bottom (matching the litho band, which uses columnMaxDepthM), or the
+  // plotBottom elevation when the column has no recorded depth (band fallback).
+  function openDeepestBaseElevation(col: {
+    surfaceElevM: number
+    bottomDepthM: number | null
+  }): number {
+    return col.bottomDepthM != null
+      ? col.surfaceElevM - col.bottomDepthM
+      : screenToLevel(plotBottom)
+  }
+
   // Label font scales with the vertical zoom (screen px per metre) so the
   // auto-name shrinks when zoomed out and grows when zoomed in, clamped to a
   // legible range (dogfeed 2026-06-01).
@@ -907,8 +960,13 @@ export default function BodyExtentOverlay({
       const sourceCol = colByInv.get(candidate.source_investigation_id)
       if (!sourceCol) continue
       const aboveC = contactById.get(candidate.above_contact_id)
-      const belowC = contactById.get(candidate.below_contact_id)
-      if (!aboveC || !belowC) continue
+      if (!aboveC) continue
+      // A null below_contact_id is valid for deepest-formation open candidates
+      // (the formation runs to the bottom of the hole).
+      const belowC = candidate.below_contact_id
+        ? contactById.get(candidate.below_contact_id)
+        : null
+      if (candidate.below_contact_id && !belowC) continue
 
       let upperScreen: { x: number; y: number }[]
       let lowerScreen: { x: number; y: number }[]
@@ -922,12 +980,19 @@ export default function BodyExtentOverlay({
             ? sourceCol.along - openExtentLengthM
             : sourceCol.along + openExtentLengthM
         const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
-        const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
-        if (!topSource || !baseSource) continue
+        if (!topSource) continue
+        // When below_contact_id is null, the formation is the deepest on the
+        // column — use the hole bottom so the ghost aligns with the litho band.
+        const baseElev =
+          candidate.below_contact_id === null
+            ? openDeepestBaseElevation(sourceCol)
+            : (worldPtEdge(candidate.below_contact_id, towardAlong)?.elevation_m ?? null)
+        if (baseElev === null) continue
         const topFar: WorldPt = { along_m: towardAlong, elevation_m: topSource.elevation_m }
-        const baseFar: WorldPt = { along_m: towardAlong, elevation_m: baseSource.elevation_m }
+        const baseSourcePt: WorldPt = { along_m: topSource.along_m, elevation_m: baseElev }
+        const baseFar: WorldPt = { along_m: towardAlong, elevation_m: baseElev }
         upperScreen = [toScreen(topSource), toScreen(topFar)]
-        lowerScreen = [toScreen(baseSource), toScreen(baseFar)]
+        lowerScreen = [toScreen(baseSourcePt), toScreen(baseFar)]
       } else {
         // Interior — pinch out halfway toward the suggested neighbour.
         const neighbourId = candidate.suggested_neighbour_investigation_id
@@ -935,7 +1000,10 @@ export default function BodyExtentOverlay({
         if (!neighbourCol) continue
         const towardAlong = neighbourCol.along
         const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
-        const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
+        // Non-open candidates always carry a below_contact_id (they are interior
+        // pinch_out_halfway with a framed top + base). The null case is handled
+        // above in the open block; assert non-null here.
+        const baseSource = worldPtEdge(candidate.below_contact_id!, towardAlong)
         if (!topSource || !baseSource) continue
         const farPoint: WorldPt = halfwayFarPoint(sourceCol, neighbourCol, topSource, baseSource)
         const far = toScreen(farPoint)
