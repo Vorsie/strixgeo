@@ -67,8 +67,15 @@ class PinchOutCandidate:
     above_contact_id : UUID
         The shallower contact of the source pair; its ``formation_id``
         is the body's formation.
-    below_contact_id : UUID
-        The deeper contact of the source pair.
+    below_contact_id : UUID | None
+        The deeper contact of the source pair.  ``None`` for the
+        deepest-formation open candidate — that unit has no base contact
+        because it extends to the bottom of the hole.
+    below_depth_m : float | None
+        Investigation bottom depth (m below surface) for the
+        deepest-formation open candidate, whose base is the bottom of the
+        hole rather than a contact.  ``None`` for normal framed candidates
+        (they use ``below_contact_id``).
     side : Literal["left", "right"]
         Direction of the suggested pinch-out relative to the source
         investigation in the section's along axis.  ``"left"`` = lower
@@ -88,7 +95,8 @@ class PinchOutCandidate:
     body_id: UUID | None
     source_investigation_id: UUID
     above_contact_id: UUID
-    below_contact_id: UUID
+    below_contact_id: UUID | None
+    below_depth_m: float | None
     side: Literal["left", "right"]
     kind: Literal["pinch_out_halfway", "open"]
     suggested_neighbour_investigation_id: UUID | None
@@ -194,6 +202,31 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         # Sort each stack ascending by depth.
         for entries in stacks.values():
             entries.sort()
+
+        # ------------------------------------------------------------------ #
+        # 1b. Load investigation bottom depths for participant investigations. #
+        # Used to populate ``below_depth_m`` on deepest-formation open        #
+        # candidates (the substrate extends to the bottom of the hole).       #
+        # ``None`` when the depth is not recorded — the frontend falls back   #
+        # to its plotBottom.                                                   #
+        # ------------------------------------------------------------------ #
+        bottom_depth_by_inv: dict[UUID, float | None] = {}
+        cpt_depth_rows = (
+            await self._session.execute(
+                select(CptOrm.id, CptOrm.max_depth_m).where(CptOrm.app_project_id == project_id)
+            )
+        ).all()
+        bh_depth_rows = (
+            await self._session.execute(
+                select(BoreholeOrm.id, BoreholeOrm.total_depth_m).where(
+                    BoreholeOrm.app_project_id == project_id
+                )
+            )
+        ).all()
+        for r in cpt_depth_rows:
+            bottom_depth_by_inv[r.id] = r.max_depth_m
+        for r in bh_depth_rows:
+            bottom_depth_by_inv[r.id] = r.total_depth_m
 
         # ------------------------------------------------------------------ #
         # 2. Load all user-approved edges.                                    #
@@ -330,6 +363,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 source_investigation_id=inv_id,
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
+                                below_depth_m=None,
                                 side="left",
                                 kind="pinch_out_halfway",
                                 suggested_neighbour_investigation_id=left_neighbours[-1],
@@ -344,6 +378,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 source_investigation_id=inv_id,
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
+                                below_depth_m=None,
                                 side="left",
                                 kind="open",
                                 suggested_neighbour_investigation_id=None,
@@ -362,6 +397,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 source_investigation_id=inv_id,
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
+                                below_depth_m=None,
                                 side="right",
                                 kind="pinch_out_halfway",
                                 suggested_neighbour_investigation_id=right_neighbours[0],
@@ -375,11 +411,62 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                                 source_investigation_id=inv_id,
                                 above_contact_id=above_id,
                                 below_contact_id=below_id,
+                                below_depth_m=None,
                                 side="right",
                                 kind="open",
                                 suggested_neighbour_investigation_id=None,
                             )
                         )
+
+            # Deepest-formation open end (dogfeed 2026-06-02): the deepest
+            # contact's formation has no base contact (it extends to the bottom
+            # of the hole), so the framed-unit loop above never emits for it.
+            # At a section EDGE (no neighbour on a side) emit an ``open``
+            # candidate so the substrate shows it continues past the section.
+            # No interior (halfway) candidate — a substrate does not pinch out
+            # toward a neighbour. Only emitted when a section is given (open
+            # candidates require section context, matching the framed-open branches).
+            if section_id is not None and entries:
+                deepest_depth, deepest_contact_id, deepest_formation = entries[-1]
+                deepest_body = bodies_by_inv_formation.get((inv_id, deepest_formation))
+                deepest_body_id: UUID | None = deepest_body.id if deepest_body is not None else None
+                deepest_bottom = bottom_depth_by_inv.get(inv_id)
+                left_neighbours_d = [n for n in ordered if position[n] < src_pos]
+                right_neighbours_d = [n for n in ordered if position[n] > src_pos]
+                left_claimed_d = (
+                    deepest_body is not None and deepest_body.extent_left_kind is not None
+                )
+                right_claimed_d = (
+                    deepest_body is not None and deepest_body.extent_right_kind is not None
+                )
+                # Left edge: no neighbour to the left and not already claimed.
+                if not left_neighbours_d and not left_claimed_d:
+                    candidates.append(
+                        PinchOutCandidate(
+                            body_id=deepest_body_id,
+                            source_investigation_id=inv_id,
+                            above_contact_id=deepest_contact_id,
+                            below_contact_id=None,
+                            below_depth_m=deepest_bottom,
+                            side="left",
+                            kind="open",
+                            suggested_neighbour_investigation_id=None,
+                        )
+                    )
+                # Right edge: no neighbour to the right and not already claimed.
+                if not right_neighbours_d and not right_claimed_d:
+                    candidates.append(
+                        PinchOutCandidate(
+                            body_id=deepest_body_id,
+                            source_investigation_id=inv_id,
+                            above_contact_id=deepest_contact_id,
+                            below_contact_id=None,
+                            below_depth_m=deepest_bottom,
+                            side="right",
+                            kind="open",
+                            suggested_neighbour_investigation_id=None,
+                        )
+                    )
 
         self.info(f"SuggestBodyPinchOuts: {len(candidates)} candidate(s) for model={model_id}")
         return candidates
