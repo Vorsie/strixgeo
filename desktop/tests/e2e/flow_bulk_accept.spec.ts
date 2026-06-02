@@ -68,9 +68,13 @@ test.describe('flow_bulk_accept', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
+      // Only the series-bearing CPTs are segmentable; the two dedicated
+      // crossing CPTs are series-less (suggest-litho 404s) and are excluded.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cptIds: string[] = (cptsJson as any[]).map((c: any) => c.id)
-      expect(cptIds.length).toBe(8)
+      const cptIds: string[] = (cptsJson as any[])
+        .filter((c: any) => (c.n_rows ?? 0) > 0)
+        .map((c: any) => c.id)
+      expect(cptIds.length).toBe(6)
 
       // 2. Suggest all CPTs.
       const allSuggestions: Array<{ cptId: string; layers: unknown[] }> = []
