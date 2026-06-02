@@ -40,6 +40,7 @@ describe('readLithoSegmenterPrefs', () => {
       straddleMinPieceThicknessM: 0.40,
       autoCorrelateDepthWindowM: 1.2,
       maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
+      openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     })
   })
 
@@ -63,6 +64,7 @@ describe('readLithoSegmenterPrefs', () => {
       straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
       maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
+      openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     })
   })
 
@@ -118,6 +120,7 @@ describe('buildLithoSegmenterPatch', () => {
         straddleMinPieceThicknessM: 0.35,
         autoCorrelateDepthWindowM: 0.8,
         maxLensThicknessM: 6.0,
+        openExtentLengthM: 5.0,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -129,6 +132,7 @@ describe('buildLithoSegmenterPatch', () => {
         straddle_min_piece_thickness_m: 0.35,
         auto_correlate_depth_window_m: 0.8,
         max_lens_thickness_m: 6.0,
+        open_extent_length_m: 5.0,
       },
     })
   })
@@ -303,5 +307,44 @@ describe('readLithoSegmenterPrefs — maxLensThicknessM field', () => {
     expect(
       readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: 999 } }).maxLensThicknessM,
     ).toBe(LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM)
+  })
+})
+
+describe('readLithoSegmenterPrefs — openExtentLengthM field', () => {
+  it('defaults to 3.0 m when the open_extent_length_m key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({ litho_segmenter: {} }).openExtentLengthM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.openExtentLengthM)
+  })
+
+  it('returns a valid in-range value', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { open_extent_length_m: 5 },
+      }).openExtentLengthM,
+    ).toBe(5)
+  })
+
+  it('falls back to default when out of bounds (too low — below 0.5 m)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { open_extent_length_m: 0.1 },
+      }).openExtentLengthM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.openExtentLengthM)
+  })
+
+  it('falls back to default when out of bounds (too high — above 50 m)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { open_extent_length_m: 999 },
+      }).openExtentLengthM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.openExtentLengthM)
+  })
+
+  it('buildLithoSegmenterPatch emits open_extent_length_m and readLithoSegmenterPrefs round-trips it', () => {
+    const prefs = { ...LITHO_SEGMENTER_DEFAULTS, openExtentLengthM: 7.5 }
+    const patch = buildLithoSegmenterPatch(prefs)
+    const roundTripped = readLithoSegmenterPrefs(patch)
+    expect(roundTripped.openExtentLengthM).toBe(7.5)
   })
 })
