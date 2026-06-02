@@ -96,32 +96,33 @@ test.describe('flow_contact_geo_link_ui', () => {
       )
       await expect(strip).toBeVisible({ timeout: 15_000 })
 
+      // Right-click the strip via a NATIVE mouse event at its centre. A
+      // dispatchEvent('contextmenu') works on the FIRST open, but once the link
+      // commits and the strip re-renders, React's onContextMenu no longer fires
+      // for a SYNTHETIC event on the replacement DOM node — only a trusted
+      // native event does. (The portalled menu ITEMS still take dispatchEvent —
+      // they aren't re-created between open and click.)
+      const rightClickStrip = async (): Promise<void> => {
+        const box = await strip.boundingBox()
+        if (!box) throw new Error('contact drag-strip has no bounding box')
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
+      }
+
       // --- Link: right-click → "Link to geology" (uncoupled → coupled). ---
-      await strip.dispatchEvent('contextmenu', {
-        button: 2,
-        clientX: 360,
-        clientY: 360,
-        bubbles: true,
-      })
+      await rightClickStrip()
       await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 5_000 })
       await page.getByTestId('link-geo-menu-item').dispatchEvent('click')
       await expect(page.getByTestId('contact-context-menu')).toBeHidden({ timeout: 5_000 })
 
       // --- Unlink: right-click again → "Unlink from geology" now appears. ---
-      // The coupling commits server-side then refetches into the strip's
-      // isCoupledToGeo, which the menu reads at open time with no signal to
-      // await. A fixed delay is racy under full-suite load, so RETRY opening
-      // the menu until Unlink shows (the refetch has landed) — re-dispatching
-      // contextmenu re-reads the now-coupled state each attempt.
+      // The link commits server-side, then refetchLithoContacts updates the
+      // strip's coupled state, which the menu reads at open time. Retry
+      // re-opening (Esc to clear any stale menu, native right-click) until
+      // Unlink shows — covers the async refetch landing.
       await expect(strip).toBeVisible({ timeout: 10_000 })
       await expect(async () => {
         await page.keyboard.press('Escape').catch(() => {})
-        await strip.dispatchEvent('contextmenu', {
-          button: 2,
-          clientX: 360,
-          clientY: 360,
-          bubbles: true,
-        })
+        await rightClickStrip()
         await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 2_000 })
         // Coupled now → Unlink is offered (and Link is not).
         await expect(page.getByTestId('unlink-geo-menu-item')).toBeVisible({ timeout: 1_000 })
