@@ -227,11 +227,18 @@ export interface Props {
    */
   ghostCandidates?: readonly PinchOutCandidate[]
   /**
-   * Fired when the user clicks a ghost candidate wedge — signals that the
-   * user accepts this suggested pinch-out; the parent should call
-   * ``claimBodyExtent`` with the candidate's fields.
+   * Left-click a ghost candidate wedge — requests a claim (parent opens a
+   * confirm dialog before committing). Replaces the old ``onClaimGhostCandidate``
+   * direct-claim prop so an accidental click cannot silently write to the DB.
    */
-  onClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
+  onRequestClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
+  /**
+   * Right-click a ghost candidate wedge — opens the ghost context menu at the
+   * given SVG canvas coordinates.  Receives the candidate and the pointer
+   * position (relative to the SVG element) so the parent can anchor a
+   * ``GhostContextMenu`` there.
+   */
+  onGhostContextMenu?: (candidate: PinchOutCandidate, svgX: number, svgY: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +311,8 @@ export default function BodyExtentOverlay({
   onDeleteLens,
   onBodyContextMenu,
   ghostCandidates,
-  onClaimGhostCandidate,
+  onRequestClaimGhostCandidate,
+  onGhostContextMenu,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
@@ -1234,14 +1242,32 @@ export default function BodyExtentOverlay({
               strokeWidth={1.4}
               strokeDasharray={GHOST_STROKE_DASH}
               style={{
-                pointerEvents: onClaimGhostCandidate ? 'auto' : 'none',
-                cursor: onClaimGhostCandidate ? 'pointer' : undefined,
+                pointerEvents:
+                  onRequestClaimGhostCandidate ?? onGhostContextMenu ? 'auto' : 'none',
+                cursor:
+                  onRequestClaimGhostCandidate ?? onGhostContextMenu ? 'pointer' : undefined,
               }}
               onClick={
-                onClaimGhostCandidate
+                onRequestClaimGhostCandidate
                   ? e => {
                       e.stopPropagation()
-                      onClaimGhostCandidate(ghost.candidate)
+                      onRequestClaimGhostCandidate(ghost.candidate)
+                    }
+                  : undefined
+              }
+              onContextMenu={
+                onGhostContextMenu
+                  ? e => {
+                      // Prevent the browser context menu AND stop the event
+                      // bubbling to the lower-layer "Remove this litho unit"
+                      // context menu handler on the column bands.
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const svgRect =
+                        rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+                      const svgX = e.clientX - (svgRect?.left ?? 0)
+                      const svgY = e.clientY - (svgRect?.top ?? 0)
+                      onGhostContextMenu(ghost.candidate, svgX, svgY)
                     }
                   : undefined
               }
