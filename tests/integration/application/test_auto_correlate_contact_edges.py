@@ -419,3 +419,32 @@ async def test_crossing_edges_dropped_and_surfaced_as_pinch_out(
     assert [r for r in rows if r.source == "auto"] == [], (
         f"No auto edges should persist for a pure crossing; got {len(rows)} row(s)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: a non-litho (geological) model is rejected with ValueError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rejects_non_litho_model(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Auto-correlate on a geological model must raise ``ValueError``.
+
+    Auto-correlate groups contacts by their formation's ``litho_main_soil_code``,
+    which only lithostratigraphic models carry. Running it on a geological
+    model would otherwise produce nonsense edges (or 500 downstream), so the
+    use case rejects the wrong kind up front. The API layer maps this
+    ``ValueError`` to HTTP 422.
+    """
+    geo = _geo_model(project)
+    db_session.add(geo)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="lithostratigraphic"):
+        await AutoCorrelateContactEdges(db_session).execute(
+            project_id=project.id,
+            model_id=geo.id,
+        )
