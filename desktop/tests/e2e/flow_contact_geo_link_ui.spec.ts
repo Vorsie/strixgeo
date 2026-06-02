@@ -39,23 +39,48 @@ test.describe('flow_contact_geo_link_ui', () => {
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
-      // Find the litho contact at depth 2 m (the one coincident with a geo
-      // contact) so we can target its specific drag-strip by data-contact-id.
+      // Find the litho contact at depth 2 m to link. It must be SEEDED on
+      // Section B (so its drag-strip actually renders — the explicit-content
+      // invariant hides un-seeded contacts) and UNCOUPLED. The body's ZAND-cap
+      // contact @2 m on a Section-B CPT satisfies this and is coincident with
+      // the geo contact at 2 m on the same column. Scoping to Section B's
+      // seeded set keeps the pick deterministic even when a full-suite run has
+      // littered the model with other contacts at ~2 m on other sections.
       const contactId = await page.evaluate(
         async ([base, pid]) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const models: any[] = await (await fetch(`${base}/projects/${pid}/geology/models`)).json()
-          const litho = models.find(m => m.kind === 'lithostratigraphic')
+          const litho = models.find((m: { kind: string }) => m.kind === 'lithostratigraphic')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const sections: any[] = await (await fetch(`${base}/projects/${pid}/sections`)).json()
+          const sectionB = sections.find(
+            (s: { name?: string }) => typeof s.name === 'string' && s.name.includes('Section B'),
+          )
+          const seeded = new Set<string>(sectionB?.seeded_formation_contact_ids ?? [])
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const contacts: any[] = await (
             await fetch(`${base}/projects/${pid}/geology/models/${litho.id}/contacts`)
           ).json()
-          const c = contacts.find((x: { depth_top_m: number }) => Math.abs(x.depth_top_m - 2) < 0.01)
+          const c = contacts.find(
+            (x: {
+              id: string
+              depth_top_m: number
+              cpt_id?: string
+              parent_geo_contact_id?: string | null
+            }) =>
+              Math.abs(x.depth_top_m - 2) < 0.01 &&
+              !!x.cpt_id &&
+              seeded.has(x.id) &&
+              x.parent_geo_contact_id == null,
+          )
           return (c?.id as string) ?? null
         },
         [API_BASE, FIXTURE_PROJECT_ID] as const,
       )
-      expect(contactId, 'a litho contact at depth 2 m must exist (action seed)').toBeTruthy()
+      expect(
+        contactId,
+        'a Section-B-seeded uncoupled litho contact at depth 2 m must exist (action seed)',
+      ).toBeTruthy()
 
       await goToStage(page, 'Sections')
       const sectionB = page
