@@ -84,19 +84,23 @@ test.describe('flow_contact_geo_link_ui', () => {
 
       // --- Unlink: right-click again → "Unlink from geology" now appears. ---
       // The coupling commits server-side then refetches into the strip's
-      // isCoupledToGeo (which the menu reads at open time, with no signal to
-      // await) — let the refetch land before re-opening the menu.
+      // isCoupledToGeo, which the menu reads at open time with no signal to
+      // await. A fixed delay is racy under full-suite load, so RETRY opening
+      // the menu until Unlink shows (the refetch has landed) — re-dispatching
+      // contextmenu re-reads the now-coupled state each attempt.
       await expect(strip).toBeVisible({ timeout: 10_000 })
-      await page.waitForTimeout(2_000)
-      await strip.dispatchEvent('contextmenu', {
-        button: 2,
-        clientX: 360,
-        clientY: 360,
-        bubbles: true,
-      })
-      await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 5_000 })
-      // Coupled now → Unlink is offered (and Link is not).
-      await expect(page.getByTestId('unlink-geo-menu-item')).toBeVisible({ timeout: 5_000 })
+      await expect(async () => {
+        await page.keyboard.press('Escape').catch(() => {})
+        await strip.dispatchEvent('contextmenu', {
+          button: 2,
+          clientX: 360,
+          clientY: 360,
+          bubbles: true,
+        })
+        await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 2_000 })
+        // Coupled now → Unlink is offered (and Link is not).
+        await expect(page.getByTestId('unlink-geo-menu-item')).toBeVisible({ timeout: 1_000 })
+      }).toPass({ timeout: 20_000 })
       await page.getByTestId('unlink-geo-menu-item').dispatchEvent('click')
       await expect(page.getByTestId('contact-context-menu')).toBeHidden({ timeout: 5_000 })
     } finally {
