@@ -110,6 +110,17 @@ _SILT_BASE_M = 4.5
 # real lens/body to close for the body-menu e2e test.
 _PINCH_OUT_CPT_INDICES = {2}
 
+# The crossing CPTs (Section C) are DEDICATED to the pre-seeded ZAND/KLEI
+# inversion and carry NO qc series. The litho segmenter reuses formations by
+# litho code, so if these CPTs had a realistic profile every all-CPT seeder
+# (suggest-litho + accept) would assign segmenter ZAND/KLEI contacts onto the
+# very "crossing (action seed)" formations the crossing lives on — burying the
+# clean inversion. With no series, ``suggest-litho`` returns no layers (the
+# seeders skip the CPT) so the crossing stays pristine no matter what other
+# specs run first. The explicit crossing contacts are still seeded directly in
+# ``_seed_action_scenarios_async`` (independent of any series).
+_CROSSING_CPT_INDICES = {6, 7}
+
 
 # ---------------------------------------------------------------------------
 # Deterministic UUID helpers
@@ -205,6 +216,28 @@ def _make_series(cpt_index: int) -> dict[str, Any]:
     }
 
 
+def _empty_series() -> dict[str, Any]:
+    """Return an empty CPTU series (no rows).
+
+    Used for the dedicated crossing CPTs so the litho segmenter has nothing to
+    segment and every all-CPT seeder skips them (see ``_CROSSING_CPT_INDICES``).
+
+    Returns
+    -------
+    dict
+        The series dict with empty arrays for every channel.
+    """
+    return {
+        "depths_m": [],
+        "qc_mpa": [],
+        "fs_mpa": [],
+        "u2_mpa": [],
+        "rf_pct": [],
+        "rf_source": "computed",
+        "q_total_mpa": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Bundle builder
 # ---------------------------------------------------------------------------
@@ -248,6 +281,11 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         cpt_ids.append(cpt_id)
         x = _SITE_X + dx
         y = _SITE_Y + dy
+        # Crossing CPTs carry no series (see _CROSSING_CPT_INDICES).
+        is_crossing = i in _CROSSING_CPT_INDICES
+        series = _empty_series() if is_crossing else _make_series(i)
+        n_rows = 0 if is_crossing else _N_ROWS
+        max_depth = 0.0 if is_crossing else _N_ROWS * _DEPTH_STEP
         cpts.append(
             {
                 "id": cpt_id,
@@ -272,9 +310,9 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
                 "cone_area_ratio": 0.8,
                 "cone_type_code": None,
                 "stop_criterion": None,
-                "max_depth_m": _N_ROWS * _DEPTH_STEP,
-                "n_rows": _N_ROWS,
-                "series": _make_series(i),
+                "max_depth_m": max_depth,
+                "n_rows": n_rows,
+                "series": series,
             }
         )
 
