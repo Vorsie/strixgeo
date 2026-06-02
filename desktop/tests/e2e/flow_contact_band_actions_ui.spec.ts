@@ -129,4 +129,38 @@ test.describe('flow_contact_band_actions_ui', () => {
       cleanupFixtureFile(tmpPath)
     }
   })
+
+  test('Empty-space → Add new suggestion — opens the composition picker, Cancel', async () => {
+    test.slow()
+    const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
+    let tmpPath = ''
+    try {
+      tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
+      await openContactSection(page)
+
+      // Right-click the per-column capture rect near its BOTTOM (below the
+      // bands) → the empty-space "Add new suggestion here" menu.
+      const capture = page.locator('[data-testid^="per-column-rclick-capture-"]').first()
+      await expect(capture).toBeVisible({ timeout: 10_000 })
+      const box = await capture.boundingBox()
+      if (!box) throw new Error('capture rect has no bounding box')
+      await capture.click({
+        button: 'right',
+        force: true,
+        position: { x: box.width / 2, y: box.height - 6 },
+      })
+      await expect(page.getByTestId('litho-band-context-menu')).toBeVisible({ timeout: 5_000 })
+      await page.getByTestId('litho-band-add').dispatchEvent('click')
+
+      // The composition picker opens (titled "Top of which litho unit?"); Cancel
+      // leaves the model untouched.
+      const picker = page.getByText('Top of which litho unit?')
+      await expect(picker).toBeVisible({ timeout: 5_000 })
+      await page.getByRole('button', { name: 'Cancel' }).first().click()
+      await expect(picker).toBeHidden({ timeout: 5_000 })
+    } finally {
+      await closeApp(app)
+      cleanupFixtureFile(tmpPath)
+    }
+  })
 })
