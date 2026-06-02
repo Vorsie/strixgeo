@@ -78,10 +78,26 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (300.0, 300.0),
 ]
 
-# Realistic CPT qc profile: stiff sand layer below soft clay.
+# Realistic CPT qc profile: stiff sand below silt below soft clay.
 # 200 rows @ 5 cm intervals = 10 m depth.
 _N_ROWS = 200
 _DEPTH_STEP = 0.05  # m
+
+# Layer scheme — CONSISTENT boundary depths across every CPT so the Robertson
+# segmenter lands its contacts at the same depths everywhere. That keeps
+# auto-correlate matching shallow-to-shallow (similar depth) instead of drawing
+# diagonal shallow-to-deep edges, which is what near-identical-but-jittered
+# profiles produced before. The three layers are well separated in qc so the
+# classifier never collapses one into a degenerate full-column band.
+#   0.0–2.5 m : soft clay  qc ≈ 0.6 MPa  (Ic ~ 3.5)
+#   2.5–4.5 m : silt       qc ≈ 3.5 MPa  (Ic ~ 2.7)  ← pinches out on some CPTs
+#   4.5–10  m : dense sand qc ≈ 16  MPa  (Ic ~ 1.8)
+_CLAY_BASE_M = 2.5
+_SILT_BASE_M = 4.5
+# CPTs where the silt layer is ABSENT (clay runs straight to sand). The silt
+# then pinches out between these and their neighbours, giving auto-correlate a
+# real lens/body to close for the body-menu e2e test.
+_PINCH_OUT_CPT_INDICES = {2}
 
 
 # ---------------------------------------------------------------------------
@@ -102,20 +118,24 @@ def _uid(seed: str) -> str:
 def _make_series(cpt_index: int) -> dict[str, Any]:
     """Generate a realistic 200-row CPTU series for one CPT.
 
-    The profile has:
-    * 0–2 m  : soft clay (qc ≈ 0.4–0.8 MPa, fs ≈ 0.02–0.04)
-    * 2–5 m  : transition / silty clay (qc ≈ 1.0–2.0 MPa)
-    * 5–10 m : dense sand (qc ≈ 10–20 MPa)
+    Three well-separated layers at CONSISTENT boundary depths (see the module
+    constants): soft clay over silt over dense sand. The qc contrast between
+    layers is large, so the Robertson segmenter produces clean, repeatable
+    contacts at the same depths on every CPT — auto-correlate then matches them
+    shallow-to-shallow. On the pinch-out CPTs (``_PINCH_OUT_CPT_INDICES``) the
+    silt layer is absent (clay runs straight to sand), so the silt pinches out
+    between those CPTs and their neighbours.
 
-    A small per-CPT offset on qc creates variation so the Robertson
-    segmenter produces slightly different layer boundaries per CPT —
-    enough to exercise the bulk-accept flow without creating degenerate
-    outputs. The u2 pore pressure is a simplified hydrostatic profile.
+    The only per-CPT variation is a tiny depth-phase qc ripple WITHIN each
+    layer — it never crosses a layer boundary, so it adds realism without
+    jittering the contact depths (which is what produced diagonal
+    shallow-to-deep correlations before).
 
     Parameters
     ----------
     cpt_index : int
-        0-based index used to compute the per-CPT variation offset.
+        0-based index. Used only to decide whether this CPT is a pinch-out CPT
+        and to phase-shift the intra-layer ripple deterministically.
 
     Returns
     -------
@@ -127,25 +147,31 @@ def _make_series(cpt_index: int) -> dict[str, Any]:
     fs: list[float] = []
     u2: list[float] = []
 
-    # Small per-CPT random-looking (but deterministic) offset
-    variation = (cpt_index % 3) * 0.05
+    pinch_out = cpt_index in _PINCH_OUT_CPT_INDICES
+    # Deterministic per-CPT phase so the intra-layer ripple differs slightly
+    # between CPTs without moving any boundary.
+    phase = cpt_index * 0.7
 
     for i in range(_N_ROWS):
         depth = round((i + 1) * _DEPTH_STEP, 4)
         depths.append(depth)
 
-        if depth <= 2.0:
-            # Soft clay — Ic zone 3.3 → 4.0
-            qc_val = 0.5 + variation + 0.15 * math.sin(depth * math.pi)
+        ripple = 0.05 * math.sin(depth * 2.0 + phase)
+        if depth <= _CLAY_BASE_M:
+            # Soft clay — Ic zone ~3.5
+            qc_val = 0.6 + ripple
             fs_val = max(0.010, qc_val * 0.05)
-        elif depth <= 5.0:
-            # Transition
-            t = (depth - 2.0) / 3.0
-            qc_val = 0.8 + t * 1.5 + variation
+        elif depth <= _SILT_BASE_M and not pinch_out:
+            # Silt — Ic zone ~2.7
+            qc_val = 3.5 + ripple
             fs_val = max(0.010, qc_val * 0.025)
+        elif depth <= _SILT_BASE_M and pinch_out:
+            # No silt here — clay continues to the sand top (pinch-out).
+            qc_val = 0.7 + ripple
+            fs_val = max(0.010, qc_val * 0.05)
         else:
-            # Dense sand — Ic zone 1.5 → 2.0
-            qc_val = 10.0 + variation + 2.0 * math.sin(depth * 0.5)
+            # Dense sand — Ic zone ~1.8
+            qc_val = 16.0 + ripple
             fs_val = max(0.010, qc_val * 0.008)
 
         qc.append(round(qc_val, 4))
