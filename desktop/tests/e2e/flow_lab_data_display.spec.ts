@@ -72,6 +72,11 @@ function _makeLabBundle() {
       {
         id: BH_S_ID,
         name: 'BH-FLOW-S',
+        // Distinct GEF (project_id, test_id) so this seed borehole does not
+        // collide with other specs' seed boreholes on the shared fixture
+        // project (uq_borehole_app_project_source_test).
+        project_id: 'E2E-LAB',
+        test_id: 'BH-LAB',
         location_x: 157_800.0,
         location_y: 214_200.0,
         elevation_m: 4.2,
