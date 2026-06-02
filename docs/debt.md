@@ -3005,11 +3005,18 @@ per spec):
   (``flow_body_actions_ui``). Clear-extent, the other claim kinds
   (pinch_out_halfway / extrapolated), left-side — *open, same pattern*.
 * Auto-lens crossing → diamond ✅ (``flow_auto_lens_ui``).
-* Contact menu — Delete ✅ + Open-end ✅ (``flow_contact_band_actions_ui``).
-  Link-geology / Unlink — *open* (need a litho contact coincident with a geo
-  contact within tolerance on Section B — a one-line seed tweak).
-* Litho-band Remove ✅ (``flow_contact_band_actions_ui``). Empty-space Add —
-  reachability shipped; the full add→picker→commit flow is *open*.
+* Contact menu — Delete ✅ + Open-end ✅ (``flow_contact_band_actions_ui``) +
+  Link-geology / Unlink ✅ (``flow_contact_geo_link_ui`` round-trip; the seed's
+  ZAND-top-cap @2 m coincides with the geo Tertiary-Clay @2 m).
+* Litho-band Remove ✅ (``flow_contact_band_actions_ui``). Empty-space Add →
+  picker ✅ (``flow_contact_band_actions_ui``).
+* Body Clear-extent ✅ (``flow_body_actions_ui``). The remaining claim KINDS
+  (pinch_out_halfway / extrapolated) + left-side are trivial variants of the
+  shipped Claim-extent test — add if a regression ever bites.
+
+**Every current section menu action now has an e2e action spec.** New actions
+follow the same pattern (seed scenario in the fixture if needed; drive to effect
+or confirm-and-Cancel).
 * Every NEW menu action ships its action spec in the same commit batch as the
   gesture (the #127 convention below, now extended to actions).
 
