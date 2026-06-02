@@ -108,4 +108,33 @@ test.describe('flow_body_actions_ui', () => {
       cleanupFixtureFile(tmpPath)
     }
   })
+
+  test('Clear a claimed body extent — claim then Clear extent', async () => {
+    test.slow()
+    const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
+    let tmpPath = ''
+    try {
+      tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
+      await openBodySection(page)
+
+      // Claim the right side first (the detector-set extent has no Clear row;
+      // Clear only appears once the side is USER-claimed).
+      await openBodyMenu(page)
+      await page.getByTestId('body-ctx-side-right').dispatchEvent('click')
+      await page.getByTestId('body-ctx-claim-right-open').dispatchEvent('click')
+
+      // Re-open the menu → the right submenu now offers "Clear extent".
+      await openBodyMenu(page)
+      await page.getByTestId('body-ctx-side-right').dispatchEvent('click')
+      await page.getByTestId('body-ctx-clear-right').dispatchEvent('click')
+
+      // The body survives the clear.
+      await expect(page.locator('[data-testid^="body-extent-fill-"]').first()).toBeVisible({
+        timeout: 10_000,
+      })
+    } finally {
+      await closeApp(app)
+      cleanupFixtureFile(tmpPath)
+    }
+  })
 })
