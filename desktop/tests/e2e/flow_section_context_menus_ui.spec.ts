@@ -179,36 +179,29 @@ test.describe('flow_section_context_menus_ui', () => {
   })
 
   test('body wedge right-click → body menu (the name-body surface)', async () => {
-    test.slow() // builds litho contacts + correlates + detects a body
+    test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await enterLithoAxis(page)
-      await buildLithoContacts(page)
 
-      // Build a body: auto-correlate → accept correlations → detect lenses.
-      await page.getByTestId('correlate-mode-caret').click()
-      await page.getByTestId('litho-auto-correlate').click()
-      // Let the auto-correlate round-trip settle before accepting.
-      await page.getByTestId('correlate-mode-caret').click()
-      await page.getByTestId('litho-accept-correlations').click()
-      await page.getByTestId('litho-bodies-dropdown').click()
-      await page.getByTestId('litho-detect-lenses').click()
+      // The fixture seeds a GUARANTEED bilateral body on Section B, so target
+      // that section directly rather than building one via auto-correlate on
+      // the first section (debt #130: the synthetic geometry there may not
+      // close a body — which is why the old build-a-body path skipped). The
+      // build→correlate→body pipeline is covered by auto-correlate-and-lenses.
+      await goToStage(page, 'Sections')
+      const sectionB = page
+        .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+        .filter({ hasText: 'Section B' })
+        .first()
+      await expect(sectionB).toBeVisible({ timeout: 10_000 })
+      await sectionB.click()
+      await page.getByRole('radio', { name: 'Litho' }).click()
 
-      // A detected body renders as a fill wedge — right-click opens its menu.
-      // Whether auto-correlate closes a body depends on the fixture geometry
-      // (a layer must pinch out). If none forms, skip cleanly rather than fail
-      // — the gesture itself is exercised the moment a body exists.
+      // The pre-seeded body renders as a fill wedge — right-click opens its menu.
       const bodyFill = page.locator('[data-testid^="body-extent-fill-"]').first()
-      const hasBody = await bodyFill
-        .waitFor({ state: 'visible', timeout: 20_000 })
-        .then(() => true)
-        .catch(() => false)
-      test.skip(
-        !hasBody,
-        'auto-correlate did not close a body on the synthetic fixture — needs a CPT profile with a pinch-out (debt #130)',
-      )
+      await expect(bodyFill).toBeVisible({ timeout: 20_000 })
       // dispatchEvent bypasses SVG z-order (overlays cover the wedge centre).
       await bodyFill.dispatchEvent('contextmenu', {
         button: 2,
