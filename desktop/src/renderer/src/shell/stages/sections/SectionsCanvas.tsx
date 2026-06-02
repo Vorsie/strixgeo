@@ -888,8 +888,18 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, refetchLensData, toast],
   )
 
+  // Two candidates are the same suggestion when their source pair, side, and
+  // base contact all match. Used to drop only the accepted/dismissed one from
+  // the local list so the remaining candidates stay visible.
+  const sameGhostCandidate = (a: PinchOutCandidate, b: PinchOutCandidate): boolean =>
+    a.source_investigation_id === b.source_investigation_id &&
+    a.above_contact_id === b.above_contact_id &&
+    a.below_contact_id === b.below_contact_id &&
+    a.side === b.side
+
   // Accept a ghost pinch-out candidate — claims the suggested extent on the
-  // backend, clears the candidates list, and refreshes body data.
+  // backend, removes only that candidate from the list, and refreshes body data.
+  // Other candidates remain visible so the user can accept several in sequence.
   const handleClaimGhostCandidate = useCallback(
     async (candidate: PinchOutCandidate): Promise<void> => {
       if (!activeLithoModel) return
@@ -913,8 +923,8 @@ export default function SectionsCanvas(): JSX.Element {
               ? null
               : candidate.suggested_neighbour_investigation_id,
         })
-        // Clear the candidates list so the ghost disappears.
-        setPinchOutCandidates([])
+        // Remove only the accepted candidate; the others stay visible.
+        setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
         void refetchLensData()
         toast('success', candidate.kind === 'open' ? 'Layer open-ended.' : 'Pinch-out claimed.')
       } catch (err) {
@@ -922,7 +932,24 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'handleClaimGhostCandidate: failed', err)
       }
     },
-    [activeLithoModel, project.id, lithoContacts, setPinchOutCandidates, refetchLensData, toast],
+    // reason: sameGhostCandidate is a module-level pure function with no
+    // closure over component state — the linter would flag it as a missing dep,
+    // but there is nothing to track there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeLithoModel, project.id, lithoContacts, pinchOutCandidates, setPinchOutCandidates, refetchLensData, toast],
+  )
+
+  // Dismiss a ghost candidate — removes it from the local list without any
+  // DB write.  Pure UI action; other candidates are unaffected.
+  const handleDismissGhostCandidate = useCallback(
+    (candidate: PinchOutCandidate): void => {
+      setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
+    },
+    // reason: sameGhostCandidate is a module-level pure function with no
+    // closure over component state — the linter would flag it as a missing dep,
+    // but there is nothing to track there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setPinchOutCandidates, pinchOutCandidates],
   )
 
   // Right-click "Delete contact" gesture from the section overlay.
@@ -2268,6 +2295,7 @@ export default function SectionsCanvas(): JSX.Element {
           // #body-with-extent Slice 7.4 — ghost candidate rendering.
           ghostCandidates={isLitho ? pinchOutCandidates : undefined}
           onClaimGhostCandidate={isLitho ? candidate => void handleClaimGhostCandidate(candidate) : undefined}
+          onDismissGhostCandidate={isLitho ? handleDismissGhostCandidate : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
