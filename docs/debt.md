@@ -2892,6 +2892,40 @@ the harness, that bug ships silently — exactly the class of bug
 that bit Position 4 four times. Every additional flow sets another
 such trap.
 
+### Shell-open unblocker + first stage template (2026-06-02)
+
+The structural gap blocking exhaustive per-pane/per-button coverage:
+the harness could only reach the IPC + Welcome surface, because
+``readProjectFile`` enforces path-authorisation so no spec could
+drive a project *into the shell*. Resolved by
+``tests/e2e/helpers/project_open.ts``:
+
+* ``openFixtureProject(app, page, id)`` — writes a minimal valid
+  ``.strix`` pointer for the seeded fixture project, registers it via
+  ``addRecentProject`` (which re-authorises the path), reloads,
+  clicks the recent entry, and waits for the workflow spine to mount.
+* ``goToStage(page, spineLabel)`` — clicks a spine button by its
+  stable visible ``spineLabel`` (the ``aria-label`` is a dynamic
+  per-stage summary, so it's unreliable as a selector).
+* ``cleanupFixtureFile(tmpPath)`` — removes the temp pointer.
+
+First consumer + **template** for the fan-out:
+``flow_sections_toolbar_ui.spec.ts`` opens the project, navigates to
+the Sections stage, and asserts every toolbar control is reachable —
+the model-axis toggle (Geology⇄Litho + the enabled Litho segment),
+the geological-axis toolbar (New cross-section, Undo, Export dropdown
+→ DXF/Plaxis3D/PDF), and the litho-axis toolbar (Suggest split +
+caret, Correlate split + caret, Bodies dropdown → 4 verbs, Admixtures
+dropdown → 4 verbs). The copy-pattern: ``launchApp`` →
+``openFixtureProject`` → ``goToStage`` → open every dropdown/caret and
+assert each item testid → exercise one reversible action.
+
+**Remaining fan-out (next slices):** per-stage UI specs for Data,
+Geology, Lithology, **Geotech**, **Parameters** (the last two have
+zero UI coverage today), the 4 context menus (contact / body / litho
+band / empty-space), and the ~16 dialogs. Each follows the Sections
+template.
+
 ### Convention — load-bearing from #127 onward
 
 **Every new user-facing gesture ships with at least one e2e flow in
