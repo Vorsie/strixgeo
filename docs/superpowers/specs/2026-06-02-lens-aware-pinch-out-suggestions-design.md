@@ -99,39 +99,55 @@ Two consequences shape this design:
 
 ## 4. Detection rule
 
-Work on one investigation's depth-sorted contact stack. The stack is a
-list of contacts (tops), ascending by `depth_top_m`. A **unit** `i` is the
-interval between `entries[i]` (its top contact) and `entries[i+1]` (its
-base contact); `formation(i) = entries[i].formation_id`. Units run
-`0 .. U-1` where `U = len(entries) - 1`. The deepest formation (last
-contact, no base contact below it) is **not** a unit — it is never framed
-as a body.
+Work on one investigation's depth-sorted contact stack — the list of
+contact "tops", ascending by `depth_top_m`. Write `f[k]` for the formation
+id of contact `k`, with `n` contacts total. Between consecutive contacts
+lies a **unit**: unit `i` spans contact `i` (its top) down to contact `i+1`
+(its base), so there are `U = n - 1` units (`0 .. U-1`). The deepest
+contact `n-1` frames no unit — the deepest formation extends below the last
+contact and is never suggested as a pinch-out.
+
+Let `count(F)` = the number of contacts whose formation is `F`, counted
+over all `n` contacts.
 
 **Unit `i` is an enclosed lens** iff:
 
 ```
-1 <= i <= U-2                                  # has a unit above AND below
-AND entries[i-1].formation_id == entries[i+1].formation_id   # same host both sides
-AND entries[i-1].formation_id != entries[i].formation_id     # the lens differs
+1 <= i <= U-1                    # framed unit with a contact directly above AND below
+AND f[i-1] == f[i+1]             # same host formation on the contact above and below
+AND f[i-1] != f[i]               # the lens is a different formation
+AND count(f[i]) < count(f[i-1])  # the lens is the minority; the host is the recurring matrix
 ```
 
-**Unit `j` is a host-half** iff it is the bracketing unit of some enclosed
-lens — i.e. there exists an enclosed lens at `j+1` or `j-1` and
-`formation(j)` equals that lens's bracket formation. (For a lens at `i`,
-the host-halves are units `i-1` and `i+1`.)
+`f[i+1]` is a *contact* formation, not necessarily a framed unit — a silt
+lens whose host sand continues to the bottom of the hole
+(`SAND·SILT·SAND` with the lower sand as the deepest contact) is still a
+lens. The `count` clause disambiguates an alternating stack
+(`A·B·A·B·A`): from formation ids alone both "B is a lens in A" and "the
+middle A is a lens in B" satisfy the bracket test, so the recurring
+formation is taken as the host/matrix and the minority as the lens. A true
+tie (`count(f[i]) == count(f[i-1])`) is **not** a lens — the unit stays a
+normal candidate (conservative: never suppress when the matrix is
+ambiguous).
 
-Worked stacks:
+**Host-half units** of a lens at `i` are the bracketing units sharing the
+host formation:
+- unit `i-1` (upper host half) — always a framed unit;
+- unit `i+1` (lower host half) — only when `i+1 < U` (a contact exists
+  below it); when the lower host is the deepest contact it frames no unit
+  and is never suggested anyway.
 
-| Stack (top→bottom) | Lens units | Host-half units |
+Worked stacks (contacts top→bottom → `lens_units` / `host_half_units`):
+
+| Contacts | lens_units | host_half_units |
 |---|---|---|
-| sand · silt · sand · clay | silt (1) | upper-sand (0), lower-sand (2) |
-| sand · silt · sand · silt · sand | both silts (1,3) | all three sands (0,2,4) |
-| sand · silt · sand · silt · clay | first silt (1) | sands 0,2 |
-| clay · sand · clay (terminal clay has no base) | sand (1) | upper-clay (0) only* |
-
-\* the deepest clay has only a top contact, so it is never framed as a
-unit — it cannot be a host-half or a lens. The bracket test still fires on
-the unit pair that *does* exist; see Edge cases §6.
+| SAND·SILT·SAND·CLAY | {1} | {0, 2} |
+| SAND·SILT·SAND (sand to bottom) | {1} | {0} |
+| CLAY·SAND·CLAY (clay to bottom) | {1} | {0} |
+| SAND·SILT·SAND·SILT·SAND·CLAY | {1, 3} | {0, 2, 4} |
+| SILT·SAND·SILT·SAND·SILT·CLAY | {1, 3} | {0, 2, 4} |
+| CLAY·SAND·SILT·CLAY (all neighbours distinct) | {} | {} |
+| SAND·SILT·SAND·SILT·CLAY (tie: sand 2 = silt 2) | {} | {} |
 
 The rule is a **pure function** of the formation-id sequence on the stack.
 It lives in a new `domain/services/` helper,
@@ -206,10 +222,11 @@ irrelevant to the output.
    surface contact does exist, it is a normal interior unit and follows
    normal logic.
 
-3. **Lens needs both neighbours.** Any unit at either end of the stack can
-   never satisfy the bracket test (`1 <= i <= U-2`), so terminal units are
-   never misread as lenses. This is the structural reason both ends are
-   safe.
+3. **Lens needs both neighbours.** A lens unit needs a contact directly
+   above and below it (`1 <= i <= U-1`). The shallowest unit (`i = 0`)
+   has no contact above and can never be a lens. The deepest *contact*
+   frames no unit, so the deepest formation is never a lens or a
+   host-half. Both stack ends are structurally safe.
 
 4. **Continuous interior layer (not a lens).** A unit with both neighbours
    present but *different* formations above/below is **not** a lens and is
@@ -257,15 +274,22 @@ irrelevant to the output.
 New `test_classify_enclosed_lenses.py` for the pure classifier (asserting
 both `lens_units` and `host_half_units`):
 
-* sand·silt·sand·clay → host-halves = {0, 2}; lens at 1.
-* sand·silt·sand·silt·sand → host-halves = {0, 2, 4}; lenses at {1, 3}.
-* sand·silt·sand·silt·clay → host-half = {0, 2}; lens at {1} only (lower
-  silt is bracketed by different formations).
-* No lens (clay·sand·silt) → host-halves = {} (all distinct neighbours).
-* Single unit / two units → no lens possible (terminal-only).
-* Same-formation bracket but *different admixture signature* would be
-  different `formation_id`s upstream → not a lens (asserted at the
-  formation-id level: distinct ids → no bracket match).
+* SAND·SILT·SAND·CLAY → lens {1}, host-halves {0, 2}.
+* SAND·SILT·SAND (host sand to the bottom) → lens {1}, host-halves {0}
+  (the lower host is the deepest contact → frames no unit).
+* CLAY·SAND·CLAY (host clay to the bottom) → lens {1}, host-halves {0}.
+* SAND·SILT·SAND·SILT·SAND·CLAY → lenses {1, 3}, host-halves {0, 2, 4}
+  (sand is the recurring matrix; the middle sand is NOT mis-flagged).
+* SILT·SAND·SILT·SAND·SILT·CLAY → lenses {1, 3}, host-halves {0, 2, 4}
+  (sand is the minority → lens-in-silt-matrix).
+* SAND·SILT·SAND·SILT·CLAY → lenses {}, host-halves {} (sand count 2 =
+  silt count 2 → tie → not a lens).
+* CLAY·SAND·SILT·CLAY → lenses {}, host-halves {} (all neighbours distinct).
+* Single contact / two contacts → lenses {}, host-halves {} (no interior
+  unit possible).
+* Same-formation bracket but *different admixture signature* upstream →
+  distinct `formation_id`s → no bracket match → not a lens (asserted at
+  the formation-id level).
 * Determinism: same input → same output.
 
 ### 8.2 Use-case integration test (`tests/integration/application/`)
