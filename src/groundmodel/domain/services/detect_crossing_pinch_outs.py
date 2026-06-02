@@ -47,12 +47,17 @@ class CrossingPinchOut:
     neighbour_investigation_id : UUID
         The column the layer pinches out toward (the other end of the crossing
         pair).
+    crossing_edges : tuple[frozenset[UUID], frozenset[UUID]]
+        The two correlation edges that cross, each as an unordered
+        ``{contact_a, contact_b}`` pair. Neither is a flat correlation, so the
+        caller drops both from persistence and keeps the pinch-out instead.
     """
 
     source_investigation_id: UUID
     above_contact_id: UUID
     below_contact_id: UUID
     neighbour_investigation_id: UUID
+    crossing_edges: tuple[frozenset[UUID], frozenset[UUID]]
 
 
 def detect_crossing_pinch_outs(
@@ -115,20 +120,21 @@ def detect_crossing_pinch_outs(
     for pair, pair_edges in by_pair.items():
         left_inv, right_inv = sorted(pair, key=lambda i: i.int)
 
-        # Normalise each edge to (left_depth, left_contact, right_depth).
-        norm: list[tuple[float, UUID, float]] = []
+        # Normalise each edge to (left_depth, left_contact, right_depth,
+        # right_contact) so a crossing can report BOTH endpoints of each edge.
+        norm: list[tuple[float, UUID, float, UUID]] = []
         for inv_a, cid_a, depth_a, cid_b, depth_b in pair_edges:
             if inv_a == left_inv:
-                norm.append((depth_a, cid_a, depth_b))
+                norm.append((depth_a, cid_a, depth_b, cid_b))
             else:
-                norm.append((depth_b, cid_b, depth_a))
+                norm.append((depth_b, cid_b, depth_a, cid_a))
         norm.sort(key=lambda t: t[0])
 
         # An inversion in right-column depth between consecutive (left-sorted)
         # edges is a crossing → the layer between the two left contacts pinches.
         for k in range(len(norm) - 1):
-            _, left_c_above, right_d_above = norm[k]
-            _, left_c_below, right_d_below = norm[k + 1]
+            _, left_c_above, right_d_above, right_c_above = norm[k]
+            _, left_c_below, right_d_below, right_c_below = norm[k + 1]
             if right_d_above > right_d_below:
                 out.append(
                     CrossingPinchOut(
@@ -136,6 +142,10 @@ def detect_crossing_pinch_outs(
                         above_contact_id=left_c_above,
                         below_contact_id=left_c_below,
                         neighbour_investigation_id=right_inv,
+                        crossing_edges=(
+                            frozenset({left_c_above, right_c_above}),
+                            frozenset({left_c_below, right_c_below}),
+                        ),
                     )
                 )
 

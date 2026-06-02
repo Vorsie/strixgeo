@@ -10,15 +10,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from groundmodel.domain.services.detect_crossing_pinch_outs import (
-    CrossingPinchOut,
-    detect_crossing_pinch_outs,
-)
-
 from groundmodel.domain.services.detect_body_extents import (
     ContactEdge,
     ContactStack,
     ContactStackEntry,
+)
+from groundmodel.domain.services.detect_crossing_pinch_outs import (
+    CrossingPinchOut,
+    detect_crossing_pinch_outs,
 )
 
 
@@ -59,6 +58,13 @@ def test_crossing_edges_emit_one_pinch_out() -> None:
     assert po.above_contact_id == _uid(1)
     assert po.below_contact_id == _uid(2)
     assert po.neighbour_investigation_id == _uid(11)
+    # The two edges that cross are reported (as unordered contact pairs) so the
+    # caller can DROP them from persistence — a crossing edge is not a flat
+    # correlation. Edge_above = {c1, c4}, edge_below = {c2, c3}.
+    assert set(po.crossing_edges) == {
+        frozenset({_uid(1), _uid(4)}),
+        frozenset({_uid(2), _uid(3)}),
+    }
 
 
 def test_monotonic_edges_emit_nothing() -> None:
