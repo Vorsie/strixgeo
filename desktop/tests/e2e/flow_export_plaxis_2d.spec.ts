@@ -90,6 +90,11 @@ test.describe('flow_export_plaxis_2d (#130)', () => {
           {
             id: SEED_BH_ID,
             name: 'BH-E2E-SEED-U',
+            // Distinct GEF (project_id, test_id) so this seed borehole does not
+            // collide with other specs' seed boreholes on the shared fixture
+            // project (uq_borehole_app_project_source_test).
+            project_id: 'E2E-PLAXIS',
+            test_id: 'BH-PLAXIS',
             location_x: 157_600.0,
             location_y: 214_050.0,
             elevation_m: 4.2,
