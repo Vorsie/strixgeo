@@ -597,6 +597,49 @@ Alembic honours ``DATABASE_URL`` when set (see
 ``src/groundmodel/infrastructure/db/migrations/env.py``), so the
 wrapper script's env override carries through to migrations cleanly.
 
+**Playwright (Electron) e2e suite — `scripts/run-e2e.ps1`.** Self-contained
+runner that TRUNCATEs the integration DB (clean slate — the fixture restore
+is idempotent and can't repair a half-deleted project), starts a standalone
+uvicorn on :8765, seeds the synthetic fixture, runs Playwright, and stops the
+backend. **Close the dev desktop app first** — both use :8765, and the script
+ABORTS (never kills) if the port is busy, so it can't point a live dogfeed
+session at the integration DB (see ``memory/feedback_e2e_port_8765_conflicts_dev_app.md``).
+A full green run is offline and deterministic.
+
+```
+.\scripts\run-e2e.ps1                                  # full suite
+.\scripts\run-e2e.ps1 flow_auto_correlate              # one spec (filter)
+.\scripts\run-e2e.ps1 --reporter=line                  # pass-through flags
+```
+
+**DOV cassettes — the `flow_dov_bbox_*` specs never touch the network.** The
+runner sets ``STRIX_DOV_FIXTURE_MODE=1``, which makes ``make_dov_async_client``
+(``dov_http.py``) back the client with an ``httpx.MockTransport``
+(``dov_fixture_transport.py``) that serves every DOV call — WFS count/features
++ per-permkey CPT/borehole/interpretation/observation XML — from on-disk
+fixture files under ``desktop/tests/e2e/fixtures/dov/``. The full URL→file
+route table is the module docstring of ``dov_fixture_transport.py``.
+
+The fixtures are **hand-authored synthetic DOV-format files** (permkeys like
+``2024-E2E-001``, not real DOV ids) — there is no record-from-live step, so a
+refresh is a pure file edit, no network. To refresh / extend them:
+
+1. **Add or change a record** — drop the per-permkey XML under the matching
+   subdir (``cpt/<permkey>``, ``borehole/<permkey>``, …) in DOV's export XML
+   shape, and add the permkey to the relevant ``wfs/<layer>_features.json``.
+2. **Keep the count file in sync** — the specs assert exact counts
+   (``imported=3``), so bump ``wfs/<layer>_count.xml`` (the WFS
+   ``numberMatched``/``numberReturned``) to match the feature list, and update
+   the spec's expected count.
+3. **Stay inside the fixture bbox** — a WFS request whose BBOX doesn't overlap
+   ``_FIXTURE_BBOX_L72_*`` in ``dov_fixture_transport.py`` gets the *empty*
+   fixture (the imported=0 rejection path). New records must sit inside that
+   box, or widen the box + the spec's bbox together.
+4. **New endpoint / layer** — add a route branch in the transport's ``handler``
+   + a slug mapping, then the fixture file. An unmatched URL returns 404 by
+   design (a missing fixture surfaces as a test failure, not a silent skip).
+5. Verify with ``.\scripts\run-e2e.ps1 flow_dov_bbox_cpt_import flow_dov_bbox_borehole_import``.
+
 **Pre-commit rules — apply to every Python file before staging:**
 
 1. `uv run ruff format <file>` — auto-format
