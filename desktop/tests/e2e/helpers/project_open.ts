@@ -39,51 +39,58 @@ export type SpineLabel =
   | 'Parameters'
   | 'Export'
 
+/** Fixed backend port — the Electron main process spawns uvicorn here. */
+const API_BASE = 'http://127.0.0.1:8765'
+
 /**
- * Build a minimal, parser-valid ``.strix`` bundle for a known project id.
+ * Map a ``GET /projects/{id}/bundle`` response into the on-disk ``.strix``
+ * shape, mirroring the renderer's ``buildProjectFile``.
  *
- * The arrays are intentionally empty: opening the file triggers a live
- * ``GET /projects/{id}`` that hydrates CPTs / boreholes / models / sections
- * from the DB. The bundle's only load-bearing field is ``project.id``.
+ * Two things make this necessary rather than writing the bundle verbatim:
+ * 1. ``isProjectFileV3`` requires ``format_version === 3`` and that every
+ *    core array (``investigation_reviews``, ``geological_models``, ...) is
+ *    present — the bundle response omits/renames some, so a verbatim write is
+ *    rejected as "file may be corrupt" and the open fails.
+ * 2. Defaulting each optional array to ``[]`` keeps the parser happy across
+ *    backend versions.
+ *
+ * Kept inline (not imported from the renderer's ``projectFile.ts``) so this
+ * Node-side helper doesn't drag renderer-only modules into the test runner.
  *
  * Parameters
  * ----------
- * projectId
- *     The seeded fixture project's UUID (``E2E_FIXTURE_PROJECT_ID``).
+ * bundle
+ *     The parsed JSON from the bundle endpoint.
  *
  * Returns
  * -------
  * str
- *     Pretty-printed JSON ready to write to disk.
+ *     Pretty-printed ``.strix`` JSON ready to write to disk.
  */
-function minimalBundle(projectId: string): string {
-  return JSON.stringify(
-    {
-      format_version: 3,
-      project: {
-        id: projectId,
-        name: 'E2E Fixture',
-        project_number: null,
-        client: null,
-        site_label: null,
-        description: null,
-        tags: [],
-        default_horizontal_epsg: 31370,
-        default_vertical_epsg: 5710,
-        phase: null,
-        status: 'active',
-        view_state: {},
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function bundleToProjectFile(bundle: any): string {
+  return (
+    JSON.stringify(
+      {
+        format_version: 3,
+        project: bundle.project,
+        cpts: bundle.cpts ?? [],
+        boreholes: bundle.boreholes ?? [],
+        geological_formations: bundle.geological_formations ?? [],
+        geotechnical_units: bundle.geotechnical_units ?? [],
+        geological_models: bundle.geological_models ?? [],
+        cross_sections: bundle.cross_sections ?? [],
+        investigation_reviews: bundle.investigation_reviews ?? [],
+        litho_contact_correlation_edges: bundle.litho_contact_correlation_edges ?? [],
+        bodies: bundle.bodies ?? [],
+        formation_absences: bundle.formation_absences ?? [],
+        body_boundary_shapes: bundle.body_boundary_shapes ?? [],
+        body_boundary_nodes: bundle.body_boundary_nodes ?? [],
+        stratigraphy_lumping: bundle.stratigraphy_lumping ?? null,
       },
-      cpts: [],
-      boreholes: [],
-      geological_formations: [],
-      geotechnical_units: [],
-      geological_models: [],
-      cross_sections: [],
-      investigation_reviews: [],
-    },
-    null,
-    2,
+      null,
+      2,
+    ) + '\n'
   )
 }
 
@@ -113,10 +120,35 @@ export async function openFixtureProject(
   fixtureProjectId: string,
 ): Promise<string> {
   const tmpPath = path.join(os.tmpdir(), `strix-e2e-open-${process.pid}-${Math.round(performance.now())}.strix`)
-  fs.writeFileSync(tmpPath, minimalBundle(fixtureProjectId), 'utf-8')
 
   await page.waitForLoadState('domcontentloaded')
   await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
+
+  // Fetch the REAL project bundle from the app's backend and write it as the
+  // .strix file. This is load-bearing: openProjectFile seeds the visibility
+  // manifest (manifestSectionIds / manifestCptIds / ...) from the FILE's
+  // arrays, not from the API. A minimal/empty bundle leaves the manifest empty
+  // so ``visibleSections`` is [] and NO section rows render — even though the
+  // DB has them. The bundle GET returns the exact .strix shape, so writing it
+  // verbatim seeds the manifest with every section / CPT / borehole id.
+  const bundle = await page.evaluate(async ([base, pid]) => {
+    for (let i = 0; i < 30; i++) {
+      try {
+        const r = await fetch(`${base}/projects/${pid}/bundle`)
+        if (r.ok) return await r.json()
+      } catch {
+        /* backend still spinning up — retry */
+      }
+      await new Promise(res => setTimeout(res, 500))
+    }
+    return null
+  }, [API_BASE, fixtureProjectId] as const)
+  if (!bundle) {
+    throw new Error(
+      `Could not fetch GET ${API_BASE}/projects/${fixtureProjectId}/bundle — is the backend up + fixture seeded?`,
+    )
+  }
+  fs.writeFileSync(tmpPath, bundleToProjectFile(bundle), 'utf-8')
 
   // Register + authorise the path so readProjectFile can read it after reload.
   await page.evaluate(
