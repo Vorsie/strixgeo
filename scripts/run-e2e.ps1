@@ -3,7 +3,7 @@
 #
 # The suite needs a live FastAPI backend on :8765 serving the seeded
 # synthetic fixture: spec ``beforeAll`` hooks + DB helpers talk to it, and
-# each test's ``launchApp`` Electron ALSO tries to spawn its own uvicorn —
+# each test's ``launchApp`` Electron ALSO tries to spawn its own uvicorn --
 # which simply loses the port race to this standalone one (the renderer
 # talks to whichever backend holds :8765). Running a single standalone
 # backend here is the intended mode (see desktop/tests/e2e/helpers/
@@ -34,7 +34,7 @@
 $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel_integration"
 
 # node-postgres (the e2e db_helper) tolerates the +asyncpg suffix; the
-# backend REQUIRES it. One value serves both — see the e2e specs' DATABASE_URL
+# backend REQUIRES it. One value serves both -- see the e2e specs' DATABASE_URL
 # default and helpers/electron_launch.ts.
 
 function Get-PortListener {
@@ -52,7 +52,7 @@ if ($existing) {
     Write-Error (
         "Port 8765 is already in use (pid $($existing.OwningProcess)). " +
         "Close the dev desktop app (or stop whatever backend holds :8765) " +
-        "before running the e2e suite — this script will NOT kill it, because " +
+        "before running the e2e suite -- this script will NOT kill it, because " +
         "it may be your dev backend pointed at the dev DB."
     )
     exit 1
