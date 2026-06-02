@@ -69,7 +69,7 @@ test.describe('flow_body_extent_gestures (Slice 7)', () => {
       await page.evaluate(
         async ([base, pid, mid]) => {
           await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
           // Accept all auto-edges on the model.
