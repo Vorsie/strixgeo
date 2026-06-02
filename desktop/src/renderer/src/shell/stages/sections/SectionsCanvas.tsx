@@ -932,9 +932,9 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'handleClaimGhostCandidate: failed', err)
       }
     },
-    // reason: sameGhostCandidate is a module-level pure function with no
-    // closure over component state — the linter would flag it as a missing dep,
-    // but there is nothing to track there.
+    // reason: sameGhostCandidate closes over no state or props — it is a pure
+    // comparator of its two arguments, so its identity never affects correctness;
+    // the linter's missing-dep warning is a false positive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeLithoModel, project.id, lithoContacts, pinchOutCandidates, setPinchOutCandidates, refetchLensData, toast],
   )
@@ -945,9 +945,9 @@ export default function SectionsCanvas(): JSX.Element {
     (candidate: PinchOutCandidate): void => {
       setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
     },
-    // reason: sameGhostCandidate is a module-level pure function with no
-    // closure over component state — the linter would flag it as a missing dep,
-    // but there is nothing to track there.
+    // reason: sameGhostCandidate closes over no state or props — it is a pure
+    // comparator of its two arguments, so its identity never affects correctness;
+    // the linter's missing-dep warning is a false positive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [setPinchOutCandidates, pinchOutCandidates],
   )
