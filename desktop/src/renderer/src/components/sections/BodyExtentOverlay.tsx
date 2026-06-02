@@ -659,9 +659,9 @@ export default function BodyExtentOverlay({
         // A deepest-formation open body may have only the formation's top contact
         // (no base contact below it — the formation runs to the hole bottom).
         // Allow it through with 1 contact when the body has an open-kind side.
-        const _hasOpenSide =
+        const isOpenBody =
           body.extent_left_kind === 'open' || body.extent_right_kind === 'open'
-        if (sourceContacts.length < 2 && !_hasOpenSide) continue
+        if (sourceContacts.length < 2 && !isOpenBody) continue
         if (sourceContacts.length === 0) continue
 
         // Sort by depth ascending so the contact list reads top → base.
@@ -707,8 +707,6 @@ export default function BodyExtentOverlay({
           belowContactId = topIdx === -1 ? null : (sortedByDepth[topIdx + 1]?.id ?? null)
         }
 
-        const isOpenBody =
-          body.extent_left_kind === 'open' || body.extent_right_kind === 'open'
         if (!aboveContactId) continue
         // A null below contact is allowed for open bodies — the deepest formation
         // has no base contact; the base is derived from the hole bottom in resolveSide.
@@ -1001,9 +999,10 @@ export default function BodyExtentOverlay({
         const towardAlong = neighbourCol.along
         const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
         // Non-open candidates always carry a below_contact_id (they are interior
-        // pinch_out_halfway with a framed top + base). The null case is handled
-        // above in the open block; assert non-null here.
-        const baseSource = worldPtEdge(candidate.below_contact_id!, towardAlong)
+        // pinch_out_halfway with a framed top + base). The open block above
+        // handles the null case; guard explicitly here rather than assert.
+        if (!candidate.below_contact_id) continue
+        const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
         if (!topSource || !baseSource) continue
         const farPoint: WorldPt = halfwayFarPoint(sourceCol, neighbourCol, topSource, baseSource)
         const far = toScreen(farPoint)
