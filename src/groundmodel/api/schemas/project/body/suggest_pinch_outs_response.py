@@ -25,8 +25,15 @@ class PinchOutCandidateItem(BaseModel):
         The investigation whose correlation defines the candidate body.
     above_contact_id : UUID
         Formation contact above the candidate body's depth interval.
-    below_contact_id : UUID
+    below_contact_id : UUID | None
         Formation contact below the candidate body's depth interval.
+        ``None`` for the deepest-formation open candidate — that unit has
+        no base contact because it extends to the bottom of the hole.
+    below_depth_m : float | None
+        Investigation bottom depth (m below surface) for the
+        deepest-formation open candidate, whose base is the bottom of the
+        hole rather than a contact.  ``None`` for normal framed candidates
+        (they use ``below_contact_id``).
     side : {'left', 'right'}
         Which lateral direction this candidate represents.
     suggested_neighbour_investigation_id : UUID
@@ -37,7 +44,11 @@ class PinchOutCandidateItem(BaseModel):
     body_id: UUID | None
     source_investigation_id: UUID
     above_contact_id: UUID
-    below_contact_id: UUID
+    below_contact_id: UUID | None
+    # Investigation bottom depth (m below surface) for the deepest-formation
+    # open candidate, whose base is the bottom of the hole rather than a
+    # contact. None for normal framed candidates (they use below_contact_id).
+    below_depth_m: float | None = None
     side: Literal["left", "right"]
     # 'pinch_out_halfway' (interior) or 'open' (edge test — opens to boundary).
     kind: Literal["pinch_out_halfway", "open"] = "pinch_out_halfway"
