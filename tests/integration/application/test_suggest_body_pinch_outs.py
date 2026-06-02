@@ -747,3 +747,187 @@ async def test_non_lens_stack_still_emits_candidates(
     assert above_ids == {c_clay_top.id, c_sand.id, c_silt.id}, (
         f"Non-lens units must not be suppressed; got above-contacts: {above_ids}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 8: deepest-formation open candidate at the leftmost edge
+# (dogfeed 2026-06-02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deepest_formation_open_candidate_at_leftmost_edge(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """The deepest formation on a section-edge investigation has no base
+    contact, so the framed-unit loop never emits for it.  When the
+    investigation is at the LEFT edge of the section (no neighbour to the
+    left), a ``kind='open'`` candidate with ``below_contact_id=None`` and
+    ``below_depth_m`` equal to the borehole's ``total_depth_m`` must be
+    emitted for it.
+
+    Topology (along-section order: bh_left < bh_mid < bh_right):
+      bh_left:  c_top  (depth=2, f_top)   ← framed unit above deepest
+                c_deep (depth=8, f_deep)   ← DEEPEST formation, no base contact
+      bh_mid:   c_other (depth=3, f_other) ← interior test, has a right neighbour
+      bh_right: c_other2 (depth=3, f_other)
+
+    Expected:
+    - bh_left is leftmost → deepest open candidate side='left' is emitted.
+    - bh_left also has a right neighbour (bh_mid) → no deepest open right candidate.
+    - bh_mid is interior → no deepest open left or right candidate.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t8")
+    f_top = _formation(project, parent, name="KLEI-SBPO-t8-top", ordinal=0)
+    f_deep = _formation(project, parent, name="ZAND-SBPO-t8-deep", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-SBPO-t8-other", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_top, f_deep, f_other])
+    await db_session.flush()
+
+    # Place boreholes so x order == along order (section runs W→E).
+    bh_left = _borehole(project.id, suffix="T8-L", x=190000.0)
+    bh_mid = _borehole(project.id, suffix="T8-M", x=190500.0)
+    bh_right = _borehole(project.id, suffix="T8-R", x=191000.0)
+    # Give bh_left a known total_depth_m so we can assert against it.
+    bh_left.total_depth_m = 25.0
+    db_session.add_all([bh_left, bh_mid, bh_right])
+    await db_session.flush()
+
+    # bh_left stack: two contacts — f_top (framed unit) + f_deep (deepest).
+    c_top = _contact(litho, f_top, bh_left, depth=2.0)
+    c_deep = _contact(litho, f_deep, bh_left, depth=8.0)
+    # bh_mid and bh_right carry one contact each so they are model participants.
+    c_mid = _contact(litho, f_other, bh_mid, depth=3.0)
+    c_right_c = _contact(litho, f_other, bh_right, depth=3.0)
+    db_session.add_all([c_top, c_deep, c_mid, c_right_c])
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="T8-SEC",
+        description=None,
+        start_x=189900.0,
+        start_y=200000.0,
+        end_x=191100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        section_id=section.id,
+    )
+
+    # Filter to candidates whose above_contact is the DEEPEST contact on bh_left.
+    deepest_cands = [
+        c
+        for c in candidates
+        if c.source_investigation_id == bh_left.id and c.above_contact_id == c_deep.id
+    ]
+
+    # Exactly one deepest-open candidate: the left edge side only.
+    # bh_left has a right neighbour (bh_mid) so no right-open candidate.
+    assert len(deepest_cands) == 1, (
+        f"Expected 1 deepest-open candidate for bh_left, got {len(deepest_cands)}: {deepest_cands}"
+    )
+    cand = deepest_cands[0]
+    assert cand.side == "left", f"Expected side='left', got {cand.side!r}"
+    assert cand.kind == "open", f"Expected kind='open', got {cand.kind!r}"
+    # No base contact — the substrate extends to the bottom of the hole.
+    assert cand.below_contact_id is None, (
+        f"Expected below_contact_id=None for deepest-open, got {cand.below_contact_id}"
+    )
+    # Bottom depth must match the borehole's total_depth_m.
+    assert cand.below_depth_m == 25.0, f"Expected below_depth_m=25.0, got {cand.below_depth_m}"
+    assert cand.above_contact_id == c_deep.id
+
+
+# ---------------------------------------------------------------------------
+# Test 9: interior investigation — no deepest-open candidate
+# (dogfeed 2026-06-02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deepest_formation_no_open_candidate_at_interior_test(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """An interior investigation (neighbours on both sides) must NOT receive
+    a deepest-formation open candidate — the substrate is bounded by data
+    on both sides, so it is not an open edge.
+
+    Topology (along-section order: bh_left < bh_mid < bh_right):
+      All three boreholes are model participants.
+      bh_mid is interior → no left or right deepest-open candidate.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t9")
+    f_top = _formation(project, parent, name="KLEI-SBPO-t9-top", ordinal=0)
+    f_deep = _formation(project, parent, name="ZAND-SBPO-t9-deep", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-SBPO-t9-other", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_top, f_deep, f_other])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="T9-L", x=192000.0)
+    bh_mid = _borehole(project.id, suffix="T9-M", x=192500.0)
+    bh_right = _borehole(project.id, suffix="T9-R", x=193000.0)
+    bh_mid.total_depth_m = 30.0
+    db_session.add_all([bh_left, bh_mid, bh_right])
+    await db_session.flush()
+
+    # bh_mid stack: two contacts — f_top (framed) + f_deep (deepest).
+    c_top_mid = _contact(litho, f_top, bh_mid, depth=2.0)
+    c_deep_mid = _contact(litho, f_deep, bh_mid, depth=9.0)
+    # Flanking boreholes carry one contact each.
+    c_left_c = _contact(litho, f_other, bh_left, depth=3.0)
+    c_right_c = _contact(litho, f_other, bh_right, depth=3.0)
+    db_session.add_all([c_top_mid, c_deep_mid, c_left_c, c_right_c])
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="T9-SEC",
+        description=None,
+        start_x=191900.0,
+        start_y=200000.0,
+        end_x=193100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        section_id=section.id,
+    )
+
+    # No deepest-open candidate should exist for bh_mid — it has neighbours
+    # on both sides, so its deepest formation is not an edge substrate.
+    deepest_open_mid = [
+        c
+        for c in candidates
+        if c.source_investigation_id == bh_mid.id
+        and c.above_contact_id == c_deep_mid.id
+        and c.below_contact_id is None
+    ]
+    assert deepest_open_mid == [], (
+        f"Interior bh_mid must not receive a deepest-open candidate; got: {deepest_open_mid}"
+    )
