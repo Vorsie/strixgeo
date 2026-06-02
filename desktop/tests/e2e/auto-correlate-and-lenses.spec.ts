@@ -161,8 +161,11 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
         },
         [API_BASE, FIXTURE_PROJECT_ID],
       )
+      // Only segment CPTs that actually carry a series. The dedicated
+      // crossing CPTs are series-less (suggest-litho 404s on them) and must
+      // not be seeded, or the crossing inversion would be buried.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cpts = cptsJson as any[]
+      const cpts = (cptsJson as any[]).filter((c: any) => (c.n_rows ?? 0) > 0)
       expect(cpts.length).toBeGreaterThanOrEqual(3)
 
       const sections = await listSectionsByProject(FIXTURE_PROJECT_ID)
