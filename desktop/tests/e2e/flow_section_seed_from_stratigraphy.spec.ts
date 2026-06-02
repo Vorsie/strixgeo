@@ -95,6 +95,13 @@ test.describe('flow_section_seed_from_stratigraphy (#130)', () => {
         {
           id: SEED_BH_ID,
           name: 'BH-E2E-SEED-U',
+          // Distinct GEF (project_id, test_id) so this seed borehole does not
+          // collide with other specs' seed boreholes on the shared fixture
+          // project — uq_borehole_app_project_source_test is
+          // (app_project_id, project_id, test_id); omitting these defaults
+          // both to '' and two specs would clash.
+          project_id: 'E2E-SECTION-SEED',
+          test_id: 'BH-SECTION-SEED-U',
           // Place inside Section A's corridor (y=214_000, buffer=200m → y∈[213800,214200])
           location_x: 157_600.0,
           location_y: 214_050.0,
