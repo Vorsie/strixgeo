@@ -18,8 +18,10 @@
 // Ghost candidate rendering (Task 7.4):
 //   BE-GHOST-RENDER ghost candidate for a source on this section renders as a
 //                   dashed amber pinch-halfway wedge.
-//   BE-GHOST-CLICK  clicking the ghost fill calls onClaimGhostCandidate with
-//                   the exact PinchOutCandidate object.
+//   BE-GHOST-CLICK  left-click ghost fill calls onRequestClaimGhostCandidate
+//                   (opens the confirm dialog, no direct DB write).
+//   BE-GHOST-RCLICK right-click ghost fill calls onGhostContextMenu with the
+//                   candidate + SVG coords; preventDefault is called.
 //
 // Deepest-formation open extents (below_contact_id === null):
 //   BE-DEEPOPEN-GHOST-DEPTH    ghost open candidate with null below_contact_id renders and
@@ -464,12 +466,16 @@ describe('BodyExtentOverlay', () => {
     const fill = getByTestId('body-ghost-fill-inv-source-left')
     const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
     const preventDefaultSpy = vi.spyOn(evt, 'preventDefault')
+    const stopPropagationSpy = vi.spyOn(evt, 'stopPropagation')
     fill.dispatchEvent(evt)
     // onGhostContextMenu is called with the candidate as the first argument.
     expect(onGhostContextMenu).toHaveBeenCalledTimes(1)
     expect(onGhostContextMenu.mock.calls[0][0]).toEqual(candidate)
     // preventDefault was called — the browser context menu is suppressed.
     expect(preventDefaultSpy).toHaveBeenCalled()
+    // stopPropagation was called — the right-click does not bubble to the
+    // column-band context menu below the ghost fill.
+    expect(stopPropagationSpy).toHaveBeenCalled()
   })
 
   it('BE-GHOST-OPEN — an open edge candidate renders a fixed-length band past the source column', () => {
