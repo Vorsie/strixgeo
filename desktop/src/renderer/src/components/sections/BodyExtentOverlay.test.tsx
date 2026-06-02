@@ -722,13 +722,21 @@ describe('BodyExtentOverlay', () => {
     expect(Math.max(...ys)).toBeCloseTo(400, 0)
   })
 
-  it('BE-DEEPOPEN-COMMITTED — committed open body whose deepest formation has no base contact renders', () => {
+  it('BE-DEEPOPEN-COMMITTED — committed open body whose deepest formation has no base contact renders; base reaches column bottom', () => {
     // Source: inv-source has only ONE contact (f1 at depth 3 — the deepest
     // formation on the column). The body framing fallback finds aboveContactId
     // but no belowContactId (topIdx+1 is undefined → null). The isOpenBody
     // guard must allow this through; resolveSide must produce a rendered wedge.
+    //
+    // The source column (from baseColumns) carries no total_depth_m, so
+    // columnMaxDepthM returns null → openDeepestBaseElevation falls back to
+    // screenToLevel(plotBottom) = 100 - 400 = -300. levelToScreen(-300) = 400,
+    // clamped by toScreen to plotBottom = 400.
+    // The fill path's maximum y must equal plotBottom (400), not be clamped to
+    // the top contact's screen y (100 - (10 - 3) = 93). A wrong implementation
+    // that placed the base at the top contact's depth would yield max(y) ≈ 93.
     const singleContact = [contact(CS_TOP, 'inv-source', 3)]
-    const { queryByTestId } = renderOverlay({
+    const { queryByTestId, getByTestId } = renderOverlay({
       bodies: [
         makeBody({
           content_key: null,
@@ -742,6 +750,15 @@ describe('BodyExtentOverlay', () => {
     // The body must render (not be skipped by the null-below guard).
     expect(queryByTestId('body-extent-B1')).not.toBeNull()
     expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
+    // Base elevation is plotBottom (400 px) — the column has no recorded depth.
+    const fillD = getByTestId('body-extent-fill-B1').getAttribute('d') ?? ''
+    const ys = Array.from(fillD.matchAll(/[ML]\s*[-\d.]+,([-\d.]+)/g)).map(m =>
+      parseFloat(m[1]),
+    )
+    expect(Math.max(...ys)).toBeCloseTo(400, 0)
+    // Confirm the assertion is non-trivial: the top-contact screen y is ≈93,
+    // well below 400, so a wrong base at the top-contact depth would fail.
+    expect(Math.max(...ys)).toBeGreaterThan(200)
   })
 
   it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
