@@ -10,8 +10,8 @@
  *                           a neighbour investigation.
  *   ``extrapolated``      — wedge to a dip-extrapolated endpoint + dip-arrow
  *                           glyph.
- *   ``open``              — parallel-sided band from the source column's edge
- *                           to the section endpoint (no taper).
+ *   ``open``              — parallel-sided band a fixed configurable distance
+ *                           (default 3 m) past the source column's edge (no taper).
  *   null                  — render nothing on that side.
  *
  * The render logic is bilateral: both sides share the source investigation's
@@ -185,15 +185,12 @@ export interface Props {
   plotTop: number
   plotBottom: number
   /**
-   * Screen x of the section's left end — used to compute the ``open``
-   * extent endpoint on the left side.
+   * Fixed length in along-section metres that an ``open`` extent draws past
+   * the source column's edge (configurable via litho-segmenter prefs;
+   * default 3 m). Replaces the old "extend to the section endpoint"
+   * behaviour, which read as "runs to the DEM edge" (dogfeed 2026-06-02).
    */
-  sectionStartScreenX: number
-  /**
-   * Screen x of the section's right end — used to compute the ``open``
-   * extent endpoint on the right side.
-   */
-  sectionEndScreenX: number
+  openExtentLengthM: number
   /**
    * Fired on mouse-up after a node drag/add — the full replacement node set
    * for the body (both boundaries) + the render style. Absent = read-only.
@@ -301,8 +298,7 @@ export default function BodyExtentOverlay({
   screenToLevel,
   plotTop,
   plotBottom,
-  sectionStartScreenX,
-  sectionEndScreenX,
+  openExtentLengthM,
   onSaveLensShape,
   onDeleteLens,
   onBodyContextMenu,
@@ -506,12 +502,12 @@ export default function BodyExtentOverlay({
             break
           }
           case 'open': {
-            // For open extents, the endpoint is at the section boundary.
-            // Convert section-boundary screen X back to along via the
-            // warp-aware inverse, choosing the correct end.
+            // Fixed-length stub past the source column edge (configurable;
+            // default 3 m), NOT to the section boundary — that read as
+            // "extends to the DEM edge" (dogfeed 2026-06-02).
             towardAlong = side === 'left'
-              ? screenXToAlong(sectionStartScreenX)
-              : screenXToAlong(sectionEndScreenX)
+              ? col.along - openExtentLengthM
+              : col.along + openExtentLengthM
             break
           }
           default:
@@ -789,15 +785,15 @@ export default function BodyExtentOverlay({
       worldPtEdge: _worldPtEdge,
       stackingByBodyId: computeDepthStacking(_stackingItems),
     }
-  // reason: screenXToAlong + sectionStartScreenX + sectionEndScreenX +
-  // formationLabelById are consumed inside the memo (open-extent towardAlong via
-  // the warp-aware inverse; the auto-label depth-rank grouping). They are stable
-  // between drag events and change only when the section line / column spacing /
-  // formation set changes, which also changes the body geometry — so including
-  // them is correct.
+  // reason: screenXToAlong + openExtentLengthM + formationLabelById are consumed
+  // inside the memo (open-extent towardAlong is now a fixed offset from col.along
+  // using openExtentLengthM; the auto-label depth-rank grouping uses
+  // formationLabelById). They are stable between drag events and change only when
+  // the section line / column spacing / prefs / formation set changes, which also
+  // changes the body geometry — so including them is correct.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bodies, contacts, placedColumns, contactEdges, boundariesByBodyId,
-      screenXToAlong, sectionStartScreenX, sectionEndScreenX, formationLabelById])
+      screenXToAlong, openExtentLengthM, formationLabelById])
 
   // --- Drag lifecycle -------------------------------------------------------
   useEffect(() => {
@@ -918,16 +914,18 @@ export default function BodyExtentOverlay({
       let lowerScreen: { x: number; y: number }[]
 
       if (candidate.kind === 'open') {
-        // Edge test — open the layer to the section boundary on ``side``
-        // (parallel band, no taper). No neighbour.
-        const boundaryScreenX =
-          candidate.side === 'left' ? sectionStartScreenX : sectionEndScreenX
-        const boundaryAlong = screenXToAlong(boundaryScreenX)
-        const topSource = worldPtEdge(candidate.above_contact_id, boundaryAlong)
-        const baseSource = worldPtEdge(candidate.below_contact_id, boundaryAlong)
+        // Edge test — open the layer a fixed length past the source column
+        // (configurable; default 3 m), not to the section boundary
+        // (dogfeed 2026-06-02). No neighbour.
+        const towardAlong =
+          candidate.side === 'left'
+            ? sourceCol.along - openExtentLengthM
+            : sourceCol.along + openExtentLengthM
+        const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
+        const baseSource = worldPtEdge(candidate.below_contact_id, towardAlong)
         if (!topSource || !baseSource) continue
-        const topFar: WorldPt = { along_m: boundaryAlong, elevation_m: topSource.elevation_m }
-        const baseFar: WorldPt = { along_m: boundaryAlong, elevation_m: baseSource.elevation_m }
+        const topFar: WorldPt = { along_m: towardAlong, elevation_m: topSource.elevation_m }
+        const baseFar: WorldPt = { along_m: towardAlong, elevation_m: baseSource.elevation_m }
         upperScreen = [toScreen(topSource), toScreen(topFar)]
         lowerScreen = [toScreen(baseSource), toScreen(baseFar)]
       } else {
