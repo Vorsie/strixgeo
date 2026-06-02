@@ -38,6 +38,10 @@ export default defineConfig({
   use: {
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    // Cap every action (click/fill/etc.) so a stuck-actionability click fails
+    // fast with its exact locator instead of retrying until the whole test
+    // timeout (which made a single un-actionable button read as a dead hang).
+    actionTimeout: 20_000,
   },
 
   // Output directory for traces, screenshots, and videos.
