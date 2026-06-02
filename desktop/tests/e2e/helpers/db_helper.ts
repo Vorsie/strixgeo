@@ -110,7 +110,7 @@ export async function countCorrelationEdges(projectId: string): Promise<number> 
   return withClient(async (client) => {
     const res = await client.query<{ n: string }>(
       `SELECT COUNT(*) AS n
-         FROM litho_correlation_edge lce
+         FROM litho_contact_correlation_edge lce
          JOIN geological_model gm ON gm.id = lce.model_id
         WHERE gm.app_project_id = $1
           AND gm.kind = 'lithostratigraphic'`,
@@ -210,7 +210,7 @@ export async function countAutoCorrelationEdges(projectId: string): Promise<numb
   return withClient(async (client) => {
     const res = await client.query<{ n: string }>(
       `SELECT COUNT(*) AS n
-         FROM litho_correlation_edge lce
+         FROM litho_contact_correlation_edge lce
          JOIN geological_model gm ON gm.id = lce.model_id
         WHERE gm.app_project_id = $1
           AND gm.kind = 'lithostratigraphic'
