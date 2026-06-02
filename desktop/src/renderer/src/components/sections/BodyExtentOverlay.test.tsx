@@ -407,20 +407,20 @@ describe('BodyExtentOverlay', () => {
       kind: 'pinch_out_halfway',
       suggested_neighbour_investigation_id: NEIGHBOUR_INV,
     }
-    const onClaimGhostCandidate = vi.fn()
+    const onRequestClaimGhostCandidate = vi.fn()
     const { queryByTestId } = renderOverlay({
       bodies: [],
       ghostCandidates: [candidate],
-      onClaimGhostCandidate,
+      onRequestClaimGhostCandidate,
     })
     // Ghost fill path exists and is testid-accessible.
     expect(queryByTestId('body-ghost-fill-inv-source-left')).not.toBeNull()
   })
 
-  it('BE-GHOST-CLICK — clicking ghost fill calls onClaimGhostCandidate with the candidate', () => {
-    // Clicking the ghost wedge fill should invoke onClaimGhostCandidate with
-    // the exact PinchOutCandidate object (not a subset — caller needs body_id,
-    // source_investigation_id, side, above/below contact ids).
+  it('BE-GHOST-CLICK — left-click ghost fill calls onRequestClaimGhostCandidate (not a direct claim)', () => {
+    // Clicking the ghost wedge fill should invoke onRequestClaimGhostCandidate
+    // (which opens a confirm dialog), NOT onClaimGhostCandidate directly.
+    // The parent must confirm before the DB write fires.
     const candidate: PinchOutCandidate = {
       body_id: null,
       source_investigation_id: 'inv-source',
@@ -430,15 +430,46 @@ describe('BodyExtentOverlay', () => {
       kind: 'pinch_out_halfway',
       suggested_neighbour_investigation_id: NEIGHBOUR_INV,
     }
-    const onClaimGhostCandidate = vi.fn()
+    const onRequestClaimGhostCandidate = vi.fn()
     const { getByTestId } = renderOverlay({
       bodies: [],
       ghostCandidates: [candidate],
-      onClaimGhostCandidate,
+      onRequestClaimGhostCandidate,
     })
     fireEvent.click(getByTestId('body-ghost-fill-inv-source-left'))
-    expect(onClaimGhostCandidate).toHaveBeenCalledTimes(1)
-    expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
+    expect(onRequestClaimGhostCandidate).toHaveBeenCalledTimes(1)
+    expect(onRequestClaimGhostCandidate).toHaveBeenCalledWith(candidate)
+  })
+
+  it('BE-GHOST-RCLICK — right-click ghost fill calls onGhostContextMenu with candidate + coords', () => {
+    // Right-clicking the ghost wedge fill should invoke onGhostContextMenu
+    // (opens the ghost context menu at the click position), and the event's
+    // default must be prevented so it does NOT bubble to the "Remove this
+    // litho unit" menu on the column bands below.
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_TOP,
+      below_contact_id: CS_BASE,
+      side: 'left',
+      kind: 'pinch_out_halfway',
+      suggested_neighbour_investigation_id: NEIGHBOUR_INV,
+    }
+    const onGhostContextMenu = vi.fn()
+    const { getByTestId } = renderOverlay({
+      bodies: [],
+      ghostCandidates: [candidate],
+      onGhostContextMenu,
+    })
+    const fill = getByTestId('body-ghost-fill-inv-source-left')
+    const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    const preventDefaultSpy = vi.spyOn(evt, 'preventDefault')
+    fill.dispatchEvent(evt)
+    // onGhostContextMenu is called with the candidate as the first argument.
+    expect(onGhostContextMenu).toHaveBeenCalledTimes(1)
+    expect(onGhostContextMenu.mock.calls[0][0]).toEqual(candidate)
+    // preventDefault was called — the browser context menu is suppressed.
+    expect(preventDefaultSpy).toHaveBeenCalled()
   })
 
   it('BE-GHOST-OPEN — an open edge candidate renders a fixed-length band past the source column', () => {
@@ -460,7 +491,7 @@ describe('BodyExtentOverlay', () => {
     const { getByTestId, rerender } = renderOverlay({
       bodies: [],
       ghostCandidates: [candidate],
-      onClaimGhostCandidate: vi.fn(),
+      onRequestClaimGhostCandidate: vi.fn(),
       openExtentLengthM: 3,
     })
     const fill = getByTestId('body-ghost-fill-inv-source-left')
@@ -484,7 +515,7 @@ describe('BodyExtentOverlay', () => {
           {...transforms}
           openExtentLengthM={10}
           ghostCandidates={[candidate]}
-          onClaimGhostCandidate={vi.fn()}
+          onRequestClaimGhostCandidate={vi.fn()}
         />
       </svg>,
     )
@@ -659,7 +690,7 @@ describe('BodyExtentOverlay', () => {
       placedColumns: [deepCol],
       contactEdges: [],
       ghostCandidates: [candidate],
-      onClaimGhostCandidate: vi.fn(),
+      onRequestClaimGhostCandidate: vi.fn(),
       openExtentLengthM: 3,
     })
     // Ghost renders (not skipped due to null below_contact_id).
@@ -710,7 +741,7 @@ describe('BodyExtentOverlay', () => {
       placedColumns: [noDepthCol],
       contactEdges: [],
       ghostCandidates: [candidate],
-      onClaimGhostCandidate: vi.fn(),
+      onRequestClaimGhostCandidate: vi.fn(),
       openExtentLengthM: 3,
     })
     // Ghost renders (not skipped).
