@@ -611,3 +611,73 @@ async def test_section_along_order_picks_adjacent_column_not_uuid_neighbour(
         if c.source_investigation_id == bh_source.id and c.side == "right"
     )
     assert right_nosec.suggested_neighbour_investigation_id == bh_far.id
+
+
+# ---------------------------------------------------------------------------
+# Test 6: enclosed lens (SAND·SILT·SAND) → only the silt is suggested
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enclosed_lens_suppresses_host_half_candidates(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A source stack of SAND·SILT·SAND·CLAY where both sands share one
+    formation must suggest a pinch-out for the silt lens ONLY — never for
+    the upper or lower sand half (they are one continuous host wrapping the
+    lens).
+
+    Topology on bh_source (depth → formation):
+      2.0  c_sand_top  (f_sand)   ┐ upper sand  (host half — suppressed)
+      4.0  c_silt      (f_silt)   ┤ SILT lens   (suggested)
+      6.0  c_sand_low  (f_sand)   ┤ lower sand  (host half — suppressed)
+      10.0 c_clay      (f_clay)   ┘ base
+    bh_left / bh_right each carry one (uncorrelated) contact so the silt
+    has a neighbour on each side.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t6")
+    # Both sand halves reference ONE formation row (same find-or-create key).
+    f_sand = _formation(project, parent, name="ZAND-SBPO-t6", soil_code="ZAND", ordinal=0)
+    f_silt = _formation(project, parent, name="SILT-SBPO-t6", soil_code="SILT", ordinal=1)
+    f_clay = _formation(project, parent, name="KLEI-SBPO-t6", soil_code="KLEI", ordinal=2)
+    f_flank = _formation(project, parent, name="VEEN-SBPO-t6", soil_code="VEEN", ordinal=3)
+    db_session.add_all([geo, litho, parent, f_sand, f_silt, f_clay, f_flank])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="T6-L", x=170000.0)
+    bh_source = _borehole(project.id, suffix="T6-S", x=170500.0)
+    bh_right = _borehole(project.id, suffix="T6-R", x=171000.0)
+    db_session.add_all([bh_left, bh_source, bh_right])
+    await db_session.flush()
+
+    c_sand_top = _contact(litho, f_sand, bh_source, depth=2.0)
+    c_silt = _contact(litho, f_silt, bh_source, depth=4.0)
+    c_sand_low = _contact(litho, f_sand, bh_source, depth=6.0)
+    c_clay = _contact(litho, f_clay, bh_source, depth=10.0)
+    c_left = _contact(litho, f_flank, bh_left, depth=3.0)
+    c_right = _contact(litho, f_flank, bh_right, depth=3.0)
+    db_session.add_all([c_sand_top, c_silt, c_sand_low, c_clay, c_left, c_right])
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+
+    source_candidates = [c for c in candidates if c.source_investigation_id == bh_source.id]
+
+    # Every emitted candidate is for the SILT lens unit (its top contact is
+    # c_silt); the two sand halves are suppressed.
+    above_ids = {c.above_contact_id for c in source_candidates}
+    assert above_ids == {c_silt.id}, (
+        f"Expected only the silt unit suggested, got above-contacts: {above_ids}"
+    )
+    assert c_sand_top.id not in above_ids
+    assert c_sand_low.id not in above_ids
+    # The silt lens still emits (it is the real pinch-out), and its base is
+    # the lower sand's top contact.
+    assert len(source_candidates) >= 1
+    assert all(c.below_contact_id == c_sand_low.id for c in source_candidates)
