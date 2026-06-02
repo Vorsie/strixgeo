@@ -2959,6 +2959,59 @@ surface a timing/selector nit to fix. ``flow_litho_pipeline_ui`` MUTATES the
 fixture litho model — re-run ``build_synthetic_fixture.py`` (idempotent +
 self-cleaning) between full suites.
 
+### ACTION-coverage convention — every menu action gets an e2e spec (2026-06-02)
+
+Owner directive: UI-action e2e coverage is **first-class — just as important as
+other automated testing**, and applies to every action we add from here on.
+The pattern is now established + proven (``flow_auto_lens_ui``,
+``flow_body_naming_ui``, ``flow_body_actions_ui`` all green against the live
+stack).
+
+**1. Scenario data lives in ``build_synthetic_fixture.py``, on disjoint
+sections** (so ``auto-correlate``, which loads the whole model, can't
+cross-contaminate). The fixture (8 CPTs, three rows / sections) provides:
+* **Section A** (CPTs 0–2): EMPTY — build-from-scratch specs (suggest→accept,
+  band / contact / empty-space context menus).
+* **Section B** (CPTs 3–5): a committed bilateral **body** + its committed
+  contacts — body actions (name / dissolve / claim-extent) + contact actions
+  (delete / open-end / link-geology) + litho-band remove.
+* **Section C** (CPTs 6–7): an interfingered **crossing** — auto-lens.
+The seed is a direct-DB step (``_seed_action_scenarios_async``) — the body's
+closure edges are cross-lithology, which the REST correlate rejects. Idempotent
+via the existing pre-restore cleanup + ``formation_id`` ``ondelete=CASCADE``.
+
+**2. The action-spec pattern.** ``launchApp`` → ``openFixtureProject`` →
+``goToStage`` → select the scenario's section → right-click the **testid'd**
+trigger (``dispatchEvent('contextmenu', {button:2,clientX,clientY})`` bypasses
+SVG z-order; ``force:true`` for transparent fills) → click the menu item →
+assert the effect.
+
+**3. Order-independence is mandatory** (the suite re-seeds once per run, not
+per spec):
+* **Irreversible actions** (delete / remove / dissolve) — drive to the
+  confirmation and **Cancel**, asserting the dialog fires. This exercises the
+  gesture (the dead-end class) without mutating the shared fixture. The
+  *commit* path is covered by integration tests at the use-case layer.
+  Native ``window.confirm`` → ``page.on('dialog', d => d.dismiss())``.
+* **Reversible / idempotent actions** (name / claim-extent / open-end) —
+  exercise fully; the re-seed restores the baseline next run.
+* **Submenus** (``body-ctx-side-left/right``) — open via
+  ``dispatchEvent('click')``, NOT ``.click()``: a real click hovers first
+  (``onMouseEnter`` opens) then toggles (``onClick`` closes), and the panel
+  sits outside the parent's box so hovering to it closes it.
+
+**4. Action coverage status (extend as actions ship).**
+* Body — Name ✅ (``flow_body_naming_ui``), Dissolve ✅ + Claim-extent ✅
+  (``flow_body_actions_ui``). Clear-extent, the other claim kinds
+  (pinch_out_halfway / extrapolated), left-side — *open, same pattern*.
+* Auto-lens crossing → diamond ✅ (``flow_auto_lens_ui``).
+* Contact menu — Delete / Open-end / Link-geology / Unlink — *open*
+  (drive to confirm + Cancel on the body's committed contacts, Section B).
+* Litho-band Remove — *open* (confirm + Cancel). Empty-space Add — reachability
+  shipped; the full add→picker→commit flow is *open*.
+* Every NEW menu action ships its action spec in the same commit batch as the
+  gesture (the #127 convention below, now extended to actions).
+
 ### Convention — load-bearing from #127 onward
 
 **Every new user-facing gesture ships with at least one e2e flow in
