@@ -62,6 +62,17 @@ Write-Host "==> alembic upgrade head (integration DB)"
 uv run alembic upgrade head
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Clean slate each run. Without this, a dirty DB (partial state from a crashed
+# run, or stale rows) survives because the fixture restore is idempotent and
+# only ADDS missing rows -- it cannot repair a half-deleted project. TRUNCATE
+# the same project-scoped tables the integration conftest does (geological_model
+# / geological_formation / cross_section carry app_project_id WITHOUT a project
+# FK, so a CASCADE on project does not reach them -- list them explicitly).
+Write-Host "==> truncating integration DB (clean slate)"
+docker exec strix-db-1 psql -U groundmodel -d groundmodel_integration -c `
+    "TRUNCATE TABLE investigation_review, cross_section, geological_model, geological_formation, cpt, borehole, project CASCADE;"
+if ($LASTEXITCODE -ne 0) { Write-Error "truncate failed -- is the strix-db-1 container up?"; exit $LASTEXITCODE }
+
 Write-Host "==> starting uvicorn on :8765"
 $uvicorn = Start-Process -FilePath "uv" `
     -ArgumentList @(
