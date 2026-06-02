@@ -31,6 +31,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.domain.services.classify_enclosed_lenses import (
+    classify_enclosed_lenses,
+)
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -264,7 +267,23 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             if inv_id not in position:
                 continue
             src_pos = position[inv_id]
+
+            # Lens-aware suppression: a thin unit bracketed by the SAME
+            # formation above and below (e.g. SAND·SILT·SAND, both sands one
+            # formation row) is an enclosed lens — the bracketing formation is
+            # one continuous host wrapping it.  The lens itself stays a normal
+            # candidate (it is the real pinch-out); the host halves must NOT be
+            # suggested as independent pinch-outs.  See spec
+            # docs/superpowers/specs/2026-06-02-lens-aware-pinch-out-suggestions-design.md.
+            host_half_units = classify_enclosed_lenses(
+                [entry[2] for entry in entries]
+            ).host_half_units
+
             for i in range(len(entries) - 1):
+                if i in host_half_units:
+                    # Interior to a continuous host wrapping a lens — the host
+                    # is presumptively continuous here, not a pinch-out. Skip.
+                    continue
                 _, above_id, above_formation = entries[i]
                 _, below_id, _below_formation = entries[i + 1]
 
