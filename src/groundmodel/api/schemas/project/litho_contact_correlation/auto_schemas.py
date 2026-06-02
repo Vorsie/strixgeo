@@ -43,6 +43,31 @@ class DeleteAutoCorrelationsResponse(BaseModel):
     deleted: int
 
 
+class CrossingPinchOutResponse(BaseModel):
+    """One pinch-out lens candidate inferred from a correlation crossing.
+
+    Auto-lens (drop + lens): when two proposed correlations cross, neither is a
+    flat correlation, so both edges are dropped and the pinching layer is
+    surfaced here for the frontend to render as a lens ghost.
+
+    Attributes
+    ----------
+    source_investigation_id : UUID
+        The investigation carrying the framing contacts.
+    above_contact_id : UUID
+        Shallower framing contact (top of the pinching layer) on the source.
+    below_contact_id : UUID
+        Deeper framing contact (base of the pinching layer) on the source.
+    neighbour_investigation_id : UUID
+        The investigation the layer pinches out toward.
+    """
+
+    source_investigation_id: UUID
+    above_contact_id: UUID
+    below_contact_id: UUID
+    neighbour_investigation_id: UUID
+
+
 class AutoCorrelateContactResponse(BaseModel):
     """Response body for the auto-correlate endpoint.
 
@@ -53,7 +78,15 @@ class AutoCorrelateContactResponse(BaseModel):
     edges_skipped_existing : int
         Candidate pairs that already had a contact-correlation edge
         (ON CONFLICT DO NOTHING semantics; idempotent re-call is safe).
+    edges_dropped_crossing : int
+        Candidate edges withheld from persistence because they were part of a
+        crossing (auto-lens drop + lens). Defaults to 0.
+    crossing_pinch_outs : list[CrossingPinchOutResponse]
+        Pinch-out lens candidates inferred from those crossings, for the
+        frontend to render as lens ghosts. Defaults to empty.
     """
 
     edges_created: int
     edges_skipped_existing: int
+    edges_dropped_crossing: int = 0
+    crossing_pinch_outs: list[CrossingPinchOutResponse] = Field(default_factory=list)

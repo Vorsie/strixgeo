@@ -45,6 +45,7 @@ from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas im
 from groundmodel.api.schemas.project.litho_contact_correlation.auto_schemas import (
     AutoCorrelateContactRequest,
     AutoCorrelateContactResponse,
+    CrossingPinchOutResponse,
     DeleteAutoCorrelationsResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.lens_companion_schemas import (
@@ -330,6 +331,16 @@ async def auto_correlate_contact(
     return AutoCorrelateContactResponse(
         edges_created=result.edges_created,
         edges_skipped_existing=result.edges_skipped_existing,
+        edges_dropped_crossing=result.edges_dropped_crossing,
+        crossing_pinch_outs=[
+            CrossingPinchOutResponse(
+                source_investigation_id=po.source_investigation_id,
+                above_contact_id=po.above_contact_id,
+                below_contact_id=po.below_contact_id,
+                neighbour_investigation_id=po.neighbour_investigation_id,
+            )
+            for po in result.crossing_pinch_outs
+        ],
     )
 
 
