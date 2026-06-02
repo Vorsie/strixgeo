@@ -20,6 +20,12 @@
 //                   dashed amber pinch-halfway wedge.
 //   BE-GHOST-CLICK  clicking the ghost fill calls onClaimGhostCandidate with
 //                   the exact PinchOutCandidate object.
+//
+// Deepest-formation open extents (below_contact_id === null):
+//   BE-DEEPOPEN-GHOST-DEPTH    ghost open candidate with null below_contact_id renders and
+//                              its base aligns with the column bottom (surfaceElev - totalDepth).
+//   BE-DEEPOPEN-GHOST-NODEPTH  ghost open candidate when column has no depth → base at plotBottom.
+//   BE-DEEPOPEN-COMMITTED      committed body whose deepest formation has no base contact renders.
 
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -610,6 +616,132 @@ describe('BodyExtentOverlay', () => {
       formationLabelById: new Map([['f1', 'ZAND']]),
     })
     expect(getByTestId('body-label-B1').textContent).toBe('Channel sand')
+  })
+
+  // -------------------------------------------------------------------------
+  // Deepest-formation open extents (below_contact_id === null)
+  // -------------------------------------------------------------------------
+
+  it('BE-DEEPOPEN-GHOST-DEPTH — ghost open candidate with null below_contact_id renders; base at column bottom', () => {
+    // Source column: borehole at along=50, surface elev=10, total_depth_m=15.
+    // openDeepestBaseElevation = 10 - 15 = -5.
+    // With levelToScreen = y => 100 - y: screen y for elev -5 is 105.
+    // The lower boundary of the ghost must reach y ≈ 105, NOT the top of the
+    // column (which would be y ≈ 97 for the above_contact at depth 3m → elev 7).
+    const deepCol: PlacedColumn = {
+      kind: 'borehole',
+      nudgedX: 50,
+      trueX: 50,
+      width: 40,
+      displaced: false,
+      proj: {
+        along: 50,
+        offset: 0,
+        item: { id: 'inv-deep', elevation_m: 10, total_depth_m: 15 },
+      },
+    } as unknown as PlacedColumn
+    const aboveContact: FormationContactResponse = {
+      ...contact(CS_TOP, 'inv-deep', 3),
+    }
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-deep',
+      above_contact_id: CS_TOP,
+      below_contact_id: null,
+      below_depth_m: 15,
+      side: 'right',
+      kind: 'open',
+      suggested_neighbour_investigation_id: null,
+    }
+    const { getByTestId } = renderOverlay({
+      bodies: [],
+      contacts: [aboveContact],
+      placedColumns: [deepCol],
+      contactEdges: [],
+      ghostCandidates: [candidate],
+      onClaimGhostCandidate: vi.fn(),
+      openExtentLengthM: 3,
+    })
+    // Ghost renders (not skipped due to null below_contact_id).
+    const fill = getByTestId('body-ghost-fill-inv-deep-right')
+    // Extract all y coords from the fill path d attribute.
+    const ys = Array.from(
+      (fill.getAttribute('d') ?? '').matchAll(/[ML]\s*[-\d.]+,([-\d.]+)/g),
+    ).map(m => parseFloat(m[1]))
+    // levelToScreen(-5) = 100 - (-5) = 105. The max y in the path must be
+    // ≥ 105 (the base of the ghost reaches the column bottom).
+    expect(Math.max(...ys)).toBeGreaterThanOrEqual(104)
+    // Must NOT be clamped to only the above contact depth (elev 7 → y 93).
+    expect(Math.max(...ys)).toBeGreaterThan(100)
+  })
+
+  it('BE-DEEPOPEN-GHOST-NODEPTH — ghost open candidate; column has no depth → base at plotBottom elevation', () => {
+    // Column with no total_depth_m (null) — columnMaxDepthM returns null.
+    // openDeepestBaseElevation falls back to screenToLevel(plotBottom) = 100 - 400 = -300.
+    // levelToScreen(-300) = 100 - (-300) = 400 = plotBottom (clamped by toScreen).
+    const noDepthCol: PlacedColumn = {
+      kind: 'borehole',
+      nudgedX: 50,
+      trueX: 50,
+      width: 40,
+      displaced: false,
+      proj: {
+        along: 50,
+        offset: 0,
+        item: { id: 'inv-nodepth', elevation_m: 10, total_depth_m: null },
+      },
+    } as unknown as PlacedColumn
+    const aboveContact: FormationContactResponse = {
+      ...contact(CS_TOP, 'inv-nodepth', 3),
+    }
+    const candidate: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-nodepth',
+      above_contact_id: CS_TOP,
+      below_contact_id: null,
+      below_depth_m: null,
+      side: 'right',
+      kind: 'open',
+      suggested_neighbour_investigation_id: null,
+    }
+    const { getByTestId } = renderOverlay({
+      bodies: [],
+      contacts: [aboveContact],
+      placedColumns: [noDepthCol],
+      contactEdges: [],
+      ghostCandidates: [candidate],
+      onClaimGhostCandidate: vi.fn(),
+      openExtentLengthM: 3,
+    })
+    // Ghost renders (not skipped).
+    const fill = getByTestId('body-ghost-fill-inv-nodepth-right')
+    const ys = Array.from(
+      (fill.getAttribute('d') ?? '').matchAll(/[ML]\s*[-\d.]+,([-\d.]+)/g),
+    ).map(m => parseFloat(m[1]))
+    // toScreen clamps to plotBottom=400. The base y must be at plotBottom.
+    expect(Math.max(...ys)).toBeCloseTo(400, 0)
+  })
+
+  it('BE-DEEPOPEN-COMMITTED — committed open body whose deepest formation has no base contact renders', () => {
+    // Source: inv-source has only ONE contact (f1 at depth 3 — the deepest
+    // formation on the column). The body framing fallback finds aboveContactId
+    // but no belowContactId (topIdx+1 is undefined → null). The isOpenBody
+    // guard must allow this through; resolveSide must produce a rendered wedge.
+    const singleContact = [contact(CS_TOP, 'inv-source', 3)]
+    const { queryByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          content_key: null,
+          extent_right_kind: 'open',
+          extent_right_neighbour_inv_id: null,
+        }),
+      ],
+      contacts: singleContact,
+      contactEdges: [],
+    })
+    // The body must render (not be skipped by the null-below guard).
+    expect(queryByTestId('body-extent-B1')).not.toBeNull()
+    expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
   })
 
   it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
