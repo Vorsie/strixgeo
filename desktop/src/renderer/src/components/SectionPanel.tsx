@@ -306,6 +306,12 @@ interface Props {
    */
   geoSnapToleranceM?: number
   /**
+   * Fixed length (m, along-section) an ``open`` body extent draws past the
+   * source test's column (litho axis). From litho-segmenter prefs; default
+   * 3 m. Forwarded to BodyExtentOverlay.
+   */
+  openExtentLengthM?: number
+  /**
    * Litho axis: fired when the user picks a composition in the "New
    * unit" tab of ``LithoCompositionPickerDialog``.  The caller posts
    * the synthetic accept-litho-suggestions payload and returns the
@@ -756,6 +762,7 @@ export default function SectionPanel({
   pulsingFormationIds,
   axisMode = 'geological',
   geoSnapToleranceM,
+  openExtentLengthM,
   onManualLithoUnitCreate,
   onLithoExistingUnitPick,
   showConfidenceFade = true,
@@ -3176,9 +3183,7 @@ export default function SectionPanel({
                 screenToLevel={screenToLevel}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
-                // Section endpoints for the ``open`` extent kind.
-                sectionStartScreenX={warpedXToScreen(0)}
-                sectionEndScreenX={warpedXToScreen(lengthM)}
+                openExtentLengthM={openExtentLengthM ?? 3}
                 onSaveLensShape={onSaveLensShape}
                 onDeleteLens={onDeleteLens}
                 onBodyContextMenu={
