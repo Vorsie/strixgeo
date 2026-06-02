@@ -80,6 +80,13 @@ test.describe('flow_fill_from_boreholes (#130)', () => {
         {
           id: BH_ID,
           name: 'BH-E2E-STRAT',
+          // Distinct GEF (project_id, test_id) so this seed borehole does not
+          // collide with other specs' seed boreholes on the shared fixture
+          // project — uq_borehole_app_project_source_test is
+          // (app_project_id, project_id, test_id); omitting both defaults
+          // them to '' and the specs clash on restore.
+          project_id: 'E2E-FILL',
+          test_id: 'BH-FILL-STRAT',
           location_x: 157_600.0,
           location_y: 214_150.0,
           elevation_m: 4.0,
