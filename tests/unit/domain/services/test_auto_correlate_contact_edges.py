@@ -259,25 +259,70 @@ def test_dipping_bed_correlates_with_default_window() -> None:
     assert (_uid(1), _uid(3)) in pairs
 
 
+def test_steep_diagonal_over_long_distance_does_not_autocorrelate() -> None:
+    """A steep depth jump between far-apart tests must NOT auto-correlate.
+
+    Owner dogfeed 2026-06-02: "noone would auto-suggest that diagonal from the
+    left test to the next — it'd be better as a lens." The depth window is a
+    dip-gradient ceiling; at the old 5%/metre factor a same-lithology contact
+    at 1 m on one column correlated to one ~9 m deep on a column 150 m away
+    (an ~8 m drop = ~5% dip), which reads as a steep diagonal nobody would
+    draw. The tightened 4% ceiling rejects it: at 150 m the window is
+    ``0.5 + 0.04·150 = 6.5 m`` < the 7.5 m residual here (which the old 8 m
+    window happily accepted).
+    """
+    contacts = [
+        _make_contact(1, 10, 1.0, 99, "ZAND", None),
+        _make_contact(2, 11, 8.5, 99, "ZAND", None),  # 7.5 m deeper, 150 m away
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 150.0, 0.0),
+    ]
+    assert auto_correlate_contact_edges(contacts, locations) == []
+
+
+def test_gentle_dip_over_long_distance_still_autocorrelates() -> None:
+    """An ordinary gentle dip over a long span MUST still correlate.
+
+    The tightened ceiling limits the DIP, not the absolute residual: a ~2%
+    gradient is ordinary geology and stays valid at any distance. Here the
+    ZAND top dips 3 m over 150 m (2%); the 4% window is ``0.5 + 0.04·150 =
+    6.5 m`` > the 3 m residual, so the pair correlates.
+    """
+    contacts = [
+        _make_contact(1, 10, 4.0, 99, "ZAND", None),
+        _make_contact(2, 11, 7.0, 99, "ZAND", None),  # 3 m deeper, 150 m away
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 150.0, 0.0),
+    ]
+    pairs = {
+        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+    }
+    assert (_uid(1), _uid(2)) in pairs
+
+
 def test_depth_window_param_widens_what_correlates() -> None:
     """#163b — the depth-match window base is user-tunable.
 
-    Two contacts on neighbouring tests 50 m apart with a 3.5 m depth
-    residual.  The default window (0.5 + 0.05·50 = 3.0 m at this distance)
-    rejects the pair; a widened ``base_depth_threshold_m=1.5`` (→ 4.0 m
+    Two contacts on neighbouring tests 50 m apart with a 3.0 m depth
+    residual.  The default window (0.5 + 0.04·50 = 2.5 m at this distance)
+    rejects the pair; a widened ``base_depth_threshold_m=1.5`` (→ 3.5 m
     window) accepts it — the knob the Settings control feeds.
     """
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
-        _make_contact(2, 11, 8.5, 99, "ZAND", "KLEI"),
+        _make_contact(2, 11, 8.0, 99, "ZAND", "KLEI"),
     ]
     locations = [
         InvestigationLocation(_uid(10), 0.0, 0.0),
         InvestigationLocation(_uid(11), 50.0, 0.0),
     ]
-    # Default window (3.0 m at 50 m) is too tight for a 3.5 m residual.
+    # Default window (2.5 m at 50 m) is too tight for a 3.0 m residual.
     assert auto_correlate_contact_edges(contacts, locations) == []
-    # Widening the base to 1.5 m (→ 4.0 m window) lets the pair through.
+    # Widening the base to 1.5 m (→ 3.5 m window) lets the pair through.
     widened = AutoCorrelateContactParams(base_depth_threshold_m=1.5)
     result = auto_correlate_contact_edges(contacts, locations, widened)
     assert {(_uid(1), _uid(2))} == {(c.contact_a_id, c.contact_b_id) for c in result}

@@ -20,16 +20,18 @@ MAX_COLUMN_DISTANCE_M: float = 200.0
 BASE_DEPTH_THRESHOLD_M: float = 0.5
 
 # Linear relaxation of the depth window per metre of horizontal column
-# separation — the allowable bed DIP between two tests.  Raised from 0.002
-# to 0.05 (dogfeed 2026-05-29, #163): the old 0.2%-gradient tolerance assumed
-# near-flat beds and silently dropped obvious correlations where a horizon
-# dipped a realistic ~1 m over ~50 m (a ~2% gradient).  5% covers ordinary
-# dip with margin; at 50 m the window is ~3 m, at the 200 m cap ~10.5 m.
-# Crucially this no longer risks spaghetti: the relative-neighbourhood-graph
-# adjacency gate (#163a) already restricts pairing to adjacent tests, so a
-# generous window only decides whether ADJACENT boundaries pair, never
-# whether distant ones do.
-DISTANCE_FACTOR: float = 0.05
+# separation — the allowable bed DIP between two tests.  History: 0.002
+# (near-flat, dropped obvious dipping correlations) → 0.05 (#163, 2026-05-29,
+# 5%) → 0.04 (dogfeed 2026-06-02).  Owner directive: 5% drew steep diagonals
+# nobody would suggest — a same-lithology contact ~8 m deeper over 150 m (a
+# ~5% dip) got a confident straight edge where a LENS (pinch-out) is the
+# honest interpretation.  4% is the ceiling for "ordinary dip we'll auto-draw
+# a flat correlation for"; steeper boundaries fall through and are surfaced as
+# lens candidates instead.  At 50 m the window is 2.5 m, at the 200 m cap 8.5 m.
+# The relative-neighbourhood-graph adjacency gate (#163a) still restricts
+# pairing to adjacent tests, so this only decides whether ADJACENT boundaries
+# pair, never whether distant ones do.
+DISTANCE_FACTOR: float = 0.04
 
 # Provenance tag written to ``litho_contact_correlation_edge.source`` for
 # rows produced by this algorithm.  Mirrors the formation-level "auto"
