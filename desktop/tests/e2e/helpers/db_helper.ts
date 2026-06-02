@@ -157,42 +157,6 @@ export async function listFormationAbsences(
 }
 
 /**
- * Fetch a lens metadata row by its body ordinal within a lithostratigraphic
- * model for a project.
- *
- * The ``litho_lens`` table is keyed by ``(model_id, formation_id, body_ordinal)``.
- * This helper finds the first lens in the project's litho model that has the
- * given ``body_ordinal``, regardless of which formation it belongs to.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- * bodyOrdinal : number
- *   0-based body ordinal assigned by the correlation-graph resolver.
- *
- * Returns
- * -------
- * Object with ``id`` and ``name``, or ``null`` if not found.
- */
-export async function getLensByOrdinal(
-  projectId: string,
-  bodyOrdinal: number,
-): Promise<{ id: string; name: string | null } | null> {
-  return withClient(async (client) => {
-    const res = await client.query<{ id: string; name: string | null }>(
-      `SELECT ll.id, ll.name
-         FROM litho_lens ll
-        WHERE ll.app_project_id = $1
-          AND ll.body_ordinal = $2
-        LIMIT 1`,
-      [projectId, bodyOrdinal],
-    )
-    return res.rows[0] ?? null
-  })
-}
-
-/**
  * Count auto-correlated edges (``source = 'auto'``) for a project's
  * lithostratigraphic models.
  *
