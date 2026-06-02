@@ -64,7 +64,7 @@ test.describe('flow_auto_correlate', () => {
       const firstResult = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
           return { status: r.status, json: await r.json() }
@@ -77,8 +77,10 @@ test.describe('flow_auto_correlate', () => {
       const first = firstResult.json as any
       expect(typeof first.edges_created).toBe('number')
       expect(typeof first.edges_skipped_existing).toBe('number')
-      expect(typeof first.formations_recomputed).toBe('number')
-      expect(typeof first.wedge_tips_materialised).toBe('number')
+      // Post-#133 response shape: crossing edges are dropped (not persisted)
+      // and surfaced as pinch-out candidates rather than correlation edges.
+      expect(typeof first.edges_dropped_crossing).toBe('number')
+      expect(Array.isArray(first.crossing_pinch_outs)).toBe(true)
       expect(first.edges_created).toBeGreaterThanOrEqual(0)
       expect(first.edges_skipped_existing).toBeGreaterThanOrEqual(0)
 
@@ -93,7 +95,7 @@ test.describe('flow_auto_correlate', () => {
       const secondResult = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
           return { status: r.status, json: await r.json() }
@@ -142,7 +144,7 @@ test.describe('flow_auto_correlate', () => {
       const result = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
           return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
@@ -185,7 +187,7 @@ test.describe('flow_auto_correlate', () => {
       const firstAcResult = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
           return r.json()
@@ -205,32 +207,37 @@ test.describe('flow_auto_correlate', () => {
       expect(autoAfterFirst).toBeGreaterThan(0)
 
       // 2. Create a manual edge so we can verify it survives the DELETE.
-      // Fetch two formations from the litho model to build a valid edge.
-      const formationsJson = await page.evaluate(
-        async ([base, pid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/formations?kind=lithostratigraphic`)
-          return r.json()
+      // Post-#133 correlation edges are CONTACT-level (contact_a_id /
+      // contact_b_id), so pick two contacts on DIFFERENT investigations.
+      const edgeContacts = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const contacts: any[] = await r.json()
+          const anchor = (c: { cpt_id?: string; borehole_id?: string }) => c.cpt_id ?? c.borehole_id ?? ''
+          const a = contacts[0]
+          if (!a) return null
+          const b = contacts.find((c) => anchor(c) && anchor(c) !== anchor(a))
+          return b ? { a: a.id as string, b: b.id as string } : null
         },
-        [API_BASE, FIXTURE_PROJECT_ID],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const formations = formationsJson as any[]
-      if (formations.length < 2) {
-        test.info().annotations.push({ type: 'note', description: 'Fewer than 2 formations — manual edge step skipped' })
+      if (!edgeContacts) {
+        test.info().annotations.push({ type: 'note', description: 'No two contacts on distinct investigations — manual edge step skipped' })
       } else {
         const manualEdgeResult = await page.evaluate(
-          async ([base, pid, mid, fa, fb]) => {
+          async ([base, pid, mid, ca, cb]) => {
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/correlations`,
+              `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ formation_a_id: fa, formation_b_id: fb, source: 'manual' }),
+                body: JSON.stringify({ contact_a_id: ca, contact_b_id: cb, source: 'manual' }),
               },
             )
             return { status: r.status }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, formations[0].id, formations[1].id],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, edgeContacts.a, edgeContacts.b],
         )
         // 201 (new) or 200 (already existed) are both acceptable.
         expect([200, 201]).toContain(manualEdgeResult.status)
@@ -240,7 +247,7 @@ test.describe('flow_auto_correlate', () => {
       const delResult = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/correlations/auto`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
           )
           return { status: r.status, json: await r.json() }
@@ -259,7 +266,7 @@ test.describe('flow_auto_correlate', () => {
       await page.evaluate(
         async ([base, pid, mid]) => {
           await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/auto-correlate`,
+            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
           )
         },
