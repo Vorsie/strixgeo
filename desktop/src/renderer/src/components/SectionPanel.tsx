@@ -87,6 +87,8 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
+import GhostContextMenu from './sections/GhostContextMenu'
+import ConfirmDialog from './ui/ConfirmDialog'
 import { lensFormationBase } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
@@ -711,10 +713,17 @@ interface Props {
    */
   ghostCandidates?: readonly PinchOutCandidate[]
   /**
-   * Clicked a ghost candidate wedge → accept the suggested pinch-out.
-   * Forwarded to ``BodyExtentOverlay``.
+   * Confirmed acceptance of a ghost candidate → claim the suggested pinch-out.
+   * Called after the user confirms the dialog (left-click path) or picks
+   * "Accept" from the right-click menu.  Forwarded to the BodyExtentOverlay
+   * indirectly via the ghost dialog + menu state.
    */
   onClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
+  /**
+   * Dismiss a ghost candidate — removes it from the local list without any
+   * DB write.  Called from the right-click "Dismiss suggestion" menu item.
+   */
+  onDismissGhostCandidate?: (candidate: PinchOutCandidate) => void
 }
 
 export default function SectionPanel({
@@ -787,6 +796,7 @@ export default function SectionPanel({
   onDissolveBody,
   ghostCandidates,
   onClaimGhostCandidate,
+  onDismissGhostCandidate,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2091,6 +2101,18 @@ export default function SectionPanel({
   } | null>(null)
   const dismissBodyCtxMenu = useCallback(() => setBodyCtxMenu(null), [])
 
+  // Ghost context menu state — opened by right-clicking a ghost candidate
+  // wedge in BodyExtentOverlay.  Offers Accept + Dismiss without a dialog.
+  const [ghostCtxMenu, setGhostCtxMenu] = useState<{
+    candidate: PinchOutCandidate
+    svgX: number
+    svgY: number
+  } | null>(null)
+  const dismissGhostCtxMenu = useCallback(() => setGhostCtxMenu(null), [])
+
+  // Left-click a ghost candidate → confirm before claiming.
+  const [pendingClaimGhost, setPendingClaimGhost] = useState<PinchOutCandidate | null>(null)
+
   const handleBodyContextMenu = useCallback(
     (body: BodyListItem, svgX: number, svgY: number): void => {
       setBodyCtxMenu({ body, svgX, svgY })
@@ -2148,7 +2170,9 @@ export default function SectionPanel({
       ) {
         return
       }
-      if (bodyCtxMenu !== null) {
+      if (ghostCtxMenu !== null) {
+        dismissGhostCtxMenu()
+      } else if (bodyCtxMenu !== null) {
         dismissBodyCtxMenu()
       } else if (contextMenu !== null) {
         dismissContextMenu()
@@ -2164,7 +2188,7 @@ export default function SectionPanel({
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [bodyCtxMenu, contextMenu, focusedColumn, exitFocus, dismissContextMenu, dismissBodyCtxMenu, onClose])
+  }, [ghostCtxMenu, dismissGhostCtxMenu, bodyCtxMenu, contextMenu, focusedColumn, exitFocus, dismissContextMenu, dismissBodyCtxMenu, onClose])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -3193,7 +3217,14 @@ export default function SectionPanel({
                     : undefined
                 }
                 ghostCandidates={ghostCandidates}
-                onClaimGhostCandidate={onClaimGhostCandidate}
+                onRequestClaimGhostCandidate={
+                  axisMode === 'lithostratigraphic' ? c => setPendingClaimGhost(c) : undefined
+                }
+                onGhostContextMenu={
+                  axisMode === 'lithostratigraphic'
+                    ? (c, svgX, svgY) => setGhostCtxMenu({ candidate: c, svgX, svgY })
+                    : undefined
+                }
               />
             )}
 
@@ -3284,8 +3315,53 @@ export default function SectionPanel({
                 onClose={dismissBodyCtxMenu}
               />
             )}
+            {/* Ghost context menu — portal="svg" renders inside the SVG via
+                foreignObject.  Opened by right-clicking a ghost candidate wedge
+                in BodyExtentOverlay (onGhostContextMenu handler above).  Offers
+                Accept (claims immediately, no dialog) and Dismiss (UI-only). */}
+            {ghostCtxMenu !== null && (
+              <GhostContextMenu
+                x={ghostCtxMenu.svgX}
+                y={ghostCtxMenu.svgY}
+                candidate={ghostCtxMenu.candidate}
+                onAccept={c => {
+                  onClaimGhostCandidate?.(c)
+                  dismissGhostCtxMenu()
+                }}
+                onDismiss={c => {
+                  onDismissGhostCandidate?.(c)
+                  dismissGhostCtxMenu()
+                }}
+                onClose={dismissGhostCtxMenu}
+              />
+            )}
           </svg>
         )}
+        {/* Left-click confirm dialog — gating the ghost claim from accidental
+            clicks.  Lives outside the SVG so Modal can escape the SVG stacking
+            context via its Portal. */}
+        <ConfirmDialog
+          open={pendingClaimGhost !== null}
+          labelledBy="accept-pinch-out-title"
+          titleTestid="accept-pinch-out-title"
+          title={
+            pendingClaimGhost?.kind === 'open'
+              ? 'Accept this open end?'
+              : 'Accept this pinch-out?'
+          }
+          body="This commits a lateral extent. You can remove it later by right-clicking the band."
+          confirm={{
+            label: 'Accept',
+            variant: 'primary',
+            testid: 'accept-pinch-out-confirm',
+            onClick: () => {
+              if (pendingClaimGhost) onClaimGhostCandidate?.(pendingClaimGhost)
+              setPendingClaimGhost(null)
+            },
+          }}
+          cancelTestid="accept-pinch-out-cancel"
+          onCancel={() => setPendingClaimGhost(null)}
+        />
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
             Sizing canvas…
