@@ -9,13 +9,11 @@
  * 2. POST .../contact-correlations/auto → returns 200 with edges_created
  *    > 0; DB has new ``user_approved=false`` rows (the "dashed amber"
  *    state in the UI).
- * 3. No ``litho_lens`` rows yet (lenses are created on accept, not on
- *    auto-correlate).
- * 4. POST .../contact-correlations/accept (section-scoped) → flips
- *    ``user_approved=true`` on edges in scope; ``lenses_created >= 0``;
- *    DB shows the user-approved flip (the "solid emerald" state).
- * 5. ``litho_lens`` rows now exist for the model.
- * 6. POST .../lens-companions/materialise → returns 200 with the
+ * 3. POST .../contact-correlations/accept (section-scoped) → flips
+ *    ``user_approved=true`` on edges in scope; reports
+ *    ``bodies_created``/``bodies_removed``/``ordinals_changed``; DB shows
+ *    the user-approved flip (the "solid emerald" state).
+ * 4. POST .../lens-companions/materialise → returns 200 with the
  *    counters; if companion sections were created they're visible in
  *    ``GET /cross_sections?project_id={pid}`` with
  *    ``is_lens_companion=true``.
@@ -23,8 +21,8 @@
  * This flow exercises the same code path the frontend toolbar buttons fire
  * (``api.geology.autoCorrelateContacts`` → ``acceptContactCorrelations`` →
  * ``materialiseLensCompanions``).  Like every other litho-flow spec in this
- * suite (flow_bulk_accept, flow_auto_correlate, flow_single_accept,
- * flow_inspect_lens) we drive via the API: the UI buttons require
+ * suite (flow_bulk_accept, flow_auto_correlate, flow_single_accept) we
+ * drive via the API: the UI buttons require
  * ghost-suggestion + section-selection state that needs the full Electron
  * navigation chain, which is covered by flow_boot_open.  The contract is
  * the API contract, and the buttons themselves are unit-tested in
@@ -96,35 +94,6 @@ async function countContactCorrelationEdges(
           AND gm.kind = 'lithostratigraphic'
           ${approvedClause}`,
       params,
-    )
-    return parseInt(res.rows[0].n, 10)
-  } finally {
-    await client.end()
-  }
-}
-
-/**
- * Count ``litho_lens`` rows for a project's lithostratigraphic models.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- *
- * Returns
- * -------
- * number
- *   Row count.
- */
-async function countLithoLenses(projectId: string): Promise<number> {
-  const client = new Client({ connectionString: DATABASE_URL })
-  await client.connect()
-  try {
-    const res = await client.query<{ n: string }>(
-      `SELECT COUNT(*) AS n
-         FROM litho_lens
-        WHERE app_project_id = $1`,
-      [projectId],
     )
     return parseInt(res.rows[0].n, 10)
   } finally {
@@ -313,11 +282,6 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       // New edges are pending (user_approved=false) — the dashed-amber state.
       expect(pendingAfterAuto).toBeGreaterThanOrEqual(pendingBefore)
 
-      // No lenses yet — DetectLithoLenses only runs on accept, not auto.
-      // (May be > 0 from a prior run if the test re-runs without DB wipe.)
-      const lensesAfterAuto = await countLithoLenses(FIXTURE_PROJECT_ID)
-      expect(lensesAfterAuto).toBeGreaterThanOrEqual(0)
-
       // -----------------------------------------------------------------------
       // 4. Accept correlations on the primary section — flips
       //    user_approved=true and runs DetectLithoLenses.  Mirrors what the
@@ -342,8 +306,11 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const accept = acceptRes.json as any
       expect(typeof accept.edges_accepted).toBe('number')
-      expect(typeof accept.lenses_created).toBe('number')
-      expect(typeof accept.lenses_removed).toBe('number')
+      // Post-2026-05-31 the accept response reports bodies, not lenses
+      // (lens entity retired -> BodyOrm; lens detection is now an explicit
+      // verb and no longer auto-fires on accept, so these are typically 0).
+      expect(typeof accept.bodies_created).toBe('number')
+      expect(typeof accept.bodies_removed).toBe('number')
       expect(typeof accept.ordinals_changed).toBe('number')
       expect(accept.edges_accepted).toBeGreaterThanOrEqual(0)
 
