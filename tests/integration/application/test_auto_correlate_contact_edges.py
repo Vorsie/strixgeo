@@ -332,3 +332,90 @@ async def test_resolver_not_triggered_by_auto_run(
     assert f_zand_b.instance_ordinal == 8, (
         f"instance_ordinal of f_zand_b must not change; got {f_zand_b.instance_ordinal}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 4: a correlation crossing is dropped from persistence + reported as a
+#         pinch-out lens candidate (auto-lens, drop + lens)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_crossing_edges_dropped_and_surfaced_as_pinch_out(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """When two same-lithology correlations cross, both edges are withheld and
+    one pinch-out lens candidate is returned.
+
+    Column A: ZAND at 1 m over KLEI at 5 m. Column B (200 m away): the beds
+    interfinger — ZAND drops to 5 m and KLEI rises to 1 m. Auto-correlate would
+    draw ZAND-A↔ZAND-B (1→5) and KLEI-A↔KLEI-B (5→1) — both within the 4% window
+    at 200 m — but they CROSS. Drop + lens: neither edge persists, and one
+    ``CrossingPinchOut`` is reported instead.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    geo_parent = _geo_formation(project, name="Quaternary AC4")
+    f_zand_a = _litho_formation(
+        project, geo_parent, name="ZAND A4", soil_code="ZAND", display_order=1
+    )
+    f_zand_b = _litho_formation(
+        project, geo_parent, name="ZAND B4", soil_code="ZAND", display_order=2
+    )
+    f_klei_a = _litho_formation(
+        project, geo_parent, name="KLEI A4", soil_code="KLEI", display_order=3
+    )
+    f_klei_b = _litho_formation(
+        project, geo_parent, name="KLEI B4", soil_code="KLEI", display_order=4
+    )
+    bh_a = _borehole(project.id, suffix="X1", x=150000.0)
+    bh_b = _borehole(project.id, suffix="X2", x=150200.0)  # 200 m apart
+
+    db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, f_klei_a, f_klei_b, bh_a, bh_b])
+    await db_session.flush()
+
+    # A: ZAND@1 over KLEI@5.  B: ZAND@5 over KLEI@1 (interfingered → crossing).
+    ca_zand = _contact(litho, f_zand_a, bh_a, depth=1.0)
+    ca_klei = _contact(litho, f_klei_a, bh_a, depth=5.0)
+    cb_zand = _contact(litho, f_zand_b, bh_b, depth=5.0)
+    cb_klei = _contact(litho, f_klei_b, bh_b, depth=1.0)
+    db_session.add_all([ca_zand, ca_klei, cb_zand, cb_klei])
+    await db_session.commit()
+
+    result = await AutoCorrelateContactEdges(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+
+    # Both crossing edges withheld; one pinch-out surfaced; nothing persisted.
+    assert len(result.crossing_pinch_outs) == 1, (
+        f"Expected 1 crossing pinch-out; got {result.crossing_pinch_outs}"
+    )
+    assert result.edges_dropped_crossing == 2, (
+        f"Both crossing edges must be dropped; got {result.edges_dropped_crossing}"
+    )
+    assert result.edges_created == 0, (
+        f"No flat edge should persist; got edges_created={result.edges_created}"
+    )
+
+    po = result.crossing_pinch_outs[0]
+    assert po.source_investigation_id in {bh_a.id, bh_b.id}
+    assert po.neighbour_investigation_id in {bh_a.id, bh_b.id}
+    assert po.source_investigation_id != po.neighbour_investigation_id
+
+    # The DB carries no auto edge for this model.
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == litho.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [r for r in rows if r.source == "auto"] == [], (
+        f"No auto edges should persist for a pure crossing; got {len(rows)} row(s)"
+    )

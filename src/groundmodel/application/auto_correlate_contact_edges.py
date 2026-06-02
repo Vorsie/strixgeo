@@ -9,7 +9,7 @@ participate in the user's correlation graph.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import select
@@ -26,6 +26,15 @@ from groundmodel.domain.services.auto_correlate_contact_edges import (
 )
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import (
     AUTO_SOURCE,
+)
+from groundmodel.domain.services.detect_body_extents import (
+    ContactEdge,
+    ContactStack,
+    ContactStackEntry,
+)
+from groundmodel.domain.services.detect_crossing_pinch_outs import (
+    CrossingPinchOut,
+    detect_crossing_pinch_outs,
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -56,10 +65,20 @@ class AutoCorrelateContactResult:
     edges_skipped_existing : int
         Candidates that were skipped because an edge already existed for that
         ``(model_id, contact_a_id, contact_b_id)`` triple.
+    crossing_pinch_outs : list[CrossingPinchOut]
+        Pinch-out lens candidates inferred from correlation crossings among the
+        proposed candidates. The two edges of each crossing are DROPPED (not
+        persisted) — a crossing is not a flat correlation — and surfaced here so
+        the caller can render them as lens ghosts (auto-lens, drop + lens).
+    edges_dropped_crossing : int
+        Count of candidate edges withheld from persistence because they were
+        part of a crossing.
     """
 
     edges_created: int
     edges_skipped_existing: int
+    crossing_pinch_outs: list[CrossingPinchOut] = field(default_factory=list)
+    edges_dropped_crossing: int = 0
 
 
 class AutoCorrelateContactEdges(GroundModelLogger):
@@ -240,13 +259,55 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         )
         self.debug(f"AutoCorrelateContactEdges: {len(candidates)} candidate pair(s)")
 
-        # 6. Bulk-insert with ON CONFLICT DO NOTHING (Postgres-specific).
-        #    Uses the named unique constraint so the conflict target is
-        #    unambiguous even if the table grows more indexes in future.
-        if not candidates:
+        # 6b. Auto-lens (drop + lens): detect correlation crossings among the
+        #     proposed candidates. A crossing's two edges are not flat
+        #     correlations — DROP them from persistence and surface the pinch-out
+        #     so the caller renders a lens ghost instead of a steep diagonal.
+        body_stacks = [
+            ContactStack(
+                investigation_id=inv_id,
+                entries=tuple(
+                    ContactStackEntry(contact_id=cid, formation_id=fid, depth_top_m=depth)
+                    for depth, cid, fid, _parent, _litho in entries
+                ),
+            )
+            for inv_id, entries in stacks.items()
+        ]
+        candidate_edges = [
+            ContactEdge(contact_a_id=c.contact_a_id, contact_b_id=c.contact_b_id)
+            for c in candidates
+        ]
+        crossing_pinch_outs = detect_crossing_pinch_outs(candidate_edges, body_stacks)
+        excluded_edges: set[frozenset[UUID]] = set()
+        for po in crossing_pinch_outs:
+            excluded_edges.update(po.crossing_edges)
+        flat_candidates = [
+            c
+            for c in candidates
+            if frozenset({c.contact_a_id, c.contact_b_id}) not in excluded_edges
+        ]
+        edges_dropped = len(candidates) - len(flat_candidates)
+        if crossing_pinch_outs:
+            self.debug(
+                f"AutoCorrelateContactEdges: {len(crossing_pinch_outs)} crossing "
+                f"pinch-out(s); dropped {edges_dropped} crossing edge(s) before insert"
+            )
+
+        # 7. Bulk-insert the FLAT candidates with ON CONFLICT DO NOTHING
+        #    (Postgres-specific). Uses the named unique constraint so the
+        #    conflict target is unambiguous even if the table grows more indexes.
+        if not flat_candidates:
             await self._session.commit()
-            self.success("AutoCorrelateContactEdges: no candidates — nothing to insert")
-            return AutoCorrelateContactResult(edges_created=0, edges_skipped_existing=0)
+            self.success(
+                "AutoCorrelateContactEdges: no flat candidates to insert "
+                f"({len(crossing_pinch_outs)} crossing pinch-out(s))"
+            )
+            return AutoCorrelateContactResult(
+                edges_created=0,
+                edges_skipped_existing=0,
+                crossing_pinch_outs=crossing_pinch_outs,
+                edges_dropped_crossing=edges_dropped,
+            )
 
         values = [
             {
@@ -257,7 +318,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                 "source": AUTO_SOURCE,
                 "user_approved": False,
             }
-            for c in candidates
+            for c in flat_candidates
         ]
         stmt = (
             insert(LithoContactCorrelationEdgeOrm)
@@ -270,11 +331,14 @@ class AutoCorrelateContactEdges(GroundModelLogger):
 
         await self._session.commit()
         self.success(
-            f"AutoCorrelateContactEdges: created={edges_created} skipped_existing={edges_skipped}"
+            f"AutoCorrelateContactEdges: created={edges_created} "
+            f"skipped_existing={edges_skipped} dropped_crossing={edges_dropped}"
         )
         return AutoCorrelateContactResult(
             edges_created=edges_created,
             edges_skipped_existing=edges_skipped,
+            crossing_pinch_outs=crossing_pinch_outs,
+            edges_dropped_crossing=edges_dropped,
         )
 
     async def _section_along_adjacency(
