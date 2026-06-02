@@ -73,6 +73,12 @@ export interface LithoSegmenterPrefs {
    *  the guard OFF.  Maps to the backend ``max_lens_thickness_m`` read by
    *  DetectLithoLenses (0/absent handled there).  Default 5 m; range 0–20 m. */
   maxLensThicknessM: number
+  /** Fixed length (metres, along-section) that an ``open`` body extent
+   *  draws past the source test's column, instead of running to the
+   *  section endpoint / DEM edge (owner dogfeed 2026-06-02). Applies to
+   *  committed open extents and ``open`` suggest-pinch-out ghosts.
+   *  Range 0.5 – 50 m. Default 3 m. */
+  openExtentLengthM: number
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -84,6 +90,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   straddleMinPieceThicknessM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
   maxLensThicknessM: 5.0,
+  openExtentLengthM: 3.0,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -95,6 +102,7 @@ export const LITHO_SEGMENTER_BOUNDS = {
   autoCorrelateDepthWindowM: { min: 0.05, max: 5.0 },
   // min 0 so 0 is a VALID value meaning "guard off" (not clamped to a default).
   maxLensThicknessM: { min: 0, max: 20.0 },
+  openExtentLengthM: { min: 0.5, max: 50.0 },
 } as const
 
 const VIEW_STATE_KEY = 'litho_segmenter'
@@ -170,6 +178,11 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.maxLensThicknessM,
       LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
     ),
+    openExtentLengthM: readBoundedNumber(
+      dict.open_extent_length_m,
+      LITHO_SEGMENTER_BOUNDS.openExtentLengthM,
+      LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
+    ),
   }
 }
 
@@ -192,6 +205,7 @@ export function buildLithoSegmenterPatch(
       straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
       max_lens_thickness_m: prefs.maxLensThicknessM,
+      open_extent_length_m: prefs.openExtentLengthM,
     },
   }
 }
