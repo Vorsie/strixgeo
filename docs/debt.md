@@ -3005,10 +3005,11 @@ per spec):
   (``flow_body_actions_ui``). Clear-extent, the other claim kinds
   (pinch_out_halfway / extrapolated), left-side — *open, same pattern*.
 * Auto-lens crossing → diamond ✅ (``flow_auto_lens_ui``).
-* Contact menu — Delete / Open-end / Link-geology / Unlink — *open*
-  (drive to confirm + Cancel on the body's committed contacts, Section B).
-* Litho-band Remove — *open* (confirm + Cancel). Empty-space Add — reachability
-  shipped; the full add→picker→commit flow is *open*.
+* Contact menu — Delete ✅ + Open-end ✅ (``flow_contact_band_actions_ui``).
+  Link-geology / Unlink — *open* (need a litho contact coincident with a geo
+  contact within tolerance on Section B — a one-line seed tweak).
+* Litho-band Remove ✅ (``flow_contact_band_actions_ui``). Empty-space Add —
+  reachability shipped; the full add→picker→commit flow is *open*.
 * Every NEW menu action ships its action spec in the same commit batch as the
   gesture (the #127 convention below, now extended to actions).
 
