@@ -2920,11 +2920,38 @@ dropdown → 4 verbs). The copy-pattern: ``launchApp`` →
 ``openFixtureProject`` → ``goToStage`` → open every dropdown/caret and
 assert each item testid → exercise one reversible action.
 
-**Remaining fan-out (next slices):** per-stage UI specs for Data,
-Geology, Lithology, **Geotech**, **Parameters** (the last two have
-zero UI coverage today), the 4 context menus (contact / body / litho
-band / empty-space), and the ~16 dialogs. Each follows the Sections
-template.
+**Fan-out shipped (2026-06-02) — all 7 stages now have UI coverage:**
+
+* ``flow_data_stage_ui`` — Import dropdown (6 verbs: 3 live, 3 Phase-4).
+* ``flow_sections_toolbar_ui`` — the template (axis toggle + geological &
+  litho toolbars, every dropdown/caret + items).
+* ``flow_geology_stage_ui`` — toolbar + inspector + FormationDialog
+  open→assert-fields→cancel (first of the ~16 dialogs).
+* ``flow_lithology_stage_ui`` — ModelKindPicker + canvas placeholder.
+* ``flow_geotechnical_stage_ui`` — placeholder reachability (zero→covered).
+* ``flow_parameters_stage_ui`` — three-tab scaffold (zero→covered).
+* ``flow_export_stage_ui`` — both export cards + section-enable.
+* ``flow_litho_pipeline_ui`` — first DYNAMIC flow: Suggest-all → bulk-confirm
+  → Accept-all-bulk → committed ``contact-drag-strip``s. Button/text-driven,
+  no pixel math. Doubles as the data setup the context-menu specs need.
+
+**Still open (next slice) — the 4 section context menus:** contact
+(``contact-drag-strip`` right-click → delete / open-end / link-geology), body
+(``body-context-menu`` — the "name body dead-end" the owner hit), litho-band
+(``litho-band-context-menu`` → ``litho-band-remove``), empty-space
+(→ ``litho-band-add``). All are **coordinate-sensitive** (right-click a
+specific SVG column/band/wedge), and the body menu additionally needs
+correlate→detect-bodies first. These are best written against a RUNNING
+harness (right-click point + post-build timing can't be verified by tsc) on
+top of ``flow_litho_pipeline_ui``'s committed-contact state — the natural
+follow-up once the static specs above pass a green run.
+
+**Run caveat:** the 8 specs above are tsc-clean (``tsconfig.e2e.json``) but
+were authored without a live stack in-session (pre-commit smoke self-skips
+when :8765 is down). Selectors are source-verified; the first real run may
+surface a timing/selector nit to fix. ``flow_litho_pipeline_ui`` MUTATES the
+fixture litho model — re-run ``build_synthetic_fixture.py`` (idempotent +
+self-cleaning) between full suites.
 
 ### Convention — load-bearing from #127 onward
 
