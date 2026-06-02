@@ -48,6 +48,9 @@ test.describe('flow_litho_pipeline_ui', () => {
   )
 
   test('suggest-all → confirm → accept-all-bulk commits litho contacts', async () => {
+    // Open + segmenter on 4 CPTs + bulk accept + render is well past the 60s
+    // default; give it the slow-test budget.
+    test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
@@ -62,19 +65,30 @@ test.describe('flow_litho_pipeline_ui', () => {
       await page.getByTestId('litho-suggest-caret').click()
       await page.getByTestId('litho-suggest-all').click()
 
-      // Bulk confirmation modal → confirm.
+      // Bulk confirmation modal → confirm. Scope the confirm button to the
+      // modal: the toolbar's primary Suggest button ALSO reads "Suggest all (N)".
       await expect(page.getByText('Suggest lithos for all tests?')).toBeVisible({ timeout: 5_000 })
-      await page.getByRole('button', { name: /^Suggest all \(\d+\)$/ }).click()
+      await page
+        .getByLabel('Suggest lithos for all tests?')
+        .getByRole('button', { name: /^Suggest all \(\d+\)$/ })
+        .click()
 
       // Segmenter runs on every in-section investigation → bulk-accept appears.
       const acceptBulk = page.getByTestId('litho-accept-all-bulk')
       await expect(acceptBulk).toBeVisible({ timeout: 45_000 })
       await acceptBulk.click()
 
-      // Suggestions commit → litho contacts render as drag strips on the section.
+      // Dismiss the bulk-ghost overlay: committed bands are SUBTRACTED under
+      // the still-present ghosts (perColumnLithoBands subtractGhosts) until the
+      // ghosts are cleared, so "Clear bulk" must come BEFORE asserting bands.
+      const clearBulk = page.getByRole('button', { name: 'Clear bulk' })
+      await expect(clearBulk).toBeVisible({ timeout: 30_000 })
+      await clearBulk.click()
+
+      // Now committed litho contacts render as per-column lithology bands.
       await expect(
-        page.locator('[data-testid="contact-drag-strip"]').first(),
-      ).toBeVisible({ timeout: 45_000 })
+        page.locator('[data-testid^="per-column-litho-band-"]').first(),
+      ).toBeVisible({ timeout: 30_000 })
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
