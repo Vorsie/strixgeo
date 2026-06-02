@@ -338,7 +338,11 @@ export interface PinchOutCandidate {
   body_id: string | null
   source_investigation_id: string
   above_contact_id: string
-  below_contact_id: string
+  below_contact_id: string | null
+  /** Investigation bottom depth (m below surface) for a deepest-formation
+   *  open candidate, whose base is the bottom of the hole rather than a
+   *  contact. null/absent for normal framed candidates. */
+  below_depth_m?: number | null
   side: 'left' | 'right'
   // 'pinch_out_halfway' (interior) or 'open' (edge test → opens to the boundary).
   kind: 'pinch_out_halfway' | 'open'
