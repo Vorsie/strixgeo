@@ -116,8 +116,7 @@ const transforms = {
   screenToLevel: (y: number) => 100 - y,
   plotTop: 0,
   plotBottom: 400,
-  sectionStartScreenX: -20,
-  sectionEndScreenX: 200,
+  openExtentLengthM: 3,
 }
 
 function renderOverlay(props: Partial<Props> = {}): ReturnType<typeof render> {
@@ -208,6 +207,55 @@ describe('BodyExtentOverlay', () => {
     expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
     // No dip-arrow for open.
     expect(queryByTestId('body-dip-arrow-B1')).toBeNull()
+  })
+
+  it('BE5b — open kind far endpoint is at col.along + openExtentLengthM, NOT section boundary', () => {
+    // Source column ``inv-source`` is at along=50, width=40 (right edge at 70 in
+    // the identity-transform space). Right side open with length=3 → towardAlong=53.
+    // The source endpoint is the right edge of the source column facing along=53
+    // (edge = nudgedX + halfW = 50 + 20 = 70, then screenXToAlong(70) = 70).
+    // The far endpoint has along_m = 53. So the path spans 53 … 70.
+    // ``min(xs)`` must be ~53 (far point), not 0 / negative (old section boundary).
+    const { getByTestId, rerender } = renderOverlay({
+      bodies: [
+        makeBody({
+          content_key: null,
+          extent_right_kind: 'open',
+          extent_right_neighbour_inv_id: null,
+        }),
+      ],
+      openExtentLengthM: 3,
+    })
+    const d3 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs3 = Array.from(d3.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    expect(Math.min(...xs3)).toBeCloseTo(53, 0) // far point at 50 + 3
+
+    // Re-render with length=8 — far endpoint shifts to 50+8=58.
+    rerender(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[
+            makeBody({
+              content_key: null,
+              extent_right_kind: 'open',
+              extent_right_neighbour_inv_id: null,
+            }),
+          ]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          {...transforms}
+          openExtentLengthM={8}
+          onSaveLensShape={vi.fn()}
+        />
+      </svg>,
+    )
+    const d8 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs8 = Array.from(d8.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    expect(Math.min(...xs8)).toBeCloseTo(58, 0) // far point at 50 + 8
+    // Two different lengths → different far-x values.
+    expect(Math.min(...xs8)).not.toBeCloseTo(Math.min(...xs3), 0)
   })
 
   it('BE6 — mixed body (to_target left + open right) renders both sides', () => {
@@ -387,9 +435,11 @@ describe('BodyExtentOverlay', () => {
     expect(onClaimGhostCandidate).toHaveBeenCalledWith(candidate)
   })
 
-  it('BE-GHOST-OPEN — an open edge candidate (no neighbour) renders a band to the section boundary', () => {
+  it('BE-GHOST-OPEN — an open edge candidate renders a fixed-length band past the source column', () => {
     // Edge-test candidate: kind='open', neighbour=null. It must still render
-    // (the halfway path would have bailed on the missing neighbour).
+    // (the halfway path would have bailed on the missing neighbour) and the far
+    // endpoint must be openExtentLengthM past the source column's along, NOT at
+    // the section boundary (dogfeed 2026-06-02).
     const candidate: PinchOutCandidate = {
       body_id: null,
       source_investigation_id: 'inv-source',
@@ -399,17 +449,46 @@ describe('BodyExtentOverlay', () => {
       kind: 'open',
       suggested_neighbour_investigation_id: null,
     }
-    const { getByTestId } = renderOverlay({
+    // Render with openExtentLengthM=3 (the default). Source along=50, left side →
+    // far endpoint at along = 50 - 3 = 47.
+    const { getByTestId, rerender } = renderOverlay({
       bodies: [],
       ghostCandidates: [candidate],
       onClaimGhostCandidate: vi.fn(),
+      openExtentLengthM: 3,
     })
     const fill = getByTestId('body-ghost-fill-inv-source-left')
-    // Open band reaches the LEFT section boundary (sectionStartScreenX = -20).
-    const xs = Array.from(
+    const xs3 = Array.from(
       (fill.getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
     ).map(m => parseFloat(m[1]))
-    expect(Math.min(...xs)).toBeCloseTo(-20, 0)
+    // Source left edge facing along=47 is nudgedX - halfW = 50 - 20 = 30.
+    // Far point is at along=47. Path spans 30 … 47.
+    // ``max(xs)`` must be ~47 (far point), NOT the section boundary at 200+.
+    expect(Math.max(...xs3)).toBeCloseTo(47, 0)
+
+    // Re-render with a different openExtentLengthM — far endpoint must shift.
+    rerender(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          {...transforms}
+          openExtentLengthM={10}
+          ghostCandidates={[candidate]}
+          onClaimGhostCandidate={vi.fn()}
+        />
+      </svg>,
+    )
+    const fillAfter = getByTestId('body-ghost-fill-inv-source-left')
+    const xs10 = Array.from(
+      (fillAfter.getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
+    ).map(m => parseFloat(m[1]))
+    // Far x = along 40 (source 50 - length 10). max(xs) = 40. Different from 47.
+    expect(Math.max(...xs10)).toBeCloseTo(40, 0)
+    expect(Math.max(...xs10)).not.toBeCloseTo(Math.max(...xs3), 0)
   })
 
   it('BE15 — multi-formation source frames the wedge to the body’s own layer, not the whole column', () => {
