@@ -27,6 +27,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
+  CrossingPinchOut,
   FormationContactResponse,
   GeologicalFormationResponse,
   LithoContactCorrelationEdge,
@@ -153,6 +154,12 @@ export interface ContactGestureState {
 interface Props {
   /** Section-filtered contacts (seeded_formation_contact_ids set). */
   contacts: readonly FormationContactResponse[]
+  /**
+   * Auto-lens (2026-06-02): pinch-out lens candidates from the last
+   * auto-correlate run. Rendered as filled amber diamonds at the midpoint of
+   * the pinching layer on the source column.
+   */
+  crossingPinchOuts?: readonly CrossingPinchOut[]
   /** Active litho formations (vocabulary for colour + ordinal). */
   formations: readonly GeologicalFormationResponse[]
   /** Placed columns with screen X positions. */
@@ -755,6 +762,7 @@ function EdgeContextMenu({
  */
 export default function CorrelationEdgesOverlay({
   contacts,
+  crossingPinchOuts,
   formations,
   placedColumns,
   levelToScreen,
@@ -1490,6 +1498,45 @@ export default function CorrelationEdgesOverlay({
                 <title>
                   Lens candidate — no correlation on either neighbour. Pinch it out
                   rather than correlate it.
+                </title>
+              </g>
+            )
+          })}
+        </g>
+      )}
+
+      {/* Auto-lens pinch-out markers (2026-06-02): filled amber diamonds at the
+          midpoint of each pinching layer surfaced by the last auto-correlate
+          run. A crossing's edges were dropped (not drawn) and reported here —
+          the diamond tells the user "this layer pinches out toward the
+          neighbour; claim it as a lens". Purely visual (pointer-events none);
+          shown on the litho axis regardless of correlate mode so it survives
+          after Correlate. */}
+      {crossingPinchOuts && crossingPinchOuts.length > 0 && (
+        <g data-testid="crossing-pinch-out-markers" style={{ pointerEvents: 'none' }}>
+          {crossingPinchOuts.map((po, i) => {
+            const above = contactScreenMap.get(po.above_contact_id)
+            const below = contactScreenMap.get(po.below_contact_id)
+            if (!above || !below) return null
+            const x = above.x
+            const y = (above.topY + below.topY) / 2
+            const s = 6
+            return (
+              <g
+                key={`crossing-po-${po.above_contact_id}-${po.below_contact_id}-${i}`}
+                data-testid={`crossing-pinch-out-${po.above_contact_id}`}
+              >
+                <path
+                  d={`M ${x} ${y - s} L ${x + s} ${y} L ${x} ${y + s} L ${x - s} ${y} Z`}
+                  fill={LENS_CANDIDATE_COLOR}
+                  fillOpacity={0.85}
+                  stroke={LENS_CANDIDATE_COLOR}
+                  strokeWidth={1.4}
+                />
+                <title>
+                  Pinch-out lens candidate — this layer pinches out toward the
+                  neighbour, so the crossing correlation was not drawn. Use the
+                  Bodies → Suggest pinch-outs flow to claim it as a lens.
                 </title>
               </g>
             )

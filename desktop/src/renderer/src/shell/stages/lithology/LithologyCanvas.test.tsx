@@ -194,6 +194,7 @@ function makeCtx(overrides: {
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,
+      lithoCrossingPinchOuts: [],
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),

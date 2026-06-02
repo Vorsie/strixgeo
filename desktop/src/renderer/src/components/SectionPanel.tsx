@@ -46,6 +46,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  CrossingPinchOut,
   LithoContactCorrelationEdge,
   LithoLayerSuggestion,
   PinchOutCandidate,
@@ -605,6 +606,12 @@ interface Props {
    */
   contactEdges?: readonly LithoContactCorrelationEdge[]
   /**
+   * Auto-lens (2026-06-02): pinch-out lens candidates from the last
+   * auto-correlate run — crossings dropped from persistence and surfaced as
+   * lenses. Rendered as amber lens-candidate markers (litho axis only).
+   */
+  crossingPinchOuts?: readonly CrossingPinchOut[]
+  /**
    * Gesture state for the boundary-click correlate gesture (#133 Phase 1).
    *
    * When present and ``contactCorrelateMode`` is true, hit-target rects
@@ -755,6 +762,7 @@ export default function SectionPanel({
   activeLithoModelId,
   onEditInGeologyStage,
   contactEdges,
+  crossingPinchOuts,
   contactGestureState,
   onUnapprovedDragStart,
   unapprovedEdgeDrag,
@@ -3130,6 +3138,7 @@ export default function SectionPanel({
             {axisMode === 'lithostratigraphic' && (
               <CorrelationEdgesOverlay
                 contacts={correlateContacts}
+                crossingPinchOuts={crossingPinchOuts}
                 formations={formations}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}

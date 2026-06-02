@@ -94,6 +94,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleAutoPopulateFromStratigraphy,
       handleInlineCreateFormation,
       lithoContacts,
+      lithoCrossingPinchOuts,
       lithoFormations,
       lithoSurfacesByFormationId,
       handleCreateLithoContact,
@@ -2230,6 +2231,9 @@ export default function SectionsCanvas(): JSX.Element {
           // litho axis (SectionPanel gates on axisMode === 'lithostratigraphic')
           // and absent on the geological axis — zero regression.
           contactEdges={isLitho ? contactCorrelationEdges : undefined}
+          // Auto-lens (2026-06-02): pinch-out lens candidates from the last
+          // auto-correlate run, rendered as amber diamonds on the litho axis.
+          crossingPinchOuts={isLitho ? lithoCrossingPinchOuts : undefined}
           contactGestureState={contactGestureState}
           onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
           unapprovedEdgeDrag={unapprovedEdgeDrag}

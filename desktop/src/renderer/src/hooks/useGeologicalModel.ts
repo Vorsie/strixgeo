@@ -25,6 +25,7 @@ import { api, DuplicateContactError } from '../api/client'
 import type {
   AcceptLithoSuggestionsResponse,
   BatchAcceptLithoSuggestionsResponse,
+  CrossingPinchOut,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -754,6 +755,12 @@ export interface UseGeologicalModelResult {
    * correlations. Reversible via Auto-correlate.
    */
   handleClearSuggestions: () => Promise<void>
+  /**
+   * Pinch-out lens candidates from the last auto-correlate run (auto-lens):
+   * crossings that were dropped from persistence and surfaced as lenses.
+   * Rendered as amber lens-candidate markers on the section.
+   */
+  lithoCrossingPinchOuts: CrossingPinchOut[]
 }
 
 /**
@@ -860,6 +867,11 @@ export function useGeologicalModel({
   const [models, setModels] = useState<GeologicalModelResponse[]>([])
   const [activeLithoModel, setActiveLithoModel] =
     useState<GeologicalModelResponse | null>(null)
+  // Auto-lens (2026-06-02): pinch-out lens candidates returned by the last
+  // auto-correlate run (crossings dropped from persistence). Rendered as amber
+  // lens-candidate markers on the section; cleared on model switch + on a
+  // fresh correlate that finds none.
+  const [lithoCrossingPinchOuts, setLithoCrossingPinchOuts] = useState<CrossingPinchOut[]>([])
   // Litho parallel state (slice 2, #55). Independent of the geological
   // contact set — mutations in one set never invalidate the other.
   // Loaded / cleared by a useEffect that watches activeLithoModel.
@@ -2980,11 +2992,19 @@ export function useGeologicalModel({
         depthWindowM,
         sectionId ?? null,
       )
+      // Defensive: tolerate a response without the auto-lens fields (older API
+      // / test mocks) — never let a missing field abort the refetch below.
+      const pinchOuts = result.crossing_pinch_outs ?? []
       log.success(
         'geology',
         `autoCorrelate ok edges_created=${result.edges_created} ` +
-          `skipped=${result.edges_skipped_existing}`,
+          `skipped=${result.edges_skipped_existing} ` +
+          `dropped_crossing=${result.edges_dropped_crossing ?? 0} ` +
+          `pinch_outs=${pinchOuts.length}`,
       )
+      // Auto-lens: surface the crossing-derived pinch-out candidates (and clear
+      // any stale ones from a prior run that found none).
+      setLithoCrossingPinchOuts(pinchOuts)
       // New edges persisted — mark dirty so a close-without-save reverts.
       if (result.edges_created > 0) markMutated()
       // Refetch so ordinal badges update (formations re-resolved server-side).
@@ -3009,6 +3029,15 @@ export function useGeologicalModel({
           `Auto-correlate: ${result.edges_created} edge${result.edges_created === 1 ? '' : 's'} created, ` +
             // TODO Task 19: formations_recomputed removed from autoCorrelateContacts response.
           `${result.edges_skipped_existing} edge(s) already existed.`,
+        )
+      }
+      // Auto-lens: tell the user the crossings became lens candidates, not edges.
+      if (pinchOuts.length > 0) {
+        const n = pinchOuts.length
+        toast(
+          'success',
+          `${n} pinch-out lens candidate${n === 1 ? '' : 's'} from crossings — ` +
+            'shown as amber diamonds; the crossing edges were not drawn.',
         )
       }
     } catch (err) {
@@ -5101,5 +5130,6 @@ export function useGeologicalModel({
     handleClearLithoModel,
     handleAutoCorrelate,
     handleClearSuggestions,
+    lithoCrossingPinchOuts,
   }
 }

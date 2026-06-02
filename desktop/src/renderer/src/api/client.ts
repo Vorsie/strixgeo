@@ -389,6 +389,17 @@ export interface AutoCorrelateResult {
   wedge_tips_materialised: number
 }
 
+// Auto-lens (2026-06-02): a pinch-out lens candidate inferred from a
+// correlation crossing — the framing contacts on the source column + the
+// neighbour the layer pinches toward. Rendered as an amber lens-candidate
+// marker on the section after Correlate.
+export interface CrossingPinchOut {
+  source_investigation_id: string
+  above_contact_id: string
+  below_contact_id: string
+  neighbour_investigation_id: string
+}
+
 // Slice 4 Half-A — re-correlate dialog: response from DELETE
 // /correlations/auto.  Manual edges are never touched.
 export interface DeleteAutoCorrelationsResult {
@@ -2820,7 +2831,12 @@ export const api = {
       modelId: string,
       depthWindowM?: number | null,
       sectionId?: string | null,
-    ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
+    ): Promise<{
+      edges_created: number
+      edges_skipped_existing: number
+      edges_dropped_crossing: number
+      crossing_pinch_outs: CrossingPinchOut[]
+    }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`,
         { base_depth_threshold_m: depthWindowM ?? null, section_id: sectionId ?? null },
