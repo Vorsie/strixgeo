@@ -2,20 +2,17 @@
  * Flow — name a body (the original "name body hits a dead end" gesture).
  *
  * Regression for the body-naming context-menu gesture the owner first reported
- * as a dead end. Requires a COMMITTED body on the section (a bilateral-closure
- * pinch-out), seeded in the session that runs this spec (a layer on the middle
- * column pinching to a single point on two neighbours, four approved edges,
- * then DetectBodies). The spec drives the full gesture:
+ * as a dead end. The fixture pre-seeds a COMMITTED bilateral-closure body on
+ * Section B (build_synthetic_fixture.py action seed). The spec drives the full
+ * gesture:
  *
  *   right-click the body wedge → body-context-menu → "Name body" →
  *   name-body-dialog → type a name → name-body-submit → dialog closes.
  *
- * Skips cleanly if no body renders (no seed) so the suite stays green when the
- * bilateral body hasn't been seeded.
+ * Self-contained: the body lives in the fixture, so no per-run seeding.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
- * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set) + a committed body on
- * Section A.
+ * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
  */
 
 import { test, expect } from '@playwright/test'
@@ -38,13 +35,13 @@ test.describe('flow_body_naming_ui', () => {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Sections')
 
-      // Section A carries the seeded body.
-      const sectionA = page
+      // Section B carries the pre-seeded body.
+      const sectionB = page
         .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
-        .filter({ hasText: 'Section A' })
+        .filter({ hasText: 'Section B' })
         .first()
-      await expect(sectionA).toBeVisible({ timeout: 10_000 })
-      await sectionA.click()
+      await expect(sectionB).toBeVisible({ timeout: 10_000 })
+      await sectionB.click()
       await page.getByRole('radio', { name: 'Litho' }).click()
 
       // The committed body renders as a fill wedge. Skip cleanly if none seeded.

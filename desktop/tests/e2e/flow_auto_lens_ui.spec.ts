@@ -2,19 +2,16 @@
  * Flow — auto-lens: a correlation crossing surfaces as a lens-candidate diamond.
  *
  * End-to-end demo + regression for the auto-lens feature (increments 1–3d,
- * owner dogfeed 2026-06-02). The fixture is seeded with an interfingered ZAND/
- * KLEI crossing on Section A (CPT-01 ZAND@1/KLEI@5, CPT-02 ZAND@5/KLEI@1). When
- * the user runs Auto-correlate, the two crossing edges are NOT drawn (a crossing
- * is not a flat correlation); instead the pinching layer is surfaced as an amber
+ * owner dogfeed 2026-06-02). The fixture pre-seeds an interfingered ZAND/KLEI
+ * crossing on Section C (build_synthetic_fixture.py action seed). When the user
+ * runs Auto-correlate, the two crossing edges are NOT drawn (a crossing is not
+ * a flat correlation); instead the pinching layer is surfaced as an amber
  * lens-candidate diamond (``crossing-pinch-out-markers``).
  *
- * Prereq beyond the usual harness: the crossing contacts must exist on the
- * fixture's litho model + Section A (seeded via the API in the session that
- * runs this spec — see the session notes). Without them, no crossing forms and
- * the marker never appears.
+ * Self-contained: the crossing lives in the fixture, so no per-run API seeding.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
- * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set) + the crossing contacts.
+ * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
  */
 
 import { test, expect } from '@playwright/test'
@@ -37,13 +34,13 @@ test.describe('flow_auto_lens_ui', () => {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Sections')
 
-      // Select Section A — the seeded crossing lives on it.
-      const sectionA = page
+      // Select Section C — the pre-seeded crossing lives on it.
+      const sectionC = page
         .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
-        .filter({ hasText: 'Section A' })
+        .filter({ hasText: 'Section C' })
         .first()
-      await expect(sectionA).toBeVisible({ timeout: 10_000 })
-      await sectionA.click()
+      await expect(sectionC).toBeVisible({ timeout: 10_000 })
+      await sectionC.click()
 
       // Switch to the lithostratigraphic axis (the crossing contacts render here).
       await page.getByRole('radio', { name: 'Litho' }).click()

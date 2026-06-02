@@ -70,7 +70,7 @@ test.describe('flow_bulk_accept', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cptIds: string[] = (cptsJson as any[]).map((c: any) => c.id)
-      expect(cptIds.length).toBe(6)
+      expect(cptIds.length).toBe(8)
 
       // 2. Suggest all CPTs.
       const allSuggestions: Array<{ cptId: string; layers: unknown[] }> = []
