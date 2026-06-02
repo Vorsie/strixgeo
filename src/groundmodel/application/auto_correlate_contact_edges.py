@@ -132,14 +132,25 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the model does not belong to ``project_id``.
+            When the model does not belong to ``project_id``, or when the
+            model is not of kind ``'lithostratigraphic'`` (auto-correlate
+            groups contacts by their formation's ``litho_main_soil_code``,
+            which only litho models carry).
         """
         self.info(f"AutoCorrelateContactEdges.execute: model={model_id} project={project_id}")
 
-        # 1. Scope guard.
-        await load_scoped_or_raise(
+        # 1. Scope guard + litho-only precondition. Auto-correlate is a
+        #    lithostratigraphic operation (it groups by litho soil code); a
+        #    geological model has no litho structure to correlate, so reject
+        #    it here rather than producing nonsense edges or 500ing downstream.
+        model = await load_scoped_or_raise(
             self._session, GeologicalModelOrm, model_id, project_id, label="Geological model"
         )
+        if model.kind != "lithostratigraphic":
+            raise ValueError(
+                f"Auto-correlate requires a lithostratigraphic model; "
+                f"model {model_id} is of kind '{model.kind}'"
+            )
 
         # 2. Load all contacts with their formation's litho info.
         contacts_stmt = (
