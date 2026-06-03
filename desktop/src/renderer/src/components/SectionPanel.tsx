@@ -881,6 +881,12 @@ export default function SectionPanel({
     return m
   }, [formations])
 
+  // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
+  // the user finishes correlating + pinch-outs, THEN clicks "Fill bands". It
+  // never auto-draws — default off — so a half-finished interpretation isn't
+  // shown as a misleading fill. Local to the panel; nothing else needs it.
+  const [showBands, setShowBands] = useState(false)
+
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
   // sections in the sidebar fits the new one without inheriting the
@@ -2603,6 +2609,22 @@ export default function SectionPanel({
         className="relative flex-1 overflow-hidden select-none"
         style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
       >
+        {/* Explicit on-demand band fill — litho axis only. Off by default;
+            the user clicks this AFTER correlating + pinch-outs. */}
+        {axisMode === 'lithostratigraphic' && (
+          <button
+            type="button"
+            data-testid="fill-bands-toggle"
+            onClick={() => setShowBands(v => !v)}
+            className={`absolute top-2 right-2 z-10 rounded border px-2 py-1 text-xs font-medium shadow-sm ${
+              showBands
+                ? 'border-emerald-500 bg-emerald-600 text-white'
+                : 'border-slate-600 bg-slate-700/80 text-slate-100 hover:bg-slate-600'
+            }`}
+          >
+            {showBands ? 'Hide bands' : 'Fill bands'}
+          </button>
+        )}
         {size && (
           <svg
             width={size.width}
@@ -3224,8 +3246,9 @@ export default function SectionPanel({
             {/* Body band fill — colour each body's closed loop with its one
                 lithology, traced across its on-section member columns. Renders
                 BENEATH the wedge/extent overlay so the caps + interaction paint
-                on top. Litho axis only. */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
+                on top. Litho axis only, and ONLY when the user has clicked
+                "Fill bands" (never auto-drawn). */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && showBands && (
               <BodyBandOverlay
                 bodies={lenses}
                 lithoLayers={lithoLayers ?? []}
