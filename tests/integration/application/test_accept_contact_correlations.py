@@ -35,7 +35,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.shared.constants.extent_kind import EXTENT_KIND_TO_TARGET
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers (mirror test_detect_litho_lenses.py conventions)
@@ -412,33 +414,48 @@ async def test_accept_does_not_auto_fire_lens_detection(
         f"Accept must not auto-fire body detection; got {result.bodies_removed}"
     )
 
-    # The lens row has NOT materialised yet — verify and then exercise the
-    # explicit verb to confirm it would have, given the same topology.
-    interim_lenses = (
+    # Accept runs ResolveLithoInstances, which is the single authority that
+    # creates per-instance bodies — so body rows MAY exist after accept.
+    # The detector, however, has NOT fired: no body carries a 'to_target'
+    # extent (the detector is the only thing that sets those, and it only
+    # runs on the explicit Detect verb).
+    interim_bodies = (
         (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
-    assert len(interim_lenses) == 0, (
-        f"AcceptContactCorrelations must not materialise lens rows; got {len(interim_lenses)}"
-    )
+    for body in interim_bodies:
+        assert body.extent_left_kind != EXTENT_KIND_TO_TARGET, (
+            "Accept must not auto-fire the detector (no to_target left extent)"
+        )
+        assert body.extent_right_kind != EXTENT_KIND_TO_TARGET, (
+            "Accept must not auto-fire the detector (no to_target right extent)"
+        )
 
+    # Now the explicit Detect verb fires: it writes 'to_target' extents onto
+    # the resolver-owned body the framed lens layer (c_body) was stamped with.
     await DetectBodies(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
     await db_session.commit()
 
-    post_lenses = (
-        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
-        .scalars()
-        .all()
+    # The framed layer of the bilateral closure is c_body; resolve its body
+    # via the resolver-stamped litho_layer.body_id (FC↔LL UUID identity).
+    framed_body_id = (
+        await db_session.execute(select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_body.id))
+    ).scalar_one()
+    assert framed_body_id is not None, "Framed lens layer must carry a resolver-stamped body_id"
+    lens_body = (
+        await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.id == framed_body_id))
+    ).scalar_one()
+    assert lens_body.extent_left_kind == EXTENT_KIND_TO_TARGET, (
+        f"Detect must set the lens body's left extent to 'to_target'; "
+        f"got {lens_body.extent_left_kind!r}"
     )
-    assert len(post_lenses) == 1, (
-        f"Expected exactly 1 LithoLensOrm row after explicit Detect; got {len(post_lenses)}"
-    )
-    assert post_lenses[0].formation_id == f_lens.id, (
-        f"Lens body must carry f_lens formation_id; got {post_lenses[0].formation_id}"
+    assert lens_body.extent_right_kind == EXTENT_KIND_TO_TARGET, (
+        f"Detect must set the lens body's right extent to 'to_target'; "
+        f"got {lens_body.extent_right_kind!r}"
     )
 
 
