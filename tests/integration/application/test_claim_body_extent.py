@@ -1,33 +1,44 @@
-"""Integration tests for ClaimBodyExtent.
+"""Integration tests for ClaimBodyExtent (Task 5 — body_id addressing).
 
-Coverage:
-1. Creates body row when none exists; sets the side; round-trips.
-2. Updates existing body, replaces NULL extent on the claimed side.
-3. Refuses to overwrite a to_target extent without explicit clear.
+ClaimBodyExtent now addresses its target body directly by ``body_id``
+(the resolver owns body creation; there is no create branch). Coverage:
+
+1. Headline: with two stacked same-formation instances on one column,
+   the claim targets the FRAMED instance (the deep body, ordinal 1) — not
+   the shallowest — because the body_id disambiguates what
+   ``(formation, source_investigation)`` cannot.
+2. Updates an existing body, replaces NULL extent on the claimed side.
+3. Refuses to overwrite a to_target extent without explicit clear (409).
 4. Replacing one user-claim with a different user-claim is allowed.
-5. Validates neighbour_inv_id != source_investigation_id.
+5. neighbour_inv_id == body source raises ValueError.
 6. kind='pinch_out_halfway' requires neighbour_inv_id.
 7. kind='extrapolated' requires neighbour_inv_id.
-8. kind='open' stores NULL for neighbour_inv_id (ignores any supplied value).
+8. kind='open' stores NULL for neighbour_inv_id.
 9. Invalid side raises ValueError.
 10. Invalid kind raises ValueError (e.g. 'to_target' rejected).
+11. Unknown body_id raises ValueError.
+12. neighbour_inv_id from a different project raises ValueError.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.claim_body_extent import ClaimBodyExtent
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_EXTRAPOLATED,
@@ -37,8 +48,7 @@ from groundmodel.shared.constants.extent_kind import (
 )
 
 # ---------------------------------------------------------------------------
-# Private fixture helpers (copied from test_detect_bodies.py — project hasn't
-# centralised these into a shared conftest yet)
+# Private fixture helpers
 # ---------------------------------------------------------------------------
 
 
@@ -110,6 +120,42 @@ def _formation(
     )
 
 
+def _section(project: ProjectOrm, *, name: str = "S-CBE") -> CrossSectionOrm:
+    """Return an unsaved CrossSectionOrm for primary_section_id tests."""
+    return CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name=name,
+        start_x=0.0,
+        start_y=0.0,
+        end_x=100.0,
+        end_y=0.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+    )
+
+
+def _body(
+    project: ProjectOrm,
+    litho: GeologicalModelOrm,
+    formation: GeologicalFormationOrm,
+    source: BoreholeOrm,
+    *,
+    ordinal: int = 0,
+    **extent_kwargs: object,
+) -> BodyOrm:
+    """Return an unsaved BodyOrm (the resolver normally creates these)."""
+    return BodyOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=litho.id,
+        formation_id=formation.id,
+        body_ordinal=ordinal,
+        source_investigation_id=source.id,
+        **extent_kwargs,  # type: ignore[arg-type]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared project fixture
 # ---------------------------------------------------------------------------
@@ -125,59 +171,128 @@ async def project(db_session: AsyncSession) -> ProjectOrm:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: creates a body row when none exists; sets the claimed side
+# Headline fixture: two uncorrelated SAND instances on one column
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _TwoStackedCtx:
+    """Ids exposed by the two-stacked-instance fixture."""
+
+    project_id: UUID
+    model_id: UUID
+    formation_id: UUID
+    source_inv_id: UUID
+    section_id: UUID
+
+
+@pytest_asyncio.fixture
+async def two_stacked_same_formation_instances(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> _TwoStackedCtx:
+    """Seed two accepted, uncorrelated SAND layers sharing ONE formation row.
+
+    Both sit on the same borehole at different depths with NO correlation
+    edge — so ResolveLithoInstances reconciles two distinct bodies
+    (ordinal 0 = shallow @ 2.0 m, ordinal 1 = deep @ 10.0 m).
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    section = _section(project, name="S-stacked")
+    parent = _geo_parent(project, name="Quat-stacked")
+    formation = _formation(project, parent, name="ZAND stacked", soil_code="ZAND", ordinal=0)
+    source = _borehole(project.id, suffix="STK", x=150000.0)
+
+    db_session.add_all([geo, litho, section, parent, formation, source])
+    await db_session.flush()
+
+    layer_shallow = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho.id,
+        formation_id=formation.id,
+        borehole_id=source.id,
+        depth_top_m=2.0,
+        depth_base_m=4.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    layer_deep = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho.id,
+        formation_id=formation.id,
+        borehole_id=source.id,
+        depth_top_m=10.0,
+        depth_base_m=12.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add_all([layer_shallow, layer_deep])
+    await db_session.commit()
+
+    return _TwoStackedCtx(
+        project_id=project.id,
+        model_id=litho.id,
+        formation_id=formation.id,
+        source_inv_id=source.id,
+        section_id=section.id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 1 (headline): claim targets the framed instance, not the shallowest
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_creates_body_row_when_none_exists(
+async def test_claim_targets_the_framed_instance_not_the_shallowest(
     db_session: AsyncSession,
-    project: ProjectOrm,
+    two_stacked_same_formation_instances: _TwoStackedCtx,
 ) -> None:
-    """ClaimBodyExtent creates a BodyOrm row when none exists for the
-    (model, formation, ordinal) triple, and sets the requested side +
-    kind correctly.
+    """With two same-formation instances, claiming by body_id hits the exact
+    body (the deep one, ordinal 1) — the disambiguation
+    ``(formation, source_investigation)`` could not provide.
     """
-    geo = _geo_model(project)
-    litho = _litho_model(project, geo)
-    parent = _geo_parent(project, name="Quat-CBE-t1")
-    formation = _formation(project, parent, name="KLEI body t1", ordinal=0)
-    bh_source = _borehole(project.id, suffix="S01", x=150000.0)
-    bh_neighbour = _borehole(project.id, suffix="N01", x=150300.0)
+    ctx = two_stacked_same_formation_instances
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
 
-    db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
-    await db_session.commit()
+    # The resolver creates two bodies; pick the DEEP one (ordinal 1).
+    deep_body = (
+        await db_session.execute(
+            select(BodyOrm).where(
+                BodyOrm.model_id == ctx.model_id,
+                BodyOrm.body_ordinal == 1,
+            )
+        )
+    ).scalar_one()
 
     body = await ClaimBodyExtent(db_session).execute(
-        project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        source_investigation_id=bh_source.id,
+        project_id=ctx.project_id,
+        model_id=ctx.model_id,
+        body_id=deep_body.id,
         side="left",
-        kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
-        neighbour_inv_id=bh_neighbour.id,
+        kind=EXTENT_KIND_OPEN,
+        neighbour_inv_id=None,
+        primary_section_id=ctx.section_id,
     )
 
-    # Row persisted with correct identity.
-    assert body.id is not None
-    assert body.app_project_id == project.id
-    assert body.model_id == litho.id
-    assert body.formation_id == formation.id
-    assert body.body_ordinal == 0
-    assert body.source_investigation_id == bh_source.id
+    assert body.id == deep_body.id
+    assert body.body_ordinal == 1
+    assert body.extent_left_kind == EXTENT_KIND_OPEN
+    assert body.primary_section_id == ctx.section_id
 
-    # Left side claimed correctly.
-    assert body.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY
-    assert body.extent_left_neighbour_inv_id == bh_neighbour.id
-    assert body.extent_left_target_contact_id is None
-
-    # Right side untouched (NULL).
-    assert body.extent_right_kind is None
-
-    # Re-read to confirm DB round-trip.
-    re_read = await db_session.get(BodyOrm, body.id)
-    assert re_read is not None
-    assert re_read.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY
+    # The shallow body (ordinal 0) must be untouched.
+    shallow_body = (
+        await db_session.execute(
+            select(BodyOrm).where(
+                BodyOrm.model_id == ctx.model_id,
+                BodyOrm.body_ordinal == 0,
+            )
+        )
+    ).scalar_one()
+    assert shallow_body.extent_left_kind is None
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +305,7 @@ async def test_updates_existing_body_null_extent(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """When a body row already exists with a NULL extent on the target side,
+    """When a body row exists with a NULL extent on the target side,
     ClaimBodyExtent sets the new kind and neighbour without error.
     """
     geo = _geo_model(project)
@@ -202,33 +317,20 @@ async def test_updates_existing_body_null_extent(
 
     db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
     await db_session.flush()
-
-    # Pre-insert a body row with both extent sides NULL.
-    existing_body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        body_ordinal=0,
-        source_investigation_id=bh_source.id,
-    )
-    db_session.add(existing_body)
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
-    # Claim the right side.
     updated_body = await ClaimBodyExtent(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
-        formation_id=formation.id,
-        source_investigation_id=bh_source.id,
+        body_id=body_row.id,
         side="right",
         kind=EXTENT_KIND_EXTRAPOLATED,
         neighbour_inv_id=bh_neighbour.id,
     )
 
-    assert updated_body.id == existing_body.id, (
-        "Must update the pre-existing row, not create a new one"
-    )
+    assert updated_body.id == body_row.id
     assert updated_body.extent_right_kind == EXTENT_KIND_EXTRAPOLATED
     assert updated_body.extent_right_neighbour_inv_id == bh_neighbour.id
     # Left side must remain untouched.
@@ -245,8 +347,8 @@ async def test_provenance_violation_raises_on_to_target(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Attempting to claim a side that already has a detector-set 'to_target'
-    extent must raise ValueError (provenance rule §5.2).
+    """Claiming a side that already has a detector-set 'to_target' extent
+    must raise ValueError (provenance rule §5.2).
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -257,28 +359,22 @@ async def test_provenance_violation_raises_on_to_target(
 
     db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
     await db_session.flush()
-
-    # Pre-insert a body row with the left side already as 'to_target'
-    # (simulating a detector-set extent).
-    existing_body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        body_ordinal=0,
-        source_investigation_id=bh_source.id,
+    body_row = _body(
+        project,
+        litho,
+        formation,
+        bh_source,
         extent_left_kind=EXTENT_KIND_TO_TARGET,
         extent_left_neighbour_inv_id=bh_neighbour.id,
     )
-    db_session.add(existing_body)
+    db_session.add(body_row)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="to_target"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="left",
             kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
             neighbour_inv_id=bh_neighbour.id,
@@ -295,8 +391,8 @@ async def test_replacing_user_claim_with_different_kind_is_allowed(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """A side already carrying a user-claimed kind can be updated to a
-    different user-claimed kind — the user is explicitly changing their mind.
+    """A side carrying a user-claimed kind can be updated to a different
+    user-claimed kind — the user is explicitly changing their mind.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -307,39 +403,33 @@ async def test_replacing_user_claim_with_different_kind_is_allowed(
 
     db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
     await db_session.flush()
-
-    # Pre-insert body with left side as 'pinch_out_halfway'.
-    existing_body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        body_ordinal=0,
-        source_investigation_id=bh_source.id,
+    body_row = _body(
+        project,
+        litho,
+        formation,
+        bh_source,
         extent_left_kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
         extent_left_neighbour_inv_id=bh_neighbour.id,
     )
-    db_session.add(existing_body)
+    db_session.add(body_row)
     await db_session.commit()
 
-    # Replace the user-claim with 'open' (no neighbour required).
     updated_body = await ClaimBodyExtent(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
-        formation_id=formation.id,
-        source_investigation_id=bh_source.id,
+        body_id=body_row.id,
         side="left",
         kind=EXTENT_KIND_OPEN,
     )
 
-    assert updated_body.id == existing_body.id
+    assert updated_body.id == body_row.id
     assert updated_body.extent_left_kind == EXTENT_KIND_OPEN
     # neighbour_inv_id must be cleared when kind changes to 'open'.
     assert updated_body.extent_left_neighbour_inv_id is None
 
 
 # ---------------------------------------------------------------------------
-# Test 5: neighbour_inv_id == source_investigation_id raises ValueError
+# Test 5: neighbour_inv_id == body source raises ValueError
 # ---------------------------------------------------------------------------
 
 
@@ -348,8 +438,8 @@ async def test_neighbour_equal_to_source_raises(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Passing neighbour_inv_id == source_investigation_id must raise ValueError
-    for pinch_out_halfway and extrapolated kinds.
+    """neighbour_inv_id equal to the body's source investigation must raise
+    ValueError for pinch_out_halfway and extrapolated kinds.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -358,17 +448,19 @@ async def test_neighbour_equal_to_source_raises(
     bh_source = _borehole(project.id, suffix="S05", x=154000.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="neighbour_inv_id must not equal source_investigation_id"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="right",
             kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
-            neighbour_inv_id=bh_source.id,  # same as source → invalid
+            neighbour_inv_id=bh_source.id,  # == body source → invalid
         )
 
 
@@ -390,14 +482,16 @@ async def test_pinch_out_halfway_requires_neighbour_inv_id(
     bh_source = _borehole(project.id, suffix="S06", x=155000.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="neighbour_inv_id is required"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="left",
             kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
             neighbour_inv_id=None,  # missing — must raise
@@ -422,14 +516,16 @@ async def test_extrapolated_requires_neighbour_inv_id(
     bh_source = _borehole(project.id, suffix="S07", x=156000.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="neighbour_inv_id is required"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="right",
             kind=EXTENT_KIND_EXTRAPOLATED,
             # neighbour_inv_id omitted → uses default None
@@ -457,15 +553,16 @@ async def test_open_stores_null_neighbour_inv_id(
     bh_irrelevant = _borehole(project.id, suffix="N08", x=157300.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source, bh_irrelevant])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
-    # 'open' does not use neighbour_inv_id — passing it anyway must be silently
-    # cleared (the spec says "ignored for open").
+    # 'open' does not use neighbour_inv_id — passing it anyway must be cleared.
     body = await ClaimBodyExtent(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
-        formation_id=formation.id,
-        source_investigation_id=bh_source.id,
+        body_id=body_row.id,
         side="right",
         kind=EXTENT_KIND_OPEN,
         neighbour_inv_id=bh_irrelevant.id,  # should be ignored / stored as NULL
@@ -488,9 +585,7 @@ async def test_invalid_side_raises(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Passing a side value that is not 'left' or 'right' must raise ValueError
-    before any DB access.
-    """
+    """A side that is not 'left' or 'right' must raise ValueError before DB access."""
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-CBE-t9")
@@ -498,14 +593,16 @@ async def test_invalid_side_raises(
     bh_source = _borehole(project.id, suffix="S09", x=158000.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="side must be 'left' or 'right'"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="centre",  # invalid
             kind=EXTENT_KIND_OPEN,
         )
@@ -521,8 +618,8 @@ async def test_invalid_kind_raises(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Passing kind='to_target' (detector-only) or any unknown string must raise
-    ValueError before any DB access.
+    """kind='to_target' (detector-only) or any unknown string must raise
+    ValueError before any DB write.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -531,80 +628,57 @@ async def test_invalid_kind_raises(
     bh_source = _borehole(project.id, suffix="S10", x=159000.0)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
-    # 'to_target' is a detector-only kind; the user endpoint must reject it.
     with pytest.raises(ValueError, match="to_target"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="left",
             kind=EXTENT_KIND_TO_TARGET,  # detector-only — must be rejected
         )
 
-    # Unknown string also rejected.
     with pytest.raises(ValueError, match="kind must be one of"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="left",
             kind="banana",
         )
 
 
 # ---------------------------------------------------------------------------
-# Test 11 (S2 audit): source_investigation_id from a different project raises
+# Test 11: unknown / wrong-model body_id raises ValueError
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_source_investigation_id_from_different_project_raises(
+async def test_unknown_body_id_raises(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """S2 audit: ClaimBodyExtent must reject a source_investigation_id that
-    belongs to a different project (cross-project investigation scope guard).
-
-    A malicious client could plant a foreign investigation UUID in the body
-    row, leaking cross-project geometry pointers.  The use case must catch
-    this before any INSERT.
+    """A body_id that does not exist in the model must raise ValueError —
+    there is no create branch (the resolver owns body creation).
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-CBE-t11")
     formation = _formation(project, parent, name="KLEI body t11", ordinal=0)
-    bh_in_project = _borehole(project.id, suffix="S11", x=160000.0)
+    bh_source = _borehole(project.id, suffix="S11", x=160000.0)
 
-    # A second project with its own borehole — the attacker's investigation.
-    other_project = ProjectOrm(id=uuid7(), name="other-project-t11", status="active")
-    db_session.add(other_project)
-    bh_foreign = BoreholeOrm(
-        id=uuid7(),
-        name="BH-FOREIGN-11",
-        app_project_id=other_project.id,
-        project_id="OTHER",
-        test_id="BH-OTHER-11",
-        location_x=999000.0,
-        location_y=999000.0,
-        epsg=31370,
-        total_depth_m=10.0,
-    )
-    db_session.add(bh_foreign)
-
-    db_session.add_all([geo, litho, parent, formation, bh_in_project])
+    db_session.add_all([geo, litho, parent, formation, bh_source])
     await db_session.commit()
 
-    # Claim using a source_investigation_id that belongs to other_project.
-    with pytest.raises(ValueError, match="source_investigation_id"):
+    with pytest.raises(ValueError, match="not found in model"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_foreign.id,  # cross-project — must be rejected
+            body_id=uuid7(),  # no such body
             side="left",
             kind=EXTENT_KIND_OPEN,
         )
@@ -620,11 +694,8 @@ async def test_neighbour_inv_id_from_different_project_raises(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """S2 audit: ClaimBodyExtent must reject a neighbour_inv_id that belongs
-    to a different project (kind=pinch_out_halfway).
-
-    A foreign neighbour UUID in the body row would cause the renderer to
-    attempt a cross-project neighbour lookup silently.
+    """ClaimBodyExtent must reject a neighbour_inv_id that belongs to a
+    different project (cross-project investigation scope guard).
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -648,57 +719,17 @@ async def test_neighbour_inv_id_from_different_project_raises(
     db_session.add(bh_foreign_neighbour)
 
     db_session.add_all([geo, litho, parent, formation, bh_source])
+    await db_session.flush()
+    body_row = _body(project, litho, formation, bh_source)
+    db_session.add(body_row)
     await db_session.commit()
 
-    # source is valid; neighbour is from a different project.
     with pytest.raises(ValueError, match="neighbour_inv_id"):
         await ClaimBodyExtent(db_session).execute(
             project_id=project.id,
             model_id=litho.id,
-            formation_id=formation.id,
-            source_investigation_id=bh_source.id,
+            body_id=body_row.id,
             side="right",
             kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
-            neighbour_inv_id=bh_foreign_neighbour.id,  # cross-project — must be rejected
+            neighbour_inv_id=bh_foreign_neighbour.id,  # cross-project — rejected
         )
-
-
-# ---------------------------------------------------------------------------
-# Test 13 (S2 audit): valid in-project ids succeed (regression guard)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_valid_in_project_investigations_succeed(
-    db_session: AsyncSession,
-    project: ProjectOrm,
-) -> None:
-    """S2 audit: ClaimBodyExtent must accept source + neighbour ids that both
-    belong to the same project (regression guard — the happy path still works
-    after the scope-guard addition).
-    """
-    geo = _geo_model(project)
-    litho = _litho_model(project, geo)
-    parent = _geo_parent(project, name="Quat-CBE-t13")
-    formation = _formation(project, parent, name="KLEI body t13", ordinal=0)
-    bh_source = _borehole(project.id, suffix="S13", x=162000.0)
-    bh_neighbour = _borehole(project.id, suffix="N13", x=162300.0)
-
-    db_session.add_all([geo, litho, parent, formation, bh_source, bh_neighbour])
-    await db_session.commit()
-
-    # Both investigations are in-project — must succeed without raising.
-    body = await ClaimBodyExtent(db_session).execute(
-        project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        source_investigation_id=bh_source.id,
-        side="left",
-        kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
-        neighbour_inv_id=bh_neighbour.id,
-    )
-
-    assert body.id is not None
-    assert body.source_investigation_id == bh_source.id
-    assert body.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY
-    assert body.extent_left_neighbour_inv_id == bh_neighbour.id
