@@ -1,36 +1,41 @@
-"""Resolve-litho-instances use case — Phase-2 Slice 3.
+"""Resolve-litho-instances use case — layer-granularity body reconciliation.
 
-Loads model-scoped contact edges and formations, runs the pure resolver,
-writes ``instance_ordinal`` back to non-locked rows, and marks changed
-surfaces stale.
+Loads accepted ``litho_layer`` rows + user-approved correlation edges
+(whose endpoints FK ``litho_layer.id``), runs the pure layer-level
+resolver, reconciles one ``body`` row per connected component, stamps
+``litho_layer.body_id`` on every member layer, and marks changed
+surfaces stale. It no longer writes ``geological_formation.instance_ordinal``
+— body identity ``(formation_id, body_ordinal)`` is the durable record
+of an instance.
 
 This use case is MODEL-level only.  It does NOT touch cross-section
 rows, seeded_formation_contact_ids, or any section-level state.  The
 #57/applyUpdatedSection trap structurally cannot recur here — there is
 no section entity in scope.
 
-The resolution + write-back + stale-marking logic lives entirely in
-``execute``; this is the single canonical copy (formerly in
-``CorrelateLithoUnits.run_resolver``).  All callers that previously
-delegated through ``CorrelateLithoUnits`` now call this use case
-directly (or call the inline helper ``_run_resolver`` for non-committing
+The resolution + body-reconciliation + stale-marking logic lives in the
+module-level ``_run_resolver`` helper; this is the single canonical copy.
+All callers that previously delegated through ``CorrelateLithoUnits`` now
+call this use case directly (or call ``_run_resolver`` for non-committing
 paths inside other use cases).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
 
 from groundmodel.domain.services.resolve_litho_instances import (
-    CorrelationEdge,
-    FormationNode,
+    LayerEdge,
+    LayerNode,
     resolve_litho_instances,
 )
-from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -38,8 +43,28 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+class _BodyChange(TypedDict):
+    """One body whose ordinal was created/removed during reconciliation.
+
+    The shape is kept stable (``formation_id`` str + ``new_ordinal`` int)
+    so the outer ``ResolveLithoInstances.execute`` can map it onto an
+    ``OrdinalUpdate`` for the section's stale-surface cue.
+
+    Attributes
+    ----------
+    formation_id : str
+        String form of the body's formation UUID.
+    new_ordinal : int
+        The body's ordinal within its ``(parent, soil)`` naming group.
+    """
+
+    formation_id: str
+    new_ordinal: int
 
 
 @dataclass
@@ -80,179 +105,156 @@ class ResolveResult:
     updated: list[OrdinalUpdate]
 
 
-async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[dict]:
-    """Run the pure resolver and write instance_ordinal back to changed rows.
+async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChange]:
+    """Resolve instances over layers, reconcile bodies, stamp body_id.
 
-    This is the canonical resolver implementation.  It loads all
-    user-approved contact edges for the model, derives formation-level
-    correlation edges from the contact→formation map, runs the pure
-    ``resolve_litho_instances`` domain service, writes ordinals back to
-    non-locked formations, and marks changed surfaces stale — all within
-    the current session (no inner commit).
+    Loads accepted litho layers + user-approved correlation edges (layer-id
+    endpoints), runs the pure ``resolve_litho_instances`` domain service,
+    reconciles one ``body`` row per connected component, stamps
+    ``litho_layer.body_id`` on every member layer, and marks surfaces stale
+    when an instance ordinal changed. No inner commit — the caller owns the
+    transaction boundary.
 
     Parameters
     ----------
     session : AsyncSession
-        The active ORM session.  The caller owns the commit boundary.
+        The active ORM session. The caller owns the commit boundary.
     model_id : UUID
-        The model whose formations and edges are resolved.
+        The lithostratigraphic model whose layers + edges are resolved.
 
     Returns
     -------
-    list[dict]
-        One ``{"formation_id": str, "new_ordinal": int}`` entry per
-        formation whose ordinal changed.
+    list[_BodyChange]
+        One ``{"formation_id": str, "new_ordinal": int}`` per body whose
+        ordinal changed (drives the section's stale-surface cue).
     """
     repo = GeologyRepository(session)
     logger = _RunResolverLogger()
-
-    logger.debug(f"_run_resolver: loading formations + edges for model {model_id}")
+    logger.debug(f"_run_resolver: model {model_id}")
 
     model = await session.get(GeologicalModelOrm, model_id)
     if model is None:
         logger.warning(f"_run_resolver: model {model_id} gone — skipping")
         return []
 
-    # Load all user-approved contact edges for this model.  These are the
-    # authority for the correlation graph since Phase-3 of #133: formation-
-    # level LithoCorrelationEdgeOrm rows are no longer read here.
-    contact_edges_stmt = select(LithoContactCorrelationEdgeOrm).where(
-        LithoContactCorrelationEdgeOrm.model_id == model_id,
-        LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-    )
-    contact_edge_rows = list((await session.execute(contact_edges_stmt)).scalars().all())
-    n_edges = len(contact_edge_rows)
-    logger.debug(f"_run_resolver: {n_edges} user-approved contact edge(s) for model {model_id}")
-
-    # Build contact_id → formation_id map from all contacts in this model.
-    contacts_stmt = select(FormationContactOrm.id, FormationContactOrm.formation_id).where(
-        FormationContactOrm.model_id == model_id
-    )
-    formation_by_contact: dict[UUID, UUID] = dict((await session.execute(contacts_stmt)).all())
-
-    # Derive formation-to-formation CorrelationEdge objects from contact edges.
-    # Skip self-loops (both contacts map to the same formation) and orphans.
-    edges: list[CorrelationEdge] = []
-    skipped_orphan = 0
-    skipped_self_loop = 0
-    for ce in contact_edge_rows:
-        fa = formation_by_contact.get(ce.contact_a_id)
-        fb = formation_by_contact.get(ce.contact_b_id)
-        if fa is None or fb is None:
-            skipped_orphan += 1
-            logger.debug(
-                f"_run_resolver: skipping orphan contact edge {ce.id} "
-                f"(contact_a formation={fa}, contact_b formation={fb})"
-            )
-            continue
-        if fa == fb:
-            # Both contacts belong to the same formation — a self-loop at
-            # the formation level.  Same-borehole contacts at different depths
-            # on the same formation produce this; not a correlation between
-            # two distinct bodies.
-            skipped_self_loop += 1
-            logger.debug(
-                f"_run_resolver: skipping self-loop contact edge {ce.id} "
-                f"(both contacts map to formation {fa})"
-            )
-            continue
-        edges.append(CorrelationEdge(formation_a_id=fa, formation_b_id=fb))
-
-    if skipped_orphan or skipped_self_loop:
-        logger.warning(
-            f"_run_resolver: skipped {skipped_orphan} orphan + {skipped_self_loop} "
-            f"self-loop contact edge(s) for model {model_id}"
-        )
-
-    # Load all formations that participate in this model — every formation
-    # that has at least one FormationContact in this model.
-    # parent_formation_id IS NOT NULL restricts to litho-level units.
-    # This scoping prevents sibling litho models from cross-contaminating
-    # ordinal sequences (review B1).
-    contacted_fids = select(FormationContactOrm.formation_id).where(
-        FormationContactOrm.model_id == model_id
-    )
-    formations_stmt = select(GeologicalFormationOrm).where(
-        GeologicalFormationOrm.app_project_id == model.app_project_id,
-        GeologicalFormationOrm.parent_formation_id.is_not(None),
-        GeologicalFormationOrm.id.in_(contacted_fids),
-    )
-    formations_rows = list((await session.execute(formations_stmt)).scalars().all())
-
-    # Earliest depth per formation — ONE GROUP BY, not N+1 per-formation
-    # SELECTs (review S2).
-    depth_rows = (
+    # 1. Accepted layers joined to their formation for (parent, soil).
+    layer_rows = (
         await session.execute(
             select(
-                FormationContactOrm.formation_id,
-                func.min(FormationContactOrm.depth_top_m),
+                LithoLayerOrm.id,
+                LithoLayerOrm.formation_id,
+                LithoLayerOrm.depth_top_m,
+                LithoLayerOrm.borehole_id,
+                LithoLayerOrm.cpt_id,
+                LithoLayerOrm.body_id,
+                GeologicalFormationOrm.parent_formation_id,
+                GeologicalFormationOrm.litho_main_soil_code,
             )
-            .where(FormationContactOrm.model_id == model_id)
-            .group_by(FormationContactOrm.formation_id)
+            .join(GeologicalFormationOrm, GeologicalFormationOrm.id == LithoLayerOrm.formation_id)
+            .where(
+                LithoLayerOrm.model_id == model_id,
+                LithoLayerOrm.status == "accepted",
+            )
         )
     ).all()
-    earliest: dict[UUID, float | None] = {fid: d for fid, d in depth_rows}
 
-    nodes: list[FormationNode] = [
-        FormationNode(
-            formation_id=f.id,
-            parent_formation_id=f.parent_formation_id,
-            litho_main_soil_code=f.litho_main_soil_code,
-            earliest_contact_depth_m=earliest.get(f.id),
-            instance_ordinal=f.instance_ordinal,
-            instance_ordinal_locked=f.instance_ordinal_locked,
+    nodes: list[LayerNode] = [
+        LayerNode(
+            layer_id=r.id,
+            formation_id=r.formation_id,
+            parent_formation_id=r.parent_formation_id,
+            litho_main_soil_code=r.litho_main_soil_code,
+            depth_top_m=r.depth_top_m,
+            source_investigation_id=(r.borehole_id if r.borehole_id is not None else r.cpt_id),
         )
-        for f in formations_rows
+        for r in layer_rows
     ]
+    existing_body_id_by_layer: dict[UUID, UUID | None] = {r.id: r.body_id for r in layer_rows}
 
-    logger.debug(f"_run_resolver: {len(nodes)} formation node(s), {len(edges)} derived edge(s)")
-
-    result = resolve_litho_instances(formations=nodes, edges=edges)
-
-    if result.lock_conflicts:
-        for conflict in result.lock_conflicts:
-            logger.warning(
-                f"_run_resolver: lock conflict — "
-                f"winner={conflict.winner_formation_id} "
-                f"loser={conflict.loser_formation_id} "
-                f"ordinal={conflict.contested_ordinal}"
+    # 2. User-approved edges — endpoints already FK litho_layer.id.
+    edge_rows = (
+        await session.execute(
+            select(
+                LithoContactCorrelationEdgeOrm.contact_a_id,
+                LithoContactCorrelationEdgeOrm.contact_b_id,
+            ).where(
+                LithoContactCorrelationEdgeOrm.model_id == model_id,
+                LithoContactCorrelationEdgeOrm.user_approved.is_(True),
             )
+        )
+    ).all()
+    edges = [LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in edge_rows]
 
-    # Write back ordinals to non-locked formations that changed.
-    updated: list[dict] = []
-    orm_by_id: dict[UUID, GeologicalFormationOrm] = {f.id: f for f in formations_rows}
-    loser_ids = {c.loser_formation_id for c in result.lock_conflicts}
-    for fid, new_ordinal in result.ordinals.items():
-        f_orm = orm_by_id.get(fid)
-        if f_orm is None:
-            continue
-        # Never write back to locked formations (unless they are a conflict
-        # loser, in which case the resolver has already overridden them).
-        if f_orm.instance_ordinal_locked and fid not in loser_ids:
-            continue
-        if f_orm.instance_ordinal != new_ordinal:
-            # Capture BEFORE the mutation so the debug log shows the delta.
-            old_ordinal = f_orm.instance_ordinal
-            f_orm.instance_ordinal = new_ordinal
-            updated.append({"formation_id": str(fid), "new_ordinal": new_ordinal})
-            logger.debug(f"_run_resolver: formation {fid} ordinal {old_ordinal} → {new_ordinal}")
+    logger.debug(f"_run_resolver: {len(nodes)} layer(s), {len(edges)} edge(s)")
 
-    if updated:
+    result = resolve_litho_instances(layers=nodes, edges=edges)
+
+    # 3. Reconcile bodies. Existing bodies keyed (formation_id, ordinal).
+    existing_bodies = (
+        (await session.execute(select(BodyOrm).where(BodyOrm.model_id == model_id))).scalars().all()
+    )
+    body_by_key: dict[tuple[UUID, int], BodyOrm] = {
+        (b.formation_id, b.body_ordinal): b for b in existing_bodies
+    }
+    wanted_keys: set[tuple[UUID, int]] = set()
+    layer_to_body_id: dict[UUID, UUID] = {}
+    changed: list[_BodyChange] = []
+
+    for inst in result.instances:
+        key = (inst.formation_id, inst.ordinal)
+        wanted_keys.add(key)
+        body = body_by_key.get(key)
+        if body is None:
+            body = BodyOrm(
+                id=uuid7(),
+                app_project_id=model.app_project_id,
+                model_id=model_id,
+                formation_id=inst.formation_id,
+                body_ordinal=inst.ordinal,
+                source_investigation_id=inst.source_investigation_id,
+            )
+            session.add(body)
+            body_by_key[key] = body
+            changed.append({"formation_id": str(inst.formation_id), "new_ordinal": inst.ordinal})
+            logger.debug(f"_run_resolver: created body f={inst.formation_id} ord={inst.ordinal}")
+        for lid in inst.member_layer_ids:
+            layer_to_body_id[lid] = body.id
+
+    # 4. Delete orphan bodies (no longer a wanted instance) UNLESS named.
+    for (f_id, ordn), body in body_by_key.items():
+        if (f_id, ordn) in wanted_keys:
+            continue
+        if body.name:
+            logger.debug(f"_run_resolver: preserving named orphan body {body.id} ({body.name!r})")
+            continue
+        await session.delete(body)
+        changed.append({"formation_id": str(f_id), "new_ordinal": ordn})
+        logger.debug(f"_run_resolver: deleted orphan body f={f_id} ord={ordn}")
+
+    await session.flush()  # bodies get their ids before stamping layers
+
+    # 5. Stamp litho_layer.body_id where it changed.
+    n_stamped = 0
+    for lid, bid in layer_to_body_id.items():
+        if existing_body_id_by_layer.get(lid) != bid:
+            await session.execute(
+                update(LithoLayerOrm).where(LithoLayerOrm.id == lid).values(body_id=bid)
+            )
+            n_stamped += 1
+
+    if changed or n_stamped:
         await session.flush()
-        # Ordinal/label changed → the inspector grouping changed, so the
-        # section view's stale-surface cue must fire even though no
-        # geometry moved.  Done here so every caller (correlate, uncorrelate,
-        # explicit-resolve) gets the stale cue (review S1).
-        pairs = [(model_id, UUID(e["formation_id"])) for e in updated]
-        await repo.mark_surfaces_stale(pairs)
+        pairs = [(model_id, UUID(c["formation_id"])) for c in changed]
+        if pairs:
+            await repo.mark_surfaces_stale(pairs)
         logger.info(
-            f"_run_resolver: wrote back {len(updated)} ordinal change(s) "
-            f"+ marked surfaces stale for model {model_id}"
+            f"_run_resolver: {len(changed)} body change(s), {n_stamped} layer stamp(s) "
+            f"for model {model_id}"
         )
     else:
-        logger.debug(f"_run_resolver: no ordinal changes for model {model_id}")
+        logger.debug(f"_run_resolver: no changes for model {model_id}")
 
-    return updated
+    return changed
 
 
 class _RunResolverLogger(GroundModelLogger):
@@ -266,9 +268,10 @@ class _RunResolverLogger(GroundModelLogger):
 class ResolveLithoInstances(GroundModelLogger):
     """Re-run the litho-instance resolver for one model and commit the result.
 
-    Loads user-approved contact edges, derives formation-level correlation
-    topology, runs the pure domain resolver, writes ``instance_ordinal``
-    back to non-locked rows, and marks changed surfaces stale.
+    Loads accepted litho layers + user-approved layer-level correlation
+    edges, runs the pure domain resolver, reconciles one ``body`` row per
+    connected component, stamps ``litho_layer.body_id``, and marks changed
+    surfaces stale.
 
     This is the single canonical copy of the resolver implementation —
     ``CorrelateLithoUnits`` and ``UncorrelateLithoContacts`` delegate here
