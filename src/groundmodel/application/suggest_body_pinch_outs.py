@@ -487,7 +487,19 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                         )
                     )
 
-        self.info(f"SuggestBodyPinchOuts: {len(candidates)} candidate(s) for model={model_id}")
+        # Breakdown so a "missing suggestion" report is diagnosable from the log
+        # alone: section vs UUID adjacency, how many investigations projected,
+        # and open (edge) vs pinch (interior) split.  ``open=0`` with
+        # ``section=NONE`` means the active section never reached this pass (open
+        # candidates require section context); ``open=0`` with ``section=yes``
+        # points at a suppression/logic bug instead.
+        n_open = sum(1 for c in candidates if c.kind == "open")
+        n_pinch = sum(1 for c in candidates if c.kind == "pinch_out_halfway")
+        self.info(
+            f"SuggestBodyPinchOuts: {len(candidates)} candidate(s) for model={model_id} "
+            f"(section={'yes' if section_id else 'NONE'}, "
+            f"{len(position)} investigation(s) placed, {n_open} open + {n_pinch} pinch)"
+        )
         return candidates
 
     async def _section_along_positions(
