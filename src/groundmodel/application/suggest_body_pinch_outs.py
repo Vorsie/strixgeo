@@ -39,11 +39,11 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.gis.section_projection import (
     SectionEndpoints,
     project_point_onto_line,
@@ -58,10 +58,13 @@ class PinchOutCandidate:
     Attributes
     ----------
     body_id : UUID | None
-        The existing ``BodyOrm.id`` when a body row already exists for
-        this (model, formation) host pair.  ``None`` when no body row
-        exists yet (the ``ClaimBodyExtent`` use case will create one on
-        commit).
+        The body of the FRAMED layer — resolved from
+        ``litho_layer.body_id`` on the layer whose top is
+        ``above_contact_id`` (post-A4 the contact id IS the layer id).
+        Non-null for every accepted unit (the resolver stamps a body on
+        each).  ``None`` only when the framed layer carries no body yet
+        (e.g. a pending/unresolved layer); the ``ClaimBodyExtent`` use
+        case targets the body directly by this id.
     source_investigation_id : UUID
         The investigation that carries the framing contacts
         (``above_contact_id`` + ``below_contact_id``).
@@ -255,39 +258,31 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             contact_neighbour_invs.setdefault(r.contact_b_id, set()).add(inv_a)
 
         # ------------------------------------------------------------------ #
-        # 3. Load existing body rows for this model + formation ordinals.     #
+        # 3. Load existing body rows + the per-layer body backlink.           #
         # ------------------------------------------------------------------ #
         bodies_stmt = select(BodyOrm).where(BodyOrm.model_id == model_id)
         bodies = (await self._session.execute(bodies_stmt)).scalars().all()
+        bodies_by_id: dict[UUID, BodyOrm] = {b.id: b for b in bodies}
 
-        # Body identity is (model_id, formation_id, body_ordinal) — NOT the
-        # source_investigation_id (body_orm.py UNIQUE constraint).  We MUST key
-        # the body map the SAME way ClaimBodyExtent resolves its target, or the
-        # suggester reasons about a different body than the claim will hit:
-        # two investigations framing one formation make the suggester file the
-        # body under one source while the claim resolves to the (formation,
-        # instance_ordinal) body — if the detector already closed that body's
-        # side with a 'to_target' extent, the claim 409s on a candidate the
-        # suggester thought was open (dogfeed 2026-06-03).
-        bodies_by_formation_ordinal: dict[tuple[UUID, int], BodyOrm] = {
-            (b.formation_id, b.body_ordinal): b for b in bodies
-        }
-
-        # ClaimBodyExtent resolves body_ordinal as ``formation.instance_ordinal
-        # or 0``; mirror that here so suggester and claimer agree on identity.
-        formation_ids = {r.formation_id for r in contact_rows}
-        formation_ordinal: dict[UUID, int] = {}
-        if formation_ids:
-            ordinal_rows = (
-                await self._session.execute(
-                    select(
-                        GeologicalFormationOrm.id,
-                        GeologicalFormationOrm.instance_ordinal,
-                    ).where(GeologicalFormationOrm.id.in_(formation_ids))
+        # Per-INSTANCE body identity: each accepted litho layer carries its
+        # own ``body_id`` (stamped by ResolveLithoInstances per connected
+        # component).  Post-A4 a litho layer's id IS its top formation_contact
+        # id (the FC↔LL mirror preserves the UUID), so a framed candidate's
+        # ``above_contact_id`` IS the framed layer's id.  We resolve the body
+        # from THAT layer's ``body_id`` — keyed per instance, not per formation.
+        # This is what fixes the over-suppression bug: two distinct same-formation
+        # instances resolve to distinct bodies, so naming/claiming one no longer
+        # suppresses the other's candidates (the old (formation, ordinal) key
+        # collapsed both onto one body — dogfeed 2026-06-03).
+        layer_body_rows = (
+            await self._session.execute(
+                select(LithoLayerOrm.id, LithoLayerOrm.body_id).where(
+                    LithoLayerOrm.model_id == model_id,
+                    LithoLayerOrm.status == "accepted",
                 )
-            ).all()
-            for fr in ordinal_rows:
-                formation_ordinal[fr.id] = fr.instance_ordinal or 0
+            )
+        ).all()
+        body_id_by_layer: dict[UUID, UUID | None] = {r.id: r.body_id for r in layer_body_rows}
 
         # ------------------------------------------------------------------ #
         # 4. Build an ordering POSITION per investigation for adjacency.       #
@@ -335,18 +330,16 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                     # Interior to a continuous host wrapping a lens — the host
                     # is presumptively continuous here, not a pinch-out. Skip.
                     continue
-                _, above_id, above_formation = entries[i]
+                _, above_id, _above_formation = entries[i]
                 _, below_id, _below_formation = entries[i + 1]
 
-                # Convention: the body's formation is the formation whose
-                # top is at the above contact (above_formation).  Resolve the
-                # body the SAME way ClaimBodyExtent will — by (formation,
-                # instance_ordinal) — so the claimed checks below reflect the
-                # row the claim actually targets.
-                body_formation = above_formation
-                body_ordinal = formation_ordinal.get(body_formation, 0)
-                existing_body = bodies_by_formation_ordinal.get((body_formation, body_ordinal))
-                body_id: UUID | None = existing_body.id if existing_body is not None else None
+                # The framed unit is the layer whose TOP is ``above_id`` — and
+                # post-A4 that layer's id IS ``above_id``.  Resolve the body
+                # from that specific layer's ``body_id`` so suppression is
+                # per-instance: a sibling same-formation instance has its own
+                # distinct body and is reasoned about independently.
+                body_id: UUID | None = body_id_by_layer.get(above_id)
+                existing_body = bodies_by_id.get(body_id) if body_id is not None else None
 
                 # A side is "paired" when both the above and below
                 # contacts of this source pair share at least one approved
@@ -449,10 +442,13 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             # toward a neighbour. Only emitted when a section is given (open
             # candidates require section context, matching the framed-open branches).
             if section_id is not None and entries:
-                deepest_depth, deepest_contact_id, deepest_formation = entries[-1]
-                deepest_ordinal = formation_ordinal.get(deepest_formation, 0)
-                deepest_body = bodies_by_formation_ordinal.get((deepest_formation, deepest_ordinal))
-                deepest_body_id: UUID | None = deepest_body.id if deepest_body is not None else None
+                _deepest_depth, deepest_contact_id, _deepest_formation = entries[-1]
+                # Per-instance body: the deepest layer's id IS its top contact
+                # id; resolve the body from THAT layer's body_id (see above).
+                deepest_body_id: UUID | None = body_id_by_layer.get(deepest_contact_id)
+                deepest_body = (
+                    bodies_by_id.get(deepest_body_id) if deepest_body_id is not None else None
+                )
                 deepest_bottom = bottom_depth_by_inv.get(inv_id)
                 left_neighbours_d = [n for n in ordered if position[n] < src_pos]
                 right_neighbours_d = [n for n in ordered if position[n] > src_pos]
