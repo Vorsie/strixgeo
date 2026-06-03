@@ -3,19 +3,24 @@
  *
  * A body is a single-lithology unit traced across the section via the
  * resolver's correlation grouping (every accepted ``litho_layer`` carrying the
- * same ``body_id`` is one instance of that unit on one column). The filled
- * closed loop is bounded by:
+ * same ``body_id`` is one instance of that unit on one column). The fill is
+ * drawn GAP BY GAP: for each pair of consecutive on-section member columns, a
+ * trapezoid spans the dark space between them, bounded by
  *
- *   - top boundary  = the chain of the member layers' ``depth_top_m`` across
- *                     columns, left → right;
- *   - base boundary = the chain of their ``depth_base_m``;
- *   - the end columns (or, later, the lateral extent caps).
+ *   - top edge  = the correlation line of the unit's top (left column's
+ *                 ``depth_top_m`` → right column's ``depth_top_m``);
+ *   - base edge = the correlation line of its base;
+ *   - the two column edges.
  *
- * A wedge (pinch-out) is just this loop where the top and base chains converge
- * to a point on a column; a band is where they stay apart. Same primitive.
+ * Filling per gap (and only the gap, in the overlay) tiles cleanly: stacked
+ * units fill adjacent vertical slices with no overlap, no big self-crossing
+ * polygon, and never paint over a column's own glyphs. A wedge (pinch-out) is
+ * just the gap where the unit is absent on one side — a hole the cap fills,
+ * later.
  *
  * This module is pure (no React, no screen transforms) so the geometry is unit
- * testable in world coordinates; the overlay projects it to screen space.
+ * testable in world coordinates; the overlay maps it to screen space + column
+ * edges.
  */
 
 import type { BodyListItem, LithoLayerResponse } from '../api/client'
@@ -29,25 +34,27 @@ export interface BandColumn {
   surfaceElevM: number
 }
 
-/** A single point on a band boundary, in world coordinates. */
-export interface BandPoint {
+/** A body's member unit on one on-section column. */
+export interface BandMember {
+  investigationId: string
+  /** Along-section distance — used to order columns left → right. */
   along: number
-  elev: number
+  /** Absolute elevation (mTAW) of the unit's top on this column. */
+  topElev: number
+  /** Absolute elevation (mTAW) of the unit's base on this column. */
+  baseElev: number
 }
 
-/** One body's filled-loop boundary, left → right. */
+/** One body's on-section member columns, ordered left → right. */
 export interface BodyBand {
   bodyId: string
   formationId: string
-  /** Top boundary points, ordered by ascending along. */
-  top: BandPoint[]
-  /** Base boundary points, same column order as ``top``. */
-  base: BandPoint[]
+  /** Member columns sorted by ascending along; length ≥ 2. */
+  members: BandMember[]
 }
 
 /**
- * Compute the filled-loop geometry for every body that spans ≥2 on-section
- * columns.
+ * Compute the per-body member columns for the band fill.
  *
  * Parameters
  * ----------
@@ -64,9 +71,9 @@ export interface BodyBand {
  * Returns
  * -------
  * One ``BodyBand`` per body that has at least two on-section member columns
- * (the minimum to bound a fillable loop). Single-column bodies are skipped —
- * a lone occurrence is not a closed loop (its lateral extent, if any, is the
- * cap's job, not the band's).
+ * (the minimum to bound a fillable gap). The overlay draws one trapezoid per
+ * consecutive member pair. Single-column bodies are skipped — a lone
+ * occurrence has no gap to fill.
  */
 export function computeBodyBands(
   bodies: readonly BodyListItem[],
@@ -84,27 +91,28 @@ export function computeBodyBands(
 
   const out: BodyBand[] = []
   for (const body of bodies) {
-    const members = membersByBody.get(body.id)
-    if (!members) continue
+    const layersForBody = membersByBody.get(body.id)
+    if (!layersForBody) continue
 
-    const placed = members
-      .map(layer => {
+    const members = layersForBody
+      .map((layer): BandMember | null => {
         const inv = layer.cpt_id ?? layer.borehole_id
         const col = inv ? columnsByInv.get(inv) : undefined
-        return col ? { col, top: layer.depth_top_m, base: layer.depth_base_m } : null
+        if (!col) return null
+        return {
+          investigationId: col.investigationId,
+          along: col.along,
+          topElev: col.surfaceElevM - layer.depth_top_m,
+          baseElev: col.surfaceElevM - layer.depth_base_m,
+        }
       })
-      .filter((m): m is { col: BandColumn; top: number; base: number } => m !== null)
-      .sort((a, b) => a.col.along - b.col.along)
+      .filter((m): m is BandMember => m !== null)
+      .sort((a, b) => a.along - b.along)
 
-    // Need at least two columns to bound a fillable loop.
-    if (placed.length < 2) continue
+    // Need at least two columns to bound a fillable gap.
+    if (members.length < 2) continue
 
-    out.push({
-      bodyId: body.id,
-      formationId: body.formation_id,
-      top: placed.map(p => ({ along: p.col.along, elev: p.col.surfaceElevM - p.top })),
-      base: placed.map(p => ({ along: p.col.along, elev: p.col.surfaceElevM - p.base })),
-    })
+    out.push({ bodyId: body.id, formationId: body.formation_id, members })
   }
   return out
 }
