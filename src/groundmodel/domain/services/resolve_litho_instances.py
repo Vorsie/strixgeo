@@ -2,9 +2,17 @@
 
 An *instance* is one connected component of correlated litho layers. Two
 layers belong to the same instance iff a path of user-approved correlation
-edges connects them. Uncorrelated layers — including two same-formation
-layers stacked at one column, or two laterally-separate columns never linked
-— are distinct instances and receive distinct ordinals.
+edges connects them AND they share a lithology. Uncorrelated layers —
+including two same-formation layers stacked at one column, or two laterally-
+separate columns never linked — are distinct instances and receive distinct
+ordinals.
+
+One-lithology invariant (owner directive 2026-06-03): a body is a single
+lithology. An edge whose two endpoints have different ``litho_main_soil_code``
+is dropped from the adjacency graph, so a mis-correlation (or auto-correlate
+crossing a facies change) never merges, say, a clay layer and a silt layer
+into one mixed body. Admixture variants of the SAME soil (different formation
+rows, same ``litho_main_soil_code``) still merge.
 
 Ordinals are assigned per ``(parent_formation_id, litho_main_soil_code)``
 naming group, shallowest component first, starting at 0. The component with
@@ -187,9 +195,20 @@ def resolve_litho_instances(
 
     adjacency: dict[UUID, set[UUID]] = defaultdict(set)
     for e in edges:
-        if e.layer_a_id in node_ids and e.layer_b_id in node_ids:
-            adjacency[e.layer_a_id].add(e.layer_b_id)
-            adjacency[e.layer_b_id].add(e.layer_a_id)
+        a = node_map.get(e.layer_a_id)
+        b = node_map.get(e.layer_b_id)
+        if a is None or b is None:
+            continue  # dangling-edge guard (endpoint not in this model)
+        # One-lithology invariant: a body is a single lithology. Drop an edge
+        # that joins two DIFFERENT lithologies — a mis-correlation, or auto-
+        # correlate crossing a facies change — so the two never merge into one
+        # mixed body (dogfeed 2026-06-03: a clay layer grouped into a silt body
+        # was painted green). Admixture variants of the SAME soil still merge,
+        # because the comparison keys on ``litho_main_soil_code``, not formation.
+        if a.litho_main_soil_code != b.litho_main_soil_code:
+            continue
+        adjacency[e.layer_a_id].add(e.layer_b_id)
+        adjacency[e.layer_b_id].add(e.layer_a_id)
 
     components = _components(node_ids, adjacency)
 
