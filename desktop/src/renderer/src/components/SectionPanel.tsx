@@ -88,6 +88,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import BodyBandOverlay from './sections/BodyBandOverlay'
+import { useBandFillVisible } from '../utils/bandFillStore'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import GhostContextMenu from './sections/GhostContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
@@ -882,10 +883,11 @@ export default function SectionPanel({
   }, [formations])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
-  // the user finishes correlating + pinch-outs, THEN clicks "Fill bands". It
-  // never auto-draws — default off — so a half-finished interpretation isn't
-  // shown as a misleading fill. Local to the panel; nothing else needs it.
-  const [showBands, setShowBands] = useState(false)
+  // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
+  // Bodies dropdown. It never auto-draws — default off — so a half-finished
+  // interpretation isn't shown as a misleading fill. Driven from the toolbar
+  // via the shared bandFill store (sibling components, single view toggle).
+  const showBands = useBandFillVisible()
 
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
@@ -2609,22 +2611,6 @@ export default function SectionPanel({
         className="relative flex-1 overflow-hidden select-none"
         style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
       >
-        {/* Explicit on-demand band fill — litho axis only. Off by default;
-            the user clicks this AFTER correlating + pinch-outs. */}
-        {axisMode === 'lithostratigraphic' && (
-          <button
-            type="button"
-            data-testid="fill-bands-toggle"
-            onClick={() => setShowBands(v => !v)}
-            className={`absolute top-2 right-2 z-10 rounded border px-2 py-1 text-xs font-medium shadow-sm ${
-              showBands
-                ? 'border-emerald-500 bg-emerald-600 text-white'
-                : 'border-slate-600 bg-slate-700/80 text-slate-100 hover:bg-slate-600'
-            }`}
-          >
-            {showBands ? 'Hide bands' : 'Fill bands'}
-          </button>
-        )}
         {size && (
           <svg
             width={size.width}
