@@ -703,14 +703,30 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
             )
 
         # --- Body scenario (Section B) ---
-        f_top = form("ZAND top cap (action seed)", "ZAND", 30, "#f5c842")
-        f_body = form("KLEI body (action seed)", "KLEI", 31, "#c2a0d8")
-        f_base = form("ZAND base cap (action seed)", "ZAND", 32, "#f5c842")
-        f_tgt = form("ZAND target (action seed)", "ZAND", 33, "#f5c842")
+        # New body model: ``ResolveLithoInstances`` creates ONE body per
+        # connected component of accepted layers, and the body's representative
+        # formation = the SHALLOWEST member layer's formation (resolve_litho_
+        # instances._key). So for the body wedge to render as a KLEI body sourced
+        # at CPT-4, the KLEI body-top contact MUST be SHALLOWER than its bilateral
+        # ZAND targets — otherwise a deeper-than-target KLEI gets buried as a
+        # member of a ZAND-representative body (which the detector then frames on
+        # the wrong column / no source member on Section B → "body-extent-fill not
+        # found"). This mirrors the working Section D per-instance topology: KLEI
+        # top @2 m closes bilaterally to ZAND targets @3 m on CPT-3 + CPT-5, with
+        # the body framed by (KLEI@2, ZAND@4) on the source column CPT-4.
+        #   CPT-4 (source): KLEI@2 (body top) / ZAND@4 (body base)
+        #   CPT-3 (left target):  ZAND@3
+        #   CPT-5 (right target): ZAND@3
+        # The KLEI body's top (@2) is shallower than the targets (@3) so the
+        # connected component {KLEI@2, ZAND@4, ZAND@3-L, ZAND@3-R} resolves to a
+        # KLEI representative sourced at CPT-4 — exactly the body the action specs
+        # right-click on Section B.
+        f_body = form("KLEI body (action seed)", "KLEI", 30, "#c2a0d8")
+        f_base = form("ZAND base cap (action seed)", "ZAND", 31, "#f5c842")
+        f_tgt = form("ZAND target (action seed)", "ZAND", 32, "#f5c842")
         await s.flush()
-        c_top = contact(f_top, cpt4, 2.0)
-        c_body = contact(f_body, cpt4, 4.0)
-        c_base = contact(f_base, cpt4, 6.0)
+        c_body = contact(f_body, cpt4, 2.0)
+        c_base = contact(f_base, cpt4, 4.0)
         c_left = contact(f_tgt, cpt3, 3.0)
         c_right = contact(f_tgt, cpt5, 3.0)
         await s.flush()
@@ -718,7 +734,7 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         edge(c_base, c_left)
         edge(c_body, c_right)
         edge(c_base, c_right)
-        body_contact_ids = [c_top.id, c_body.id, c_base.id, c_left.id, c_right.id]
+        body_contact_ids = [c_body.id, c_base.id, c_left.id, c_right.id]
 
         # --- Crossing scenario (Section C) — no edges; auto-lens creates them ---
         f_zand = form("ZAND crossing (action seed)", "ZAND", 40, "#f5c842")
