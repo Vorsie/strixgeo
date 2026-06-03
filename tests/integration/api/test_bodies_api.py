@@ -19,8 +19,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.correlate_litho_contacts import CorrelateLithoContacts
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -558,3 +560,158 @@ async def test_idor_delete_detected_bodies_wrong_project_404(
     assert resp.status_code == 404, (
         f"IDOR guard failure on bulk delete: expected 404, got {resp.status_code}: {resp.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# DSH: "Detect" self-heals after the user clears all bodies
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_detect_rematerialises_bodies_after_clear_all(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    bodies_api_fixture: tuple,
+) -> None:
+    """DSH1: clearing every body then clicking "Detect" must rebuild the bodies.
+
+    Reproduces the dogfeed bug: bodies are derived from the user-approved
+    correlation graph and OWNED by the resolver, which is the only authority
+    that creates ``body`` rows and stamps ``litho_layer.body_id``.  When the
+    user clears all bodies ("Delete all detected" + dissolves), the
+    ``ondelete=SET NULL`` FK wipes every layer's ``body_id`` stamp.
+
+    The body's defining correlation edges are still intact, so the body is
+    still IMPLIED by the graph — clicking "Detect" must re-materialise it.
+    Before the fix the detect endpoint ran ``DetectBodies`` alone (a pure
+    extent manager that cannot create bodies), so it found ``body_id IS NULL``
+    on every framed layer, skipped every closure, and silently created
+    nothing — leaving "Materialise companions" with no body to act on.
+
+    Topology mirrors ``test_detect_bodies.py`` Test 1: a bilateral #135
+    closure from one source borehole to two distinct neighbours.
+    """
+    project, litho, formation, bh_source, bh_neighbour = bodies_api_fixture
+
+    # A second neighbour so the closure is bilateral (≥2 distinct targets) —
+    # the detector requires bilateral closure to materialise a body.
+    bh_neighbour_2 = BoreholeOrm(
+        id=uuid7(),
+        name="BH-NBR2",
+        app_project_id=project.id,
+        project_id="API",
+        test_id="BH-NBR2-API",
+        location_x=149700.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    # Three formations on the source column (cap / body / cap) + one shared
+    # neighbour formation, all children of the geological parent formation.
+    f_top = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND top cap DSH",
+        color="#aabbcc",
+        display_order=0,
+        parent_formation_id=formation.id,
+        litho_main_soil_code="ZAND",
+    )
+    f_body = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="KLEI body DSH",
+        color="#aabbcc",
+        display_order=0,
+        parent_formation_id=formation.id,
+        litho_main_soil_code="KLEI",
+    )
+    f_base = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND base cap DSH",
+        color="#aabbcc",
+        display_order=0,
+        parent_formation_id=formation.id,
+        litho_main_soil_code="ZAND",
+    )
+    f_nbr = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND nbr DSH",
+        color="#aabbcc",
+        display_order=0,
+        parent_formation_id=formation.id,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add_all([bh_neighbour_2, f_top, f_body, f_base, f_nbr])
+    await db_session.flush()
+
+    def _c(form: GeologicalFormationOrm, bh: BoreholeOrm, depth: float) -> FormationContactOrm:
+        return FormationContactOrm(
+            id=uuid7(),
+            model_id=litho.id,
+            formation_id=form.id,
+            borehole_id=bh.id,
+            depth_top_m=depth,
+            source="borehole_observation",
+            confidence="medium",
+        )
+
+    c_top = _c(f_top, bh_source, 2.0)
+    c_body = _c(f_body, bh_source, 4.0)
+    c_base = _c(f_base, bh_source, 6.0)
+    c_nbr_1 = _c(f_nbr, bh_neighbour, 3.0)
+    c_nbr_2 = _c(f_nbr, bh_neighbour_2, 3.0)
+    db_session.add_all([c_top, c_body, c_base, c_nbr_1, c_nbr_2])
+    await db_session.commit()
+
+    # Four correlate gestures form the bilateral #135 closure.  Each runs the
+    # resolver, so bodies + body_id stamps exist after this block.
+    for ca, cb in (
+        (c_body, c_nbr_1),
+        (c_base, c_nbr_1),
+        (c_body, c_nbr_2),
+        (c_base, c_nbr_2),
+    ):
+        await CorrelateLithoContacts(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+            contact_a_id=ca.id,
+            contact_b_id=cb.id,
+        )
+
+    base_url = f"/projects/{project.id}/geology/models/{litho.id}"
+
+    # First Detect — sets to_target extents on the resolver-owned body.
+    first = await async_client.post(f"{base_url}/bodies/detect")
+    assert first.status_code == 200, first.text
+    assert first.json()["bodies_created"] >= 1, (
+        f"Setup precondition: first detect should set extents, got {first.json()}"
+    )
+
+    # Clear EVERY body — the user's "Delete all detected" gesture.  The
+    # ondelete=SET NULL FK now wipes the body_id stamp on all layers.
+    cleared = await async_client.delete(f"{base_url}/bodies")
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["bodies_deleted"] >= 1
+
+    list_after_clear = await async_client.get(f"{base_url}/bodies")
+    assert list_after_clear.json() == [], "Clear-all must leave zero bodies"
+
+    # Second Detect — the bug: with no resolver run, this found body_id IS NULL
+    # on every framed layer and created nothing.  The fix makes Detect run the
+    # resolver first, so the body re-materialises from the still-intact
+    # correlation graph.  bodies_created >= 1 is only reachable when the layers
+    # were re-stamped, since DetectBodies can only set an extent on a
+    # resolver-owned body_id — this transitively proves the re-stamp.
+    healed = await async_client.post(f"{base_url}/bodies/detect")
+    assert healed.status_code == 200, healed.text
+    assert healed.json()["bodies_created"] >= 1, (
+        "Detect must re-materialise the body after a clear-all; "
+        f"got {healed.json()} (resolver did not run before DetectBodies)"
+    )
+
+    # A body row exists again.
+    list_after_heal = await async_client.get(f"{base_url}/bodies")
+    assert len(list_after_heal.json()) >= 1, "Detect must rebuild at least one body row"
