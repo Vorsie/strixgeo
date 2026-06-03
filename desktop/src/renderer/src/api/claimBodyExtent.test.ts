@@ -19,8 +19,7 @@ setBaseUrl('http://localhost:1234')
 const PROJECT_ID = 'proj-1'
 const MODEL_ID = 'model-1'
 const REQUEST = {
-  formation_id: 'form-1',
-  source_investigation_id: 'inv-src',
+  body_id: 'body-1',
   side: 'left' as const,
   kind: 'pinch_out_halfway' as const,
   neighbour_inv_id: 'inv-nbr',
