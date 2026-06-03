@@ -42,6 +42,7 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_PINCH_OUT_HALFWAY,
@@ -249,36 +250,54 @@ async def test_bilateral_gesture_materialises_body_with_extents(
         contact_b_id=c_single_c.id,
     )
 
-    # DetectBodies must not auto-fire from CorrelateLithoContacts.
+    # CorrelateLithoContacts runs the resolver (which creates per-instance
+    # bodies), but the DETECTOR must not auto-fire — so no body carries a
+    # 'to_target' extent until the explicit Detect verb runs.
     pre_rows = (
         (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
-    assert len(pre_rows) == 0, (
-        f"Body detection must not auto-fire from CorrelateLithoContacts; got {len(pre_rows)}"
-    )
+    for pre in pre_rows:
+        assert pre.extent_left_kind != EXTENT_KIND_TO_TARGET, (
+            "Body detection must not auto-fire from CorrelateLithoContacts (left extent)"
+        )
+        assert pre.extent_right_kind != EXTENT_KIND_TO_TARGET, (
+            "Body detection must not auto-fire from CorrelateLithoContacts (right extent)"
+        )
 
-    # Explicit Detect verb.
+    # The resolver is the single authority that CREATES bodies (one per
+    # connected component) and stamps litho_layer.body_id.  DetectBodies is
+    # a pure extent manager over those resolver-owned bodies, so the resolver
+    # must run first.
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id, commit=False)
+
+    # Explicit Detect verb — writes to_target extents onto the resolver body.
     result = await DetectBodies(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
     )
     await db_session.commit()
 
-    assert result.bodies_created == 1, f"Expected 1 body created; got {result.bodies_created}"
+    # Both sides of the bilateral closure newly gained a to_target extent.
+    assert result.bodies_created == 2, (
+        f"Expected 2 sides to gain a to_target extent; got {result.bodies_created}"
+    )
     assert result.bodies_removed == 0
 
-    body_rows = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
-    )
-    assert len(body_rows) == 1, f"Expected exactly one BodyOrm row; got {len(body_rows)}"
-    body = body_rows[0]
-    assert body.formation_id == f_body.id, (
-        f"Body must be f_body ({f_body.id}); got {body.formation_id}"
-    )
+    # The detector-set extents must land on the resolver-owned body that the
+    # framed body layer (c_lens_body) was stamped with.  The body's
+    # representative formation is the shallowest component member, NOT
+    # necessarily f_body — so resolve via the framed layer's body_id stamp.
+    framed_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_lens_body.id)
+        )
+    ).scalar_one()
+    assert framed_body_id is not None, "Framed body layer must carry a resolver-stamped body_id"
+    body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == framed_body_id))
+    ).scalar_one()
     assert body.app_project_id == project.id
     assert body.model_id == litho.id
     # Both extent sides must be populated with 'to_target'.
@@ -300,7 +319,7 @@ async def test_bilateral_gesture_materialises_body_with_extents(
 
 
 # ---------------------------------------------------------------------------
-# Test 2: uncorrelate breaks topology → body row removed
+# Test 2: uncorrelate breaks topology → stale to_target extents cleared
 # ---------------------------------------------------------------------------
 
 
@@ -309,9 +328,11 @@ async def test_uncorrelate_removes_body_when_topology_breaks(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Bilateral closure → body; removing one side's edges drops the second
-    target investigation, so the next explicit Detect pass removes the stale
-    BodyOrm row.
+    """Bilateral closure → body with to_target extents; removing one side's
+    edges drops the second target investigation, so the next explicit Detect
+    pass CLEARS the stale to_target extents.  The resolver owns the body row
+    lifecycle, so the body itself is not deleted by Detect — only its
+    detector-set extents are retracted.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -352,12 +373,18 @@ async def test_uncorrelate_removes_body_when_topology_breaks(
     await DetectBodies(db_session).execute(project_id=project.id, model_id=litho.id)
     await db_session.commit()
 
-    pre_count = len(
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
-    )
-    assert pre_count == 1, f"Expected 1 body before removal; got {pre_count}"
+    # The framed body layer (c_body) has a resolver-owned body carrying both
+    # to_target extents after the bilateral detect.  Resolve via its body_id
+    # stamp (the body's representative formation may not be f_body).
+    framed_body_id = (
+        await db_session.execute(select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_body.id))
+    ).scalar_one()
+    assert framed_body_id is not None, "Framed body layer must carry a resolver-stamped body_id"
+    pre_body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == framed_body_id))
+    ).scalar_one()
+    assert pre_body.extent_left_kind == EXTENT_KIND_TO_TARGET
+    assert pre_body.extent_right_kind == EXTENT_KIND_TO_TARGET
 
     # Remove BOTH edges to bh_c — now only unilateral closure to bh_b remains.
     await UncorrelateLithoContacts(db_session).execute(
@@ -373,30 +400,38 @@ async def test_uncorrelate_removes_body_when_topology_breaks(
         contact_b_id=c_single_c.id,
     )
 
-    # Stale body row must survive until the next explicit Detect pass.
-    interim_rows = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
+    # The stale to_target extents must survive until the next explicit Detect
+    # pass (Uncorrelate does not auto-fire the detector).
+    interim_body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == pre_body.id))
+    ).scalar_one()
+    assert interim_body.extent_left_kind == EXTENT_KIND_TO_TARGET, (
+        "UncorrelateLithoContacts must NOT auto-clear detector extents"
     )
-    assert len(interim_rows) == 1, (
-        f"UncorrelateLithoContacts must NOT auto-reconcile body rows; got {len(interim_rows)}"
-    )
+    assert interim_body.extent_right_kind == EXTENT_KIND_TO_TARGET
 
-    # Explicit Detect pass — stale row removed.
-    await DetectBodies(db_session).execute(project_id=project.id, model_id=litho.id)
+    # Explicit Detect pass — the bilateral closure is gone, so both stale
+    # to_target extents are cleared back to None.
+    result = await DetectBodies(db_session).execute(project_id=project.id, model_id=litho.id)
     await db_session.commit()
 
-    post_rows = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
+    assert result.bodies_removed >= 1, (
+        f"Detect must clear stale to_target extents; got {result.bodies_removed}"
     )
-    assert len(post_rows) == 0, f"Expected no BodyOrm rows after Detect rerun; got {len(post_rows)}"
+    post_body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == pre_body.id))
+    ).scalar_one_or_none()
+    assert post_body is not None, "Detect must NOT delete the resolver-owned body row"
+    assert post_body.extent_left_kind is None, (
+        f"Stale left to_target extent must be cleared; got {post_body.extent_left_kind!r}"
+    )
+    assert post_body.extent_right_kind is None, (
+        f"Stale right to_target extent must be cleared; got {post_body.extent_right_kind!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Test 3: unapproved edges do NOT seed bodies
+# Test 3: unapproved edges do NOT seed to_target extents
 # ---------------------------------------------------------------------------
 
 
@@ -405,7 +440,11 @@ async def test_unapproved_edges_do_not_seed_bodies(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Unapproved edges forming a bilateral topology produce no BodyOrm rows."""
+    """Unapproved edges forming a bilateral topology produce no detector
+    extents.  The resolver still creates one (singleton) body per accepted
+    layer, but DetectBodies — which reads ``user_approved=True`` edges only —
+    finds no closure, so it sets zero ``to_target`` extents.
+    """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-t3")
@@ -446,21 +485,29 @@ async def test_unapproved_edges_do_not_seed_bodies(
     )
     await db_session.commit()
 
+    # No detector extents set — the detector reads approved edges only.
     assert result.bodies_created == 0, (
-        f"Unapproved edges must not create body rows; got bodies_created={result.bodies_created}"
+        f"Unapproved edges must not seed to_target extents; "
+        f"got bodies_created={result.bodies_created}"
     )
+    # Whatever bodies exist are resolver-owned singletons; NONE carries a
+    # detector-set to_target extent.
     body_rows = (
         (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
-    assert len(body_rows) == 0, (
-        f"Expected 0 BodyOrm rows from unapproved edges; got {len(body_rows)}"
-    )
+    for body in body_rows:
+        assert body.extent_left_kind != EXTENT_KIND_TO_TARGET, (
+            f"Body {body.id} must not have a to_target left extent from unapproved edges"
+        )
+        assert body.extent_right_kind != EXTENT_KIND_TO_TARGET, (
+            f"Body {body.id} must not have a to_target right extent from unapproved edges"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Test 4: unresolved ordinal → skipped, no body row
+# Test 4: framed layer with no resolved body → closure skipped
 # ---------------------------------------------------------------------------
 
 
@@ -469,7 +516,10 @@ async def test_unresolved_ordinal_logged_and_skipped(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """When instance_ordinal is null on the body's formation, detector skips it."""
+    """When the framed layer has no resolver-stamped ``body_id`` (the resolver
+    has not run yet), DetectBodies skips that closure and counts it in
+    ``bodies_skipped_unresolved_ordinal``.  No to_target extent is written.
+    """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project, name="Quat-t4")
@@ -501,16 +551,11 @@ async def test_unresolved_ordinal_logged_and_skipped(
         (c_base, c_single_c),
     ]:
         db_session.add(_raw_edge(litho, ca, cb, user_approved=True))
-    await db_session.flush()
-
-    # Force instance_ordinal to NULL on the body formation.
-    await db_session.execute(
-        update(GeologicalFormationOrm)
-        .where(GeologicalFormationOrm.id == f_body.id)
-        .values(instance_ordinal=None)
-    )
     await db_session.commit()
 
+    # Deliberately do NOT run ResolveLithoInstances, so no litho_layer carries
+    # a body_id stamp.  The detector finds the bilateral closure but cannot
+    # resolve its framed layer to a body → the closure is skipped.
     result = await DetectBodies(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
@@ -518,24 +563,25 @@ async def test_unresolved_ordinal_logged_and_skipped(
     await db_session.commit()
 
     assert result.bodies_skipped_unresolved_ordinal >= 1, (
-        "Detector must report at least one skip when instance_ordinal is null; "
-        f"got {result.bodies_skipped_unresolved_ordinal}"
+        "Detector must report at least one skip when the framed layer has no "
+        f"resolved body; got {result.bodies_skipped_unresolved_ordinal}"
     )
     assert result.bodies_created == 0, (
-        f"Skipped candidates must not create body rows; got bodies_created={result.bodies_created}"
+        f"Skipped closures must not set extents; got bodies_created={result.bodies_created}"
     )
+    # No body carries a detector-set to_target extent (none were resolvable).
     body_rows = (
         (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
-    assert len(body_rows) == 0, (
-        f"Expected 0 BodyOrm rows when ordinal unresolved; got {len(body_rows)}"
-    )
+    for body in body_rows:
+        assert body.extent_left_kind != EXTENT_KIND_TO_TARGET
+        assert body.extent_right_kind != EXTENT_KIND_TO_TARGET
 
 
 # ---------------------------------------------------------------------------
-# Test 5: named body survives a stale-topology reconcile (preserve-named guard)
+# Test 5: DetectBodies never deletes body rows (resolver owns lifecycle)
 # ---------------------------------------------------------------------------
 
 
@@ -544,9 +590,10 @@ async def test_named_body_survives_stale_topology_reconcile(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """A BodyOrm row with name IS NOT NULL survives the reconcile sweep even
-    when its topology no longer matches the bilateral-closure rule.
-    Named bodies can only be removed via the explicit DELETE endpoint.
+    """DetectBodies is a pure extent manager — it never deletes body rows
+    (the resolver owns the body lifecycle).  A named body whose topology no
+    longer qualifies survives a Detect pass against an empty edge graph; its
+    extents (none) are untouched and the row persists.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -576,8 +623,9 @@ async def test_named_body_survives_stale_topology_reconcile(
     db_session.add(named_body)
     await db_session.commit()
 
-    # Run detector against an empty edge graph — no candidate fires, so
-    # the named row falls into the "stale" branch of the reconcile sweep.
+    # Run detector against an empty edge graph — no candidate fires.  Detect
+    # does not delete body rows, and the named row has no to_target extent to
+    # clear, so nothing changes.
     result = await DetectBodies(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
@@ -585,7 +633,7 @@ async def test_named_body_survives_stale_topology_reconcile(
     await db_session.commit()
 
     assert result.bodies_removed == 0, (
-        f"Named body must survive a stale-topology reconcile; "
+        f"DetectBodies must not clear/remove the named body; "
         f"got bodies_removed={result.bodies_removed}"
     )
     survivors = (
@@ -656,17 +704,20 @@ async def test_provenance_rule_user_claimed_extent_is_preserved(
             contact_b_id=cb.id,
         )
 
-    # First detect pass — both extents land as 'to_target'.
+    # First detect pass — both extents land as 'to_target' on the resolver-
+    # owned body for the framed body formation.
     await DetectBodies(db_session).execute(project_id=project.id, model_id=litho.id)
     await db_session.commit()
 
-    body_rows = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
-    )
-    assert len(body_rows) == 1
-    body = body_rows[0]
+    framed_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_lens_body.id)
+        )
+    ).scalar_one()
+    assert framed_body_id is not None, "Framed body layer must carry a resolver-stamped body_id"
+    body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == framed_body_id))
+    ).scalar_one()
     assert body.extent_left_kind == EXTENT_KIND_TO_TARGET
     assert body.extent_right_kind == EXTENT_KIND_TO_TARGET
 
@@ -685,21 +736,13 @@ async def test_provenance_rule_user_claimed_extent_is_preserved(
     )
     await db_session.commit()
 
-    # The body must NOT be removed (preserve-claimed guard).
+    # The user-claimed extent must NOT be cleared by the reconcile step.
     assert result.bodies_removed == 0, (
-        "Body with user-claimed extent must not be removed by reconcile; "
+        "Body with user-claimed extent must not have its extents cleared; "
         f"got bodies_removed={result.bodies_removed}"
     )
 
-    updated_rows = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
-        .scalars()
-        .all()
-    )
-    assert len(updated_rows) == 1, (
-        f"Body with user-claimed extent must persist; got {len(updated_rows)} rows"
-    )
-    updated = updated_rows[0]
+    updated = (await db_session.execute(select(BodyOrm).where(BodyOrm.id == body.id))).scalar_one()
 
     # Left side: provenance rule — must remain 'pinch_out_halfway'.
     assert updated.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY, (
@@ -827,8 +870,10 @@ async def test_detect_bodies_issues_one_body_table_select(
     finally:
         event.remove(sync_engine, "before_cursor_execute", _count_body_selects)
 
-    assert result.bodies_created == n_bodies, (
-        f"Expected {n_bodies} bodies created; got {result.bodies_created}"
+    # Each of the n_bodies bilateral bodies gains a to_target extent on BOTH
+    # sides, so the "extents set" count is 2 per body.
+    assert result.bodies_created == 2 * n_bodies, (
+        f"Expected {2 * n_bodies} sides to gain a to_target extent; got {result.bodies_created}"
     )
     assert len(body_selects) == 1, (
         f"E1 regression: DetectBodies must issue exactly 1 body-table SELECT "
