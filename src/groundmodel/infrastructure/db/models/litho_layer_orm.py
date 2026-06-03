@@ -105,6 +105,9 @@ class LithoLayerOrm(Base):
         Index("idx_litho_layer_formation", "formation_id"),
         # Litho↔geo coupling lookup (debt #162 parity).
         Index("idx_litho_layer_parent_geo", "parent_geo_contact_id"),
+        # Body (instance) backlink — the resolver stamps this; the renderer
+        # groups layers by body to frame each instance from its member layers.
+        Index("idx_litho_layer_body", "body_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -160,6 +163,16 @@ class LithoLayerOrm(Base):
     parent_geo_contact_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("formation_contact.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # The body (instance) this layer belongs to. NULL until the instance
+    # resolver runs. SET NULL on body delete so the layer survives a body
+    # reconciliation that drops its instance. See spec
+    # docs/superpowers/specs/2026-06-03-per-instance-body-identity-design.md.
+    body_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("body.id", ondelete="SET NULL"),
         nullable=True,
     )
 
