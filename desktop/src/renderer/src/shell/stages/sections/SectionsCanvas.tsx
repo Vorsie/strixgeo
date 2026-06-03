@@ -94,6 +94,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleAutoPopulateFromStratigraphy,
       handleInlineCreateFormation,
       lithoContacts,
+      lithoLayers,
       lithoCrossingPinchOuts,
       lithoFormations,
       lithoSurfacesByFormationId,
@@ -774,37 +775,42 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Open-end a litho LAYER from its contact right-click (replaces the retired
   // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent on the
-  // body that frames this layer's formation on its investigation. The resolver
-  // owns body creation, so a body exists for every accepted unit — we resolve
-  // it from lensList by (formation_id, source_investigation_id).
+  // body that frames this layer. The resolver owns body creation, so a body
+  // exists for every accepted unit.
   //
-  // KNOWN LIMITATION (site 788): the contact right-click only carries
-  // (formationId, investigationId, side) — it cannot distinguish two stacked
-  // same-formation instances on one column, so the (formation, source) match
-  // picks the first such body. The fully-unambiguous fix requires surfacing
-  // litho_layer.body_id on LithoLayerResponse and threading it through the
-  // contact menu; that is out of Task-5 scope. Reported as a concern.
+  // Site 788 fix: the right-clicked contact id shares the UUID of the litho
+  // layer at its top boundary (lithoLayerToContact — A2.5 UUID-preserving
+  // backfill), so we read litho_layer.body_id off that layer. This
+  // disambiguates two stacked same-formation instances on one column — the old
+  // (formation_id, source_investigation_id) match picked the first such body
+  // and could not tell stacked instances apart.
   const handleOpenEndLayer = useCallback(
-    async (formationId: string, investigationId: string, side: 'left' | 'right'): Promise<void> => {
+    async (
+      contactId: string,
+      formationId: string,
+      investigationId: string,
+      side: 'left' | 'right',
+    ): Promise<void> => {
       if (!activeLithoModel) return
       log.info(
         'section',
-        `open-end-layer: formation=${formationId} inv=${investigationId} side=${side}`,
+        `open-end-layer: contact=${contactId} formation=${formationId} inv=${investigationId} side=${side}`,
       )
-      const body = lensList.find(
-        b => b.formation_id === formationId && b.source_investigation_id === investigationId,
-      )
-      if (!body) {
+      // The contact id == the litho layer id at its top boundary; read body_id
+      // off that layer (resolved by the resolver on every accept/rebuild).
+      const layer = lithoLayers.find(l => l.id === contactId)
+      const bodyId = layer?.body_id ?? null
+      if (!bodyId) {
         log.warn(
           'section',
-          `open-end-layer: no body for formation=${formationId} inv=${investigationId} — resolve/rebuild first`,
+          `open-end-layer: no body_id on layer ${contactId} — resolve/rebuild first`,
         )
         toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
         return
       }
       try {
         await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          body_id: body.id,
+          body_id: bodyId,
           side,
           kind: 'open',
         })
@@ -819,7 +825,7 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'handleOpenEndLayer: failed', err)
       }
     },
-    [activeLithoModel, project.id, lensList, refetchLensData, toast],
+    [activeLithoModel, project.id, lithoLayers, refetchLensData, toast],
   )
 
   // Clear one side's user extent.  204 = body reaped; 200 = still alive.
@@ -2306,6 +2312,10 @@ export default function SectionsCanvas(): JSX.Element {
           }
           // #163f Slice 2 — lens wedges + shaping (litho axis only).
           lenses={isLitho ? lensList : undefined}
+          // Bug C ("body jump") — committed bodies frame from their own member
+          // layer (litho_layer.body_id). Pass the accepted litho layers so
+          // BodyExtentOverlay can resolve each body's source band depth.
+          lithoLayers={isLitho ? lithoLayers : undefined}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
