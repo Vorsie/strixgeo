@@ -240,6 +240,14 @@ export interface UseGeologicalModelResult {
   // Loaded from the active litho model; independent of the geological
   // contact set so mutations in one set never invalidate the other.
   lithoContacts: FormationContactResponse[]
+  /**
+   * Accepted litho layers for the active model — the Shape A source of truth.
+   * Each carries ``body_id`` (the instance it belongs to). ``lithoContacts``
+   * is the boundary-centric projection of this set; consumers that need the
+   * body link (e.g. BodyExtentOverlay framing, the open-end gesture) read
+   * ``lithoLayers`` directly.
+   */
+  lithoLayers: LithoLayerResponse[]
   lithoFormations: GeologicalFormationResponse[]
   lithoSurfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
   /**
@@ -5055,6 +5063,7 @@ export function useGeologicalModel({
     handleActivateLithoModel,
     handleDeleteLithoModel,
     lithoContacts,
+    lithoLayers,
     lithoFormations,
     lithoSurfacesByFormationId,
     lithoStaleSurfaceCount,
