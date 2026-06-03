@@ -76,7 +76,12 @@ _VERTICAL_EPSG = 5710  # Ostend datum
 #                   contacts + a bilateral body (body/contact action specs).
 #   Row 3 (y+600) : CPTs 6,7   → Section C, PRE-SEEDED with an interfingered
 #                   crossing (auto-lens spec).
-# The three scenarios live on DISJOINT CPTs so ``auto-correlate`` — which loads
+#   Row 4 (y+900) : CPTs 8,9,10 → Section D, PRE-SEEDED with TWO uncorrelated
+#                   same-lithology (KLEI) bodies at different depths on the
+#                   centre CPT — the per-instance body spec
+#                   (flow_per_instance_body): two distinct depth-ranked labels
+#                   (QC1 / QC2), merge-on-correlate, and no-jump framing.
+# The four scenarios live on DISJOINT CPTs so ``auto-correlate`` — which loads
 # the whole model — can never cross-contaminate one section's data into another.
 _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 0.0),
@@ -87,6 +92,9 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (300.0, 300.0),
     (0.0, 600.0),
     (150.0, 600.0),
+    (0.0, 900.0),
+    (150.0, 900.0),
+    (300.0, 900.0),
 ]
 
 # Realistic CPT qc profile: stiff sand below silt below soft clay.
@@ -120,6 +128,17 @@ _PINCH_OUT_CPT_INDICES = {2}
 # specs run first. The explicit crossing contacts are still seeded directly in
 # ``_seed_action_scenarios_async`` (independent of any series).
 _CROSSING_CPT_INDICES = {6, 7}
+
+# The per-instance CPTs (Section D) are likewise DEDICATED and carry NO qc
+# series, for the same reason as the crossing CPTs: ``suggest-litho`` returns no
+# layers for a series-less CPT, so every all-CPT seeder (suggest + accept) skips
+# them and the pre-seeded two-instance scenario stays pristine no matter what
+# other specs run first. CPT 8 = centre/source (two KLEI units), 9 = left
+# target, 10 = right target.
+_PER_INSTANCE_CPT_INDICES = {8, 9, 10}
+
+# CPTs that carry NO qc series (dedicated pre-seeded scenarios — see above).
+_SERIESLESS_CPT_INDICES = _CROSSING_CPT_INDICES | _PER_INSTANCE_CPT_INDICES
 
 
 # ---------------------------------------------------------------------------
@@ -281,11 +300,12 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         cpt_ids.append(cpt_id)
         x = _SITE_X + dx
         y = _SITE_Y + dy
-        # Crossing CPTs carry no series (see _CROSSING_CPT_INDICES).
-        is_crossing = i in _CROSSING_CPT_INDICES
-        series = _empty_series() if is_crossing else _make_series(i)
-        n_rows = 0 if is_crossing else _N_ROWS
-        max_depth = 0.0 if is_crossing else _N_ROWS * _DEPTH_STEP
+        # Dedicated pre-seeded scenario CPTs carry no series (crossing +
+        # per-instance — see _SERIESLESS_CPT_INDICES).
+        is_seriesless = i in _SERIESLESS_CPT_INDICES
+        series = _empty_series() if is_seriesless else _make_series(i)
+        n_rows = 0 if is_seriesless else _N_ROWS
+        max_depth = 0.0 if is_seriesless else _N_ROWS * _DEPTH_STEP
         cpts.append(
             {
                 "id": cpt_id,
@@ -475,6 +495,26 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
             "view_state": {},
             "seeded_formation_contact_ids": [],
         },
+        {
+            "id": _uid("section-d"),
+            "app_project_id": project_id,
+            "name": "Section D (E2E)",
+            "description": "Fourth transect — pre-seeded two-instance bodies (per-instance)",
+            "start_x": _SITE_X - 100.0,
+            "start_y": _SITE_Y + 900.0,
+            "end_x": _SITE_X + 400.0,
+            "end_y": _SITE_Y + 900.0,
+            "epsg": _EPSG,
+            "projection_buffer_m": 200.0,
+            "vertical_exaggeration": 5.0,
+            "excluded_borehole_ids": [],
+            "excluded_cpt_ids": [],
+            "min_depth_m": None,
+            "max_depth_m": None,
+            "display_order": 3,
+            "view_state": {},
+            "seeded_formation_contact_ids": [],
+        },
     ]
 
     # --- Assemble bundle -------------------------------------------------------
@@ -616,8 +656,10 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     parent = UUID(_uid("formation-0"))  # Quaternary geological formation
     sec_b = UUID(_uid("section-b"))
     sec_c = UUID(_uid("section-c"))
+    sec_d = UUID(_uid("section-d"))
     cpt3, cpt4, cpt5 = UUID(_uid("cpt-3")), UUID(_uid("cpt-4")), UUID(_uid("cpt-5"))
     cpt6, cpt7 = UUID(_uid("cpt-6")), UUID(_uid("cpt-7"))
+    cpt8, cpt9, cpt10 = UUID(_uid("cpt-8")), UUID(_uid("cpt-9")), UUID(_uid("cpt-10"))
 
     async with AsyncSessionFactory() as s:
 
@@ -689,6 +731,67 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         crossing_contact_ids = [x1.id, x2.id, x3.id, x4.id]
         await s.flush()
 
+        # --- Per-instance scenario (Section D) -------------------------------
+        # Two UNCORRELATED same-lithology (KLEI) units on the SAME centre/source
+        # column (CPT-8) at DIFFERENT depths, each closing BILATERALLY to a left
+        # (CPT-9) AND a right (CPT-10) target. The resolver makes one body per
+        # connected component; both share the (Quaternary, KLEI) naming group, so
+        # they get depth-ranked labels QC1 (shallow) + QC2 (deep). They are
+        # framed from their OWN member layer — the deep body must NOT jump up to
+        # the shallow occurrence (Bug C "body jump").
+        #
+        # The detector requires BILATERAL closure (≥2 distinct target
+        # investigations) — see ``detect_body_extents`` — so each unit needs a
+        # target on BOTH sides, exactly like the Section B body (which closes to
+        # CPT-3 + CPT-5). Topology (framing uses the unit's top contact + its
+        # next-deeper contact):
+        #   CPT-8 (source): KLEI@2 / ZAND@4 / KLEI@7 / ZAND@9
+        #   CPT-9  (left targets):  ZAND@3 (shallow), ZAND@8 (deep)
+        #   CPT-10 (right targets): ZAND@3 (shallow), ZAND@8 (deep)
+        #   shallow body (KLEI@2, ZAND@4) → both correlate to L@3 AND R@3
+        #   deep    body (KLEI@7, ZAND@9) → both correlate to L@8 AND R@8
+        # All ZAND targets share one formation row so they never spawn their own
+        # KLEI-group bodies (and being singletons on their columns, no body at
+        # all).
+        pi_klei_top = form("KLEI inst top (per-instance)", "KLEI", 50, "#c2a0d8")
+        pi_zand_mid = form("ZAND inst sep (per-instance)", "ZAND", 51, "#f5c842")
+        pi_klei_deep = form("KLEI inst deep (per-instance)", "KLEI", 52, "#c2a0d8")
+        pi_zand_base = form("ZAND inst base (per-instance)", "ZAND", 53, "#f5c842")
+        pi_tgt = form("ZAND inst target (per-instance)", "ZAND", 54, "#f5c842")
+        await s.flush()
+        # Source column (CPT-8) — two KLEI units separated by ZAND.
+        d_klei_shallow = contact(pi_klei_top, cpt8, 2.0)
+        d_zand_shallow_base = contact(pi_zand_mid, cpt8, 4.0)
+        d_klei_deep = contact(pi_klei_deep, cpt8, 7.0)
+        d_zand_deep_base = contact(pi_zand_base, cpt8, 9.0)
+        # Targets — left (CPT-9) + right (CPT-10), one shallow + one deep each.
+        d_left_shallow = contact(pi_tgt, cpt9, 3.0)
+        d_left_deep = contact(pi_tgt, cpt9, 8.0)
+        d_right_shallow = contact(pi_tgt, cpt10, 3.0)
+        d_right_deep = contact(pi_tgt, cpt10, 8.0)
+        await s.flush()
+        # Bilateral closure: each unit's top + base correlate to BOTH a left and
+        # a right target at the matching depth.
+        edge(d_klei_shallow, d_left_shallow)
+        edge(d_zand_shallow_base, d_left_shallow)
+        edge(d_klei_shallow, d_right_shallow)
+        edge(d_zand_shallow_base, d_right_shallow)
+        edge(d_klei_deep, d_left_deep)
+        edge(d_zand_deep_base, d_left_deep)
+        edge(d_klei_deep, d_right_deep)
+        edge(d_zand_deep_base, d_right_deep)
+        per_instance_contact_ids = [
+            d_klei_shallow.id,
+            d_zand_shallow_base.id,
+            d_klei_deep.id,
+            d_zand_deep_base.id,
+            d_left_shallow.id,
+            d_left_deep.id,
+            d_right_shallow.id,
+            d_right_deep.id,
+        ]
+        await s.flush()
+
         # Make the contacts visible on their sections (explicit-content invariant).
         sb = (
             await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_b))
@@ -702,6 +805,12 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         sc.seeded_formation_contact_ids = list(
             set(sc.seeded_formation_contact_ids or []) | set(crossing_contact_ids)
         )
+        sd = (
+            await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_d))
+        ).scalar_one()
+        sd.seeded_formation_contact_ids = list(
+            set(sd.seeded_formation_contact_ids or []) | set(per_instance_contact_ids)
+        )
         await s.commit()
 
         # Resolve instance ordinals (DetectBodies needs them), then detect the
@@ -712,7 +821,7 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         await s.commit()
         print(
             f"[fixture] action scenarios seeded — bodies_created={res.bodies_created} "
-            f"(body on Section B, crossing on Section C)",
+            f"(body on Section B, crossing on Section C, two-instance on Section D)",
             file=sys.stderr,
         )
 
