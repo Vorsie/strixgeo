@@ -341,15 +341,15 @@ export default function SectionsToolbar(): JSX.Element {
       )
       log.success(
         'sections',
-        `detectLenses: created=${result.lenses_created} removed=${result.lenses_removed} ` +
-          `skipped_unresolved_ordinal=${result.lenses_skipped_unresolved_ordinal}`,
+        `detectLenses: created=${result.bodies_created} removed=${result.bodies_removed} ` +
+          `skipped_unresolved_ordinal=${result.bodies_skipped_unresolved_ordinal}`,
       )
       const parts: string[] = [
-        `${result.lenses_created} new`,
-        `${result.lenses_removed} stale removed`,
+        `${result.bodies_created} new`,
+        `${result.bodies_removed} stale removed`,
       ]
-      if (result.lenses_skipped_unresolved_ordinal > 0) {
-        parts.push(`${result.lenses_skipped_unresolved_ordinal} skipped (ordinal pending)`)
+      if (result.bodies_skipped_unresolved_ordinal > 0) {
+        parts.push(`${result.bodies_skipped_unresolved_ordinal} skipped (ordinal pending)`)
       }
       toast('success', `Lens detect: ${parts.join(', ')}.`)
     } catch (err) {
