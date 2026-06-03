@@ -238,8 +238,9 @@ export interface GeologicalFormationUpdatePayload {
   description?: string | null
   lithology?: string | null
   nad_class?: number | null
-  // Phase-2 Slice 2: lock-toggle from LithologyInspector. When true the
-  // ordinal resolver skips this row; when false it may renumber freely.
+  // Legacy formation-level ordinal lock. The litho instance resolver no
+  // longer reads it (per-instance bodies are auto-ranked by depth); the
+  // field is retained on the PATCH contract for backwards compatibility.
   instance_ordinal_locked?: boolean | null
   // Debt #87: cleared to false when the engineer confirms the
   // TIN-extrapolated parent. Detach action sends false + parent_formation_id
