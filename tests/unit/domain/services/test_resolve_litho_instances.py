@@ -88,6 +88,31 @@ def test_distinct_soil_codes_number_independently() -> None:
     assert result.layer_to_ordinal[silt.layer_id] == 0
 
 
+def test_cross_formation_component_maps_to_shallowest_formation() -> None:
+    """A component spanning two formation rows maps every member to the shallowest's.
+
+    Two SAND layers under the same parent but with DIFFERENT formation
+    rows (clean sand vs silty sand, i.e. different admixture), correlated
+    into ONE component -> every member maps to the SHALLOWEST member's
+    formation_id, and the single instance reports that formation.
+    """
+    shallow = _layer("00000000-0000-0000-0000-000000000001", 2.0, INV_A, F_SAND)
+    deep = _layer(
+        "00000000-0000-0000-0000-000000000002",
+        8.0,
+        INV_B,
+        UUID("00000000-0000-0000-0000-0000000000f3"),  # F_SAND_SILTY
+    )
+    edges = [LayerEdge(layer_a_id=shallow.layer_id, layer_b_id=deep.layer_id)]
+    result = resolve_litho_instances(layers=[shallow, deep], edges=edges)
+    assert len(result.instances) == 1
+    assert shallow.layer_id in result.layer_to_formation
+    assert deep.layer_id in result.layer_to_formation
+    assert result.layer_to_formation[shallow.layer_id] == F_SAND
+    assert result.layer_to_formation[deep.layer_id] == F_SAND
+    assert result.instances[0].formation_id == F_SAND
+
+
 def test_instance_representative_is_shallowest_layer() -> None:
     """A multi-layer instance's representative identity is its shallowest layer.
 
