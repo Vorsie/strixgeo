@@ -902,9 +902,12 @@ export default function BodyExtentOverlay({
 
   // Label font scales with the vertical zoom (screen px per metre) so the
   // auto-name shrinks when zoomed out and grows when zoomed in, clamped to a
-  // legible range (dogfeed 2026-06-01).
+  // legible range. The upper cap was 24 px but that overwhelmed the section
+  // when zoomed in (dogfeed 2026-06-03); 13 px sits just above the 9 px
+  // per-unit contact labels so bodies still read as emphasised without
+  // dominating. Tunable here if it still feels off.
   const pxPerMeter = Math.abs(levelToScreen(1) - levelToScreen(0))
-  const labelFontSize = Math.max(8, Math.min(24, Math.round(pxPerMeter * 0.9)))
+  const labelFontSize = Math.max(8, Math.min(13, Math.round(pxPerMeter * 0.6)))
 
   function startAddNode(
     body: ResolvedBody,
