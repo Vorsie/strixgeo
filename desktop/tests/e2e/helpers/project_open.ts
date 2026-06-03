@@ -176,6 +176,60 @@ export async function openFixtureProject(
 }
 
 /**
+ * Re-run the explicit "Detect bodies" pass on the project's lithostratigraphic
+ * model so every resolver-owned body carries its detector ``to_target`` extents.
+ *
+ * Why a spec needs this
+ * ---------------------
+ * The single authority for body EXISTENCE is ``ResolveLithoInstances`` (one
+ * body per connected component of accepted layers); ``DetectBodies`` only
+ * writes the detector-owned ``to_target`` EXTENTS onto those bodies. A
+ * model-wide ``auto-correlate`` + ``accept`` (fired by sibling specs such as
+ * ``auto-correlate-and-lenses`` / ``flow_auto_correlate`` / ``flow_auto_lens_ui``
+ * on the SHARED fixture DB) shifts instance ordinals, which makes the resolver
+ * DELETE + RECREATE body rows — and the recreated rows start with NO extents
+ * because ``DetectBodies`` is not auto-run after a model-wide accept. The body
+ * topology is unchanged (the seeded manual edges survive), only the extents are
+ * dropped, so ``BodyExtentOverlay`` renders nothing (``body-extent-fill`` /
+ * ``body-label`` absent) until the detector re-stamps them.
+ *
+ * Calling this at the start of a body-rendering spec re-establishes the extents
+ * the prior spec stripped — exactly what the "Detect bodies" toolbar verb does.
+ * It re-creates required preconditions; it does not weaken any assertion (the
+ * bodies + their bilateral closure are genuinely present in the seed).
+ *
+ * Idempotent — on a freshly-seeded DB (extents already present) it is a no-op.
+ *
+ * Parameters
+ * ----------
+ * page
+ *     The renderer ``Page`` (used only as a same-origin ``fetch`` host).
+ * fixtureProjectId
+ *     The seeded project's UUID.
+ */
+export async function detectBodiesForFixture(
+  page: Page,
+  fixtureProjectId: string,
+): Promise<void> {
+  // The renderer must be loaded for ``fetch`` (same-origin to the backend) to
+  // work. Safe to call before openFixtureProject (page is at the Welcome screen)
+  // or after — either way we only need the JS context, not any particular view.
+  await page.waitForLoadState('domcontentloaded')
+  await page.evaluate(async ([base, pid]) => {
+    const modelsResp = await fetch(`${base}/projects/${pid}/geology/models`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const models: any[] = await modelsResp.json()
+    const litho = models.find((m: { kind: string }) => m.kind === 'lithostratigraphic')
+    if (!litho) return
+    await fetch(`${base}/projects/${pid}/geology/models/${litho.id}/bodies/detect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+  }, [API_BASE, fixtureProjectId] as const)
+}
+
+/**
  * Navigate to a workflow stage by clicking its spine button.
  *
  * The spine button carries a *dynamic* ``aria-label`` (a per-stage summary
