@@ -2906,9 +2906,11 @@ export const api = {
       projectId: string,
       modelId: string,
     ): Promise<{
-      lenses_created: number
-      lenses_removed: number
-      lenses_skipped_unresolved_ordinal: number
+      // Backend DetectBodiesResponse uses bodies_* field names — the legacy
+      // lenses_* names returned undefined at the call site (dogfeed 2026-06-03).
+      bodies_created: number
+      bodies_removed: number
+      bodies_skipped_unresolved_ordinal: number
     }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
@@ -2920,9 +2922,11 @@ export const api = {
       projectId: string,
       modelId: string,
     ): Promise<{
-      lenses_created: number
-      lenses_removed: number
-      lenses_skipped_unresolved_ordinal: number
+      // Backend DetectBodiesResponse uses bodies_* field names — the legacy
+      // lenses_* names returned undefined at the call site (dogfeed 2026-06-03).
+      bodies_created: number
+      bodies_removed: number
+      bodies_skipped_unresolved_ordinal: number
     }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
@@ -2944,7 +2948,7 @@ export const api = {
       errored: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
+        `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
         {},
       ),
 
@@ -2959,7 +2963,7 @@ export const api = {
       errored: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
+        `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
         {},
       ),
 
