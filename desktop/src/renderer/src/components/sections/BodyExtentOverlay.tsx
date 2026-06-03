@@ -1048,6 +1048,39 @@ export default function BodyExtentOverlay({
     }
   }, [drag, onSaveLensShape, screenXToAlong, screenToLevel])
 
+  // TEMP diagnostic (dogfeed 2026-06-03): one console.info per Suggest run
+  // saying, per ghost candidate, whether it resolves and — if not — which
+  // point failed (source column / above / below). console.info so it shows
+  // under the default DevTools level.
+  useEffect(() => {
+    if (!ghostCandidates?.length) return
+    let ok = 0
+    const skips: string[] = []
+    for (const c of ghostCandidates) {
+      const col = colByInv.get(c.source_investigation_id)
+      if (!col) {
+        skips.push(`no-col ${c.side}/${c.kind} src=${c.source_investigation_id.slice(0, 8)}`)
+        continue
+      }
+      if (!worldPtEdge(c.above_contact_id, col.along)) {
+        skips.push(`no-above ${c.side}/${c.kind} above=${c.above_contact_id.slice(0, 8)}`)
+        continue
+      }
+      if (c.below_contact_id && !worldPtEdge(c.below_contact_id, col.along)) {
+        skips.push(`no-below ${c.side}/${c.kind} below=${c.below_contact_id.slice(0, 8)}`)
+        continue
+      }
+      ok += 1
+    }
+    log.info(
+      'body-ghost',
+      `ghost resolve: ${ok}/${ghostCandidates.length} drawable; skips: ${skips.join(' | ') || 'none'}`,
+    )
+    // reason: colByInv + worldPtEdge are stable memo outputs; re-runs only on a
+    // fresh candidate set, which is the intended trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ghostCandidates])
+
   function toScreen(p: WorldPt): { x: number; y: number } {
     return {
       x: alongToScreenX(p.along_m),
