@@ -317,13 +317,23 @@ export default function SectionsToolbar(): JSX.Element {
           `${result.skipped_unfinished_section} skipped (sections not fully correlated), ` +
           `${result.skipped_no_primary} skipped (no primary section).`,
       )
+      // Refresh the canvas so the materialised bodies render without a manual
+      // section reselect — the dogfeed "I need to refresh after materialise to
+      // see them" report (2026-06-03).
+      requestCorrelationEdgesRefetch?.()
     } catch (err) {
       log.error('sections', 'materialiseLensCompanions: failed', err)
       toast('error', 'Materialise lens companions failed — try again.')
     } finally {
       setMaterialisingCompanions(false)
     }
-  }, [activeLithoModel, materialisingCompanions, project.id, toast])
+  }, [
+    activeLithoModel,
+    materialisingCompanions,
+    project.id,
+    requestCorrelationEdgesRefetch,
+    toast,
+  ])
 
   // Detect lenses (owner directive 2026-05-31): explicit verb that replaces
   // the auto-detect previously embedded in every edge mutation + destructive
@@ -335,9 +345,14 @@ export default function SectionsToolbar(): JSX.Element {
     log.info('sections', `detectLenses: model=${activeLithoModel.id}`)
     setDetectingLenses(true)
     try {
+      // Body extents are section-scoped (2D): pass the active section so each
+      // body closes to the NEAREST target on each side along this section's
+      // column order, instead of the geometry-free fallback that tapered every
+      // body to the first/leftmost test (dogfeed 2026-06-03).
       const result = await api.geology.detectLithoLenses(
         project.id,
         activeLithoModel.id,
+        selectedSectionId ?? undefined,
       )
       log.success(
         'sections',
@@ -352,13 +367,23 @@ export default function SectionsToolbar(): JSX.Element {
         parts.push(`${result.bodies_skipped_unresolved_ordinal} skipped (ordinal pending)`)
       }
       toast('success', `Lens detect: ${parts.join(', ')}.`)
+      // Refresh the canvas so the new/updated body wedges render without a
+      // manual section reselect (same bus signal as auto-correlate).
+      requestCorrelationEdgesRefetch?.()
     } catch (err) {
       log.error('sections', 'detectLenses: failed', err)
       toast('error', 'Detect lenses failed — try again.')
     } finally {
       setDetectingLenses(false)
     }
-  }, [activeLithoModel, detectingLenses, project.id, toast])
+  }, [
+    activeLithoModel,
+    detectingLenses,
+    project.id,
+    selectedSectionId,
+    requestCorrelationEdgesRefetch,
+    toast,
+  ])
 
   // Suggest pinch-outs (#body-with-extent Slice 7.3): call the
   // suggest-pinch-outs endpoint and store candidates on the sections bus so
