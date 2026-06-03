@@ -1,13 +1,27 @@
-"""Pure domain service — assign instance ordinals across a litho model.
+"""Pure domain service — assign instance ordinals over a litho model.
 
-This module is the correctness heart of Phase-2 litho correlation.
-It takes a snapshot of the current edge graph + formation list and
-returns a mapping of formation_id → assigned ordinal, plus a list of
-lock conflicts that the caller must surface to the engineer.
+An *instance* is one connected component of correlated litho layers. Two
+layers belong to the same instance iff a path of user-approved correlation
+edges connects them. Uncorrelated layers — including two same-formation
+layers stacked at one column, or two laterally-separate columns never linked
+— are distinct instances and receive distinct ordinals.
 
-No I/O, no database access, no logging dependency.  The caller
-(CorrelateLithoUnits / UncorrelateLithoUnits) loads the data, calls
-this function, and writes the results back.
+Ordinals are assigned per ``(parent_formation_id, litho_main_soil_code)``
+naming group, shallowest component first, starting at 0. The component with
+the shallowest member is ordinal 0, the next is 1, and so on. This matches
+the depth-rank the section renderer already computes for body labels
+(QHSa1 = shallowest sand instance under that parent).
+
+No I/O, no database access, no logging. The caller
+(``ResolveLithoInstances`` use case) loads the data, calls this function, and
+writes the results back (creating/reconciling body rows + stamping
+``litho_layer.body_id``).
+
+This module also hosts ``connected_formation_ids`` (+ its ``CorrelationEdge``
+input DTO), a separate pure BFS helper consumed by
+``application.propagate_litho_admixtures`` to walk the formation-level
+correlation graph. It is intentionally kept distinct from the layer-level
+resolver above.
 """
 
 from __future__ import annotations
@@ -16,56 +30,221 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from uuid import UUID
 
-# ---------------------------------------------------------------------------
-# Input data-transfer objects — simple dataclasses, no ORM.
-# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class LayerNode:
+    """Lightweight snapshot of one accepted litho_layer row.
+
+    Attributes
+    ----------
+    layer_id : UUID
+        Primary key of the litho_layer row. Also the id the correlation
+        edge endpoints reference (edges FK litho_layer.id post-A4).
+    formation_id : UUID
+        The layer's naming-type formation row.
+    parent_formation_id : UUID | None
+        Parent geological formation. Together with ``litho_main_soil_code``
+        this forms the naming group. Litho layers always have a parent.
+    litho_main_soil_code : str | None
+        Base lithology token (ZAND/KLEI/SILT/GRIND/VEEN).
+    depth_top_m : float
+        Top depth of the layer interval; the ordinal sort key.
+    source_investigation_id : UUID
+        The layer's anchor investigation (borehole_id or cpt_id).
+    """
+
+    layer_id: UUID
+    formation_id: UUID
+    parent_formation_id: UUID | None
+    litho_main_soil_code: str | None
+    depth_top_m: float
+    source_investigation_id: UUID
 
 
 @dataclass(frozen=True)
-class FormationNode:
-    """Lightweight snapshot of one geological_formation row for the resolver.
+class LayerEdge:
+    """One user-approved correlation edge between two layers.
+
+    Attributes
+    ----------
+    layer_a_id : UUID
+        One endpoint (litho_layer id).
+    layer_b_id : UUID
+        The other endpoint (litho_layer id).
+    """
+
+    layer_a_id: UUID
+    layer_b_id: UUID
+
+
+@dataclass(frozen=True)
+class InstanceAssignment:
+    """One resolved instance (connected component of layers).
 
     Attributes
     ----------
     formation_id : UUID
-        Primary key of the geological_formation row.
-    parent_formation_id : UUID | None
-        Parent geological formation id.  Litho units always have a
-        parent; geological-model rows carry None and should never
-        appear as input to this resolver.
-    litho_main_soil_code : str | None
-        BaseLithology token (ZAND/KLEI/SILT/GRIND/VEEN).  Together
-        with ``parent_formation_id`` this forms the group key —
-        formations that share both belong to the same naming group and
-        compete for ordinals 1, 2, 3, ...
-    earliest_contact_depth_m : float | None
-        Minimum ``depth_top_m`` across all contacts anchored to this
-        formation within the model.  Used to assign ordinals: the
-        shallowest (smallest depth) body is ordinal 1, the next is 2,
-        etc.  ``None`` for a formation that has no contacts yet; treated
-        as ``+inf`` (pushed to the end) so contactless units always get
-        the highest ordinal in their group.
-    instance_ordinal : int | None
-        Current persisted ordinal.  May be None (unresolved) or an
-        integer previously written by the resolver or the user.
-    instance_ordinal_locked : bool
-        When True the user has manually fixed this ordinal; the
-        resolver must not change it.  A locked formation that conflicts
-        with another locked formation in the same component produces a
-        ``LockConflict`` entry.
+        Representative formation row = the shallowest member layer's
+        formation. The reconciled body uses this as its formation_id.
+    ordinal : int
+        0-based ordinal within the ``(parent, soil)`` naming group
+        (0 = shallowest instance in the group).
+    member_layer_ids : list[UUID]
+        Every layer in this component (each gets ``body_id`` stamped).
+    source_investigation_id : UUID
+        The shallowest member layer's investigation — the body's source.
+    earliest_depth_m : float
+        The shallowest member layer's ``depth_top_m``.
     """
 
     formation_id: UUID
-    parent_formation_id: UUID | None
-    litho_main_soil_code: str | None
-    earliest_contact_depth_m: float | None
-    instance_ordinal: int | None
-    instance_ordinal_locked: bool
+    ordinal: int
+    member_layer_ids: list[UUID]
+    source_investigation_id: UUID
+    earliest_depth_m: float
+
+
+@dataclass
+class ResolveResult:
+    """Output of ``resolve_litho_instances``.
+
+    Attributes
+    ----------
+    instances : list[InstanceAssignment]
+        One entry per connected component.
+    layer_to_ordinal : dict[UUID, int]
+        layer_id -> its instance ordinal (convenience for callers/tests).
+    layer_to_formation : dict[UUID, UUID]
+        layer_id -> its instance's representative formation_id (the body's
+        formation; may differ from the layer's own formation_id when a
+        component spans admixtures).
+    """
+
+    instances: list[InstanceAssignment]
+    layer_to_ordinal: dict[UUID, int]
+    layer_to_formation: dict[UUID, UUID]
+
+
+def _components(node_ids: set[UUID], adjacency: dict[UUID, set[UUID]]) -> list[list[UUID]]:
+    """Return connected components (BFS). Singletons are single-element lists.
+
+    Parameters
+    ----------
+    node_ids : set[UUID]
+        All layer ids to cover. An id absent from ``adjacency`` is a singleton.
+    adjacency : dict[UUID, set[UUID]]
+        Undirected adjacency list (both directions populated by the caller).
+
+    Returns
+    -------
+    list[list[UUID]]
+        One sub-list per component; order within each is BFS discovery order.
+    """
+    visited: set[UUID] = set()
+    out: list[list[UUID]] = []
+    for start in node_ids:
+        if start in visited:
+            continue
+        comp: list[UUID] = []
+        queue: deque[UUID] = deque([start])
+        visited.add(start)
+        while queue:
+            cur = queue.popleft()
+            comp.append(cur)
+            for nb in adjacency.get(cur, ()):
+                if nb not in visited:
+                    visited.add(nb)
+                    queue.append(nb)
+        out.append(comp)
+    return out
+
+
+def resolve_litho_instances(
+    layers: list[LayerNode],
+    edges: list[LayerEdge],
+) -> ResolveResult:
+    """Resolve instances (connected components) and assign group ordinals.
+
+    Parameters
+    ----------
+    layers : list[LayerNode]
+        Every accepted layer in the model (singletons included).
+    edges : list[LayerEdge]
+        User-approved correlation edges (layer-id endpoints). Endpoints not
+        present in ``layers`` are ignored (dangling-edge guard).
+
+    Returns
+    -------
+    ResolveResult
+        Instances + the layer->ordinal / layer->formation lookups.
+
+    Notes
+    -----
+    Pure function — no I/O. Safe to call from any layer.
+    """
+    node_map: dict[UUID, LayerNode] = {ln.layer_id: ln for ln in layers}
+    node_ids: set[UUID] = set(node_map)
+
+    adjacency: dict[UUID, set[UUID]] = defaultdict(set)
+    for e in edges:
+        if e.layer_a_id in node_ids and e.layer_b_id in node_ids:
+            adjacency[e.layer_a_id].add(e.layer_b_id)
+            adjacency[e.layer_b_id].add(e.layer_a_id)
+
+    components = _components(node_ids, adjacency)
+
+    # Sort key for the shallowest member of a component: by depth, then layer
+    # UUID for determinism.
+    def _key(ln: LayerNode) -> tuple[float, str]:
+        return (ln.depth_top_m, str(ln.layer_id))
+
+    GroupKey = tuple[UUID | None, str | None]
+    group_to_comps: dict[GroupKey, list[tuple[tuple[float, str], list[UUID], LayerNode]]] = (
+        defaultdict(list)
+    )
+    for comp in components:
+        members = [node_map[fid] for fid in comp]
+        rep = min(members, key=_key)  # shallowest member = representative
+        gk: GroupKey = (rep.parent_formation_id, rep.litho_main_soil_code)
+        group_to_comps[gk].append((_key(rep), comp, rep))
+
+    instances: list[InstanceAssignment] = []
+    layer_to_ordinal: dict[UUID, int] = {}
+    layer_to_formation: dict[UUID, UUID] = {}
+
+    for _gk, comps in group_to_comps.items():
+        comps.sort(key=lambda triple: triple[0])  # shallowest component first
+        for ordinal, (_rep_key, comp, rep) in enumerate(comps):
+            instances.append(
+                InstanceAssignment(
+                    formation_id=rep.formation_id,
+                    ordinal=ordinal,
+                    member_layer_ids=list(comp),
+                    source_investigation_id=rep.source_investigation_id,
+                    earliest_depth_m=rep.depth_top_m,
+                )
+            )
+            for lid in comp:
+                layer_to_ordinal[lid] = ordinal
+                layer_to_formation[lid] = rep.formation_id
+
+    return ResolveResult(
+        instances=instances,
+        layer_to_ordinal=layer_to_ordinal,
+        layer_to_formation=layer_to_formation,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Formation-level correlation-graph BFS helper — consumed by
+# application.propagate_litho_admixtures. Kept independent of the layer-level
+# resolver above. Do not delete: it has an external caller.
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class CorrelationEdge:
-    """Lightweight snapshot of one litho_correlation_edge row.
+    """Lightweight snapshot of one formation-level correlation edge.
 
     Attributes
     ----------
@@ -77,125 +256,6 @@ class CorrelationEdge:
 
     formation_a_id: UUID
     formation_b_id: UUID
-
-
-@dataclass(frozen=True)
-class LockConflict:
-    """Two locked formations in the same component claim the same ordinal.
-
-    The resolver resolves the tie deterministically (lower
-    ``earliest_contact_depth_m`` wins; lexicographic formation UUID for
-    equal depth) and flags the loser.  The caller should surface this
-    to the engineer so they can inspect and correct the lock.
-
-    Attributes
-    ----------
-    winner_formation_id : UUID
-        The locked formation that keeps its ordinal.
-    loser_formation_id : UUID
-        The locked formation whose ordinal was overridden.
-    contested_ordinal : int
-        The ordinal both claimed.
-    """
-
-    winner_formation_id: UUID
-    loser_formation_id: UUID
-    contested_ordinal: int
-
-
-@dataclass
-class ResolveResult:
-    """Output of ``resolve_litho_instances``.
-
-    Attributes
-    ----------
-    ordinals : dict[UUID, int]
-        Maps formation_id → assigned ordinal for every formation in
-        the input list.  All formations receive an ordinal (singletons
-        with no edge receive ordinal 1 — they are body 1 of their
-        group by definition).
-    lock_conflicts : list[LockConflict]
-        Zero or more conflicts found during resolution.  Each conflict
-        identifies a formation whose locked ordinal was overridden
-        because it clashed with another locked formation in the same
-        connected component.  The caller should log / surface these to
-        the engineer.
-    """
-
-    ordinals: dict[UUID, int]
-    lock_conflicts: list[LockConflict]
-
-
-# ---------------------------------------------------------------------------
-# Helper — group key
-# ---------------------------------------------------------------------------
-
-
-def _group_key(node: FormationNode) -> tuple[UUID | None, str | None]:
-    """Return the naming-group key for ``node``.
-
-    Two formations with the same ``(parent_formation_id,
-    litho_main_soil_code)`` compete for ordinals within the same
-    sequence.  E.g. two sand bodies inside "Quaternary deposits" are
-    both ZAND under the same parent → they are both in the same group,
-    and the resolver numbers them 1 and 2.
-
-    Formations in different groups have independent ordinal sequences.
-    """
-    return (node.parent_formation_id, node.litho_main_soil_code)
-
-
-# ---------------------------------------------------------------------------
-# Helper — connected-component discovery (BFS)
-# ---------------------------------------------------------------------------
-
-
-def _find_components(
-    node_ids: set[UUID],
-    adjacency: dict[UUID, set[UUID]],
-) -> list[list[UUID]]:
-    """Return all connected components as lists of formation ids.
-
-    Uses BFS.  Each node appears in exactly one component.  Singletons
-    (no edges) are returned as single-element lists.
-
-    Parameters
-    ----------
-    node_ids : set[UUID]
-        All node ids to cover.  Any id present here but absent from
-        ``adjacency`` is a singleton.
-    adjacency : dict[UUID, set[UUID]]
-        Undirected adjacency list: both directions are populated by
-        the caller.
-
-    Returns
-    -------
-    list[list[UUID]]
-        One sub-list per component; order within each sub-list is BFS
-        discovery order.
-    """
-    visited: set[UUID] = set()
-    components: list[list[UUID]] = []
-    for start in node_ids:
-        if start in visited:
-            continue
-        component: list[UUID] = []
-        queue: deque[UUID] = deque([start])
-        visited.add(start)
-        while queue:
-            current = queue.popleft()
-            component.append(current)
-            for neighbour in adjacency.get(current, ()):
-                if neighbour not in visited:
-                    visited.add(neighbour)
-                    queue.append(neighbour)
-        components.append(component)
-    return components
-
-
-# ---------------------------------------------------------------------------
-# Public BFS helper — single connected component for a seed node
-# ---------------------------------------------------------------------------
 
 
 def connected_formation_ids(
@@ -240,251 +300,3 @@ def connected_formation_ids(
                 visited.add(neighbour)
                 queue.append(neighbour)
     return visited
-
-
-# ---------------------------------------------------------------------------
-# Depth sort key — None (no contacts yet) sorts after any real depth.
-# ---------------------------------------------------------------------------
-
-
-def _depth_sort_key(node: FormationNode) -> tuple[float, str]:
-    """Return a sort key for ordinal assignment within a component.
-
-    Primary: ``earliest_contact_depth_m``, ascending (shallowest =
-    ordinal 1).  ``None`` (no contacts yet) is treated as ``+inf`` so
-    contactless formations always land at the end.
-
-    Tiebreak: lexicographic string of the formation UUID.  UUID v7
-    is time-ordered so two formations created in the same session get
-    a stable, deterministic order even when they share the exact same
-    earliest depth.
-    """
-    depth = node.earliest_contact_depth_m
-    numeric_depth = depth if depth is not None else float("inf")
-    return (numeric_depth, str(node.formation_id))
-
-
-# ---------------------------------------------------------------------------
-# Public resolver
-# ---------------------------------------------------------------------------
-
-
-def resolve_litho_instances(
-    formations: list[FormationNode],
-    edges: list[CorrelationEdge],
-) -> ResolveResult:
-    """Assign instance ordinals to all formations given the correlation graph.
-
-    Algorithm
-    ---------
-    1. Build an undirected adjacency list from ``edges``.
-    2. Find connected components using BFS over all formation nodes.
-    3. For each component, determine the naming group
-       ``(parent_formation_id, litho_main_soil_code)``.  All nodes in
-       a component share the same group (edges only exist between
-       formations with the same parent + soil code — the use case
-       enforces this at insert time).
-    4. Compute the next free ordinal for each group across all components
-       *before* assigning, so ordinal numbering is consistent globally:
-       components in the same group are numbered sequentially by earliest
-       depth (component whose shallowest formation is shallowest = 1,
-       next = 2, etc.).
-    5. Within a component, apply the locked-ordinal rule:
-       a. Collect locked formations first.  If two locked formations
-          in the same component claim the same ordinal, the one with
-          the lower (earliest_contact_depth_m, UUID) sort key wins and
-          the other is recorded as a ``LockConflict``.
-       b. Assign the locked winner's ordinal as fixed.
-       c. All non-locked formations in the component receive the same
-          ordinal as the component (a single component = a single body).
-    6. Singletons (components of size 1) auto-receive ordinal 1 in their
-       group — they are the first (and only) body seen so far.
-
-    Lock semantics in detail
-    ------------------------
-    A locked formation's ``instance_ordinal`` is treated as a hard
-    constraint: the resolver will not change it unless two locked
-    formations in the same component conflict.  In that case, the
-    lower-depth formation keeps its ordinal and the other is flagged
-    as a ``LockConflict``.  The loser is then treated as unlocked for
-    the rest of the resolution (its effective ordinal is overridden by
-    the component's assigned value).
-
-    Ordinal numbering
-    -----------------
-    Ordinals are assigned per ``(parent_formation_id, litho_main_soil_code)``
-    group, starting at 1.  The assignment order across components within
-    the same group is determined by the minimum ``_depth_sort_key`` among
-    all formation members of each component — the component containing
-    the shallowest formation (or, on a tie, the formation with the
-    lexicographically smallest UUID) gets ordinal 1.
-
-    When a locked formation's ordinal falls outside the 1..N range that
-    the group would normally occupy, it is still honoured (the user
-    knows what they're doing).  The auto-assigned ordinals skip the
-    locked value and use the next available integer in sequence.
-
-    Parameters
-    ----------
-    formations : list[FormationNode]
-        Every formation in the model (not just those with edges).  Must
-        include singletons so they receive ordinal 1 in their group.
-    edges : list[CorrelationEdge]
-        All undirected edges in the model.  Each edge connects exactly
-        two formation ids that appear in ``formations``.
-
-    Returns
-    -------
-    ResolveResult
-        ``ordinals`` maps every input formation_id to an integer ≥ 1.
-        ``lock_conflicts`` is empty when no two locked formations in the
-        same component share the same claimed ordinal.
-
-    Notes
-    -----
-    This function is PURE — no I/O, no database access, no side effects.
-    It may be called from any layer without violating the clean-architecture
-    dependency rule.  The caller (CorrelateLithoUnits / UncorrelateLithoUnits)
-    is responsible for loading data and writing results back.
-    """
-    node_map: dict[UUID, FormationNode] = {f.formation_id: f for f in formations}
-    node_ids: set[UUID] = set(node_map)
-
-    # Build undirected adjacency list from the edge list.  Both directions
-    # are populated so BFS discovers the full component regardless of the
-    # canonical ordering in the edge row.
-    adjacency: dict[UUID, set[UUID]] = defaultdict(set)
-    for edge in edges:
-        # Only add edges whose both endpoints are in the formation list.
-        # Dangling edges (whose formation was deleted after the edge was
-        # created) are silently ignored — the DB CASCADE removes them
-        # anyway; this guard is a belt-and-suspenders for in-flight state.
-        if edge.formation_a_id in node_ids and edge.formation_b_id in node_ids:
-            adjacency[edge.formation_a_id].add(edge.formation_b_id)
-            adjacency[edge.formation_b_id].add(edge.formation_a_id)
-
-    # --- Connected components (BFS) -----------------------------------------
-    components: list[list[UUID]] = _find_components(node_ids, adjacency)
-
-    # --- Group components by (parent, soil_code) and sort by shallowest depth.
-    # A component's representative depth = _depth_sort_key of its shallowest
-    # member.  Sorting components within the same group by this key gives the
-    # stable global ordinal assignment.
-    GroupKey = tuple[UUID | None, str | None]
-    # For each group, collect (component_min_sort_key, component) pairs.
-    group_components: dict[GroupKey, list[tuple[tuple[float, str], list[UUID]]]] = defaultdict(list)
-    for component in components:
-        nodes_in = [node_map[fid] for fid in component]
-        # All nodes in a component share the same group key (the use case
-        # validates this at insert time).  Take from the first node.
-        gk = _group_key(nodes_in[0])
-        # Component's representative sort key = minimum across members.
-        min_key = min(_depth_sort_key(n) for n in nodes_in)
-        group_components[gk].append((min_key, component))
-
-    # Sort each group's component list by the component's min_key.  This
-    # produces the canonical ordinal assignment order: component with the
-    # shallowest (or lexicographically earliest) member gets ordinal 1.
-    for gk in group_components:
-        group_components[gk].sort(key=lambda pair: pair[0])
-
-    # --- Assign ordinals + handle lock conflicts -----------------------------
-    ordinals: dict[UUID, int] = {}
-    lock_conflicts: list[LockConflict] = []
-
-    for gk, sorted_components in group_components.items():
-        # Track which ordinals in this group are claimed by locked formations
-        # so auto-assignment can skip them.
-        locked_ordinals_used: set[int] = set()
-        # First pass: honour locked formations and detect conflicts.
-        # component_locked[i] = {ordinal: winner_fid} for each component.
-        component_lock_winners: list[dict[int, UUID]] = []
-        for _min_key, component in sorted_components:
-            locked_in_component: dict[int, FormationNode] = {}
-            conflicts_this: list[LockConflict] = []
-            for fid in component:
-                node = node_map[fid]
-                if not node.instance_ordinal_locked or node.instance_ordinal is None:
-                    continue
-                claimed = node.instance_ordinal
-                if claimed in locked_in_component:
-                    # Conflict: two locked formations claim the same ordinal.
-                    # Lower sort key wins.
-                    existing = locked_in_component[claimed]
-                    if _depth_sort_key(node) < _depth_sort_key(existing):
-                        # New challenger wins.
-                        conflicts_this.append(
-                            LockConflict(
-                                winner_formation_id=node.formation_id,
-                                loser_formation_id=existing.formation_id,
-                                contested_ordinal=claimed,
-                            )
-                        )
-                        locked_in_component[claimed] = node
-                    else:
-                        # Existing winner holds.
-                        conflicts_this.append(
-                            LockConflict(
-                                winner_formation_id=existing.formation_id,
-                                loser_formation_id=node.formation_id,
-                                contested_ordinal=claimed,
-                            )
-                        )
-                else:
-                    locked_in_component[claimed] = node
-            lock_conflicts.extend(conflicts_this)
-            # winner map: ordinal → winning formation_id (losers are treated
-            # as unlocked for the auto-assign pass below).
-            loser_ids: set[UUID] = {c.loser_formation_id for c in conflicts_this}
-            winners: dict[int, UUID] = {
-                ordinal: node.formation_id
-                for ordinal, node in locked_in_component.items()
-                if node.formation_id not in loser_ids
-            }
-            component_lock_winners.append(winners)
-            for ordinal in winners:
-                locked_ordinals_used.add(ordinal)
-
-        # Second pass: auto-assign ordinals to each component.
-        # All members of a component (locked or not) share the same effective
-        # ordinal — the correlation asserts they are ONE body.  The component's
-        # ordinal is determined by its rank in the sorted list (ordinal 1 for
-        # the shallowest component, 2 for the next, etc.) but honours existing
-        # locked ordinals when the component has exactly one winning lock and
-        # no conflict.
-        auto_counter = 1  # next free ordinal not yet claimed by any lock winner
-        for component_rank, ((_min_key, component), winners) in enumerate(
-            zip(sorted_components, component_lock_winners)
-        ):
-            if len(winners) == 1:
-                # Exactly one locked winner in this component — honour it.
-                component_ordinal = next(iter(winners))
-            elif len(winners) > 1:
-                # Multiple (non-conflicting) locked winners inside the same
-                # component?  This should be rare: it means two locked
-                # formations with *different* ordinals ended up connected.
-                # Honour the smallest ordinal (most conservative choice) and
-                # note: the architect spec says "locked-conflict → lower-
-                # earliest-depth wins" — that was for same-ordinal conflicts
-                # which are the only real case.  Different ordinals inside one
-                # component means the user explicitly numbered two things that
-                # are actually correlated — we keep the lower ordinal and don't
-                # flag this as a conflict (it is unusual but not invalid).
-                component_ordinal = min(winners)
-            else:
-                # No locked winner — auto-assign the next ordinal not already
-                # claimed by a lock winner in this group.
-                while auto_counter in locked_ordinals_used:
-                    auto_counter += 1
-                component_ordinal = auto_counter
-                auto_counter += 1
-
-            # All members of this component receive the same ordinal.
-            for fid in component:
-                ordinals[fid] = component_ordinal
-
-        # Make sure auto_counter advances past all locked ordinals for the
-        # NEXT component in this group (already handled by the while-loop
-        # above, but restate for clarity).
-
-    return ResolveResult(ordinals=ordinals, lock_conflicts=lock_conflicts)
