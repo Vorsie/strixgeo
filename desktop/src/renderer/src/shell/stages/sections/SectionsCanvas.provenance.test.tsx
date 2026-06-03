@@ -208,6 +208,7 @@ function makeStubContext(): ShellContextValue {
       handleCreateLithoModel: async () => null,
       handleActivateLithoModel: async () => {},
       lithoContacts: [],
+      lithoLayers: [],
       lithoFormations: [],
       lithoSurfacesByFormationId: new Map(),
       handleCreateLithoContact: noopAsync,
