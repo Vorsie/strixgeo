@@ -14,7 +14,8 @@ GET  /models/{mid}/bodies
     List all ``BodyOrm`` rows for the model.
 
 POST /models/{mid}/bodies
-    Claim — calls ``ClaimBodyExtent`` (creates body if needed).
+    Claim — calls ``ClaimBodyExtent`` (body must already exist — the
+    resolver owns body creation; addressed by ``body_id``).
 
 PATCH /models/{mid}/bodies/{bid}
     Update name — calls ``NameBody`` identified by body_id (fetches
