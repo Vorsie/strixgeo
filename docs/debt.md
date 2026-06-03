@@ -5063,5 +5063,64 @@ global body-identity key (likely the resolver's connected-component /
 `body_ordinal` lineage across sections), rank once globally, and feed the
 same label map into every section overlay + the inspector + exports.
 
+## 195. User-claimed body extents lost when a model-wide accept renumbers the instance (Tier G — backend, M)
+
+**What.** The litho instance resolver (`ResolveLithoInstances._run_resolver`)
+reconciles bodies keyed `(formation_id, body_ordinal)`. When a model-wide
+operation (accept-all, auto-correlate) shifts a component's `body_ordinal`,
+the resolver deletes the old body and creates a fresh one at the new ordinal
+with all extent columns NULL. The orphan-delete carries a **preserve-named**
+guard (`if body.name: continue`) but NOT a preserve-claimed guard — so a
+**user-claimed extent** (`open` / `pinch_out_halfway` / `extrapolated`) on an
+**unnamed** body whose ordinal shifted is silently lost. Detector `to_target`
+extents are recoverable (re-run "Detect bodies", the explicit verb); a manual
+pinch-out claim is not — the data is gone. The e2e helper
+`desktop/src/renderer/src/.../helpers/project_open.ts` (`detectBodiesForFixture`,
+~lines 190-199) documents the symptom for `to_target` and papers over it; there
+is no equivalent recovery for user-claims.
+
+**Why deferred.** Pre-ship, no paid users (backwards-compat suspended). Triggering
+requires a specific sequence: accept a unit → claim an extent on it without
+naming it → trigger a model-wide op that shifts that unit's ordinal. Not an
+everyday path. The pre-feature behaviour was also lossy here (stale body kept its
+old key and silently attached to the wrong instance), so this is a sharpening of
+an existing edge, not a brand-new class of bug.
+
+**When to revisit.** Before the first external/paid distribution (ties to debt #3).
+Fix shape: in `_run_resolver`'s orphan-delete loop, before deleting an unnamed
+body, check `is_user_claimed_extent_kind(extent_left_kind / extent_right_kind)`;
+if claimed, either (a) carry the extent columns forward to the new same-formation
+body for that component, or (b) broaden the preserve guard to
+`if body.name or has_user_claimed_extent(body)` (keeps it as an orphan until no
+layers reference it — simpler, but accumulates orphans until the next clean
+resolve). File: `src/groundmodel/application/resolve_litho_instances_use_case.py`.
+
+## 196. Cold-restore FK violation on companion sections (Tier B — backend, S)
+
+**What.** `restore_project_bundle` restores cross-sections (Phase 6) before
+bodies (Phase 8). A companion cross-section carries
+`companion_lens_id` → `body.id` (`fk_cross_section_companion_lens_id`). On a
+**cold** restore (wiped DB / fresh machine) Phase 6 INSERTs the companion
+section before its referenced body exists → FK violation, project fails to open.
+The **idempotent** restore path is safe (existing sections are skipped, so no
+INSERT fires) — which is why `flow_bundle_roundtrip` passes while logging the
+violation. Only users who have run "Materialise lens companions" and then open
+the `.gmproj` on a fresh install are affected; for them it's a data-access
+outage, not data loss (the bundle still carries everything).
+
+**Why deferred.** Pre-ship amnesty; today's single-machine dogfeed never hits the
+cold-restore path. Pre-existing ordering issue (predates the per-instance-body
+work — surfaced by it). Companion sections are an explicit user gesture, so the
+blast radius is narrow.
+
+**When to revisit.** Before first external distribution OR before "Materialise
+lens companions" is documented as a supported feature — whichever is first. Fix:
+swap the restore phase order (bodies before cross-sections; audit confirms the
+only section→body FK is `companion_lens_id`, and `body.primary_section_id` is
+SET NULL so a body can be inserted before its section), OR strip `companion_lens_id`
+on the cross-section insert and backfill it in a second pass after bodies restore.
+File: `src/groundmodel/infrastructure/db/repositories/project_bundle.py`
+(restore phase ordering).
+
 ## (end)
 
