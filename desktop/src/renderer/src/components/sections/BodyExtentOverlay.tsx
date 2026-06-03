@@ -1231,7 +1231,13 @@ export default function BodyExtentOverlay({
       })}
       {/* Ghost pinch-out candidates — dashed amber wedges. */}
       {ghostWedges.map(ghost => (
-        <g key={`ghost-${ghost.candidate.source_investigation_id}-${ghost.candidate.side}`}>
+        // Key must include the framing contacts: one column with several units
+        // pinching out on the same side produces multiple wedges that share
+        // source+side, so source+side alone collides (dogfeed 2026-06-03). This
+        // mirrors the canonical candidate identity used by sameGhostCandidate.
+        <g
+          key={`ghost-${ghost.candidate.source_investigation_id}-${ghost.candidate.side}-${ghost.candidate.above_contact_id}-${ghost.candidate.below_contact_id ?? 'open'}`}
+        >
           {ghost.fillD && (
             <path
               data-testid={ghost.testId}
