@@ -2666,7 +2666,8 @@ export const api = {
       }
     },
 
-    // Claim a user-extent on a body (creates body row if needed).
+    // Claim a user-extent on an existing body (addressed by body_id; the
+    // resolver owns body creation, so the body always exists).
     // Returns the full BodyListItem after claim.
     // Throws ProvenanceViolationError on HTTP 409 (detector-set extent on that
     // side; caller must clear first or open the ProvenanceConflictDialog).
@@ -2674,10 +2675,10 @@ export const api = {
       projectId: string,
       modelId: string,
       request: {
-        formation_id: string
-        source_investigation_id: string
+        body_id: string
         side: 'left' | 'right'
         kind: 'pinch_out_halfway' | 'extrapolated' | 'open'
+        source_investigation_id?: string | null
         neighbour_inv_id?: string | null
         primary_section_id?: string | null
       },
