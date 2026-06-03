@@ -101,6 +101,7 @@ from groundmodel.application.recompute_all_absences_for_model import RecomputeAl
 from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
 )
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.suggest_body_pinch_outs import SuggestBodyPinchOuts
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
@@ -228,13 +229,24 @@ async def detect_bodies(
                 "body detection only runs on lithostratigraphic models."
             ),
         )
+    # Run the resolver FIRST, then detect — mirroring the canonical reconcile
+    # pattern in the startup sweep (api/main.py) and the bundle restore
+    # (api/routers/project.py).  ``ResolveLithoInstances`` is the SOLE authority
+    # that creates ``body`` rows (one per connected component) and stamps
+    # ``litho_layer.body_id``; ``DetectBodies`` is a pure extent manager that
+    # can only write onto resolver-owned bodies.  Without this, a "Detect" click
+    # after the user clears all bodies finds ``body_id IS NULL`` on every framed
+    # layer (the FK is ``ondelete=SET NULL``) and silently creates nothing — the
+    # bodies, still implied by the intact correlation graph, only reappear on an
+    # app restart.  Running the resolver here makes Detect self-healing.
+    await ResolveLithoInstances(session).execute(model_id=model_id, commit=False)
     result = await DetectBodies(session).execute(
         project_id=project_id,
         model_id=model_id,
         prefer_section_id=None,
     )
-    # DetectBodies flushes but does NOT commit (designed to compose inside
-    # larger transactions).  This explicit endpoint owns the commit boundary.
+    # Both use cases flush but do NOT commit (designed to compose inside larger
+    # transactions).  This explicit endpoint owns the commit boundary.
     await session.commit()
     logger.success(
         f"detect_bodies: project={project_id} model={model_id} "
