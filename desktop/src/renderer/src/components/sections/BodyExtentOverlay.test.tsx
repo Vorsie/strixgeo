@@ -419,6 +419,49 @@ describe('BodyExtentOverlay', () => {
     expect(queryByTestId('body-ghost-fill-inv-source-left')).not.toBeNull()
   })
 
+  it('BE-GHOST-KEYS — several candidates on one source+side render with unique React keys', () => {
+    // Regression (dogfeed 2026-06-03): a column with multiple units pinching
+    // out on the same side yields several wedges sharing source+side. The
+    // React key must include the framing contacts (above/below) or React logs
+    // "Encountered two children with the same key" and may drop/duplicate a
+    // wedge. Two left candidates on inv-source with different framing pairs
+    // must produce distinct keys → no duplicate-key console.error.
+    const CS_DEEP = 'cs-deep'
+    const candidateA: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_TOP,
+      below_contact_id: CS_BASE,
+      side: 'left',
+      kind: 'pinch_out_halfway',
+      suggested_neighbour_investigation_id: NEIGHBOUR_INV,
+    }
+    const candidateB: PinchOutCandidate = {
+      body_id: null,
+      source_investigation_id: 'inv-source',
+      above_contact_id: CS_BASE,
+      below_contact_id: CS_DEEP,
+      side: 'left',
+      kind: 'pinch_out_halfway',
+      suggested_neighbour_investigation_id: NEIGHBOUR_INV,
+    }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      renderOverlay({
+        bodies: [],
+        contacts: [...baseContacts, contact(CS_DEEP, 'inv-source', 11)],
+        ghostCandidates: [candidateA, candidateB],
+        onRequestClaimGhostCandidate: vi.fn(),
+      })
+      const dupKeyWarnings = errorSpy.mock.calls.filter(call =>
+        call.some(arg => typeof arg === 'string' && arg.includes('same key')),
+      )
+      expect(dupKeyWarnings).toEqual([])
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   it('BE-GHOST-CLICK — left-click ghost fill calls onRequestClaimGhostCandidate (not a direct claim)', () => {
     // Clicking the ghost wedge fill should invoke onRequestClaimGhostCandidate
     // (which opens a confirm dialog), NOT onClaimGhostCandidate directly.
