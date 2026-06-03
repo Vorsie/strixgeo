@@ -32,6 +32,8 @@ from groundmodel.domain.services.detect_body_extents import (
     detect_body_extents,
 )
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -39,6 +41,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.gis.section_projection import (
+    SectionEndpoints,
+    project_point_onto_line,
+)
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_TO_TARGET,
     is_user_claimed_extent_kind,
@@ -289,10 +295,33 @@ class DetectBodies(GroundModelLogger):
             return min(matches) if matches else None
 
         # ------------------------------------------------------------------ #
-        # 5. Run the pure-domain detector.                                    #
+        # 5. Build the active section's along-order + run the detector.       #
+        #                                                                      #
+        # Body extents are section-scoped (2D): the detector closes each body  #
+        # to the NEAREST target on each side along ``prefer_section_id``.  The #
+        # ``investigation_along`` map's keys also define which bodies this     #
+        # pass owns — only bodies whose SOURCE is on the active section get    #
+        # their extents set/reconciled, so detecting on one section never      #
+        # overwrites or clears another section's body extents.  When no        #
+        # section is supplied (section-less callers / tests) the map is empty: #
+        # the detector falls back to UUID ordering and the reconcile stays     #
+        # model-wide (legacy behaviour).                                       #
         # ------------------------------------------------------------------ #
-        detected = detect_body_extents(edges, stacks, max_body_thickness_m=max_thickness_m)
-        self.debug(f"DetectBodies: {len(detected)} candidate(s) from domain algorithm")
+        investigation_along = await self._build_section_along(
+            project_id=project_id,
+            section_id=prefer_section_id,
+            investigation_ids=list(stacks_dict.keys()),
+        )
+        detected = detect_body_extents(
+            edges,
+            stacks,
+            max_body_thickness_m=max_thickness_m,
+            investigation_along_positions=investigation_along or None,
+        )
+        self.debug(
+            f"DetectBodies: {len(detected)} candidate(s) from domain algorithm; "
+            f"{len(investigation_along)} investigation(s) on section {prefer_section_id}"
+        )
 
         # ------------------------------------------------------------------ #
         # 6. Map framed layer → resolver-stamped body_id (single query).      #
@@ -405,8 +434,16 @@ class DetectBodies(GroundModelLogger):
         # touch a user-claimed extent.  Never delete a body row — the         #
         # resolver owns the body lifecycle.                                   #
         # ------------------------------------------------------------------ #
+        # Section-scoped reconcile: when an active section is supplied, this
+        # pass only owns bodies whose SOURCE is on that section.  Without this
+        # guard, detecting on Cross-section 1 would clear Cross-section 2's
+        # body extents (they are absent from this pass's detection set).  A
+        # section-less call (empty map) keeps the legacy model-wide reconcile.
+        section_scoped = bool(investigation_along)
         bodies_removed = 0
         for body in body_by_id.values():
+            if section_scoped and body.source_investigation_id not in investigation_along:
+                continue
             if (
                 body.extent_left_kind == EXTENT_KIND_TO_TARGET
                 and (body.id, "left") not in detected_to_target_sides
@@ -438,3 +475,82 @@ class DetectBodies(GroundModelLogger):
             bodies_removed=bodies_removed,
             bodies_skipped_unresolved_ordinal=bodies_skipped_unresolved_ordinal,
         )
+
+    async def _build_section_along(
+        self,
+        *,
+        project_id: UUID,
+        section_id: UUID | None,
+        investigation_ids: list[UUID],
+    ) -> dict[UUID, float]:
+        """Project the model's investigations onto a section line → along map.
+
+        Mirrors ``AutoCorrelateContactEdges._section_along_adjacency`` — the
+        same projection that defines the section-editor's left-to-right column
+        order — so body detection and auto-correlation share one notion of
+        "along the section".
+
+        Parameters
+        ----------
+        project_id : UUID
+            Scope guard for the section lookup.
+        section_id : UUID | None
+            The active cross-section.  ``None`` (a section-less call) returns an
+            empty map, which makes the detector fall back to UUID ordering and
+            the reconcile stay model-wide (legacy behaviour).
+        investigation_ids : list[UUID]
+            The investigations carrying contacts in this model (the stack keys).
+
+        Returns
+        -------
+        dict[UUID, float]
+            investigation_id → along-section distance (metres) for every
+            in-corridor, non-excluded investigation.  Empty when ``section_id``
+            is ``None``, the section is not in the project, or no investigation
+            projects within the corridor.
+        """
+        if section_id is None or not investigation_ids:
+            return {}
+        section = (
+            await self._session.execute(
+                select(CrossSectionOrm).where(
+                    CrossSectionOrm.id == section_id,
+                    CrossSectionOrm.app_project_id == project_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if section is None:
+            return {}
+
+        endpoints = SectionEndpoints(
+            start_x=section.start_x,
+            start_y=section.start_y,
+            end_x=section.end_x,
+            end_y=section.end_y,
+        )
+        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
+
+        # Both investigation families carry planar (x, y); union them.
+        loc_rows = (
+            await self._session.execute(
+                select(CptOrm.id, CptOrm.location_x, CptOrm.location_y).where(
+                    CptOrm.id.in_(investigation_ids)
+                )
+            )
+        ).all()
+        loc_rows += (
+            await self._session.execute(
+                select(BoreholeOrm.id, BoreholeOrm.location_x, BoreholeOrm.location_y).where(
+                    BoreholeOrm.id.in_(investigation_ids)
+                )
+            )
+        ).all()
+
+        along: dict[UUID, float] = {}
+        for r in loc_rows:
+            if r.id in excluded:
+                continue
+            res = project_point_onto_line(endpoints, r.location_x, r.location_y)
+            if res is not None and abs(res.offset) <= section.projection_buffer_m:
+                along[r.id] = res.along
+        return along
