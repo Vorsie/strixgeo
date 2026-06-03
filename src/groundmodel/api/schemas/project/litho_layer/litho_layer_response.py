@@ -49,6 +49,8 @@ class LithoLayerResponse(BaseModel):
     # pointing at the geological contact it is bound to. NULL = not
     # coupled.
     parent_geo_contact_id: UUID | None = None
+    # The body (instance) this layer belongs to; NULL until the resolver runs.
+    body_id: UUID | None = None
     notes: str | None
     created_at: datetime
     updated_at: datetime
