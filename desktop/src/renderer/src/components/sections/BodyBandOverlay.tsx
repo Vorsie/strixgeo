@@ -9,9 +9,14 @@
  * gaps means the fill never paints over a column's own glyphs, stacked units
  * tile cleanly with no overlap, and there is no big self-crossing polygon.
  *
- * A continuous unit reads as a chain of band segments; a unit absent on one
- * side leaves the gap empty (the pinch-out — the cap fills it later). Read-only
- * fill; lateral end-caps + interaction stay in ``BodyExtentOverlay`` on top.
+ * One-lithology guard: a segment is drawn (and coloured) by the MEMBER's own
+ * lithology, and ONLY when both members share a lithology. A body that the
+ * resolver mis-grouped across lithologies (e.g. a SILT-nominal body carrying
+ * KLEI members) therefore still renders honestly — clay segments grey, silt
+ * green — instead of painting the whole body one colour (dogfeed 2026-06-03:
+ * "the bottom one is green but it's a clay layer").
+ *
+ * Read-only fill; lateral end-caps + interaction stay in ``BodyExtentOverlay``.
  */
 
 import { useMemo } from 'react'
@@ -20,10 +25,12 @@ import type { BodyListItem, LithoLayerResponse } from '../../api/client'
 import { computeBodyBands, type BandColumn } from '../../utils/bodyBands'
 import type { PlacedColumn } from './utils'
 
-// Fill opacity: the gap is otherwise empty, so a fairly solid fill reads as a
-// continuous unit from column through gap without fighting the qc curves
-// (which live inside the columns, not the gaps).
+// The gap is otherwise empty, so a fairly solid fill reads as a continuous
+// unit from column through gap. A thin stroke in the same colour keeps even a
+// dark unit (grey clay over the navy background) visible.
 const FILL_OPACITY = 0.62
+const STROKE_OPACITY = 0.95
+const FALLBACK_COLOR = '#888888'
 
 export interface Props {
   /** Bodies on the active litho model. */
@@ -34,6 +41,8 @@ export interface Props {
   placedColumns: readonly PlacedColumn[]
   /** formation_id → lithology colour for the fill. */
   formationColorById: ReadonlyMap<string, string>
+  /** formation_id → lithology code (e.g. "KLEI") for the one-lithology guard. */
+  formationSoilById: ReadonlyMap<string, string>
   /** Absolute elevation (mTAW) → screen y. */
   levelToScreen: (level: number) => number
   /** Top / bottom of the plot area in screen px (clamp). */
@@ -54,6 +63,7 @@ export default function BodyBandOverlay({
   lithoLayers,
   placedColumns,
   formationColorById,
+  formationSoilById,
   levelToScreen,
   plotTop,
   plotBottom,
@@ -86,9 +96,9 @@ export default function BodyBandOverlay({
   }, [bodies, lithoLayers, placedColumns])
 
   // A gap is fillable only when the two members are on ADJACENT section columns
-  // (no other column sits between them). When the unit is absent on an
-  // intermediate column the band must NOT paint across it — that's a pinch-out,
-  // the cap's job, not a continuous fill (dogfeed 2026-06-03).
+  // (no other column sits between them) — otherwise the unit is absent on an
+  // intermediate column and must not paint across it (a pinch-out, the cap's
+  // job).
   const columnsBetween = (loA: number, hiA: number): boolean =>
     allAlongs.some(v => v > loA + 1e-6 && v < hiA - 1e-6)
 
@@ -97,16 +107,20 @@ export default function BodyBandOverlay({
   return (
     <g data-testid="body-band-overlay" style={{ pointerEvents: 'none' }}>
       {bands.flatMap(band => {
-        const color = formationColorById.get(band.formationId) ?? '#888888'
         const segments: JSX.Element[] = []
         for (let i = 0; i < band.members.length - 1; i += 1) {
           const a = band.members[i] // left column
           const b = band.members[i + 1] // right column
+          // One-lithology guard: never fill across a lithology change. Compare
+          // the SOIL code (KLEI / SILT / …), not formation_id — several
+          // formation rows can share a lithology and should still join.
+          const soilA = formationSoilById.get(a.formationId)
+          const soilB = formationSoilById.get(b.formationId)
+          if (!soilA || soilA !== soilB) continue
           const colA = columnScreenByInv.get(a.investigationId)
           const colB = columnScreenByInv.get(b.investigationId)
           if (!colA || !colB) continue
-          // Skip when a column sits between the two members — the unit is
-          // absent there, so it pinches out rather than continuing.
+          // Skip when a column sits between the two members.
           if (columnsBetween(a.along, b.along)) continue
           const leftX = colA.rightX
           const rightX = colB.leftX
@@ -116,6 +130,8 @@ export default function BodyBandOverlay({
           const aBase = clampY(levelToScreen(a.baseElev))
           const bTop = clampY(levelToScreen(b.topElev))
           const bBase = clampY(levelToScreen(b.baseElev))
+          // Colour by the member's OWN lithology, not the body's nominal one.
+          const color = formationColorById.get(a.formationId) ?? FALLBACK_COLOR
           // Top edge = top correlation line; base edge = base correlation line.
           const d =
             `M ${leftX.toFixed(2)},${aTop.toFixed(2)} ` +
@@ -129,7 +145,9 @@ export default function BodyBandOverlay({
               d={d}
               fill={color}
               fillOpacity={FILL_OPACITY}
-              stroke="none"
+              stroke={color}
+              strokeOpacity={STROKE_OPACITY}
+              strokeWidth={1}
             />,
           )
         }
