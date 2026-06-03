@@ -30,6 +30,7 @@ import type {
   BodyRenderStyle,
   FormationContactResponse,
   LithoContactCorrelationEdge,
+  LithoLayerResponse,
   PinchOutCandidate,
 } from '../../api/client'
 import {
@@ -162,6 +163,17 @@ export interface Props {
   boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse>
   /** Section-filtered litho contacts (for anchor depths). */
   contacts: readonly FormationContactResponse[]
+  /**
+   * Accepted litho layers for the active model. Each carries ``body_id`` —
+   * the link from a layer to the body (instance) it belongs to. Committed
+   * bodies are framed from THEIR OWN member layer (the layer whose
+   * ``body_id === body.id`` AND whose anchor === ``source_investigation_id``)
+   * using the layer's real ``depth_top_m`` / ``depth_base_m``, so two
+   * instances that share a formation no longer collapse onto the shallowest
+   * occurrence (Bug C "body jump", dogfeed 2026-06-02). Absent / empty falls
+   * back to the correlation-graph derivation (``_deriveFramingFromTarget``).
+   */
+  lithoLayers?: readonly LithoLayerResponse[]
   /**
    * formation_id → lithology label (e.g. ``"ZAND"``) for the auto-name. When a
    * body has no explicit ``name``, its wedge is labelled
@@ -297,6 +309,7 @@ export default function BodyExtentOverlay({
   bodies,
   boundariesByBodyId,
   contacts,
+  lithoLayers,
   formationLabelById,
   placedColumns,
   contactEdges,
@@ -357,6 +370,22 @@ export default function BodyExtentOverlay({
 
     const _anchorIdOf = (c: FormationContactResponse): string | null =>
       c.cpt_id ?? c.borehole_id ?? null
+
+    const _layerAnchorIdOf = (l: LithoLayerResponse): string | null =>
+      l.cpt_id ?? l.borehole_id ?? null
+
+    // body_id → its accepted member layers (the layers the resolver assigned
+    // to this body). Committed-body framing reads the member layer on the
+    // body's OWN source column to pin the source band at its real depth —
+    // see ``_deriveFramingFromMember``. Only layers carrying a body_id and a
+    // resolvable anchor are grouped.
+    const _memberLayersByBodyId = new Map<string, LithoLayerResponse[]>()
+    for (const layer of lithoLayers ?? []) {
+      if (!layer.body_id) continue
+      const existing = _memberLayersByBodyId.get(layer.body_id)
+      if (existing) existing.push(layer)
+      else _memberLayersByBodyId.set(layer.body_id, [layer])
+    }
 
     const _depthByContact = new Map<string, number>(contacts.map(c => [c.id, c.depth_top_m]))
 
@@ -451,6 +480,63 @@ export default function BodyExtentOverlay({
         }
       }
       return null
+    }
+
+    /**
+     * Frame a committed body from its OWN member layer on the source column.
+     *
+     * A layer shares its UUID with the contact at its top boundary
+     * (``lithoLayerToContact`` — A2.5 UUID-preserving backfill), so the member
+     * layer's ``id`` IS the body's ``cid_above``. The base contact is the
+     * source-column contact whose ``depth_top_m`` coincides with the member
+     * layer's ``depth_base_m`` (adjacent layers share that boundary); if the
+     * member layer is the deepest unit on the column there is no base contact,
+     * and ``belowContactId`` is null (handled by the open-extent base-from-hole
+     * path in ``resolveSide``).
+     *
+     * This pins the source band at the instance the user actually pinched even
+     * when the same formation appears at several depths on the source — the
+     * formation_id-only proxy + the correlation-graph derivation both picked
+     * the shallowest occurrence, so an accepted body "jumped" up to it (Bug C,
+     * dogfeed 2026-06-02).
+     *
+     * Returns null when no member layer for the body is present on its source
+     * column (stale/edge case) → the caller falls back to
+     * ``_deriveFramingFromTarget`` + the formation_id proxy.
+     */
+    function _deriveFramingFromMember(
+      body: BodyListItem,
+    ): [string, string | null] | null {
+      const members = _memberLayersByBodyId.get(body.id)
+      if (!members) return null
+      const sourceMember = members.find(
+        l => _layerAnchorIdOf(l) === body.source_investigation_id,
+      )
+      if (!sourceMember) return null
+      // The member layer's id == the contact id at its top boundary.
+      if (!_contactById.has(sourceMember.id)) return null
+      const aboveContactId = sourceMember.id
+      // Base contact = the source-column contact whose top sits at this layer's
+      // base (within a small tolerance — both are derived from the same
+      // boundary depth, so they match exactly in practice).
+      const baseDepth = sourceMember.depth_base_m
+      let belowContactId: string | null = null
+      let bestDelta = Number.POSITIVE_INFINITY
+      for (const c of contacts) {
+        if (_anchorIdOf(c) !== body.source_investigation_id) continue
+        if (c.id === aboveContactId) continue
+        const delta = Math.abs(c.depth_top_m - baseDepth)
+        if (delta < bestDelta) {
+          bestDelta = delta
+          belowContactId = c.id
+        }
+      }
+      // Only accept a base contact that genuinely coincides with the layer's
+      // base boundary (1 cm). Otherwise the formation runs to the hole bottom
+      // (deepest unit) → leave belowContactId null for the open base-from-hole
+      // path.
+      if (belowContactId !== null && bestDelta > 0.01) belowContactId = null
+      return [aboveContactId, belowContactId]
     }
 
     // --- Resolve each body to its rendered wedge descriptors -----------------
@@ -677,18 +763,20 @@ export default function BodyExtentOverlay({
           .slice()
           .sort((a, b) => a.depth_top_m - b.depth_top_m)
 
-        // Frame the body by the detector's actual (cid_above, cid_below) pair,
-        // recovered from the correlation graph via the body's target contact.
-        // This pins the wedge to the right depth even when the same formation
-        // appears at several depths on the source (stacked bodies) — the
-        // ``content_key`` column that used to carry the framing pair was dropped
-        // in the body-with-extent refactor, and the formation_id-only proxy
-        // picked the shallowest occurrence, drawing the lens too high
-        // (dogfeed 2026-06-01).
+        // Frame the body from its OWN member layer (the layer whose body_id ===
+        // body.id on the source column). This pins the source band at the
+        // instance the user pinched even when the same formation appears at
+        // several depths on the source (stacked bodies) — the formation_id-only
+        // proxy AND the correlation-graph derivation both picked the shallowest
+        // occurrence, so an accepted body "jumped" up to it (Bug C, dogfeed
+        // 2026-06-02). The member-layer path is preferred; the target-derived
+        // pair and the formation_id proxy stay as fallbacks for stale rows /
+        // bodies whose member layer is not on this section.
         let aboveContactId: string | null
         let belowContactId: string | null
 
         const framing =
+          _deriveFramingFromMember(body) ??
           _deriveFramingFromTarget(
             body.extent_left_target_contact_id,
             body.source_investigation_id,
@@ -839,7 +927,7 @@ export default function BodyExtentOverlay({
   // the section line / column spacing / prefs / formation set changes, which also
   // changes the body geometry — so including them is correct.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodies, contacts, placedColumns, contactEdges, boundariesByBodyId,
+  }, [bodies, contacts, lithoLayers, placedColumns, contactEdges, boundariesByBodyId,
       screenXToAlong, openExtentLengthM, formationLabelById])
 
   // --- Drag lifecycle -------------------------------------------------------
