@@ -1,9 +1,11 @@
 """Claim-body-extent use case — user-claim path for body extents.
 
 Sets one side (left or right) of one body to a user-claimed kind:
-``pinch_out_halfway``, ``extrapolated``, or ``open``. Creates the body
-row if it doesn't exist yet (using the resolver-provided body_ordinal +
-the request's source_investigation_id).
+``pinch_out_halfway``, ``extrapolated``, or ``open``. The body is
+addressed directly by ``body_id`` — the resolver
+(``ResolveLithoInstances``) owns body creation, so the body always
+exists by the time any claim/pinch-out gesture is possible. There is no
+create branch.
 
 Provenance rule (spec §5.2)
 ----------------------------
@@ -30,13 +32,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid6 import uuid7
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_EXTRAPOLATED,
@@ -114,8 +114,9 @@ class ClaimBodyExtent(GroundModelLogger):
     """User-claim use case for one side of one body.
 
     Sets ``extent_<side>_kind`` + related columns on the body row
-    identified by ``(model_id, formation_id, body_ordinal)``. Creates
-    the body row when none exists yet.  Commits the transaction.
+    identified directly by ``body_id``. The body must already exist (the
+    resolver owns creation); a missing or out-of-model body id raises
+    ``ValueError``. Commits the transaction.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -128,10 +129,10 @@ class ClaimBodyExtent(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
-        formation_id: UUID,
-        source_investigation_id: UUID,
+        body_id: UUID,
         side: str,
         kind: str,
+        source_investigation_id: UUID | None = None,
         neighbour_inv_id: UUID | None = None,
         primary_section_id: UUID | None = None,
     ) -> BodyOrm:
@@ -140,44 +141,48 @@ class ClaimBodyExtent(GroundModelLogger):
         Parameters
         ----------
         project_id : UUID
-            Scope. Model and formation must both belong to this project
-            (raises ``ValueError`` / 404 otherwise).
+            Scope. The model (and thus the body) must belong to this
+            project (raises ``ValueError`` / 404 otherwise).
         model_id : UUID
             The lithostratigraphic model the body belongs to.
-        formation_id : UUID
-            The formation the body belongs to. Must belong to project.
-        source_investigation_id : UUID
-            The investigation carrying the body's framing contacts.
-            Polymorphic id (CPT or borehole).  Used only when creating a
-            new body row; ignored when updating an existing one.
+        body_id : UUID
+            The body whose extent is being claimed. Must already exist and
+            belong to ``model_id`` — there is no create branch (the
+            resolver owns body creation). A missing / wrong-model id raises
+            ``ValueError``.
         side : str
             Either ``"left"`` or ``"right"``.
         kind : str
             One of ``pinch_out_halfway``, ``extrapolated``, ``open``.
             Must be a user-claim kind — ``to_target`` and ``None`` are
             rejected.
+        source_investigation_id : UUID | None
+            Optional. Retained only for logging / back-filling the body's
+            ``source_investigation_id`` if it is ever NULL. The body
+            already carries its own source, so callers normally omit this.
         neighbour_inv_id : UUID | None
             Required for ``pinch_out_halfway`` and ``extrapolated``.
-            Must differ from ``source_investigation_id`` (a body can't
+            Must differ from the body's source investigation (a body can't
             pinch out to itself).  Ignored for ``open``.
         primary_section_id : UUID | None
-            The section the user invoked the gesture from.  Stored on
-            the body row when creating; updates an existing NULL value
-            but never overwrites an existing non-NULL value.
+            The section the user invoked the gesture from.  Updates an
+            existing NULL value but never overwrites an existing non-NULL
+            value.
 
         Returns
         -------
         BodyOrm
-            The body row (created or updated), refreshed from the DB.
+            The body row (updated), refreshed from the DB.
 
         Raises
         ------
         ValueError
             On any validation failure: invalid side, invalid kind,
             missing ``neighbour_inv_id`` for halfway/extrapolated,
-            ``neighbour_inv_id == source_investigation_id``, or a
-            provenance violation (attempting to overwrite a
-            ``to_target`` extent without clearing first).
+            ``neighbour_inv_id`` equal to the body's source investigation,
+            a body that does not exist / belongs to another model, or a
+            provenance violation (attempting to overwrite a ``to_target``
+            extent without clearing first).
         """
         # ----- Input validation -------------------------------------------
         if side not in EXTENT_SIDES:
@@ -190,36 +195,38 @@ class ClaimBodyExtent(GroundModelLogger):
         if kind in (EXTENT_KIND_PINCH_OUT_HALFWAY, EXTENT_KIND_EXTRAPOLATED):
             if neighbour_inv_id is None:
                 raise ValueError(f"neighbour_inv_id is required for kind={kind!r}")
-            if neighbour_inv_id == source_investigation_id:
-                raise ValueError(
-                    "neighbour_inv_id must not equal source_investigation_id "
-                    "(a body can't pinch out to its own source investigation)"
-                )
 
         # ----- Scope guards -----------------------------------------------
         await load_scoped_or_raise(
             self._session, GeologicalModelOrm, model_id, project_id, label="Model"
         )
-        await load_scoped_or_raise(
-            self._session,
-            GeologicalFormationOrm,
-            formation_id,
-            project_id,
-            label="Formation",
-        )
 
-        # ----- Cross-project investigation guards (S2 audit) ---------------
-        # Validate that the polymorphic investigation ids belong to this
-        # project.  The body row stores these as bare UUIDs with no FK
-        # constraint (mirrors the formation_contact.borehole_id / cpt_id
-        # pattern — spec §4.2), so the DB won't catch a cross-project UUID
-        # at insert time; we must check explicitly.
-        await _validate_investigation_in_project(
-            self._session,
-            source_investigation_id,
-            project_id,
-            label="source_investigation_id",
-        )
+        # ----- Load the target body directly by id ------------------------
+        # The resolver owns body creation; this endpoint never creates a
+        # body. A missing id, or a body that belongs to a different model,
+        # is a hard ValueError (the candidate / body-acting UI always holds
+        # a live body_id, so this should not happen in practice).
+        body = await self._session.get(BodyOrm, body_id)
+        if body is None or body.model_id != model_id:
+            raise ValueError(f"body {body_id} not found in model {model_id}")
+
+        # A body can't pinch out to its own source investigation. Compare
+        # against the body's authoritative source (not the optional request
+        # field, which is only for back-fill).
+        if (
+            kind in (EXTENT_KIND_PINCH_OUT_HALFWAY, EXTENT_KIND_EXTRAPOLATED)
+            and neighbour_inv_id == body.source_investigation_id
+        ):
+            raise ValueError(
+                "neighbour_inv_id must not equal source_investigation_id "
+                "(a body can't pinch out to its own source investigation)"
+            )
+
+        # ----- Cross-project investigation guard (S2 audit) ---------------
+        # Validate that a supplied neighbour id belongs to this project. The
+        # body row stores it as a bare UUID with no FK constraint (mirrors
+        # the formation_contact.borehole_id / cpt_id pattern — spec §4.2),
+        # so the DB won't catch a cross-project UUID at insert time.
         if neighbour_inv_id is not None:
             await _validate_investigation_in_project(
                 self._session,
@@ -228,84 +235,51 @@ class ClaimBodyExtent(GroundModelLogger):
                 label="neighbour_inv_id",
             )
 
-        # ----- Resolve body_ordinal from formation ------------------------
-        # instance_ordinal is set by the resolver; use 0 as fallback when
-        # the resolver hasn't run yet (e.g. in tests or a brand-new model).
-        formation_row = await self._session.get(GeologicalFormationOrm, formation_id)
-        # Non-None guaranteed by load_scoped_or_raise above.
-        assert formation_row is not None
-        body_ordinal: int = formation_row.instance_ordinal or 0
-
         # Column name helpers — avoids repetition below.
         kind_col = f"extent_{side}_kind"
         target_col = f"extent_{side}_target_contact_id"
         neighbour_col = f"extent_{side}_neighbour_inv_id"
 
-        # ----- Find or create body row ------------------------------------
-        existing_stmt = select(BodyOrm).where(
-            BodyOrm.model_id == model_id,
-            BodyOrm.formation_id == formation_id,
-            BodyOrm.body_ordinal == body_ordinal,
-        )
-        body = (await self._session.execute(existing_stmt)).scalar_one_or_none()
+        # ----- Provenance + update path -----------------------------------
+        existing_kind: str | None = getattr(body, kind_col)
 
-        if body is None:
+        # Provenance rule §5.2: refuse to overwrite a detector-set
+        # 'to_target' extent.  The user must call ClearBodyExtent first.
+        # Raises ProvenanceViolationError (subclass of ValueError) so the
+        # router can map it to HTTP 409 while other ValueErrors stay 422.
+        if existing_kind == EXTENT_KIND_TO_TARGET:
+            raise ProvenanceViolationError(
+                f"Cannot overwrite detector-set 'to_target' extent on "
+                f"side={side!r}. Clear the existing extent first via "
+                "ClearBodyExtent."
+            )
+
+        # Replacing one user-claim kind with a different one is allowed;
+        # the user is explicitly changing their mind.
+        if is_user_claimed_extent_kind(existing_kind) and existing_kind != kind:
             self.info(
-                f"ClaimBodyExtent: creating new body "
-                f"(formation={formation_id}, ordinal={body_ordinal}, "
-                f"side={side}, kind={kind})"
+                f"ClaimBodyExtent: replacing user-claim {existing_kind!r} → {kind!r} on side={side}"
             )
-            body = BodyOrm(
-                id=uuid7(),
-                app_project_id=project_id,
-                model_id=model_id,
-                formation_id=formation_id,
-                body_ordinal=body_ordinal,
-                source_investigation_id=source_investigation_id,
-                primary_section_id=primary_section_id,
-            )
-            setattr(body, kind_col, kind)
-            if kind in (EXTENT_KIND_PINCH_OUT_HALFWAY, EXTENT_KIND_EXTRAPOLATED):
-                setattr(body, neighbour_col, neighbour_inv_id)
-            # 'open' uses neither target_contact_id nor neighbour_inv_id.
-            self._session.add(body)
+
+        # Write the new claim.
+        setattr(body, kind_col, kind)
+        # Always clear the target_contact_id on a user-claim (only the
+        # detector sets target contacts; user-claims don't reference them).
+        setattr(body, target_col, None)
+        if kind in (EXTENT_KIND_PINCH_OUT_HALFWAY, EXTENT_KIND_EXTRAPOLATED):
+            setattr(body, neighbour_col, neighbour_inv_id)
         else:
-            # ----- Provenance + update path -------------------------------
-            existing_kind: str | None = getattr(body, kind_col)
+            # 'open' — clear neighbour_inv_id as well.
+            setattr(body, neighbour_col, None)
 
-            # Provenance rule §5.2: refuse to overwrite a detector-set
-            # 'to_target' extent.  The user must call ClearBodyExtent first.
-            # Raises ProvenanceViolationError (subclass of ValueError) so the
-            # router can map it to HTTP 409 while other ValueErrors stay 422.
-            if existing_kind == EXTENT_KIND_TO_TARGET:
-                raise ProvenanceViolationError(
-                    f"Cannot overwrite detector-set 'to_target' extent on "
-                    f"side={side!r}. Clear the existing extent first via "
-                    "ClearBodyExtent."
-                )
+        # Back-fill the body's source investigation if it is somehow NULL
+        # and the caller supplied one (logging-only convenience path).
+        if body.source_investigation_id is None and source_investigation_id is not None:
+            body.source_investigation_id = source_investigation_id
 
-            # Replacing one user-claim kind with a different one is allowed;
-            # the user is explicitly changing their mind.
-            if is_user_claimed_extent_kind(existing_kind) and existing_kind != kind:
-                self.info(
-                    f"ClaimBodyExtent: replacing user-claim "
-                    f"{existing_kind!r} → {kind!r} on side={side}"
-                )
-
-            # Write the new claim.
-            setattr(body, kind_col, kind)
-            # Always clear the target_contact_id on a user-claim (only the
-            # detector sets target contacts; user-claims don't reference them).
-            setattr(body, target_col, None)
-            if kind in (EXTENT_KIND_PINCH_OUT_HALFWAY, EXTENT_KIND_EXTRAPOLATED):
-                setattr(body, neighbour_col, neighbour_inv_id)
-            else:
-                # 'open' — clear neighbour_inv_id as well.
-                setattr(body, neighbour_col, None)
-
-            # Upgrade primary_section_id when it was not set yet.
-            if body.primary_section_id is None and primary_section_id is not None:
-                body.primary_section_id = primary_section_id
+        # Upgrade primary_section_id when it was not set yet.
+        if body.primary_section_id is None and primary_section_id is not None:
+            body.primary_section_id = primary_section_id
 
         await self._session.commit()
         await self._session.refresh(body)
