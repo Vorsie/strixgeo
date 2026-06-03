@@ -272,9 +272,15 @@ class ClaimBodyExtent(GroundModelLogger):
             # 'open' — clear neighbour_inv_id as well.
             setattr(body, neighbour_col, None)
 
-        # Back-fill the body's source investigation if it is somehow NULL
-        # and the caller supplied one (logging-only convenience path).
-        if body.source_investigation_id is None and source_investigation_id is not None:
+        # Anchor the body at the column the claim was made on — NOT just when
+        # the source is NULL.  A pinch-out ghost carries the column it pinches
+        # from; the wedge renderer frames off ``source_investigation_id``, so if
+        # we leave it at the resolver's shallowest member the claimed wedge
+        # renders at that (often far / shallower) column instead of where the
+        # user claimed it (dogfeed 2026-06-03: a pinch-out claimed on the lower
+        # unit rendered on the unit above).  The body-context-menu claim path
+        # passes no source_investigation_id, so it is unaffected.
+        if source_investigation_id is not None:
             body.source_investigation_id = source_investigation_id
 
         # Upgrade primary_section_id when it was not set yet.
