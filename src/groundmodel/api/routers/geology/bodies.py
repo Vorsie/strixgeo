@@ -336,7 +336,7 @@ async def suggest_body_pinch_outs(
 
 
 # ---------------------------------------------------------------------------
-# Claim a body extent (creates body row when none exists)
+# Claim a body extent (body must already exist — resolver owns creation)
 # ---------------------------------------------------------------------------
 
 
@@ -351,11 +351,12 @@ async def claim_body_extent(
     request: ClaimBodyExtentRequest,
     session: AsyncSession = Depends(get_session),
 ) -> BodyOrm:
-    """Claim a lateral extent on a body; creates the body row if needed.
+    """Claim a lateral extent on an existing body.
 
-    Sets one side (left or right) of the body identified by
-    ``(formation_id, body_ordinal)`` to the requested kind.  Creates the
-    ``BodyOrm`` metadata row when it does not yet exist.
+    Sets one side (left or right) of the body identified by ``body_id`` to
+    the requested kind.  The body must already exist — the resolver
+    (``ResolveLithoInstances``) owns body creation, so every accepted
+    instance carries a body before any claim gesture is possible.
 
     Parameters
     ----------
@@ -364,7 +365,7 @@ async def claim_body_extent(
     model_id : UUID
         Must be a lithostratigraphic model in this project.
     request : ClaimBodyExtentRequest
-        formation_id, source_investigation_id, side, kind, optional
+        body_id, side, kind, optional source_investigation_id, optional
         neighbour_inv_id, optional primary_section_id.
     session : AsyncSession
         Database session provided by DI.
@@ -372,7 +373,7 @@ async def claim_body_extent(
     Returns
     -------
     BodyListItem
-        The created or updated body row.
+        The updated body row.
 
     Raises
     ------
@@ -383,7 +384,7 @@ async def claim_body_extent(
         (provenance violation — user must call ClearBodyExtent first).
     HTTPException(422)
         On other validation failure (invalid side/kind, missing neighbour,
-        scope guard failures for formation/investigation ids).
+        unknown body id, scope guard failures for investigation ids).
     """
     # Router-level model scope guard: must return 404 (not 422) for a
     # cross-project model id.  Without this, the use case's internal
@@ -397,7 +398,7 @@ async def claim_body_extent(
         body = await ClaimBodyExtent(session).execute(
             project_id=project_id,
             model_id=model_id,
-            formation_id=request.formation_id,
+            body_id=request.body_id,
             source_investigation_id=request.source_investigation_id,
             side=request.side,
             kind=request.kind,
