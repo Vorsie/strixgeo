@@ -7,10 +7,16 @@ Coverage:
    no candidates emitted.
 3. Body with user-claimed left extent (pinch_out_halfway) + uncorrelated
    right → only the right-side candidate is emitted.
+3b. A claimed/detector-set extent on ONE body suppresses only THAT body's
+   same-side candidate — a different same-formation instance (distinct body)
+   is reasoned about independently (per-instance keying via
+   ``litho_layer.body_id``).
 4. Source pair on the leftmost investigation (no neighbour to the left
    in UUID order) → no left-side candidate; right-side candidate emitted
    when uncorrelated.
 5. NO persistence side effects — no new BodyOrm rows exist after the call.
+10. A named (or extent-claimed) instance does NOT suppress its sibling
+   same-formation instance's candidates — the regression this task fixes.
 """
 
 from __future__ import annotations
@@ -19,10 +25,11 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.suggest_body_pinch_outs import SuggestBodyPinchOuts
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -33,6 +40,7 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_PINCH_OUT_HALFWAY,
@@ -147,6 +155,35 @@ def _approved_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+    )
+
+
+async def _stamp_layer_body(
+    db_session: AsyncSession,
+    *,
+    layer_contact: FormationContactOrm,
+    body: BodyOrm,
+) -> None:
+    """Stamp ``litho_layer.body_id`` for the layer framed by ``layer_contact``.
+
+    Post-A4 the litho layer's id equals its top formation_contact id (the
+    FC↔LL mirror preserves the UUID), so the framed layer's id IS
+    ``layer_contact.id``.  The suggester resolves a candidate's body from
+    that layer's ``body_id`` (per-instance keying), so a test that wants a
+    pre-existing body to bind to a candidate must stamp the backlink the
+    same way ``ResolveLithoInstances`` would.
+
+    Parameters
+    ----------
+    db_session : AsyncSession
+        Active session (the caller commits).
+    layer_contact : FormationContactOrm
+        The top contact of the framed unit (id == litho_layer.id).
+    body : BodyOrm
+        The body row to bind the layer to.
+    """
+    await db_session.execute(
+        update(LithoLayerOrm).where(LithoLayerOrm.id == layer_contact.id).values(body_id=body.id)
     )
 
 
@@ -363,6 +400,11 @@ async def test_claimed_left_uncorrelated_right_emits_right_only(
         extent_left_neighbour_inv_id=bh_left.id,
     )
     db_session.add(existing_body)
+    await db_session.flush()
+    # Bind the framed layer (top contact c_top → litho_layer with the same id)
+    # to the body, the way ResolveLithoInstances would — the suggester resolves
+    # the candidate's body per-layer, not per-formation.
+    await _stamp_layer_body(db_session, layer_contact=c_top, body=existing_body)
     await db_session.commit()
 
     candidates = await SuggestBodyPinchOuts(db_session).execute(
@@ -384,28 +426,31 @@ async def test_claimed_left_uncorrelated_right_emits_right_only(
 
 
 # ---------------------------------------------------------------------------
-# Test 3b: detector-set to_target body suppresses a candidate framed by a
-#          DIFFERENT source investigation of the same formation.
+# Test 3b: a detector-set to_target extent on ONE body suppresses only THAT
+#          body's same-side candidate — a different same-formation instance
+#          (distinct body) is reasoned about independently (per-instance keying).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_to_target_body_suppresses_other_source_candidate(
+async def test_to_target_body_suppresses_only_its_own_instance_candidate(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Regression (dogfeed 2026-06-03): the suggester must resolve a body by
-    ``(formation, instance_ordinal)`` — the SAME identity ClaimBodyExtent uses —
-    not by ``(source_investigation_id, formation)``.
+    """Per-instance suppression (Task 6, supersedes the formation-keyed
+    behaviour of dogfeed 2026-06-03).
 
-    Two investigations (bh_a, bh_b) both frame formation ``f_body``
-    (instance_ordinal=0).  The detector has closed that body's LEFT side with a
-    ``to_target`` extent.  When the suggester iterates bh_b's framing pair, the
-    old (source, formation) key found no body for ``(bh_b, f_body)`` and emitted
-    a left candidate — which then 409'd in ClaimBodyExtent because the claim
-    resolves to the ``(f_body, ordinal 0)`` body whose left is already
-    detector-set.  After the fix, the suggester sees the to_target body and
-    suppresses the left candidate.
+    Two UNCORRELATED investigations (bh_a, bh_b) each frame formation
+    ``f_body`` over ``f_below`` — same formation pair, but two DISTINCT
+    instances (the resolver gives each its own ``body`` row with a distinct
+    ``body_ordinal``).  The detector closes bh_a's body LEFT side with a
+    ``to_target`` extent.
+
+    Per-instance keying means: bh_a's left candidate is suppressed (its own
+    body's left is settled), but bh_b's left candidate is STILL emitted —
+    bh_b is a different instance with its own un-claimed body.  The old
+    ``(formation, instance_ordinal)`` key collapsed both onto one body and
+    would have over-suppressed bh_b.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -416,9 +461,8 @@ async def test_to_target_body_suppresses_other_source_candidate(
     db_session.add_all([geo, litho, parent, f_body, f_below, f_other])
     await db_session.flush()
 
-    # Created in along/UUID order: bh_left < bh_a < bh_b (uuid7 is time-ordered),
-    # so bh_b is the rightmost source and has left neighbours — without the fix
-    # it WOULD emit a left candidate.
+    # Along/UUID order: bh_left < bh_a < bh_b (uuid7 is time-ordered).  Both
+    # bh_a and bh_b have a left neighbour, so each could emit a left candidate.
     bh_left = _borehole(project.id, suffix="T3B-L", x=170000.0)
     bh_a = _borehole(project.id, suffix="T3B-A", x=170500.0)
     bh_b = _borehole(project.id, suffix="T3B-B", x=171000.0)
@@ -427,27 +471,42 @@ async def test_to_target_body_suppresses_other_source_candidate(
 
     # bh_left only participates (single contact → frames nothing itself).
     c_left = _contact(litho, f_other, bh_left, depth=4.0)
-    # Both bh_a and bh_b frame f_body over f_below — same formation pair.
+    # Both bh_a and bh_b frame f_body over f_below — same formation pair, but
+    # UNCORRELATED, so the resolver makes two distinct instances/bodies.
     c_a_top = _contact(litho, f_body, bh_a, depth=3.0)
     c_a_base = _contact(litho, f_below, bh_a, depth=7.0)
     c_b_top = _contact(litho, f_body, bh_b, depth=3.0)
     c_b_base = _contact(litho, f_below, bh_b, depth=7.0)
     db_session.add_all([c_left, c_a_top, c_a_base, c_b_top, c_b_base])
-    await db_session.flush()
+    await db_session.commit()
 
-    # The single body for (litho, f_body, ordinal 0): detector closed its LEFT
-    # side. source_investigation_id = bh_a (irrelevant to body identity).
-    body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        model_id=litho.id,
-        formation_id=f_body.id,
-        body_ordinal=0,
-        source_investigation_id=bh_a.id,
-        extent_left_kind=EXTENT_KIND_TO_TARGET,
-        extent_left_target_contact_id=c_left.id,
+    # Resolve instances → one body per connected component (each uncorrelated
+    # layer is its own component → distinct bodies, distinct body_id stamps).
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+
+    # Find bh_a's body via its framed layer's stamped body_id.
+    a_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_a_top.id)
+        )
+    ).scalar_one()
+    b_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_b_top.id)
+        )
+    ).scalar_one()
+    assert a_body_id is not None and b_body_id is not None
+    assert a_body_id != b_body_id, "bh_a and bh_b must resolve to DISTINCT bodies"
+
+    # Detector closes bh_a's body LEFT side with a to_target extent.
+    await db_session.execute(
+        update(BodyOrm)
+        .where(BodyOrm.id == a_body_id)
+        .values(
+            extent_left_kind=EXTENT_KIND_TO_TARGET,
+            extent_left_target_contact_id=c_left.id,
+        )
     )
-    db_session.add(body)
     await db_session.commit()
 
     candidates = await SuggestBodyPinchOuts(db_session).execute(
@@ -455,13 +514,21 @@ async def test_to_target_body_suppresses_other_source_candidate(
         model_id=litho.id,
     )
 
-    # bh_b never framed the to_target body directly, but the claim would resolve
-    # to it — so no LEFT candidate may be emitted for bh_b.
-    bh_b_left = [c for c in candidates if c.source_investigation_id == bh_b.id and c.side == "left"]
-    assert bh_b_left == [], (
-        f"Expected NO left candidate for bh_b (its formation's body is "
-        f"detector-closed on the left), got {bh_b_left}"
+    # bh_a's left is settled (its own body's left extent set) → suppressed.
+    bh_a_left = [c for c in candidates if c.source_investigation_id == bh_a.id and c.side == "left"]
+    assert bh_a_left == [], (
+        f"Expected NO left candidate for bh_a (its own body's left is "
+        f"detector-set), got {bh_a_left}"
     )
+
+    # bh_b is a DIFFERENT instance with an un-claimed body → its left candidate
+    # is still emitted.  The old formation-key would have wrongly suppressed it.
+    bh_b_left = [c for c in candidates if c.source_investigation_id == bh_b.id and c.side == "left"]
+    assert len(bh_b_left) == 1, (
+        f"Expected bh_b's left candidate to STILL be emitted (distinct "
+        f"instance, un-claimed body), got {bh_b_left}"
+    )
+    assert bh_b_left[0].body_id == b_body_id
 
 
 # ---------------------------------------------------------------------------
@@ -1015,3 +1082,122 @@ async def test_deepest_formation_no_open_candidate_at_interior_test(
     assert deepest_open_mid == [], (
         f"Interior bh_mid must not receive a deepest-open candidate; got: {deepest_open_mid}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 10: naming/claiming ONE instance does not suppress its sibling
+# (the regression Task 6 fixes — per-instance body identity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_named_instance_does_not_suppress_the_other(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Two uncorrelated same-formation SAND instances resolve to DISTINCT
+    bodies; naming (and claiming an extent on) the SHALLOW instance's body
+    must NOT suppress the DEEP instance's pinch-out candidates.
+
+    This is the over-suppression bug: the interim ``(formation,
+    instance_ordinal)`` body resolution collapsed two distinct instances of
+    one formation onto a single body, so settling one instance hid the
+    other's candidates.  Per-layer ``body_id`` keying keeps them independent.
+
+    Topology on bh_source — two SAND units of ONE formation, separated by
+    TWO distinct interbeds (CLAY then SILT) so the two sands do NOT directly
+    bracket a single minority unit (which would be an enclosed lens and
+    suppress the sand host halves).  Both sands are accepted layers the
+    resolver assigns to two different instances:
+      2.0  c_sand_a  (f_sand)  ← shallow SAND instance (ordinal 0) — named + claimed
+      5.0  c_clay    (f_clay)  ← clay interbed (distinct formation)
+      8.0  c_silt    (f_silt)  ← silt interbed (distinct formation)
+      11.0 c_sand_b  (f_sand)  ← deep SAND instance (ordinal 1) — must still emit
+      15.0 c_base    (f_base)  ← base
+    bh_left / bh_right each carry one uncorrelated contact so both sand units
+    have a neighbour on each side.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t10")
+    # Both SAND units reference ONE formation row (same find-or-create key) but
+    # are NOT a lens — two distinct interbeds (CLAY, SILT) separate them, so the
+    # lens-aware suppression does not fire and both are independent instances.
+    f_sand = _formation(project, parent, name="ZAND-SBPO-t10", soil_code="ZAND", ordinal=0)
+    f_clay = _formation(project, parent, name="KLEI-SBPO-t10", soil_code="KLEI", ordinal=1)
+    f_silt = _formation(project, parent, name="SILT-SBPO-t10", soil_code="SILT", ordinal=2)
+    f_base = _formation(project, parent, name="GRIND-SBPO-t10-base", soil_code="GRIND", ordinal=3)
+    f_flank = _formation(project, parent, name="VEEN-SBPO-t10", soil_code="VEEN", ordinal=4)
+    db_session.add_all([geo, litho, parent, f_sand, f_clay, f_silt, f_base, f_flank])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="T10-L", x=195000.0)
+    bh_source = _borehole(project.id, suffix="T10-S", x=195500.0)
+    bh_right = _borehole(project.id, suffix="T10-R", x=196000.0)
+    db_session.add_all([bh_left, bh_source, bh_right])
+    await db_session.flush()
+
+    c_sand_a = _contact(litho, f_sand, bh_source, depth=2.0)
+    c_clay = _contact(litho, f_clay, bh_source, depth=5.0)
+    c_silt = _contact(litho, f_silt, bh_source, depth=8.0)
+    c_sand_b = _contact(litho, f_sand, bh_source, depth=11.0)
+    c_base = _contact(litho, f_base, bh_source, depth=15.0)
+    c_left = _contact(litho, f_flank, bh_left, depth=3.0)
+    c_right = _contact(litho, f_flank, bh_right, depth=3.0)
+    db_session.add_all([c_sand_a, c_clay, c_silt, c_sand_b, c_base, c_left, c_right])
+    await db_session.commit()
+
+    # Resolve instances → one body per layer (all uncorrelated). The two SAND
+    # layers get distinct bodies (ordinals 0 and 1) stamped on their layers.
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+
+    shallow_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_sand_a.id)
+        )
+    ).scalar_one()
+    deep_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_sand_b.id)
+        )
+    ).scalar_one()
+    assert shallow_body_id is not None and deep_body_id is not None
+    assert shallow_body_id != deep_body_id, (
+        "The two same-formation SAND instances must resolve to DISTINCT bodies"
+    )
+
+    # Name AND fully claim the SHALLOW instance's body (both sides).
+    await db_session.execute(
+        update(BodyOrm)
+        .where(BodyOrm.id == shallow_body_id)
+        .values(
+            name="Top sand",
+            extent_left_kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
+            extent_left_neighbour_inv_id=bh_left.id,
+            extent_right_kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
+            extent_right_neighbour_inv_id=bh_right.id,
+        )
+    )
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+
+    # The DEEP sand instance's body still yields at least one candidate —
+    # naming/claiming the shallow sibling did not suppress it.
+    deep_candidates = [c for c in candidates if c.body_id == deep_body_id]
+    assert any(c.body_id == deep_body_id for c in candidates), (
+        f"Deep SAND instance (body {deep_body_id}) must still yield a candidate "
+        f"after the shallow sibling was named + claimed; candidates={candidates}"
+    )
+
+    # And the shallow (fully-claimed) body yields none — its own sides are settled.
+    shallow_candidates = [c for c in candidates if c.body_id == shallow_body_id]
+    assert shallow_candidates == [], (
+        f"Fully-claimed shallow body must emit no candidates, got {shallow_candidates}"
+    )
+
+    # Sanity: the deep candidates frame the deep sand unit (above == c_sand_b).
+    assert all(c.above_contact_id == c_sand_b.id for c in deep_candidates)
