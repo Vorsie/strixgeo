@@ -736,42 +736,46 @@ async def test_neighbour_inv_id_from_different_project_raises(
 
 
 @pytest.mark.asyncio
-async def test_claim_reanchors_body_source_to_the_claimed_column(
+async def test_claim_does_not_drag_source_on_second_claim(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Claiming re-anchors the body's source to the claimed column.
+    """A second claim (other side, different column) must NOT move the source.
 
-    A body's resolver source is its shallowest member, which can be a far /
-    shallower column than where the user claims the pinch-out — the wedge then
-    renders at that source instead of where the claim was made (dogfeed
-    2026-06-03: a pinch-out claimed on the lower unit rendered above). The claim
-    must move ``source_investigation_id`` to the supplied column, even when it
-    was already set.
+    A body's left and right caps can be claimed on different columns; one
+    ``source`` field can't hold both, so re-anchoring on the second claim would
+    drag the whole body to that column (dogfeed 2026-06-03). The source stays
+    put once set; framing each cap from its own band end is the separate fix.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
     parent = _geo_parent(project)
     formation = _formation(project, parent, name="KLEI-CBE-anchor")
-    bh_resolver = _borehole(project.id, suffix="RES", x=150000.0)  # body's current source
-    bh_claim = _borehole(project.id, suffix="CLM", x=150300.0)  # where the user claims
-    db_session.add_all([geo, litho, parent, formation, bh_resolver, bh_claim])
+    bh_source = _borehole(project.id, suffix="SRC", x=150000.0)
+    bh_other = _borehole(project.id, suffix="OTH", x=150300.0)
+    db_session.add_all([geo, litho, parent, formation, bh_source, bh_other])
     await db_session.flush()
-    body = _body(project, litho, formation, bh_resolver)  # source = bh_resolver
+    # Body already carries a left extent + a source (a prior claim / detect).
+    body = _body(
+        project,
+        litho,
+        formation,
+        bh_source,
+        extent_left_kind=EXTENT_KIND_OPEN,
+    )
     db_session.add(body)
     await db_session.commit()
 
-    assert body.source_investigation_id == bh_resolver.id  # precondition
-
+    # Now claim the RIGHT side on a different column.
     updated = await ClaimBodyExtent(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
         body_id=body.id,
-        source_investigation_id=bh_claim.id,  # the claimed column
-        side="left",
+        source_investigation_id=bh_other.id,  # different column
+        side="right",
         kind=EXTENT_KIND_OPEN,
         neighbour_inv_id=None,
     )
 
-    # Anchored at the claimed column, not the resolver's shallowest-member source.
-    assert updated.source_investigation_id == bh_claim.id
+    # Source must NOT have moved to bh_other — that would drag the body.
+    assert updated.source_investigation_id == bh_source.id
