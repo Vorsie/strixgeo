@@ -550,6 +550,8 @@ export interface LithoLayerResponse {
   // Litho↔geo coupling (#162) — points at the geological contact this
   // layer's TOP boundary is the same physical surface as.
   parent_geo_contact_id: string | null
+  // The body (instance) this layer belongs to; NULL until the resolver runs.
+  body_id: string | null
   notes: string | null
   created_at: string
   updated_at: string
