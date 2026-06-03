@@ -24,7 +24,6 @@ from groundmodel.api.routers import (
     project,
     virtuele_boring,
 )
-from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -44,38 +43,25 @@ _DB_PROBE_TIMEOUT_SECONDS = 5.0
 async def _sweep_stale_bodies() -> None:
     """Reconcile ``BodyOrm`` rows across every litho model on boot.
 
-    Bundles + DBs predating the 2026-05-31 bilateral-pinch-out rule carry
-    auto-detected body rows that the new rule would no longer materialise.
-    Without this sweep those stale rows survive every open + save cycle —
-    the dogfeed report that triggered the fix.
+    Runs ``ResolveLithoInstances`` per litho model so body rows stay in sync
+    with the correlation graph (the resolver creates one body per connected
+    component, stamps ``litho_layer.body_id``, and orphan-deletes unnamed
+    bodies whose component disappeared).
 
-    Implementation
-    --------------
-    Open a single session, query every lithostratigraphic model in the DB,
-    run ``ResolveLithoInstances`` (keep ordinals current) +
-    ``DetectBodies`` (apply the bilateral rule, reconcile stale rows)
-    per model.  Each model runs in its own commit so a single bad model
-    doesn't abort the rest.
+    Why the resolver ONLY — no ``DetectBodies`` here
+    -------------------------------------------------
+    Body **extents** (the left/right wedge geometry) are section-scoped (2D):
+    ``DetectBodies`` closes each side to the nearest target along an ACTIVE
+    section.  The boot sweep has no active section, so running it here would
+    re-derive extents with the geometry-free UUID fallback and silently
+    overwrite the nearest-target extents the user committed on a section —
+    a restart would re-break a fixed section (dogfeed 2026-06-03).  Extents
+    persist in the DB; only the interactive ``POST .../bodies/detect`` (which
+    carries the active ``section_id``) sets or reconciles them.
 
-    Safety
-    ------
-    ``DetectBodies`` reconcile step carries a ``preserve-named`` guard —
-    user-named body rows ride through untouched even when the topology no
-    longer matches.  Named rows can only be removed via the explicit
-    ``DELETE /bodies/{body_id}`` endpoint.  The ``preserve-claimed`` guard
-    additionally protects any row with a user-claimed extent kind.
-
-    Failures are logged but do not block startup; a broken sweep should
-    not stop the app from serving requests.  ``POST .../bodies/detect``
-    clicks run their own ``ResolveLithoInstances`` → ``DetectBodies`` pass
-    (see ``api/routers/geology/bodies.py``), so a body cleared at runtime is
-    re-materialised on the next Detect without waiting for a restart, and
-    ``POST .../bundle`` restores run the same reconcile per
-    ``api/routers/project.py``.
+    Each model runs in its own commit so a single bad model doesn't abort
+    the rest.  Failures are logged but never block startup.
     """
-    total_created = 0
-    total_removed = 0
-    total_skipped = 0
     swept_models = 0
     try:
         async with AsyncSessionFactory() as session:
@@ -96,16 +82,8 @@ async def _sweep_stale_bodies() -> None:
                         model_id=model_id,
                         commit=False,
                     )
-                    result = await DetectBodies(session).execute(
-                        project_id=project_id,
-                        model_id=model_id,
-                        prefer_section_id=None,
-                    )
                     await session.commit()
                     swept_models += 1
-                    total_created += result.bodies_created
-                    total_removed += result.bodies_removed
-                    total_skipped += result.bodies_skipped_unresolved_ordinal
                 except Exception as model_exc:  # noqa: BLE001
                     await session.rollback()
                     logger.warning(
@@ -115,11 +93,7 @@ async def _sweep_stale_bodies() -> None:
         if swept_models == 0:
             logger.info("startup body sweep: no lithostratigraphic models — nothing to do")
         else:
-            logger.success(
-                f"startup body sweep: reconciled {swept_models} model(s) — "
-                f"created={total_created} removed={total_removed} "
-                f"skipped_unresolved_ordinal={total_skipped}"
-            )
+            logger.success(f"startup body sweep: resolved {swept_models} litho model(s)")
     except Exception as exc:  # noqa: BLE001
         # A connection failure is the most common cause; the DB probe
         # above already logs an actionable hint.  Don't double-log the
