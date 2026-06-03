@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, ScanSearch } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, ScanSearch, PaintBucket } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -19,6 +19,7 @@ import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { investigationsOnSection } from '../../../utils/sectionProjection'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { log } from '../../../utils/log'
+import { toggleBandFill, useBandFillVisible } from '../../../utils/bandFillStore'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -33,6 +34,9 @@ import { log } from '../../../utils/log'
  *     The toolbar verb buttons element.
  */
 export default function SectionsToolbar(): JSX.Element {
+  // Band-fill visibility — shared with SectionPanel via the bandFill store so
+  // the Bodies-dropdown toggle and the overlay stay in sync.
+  const bandsVisible = useBandFillVisible()
   const {
     project,
     visibleBoreholes,
@@ -1115,6 +1119,17 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'litho-delete-detected-bodies',
                 title:
                   'Hard-delete every machine-detected lens wedge in this model. Bodies you named or claimed (accepted) are preserved.',
+              },
+              {
+                // Explicit, finish-then-click verb — colour every body's closed
+                // loop with its lithology. Do this AFTER correlating + pinch-outs;
+                // it never auto-draws (owner directive 2026-06-03). Toggles on/off.
+                label: bandsVisible ? 'Hide bands' : 'Fill bands',
+                icon: <PaintBucket size={12} />,
+                onClick: () => toggleBandFill(),
+                testid: 'litho-fill-bands',
+                title:
+                  'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
               },
             ]}
           />
