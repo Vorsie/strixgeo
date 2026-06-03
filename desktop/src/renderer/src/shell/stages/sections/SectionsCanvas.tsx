@@ -734,8 +734,7 @@ export default function SectionsCanvas(): JSX.Element {
         return
       }
       await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-        formation_id: body.formation_id,
-        source_investigation_id: body.source_investigation_id,
+        body_id: body.id,
         side,
         kind,
       })
@@ -774,9 +773,17 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   // Open-end a litho LAYER from its contact right-click (replaces the retired
-  // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent for the
-  // layer's formation on its investigation — creates the body if none exists.
-  // No TIN required; the open band renders to the section boundary on ``side``.
+  // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent on the
+  // body that frames this layer's formation on its investigation. The resolver
+  // owns body creation, so a body exists for every accepted unit — we resolve
+  // it from lensList by (formation_id, source_investigation_id).
+  //
+  // KNOWN LIMITATION (site 788): the contact right-click only carries
+  // (formationId, investigationId, side) — it cannot distinguish two stacked
+  // same-formation instances on one column, so the (formation, source) match
+  // picks the first such body. The fully-unambiguous fix requires surfacing
+  // litho_layer.body_id on LithoLayerResponse and threading it through the
+  // contact menu; that is out of Task-5 scope. Reported as a concern.
   const handleOpenEndLayer = useCallback(
     async (formationId: string, investigationId: string, side: 'left' | 'right'): Promise<void> => {
       if (!activeLithoModel) return
@@ -784,10 +791,20 @@ export default function SectionsCanvas(): JSX.Element {
         'section',
         `open-end-layer: formation=${formationId} inv=${investigationId} side=${side}`,
       )
+      const body = lensList.find(
+        b => b.formation_id === formationId && b.source_investigation_id === investigationId,
+      )
+      if (!body) {
+        log.warn(
+          'section',
+          `open-end-layer: no body for formation=${formationId} inv=${investigationId} — resolve/rebuild first`,
+        )
+        toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
+        return
+      }
       try {
         await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          formation_id: formationId,
-          source_investigation_id: investigationId,
+          body_id: body.id,
           side,
           kind: 'open',
         })
@@ -802,7 +819,7 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'handleOpenEndLayer: failed', err)
       }
     },
-    [activeLithoModel, project.id, refetchLensData, toast],
+    [activeLithoModel, project.id, lensList, refetchLensData, toast],
   )
 
   // Clear one side's user extent.  204 = body reaped; 200 = still alive.
@@ -903,18 +920,23 @@ export default function SectionsCanvas(): JSX.Element {
   const handleClaimGhostCandidate = useCallback(
     async (candidate: PinchOutCandidate): Promise<void> => {
       if (!activeLithoModel) return
-      log.info('section', `claim-ghost-candidate: body=${candidate.body_id ?? 'new'} inv=${candidate.source_investigation_id} side=${candidate.side}`)
+      log.info('section', `claim-ghost-candidate: body=${candidate.body_id ?? 'none'} inv=${candidate.source_investigation_id} side=${candidate.side}`)
+      // The candidate carries the resolved body_id directly. Post-resolver this
+      // is always set for an accepted unit; a null id means the body has not
+      // been resolved yet, so we refuse rather than fabricate one.
+      if (candidate.body_id === null) {
+        log.warn(
+          'section',
+          `claim-ghost-candidate: candidate has no body_id (inv=${candidate.source_investigation_id}) — resolve/rebuild first`,
+        )
+        toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
+        return
+      }
       try {
-        // Look up formation_id from the above contact.
-        const aboveContact = lithoContacts.find(c => c.id === candidate.above_contact_id)
-        if (!aboveContact) {
-          toast('error', 'Ghost candidate contact not found.')
-          return
-        }
         // Edge candidates open to the section boundary (no neighbour);
         // interior candidates pinch out halfway toward the neighbour.
         await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          formation_id: aboveContact.formation_id,
+          body_id: candidate.body_id,
           source_investigation_id: candidate.source_investigation_id,
           side: candidate.side,
           kind: candidate.kind,
@@ -936,7 +958,7 @@ export default function SectionsCanvas(): JSX.Element {
     // comparator of its two arguments, so its identity never affects correctness;
     // the linter's missing-dep warning is a false positive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeLithoModel, project.id, lithoContacts, pinchOutCandidates, setPinchOutCandidates, refetchLensData, toast],
+    [activeLithoModel, project.id, pinchOutCandidates, setPinchOutCandidates, refetchLensData, toast],
   )
 
   // Dismiss a ghost candidate — removes it from the local list without any
