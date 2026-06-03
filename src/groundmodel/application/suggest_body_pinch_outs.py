@@ -19,6 +19,18 @@ sees. Without a section, the fallback is UUID ordering, which is unrelated
 to the column layout and visibly "skips" intervening columns
 (dogfeed 2026-06-01) — so callers should pass the section whenever one is
 active.
+
+Open ends are a section-EDGE concept
+-------------------------------------
+An ``open`` candidate is emitted ONLY when a source has no neighbour on a
+side — i.e. it is the section's FIRST test (left side) or LAST test (right
+side).  "First/last test" means the first/last in-corridor column the user
+sees on the section, NOT the first/last litho participant: ALL in-corridor
+non-excluded tests define the order (see ``_section_along_positions``),
+including bare columns that carry no litho contacts yet.  A unit adjacent to
+a not-yet-segmented column therefore pinches out TOWARD it rather than
+opening against it as if it were the section edge (owner directive +
+dogfeed 2026-06-03).
 """
 
 from __future__ import annotations
@@ -296,7 +308,6 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             position = await self._section_along_positions(
                 project_id=project_id,
                 section_id=section_id,
-                participant_ids=set(stacks.keys()),
             )
         else:
             position = {iid: float(i) for i, iid in enumerate(sorted(stacks.keys()))}
@@ -510,14 +521,25 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         *,
         project_id: UUID,
         section_id: UUID,
-        participant_ids: set[UUID],
     ) -> dict[UUID, float]:
-        """Project each participant investigation onto the section line.
+        """Project every in-corridor section TEST onto the section line.
 
         Mirrors ``AutoCorrelateContactEdges._section_along_adjacency`` but
         returns the per-investigation along-distance (not just consecutive
         pairs), since the pinch-out pass needs left/right comparison and
         nearest-neighbour lookup, not only immediate adjacency.
+
+        Every in-corridor, non-excluded investigation in the project is
+        projected — NOT only the model's litho participants.  An ``open`` end
+        is a section-EDGE concept ("left of the first test / right of the last
+        test of the section" — owner directive 2026-06-03), so the edge test
+        must be over the columns the user actually sees on the section, not
+        over the subset that already carries litho contacts.  Restricting the
+        order to participants made the last *participant* (rather than the last
+        *test*) open out, so a unit adjacent to a not-yet-segmented column
+        opened against it instead of pinching toward it (dogfeed 2026-06-03).
+        A bare column (no litho contacts yet) still has an along-position here,
+        so the adjacent participant correctly pinches toward it.
 
         Parameters
         ----------
@@ -525,14 +547,12 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             Owning project — the section must belong to it (scope guard).
         section_id : UUID
             The cross-section whose along-axis defines order.
-        participant_ids : set[UUID]
-            Investigations with at least one contact in the model.
 
         Returns
         -------
         dict[UUID, float]
             ``{investigation_id: along_distance}`` for every in-corridor,
-            non-excluded participant projected onto the section line. Omits
+            non-excluded investigation projected onto the section line. Omits
             off-section / excluded / unprojectable investigations.
 
         Raises
@@ -576,7 +596,11 @@ class SuggestBodyPinchOuts(GroundModelLogger):
 
         along: dict[UUID, float] = {}
         for r in (*cpt_locs, *bh_locs):
-            if r.id not in participant_ids or r.id in excluded:
+            # Every in-corridor, non-excluded test counts — bare columns (no
+            # litho contacts yet) included, so the section-edge test for
+            # ``open`` is over the columns the user sees, not only litho
+            # participants (dogfeed 2026-06-03).
+            if r.id in excluded:
                 continue
             res = project_point_onto_line(endpoints, r.location_x, r.location_y)
             if res is None:
