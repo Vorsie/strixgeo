@@ -187,6 +187,7 @@ async def list_bodies(
 async def detect_bodies(
     project_id: UUID,
     model_id: UUID,
+    section_id: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> DetectBodiesResponse:
     """Run the explicit "Detect bodies" pass on a lithostratigraphic model.
@@ -201,6 +202,12 @@ async def detect_bodies(
         Project scope guard.
     model_id : UUID
         Must be a lithostratigraphic model in this project.
+    section_id : UUID | None
+        The active cross-section.  Body extents are section-scoped (2D): when
+        given, each body closes to the NEAREST target on each side along this
+        section's column order, and the reconcile only touches bodies whose
+        source is on this section.  Omit for the section-less fallback (UUID
+        ordering, model-wide reconcile) used by non-interactive callers.
     session : AsyncSession
         Database session provided by DI.
 
@@ -243,7 +250,7 @@ async def detect_bodies(
     result = await DetectBodies(session).execute(
         project_id=project_id,
         model_id=model_id,
-        prefer_section_id=None,
+        prefer_section_id=section_id,
     )
     # Both use cases flush but do NOT commit (designed to compose inside larger
     # transactions).  This explicit endpoint owns the commit boundary.
