@@ -2906,9 +2906,14 @@ export const api = {
     //
     // Idempotent — re-running with no topology change returns
     // lenses_created=0 lenses_removed=0.
+    // ``sectionId`` scopes detection to the active cross-section: body extents
+    // are section-scoped (2D), so each side closes to the NEAREST target along
+    // that section's column order. Omitting it falls back to UUID ordering
+    // (geometry-free) — the active section should always be passed from the UI.
     detectBodies: (
       projectId: string,
       modelId: string,
+      sectionId?: string,
     ): Promise<{
       // Backend DetectBodiesResponse uses bodies_* field names — the legacy
       // lenses_* names returned undefined at the call site (dogfeed 2026-06-03).
@@ -2917,7 +2922,8 @@ export const api = {
       bodies_skipped_unresolved_ordinal: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
+        `/projects/${projectId}/geology/models/${modelId}/bodies/detect` +
+          (sectionId ? `?section_id=${sectionId}` : ''),
         {},
       ),
 
@@ -2925,6 +2931,7 @@ export const api = {
     detectLithoLenses: (
       projectId: string,
       modelId: string,
+      sectionId?: string,
     ): Promise<{
       // Backend DetectBodiesResponse uses bodies_* field names — the legacy
       // lenses_* names returned undefined at the call site (dogfeed 2026-06-03).
@@ -2933,7 +2940,8 @@ export const api = {
       bodies_skipped_unresolved_ordinal: number
     }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/bodies/detect`,
+        `/projects/${projectId}/geology/models/${modelId}/bodies/detect` +
+          (sectionId ? `?section_id=${sectionId}` : ''),
         {},
       ),
 
