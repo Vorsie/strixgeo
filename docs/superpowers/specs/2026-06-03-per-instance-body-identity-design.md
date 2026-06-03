@@ -138,15 +138,20 @@ wrong instance. Render becomes data-driven.
   inspector lists instances (QHSa1, QHSa2) grouped by formation, consistent
   with the section labels.
 
-### 5. Edge↔layer correspondence (implementation note)
+### 5. Edge↔layer correspondence (resolved)
 
-`litho_contact_correlation_edge` endpoints reference contact ids. Post-A4 the
-`litho_layer` row is the source of truth with a defensive FC↔LL mirror. The
-resolver must map each edge endpoint to the layer it belongs to (a contact is
-the top boundary of a layer). The plan resolves the exact join
-(layer-by-top-depth-and-anchor, or the mirror's layer id) against the live
-schema before coding; the design requires only that components are built over
-**layers connected by approved edges**.
+No join is needed. `litho_contact_correlation_edge.contact_a_id` /
+`contact_b_id` **already FK `litho_layer.id`** (A4 slice 4a migrated the FK
+target; the column names stayed `contact_*` only to keep the `client.ts`
+surface stable). The endpoints *are* layer ids. The resolver builds the
+adjacency over `litho_layer.id` directly from the edge rows — no FC lookup.
+
+This also explains why the current formation-level resolver "works": its
+`formation_by_contact` dict (`select(FormationContactOrm.id,
+FormationContactOrm.formation_id)`) is keyed by the layer id only because the
+FC↔LL backfill gave each layer and its mirror `formation_contact` the **same
+UUID**. The new resolver drops the `FormationContactOrm` dependency entirely and
+reads `litho_layer.formation_id` for the `(parent, soil)` group.
 
 ### 6. Migration & self-heal
 
