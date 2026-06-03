@@ -69,20 +69,27 @@ class _BodyChange(TypedDict):
 
 @dataclass
 class OrdinalUpdate:
-    """One formation whose instance_ordinal changed after resolution.
+    """One body whose reconciliation created or removed an ordinal.
+
+    The resolver no longer writes ``geological_formation.instance_ordinal``;
+    it reconciles ``body`` rows instead.  This struct reports one body
+    change, but the field names are deliberately unchanged — the API schema
+    and the frontend stale-cue badge consume ``new_ordinal`` (see the
+    "Do NOT rename" review note).
 
     Attributes
     ----------
     formation_id : UUID
-        Primary key of the geological_formation row.
+        Primary key of the geological_formation row the body belongs to.
     old_ordinal : int | None
-        The ordinal before the resolver ran.  ALWAYS ``None`` on the
-        explicit-resolve path: the write-back captures the pre-mutation
-        value for the debug log only and does not surface it in the
-        return list.  Reserved for future callers that thread the old
-        value through explicitly (review SF-2).
+        ALWAYS ``None`` on this path.  Body reconciliation is a
+        create-or-delete operation keyed by ``(formation_id, ordinal)``;
+        there is no prior-ordinal value to carry, so the old value is never
+        threaded through.  Reserved for future callers that supply it.
     new_ordinal : int
-        The ordinal assigned by the resolver.
+        The BODY ordinal of the ``(formation_id, ordinal)`` instance whose
+        body was created or removed during reconciliation.  (No longer an
+        instance_ordinal write — body identity is now the durable record.)
     """
 
     formation_id: UUID
@@ -92,14 +99,19 @@ class OrdinalUpdate:
 
 @dataclass
 class ResolveResult:
-    """Output of ``ResolveLithoInstances.execute``.
+    """Output of ``ResolveLithoInstances.execute`` — body reconciliation changes.
+
+    The resolver reconciles ``body`` rows (one per connected component);
+    it does NOT write ``instance_ordinal`` any more.  Each entry in
+    ``updated`` reports a body that was created or removed for a
+    ``(formation_id, ordinal)`` instance.
 
     Attributes
     ----------
     updated : list[OrdinalUpdate]
-        One entry per formation whose ``instance_ordinal`` changed.
-        Empty when the resolver ran but found nothing to change
-        (idempotent no-op).
+        One entry per body created/removed during reconciliation.  Empty
+        when the resolver ran but the body set already matched the resolved
+        instances (idempotent no-op).
     """
 
     updated: list[OrdinalUpdate]
