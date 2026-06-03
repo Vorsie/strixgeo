@@ -421,6 +421,18 @@ class DetectBodies(GroundModelLogger):
                     body.extent_right_target_contact_id = d.extent_right.target_contact_id
                     body.extent_right_neighbour_inv_id = d.extent_right.neighbour_investigation_id
 
+            # Anchor the body at the column the detector FRAMED the pinch on —
+            # NOT the resolver's shallowest member.  The resolver sets
+            # ``source_investigation_id`` to the component's shallowest layer,
+            # which for a unit present on many columns can be far from where it
+            # actually pinches; the wedge renderer frames off that source, so the
+            # lens then spans the whole body to that distant column (dogfeed
+            # 2026-06-03: a lens framed at S3 drew anchored at the leftmost test
+            # S1).  ``d.source_investigation_id`` is the framing column — and
+            # ``d.contact_above_id`` (a member of this body) lives on it — so the
+            # renderer's member-layer framing lands on the pinch column.
+            body.source_investigation_id = d.source_investigation_id
+
             # Upgrade primary_section_id when currently NULL.
             if body.primary_section_id is None and primary_sid is not None:
                 body.primary_section_id = primary_sid
