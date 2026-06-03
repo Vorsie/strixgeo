@@ -17,7 +17,12 @@
 
 import { test, expect } from '@playwright/test'
 import { launchApp, closeApp } from './helpers/electron_launch'
-import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
+import {
+  openFixtureProject,
+  goToStage,
+  cleanupFixtureFile,
+  detectBodiesForFixture,
+} from './helpers/project_open'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
@@ -32,6 +37,11 @@ test.describe('flow_body_naming_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
+      // Re-stamp the seeded body's detector extents BEFORE opening the project
+      // (a sibling spec's model-wide auto-correlate + accept recreates body rows
+      // without extents) so the section render fetches corrected bodies and the
+      // body wedge renders deterministically. Idempotent on a fresh seed.
+      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Sections')
 
