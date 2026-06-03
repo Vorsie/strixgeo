@@ -10,14 +10,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from groundmodel.domain.services.body_extent import BodyExtent, DetectedBody
 from groundmodel.domain.services.detect_body_extents import (
     ContactEdge,
     ContactStack,
     ContactStackEntry,
     detect_body_extents,
 )
-
-from groundmodel.domain.services.body_extent import BodyExtent, DetectedBody
 from groundmodel.shared.constants.extent_kind import EXTENT_KIND_TO_TARGET
 
 
@@ -165,6 +164,102 @@ def test_stacked_bodies() -> None:
     body_pairs = {(b.contact_above_id, b.contact_below_id) for b in bodies}
     assert (c1, c2) in body_pairs
     assert (c2, c3) in body_pairs
+
+
+def test_picks_nearest_target_on_each_side_not_outermost() -> None:
+    """With section geometry, each side closes to the NEAREST target, not the
+    outermost.
+
+    Source inv-A (along=100). Three closure targets, TWO on the left
+    (inv-D along=10, inv-B along=70) and one on the right (inv-C along=150).
+    The left extent must land on inv-B (nearest left, along=70), NOT inv-D
+    (outermost left, along=10) — the bug where every body tapered all the way
+    to the most-distant test. The right extent lands on the single right
+    target inv-C.
+    """
+    # inv_d (outermost left, along=10) deliberately has a LOWER UUID than
+    # inv_b (nearest left, along=70), so the old UUID-bucket logic would pick
+    # inv_d (wrong) while nearest-by-along picks inv_b (right) — the test
+    # discriminates between the two strategies.
+    inv_a, inv_d, inv_b, inv_c = _uid(100), _uid(150), _uid(200), _uid(300)
+    c1, c2, c3 = _uid(1), _uid(2), _uid(3)
+    c_b, c_c, c_d = _uid(10), _uid(20), _uid(30)
+    f_top, f_lens, f_base, f_t = _uid(1000), _uid(1001), _uid(1002), _uid(1003)
+
+    stacks = [
+        ContactStack(
+            inv_a,
+            (
+                ContactStackEntry(c1, f_top, 2.0),
+                ContactStackEntry(c2, f_lens, 5.0),
+                ContactStackEntry(c3, f_base, 8.0),
+            ),
+        ),
+        ContactStack(inv_b, (ContactStackEntry(c_b, f_t, 3.0),)),
+        ContactStack(inv_c, (ContactStackEntry(c_c, f_t, 3.5),)),
+        ContactStack(inv_d, (ContactStackEntry(c_d, f_t, 3.2),)),
+    ]
+    # The (c2, c3) pair closes onto a single contact on EACH of B, C, D.
+    edges = [
+        ContactEdge(c2, c_b),
+        ContactEdge(c3, c_b),
+        ContactEdge(c2, c_c),
+        ContactEdge(c3, c_c),
+        ContactEdge(c2, c_d),
+        ContactEdge(c3, c_d),
+    ]
+    # Geometry: D(10) and B(70) are left of source A(100); C(150) is right.
+    inv_along = {inv_a: 100.0, inv_b: 70.0, inv_c: 150.0, inv_d: 10.0}
+
+    bodies = detect_body_extents(edges, stacks, investigation_along_positions=inv_along)
+
+    assert len(bodies) == 1
+    body = bodies[0]
+    # Nearest left = inv_b (along 70), NOT inv_d (along 10, the outermost/first test).
+    assert body.extent_left is not None
+    assert body.extent_left.neighbour_investigation_id == inv_b, (
+        "left extent must close to the NEAREST left target, not the outermost"
+    )
+    assert body.extent_left.target_contact_id == c_b
+    # Right = the only right target.
+    assert body.extent_right is not None
+    assert body.extent_right.neighbour_investigation_id == inv_c
+
+
+def test_one_sided_targets_with_geometry_produce_no_body() -> None:
+    """With geometry, a candidate whose closure targets are ALL on one side of
+    the source is a unilateral pinch-out, not a bilateral body — skip it.
+
+    Both targets (inv-B along=40, inv-D along=70) sit left of source inv-A
+    (along=100). No right closure → not a body.
+    """
+    inv_a, inv_b, inv_d = _uid(100), _uid(200), _uid(400)
+    c1, c2, c3, c_b, c_d = _uid(1), _uid(2), _uid(3), _uid(10), _uid(30)
+    f_top, f_lens, f_base, f_t = _uid(1000), _uid(1001), _uid(1002), _uid(1003)
+
+    stacks = [
+        ContactStack(
+            inv_a,
+            (
+                ContactStackEntry(c1, f_top, 2.0),
+                ContactStackEntry(c2, f_lens, 5.0),
+                ContactStackEntry(c3, f_base, 8.0),
+            ),
+        ),
+        ContactStack(inv_b, (ContactStackEntry(c_b, f_t, 3.0),)),
+        ContactStack(inv_d, (ContactStackEntry(c_d, f_t, 3.2),)),
+    ]
+    edges = [
+        ContactEdge(c2, c_b),
+        ContactEdge(c3, c_b),
+        ContactEdge(c2, c_d),
+        ContactEdge(c3, c_d),
+    ]
+    # Both targets left of source — no right side.
+    inv_along = {inv_a: 100.0, inv_b: 40.0, inv_d: 70.0}
+
+    bodies = detect_body_extents(edges, stacks, investigation_along_positions=inv_along)
+    assert bodies == [], "all-one-side targets with geometry → unilateral, not a body"
 
 
 def test_left_right_assignment_falls_back_to_uuid_when_along_missing() -> None:
