@@ -39,6 +39,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -254,22 +255,39 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             contact_neighbour_invs.setdefault(r.contact_b_id, set()).add(inv_a)
 
         # ------------------------------------------------------------------ #
-        # 3. Load existing body rows for this model.                          #
+        # 3. Load existing body rows for this model + formation ordinals.     #
         # ------------------------------------------------------------------ #
         bodies_stmt = select(BodyOrm).where(BodyOrm.model_id == model_id)
         bodies = (await self._session.execute(bodies_stmt)).scalars().all()
 
-        # Key: (source_investigation_id, formation_id) → BodyOrm.
-        # Used to check whether a body row already exists for a source pair
-        # and whether a user-claimed extent already covers a side.  When
-        # multiple bodies share the same (inv, formation) — possible with
-        # ordinals > 0 — we take the first match; this is acceptable for v1
-        # because the suggest pass is best-effort.
-        bodies_by_inv_formation: dict[tuple[UUID, UUID], BodyOrm] = {}
-        for b in bodies:
-            key = (b.source_investigation_id, b.formation_id)
-            if key not in bodies_by_inv_formation:
-                bodies_by_inv_formation[key] = b
+        # Body identity is (model_id, formation_id, body_ordinal) — NOT the
+        # source_investigation_id (body_orm.py UNIQUE constraint).  We MUST key
+        # the body map the SAME way ClaimBodyExtent resolves its target, or the
+        # suggester reasons about a different body than the claim will hit:
+        # two investigations framing one formation make the suggester file the
+        # body under one source while the claim resolves to the (formation,
+        # instance_ordinal) body — if the detector already closed that body's
+        # side with a 'to_target' extent, the claim 409s on a candidate the
+        # suggester thought was open (dogfeed 2026-06-03).
+        bodies_by_formation_ordinal: dict[tuple[UUID, int], BodyOrm] = {
+            (b.formation_id, b.body_ordinal): b for b in bodies
+        }
+
+        # ClaimBodyExtent resolves body_ordinal as ``formation.instance_ordinal
+        # or 0``; mirror that here so suggester and claimer agree on identity.
+        formation_ids = {r.formation_id for r in contact_rows}
+        formation_ordinal: dict[UUID, int] = {}
+        if formation_ids:
+            ordinal_rows = (
+                await self._session.execute(
+                    select(
+                        GeologicalFormationOrm.id,
+                        GeologicalFormationOrm.instance_ordinal,
+                    ).where(GeologicalFormationOrm.id.in_(formation_ids))
+                )
+            ).all()
+            for fr in ordinal_rows:
+                formation_ordinal[fr.id] = fr.instance_ordinal or 0
 
         # ------------------------------------------------------------------ #
         # 4. Build an ordering POSITION per investigation for adjacency.       #
@@ -321,9 +339,13 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 _, below_id, _below_formation = entries[i + 1]
 
                 # Convention: the body's formation is the formation whose
-                # top is at the above contact (above_formation).
+                # top is at the above contact (above_formation).  Resolve the
+                # body the SAME way ClaimBodyExtent will — by (formation,
+                # instance_ordinal) — so the claimed checks below reflect the
+                # row the claim actually targets.
                 body_formation = above_formation
-                existing_body = bodies_by_inv_formation.get((inv_id, body_formation))
+                body_ordinal = formation_ordinal.get(body_formation, 0)
+                existing_body = bodies_by_formation_ordinal.get((body_formation, body_ordinal))
                 body_id: UUID | None = existing_body.id if existing_body is not None else None
 
                 # A side is "paired" when both the above and below
@@ -428,7 +450,8 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             # candidates require section context, matching the framed-open branches).
             if section_id is not None and entries:
                 deepest_depth, deepest_contact_id, deepest_formation = entries[-1]
-                deepest_body = bodies_by_inv_formation.get((inv_id, deepest_formation))
+                deepest_ordinal = formation_ordinal.get(deepest_formation, 0)
+                deepest_body = bodies_by_formation_ordinal.get((deepest_formation, deepest_ordinal))
                 deepest_body_id: UUID | None = deepest_body.id if deepest_body is not None else None
                 deepest_bottom = bottom_depth_by_inv.get(inv_id)
                 left_neighbours_d = [n for n in ordered if position[n] < src_pos]
