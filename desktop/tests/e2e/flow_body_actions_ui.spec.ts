@@ -20,7 +20,12 @@
 
 import { test, expect, type Page } from '@playwright/test'
 import { launchApp, closeApp } from './helpers/electron_launch'
-import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
+import {
+  openFixtureProject,
+  goToStage,
+  cleanupFixtureFile,
+  detectBodiesForFixture,
+} from './helpers/project_open'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
@@ -60,6 +65,12 @@ test.describe('flow_body_actions_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
+      // Re-stamp the seeded body's detector extents BEFORE opening the project —
+      // a sibling spec's model-wide auto-correlate + accept on the shared fixture
+      // DB recreates body rows without extents (ordinal shift), so the body wedge
+      // would not render. Running detect before the open means the section render
+      // fetches the already-corrected bodies. Idempotent on a fresh seed.
+      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await openBodySection(page)
 
@@ -88,6 +99,12 @@ test.describe('flow_body_actions_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
+      // Re-stamp the seeded body's detector extents BEFORE opening the project —
+      // a sibling spec's model-wide auto-correlate + accept on the shared fixture
+      // DB recreates body rows without extents (ordinal shift), so the body wedge
+      // would not render. Running detect before the open means the section render
+      // fetches the already-corrected bodies. Idempotent on a fresh seed.
+      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await openBodySection(page)
       await openBodyMenu(page)
@@ -114,6 +131,12 @@ test.describe('flow_body_actions_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
+      // Re-stamp the seeded body's detector extents BEFORE opening the project —
+      // a sibling spec's model-wide auto-correlate + accept on the shared fixture
+      // DB recreates body rows without extents (ordinal shift), so the body wedge
+      // would not render. Running detect before the open means the section render
+      // fetches the already-corrected bodies. Idempotent on a fresh seed.
+      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await openBodySection(page)
 
