@@ -34,30 +34,24 @@ function cols(...entries: [string, number, number][]): Map<string, BandColumn> {
 }
 
 describe('computeBodyBands', () => {
-  it('fills a band across columns, ordered left → right by along', () => {
-    // Body "k" present on three columns; columns supplied out of along order
-    // to prove the helper sorts them.
+  it('returns member columns ordered left → right with absolute elevations', () => {
+    // Columns supplied out of along order to prove the helper sorts them.
     const bands = computeBodyBands(
       [body('k', 'KLEI')],
-      [
-        layer('k', 'B', 4, 6),
-        layer('k', 'A', 3, 5),
-        layer('k', 'C', 5, 7),
-      ],
+      [layer('k', 'B', 4, 6), layer('k', 'A', 3, 5), layer('k', 'C', 5, 7)],
       cols(['A', 0, 10], ['B', 100, 10], ['C', 200, 10]),
     )
 
     expect(bands).toHaveLength(1)
     const band = bands[0]
     expect(band.formationId).toBe('KLEI')
-    // Left → right by along: A(0), B(100), C(200).
-    expect(band.top.map(p => p.along)).toEqual([0, 100, 200])
-    // elev = surface(10) - depth_top.
-    expect(band.top.map(p => p.elev)).toEqual([7, 6, 5])
-    expect(band.base.map(p => p.elev)).toEqual([5, 4, 3])
+    expect(band.members.map(m => m.investigationId)).toEqual(['A', 'B', 'C'])
+    // elev = surface(10) - depth.
+    expect(band.members.map(m => m.topElev)).toEqual([7, 6, 5])
+    expect(band.members.map(m => m.baseElev)).toEqual([5, 4, 3])
   })
 
-  it('skips a body present on only one on-section column (no loop to fill)', () => {
+  it('skips a body present on only one on-section column (no gap to fill)', () => {
     const bands = computeBodyBands(
       [body('k', 'KLEI')],
       [layer('k', 'A', 3, 5), layer('k', 'OFF', 3, 5)],
@@ -73,7 +67,6 @@ describe('computeBodyBands', () => {
       [layer('k', 'A', 3, 5), layer('k', 'B', 4, 6, 'pending')],
       cols(['A', 0, 10], ['B', 100, 10]),
     )
-    // Only one accepted member left → no band.
     expect(bands).toEqual([])
   })
 
