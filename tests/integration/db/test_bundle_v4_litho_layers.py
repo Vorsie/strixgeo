@@ -890,6 +890,94 @@ async def test_body_extent_to_target_dangling_contact_stripped(
     assert b.extent_left_target_contact_id is None
 
 
+async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """``litho_layer.body_id`` round-trips through the resolver re-stamp.
+
+    The .gmproj bundle does NOT restore ``body_id`` directly — restoring
+    it would FK-violate, because bodies are inserted in a later restore
+    phase than the litho layers.  Instead the restore-endpoint runs
+    ``ResolveLithoInstances`` after the full restore, which re-stamps
+    ``litho_layer.body_id`` by matching each restored body on
+    ``(formation_id, body_ordinal)``.  This test mirrors that flow:
+
+    1. Seed an ACCEPTED litho layer (via a FormationContact so the
+       FC→LL trigger materialises it as accepted), then run the resolver
+       so a body exists and the layer is stamped.
+    2. Give the body a NAME and a USER-CLAIMED extent (``open``).
+    3. Export → wipe → restore → re-run the resolver (the endpoint's
+       post-restore reconcile pass).
+    4. Assert: the accepted layer's ``body_id`` is non-null and points
+       at a body that exists in the restored model; the named body
+       survived (name preserved); the user-claimed extent survived.
+    """
+    from groundmodel.application.resolve_litho_instances_use_case import (
+        ResolveLithoInstances,
+    )
+
+    p = project_with_litho
+    # 1. Accepted layer via the FC→LL trigger.
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    layer_id = contact.id
+
+    # Run the resolver so one body row exists + the layer is stamped.
+    await ResolveLithoInstances(db_session).execute(model_id=p["litho_model"].id, commit=True)
+
+    body_before = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == p["litho_model"].id))
+    ).scalar_one()
+    # 2. Name the body + claim an extent (user-owned provenance).
+    body_before.name = "Sand lens A"
+    body_before.extent_left_kind = "open"
+    await db_session.commit()
+
+    layer_before = await db_session.get(LithoLayerOrm, layer_id)
+    assert layer_before is not None
+    assert layer_before.body_id == body_before.id, "precondition: layer stamped before export"
+
+    # 3. Export → wipe → restore.
+    bundle = await build_project_bundle(db_session, p["project"])
+    db_session.expunge_all()
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
+
+    # Immediately after restore, body_id is intentionally NULL on the
+    # accepted layer — it is NOT restored from the payload (FK-before-bodies).
+    layer_post_restore = await db_session.get(LithoLayerOrm, layer_id)
+    assert layer_post_restore is not None
+    assert layer_post_restore.body_id is None, (
+        "body_id must be null straight after restore — the resolver re-stamps it"
+    )
+
+    # 4. Run the resolver (the restore endpoint's post-restore reconcile).
+    await ResolveLithoInstances(db_session).execute(model_id=p["litho_model"].id, commit=True)
+
+    # The resolver re-stamps body_id via a Core UPDATE that bypasses the
+    # ORM identity map; expunge so the assertions read ground truth from
+    # the DB rather than the stale layer object loaded above.
+    db_session.expunge_all()
+    layer_after = await db_session.get(LithoLayerOrm, layer_id)
+    assert layer_after is not None
+    assert layer_after.body_id is not None, "resolver must re-stamp body_id after restore"
+
+    body_after = await db_session.get(BodyOrm, layer_after.body_id)
+    assert body_after is not None, "the stamped body_id must point at a real body row"
+    assert body_after.model_id == p["litho_model"].id
+    # Named body + user-claimed extent survived the round-trip.
+    assert body_after.name == "Sand lens A", "named body must survive the round-trip"
+    assert body_after.extent_left_kind == "open", "user-claimed extent kind must survive"
+
+
 async def test_body_with_dangling_source_investigation_is_dropped(
     db_session: AsyncSession, project_with_litho: dict
 ) -> None:
