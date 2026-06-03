@@ -1,9 +1,13 @@
-"""Detect-bodies use case — replaces DetectLithoLenses.
+"""Detect-bodies use case — pure EXTENT manager over resolver-owned bodies.
 
-Materialises ``BodyOrm`` rows for bodies that pass the bilateral-closure
-detector (``detect_body_extents``) and writes per-side extent markers
-(``kind='to_target'``).  Reconciles stale rows.  Respects the provenance
-rule (never overwrites user-claimed extents).
+The per-instance ``body`` row is owned by ``ResolveLithoInstances`` (the
+single authority that CREATES one body per connected component, stamps
+``litho_layer.body_id``, and DELETES orphan unnamed bodies). This use case
+no longer creates or deletes body rows. It runs the bilateral-closure
+detector and writes the detector's ``to_target`` extents onto the
+resolver-owned bodies, respecting the provenance rule (never overwriting a
+user-claimed extent), and retracts stale ``to_target`` extents when the
+latest detection no longer includes a (body, side) closure.
 
 Flush boundary
 --------------
@@ -20,7 +24,6 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid6 import uuid7
 
 from groundmodel.domain.services.detect_body_extents import (
     ContactEdge,
@@ -31,10 +34,10 @@ from groundmodel.domain.services.detect_body_extents import (
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_TO_TARGET,
@@ -79,17 +82,25 @@ def _resolve_max_thickness(view_state: dict[str, object] | None) -> float | None
 
 @dataclass
 class DetectBodiesResult:
-    """Outcome counts for the detection pass.
+    """Outcome counts for the extent-detection pass.
+
+    The field NAMES are kept stable for frontend compatibility, but their
+    meaning is repurposed: this use case no longer creates or deletes body
+    rows (the resolver owns body lifecycle) — it manages ``to_target``
+    extents on resolver-owned bodies.
 
     Attributes
     ----------
     bodies_created : int
-        Number of ``BodyOrm`` rows inserted this pass.
+        Number of bodies that GAINED a ``to_target`` extent on a previously
+        empty side this pass (newly-set detector extents).
     bodies_removed : int
-        Number of stale ``BodyOrm`` rows deleted this pass.
+        Number of bodies whose stale ``to_target`` extent(s) were CLEARED
+        this pass (the latest detection no longer includes that closure).
     bodies_skipped_unresolved_ordinal : int
-        Candidate bodies skipped because their formation has no
-        ``instance_ordinal`` yet (resolver hasn't run or skipped them).
+        Detected closures skipped because the framed layer has no
+        resolver-stamped body (the resolver has not run, or the framed
+        layer is not an accepted layer).
     """
 
     bodies_created: int
@@ -98,33 +109,32 @@ class DetectBodiesResult:
 
 
 class DetectBodies(GroundModelLogger):
-    """Detect bodies and reconcile ``BodyOrm`` rows.
+    """Manage detector-owned ``to_target`` extents on resolver-owned bodies.
 
-    Reads ``user_approved=True`` contact edges only.  Materialises a
-    ``BodyOrm`` row per detected bilateral-closure body.  Removes rows
-    whose body no longer satisfies the bilateral-closure rule.
+    Reads ``user_approved=True`` contact edges only.  Runs the bilateral-
+    closure detector and, for every detected closure, writes the
+    ``to_target`` extent onto the body the resolver already stamped on the
+    framed layer (``litho_layer.body_id``).  Does NOT create or delete body
+    rows — that is the resolver's job (``ResolveLithoInstances``).
 
     Provenance rule
     ---------------
     The detector NEVER overwrites a user-claimed extent kind
     (``pinch_out_halfway``, ``extrapolated``, ``open``).  It may only
-    write or overwrite extents whose current kind is ``NULL`` or
+    write or overwrite an extent whose current kind is ``NULL`` or
     ``'to_target'``.
 
-    Preserve guards (reconcile step)
-    ---------------------------------
-    A body row is preserved (NOT deleted by the reconcile sweep) when:
+    Stale-extent reconcile
+    ----------------------
+    For any body that currently carries an ``extent_<side>_kind ==
+    'to_target'`` but the latest detection no longer includes that
+    (body, side) closure, the side is cleared back to ``NULL``.  This
+    retracts stale detector closures.  User-claimed extents are never
+    cleared.
 
-    * ``name IS NOT NULL`` — the user explicitly labelled this body, so
-      keep it even when the topology no longer matches the auto-detector.
-      Named rows can only be removed via the explicit
-      ``DELETE /bodies/{body_id}`` endpoint.
-    * Either side carries a user-claimed extent kind — the user has
-      explicitly asserted something about this body's lateral extent.
-
-    Call ``execute`` after the resolver (``ResolveLithoInstances``) so
-    ``instance_ordinal`` values are current before the ordinal look-up
-    in step 6.
+    Call ``execute`` AFTER the resolver (``ResolveLithoInstances``) so the
+    bodies and their ``litho_layer.body_id`` stamps are current before the
+    framed-layer → body look-up.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -139,13 +149,13 @@ class DetectBodies(GroundModelLogger):
         model_id: UUID,
         prefer_section_id: UUID | None = None,
     ) -> DetectBodiesResult:
-        """Run the detection + reconciliation pass.
+        """Run the extent-detection + reconciliation pass.
 
         Parameters
         ----------
         project_id : UUID
-            Project scope guard — used to load cross-section rows and to
-            set ``app_project_id`` on newly created ``BodyOrm`` rows.
+            Project scope guard — used to load cross-section rows for
+            ``primary_section_id`` resolution and to read ``view_state``.
         model_id : UUID
             The lithostratigraphic model to run detection on.
         prefer_section_id : UUID | None
@@ -157,7 +167,8 @@ class DetectBodies(GroundModelLogger):
         Returns
         -------
         DetectBodiesResult
-            Counts of created, removed, and ordinal-skipped body rows.
+            Counts of bodies that gained / lost ``to_target`` extents and
+            closures skipped for lack of a resolved body.
 
         Notes
         -----
@@ -284,59 +295,72 @@ class DetectBodies(GroundModelLogger):
         self.debug(f"DetectBodies: {len(detected)} candidate(s) from domain algorithm")
 
         # ------------------------------------------------------------------ #
-        # 6. Resolve body_ordinal per candidate from formation.instance_ordinal.#
+        # 6. Map framed layer → resolver-stamped body_id (single query).      #
+        #                                                                      #
+        # Post-A4 the FC↔LL UUID identity holds: a detected closure's framed  #
+        # layer is ``d.contact_above_id`` and that id IS a litho_layer.id.    #
+        # The resolver (ResolveLithoInstances) has already stamped            #
+        # ``litho_layer.body_id`` on every accepted layer; we look the body   #
+        # up by that stamp.  A framed layer with no stamped body (resolver    #
+        # not run, or layer not accepted) has its closure SKIPPED.            #
         # ------------------------------------------------------------------ #
-        formation_ids_needed = {d.formation_id for d in detected}
-        formation_ordinals: dict[UUID, int | None] = {}
-        if formation_ids_needed:
-            ordinal_rows = (
-                await self._session.execute(
-                    select(
-                        GeologicalFormationOrm.id,
-                        GeologicalFormationOrm.instance_ordinal,
-                    ).where(GeologicalFormationOrm.id.in_(formation_ids_needed))
+        body_id_by_layer_rows = (
+            await self._session.execute(
+                select(LithoLayerOrm.id, LithoLayerOrm.body_id).where(
+                    LithoLayerOrm.model_id == model_id,
+                    LithoLayerOrm.status == "accepted",
                 )
-            ).all()
-            formation_ordinals = {r.id: r.instance_ordinal for r in ordinal_rows}
+            )
+        ).all()
+        body_id_by_layer: dict[UUID, UUID | None] = {r.id: r.body_id for r in body_id_by_layer_rows}
 
         # ------------------------------------------------------------------ #
-        # 7. Upsert body rows for every valid candidate + write extents.      #
-        #                                                                      #
-        # Pre-fetch all existing BodyOrm rows for this model in one query and  #
-        # build a lookup dict keyed by (formation_id, body_ordinal).  This     #
-        # turns the per-candidate SELECT into a dict lookup, eliminating the   #
-        # N+1 round-trip pattern (E1 audit).  The same dict is reused in       #
-        # step 8 for reconciliation so the total body-table SELECT count is     #
-        # 1 regardless of how many candidates the detector emits.              #
+        # 7. Pre-fetch all body rows for this model in ONE query and key by   #
+        #    id.  This is the only SELECT against the body table (E1 audit).  #
         # ------------------------------------------------------------------ #
-        all_bodies_stmt = select(BodyOrm).where(BodyOrm.model_id == model_id)
-        existing_bodies_map: dict[tuple[UUID, int], BodyOrm] = {
-            (b.formation_id, b.body_ordinal): b
-            for b in (await self._session.execute(all_bodies_stmt)).scalars().all()
-        }
+        existing_bodies = (
+            (await self._session.execute(select(BodyOrm).where(BodyOrm.model_id == model_id)))
+            .scalars()
+            .all()
+        )
+        body_by_id: dict[UUID, BodyOrm] = {b.id: b for b in existing_bodies}
         self.debug(
-            f"DetectBodies: pre-fetched {len(existing_bodies_map)} existing body row(s) "
-            "for upsert loop (eliminates N+1 SELECT)"
+            f"DetectBodies: pre-fetched {len(body_by_id)} resolver-owned body row(s) "
+            "(eliminates N+1 SELECT)"
         )
 
-        target_set: set[tuple[UUID, int]] = set()
+        # Track which (body, side) pairs the latest detection set as to_target
+        # so the reconcile step (step 8) can clear the stale ones that remain.
+        detected_to_target_sides: set[tuple[UUID, str]] = set()
+
         bodies_created = 0
         bodies_skipped_unresolved_ordinal = 0
 
         for d in detected:
-            ordinal = formation_ordinals.get(d.formation_id)
-            if ordinal is None:
+            # The framed layer of the closure is contact_above_id (FC↔LL id).
+            body_id = body_id_by_layer.get(d.contact_above_id)
+            if body_id is None:
                 bodies_skipped_unresolved_ordinal += 1
                 self.warning(
-                    f"DetectBodies: skipping body — formation {d.formation_id} "
-                    "has no instance_ordinal yet (resolver hasn't run?)"
+                    f"DetectBodies: skipping closure — framed layer "
+                    f"{d.contact_above_id} has no resolved body "
+                    "(resolver hasn't run, or layer not accepted?)"
                 )
                 continue
 
-            target_set.add((d.formation_id, ordinal))
+            body = body_by_id.get(body_id)
+            if body is None:
+                # The stamped body_id points at a row that is gone — treat as
+                # unresolved (defensive; the resolver should keep these in sync).
+                bodies_skipped_unresolved_ordinal += 1
+                self.warning(
+                    f"DetectBodies: skipping closure — framed layer "
+                    f"{d.contact_above_id} stamped body {body_id} not found in model"
+                )
+                continue
 
-            # Resolve the primary section using the left extent's neighbour
-            # as the representative target (bilateral — either side works).
+            # Resolve the primary section using either neighbour as the
+            # representative target (bilateral — either side works).
             left_inv = d.extent_left.neighbour_investigation_id if d.extent_left else None
             right_inv = d.extent_right.neighbour_investigation_id if d.extent_right else None
             primary_sid = None
@@ -347,124 +371,67 @@ class DetectBodies(GroundModelLogger):
             if primary_sid is None and prefer_section_id is not None:
                 primary_sid = prefer_section_id
 
-            # Dict lookup replaces the per-iteration SELECT (E1 audit fix).
-            existing = existing_bodies_map.get((d.formation_id, ordinal))
+            # Write each side's to_target extent per the provenance rule:
+            # - Detector may write a side whose current kind is NULL or
+            #   'to_target'.
+            # - Detector NEVER touches a user-claimed kind.
+            if d.extent_left is not None:
+                detected_to_target_sides.add((body.id, "left"))
+                if not is_user_claimed_extent_kind(body.extent_left_kind):
+                    if body.extent_left_kind is None:
+                        bodies_created += 1
+                    body.extent_left_kind = EXTENT_KIND_TO_TARGET
+                    body.extent_left_target_contact_id = d.extent_left.target_contact_id
+                    body.extent_left_neighbour_inv_id = d.extent_left.neighbour_investigation_id
+            if d.extent_right is not None:
+                detected_to_target_sides.add((body.id, "right"))
+                if not is_user_claimed_extent_kind(body.extent_right_kind):
+                    if body.extent_right_kind is None:
+                        bodies_created += 1
+                    body.extent_right_kind = EXTENT_KIND_TO_TARGET
+                    body.extent_right_target_contact_id = d.extent_right.target_contact_id
+                    body.extent_right_neighbour_inv_id = d.extent_right.neighbour_investigation_id
 
-            if existing is None:
-                self._session.add(
-                    BodyOrm(
-                        id=uuid7(),
-                        app_project_id=project_id,
-                        model_id=model_id,
-                        formation_id=d.formation_id,
-                        body_ordinal=ordinal,
-                        source_investigation_id=d.source_investigation_id,
-                        primary_section_id=primary_sid,
-                        extent_left_kind=(
-                            EXTENT_KIND_TO_TARGET if d.extent_left is not None else None
-                        ),
-                        extent_left_target_contact_id=(
-                            d.extent_left.target_contact_id if d.extent_left is not None else None
-                        ),
-                        extent_left_neighbour_inv_id=(
-                            d.extent_left.neighbour_investigation_id
-                            if d.extent_left is not None
-                            else None
-                        ),
-                        extent_right_kind=(
-                            EXTENT_KIND_TO_TARGET if d.extent_right is not None else None
-                        ),
-                        extent_right_target_contact_id=(
-                            d.extent_right.target_contact_id if d.extent_right is not None else None
-                        ),
-                        extent_right_neighbour_inv_id=(
-                            d.extent_right.neighbour_investigation_id
-                            if d.extent_right is not None
-                            else None
-                        ),
-                    )
-                )
-                bodies_created += 1
-                self.debug(
-                    f"DetectBodies: created body row formation={d.formation_id} ordinal={ordinal}"
-                )
-            else:
-                # Update extents PER SIDE per provenance rule:
-                # - Detector may overwrite NULL or 'to_target'.
-                # - Detector NEVER touches user-claimed kinds.
-                if d.extent_left is not None and not is_user_claimed_extent_kind(
-                    existing.extent_left_kind
-                ):
-                    existing.extent_left_kind = EXTENT_KIND_TO_TARGET
-                    existing.extent_left_target_contact_id = d.extent_left.target_contact_id
-                    existing.extent_left_neighbour_inv_id = d.extent_left.neighbour_investigation_id
-                if d.extent_right is not None and not is_user_claimed_extent_kind(
-                    existing.extent_right_kind
-                ):
-                    existing.extent_right_kind = EXTENT_KIND_TO_TARGET
-                    existing.extent_right_target_contact_id = d.extent_right.target_contact_id
-                    existing.extent_right_neighbour_inv_id = (
-                        d.extent_right.neighbour_investigation_id
-                    )
-                # Upgrade primary_section_id when currently NULL.
-                if existing.primary_section_id is None and primary_sid is not None:
-                    existing.primary_section_id = primary_sid
+            # Upgrade primary_section_id when currently NULL.
+            if body.primary_section_id is None and primary_sid is not None:
+                body.primary_section_id = primary_sid
 
         # ------------------------------------------------------------------ #
-        # 8. Reconcile: delete purely-detected stale rows.                    #
+        # 8. Reconcile detector-owned extents (NOT body rows).                #
         #                                                                      #
-        # Preserve guards (owner directives):                                  #
-        # - name IS NOT NULL → user-named body; skip (preserve-named guard).  #
-        # - Either side carries a user-claimed extent kind → skip.            #
-        #   (preserve-claimed guard).                                          #
-        #                                                                      #
-        # Reuse the pre-fetched dict from step 7 — no second SELECT needed.   #
-        # Newly-created rows are in target_set so the loop skips them even     #
-        # though they are not yet visible in existing_bodies_map (they were    #
-        # session.add()'d but not yet flushed — the target_set guard fires     #
-        # before the preserve checks, so correctness is maintained).           #
+        # For any body side whose current kind is 'to_target' but the latest  #
+        # detection no longer includes that (body, side) closure, CLEAR the   #
+        # side back to NULL.  This retracts stale detector closures.  Never   #
+        # touch a user-claimed extent.  Never delete a body row — the         #
+        # resolver owns the body lifecycle.                                   #
         # ------------------------------------------------------------------ #
         bodies_removed = 0
-        for body in existing_bodies_map.values():
-            if (body.formation_id, body.body_ordinal) in target_set:
-                continue
-            # Preserve-named guard.
-            if body.name is not None and body.name.strip() != "":
-                self.debug(
-                    f"DetectBodies: preserving named body row "
-                    f"formation={body.formation_id} ordinal={body.body_ordinal} "
-                    f"name={body.name!r} (topology no longer matches but user-named)"
-                )
-                continue
-            # Preserve-claimed guard.
-            if is_user_claimed_extent_kind(body.extent_left_kind):
-                self.debug(
-                    f"DetectBodies: preserving body row with user-claimed left extent "
-                    f"formation={body.formation_id} ordinal={body.body_ordinal} "
-                    f"extent_left_kind={body.extent_left_kind!r}"
-                )
-                continue
-            if is_user_claimed_extent_kind(body.extent_right_kind):
-                self.debug(
-                    f"DetectBodies: preserving body row with user-claimed right extent "
-                    f"formation={body.formation_id} ordinal={body.body_ordinal} "
-                    f"extent_right_kind={body.extent_right_kind!r}"
-                )
-                continue
-            # Purely-detected with no user claim — safe to delete.
-            await self._session.delete(body)
-            bodies_removed += 1
-            self.debug(
-                f"DetectBodies: removed stale body row "
-                f"formation={body.formation_id} ordinal={body.body_ordinal}"
-            )
+        for body in body_by_id.values():
+            if (
+                body.extent_left_kind == EXTENT_KIND_TO_TARGET
+                and (body.id, "left") not in detected_to_target_sides
+            ):
+                body.extent_left_kind = None
+                body.extent_left_target_contact_id = None
+                body.extent_left_neighbour_inv_id = None
+                bodies_removed += 1
+                self.debug(f"DetectBodies: cleared stale to_target left extent on body {body.id}")
+            if (
+                body.extent_right_kind == EXTENT_KIND_TO_TARGET
+                and (body.id, "right") not in detected_to_target_sides
+            ):
+                body.extent_right_kind = None
+                body.extent_right_target_contact_id = None
+                body.extent_right_neighbour_inv_id = None
+                bodies_removed += 1
+                self.debug(f"DetectBodies: cleared stale to_target right extent on body {body.id}")
 
         # Flush — the caller commits the outer transaction.
         await self._session.flush()
         self.success(
-            f"DetectBodies: created={bodies_created} "
-            f"removed={bodies_removed} "
-            f"skipped_unresolved_ordinal={bodies_skipped_unresolved_ordinal}"
+            f"DetectBodies: extents_set={bodies_created} "
+            f"extents_cleared={bodies_removed} "
+            f"skipped_no_resolved_body={bodies_skipped_unresolved_ordinal}"
         )
         return DetectBodiesResult(
             bodies_created=bodies_created,
