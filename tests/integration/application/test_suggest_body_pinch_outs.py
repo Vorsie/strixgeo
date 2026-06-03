@@ -43,6 +43,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
+    EXTENT_KIND_OPEN,
     EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_TO_TARGET,
 )
@@ -433,23 +434,22 @@ async def test_claimed_left_uncorrelated_right_emits_right_only(
 
 
 @pytest.mark.asyncio
-async def test_to_target_body_suppresses_only_its_own_instance_candidate(
+async def test_user_claimed_body_suppresses_only_its_own_instance_candidate(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Per-instance suppression (Task 6, supersedes the formation-keyed
-    behaviour of dogfeed 2026-06-03).
+    """Per-instance suppression by a USER-CLAIMED extent.
 
     Two UNCORRELATED investigations (bh_a, bh_b) each frame formation
     ``f_body`` over ``f_below`` — same formation pair, but two DISTINCT
     instances (the resolver gives each its own ``body`` row with a distinct
-    ``body_ordinal``).  The detector closes bh_a's body LEFT side with a
-    ``to_target`` extent.
+    ``body_ordinal``).  bh_a's body LEFT side carries a USER-CLAIMED ``open``
+    extent.
 
     Per-instance keying means: bh_a's left candidate is suppressed (its own
-    body's left is settled), but bh_b's left candidate is STILL emitted —
-    bh_b is a different instance with its own un-claimed body.  The old
-    ``(formation, instance_ordinal)`` key collapsed both onto one body and
+    body's left is a committed user claim), but bh_b's left candidate is STILL
+    emitted — bh_b is a different instance with its own un-claimed body.  The
+    old ``(formation, instance_ordinal)`` key collapsed both onto one body and
     would have over-suppressed bh_b.
     """
     geo = _geo_model(project)
@@ -498,14 +498,10 @@ async def test_to_target_body_suppresses_only_its_own_instance_candidate(
     assert a_body_id is not None and b_body_id is not None
     assert a_body_id != b_body_id, "bh_a and bh_b must resolve to DISTINCT bodies"
 
-    # Detector closes bh_a's body LEFT side with a to_target extent.
+    # bh_a's body LEFT side carries a USER-CLAIMED open extent (a committed
+    # decision — unlike a detector to_target, this DOES suppress the side).
     await db_session.execute(
-        update(BodyOrm)
-        .where(BodyOrm.id == a_body_id)
-        .values(
-            extent_left_kind=EXTENT_KIND_TO_TARGET,
-            extent_left_target_contact_id=c_left.id,
-        )
+        update(BodyOrm).where(BodyOrm.id == a_body_id).values(extent_left_kind=EXTENT_KIND_OPEN)
     )
     await db_session.commit()
 
@@ -514,11 +510,11 @@ async def test_to_target_body_suppresses_only_its_own_instance_candidate(
         model_id=litho.id,
     )
 
-    # bh_a's left is settled (its own body's left extent set) → suppressed.
+    # bh_a's left is user-claimed → suppressed.
     bh_a_left = [c for c in candidates if c.source_investigation_id == bh_a.id and c.side == "left"]
     assert bh_a_left == [], (
         f"Expected NO left candidate for bh_a (its own body's left is "
-        f"detector-set), got {bh_a_left}"
+        f"user-claimed), got {bh_a_left}"
     )
 
     # bh_b is a DIFFERENT instance with an un-claimed body → its left candidate
@@ -529,6 +525,63 @@ async def test_to_target_body_suppresses_only_its_own_instance_candidate(
         f"instance, un-claimed body), got {bh_b_left}"
     )
     assert bh_b_left[0].body_id == b_body_id
+
+
+@pytest.mark.asyncio
+async def test_detector_to_target_does_not_suppress_suggestion(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A detector ``to_target`` extent is a guess, not a committed claim, so it
+    must NOT suppress the suggestion on that side — the user has to be able to
+    override it with an open / pinch-out (dogfeed 2026-06-03: a detected sand
+    lens blocked its own open-end suggestions).
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-tt")
+    f_body = _formation(project, parent, name="ZAND-SBPO-tt-body", ordinal=0)
+    f_below = _formation(project, parent, name="KLEI-SBPO-tt-below", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-SBPO-tt-other", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_body, f_below, f_other])
+    await db_session.flush()
+
+    # bh_left < bh_a in UUID order → bh_a has a left neighbour to pinch toward.
+    bh_left = _borehole(project.id, suffix="TT-L", x=180000.0)
+    bh_a = _borehole(project.id, suffix="TT-A", x=180500.0)
+    db_session.add_all([bh_left, bh_a])
+    await db_session.flush()
+
+    c_left = _contact(litho, f_other, bh_left, depth=4.0)
+    c_a_top = _contact(litho, f_body, bh_a, depth=3.0)
+    c_a_base = _contact(litho, f_below, bh_a, depth=7.0)
+    db_session.add_all([c_left, c_a_top, c_a_base])
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+    a_body_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_a_top.id)
+        )
+    ).scalar_one()
+
+    # Detector sets a to_target on bh_a's left (a guess).
+    await db_session.execute(
+        update(BodyOrm)
+        .where(BodyOrm.id == a_body_id)
+        .values(extent_left_kind=EXTENT_KIND_TO_TARGET, extent_left_target_contact_id=c_left.id)
+    )
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id, model_id=litho.id
+    )
+
+    # The to_target side is STILL offered — the user can override the guess.
+    bh_a_left = [c for c in candidates if c.source_investigation_id == bh_a.id and c.side == "left"]
+    assert len(bh_a_left) >= 1, (
+        f"a detector to_target must NOT suppress its own suggestion, got {bh_a_left}"
+    )
 
 
 # ---------------------------------------------------------------------------
