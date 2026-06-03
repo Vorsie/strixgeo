@@ -868,6 +868,19 @@ export default function SectionPanel({
     return m
   }, [formations])
 
+  // formation_id → lithology code (KLEI / SILT / …), for the body band's
+  // one-lithology guard: a band segment is only drawn between two members of
+  // the SAME lithology, so a resolver-mis-grouped mixed body still renders each
+  // member in its own colour instead of one nominal colour.
+  const formationSoilById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const f of formations) {
+      const soil = f.litho_main_soil_code ?? undefined
+      if (soil) m.set(f.id, soil)
+    }
+    return m
+  }, [formations])
+
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
   // sections in the sidebar fits the new one without inheriting the
@@ -3218,6 +3231,7 @@ export default function SectionPanel({
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
+                formationSoilById={formationSoilById}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
