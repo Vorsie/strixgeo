@@ -1,11 +1,8 @@
 // Lithology stage inspector — model picker, stale-surface banner,
-// formation roster with ordinal display + lock toggle + Resolve action,
 // read-only formation roster grouped under geological parents, and
 // workflow guidance footer.
 //
 // Slice C of #55 litho peer-stage scaffolding.
-// Slice 2 of Phase-2 litho correlation: ordinal display, lock toggle,
-// Resolve instances action, and the RO-3 inline amber stale-ordinal badge.
 //
 // Phase 1 update: lithoFormations roster is now grouped under parent
 // geological formations ordered ascending by display_order (oldest
@@ -13,18 +10,22 @@
 // other renderers). Litho units without a parent_formation_id are
 // collected under an "Unassigned" group at the bottom.
 //
+// Body-model migration (Task 11): instance numbering is now per-body on
+// the section (labels QHSa1/QHSa2 render there), NOT per-formation. The
+// resolver no longer writes geological_formation.instance_ordinal and the
+// per-formation ordinal LOCK machinery was removed from the backend
+// resolver. The obsolete per-formation ordinal badge, the lock toggle, and
+// the RO-3 stale-ordinal badge (with its correlation-edge-count plumbing)
+// were therefore dropped from this inspector.
+//
 // Design decisions (system-architect):
 //   • ModelKindPicker unchanged at top (model select/create lifecycle).
 //   • Stale-surface info banner when lithoStaleSurfaceCount > 0 —
 //     READ-ONLY status; no Build button here.  Build lives in
 //     LithologyToolbar (moved from SectionsToolbar in Phase 1).
 //     Mirrors how GeologyInspector's crossings banner has no action.
-//   • Formation roster per unit: colour swatch, name, contact count,
-//     ordinal badge ("body N" / "body ?"), lock toggle, RO-3 amber badge.
-//   • "Resolve instances" action above the roster (Phase-2 Slice 2).
-//   • RO-3 amber badge (owner-locked): inline amber "!" on locked
-//     formations when the edge set changed since the last resolve.
-//     Quiet when nothing is locked / no edges.
+//   • Formation roster per unit: colour swatch, name, contact count.
+//   • "Resolve instances" action above the roster (refreshes formations).
 //   • Guidance footer pointing engineers to Sections.
 //   • EmptyState primitive for the no-model / empty-roster branches.
 //   • Semantic tokens for chrome — no raw dark: pairs.
@@ -33,8 +34,8 @@
 // Slice 5: parent_formation_name server-resolved (debt #67) — consumed
 //           in LithoFormationRoster group labels below.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Circle, Lock, LockOpen, RefreshCw, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Circle, RefreshCw, Trash2 } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -42,7 +43,6 @@ import type {
   BodyListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
-  LithoContactCorrelationEdge,
 } from '../../../api/client'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
@@ -53,15 +53,13 @@ import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import ConfirmParentDialog from './ConfirmParentDialog'
 import ModelKindPicker from './ModelKindPicker'
-import { computeOrdinalStale } from './ordinalStaleness'
 
 /**
  * Inspector for the Lithology stage.
  *
  * Shows the model-kind picker, an optional stale-surface info banner,
- * a formation roster with ordinal display + lock toggle + Resolve action,
- * the RO-3 inline amber stale-ordinal badge on locked formations whose
- * edge set changed since the last explicit resolve, and workflow guidance.
+ * a formation roster grouped under geological parents, a Resolve action
+ * that refreshes the roster, and workflow guidance.
  *
  * Returns
  * -------
@@ -99,47 +97,10 @@ export default function LithologyInspector(): JSX.Element {
     }
   }, [handleClearLithoModel])
 
-  // Phase-2 Slice 2: correlation edge state for RO-3 stale-ordinal badge.
-  // Fetched when the active litho model changes; refreshed after Resolve.
-  // TODO Task 19+21: fully migrate to contact-level correlation.
-  const [correlationEdges, setCorrelationEdges] = useState<LithoContactCorrelationEdge[]>([])
-  // The edge count at the time of the most recent explicit Resolve call
-  // (or at mount — treated as a resolved baseline). Used to detect whether
-  // the edge set changed since the locked ordinals were last confirmed.
-  const lastResolvedEdgeCountRef = useRef<number | null>(null)
-  const [lastResolvedEdgeCount, setLastResolvedEdgeCount] = useState<number | null>(null)
-
   // #101 Slice 6: lens list for per-formation lens-count badges.
   const [lenses, setLenses] = useState<BodyListItem[]>([])
 
   const [resolving, setResolving] = useState(false)
-
-  // Fetch the current edge list whenever the active litho model changes.
-  useEffect(() => {
-    if (project === null || activeLithoModel === null) {
-      setCorrelationEdges([])
-      lastResolvedEdgeCountRef.current = null
-      setLastResolvedEdgeCount(null)
-      return
-    }
-    const pid = project.id
-    const mid = activeLithoModel.id
-    log.debug('[LithologyInspector] fetching correlations for model', mid)
-    // TODO Task 19+21: migrate to listContactCorrelations (contact-level).
-    void api.geology.listContactCorrelations(pid, mid).then(edges => {
-      setCorrelationEdges(edges)
-      // Treat the initial load as the resolved baseline only if it has
-      // not been set yet (i.e. this is the first fetch for this model).
-      if (lastResolvedEdgeCountRef.current === null) {
-        lastResolvedEdgeCountRef.current = edges.length
-        setLastResolvedEdgeCount(edges.length)
-      }
-    })
-  // reason: activeLithoModel?.id is the stable identity key; using the
-  // full object would re-fire on every parent re-render that reconstructs
-  // the model object reference even when the id is unchanged.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, activeLithoModel?.id])
 
   // #101 Slice 6: fetch lenses whenever the active model changes so the
   // per-formation lens-count badges stay current.
@@ -161,56 +122,24 @@ export default function LithologyInspector(): JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, activeLithoModel?.id])
 
-  // Explicit resolve: re-run the ordinal resolver, refetch formations and
-  // edges, then update the resolved-edge-count baseline.
+  // Explicit resolve: refetch formations so the roster reflects the
+  // latest server state. Instance ordinals are resolved server-side on
+  // accept (per-body, on the section) — this button is now a roster
+  // refresh, not a re-numbering trigger.
   const handleResolve = useCallback(async () => {
     if (project === null || activeLithoModel === null) return
-    const pid = project.id
     const mid = activeLithoModel.id
-    log.info('[LithologyInspector] resolving litho instances for model', mid)
+    log.info('[LithologyInspector] refreshing litho roster for model', mid)
     setResolving(true)
     try {
-      // TODO Task 19+21: resolveLithoInstances is removed; ordinals
-      // are now resolved server-side on accept. Replace this handler
-      // with acceptContactCorrelations when Task 19 ships.
-      log.info('[LithologyInspector] resolve: ordinals now auto-resolved on accept')
-      // Refetch formations so ordinal badges update.
+      // Ordinals are now auto-resolved server-side on accept (per-body).
       refetchFormations()
-      // Refetch contact-level edges; update the resolved-count baseline.
-      const edges = await api.geology.listContactCorrelations(pid, mid)
-      setCorrelationEdges(edges)
-      lastResolvedEdgeCountRef.current = edges.length
-      setLastResolvedEdgeCount(edges.length)
     } catch (err) {
       log.error('[LithologyInspector] resolve failed:', err)
     } finally {
       setResolving(false)
     }
   }, [project, activeLithoModel, refetchFormations])
-
-  // Lock-toggle: PATCH instance_ordinal_locked on a formation, then
-  // refetch formations so the badge updates immediately.
-  const handleToggleLock = useCallback(
-    async (formation: GeologicalFormationResponse) => {
-      if (project === null) return
-      const newLocked = !formation.instance_ordinal_locked
-      log.debug(
-        '[LithologyInspector] toggling lock on formation',
-        formation.id,
-        '→',
-        newLocked,
-      )
-      try {
-        await api.geology.updateFormation(project.id, formation.id, {
-          instance_ordinal_locked: newLocked,
-        })
-        refetchFormations()
-      } catch (err) {
-        log.error('[LithologyInspector] lock toggle failed:', err)
-      }
-    },
-    [project, refetchFormations],
-  )
 
   // Debt #87: ConfirmParentDialog state — opened from the amber dot on
   // extrapolated/orphan unit rows. ``confirmTarget`` carries the unit
@@ -246,17 +175,6 @@ export default function LithologyInspector(): JSX.Element {
       }
     },
     [project, confirmTarget, refetchFormations],
-  )
-
-  // RO-3 stale-ordinal badge: locked formation + edge set changed since
-  // the last explicit resolve. The predicate is the pure
-  // ``computeOrdinalStale`` helper so its PRESENT branch is unit-tested
-  // independently (review SF-1) — the in-component useMemo only ever
-  // memoises it.
-  const currentEdgeCount = correlationEdges.length
-  const ordinalIsStale = useMemo(
-    () => computeOrdinalStale(lithoFormations, currentEdgeCount, lastResolvedEdgeCount),
-    [lithoFormations, currentEdgeCount, lastResolvedEdgeCount],
   )
 
   // Debt #147 follow-up (2026-05-27): the roster reflects the ACTIVE
@@ -436,9 +354,7 @@ export default function LithologyInspector(): JSX.Element {
               geoFormations={formations}
               lithoFormations={lithoFormationsInModel}
               lithoContacts={lithoContacts}
-              ordinalIsStale={ordinalIsStale}
               lensCountByFormationId={lensCountByFormationId}
-              onToggleLock={handleToggleLock}
               onReviewParent={setConfirmTarget}
             />
           )}
@@ -522,10 +438,8 @@ export default function LithologyInspector(): JSX.Element {
 interface LithoUnitRowProps {
   f: GeologicalFormationResponse
   lithoContacts: readonly FormationContactResponse[]
-  ordinalIsStale: boolean
   /** #101 Slice 6: number of lenses whose parent_formation_id === f.id. */
   lensCount: number
-  onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
   /** Debt #87: opens the confirm-parent dialog for an extrapolated or
    *  orphan unit. Click target is the amber dot on the left of the row. */
   onReviewParent: (formation: GeologicalFormationResponse) => void
@@ -534,16 +448,10 @@ interface LithoUnitRowProps {
 function LithoUnitRow({
   f,
   lithoContacts,
-  ordinalIsStale,
   lensCount,
-  onToggleLock,
   onReviewParent,
 }: LithoUnitRowProps): JSX.Element {
   const contactCount = lithoContacts.filter(c => c.formation_id === f.id).length
-  // Ordinal badge: "body N" when resolved, "body ?" when still null.
-  const ordinalLabel = f.instance_ordinal !== null ? `body ${f.instance_ordinal}` : 'body ?'
-  // RO-3 amber badge: locked formation + edge set changed since last resolve.
-  const showStaleBadge = f.instance_ordinal_locked && ordinalIsStale
   // Debt #87: amber dot when the parent needs engineer review.
   // Either the AcceptLitho path stamped parent_extrapolated=true, or the
   // unit is orphan (no parent at all — usually grouped under "Unassigned"
@@ -589,47 +497,6 @@ function LithoUnitRow({
         </button>
       )}
 
-      {/* Ordinal badge — "body N" or "body ?" when unresolved */}
-      <span
-        className="text-[10px] tabular-nums text-text-muted"
-        title={ordinalLabel}
-        data-testid={`ordinal-badge-${f.id}`}
-      >
-        {ordinalLabel}
-      </span>
-
-      {/* RO-3 amber stale badge — inline, quiet otherwise */}
-      {showStaleBadge && (
-        <span
-          className="text-amber-600"
-          title="Connections changed — re-resolve or unlock"
-          data-testid={`stale-ordinal-badge-${f.id}`}
-          aria-label="Connections changed — re-resolve or unlock"
-        >
-          <AlertCircle size={11} aria-hidden="true" />
-        </span>
-      )}
-
-      {/* Lock toggle — locks/unlocks the instance_ordinal for this unit */}
-      <button
-        type="button"
-        onClick={() => void onToggleLock(f)}
-        className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
-        title={
-          f.instance_ordinal_locked
-            ? 'Ordinal locked — click to unlock'
-            : 'Ordinal free — click to lock'
-        }
-        data-testid={`lock-toggle-${f.id}`}
-        aria-pressed={f.instance_ordinal_locked}
-      >
-        {f.instance_ordinal_locked ? (
-          <Lock size={11} aria-hidden="true" />
-        ) : (
-          <LockOpen size={11} aria-hidden="true" />
-        )}
-      </button>
-
       {/* Contact count */}
       <span
         className="text-[10px] tabular-nums text-text-muted"
@@ -663,17 +530,12 @@ interface LithoFormationRosterProps {
   lithoFormations: readonly GeologicalFormationResponse[]
   /** All contacts in the active litho model — used for per-unit count. */
   lithoContacts: readonly FormationContactResponse[]
-  /** True when the edge set changed since the last explicit resolve,
-   *  causing locked formations to show the RO-3 amber stale badge. */
-  ordinalIsStale: boolean
   /**
    * Per-formation lens count (#101 Slice 6).
    * Key = formation id; value = number of lenses whose
    * ``parent_formation_id`` equals that key.  Absent key → 0.
    */
   lensCountByFormationId: ReadonlyMap<string, number>
-  /** Called when the user clicks the lock/unlock icon on a unit row. */
-  onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
   /** Debt #87: called when the user clicks a unit's parent-review dot. */
   onReviewParent: (formation: GeologicalFormationResponse) => void
 }
@@ -683,9 +545,7 @@ interface LithoFormationRosterProps {
  * formations, ordered ascending by the geological formation's
  * ``display_order`` (oldest first — superposition convention).
  *
- * Each unit row shows: colour swatch, name, contact count, ordinal badge
- * ("body N" / "body ?"), lock toggle, and the RO-3 amber stale badge when
- * the formation is locked and the edge set changed since last resolve.
+ * Each unit row shows: colour swatch, name, and contact count.
  *
  * Parameters
  * ----------
@@ -696,10 +556,6 @@ interface LithoFormationRosterProps {
  *     Litho units to display — may have parent_formation_id = null.
  * lithoContacts
  *     All contacts in the litho model for per-unit contact counting.
- * ordinalIsStale
- *     When true, every locked formation gets the amber "!" badge.
- * onToggleLock
- *     Called with the formation when the user clicks the lock icon.
  *
  * Returns
  * -------
@@ -710,9 +566,7 @@ function LithoFormationRoster({
   geoFormations,
   lithoFormations,
   lithoContacts,
-  ordinalIsStale,
   lensCountByFormationId,
-  onToggleLock,
   onReviewParent,
 }: LithoFormationRosterProps): JSX.Element {
   // Group litho units by parent_formation_id.
@@ -766,9 +620,7 @@ function LithoFormationRoster({
                 key={f.id}
                 f={f}
                 lithoContacts={lithoContacts}
-                ordinalIsStale={ordinalIsStale}
                 lensCount={lensCountByFormationId.get(f.id) ?? 0}
-                onToggleLock={onToggleLock}
                 onReviewParent={onReviewParent}
               />
             ))}
@@ -789,9 +641,7 @@ function LithoFormationRoster({
                 key={f.id}
                 f={f}
                 lithoContacts={lithoContacts}
-                ordinalIsStale={ordinalIsStale}
                 lensCount={lensCountByFormationId.get(f.id) ?? 0}
-                onToggleLock={onToggleLock}
                 onReviewParent={onReviewParent}
               />
             ))}
