@@ -13,10 +13,12 @@ function layer(
   top: number,
   base: number,
   status = 'accepted',
+  formationId = 'f-default',
 ): LithoLayerResponse {
   return {
     id: `${bodyId}-${invId}`,
     body_id: bodyId,
+    formation_id: formationId,
     borehole_id: invId,
     cpt_id: null,
     depth_top_m: top,
@@ -49,6 +51,22 @@ describe('computeBodyBands', () => {
     // elev = surface(10) - depth.
     expect(band.members.map(m => m.topElev)).toEqual([7, 6, 5])
     expect(band.members.map(m => m.baseElev)).toEqual([5, 4, 3])
+  })
+
+  it('carries each member layer’s own formation (for the one-lithology guard)', () => {
+    // A mis-grouped body: a KLEI member and a SILT member under one body id.
+    const bands = computeBodyBands(
+      [body('k', 'f-silt')],
+      [
+        layer('k', 'A', 3, 5, 'accepted', 'f-klei'),
+        layer('k', 'B', 4, 6, 'accepted', 'f-silt'),
+      ],
+      cols(['A', 0, 10], ['B', 100, 10]),
+    )
+    expect(bands).toHaveLength(1)
+    // The overlay reads each member's OWN formation to colour + guard, so a
+    // KLEI member is never painted with the body's nominal SILT colour.
+    expect(bands[0].members.map(m => m.formationId)).toEqual(['f-klei', 'f-silt'])
   })
 
   it('skips a body present on only one on-section column (no gap to fill)', () => {

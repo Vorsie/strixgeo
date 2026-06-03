@@ -37,6 +37,10 @@ export interface BandColumn {
 /** A body's member unit on one on-section column. */
 export interface BandMember {
   investigationId: string
+  /** The member layer's OWN formation — drives the segment colour + the
+   *  one-lithology guard, NOT the body's nominal formation (a mis-grouped
+   *  body can span lithologies; we colour each member by what it actually is). */
+  formationId: string
   /** Along-section distance — used to order columns left → right. */
   along: number
   /** Absolute elevation (mTAW) of the unit's top on this column. */
@@ -101,6 +105,7 @@ export function computeBodyBands(
         if (!col) return null
         return {
           investigationId: col.investigationId,
+          formationId: layer.formation_id,
           along: col.along,
           topElev: col.surfaceElevM - layer.depth_top_m,
           baseElev: col.surfaceElevM - layer.depth_base_m,
