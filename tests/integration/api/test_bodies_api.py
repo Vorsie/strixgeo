@@ -142,8 +142,7 @@ async def test_claim_body_extent_provenance_violation_returns_409(
     resp = await async_client.post(
         f"/projects/{project.id}/geology/models/{litho.id}/bodies",
         json={
-            "formation_id": str(formation.id),
-            "source_investigation_id": str(bh_source.id),
+            "body_id": str(body.id),
             "side": "left",
             "kind": EXTENT_KIND_PINCH_OUT_HALFWAY,
             "neighbour_inv_id": str(bh_neighbour.id),
@@ -179,8 +178,7 @@ async def test_claim_body_extent_other_validation_errors_still_return_422(
     resp = await async_client.post(
         f"/projects/{project.id}/geology/models/{litho.id}/bodies",
         json={
-            "formation_id": str(formation.id),
-            "source_investigation_id": str(bh_source.id),
+            "body_id": str(uuid7()),  # any UUID — side fails Pydantic first
             "side": "centre",  # invalid — neither 'left' nor 'right'
             "kind": EXTENT_KIND_PINCH_OUT_HALFWAY,
             "neighbour_inv_id": str(bh_neighbour.id),
@@ -380,8 +378,7 @@ async def test_idor_claim_body_extent_wrong_project_404(
     resp = await async_client.post(
         f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies",
         json={
-            "formation_id": str(f["formation_a"].id),
-            "source_investigation_id": str(f["bh_a"].id),
+            "body_id": str(f["body_a"].id),
             "side": "right",
             "kind": "open",
         },
