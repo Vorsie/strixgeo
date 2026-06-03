@@ -25,7 +25,6 @@ from groundmodel.api.schemas.project.project_response import ProjectResponse
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
-from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -312,22 +311,19 @@ async def restore_project(
         ) from err
 
     # ------------------------------------------------------------------ #
-    # Body reconciliation on restore (owner directive 2026-05-31).        #
+    # Body reconciliation on restore — resolver ONLY.                     #
     #                                                                      #
-    # Bundles saved under the pre-2026-05-31 unilateral detection rule    #
-    # carry ``BodyOrm`` rows that the new bilateral rule would no longer  #
-    # materialise.  Without this pass those stale rows would silently     #
-    # survive every open + save cycle.                                     #
+    # ``ResolveLithoInstances`` keeps body rows in sync with the restored #
+    # correlation graph (one body per connected component, ``body_id``    #
+    # stamps current, orphan unnamed bodies removed).                      #
     #                                                                      #
-    # ``DetectBodies`` reconcile step carries a ``preserve-named`` guard, #
-    # so user-named rows ride through untouched even when the topology no  #
-    # longer matches — named rows are intentional and can only be removed  #
-    # via the explicit DELETE /bodies/{body_id} endpoint.  The            #
-    # ``preserve-claimed`` guard additionally protects rows with a         #
-    # user-claimed extent kind.                                            #
-    #                                                                      #
-    # Resolver runs first so ``instance_ordinal`` values are current; both #
-    # passes flush only and ride the outer transaction's commit below.     #
+    # ``DetectBodies`` is deliberately NOT run here.  Body EXTENTS are     #
+    # section-scoped (2D) and ride in the bundle's ``bodies[]`` array      #
+    # already — re-detecting on restore has no active section, so it would #
+    # overwrite the user's nearest-target extents with the geometry-free   #
+    # UUID fallback (dogfeed 2026-06-03).  The interactive                 #
+    # ``POST .../bodies/detect`` (with the active ``section_id``) is the   #
+    # only thing that sets or reconciles extents.                          #
     # ------------------------------------------------------------------ #
     litho_model_ids = list(
         (
@@ -346,18 +342,6 @@ async def restore_project(
             model_id=litho_model_id,
             commit=False,
         )
-        result = await DetectBodies(session).execute(
-            project_id=project_id,
-            model_id=litho_model_id,
-            prefer_section_id=None,
-        )
-        if result.bodies_removed > 0 or result.bodies_created > 0:
-            logger.info(
-                f"restore_project_bundle({project_id}): reconciled litho model "
-                f"{litho_model_id} — created={result.bodies_created} "
-                f"removed={result.bodies_removed} "
-                f"skipped_unresolved_ordinal={result.bodies_skipped_unresolved_ordinal}"
-            )
 
     await session.commit()
     await session.refresh(project)
