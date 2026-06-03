@@ -36,6 +36,7 @@ import type {
   BodyBoundaryResponse,
   FormationContactResponse,
   LithoContactCorrelationEdge,
+  LithoLayerResponse,
   PinchOutCandidate,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
@@ -839,6 +840,110 @@ describe('BodyExtentOverlay', () => {
     // Confirm the assertion is non-trivial: the top-contact screen y is ≈93,
     // well below 400, so a wrong base at the top-contact depth would fail.
     expect(Math.max(...ys)).toBeGreaterThan(200)
+  })
+
+  it('BE-FRAME — two same-formation bodies frame from their OWN member layer, not the shallowest', () => {
+    // Bug C ("body jump", dogfeed 2026-06-02): two body instances share one
+    // formation ``fShared`` on the SAME source column at DIFFERENT depths
+    // (shallow at 2 m, deep at 8 m). The committed-body framing must read each
+    // body's member layer (litho_layer.body_id === body.id on the source
+    // column) and frame the source band at THAT layer's depth_top_m — NOT
+    // collapse both onto the shallowest occurrence.
+    //
+    // Source column inv-src5 at along=50, elev=10. levelToScreen = y => 100 - y.
+    //   shallow member: top 2 m → elev 8 → screen y 92
+    //   deep member:    top 8 m → elev 2 → screen y 98
+    const srcContacts = [
+      { ...contact('m-shallow', 'inv-src5', 2), formation_id: 'fShared' },
+      { ...contact('m-shallow-base', 'inv-src5', 4), formation_id: 'fOther' },
+      { ...contact('m-deep', 'inv-src5', 8), formation_id: 'fShared' },
+      { ...contact('m-deep-base', 'inv-src5', 10), formation_id: 'fOther2' },
+      // Both targets carry fShared on a single target column.
+      { ...contact('t-shallow', 'inv-T5', 3), formation_id: 'fShared' },
+      { ...contact('t-deep', 'inv-T5', 9), formation_id: 'fShared' },
+    ] as FormationContactResponse[]
+    const cols = [column('inv-src5', 50, 10), column('inv-T5', 0, 10)]
+
+    // Member layers: each accepted layer carries body_id pointing at its body.
+    function layer(
+      id: string,
+      top: number,
+      base: number,
+      bodyId: string,
+      formationId: string,
+    ): LithoLayerResponse {
+      return {
+        id,
+        model_id: 'm1',
+        formation_id: formationId,
+        borehole_id: 'inv-src5',
+        cpt_id: null,
+        depth_top_m: top,
+        depth_base_m: base,
+        status: 'accepted',
+        source: 'manual',
+        confidence: 'high',
+        observation_id: null,
+        observation_layer_id: null,
+        parent_geo_contact_id: null,
+        body_id: bodyId,
+        notes: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      }
+    }
+    const lithoLayers = [
+      layer('m-shallow', 2, 4, 'B-SHALLOW', 'fShared'),
+      layer('m-deep', 8, 10, 'B-DEEP', 'fShared'),
+    ]
+
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          id: 'B-SHALLOW',
+          formation_id: 'fShared',
+          body_ordinal: 0,
+          source_investigation_id: 'inv-src5',
+          content_key: null,
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 't-shallow',
+        }),
+        makeBody({
+          id: 'B-DEEP',
+          formation_id: 'fShared',
+          body_ordinal: 1,
+          source_investigation_id: 'inv-src5',
+          content_key: null,
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 't-deep',
+        }),
+      ],
+      contacts: srcContacts,
+      lithoLayers,
+      placedColumns: cols,
+      contactEdges: [],
+      formationLabelById: new Map([['fShared', 'QPSa']]),
+    })
+
+    // Source-edge endpoint of each body's upper boundary = the max-x point
+    // (source column at along=50, target at along=0).
+    function sourceEdgeY(testId: string): number {
+      const d = getByTestId(testId).getAttribute('d') ?? ''
+      const pts = Array.from(d.matchAll(/[ML]\s*([-\d.]+),([-\d.]+)/g)).map(m => ({
+        x: parseFloat(m[1]),
+        y: parseFloat(m[2]),
+      }))
+      return pts.reduce((a, b) => (b.x > a.x ? b : a)).y
+    }
+    // Shallow body frames at its own member (2 m → y 92); deep at its own (8 m → y 98).
+    expect(sourceEdgeY('body-boundary-upper-B-SHALLOW')).toBeCloseTo(92, 1)
+    expect(sourceEdgeY('body-boundary-upper-B-DEEP')).toBeCloseTo(98, 1)
+    // They must NOT both collapse onto the shallowest occurrence.
+    expect(sourceEdgeY('body-boundary-upper-B-DEEP')).not.toBeCloseTo(92, 1)
+
+    // Depth rank gives distinct labels 1 (shallow) + 2 (deep).
+    expect(getByTestId('body-label-B-SHALLOW').textContent).toBe('QPSa1')
+    expect(getByTestId('body-label-B-DEEP').textContent).toBe('QPSa2')
   })
 
   it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
