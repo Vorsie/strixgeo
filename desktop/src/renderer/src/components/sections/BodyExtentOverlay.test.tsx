@@ -946,6 +946,78 @@ describe('BodyExtentOverlay', () => {
     expect(getByTestId('body-label-B-DEEP').textContent).toBe('QPSa2')
   })
 
+  it('BE-MEMBER-SINGLE — committed body whose source column has ONE contact renders a bounded band from its member layer', () => {
+    // Regression (dogfeed: Section B body "body-extent-fill not found"): the
+    // instance resolver can pin ``source_investigation_id`` to the body's
+    // SHALLOWEST member layer's column, which may carry only a SINGLE contact.
+    // The old ``< 2 source contacts`` guard then dropped the whole body even
+    // though the member layer (depth_top_m + depth_base_m, body_id, anchor)
+    // fully frames the source-column band. The body must render a bounded band
+    // at [member top, member base], NOT be skipped and NOT render full-column.
+    //
+    // Source column inv-solo at along=50, elev=10. levelToScreen = y => 100 - y.
+    //   member top  2 m → elev 8 → screen y 92
+    //   member base 5 m → elev 5 → screen y 95
+    // Target column inv-Tx at along=0 carries the single pinch contact.
+    const soloContacts = [
+      { ...contact('c-solo', 'inv-solo', 2), formation_id: 'fSolo' },
+      { ...contact('ct-solo', 'inv-Tx', 4), formation_id: 'fSolo' },
+    ] as FormationContactResponse[]
+    const cols = [column('inv-solo', 50, 10), column('inv-Tx', 0, 10)]
+    // Member layer: its id == the top contact id (A2.5 UUID-preserving backfill),
+    // body_id points at the body, anchor on the single-contact source column.
+    const memberLayer: LithoLayerResponse = {
+      id: 'c-solo',
+      model_id: 'm1',
+      formation_id: 'fSolo',
+      borehole_id: 'inv-solo',
+      cpt_id: null,
+      depth_top_m: 2,
+      depth_base_m: 5,
+      status: 'accepted',
+      source: 'manual',
+      confidence: 'high',
+      observation_id: null,
+      observation_layer_id: null,
+      parent_geo_contact_id: null,
+      body_id: 'B1',
+      notes: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    const { queryByTestId, getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          formation_id: 'fSolo',
+          content_key: null,
+          source_investigation_id: 'inv-solo',
+          extent_left_kind: 'to_target',
+          extent_left_target_contact_id: 'ct-solo',
+        }),
+      ],
+      contacts: soloContacts,
+      lithoLayers: [memberLayer],
+      placedColumns: cols,
+      contactEdges: [],
+    })
+    // The body renders (not dropped by the < 2 source contacts guard).
+    expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
+    // The band is bounded by the member layer's depths. The source-edge endpoint
+    // of each boundary is the max-x point (source column at along=50, target at
+    // along=0). Upper edge → member top (y 92); lower edge → member base (y 95),
+    // a finite floor — NOT plotBottom (400) and NOT collapsed onto the top.
+    function sourceEdgeY(testId: string): number {
+      const d = getByTestId(testId).getAttribute('d') ?? ''
+      const pts = Array.from(d.matchAll(/[ML]\s*([-\d.]+),([-\d.]+)/g)).map(m => ({
+        x: parseFloat(m[1]),
+        y: parseFloat(m[2]),
+      }))
+      return pts.reduce((a, b) => (b.x > a.x ? b : a)).y
+    }
+    expect(sourceEdgeY('body-boundary-upper-B1')).toBeCloseTo(92, 1)
+    expect(sourceEdgeY('body-boundary-lower-B1')).toBeCloseTo(95, 1)
+  })
+
   it('BE19 — depth rank: shallower lens is 1, deeper is 2 within a formation', () => {
     // Two ``fSand`` lenses on the same source at different depths; each closes
     // to its own target. The shallow one (3 m) must label "QPSa1", the deep
