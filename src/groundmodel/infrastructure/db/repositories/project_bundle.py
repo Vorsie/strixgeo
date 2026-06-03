@@ -1328,9 +1328,12 @@ async def _restore_geological_models(
             if lid in contact_ids_in_payload:
                 skipped_fc_trigger += 1
                 continue
-            valid_layers.append(
-                LithoLayerOrm(**_apply_json_to_kwargs(LithoLayerOrm, layer_payload))
-            )
+            layer_kwargs = _apply_json_to_kwargs(LithoLayerOrm, layer_payload)
+            # body_id is re-stamped by the post-restore ResolveLithoInstances
+            # pass — restoring it here would FK-violate, since bodies are
+            # restored in a later phase (after every geological model).
+            layer_kwargs.pop("body_id", None)
+            valid_layers.append(LithoLayerOrm(**layer_kwargs))
         model.litho_layers = valid_layers
         if skipped_orphan_layers:
             logger.warning(
