@@ -34,7 +34,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from groundmodel.shared.constants.extent_kind import EXTENT_KIND_PINCH_OUT_HALFWAY
+from groundmodel.shared.constants.extent_kind import (
+    EXTENT_KIND_PINCH_OUT_HALFWAY,
+    EXTENT_KIND_TO_TARGET,
+)
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers
@@ -378,6 +381,87 @@ async def test_claimed_left_uncorrelated_right_emits_right_only(
     assert cand.body_id == existing_body.id
     # Suggested neighbour must be the right-side investigation.
     assert cand.suggested_neighbour_investigation_id == bh_right.id
+
+
+# ---------------------------------------------------------------------------
+# Test 3b: detector-set to_target body suppresses a candidate framed by a
+#          DIFFERENT source investigation of the same formation.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_to_target_body_suppresses_other_source_candidate(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Regression (dogfeed 2026-06-03): the suggester must resolve a body by
+    ``(formation, instance_ordinal)`` — the SAME identity ClaimBodyExtent uses —
+    not by ``(source_investigation_id, formation)``.
+
+    Two investigations (bh_a, bh_b) both frame formation ``f_body``
+    (instance_ordinal=0).  The detector has closed that body's LEFT side with a
+    ``to_target`` extent.  When the suggester iterates bh_b's framing pair, the
+    old (source, formation) key found no body for ``(bh_b, f_body)`` and emitted
+    a left candidate — which then 409'd in ClaimBodyExtent because the claim
+    resolves to the ``(f_body, ordinal 0)`` body whose left is already
+    detector-set.  After the fix, the suggester sees the to_target body and
+    suppresses the left candidate.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t3b")
+    f_body = _formation(project, parent, name="KLEI-SBPO-t3b-body", ordinal=0)
+    f_below = _formation(project, parent, name="ZAND-SBPO-t3b-below", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-SBPO-t3b-other", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_body, f_below, f_other])
+    await db_session.flush()
+
+    # Created in along/UUID order: bh_left < bh_a < bh_b (uuid7 is time-ordered),
+    # so bh_b is the rightmost source and has left neighbours — without the fix
+    # it WOULD emit a left candidate.
+    bh_left = _borehole(project.id, suffix="T3B-L", x=170000.0)
+    bh_a = _borehole(project.id, suffix="T3B-A", x=170500.0)
+    bh_b = _borehole(project.id, suffix="T3B-B", x=171000.0)
+    db_session.add_all([bh_left, bh_a, bh_b])
+    await db_session.flush()
+
+    # bh_left only participates (single contact → frames nothing itself).
+    c_left = _contact(litho, f_other, bh_left, depth=4.0)
+    # Both bh_a and bh_b frame f_body over f_below — same formation pair.
+    c_a_top = _contact(litho, f_body, bh_a, depth=3.0)
+    c_a_base = _contact(litho, f_below, bh_a, depth=7.0)
+    c_b_top = _contact(litho, f_body, bh_b, depth=3.0)
+    c_b_base = _contact(litho, f_below, bh_b, depth=7.0)
+    db_session.add_all([c_left, c_a_top, c_a_base, c_b_top, c_b_base])
+    await db_session.flush()
+
+    # The single body for (litho, f_body, ordinal 0): detector closed its LEFT
+    # side. source_investigation_id = bh_a (irrelevant to body identity).
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=litho.id,
+        formation_id=f_body.id,
+        body_ordinal=0,
+        source_investigation_id=bh_a.id,
+        extent_left_kind=EXTENT_KIND_TO_TARGET,
+        extent_left_target_contact_id=c_left.id,
+    )
+    db_session.add(body)
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+    )
+
+    # bh_b never framed the to_target body directly, but the claim would resolve
+    # to it — so no LEFT candidate may be emitted for bh_b.
+    bh_b_left = [c for c in candidates if c.source_investigation_id == bh_b.id and c.side == "left"]
+    assert bh_b_left == [], (
+        f"Expected NO left candidate for bh_b (its formation's body is "
+        f"detector-closed on the left), got {bh_b_left}"
+    )
 
 
 # ---------------------------------------------------------------------------
