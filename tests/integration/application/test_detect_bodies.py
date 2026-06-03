@@ -433,6 +433,13 @@ async def test_detect_closes_to_nearest_target_on_active_section(
     )
     assert body.extent_left_target_contact_id == c_nl.id
     assert body.extent_right_neighbour_inv_id == bh_right.id
+    # Anchor fix (dogfeed 2026-06-03): the body's source is set to the column
+    # the detector FRAMED the pinch on (bh_src), not the resolver's shallowest
+    # member — so the wedge renders where it pinches instead of spanning to a
+    # far-off column.
+    assert body.source_investigation_id == bh_src.id, (
+        "body must be anchored at the framed pinch column, not the shallowest member"
+    )
 
 
 # ---------------------------------------------------------------------------
