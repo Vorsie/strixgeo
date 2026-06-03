@@ -48,6 +48,7 @@ from groundmodel.infrastructure.gis.section_projection import (
     SectionEndpoints,
     project_point_onto_line,
 )
+from groundmodel.shared.constants.extent_kind import is_user_claimed_extent_kind
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -355,15 +356,17 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                     position[n] > src_pos for n in paired_neighbours if n in position
                 )
 
-                # A side is "claimed" when the existing body row already
-                # carries a non-NULL extent kind on that side (any kind —
-                # including to_target from the detector).  The suggestion
-                # pass skips already-settled sides.
-                left_claimed = (
-                    existing_body is not None and existing_body.extent_left_kind is not None
+                # A side is "claimed" only when the user has COMMITTED an extent
+                # there (open / pinch_out_halfway / extrapolated).  A detector
+                # ``to_target`` is just a guess — the user must be able to
+                # override it with a suggestion, so it does NOT suppress the
+                # candidate (dogfeed 2026-06-03: a detected sand lens blocked its
+                # own open-end suggestions).
+                left_claimed = existing_body is not None and is_user_claimed_extent_kind(
+                    existing_body.extent_left_kind
                 )
-                right_claimed = (
-                    existing_body is not None and existing_body.extent_right_kind is not None
+                right_claimed = existing_body is not None and is_user_claimed_extent_kind(
+                    existing_body.extent_right_kind
                 )
 
                 # Left-side candidate: no approved bilateral pairing AND
@@ -452,11 +455,11 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 deepest_bottom = bottom_depth_by_inv.get(inv_id)
                 left_neighbours_d = [n for n in ordered if position[n] < src_pos]
                 right_neighbours_d = [n for n in ordered if position[n] > src_pos]
-                left_claimed_d = (
-                    deepest_body is not None and deepest_body.extent_left_kind is not None
+                left_claimed_d = deepest_body is not None and is_user_claimed_extent_kind(
+                    deepest_body.extent_left_kind
                 )
-                right_claimed_d = (
-                    deepest_body is not None and deepest_body.extent_right_kind is not None
+                right_claimed_d = deepest_body is not None and is_user_claimed_extent_kind(
+                    deepest_body.extent_right_kind
                 )
                 # Left edge: no neighbour to the left and not already claimed.
                 if not left_neighbours_d and not left_claimed_d:
