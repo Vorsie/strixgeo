@@ -149,8 +149,12 @@ interface Props {
    *  the retired "Extrapolate pinch-out…" contact gesture (its backend tool
    *  was removed in the body-with-extent refactor). ``formationId`` is the
    *  right-clicked contact's litho formation; ``investigationId`` its CPT /
-   *  borehole anchor. Absent → the item is hidden. */
+   *  borehole anchor; ``contactId`` the right-clicked litho contact id (shares
+   *  the UUID of the litho layer at its top boundary — the caller resolves the
+   *  body via ``litho_layer.body_id``, disambiguating stacked same-formation
+   *  instances). Absent → the item is hidden. */
   onOpenEndLayer?: (
+    contactId: string,
     formationId: string,
     investigationId: string,
     side: 'left' | 'right',
@@ -4051,9 +4055,9 @@ export default function ContactsLayer({
           onOpenEnd={
             !contactMenu.isReferenceContact && onOpenEndLayer
               ? side => {
-                  const { formationId, anchorId } = contactMenu
+                  const { contactId, formationId, anchorId } = contactMenu
                   setContactMenu(null)
-                  onOpenEndLayer(formationId, anchorId, side)
+                  onOpenEndLayer(contactId, formationId, anchorId, side)
                 }
               : undefined
           }
