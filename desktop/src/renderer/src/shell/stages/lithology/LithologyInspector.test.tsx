@@ -13,19 +13,14 @@
 //       Units without a parent_formation_id appear in an "Unassigned"
 //       group at the bottom.
 //
-// Claims pinned here (Phase-2 Slice 2 â€” ordinal display + lock + RO-3):
-//   S1  Ordinal badge renders "body N" when instance_ordinal is set and
-//       "body ?" when null.
-//   S2  Lock toggle button PATCHes instance_ordinal_locked and refetches
-//       formations.
-//   S3  "Resolve instances" button calls resolveLithoInstances and then
-//       refetchFormations.
-//   S4  RO-3 amber stale badge is ABSENT after a resolve synchronises the
-//       baseline, when nothing is locked, or when the edge set is
-//       unchanged. (The badge-PRESENT happy path is not reachable through
-//       this component's public surface â€” it is unit-tested directly on
-//       the extracted pure predicate in ordinalStaleness.test.ts; review
-//       SF-1.)
+// Claims pinned here (Resolve action):
+//   S3  "Resolve instances" button refetches formations (roster refresh).
+//
+// Body-model migration (Task 11): the per-formation ordinal badge, the
+// instance-ordinal lock toggle, and the RO-3 stale-ordinal badge were
+// removed from the inspector (instance numbering is now per-body on the
+// section). The S1/S2/S4 claims that pinned that obsolete chrome were
+// deleted along with it.
 //
 // Pattern: render LithologyInspector inside a ShellContext.Provider â€”
 // same approach as SectionsToolbar.axis.test.tsx.  ModelKindPicker and
@@ -40,7 +35,6 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
-  LithoContactCorrelationEdge,
 } from '../../../api/client'
 import LithologyInspector from './LithologyInspector'
 
@@ -64,10 +58,8 @@ vi.mock('../../../utils/log', () => ({
   },
 }))
 
-// Mock api.geology so listContactCorrelations, updateFormation, and listLenses
-// don't make real fetch calls in jsdom.
-// TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on accept.
-const mockListContactCorrelations = vi.fn<() => Promise<LithoContactCorrelationEdge[]>>()
+// Mock api.geology so updateFormation and listLenses don't make real fetch
+// calls in jsdom.
 const mockUpdateFormation = vi.fn<() => Promise<GeologicalFormationResponse>>()
 // listLenses: returns an empty lens list by default â€” keeps existing tests
 // isolated; individual tests can override via mockListLenses.mockResolvedValue.
@@ -81,7 +73,6 @@ vi.mock('../../../api/client', async (importOriginal) => {
       ...((orig as Record<string, unknown>).api as object),
       geology: {
         ...(((orig as Record<string, unknown>).api as Record<string, unknown>).geology as object),
-        listContactCorrelations: (...args: unknown[]) => mockListContactCorrelations(...(args as [])),
         updateFormation: (...args: unknown[]) => mockUpdateFormation(...(args as [])),
         listLenses: (...args: unknown[]) => mockListLenses(...(args as [])),
       },
@@ -176,19 +167,6 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
     synthetic_elevation_m: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-  }
-}
-
-// TODO Task 19+21: makeEdge now returns LithoContactCorrelationEdge.
-function makeEdge(id: string): LithoContactCorrelationEdge {
-  return {
-    id,
-    contact_a_id: 'ca-a',
-    contact_b_id: 'cb-b',
-    model_id: 'm-1',
-    source: 'manual',
-    user_approved: false,
-    created_at: '2026-01-01T00:00:00Z',
   }
 }
 
@@ -493,9 +471,6 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-  // Default: listContactCorrelations returns empty list (no edges).
-  // TODO Task 19+21: resolveLithoInstances removed; resolved on accept.
-  mockListContactCorrelations.mockResolvedValue([])
   mockUpdateFormation.mockResolvedValue(makeFormation('f-a', 'Zand'))
   // Default: no lenses â€” keeps existing tests isolated.
   mockListLenses.mockResolvedValue([])
@@ -687,70 +662,15 @@ describe('LithologyInspector (Slice 5 / debt #67 â€” parent_formation_name)
 })
 
 // ---------------------------------------------------------------------------
-// Phase-2 Slice 2 tests (S1â€“S4)
+// Resolve action (S3)
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (Phase-2 Slice 2 â€” ordinal + lock + RO-3)', () => {
-  // S1: ordinal badge renders "body N" when instance_ordinal is set, "body ?" otherwise.
-  it('S1a â€” ordinal badge shows "body N" when instance_ordinal is a number', () => {
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal: 2 })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-    })
-    renderInspector(ctx)
-
-    expect(screen.getByTestId('ordinal-badge-f-a')).toHaveTextContent('body 2')
-  })
-
-  it('S1b â€” ordinal badge shows "body ?" when instance_ordinal is null', () => {
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal: null })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-    })
-    renderInspector(ctx)
-
-    expect(screen.getByTestId('ordinal-badge-f-a')).toHaveTextContent('body ?')
-  })
-
-  // S2: lock toggle PATCHes instance_ordinal_locked and calls refetchFormations.
-  it('S2 â€” lock toggle calls updateFormation with instance_ordinal_locked and refetchFormations', async () => {
+describe('LithologyInspector (Resolve action)', () => {
+  // S3: the Resolve button refetches formations (roster refresh). Instance
+  // ordinals are resolved server-side per-body on accept; this button no
+  // longer triggers re-numbering or fetches correlation edges.
+  it('S3 â€” Resolve instances button calls refetchFormations', async () => {
     const refetchFormations = vi.fn()
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: false })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-      refetchFormations,
-    })
-    renderInspector(ctx)
-
-    const lockBtn = screen.getByTestId('lock-toggle-f-a')
-    await act(async () => {
-      fireEvent.click(lockBtn)
-    })
-
-    await waitFor(() => {
-      expect(mockUpdateFormation).toHaveBeenCalledWith(
-        'proj-1',
-        'f-a',
-        expect.objectContaining({ instance_ordinal_locked: true }),
-      )
-    })
-    await waitFor(() => {
-      expect(refetchFormations).toHaveBeenCalled()
-    })
-  })
-
-  // S3: Resolve button calls refetchFormations and listContactCorrelations.
-  // TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on
-  // accept. The Resolve button now just refetches formations + contact edges.
-  it('S3 â€” Resolve instances button calls refetchFormations and listContactCorrelations', async () => {
-    const refetchFormations = vi.fn()
-    mockListContactCorrelations.mockResolvedValue([])
 
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -766,120 +686,6 @@ describe('LithologyInspector (Phase-2 Slice 2 â€” ordinal + lock + RO-3)', 
     await waitFor(() => {
       expect(refetchFormations).toHaveBeenCalled()
     })
-    await waitFor(() => {
-      expect(mockListContactCorrelations).toHaveBeenCalledWith('proj-1', 'litho-1')
-    })
-  })
-
-  // S4a: RO-3 amber badge is ABSENT once a resolve has synchronised the
-  // baseline (currentEdgeCount === lastResolvedEdgeCount). The badge-PRESENT
-  // branch is NOT reachable through this component's public surface (driving
-  // an edge-count divergence mid-render requires no external trigger) â€” it
-  // is unit-tested directly on the extracted pure predicate in
-  // ordinalStaleness.test.ts (review SF-1). This test pins the in-sync
-  // (absent) behaviour at the component level.
-  it('S4a â€” amber stale badge is absent after a resolve synchronises the baseline', async () => {
-    // First resolve returns 0 edges (sets baseline = 0).
-    // Second listCorrelations call (post-resolve refresh) returns 0 edges too.
-    // Afterwards, the live state is manipulated: we re-render with 1 edge
-    // already in correlationEdges by making the component refetch again with
-    // a new model id â€” simpler approach: use a two-render strategy.
-    //
-    // Simplest reliable scenario:
-    //   1. Mount with 1 edge â†’ baseline = 1 (S4c-like, badge absent).
-    //   2. Resolve: post-resolve listCorrelations returns 0 edges â†’ baseline resets to 0.
-    //   3. Live edge count is 0 (same as baseline) â†’ still no badge.
-    //
-    // The REAL S4a scenario requires the component's live edge count to diverge
-    // from the baseline BETWEEN resolves.  The component only re-fetches on:
-    //   (a) model change, (b) explicit Resolve.
-    // So: mount â†’ baseline=0 (empty). Then use two back-to-back resolves:
-    //   resolve-1: post-resolve fetch returns 0 â†’ baseline stays 0.
-    //   Now mock listCorrelations to return [e-1] from this point on.
-    //   resolve-2: resolveLithoInstances is called, then post-resolve fetch
-    //     returns [e-1] â†’ baseline = 1. currentEdgeCount = 1. No badge (1===1).
-    //
-    // The only way to get badge=true without a new model mount is to have the
-    // CURRENT edge state update independently of the resolve cycle.  Since
-    // the component doesn't poll, we verify the badge via the INITIAL MOUNT
-    // path: mount with lastResolvedEdgeCount=0 but correlationEdges=[e-1].
-    // That state is only reachable via a model-switch mid-test.
-    //
-    // Owner-accepted simplification: S4a tests badge ABSENCE after a resolve
-    // that changes the baseline (post-resolve edge count matches live count).
-    // The presence path is implicitly covered by verifying the ordinalIsStale
-    // computation via S4b/S4c.  This matches the comment in the original spec.
-    // TODO Task 19+21: resolveLithoInstances removed; Resolve now just
-    // calls refetchFormations + listContactCorrelations.
-    mockListContactCorrelations.mockResolvedValue([])
-
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: true })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-    })
-    renderInspector(ctx)
-
-    // Wait for the initial edge fetch to settle (0 edges â†’ baseline = 0).
-    await waitFor(() => {
-      expect(mockListContactCorrelations).toHaveBeenCalled()
-    })
-
-    // Click Resolve â†’ post-resolve fetch returns 0.
-    // baseline updated to 0. currentEdgeCount = 0. 0 === 0 â†’ badge absent.
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('resolve-instances-btn'))
-    })
-
-    await waitFor(() => {
-      expect(mockListContactCorrelations).toHaveBeenCalledWith('proj-1', 'litho-1')
-    })
-
-    // Badge absent: post-resolve baseline matches current live count.
-    expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
-  })
-
-  // S4b: RO-3 amber badge is absent when no formations are locked.
-  it('S4b â€” amber stale badge is absent when no formations are locked', async () => {
-    mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
-
-    // Formation is NOT locked even though there are edges.
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: false })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-    })
-    renderInspector(ctx)
-
-    await waitFor(() => {
-      expect(mockListContactCorrelations).toHaveBeenCalled()
-    })
-
-    expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
-  })
-
-  // S4c: RO-3 amber badge is absent when edge count matches the resolved baseline.
-  it('S4c â€” amber stale badge is absent when edge count unchanged since last resolve', async () => {
-    // Mount with 1 edge â†’ lastResolvedEdgeCount = 1.
-    // currentEdgeCount = 1 â†’ equal â†’ no badge.
-    mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
-
-    const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: true })
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoFormations: [f],
-      lithoContacts: [makeContact('c1', 'f-a')],
-    })
-    renderInspector(ctx)
-
-    await waitFor(() => {
-      expect(mockListContactCorrelations).toHaveBeenCalled()
-    })
-
-    // lastResolvedEdgeCount === currentEdgeCount (both 1) â†’ badge absent.
-    expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
   })
 })
 
@@ -890,7 +696,6 @@ describe('LithologyInspector (Phase-2 Slice 2 â€” ordinal + lock + RO-3)', 
 describe('LithologyInspector (debt #87 â€” parent review)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListContactCorrelations.mockResolvedValue([])
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
   })
   afterEach(() => {
@@ -1010,7 +815,6 @@ describe('LithologyInspector (debt #87 â€” parent review)', () => {
 describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListContactCorrelations.mockResolvedValue([])
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
   })
   afterEach(() => {
