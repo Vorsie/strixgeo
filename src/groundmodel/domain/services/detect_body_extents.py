@@ -16,26 +16,28 @@ edge to ``t``.  Each such ``t`` lives on some target investigation; the body
 is emitted iff **at least two distinct target investigations** carry such a
 ``t`` (bilateral closure rule — owner directive 2026-05-31).
 
-Left / right assignment
------------------------
-Once two target investigations I_L and I_R are identified, the algorithm
-assigns *left* to the investigation that appears to the left of the source
-along the section line.  When ``investigation_along_positions`` is supplied
-and both targets appear in it, the comparison is ``along[target] < along[source]``
-(left = smaller along value).  When the dict is absent or a target
-investigation is missing from it, the fallback is UUID integer ordering
-(lower UUID int = left) — deterministic but not geometrically meaningful.
+Left / right assignment — nearest target on each side
+-----------------------------------------------------
+Body extents are section-scoped (2D): ``investigation_along_positions`` is
+the active section's along-order.  When it is supplied, the algorithm
+partitions a candidate's closure targets by side of the source
+(``along[target] < along[source]`` = left) and closes each side to the
+**nearest** target — the largest along still below the source on the left,
+the smallest along still above it on the right.  This stops a body at the
+adjacent correlated contact instead of tapering all the way to the most
+distant test (the dogfeed bug, 2026-06-03).  A candidate whose closure
+targets all sit on one side of the source on this section is a unilateral
+pinch-out, not a bilateral body, and is skipped.
+
+When ``investigation_along_positions`` is absent (a section-less call, e.g.
+direct unit tests), the fallback is UUID integer ordering — left =
+lowest-UUID target investigation, right = highest.  Deterministic but not
+geometrically meaningful; production always supplies the active section.
 
 Each side's ``BodyExtent`` carries:
 - ``kind = 'to_target'``
 - ``target_contact_id`` — the target contact the closure lands at
 - ``neighbour_investigation_id`` — the investigation that contact lives on
-
-When more than two target investigations are present (unusual but possible
-for a body enclosed by many neighbours), the algorithm picks the
-lowest-UUID-investigation target for each side.  This is a conservative
-heuristic; spatial refinement can layer on top when section geometry is
-available.
 """
 
 from __future__ import annotations
@@ -214,6 +216,11 @@ def detect_body_extents(
     # falling back to UUID ordering otherwise.
     out: list[DetectedBody] = []
     along = investigation_along_positions or {}
+    # Section mode: a non-None positions map means the caller scoped detection
+    # to one active section.  In that mode a candidate whose source is not on
+    # the section is skipped (another section's pass owns it); the UUID
+    # fallback only applies to section-less calls (None map — tests / legacy).
+    section_mode = investigation_along_positions is not None
 
     for (source_inv_id, cid_above, cid_below), targets in candidate_acc.items():
         distinct_target_invs = {tinv for tinv, _, _ in targets}
@@ -231,33 +238,48 @@ def detect_body_extents(
             if existing is None or tcid < existing[0]:
                 best_per_inv[tinv] = (tcid, fid_above)
 
-        # Assign left/right: use along-position when available; UUID fallback.
+        # Assign left/right.  With section geometry the body closes to the
+        # NEAREST target on each side (the contact the correlations land at on
+        # the adjacent column); without geometry we fall back to UUID ordering.
         source_along = along.get(source_inv_id)
 
-        def _sort_key(inv_id: UUID) -> tuple[int, int]:
-            """Sort key: (along-position bucket, UUID int).
-
-            Along-position bucket: 0 = left (along < source or fallback),
-            1 = right.  When source_along is None or inv not in along dict,
-            both sides use UUID ordering (bucket always 0, UUID discriminates).
-            """
-            inv_along = along.get(inv_id)
-            if source_along is not None and inv_along is not None:
-                # 0 = left side (smaller along); 1 = right side.
-                bucket = 0 if inv_along < source_along else 1
-            else:
-                # Fallback: sort purely by UUID int; left = smaller UUID.
-                bucket = 0
-            return (bucket, inv_id.int)
-
-        sorted_invs = sorted(best_per_inv.keys(), key=_sort_key)
-
-        # Pick canonical left and right target investigations.
-        # "left" = first in sorted order (lowest along or lowest UUID);
-        # "right" = last in sorted order.  When exactly two, this is clean.
-        # When more than two, we pick the outermost pair.
-        left_inv = sorted_invs[0]
-        right_inv = sorted_invs[-1]
+        if section_mode:
+            # Section-aware: this pass is scoped to one active section.
+            if source_along is None:
+                # Source not projected onto the active section → not this
+                # section's body; another section's detect pass owns it.
+                continue
+            # Partition targets by side of the source along the section line,
+            # then pick the NEAREST on each side.  Picking the outermost (the
+            # old behaviour) made every body taper all the way to the most-
+            # distant test instead of stopping at the adjacent correlated
+            # contact (dogfeed 2026-06-03).
+            left_side = [
+                (along[i], i)
+                for i in best_per_inv
+                if along.get(i) is not None and along[i] < source_along
+            ]
+            right_side = [
+                (along[i], i)
+                for i in best_per_inv
+                if along.get(i) is not None and along[i] > source_along
+            ]
+            if not left_side or not right_side:
+                # All closure targets on one side of the source on this
+                # section → a unilateral pinch-out, not a bilateral body
+                # (owner directive 2026-05-31).  Skip it.
+                continue
+            # Nearest left = largest along still below the source; nearest right
+            # = smallest along still above it.
+            left_inv = max(left_side)[1]
+            right_inv = min(right_side)[1]
+        else:
+            # Geometry absent (no active section) — deterministic UUID fallback:
+            # left = lowest-UUID target investigation, right = highest.  Not
+            # geometrically meaningful, but stable for tests / section-less calls.
+            sorted_invs = sorted(best_per_inv.keys(), key=lambda i: i.int)
+            left_inv = sorted_invs[0]
+            right_inv = sorted_invs[-1]
 
         left_contact, fid_above_left = best_per_inv[left_inv]
         right_contact, fid_above_right = best_per_inv[right_inv]
