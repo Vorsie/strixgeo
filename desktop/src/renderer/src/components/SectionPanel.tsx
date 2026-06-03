@@ -48,6 +48,7 @@ import type {
   GeologicalFormationResponse,
   CrossingPinchOut,
   LithoContactCorrelationEdge,
+  LithoLayerResponse,
   LithoLayerSuggestion,
   PinchOutCandidate,
   VirtueleBoringInvestigationPrediction,
@@ -667,6 +668,13 @@ interface Props {
    * no body wedges.
    */
   lenses?: readonly BodyListItem[]
+  /**
+   * Accepted litho layers for the active model — each carries ``body_id``.
+   * Forwarded to ``BodyExtentOverlay`` so committed bodies frame from their
+   * own member layer (Bug C "body jump" fix). Absent / empty falls back to the
+   * correlation-graph derivation.
+   */
+  lithoLayers?: readonly LithoLayerResponse[]
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -700,8 +708,10 @@ interface Props {
    */
   onDissolveBody?: (bodyId: string) => void
   /** Open-end a litho layer (right-click contact → "Open-end layer →/←").
-   *  Claims an ``open`` body extent, TIN-free. Passed only on the litho axis. */
+   *  Claims an ``open`` body extent, TIN-free. Passed only on the litho axis.
+   *  ``contactId`` resolves the body via ``litho_layer.body_id``. */
   onOpenEndLayer?: (
+    contactId: string,
     formationId: string,
     investigationId: string,
     side: 'left' | 'right',
@@ -786,6 +796,7 @@ export default function SectionPanel({
   onRequestDeleteEdge,
   onRequestAcceptEdge,
   lenses,
+  lithoLayers,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -3195,6 +3206,7 @@ export default function SectionPanel({
                 bodies={lenses}
                 boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
                 contacts={correlateContacts}
+                lithoLayers={lithoLayers}
                 formationLabelById={formationLabelById}
                 placedColumns={visibleColumns}
                 contactEdges={contactEdges ?? []}
