@@ -539,6 +539,23 @@ export default function BodyExtentOverlay({
       return [aboveContactId, belowContactId]
     }
 
+    /**
+     * The accepted member layer for ``body`` on its OWN source column, or
+     * undefined when none is present on this section. Used to (a) bypass the
+     * ``< 2 source contacts`` skip guard — a member layer fully frames the
+     * source-column band on its own — and (b) supply the band BASE elevation
+     * via the layer's ``depth_base_m`` when the source column carries no
+     * matching base contact (a single-contact source column, where the
+     * instance resolver pinned ``source_investigation_id`` to the body's
+     * shallowest member's column). Without this the ≥2-contacts guard dropped
+     * the whole body (dogfeed: Section B body "body-extent-fill not found").
+     */
+    function _sourceMemberOf(body: BodyListItem): LithoLayerResponse | undefined {
+      return (_memberLayersByBodyId.get(body.id) ?? []).find(
+        l => _layerAnchorIdOf(l) === body.source_investigation_id,
+      )
+    }
+
     // --- Resolve each body to its rendered wedge descriptors -----------------
     const _resolved: ResolvedBody[] = []
     // One entry per body for the depth-rank auto-label (shallowest = 1). Depth
@@ -565,11 +582,20 @@ export default function BodyExtentOverlay({
         targetContactId: string | null,
         neighbourInvId: string | null,
         isPrimary: boolean,
+        // Member-layer base depth (m below surface) for the body's source
+        // column. Supplies the band BASE when the source column has no matching
+        // base contact (single-contact source) so the body renders as a bounded
+        // band at [member top, member base] instead of being dropped. Null when
+        // no member layer is present → the legacy contact-pair / open-to-hole
+        // paths apply.
+        memberBaseDepthM: number | null = null,
       ): ResolvedBody | null {
         if (!isExtentKind(extentKindRaw)) return null
-        // A null belowContactId is only valid for deepest-formation open extents.
         if (!aboveContactId) return null
-        if (!belowContactId && extentKindRaw !== 'open') return null
+        // A null belowContactId is valid for (a) deepest-formation open extents
+        // (base from the hole bottom) and (b) any kind when the member layer
+        // supplies a finite base depth (bounded band from the member layer).
+        if (!belowContactId && extentKindRaw !== 'open' && memberBaseDepthM === null) return null
 
         const aboveContact = _contactById.get(aboveContactId)
         if (!aboveContact) return null
@@ -617,20 +643,31 @@ export default function BodyExtentOverlay({
         let topSource: WorldPt
         let baseSource: WorldPt
         if (belowContactId === null) {
-          // Deepest-formation open extent: no base contact — base is the hole
-          // bottom so the wedge aligns with the litho band (which uses
-          // columnMaxDepthM as its floor). openDeepestBaseElevation falls back
-          // to the plotBottom elevation when the column has no recorded depth.
-          if (extentKindRaw !== 'open') return null
           const top = _worldPtEdge(aboveContactId, towardAlong)
           if (!top) return null
           topSource = top
-          baseSource = {
-            along_m: top.along_m,
-            elevation_m:
-              col.bottomDepthM != null
-                ? col.surfaceElevM - col.bottomDepthM
-                : screenToLevel(plotBottom),
+          if (memberBaseDepthM !== null) {
+            // Bounded band from the member layer: the source column carries no
+            // base contact (single-contact source), but the member layer's
+            // depth_base_m frames a finite floor. Same surface-relative
+            // conversion as the contact-pair / open paths.
+            baseSource = {
+              along_m: top.along_m,
+              elevation_m: col.surfaceElevM - memberBaseDepthM,
+            }
+          } else {
+            // Deepest-formation open extent: no base contact — base is the hole
+            // bottom so the wedge aligns with the litho band (which uses
+            // columnMaxDepthM as its floor). Falls back to the plotBottom
+            // elevation when the column has no recorded depth.
+            if (extentKindRaw !== 'open') return null
+            baseSource = {
+              along_m: top.along_m,
+              elevation_m:
+                col.bottomDepthM != null
+                  ? col.surfaceElevM - col.bottomDepthM
+                  : screenToLevel(plotBottom),
+            }
           }
         } else {
           const pair = _sourcePair(aboveContactId, belowContactId, towardAlong)
@@ -755,8 +792,17 @@ export default function BodyExtentOverlay({
         // Allow it through with 1 contact when the body has an open-kind side.
         const isOpenBody =
           body.extent_left_kind === 'open' || body.extent_right_kind === 'open'
-        if (sourceContacts.length < 2 && !isOpenBody) continue
-        if (sourceContacts.length === 0) continue
+        // The body's own member layer on its source column, if present. A member
+        // layer frames the source-column band on its own (depth_top_m +
+        // depth_base_m), so the ``< 2 source contacts`` guard MUST NOT drop a
+        // body that has one — the instance resolver can pin
+        // ``source_investigation_id`` to the body's shallowest member's column,
+        // which may carry only a single contact (dogfeed: Section B body
+        // "body-extent-fill not found"). Truly un-framable bodies (no member
+        // layer AND < 2 contacts AND not open) are still skipped.
+        const sourceMember = _sourceMemberOf(body)
+        if (!sourceMember && sourceContacts.length < 2 && !isOpenBody) continue
+        if (!sourceMember && sourceContacts.length === 0) continue
 
         // Sort by depth ascending so the contact list reads top → base.
         const sortedByDepth = sourceContacts
@@ -804,9 +850,19 @@ export default function BodyExtentOverlay({
         }
 
         if (!aboveContactId) continue
-        // A null below contact is allowed for open bodies — the deepest formation
-        // has no base contact; the base is derived from the hole bottom in resolveSide.
-        if (!belowContactId && !isOpenBody) continue
+        // The member layer's base depth frames the band floor when the source
+        // column carries no matching base contact (single-contact source). Only
+        // use it when the framing actually came from the member layer (above
+        // contact == member's top contact id) AND there is no resolved base
+        // contact, so a normal contact-pair framing is never overridden.
+        const memberBaseDepthM =
+          sourceMember && belowContactId === null && aboveContactId === sourceMember.id
+            ? sourceMember.depth_base_m
+            : null
+        // A null below contact is allowed for open bodies (deepest formation,
+        // base from the hole bottom) AND for bodies whose member layer supplies
+        // a finite base depth (bounded band — see resolveSide).
+        if (!belowContactId && !isOpenBody && memberBaseDepthM === null) continue
 
         // Record this body for the depth-rank auto-label. Depth = framing top
         // contact's depth-below-surface; label = parent formation (the caller
@@ -831,6 +887,7 @@ export default function BodyExtentOverlay({
             body.extent_left_target_contact_id,
             body.extent_left_neighbour_inv_id,
             true, // left side = primary for edge-anchoring purposes
+            memberBaseDepthM,
           )
           if (leftResolved) _resolved.push(leftResolved)
         }
@@ -846,6 +903,7 @@ export default function BodyExtentOverlay({
             body.extent_right_target_contact_id,
             body.extent_right_neighbour_inv_id,
             !isExtentKind(body.extent_left_kind), // only primary if no left side
+            memberBaseDepthM,
           )
           if (rightResolved) _resolved.push(rightResolved)
         }
