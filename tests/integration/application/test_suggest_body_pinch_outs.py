@@ -1138,6 +1138,93 @@ async def test_deepest_formation_no_open_candidate_at_interior_test(
 
 
 # ---------------------------------------------------------------------------
+# Test 9b: open ends fire only at the section's first/last in-corridor TEST,
+# not the last litho PARTICIPANT (dogfeed 2026-06-03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_open_only_at_section_terminal_test_not_last_participant(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """An ``open`` end may only occur on the left side of the section's FIRST
+    test or the right side of its LAST test.  A test that sits on the section
+    but has no litho contacts in this model yet (a bare column the user still
+    sees) must NOT be treated as "beyond the edge": the adjacent participant's
+    un-correlated unit pinches out TOWARD that bare test, it does not open
+    against it.
+
+    Topology (along-section W→E, all at y=200000):
+      bh_bare_left  (x=200000): ON the section, ZERO litho contacts.
+      bh_source     (x=200500): c_top (f_body, 2) + c_base (f_below, 6) —
+                                 the only litho participant, frames one unit.
+      bh_bare_right (x=201000): ON the section, ZERO litho contacts.
+
+    bh_source is the only participant, but it is INTERIOR on the section
+    (bare tests flank it on both sides).  Both of its sides must therefore be
+    ``pinch_out_halfway`` toward the bare neighbours; NEITHER side may be
+    ``open`` — there is a section test beyond it in each direction.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-t9b")
+    f_body = _formation(project, parent, name="KLEI-SBPO-t9b-body", ordinal=0)
+    f_below = _formation(project, parent, name="ZAND-SBPO-t9b-below", ordinal=1)
+    db_session.add_all([geo, litho, parent, f_body, f_below])
+    await db_session.flush()
+
+    bh_bare_left = _borehole(project.id, suffix="T9B-BL", x=200000.0)
+    bh_source = _borehole(project.id, suffix="T9B-S", x=200500.0)
+    bh_bare_right = _borehole(project.id, suffix="T9B-BR", x=201000.0)
+    db_session.add_all([bh_bare_left, bh_source, bh_bare_right])
+    await db_session.flush()
+
+    # Only bh_source carries litho contacts — the bare flanks have none, but
+    # they are in-corridor tests on the section.
+    c_top = _contact(litho, f_body, bh_source, depth=2.0)
+    c_base = _contact(litho, f_below, bh_source, depth=6.0)
+    db_session.add_all([c_top, c_base])
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="T9B-SEC",
+        description=None,
+        start_x=199900.0,
+        start_y=200000.0,
+        end_x=201100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    candidates = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        section_id=section.id,
+    )
+
+    src = [c for c in candidates if c.source_investigation_id == bh_source.id]
+    assert {c.side for c in src} == {"left", "right"}, f"Expected one candidate per side, got {src}"
+    # The bare flanks are section tests beyond bh_source → both sides pinch,
+    # neither opens.
+    assert all(c.kind == "pinch_out_halfway" for c in src), (
+        f"Interior participant flanked by bare section tests must pinch on both "
+        f"sides (no open ends), got kinds {[(c.side, c.kind) for c in src]}"
+    )
+    left = next(c for c in src if c.side == "left")
+    right = next(c for c in src if c.side == "right")
+    assert left.suggested_neighbour_investigation_id == bh_bare_left.id
+    assert right.suggested_neighbour_investigation_id == bh_bare_right.id
+
+
+# ---------------------------------------------------------------------------
 # Test 10: naming/claiming ONE instance does not suppress its sibling
 # (the regression Task 6 fixes — per-instance body identity)
 # ---------------------------------------------------------------------------
