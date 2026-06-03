@@ -66,9 +66,12 @@ async def _sweep_stale_bodies() -> None:
     additionally protects any row with a user-claimed extent kind.
 
     Failures are logged but do not block startup; a broken sweep should
-    not stop the app from serving requests (subsequent ``POST .../lenses/
-    detect`` clicks still work, and ``POST .../bundle`` restores still
-    run their own reconcile pass per ``api/routers/project.py``).
+    not stop the app from serving requests.  ``POST .../bodies/detect``
+    clicks run their own ``ResolveLithoInstances`` → ``DetectBodies`` pass
+    (see ``api/routers/geology/bodies.py``), so a body cleared at runtime is
+    re-materialised on the next Detect without waiting for a restart, and
+    ``POST .../bundle`` restores run the same reconcile per
+    ``api/routers/project.py``.
     """
     total_created = 0
     total_removed = 0
