@@ -88,6 +88,50 @@ def test_distinct_soil_codes_number_independently() -> None:
     assert result.layer_to_ordinal[silt.layer_id] == 0
 
 
+def test_cross_lithology_edge_does_not_merge_into_one_body() -> None:
+    """An edge across a LITHOLOGY boundary must NOT form one body.
+
+    A body is a single lithology (owner directive 2026-06-03). A correlation
+    edge joining a ZAND layer to a SILT layer — a mis-correlation, or auto-
+    correlate crossing a facies change — is dropped, so the two stay separate
+    instances. Without this guard the resolver grouped a clay layer into a
+    silt body and the band fill painted the clay green.
+    """
+    sand = _layer("00000000-0000-0000-0000-000000000001", 2.0, INV_A)  # ZAND
+    silt = LayerNode(
+        layer_id=UUID("00000000-0000-0000-0000-000000000002"),
+        formation_id=UUID("00000000-0000-0000-0000-0000000000f2"),
+        parent_formation_id=P,
+        litho_main_soil_code="SILT",
+        depth_top_m=2.2,
+        source_investigation_id=INV_B,
+    )
+    edges = [LayerEdge(layer_a_id=sand.layer_id, layer_b_id=silt.layer_id)]
+    result = resolve_litho_instances(layers=[sand, silt], edges=edges)
+    # The cross-lithology edge is dropped → two separate single-lithology bodies.
+    assert len(result.instances) == 2
+    assert result.layer_to_ordinal[sand.layer_id] == 0
+    assert result.layer_to_ordinal[silt.layer_id] == 0  # different group, own 0
+
+
+def test_same_soil_different_formation_rows_still_merge() -> None:
+    """Same lithology, different formation rows (admixture) still merge.
+
+    The one-lithology guard keys on ``litho_main_soil_code``, not formation
+    row — two ZAND layers with different admixture formations stay one body.
+    """
+    a = _layer("00000000-0000-0000-0000-000000000001", 3.0, INV_A, F_SAND)
+    b = _layer(
+        "00000000-0000-0000-0000-000000000002",
+        3.2,
+        INV_B,
+        UUID("00000000-0000-0000-0000-0000000000f3"),  # silty-sand row, still ZAND soil
+    )
+    edges = [LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
+    result = resolve_litho_instances(layers=[a, b], edges=edges)
+    assert len(result.instances) == 1
+
+
 def test_cross_formation_component_maps_to_shallowest_formation() -> None:
     """A component spanning two formation rows maps every member to the shallowest's.
 
