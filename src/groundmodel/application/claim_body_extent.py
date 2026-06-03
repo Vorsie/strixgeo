@@ -272,15 +272,17 @@ class ClaimBodyExtent(GroundModelLogger):
             # 'open' — clear neighbour_inv_id as well.
             setattr(body, neighbour_col, None)
 
-        # Anchor the body at the column the claim was made on — NOT just when
-        # the source is NULL.  A pinch-out ghost carries the column it pinches
-        # from; the wedge renderer frames off ``source_investigation_id``, so if
-        # we leave it at the resolver's shallowest member the claimed wedge
-        # renders at that (often far / shallower) column instead of where the
-        # user claimed it (dogfeed 2026-06-03: a pinch-out claimed on the lower
-        # unit rendered on the unit above).  The body-context-menu claim path
-        # passes no source_investigation_id, so it is unaffected.
-        if source_investigation_id is not None:
+        # Back-fill the body's source investigation only if it is NULL.
+        #
+        # Do NOT re-anchor the source to the claimed column on every claim: a
+        # body's left and right caps can be claimed on DIFFERENT columns (a
+        # pinch on one end, an open on the other), and one ``source`` field
+        # can't hold both — re-anchoring on the second claim drags the whole
+        # body to that column (dogfeed 2026-06-03).  The correct fix is to frame
+        # each cap from its own band END at render time (leftmost member for the
+        # left cap, rightmost for the right), which makes ``source`` irrelevant
+        # for cap framing; tracked separately.
+        if body.source_investigation_id is None and source_investigation_id is not None:
             body.source_investigation_id = source_investigation_id
 
         # Upgrade primary_section_id when it was not set yet.
