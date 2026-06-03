@@ -36,6 +36,7 @@ from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -316,6 +317,122 @@ async def test_bilateral_gesture_materialises_body_with_extents(
     assert body.extent_left_neighbour_inv_id != body.extent_right_neighbour_inv_id, (
         "Left and right neighbour investigations must differ for a bilateral body"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 1b: section-scoped detection closes each side to the NEAREST target
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_detect_closes_to_nearest_target_on_active_section(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """DetectBodies with an active section closes each side to the NEAREST target.
+
+    The source unit at ``bh_src`` closes onto a single contact on THREE columns:
+    two to the left (``bh_far_left``, ``bh_near_left``) and one to the right
+    (``bh_right``).  Along the horizontal section line the order is
+    far_left < near_left < src < right.  The left extent must land on
+    ``bh_near_left`` (nearest), NOT ``bh_far_left`` — the dogfeed "every body
+    draws to the most left test" bug (2026-06-03).
+
+    ``bh_far_left`` is created FIRST so its uuid7 is the LOWEST: the old
+    lowest-UUID-in-bucket selection would pick it (wrong); nearest-by-along
+    picks ``bh_near_left`` (right).  Passing ``prefer_section_id`` is what
+    feeds the detector the section's along-order — the whole point of the fix.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-near")
+    f_top = _formation(project, parent, name="ZAND top near", soil_code="ZAND")
+    f_body = _formation(project, parent, name="KLEI body near", soil_code="KLEI")
+    f_base = _formation(project, parent, name="ZAND base near", soil_code="ZAND")
+    f_t = _formation(project, parent, name="ZAND tgt near", soil_code="ZAND")
+
+    # far_left created BEFORE near_left → lower uuid7 (the discriminator).
+    bh_far_left = _borehole(project.id, suffix="FL", x=149000.0)
+    bh_near_left = _borehole(project.id, suffix="NL", x=149900.0)
+    bh_src = _borehole(project.id, suffix="SR", x=150000.0)
+    bh_right = _borehole(project.id, suffix="RT", x=150100.0)
+
+    # Horizontal section line; along = x - 148000 → FL(1000) < NL(1900) < src(2000) < RT(2100).
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="near-section",
+        start_x=148000.0,
+        start_y=200000.0,
+        end_x=151000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=100.0,
+    )
+
+    db_session.add_all(
+        [
+            geo,
+            litho,
+            parent,
+            f_top,
+            f_body,
+            f_base,
+            f_t,
+            bh_far_left,
+            bh_near_left,
+            bh_src,
+            bh_right,
+            section,
+        ]
+    )
+    await db_session.flush()
+
+    c_top = _contact(litho, f_top, bh_src, depth=2.0)
+    c_body = _contact(litho, f_body, bh_src, depth=4.0)
+    c_base = _contact(litho, f_base, bh_src, depth=6.0)
+    c_fl = _contact(litho, f_t, bh_far_left, depth=3.0)
+    c_nl = _contact(litho, f_t, bh_near_left, depth=3.0)
+    c_rt = _contact(litho, f_t, bh_right, depth=3.0)
+    db_session.add_all([c_top, c_body, c_base, c_fl, c_nl, c_rt])
+    await db_session.commit()
+
+    # The source unit (c_body..c_base) closes onto a single contact on each column.
+    for target in (c_fl, c_nl, c_rt):
+        await CorrelateLithoContacts(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+            contact_a_id=c_body.id,
+            contact_b_id=target.id,
+        )
+        await CorrelateLithoContacts(db_session).execute(
+            project_id=project.id,
+            model_id=litho.id,
+            contact_a_id=c_base.id,
+            contact_b_id=target.id,
+        )
+
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id, commit=False)
+    await DetectBodies(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        prefer_section_id=section.id,
+    )
+    await db_session.commit()
+
+    framed_body_id = (
+        await db_session.execute(select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_body.id))
+    ).scalar_one()
+    assert framed_body_id is not None
+    body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == framed_body_id))
+    ).scalar_one()
+    assert body.extent_left_kind == EXTENT_KIND_TO_TARGET
+    assert body.extent_left_neighbour_inv_id == bh_near_left.id, (
+        "left extent must close to the NEAREST left column, not the outermost"
+    )
+    assert body.extent_left_target_contact_id == c_nl.id
+    assert body.extent_right_neighbour_inv_id == bh_right.id
 
 
 # ---------------------------------------------------------------------------
