@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -192,6 +193,44 @@ async def test_list_layers_filter_by_formation(
     body = resp.json()
     assert len(body) == 2
     assert {item["depth_top_m"] for item in body} == {0.0, 4.0}
+
+
+async def test_list_layers_exposes_body_id_after_resolve(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_litho_layers: tuple[
+        ProjectOrm, GeologicalModelOrm, BoreholeOrm, list[LithoLayerOrm]
+    ],
+) -> None:
+    """After the resolver stamps ``litho_layer.body_id``, the read path
+    surfaces it: the accepted layer carries a non-null ``body_id`` equal
+    to the body row the resolver created; the pending/rejected layers
+    (which the resolver does not touch) carry ``body_id: null``."""
+    project, model, _, layers = project_with_litho_layers
+    accepted_layer = next(layer for layer in layers if layer.status == "accepted")
+
+    # Run the resolver: one accepted layer → one body, stamped on the layer.
+    await ResolveLithoInstances(db_session).execute(model_id=model.id)
+
+    resp = await async_client.get(f"/projects/{project.id}/geology/models/{model.id}/layers")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Every layer item must expose the body_id key on the read path.
+    assert all("body_id" in item for item in body)
+
+    by_id = {item["id"]: item for item in body}
+    accepted_item = by_id[str(accepted_layer.id)]
+    assert accepted_item["body_id"] is not None
+
+    # The endpoint's body_id matches the stamped DB value.
+    await db_session.refresh(accepted_layer)
+    assert accepted_item["body_id"] == str(accepted_layer.body_id)
+
+    # The non-accepted layers are untouched by the resolver → still null.
+    for item in body:
+        if item["status"] != "accepted":
+            assert item["body_id"] is None
 
 
 async def test_list_layers_scope_guard_rejects_wrong_project(
