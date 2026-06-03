@@ -87,6 +87,7 @@ import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
+import BodyBandOverlay from './sections/BodyBandOverlay'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import GhostContextMenu from './sections/GhostContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
@@ -855,6 +856,15 @@ export default function SectionPanel({
       // the parent name / unit name so the lens still has *some* label.
       m.set(f.id, base || (f.parent_formation_name ?? '').trim() || f.name)
     }
+    return m
+  }, [formations])
+
+  // formation_id → lithology colour, for the body band fill. Litho units carry
+  // their lithology colour in the stored ``color`` (stamped at create +
+  // backfilled, #145); geological formations carry the user-chosen colour.
+  const formationColorById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const f of formations) m.set(f.id, f.color)
     return m
   }, [formations])
 
@@ -3196,6 +3206,22 @@ export default function SectionPanel({
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
                 onRequestDeleteEdge={onRequestDeleteEdge}
                 onRequestAcceptEdge={onRequestAcceptEdge}
+              />
+            )}
+            {/* Body band fill — colour each body's closed loop with its one
+                lithology, traced across its on-section member columns. Renders
+                BENEATH the wedge/extent overlay so the caps + interaction paint
+                on top. Litho axis only. */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
+              <BodyBandOverlay
+                bodies={lenses}
+                lithoLayers={lithoLayers ?? []}
+                placedColumns={visibleColumns}
+                formationColorById={formationColorById}
+                alongToScreenX={warpedXToScreen}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
               />
             )}
             {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
