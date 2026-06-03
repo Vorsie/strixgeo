@@ -379,8 +379,18 @@ export default function BodyExtentOverlay({
     // body's OWN source column to pin the source band at its real depth —
     // see ``_deriveFramingFromMember``. Only layers carrying a body_id and a
     // resolvable anchor are grouped.
+    // Every accepted layer by id — the framing FALLBACK when a candidate's
+    // contact isn't SEEDED on this section. The explicit-content filter keeps
+    // only seeded contacts in ``contacts``, but a candidate's contact id IS a
+    // litho layer id (post-A4 FC↔LL identity), so the layer supplies the same
+    // depth + anchor. Without this, a ghost / wedge whose framing contact isn't
+    // seeded silently fails — e.g. a stacked unit's shared boundary contact,
+    // which is exactly what dropped the stacked sand open-ends + the upper
+    // pinch (dogfeed 2026-06-03).
+    const _layerById = new Map<string, LithoLayerResponse>()
     const _memberLayersByBodyId = new Map<string, LithoLayerResponse[]>()
     for (const layer of lithoLayers ?? []) {
+      _layerById.set(layer.id, layer)
       if (!layer.body_id) continue
       const existing = _memberLayersByBodyId.get(layer.body_id)
       if (existing) existing.push(layer)
@@ -401,16 +411,27 @@ export default function BodyExtentOverlay({
      * ``otherSideAlong`` (warp-aware inverse so spacing != 100% works).
      */
     function _worldPtEdge(contactId: string, otherSideAlong: number): WorldPt | null {
+      // Prefer the seeded contact; fall back to the litho layer (always present
+      // for an accepted unit) when the contact isn't seeded on this section.
       const c = _contactById.get(contactId)
-      if (!c) return null
-      const inv = _anchorIdOf(c)
+      let inv: string | null
+      let depthTop: number
+      if (c) {
+        inv = _anchorIdOf(c)
+        depthTop = c.depth_top_m
+      } else {
+        const layer = _layerById.get(contactId)
+        if (!layer) return null
+        inv = layer.cpt_id ?? layer.borehole_id
+        depthTop = layer.depth_top_m
+      }
       if (inv === null) return null
       const col = _colByInv.get(inv)
       if (!col) return null
       const halfW = col.width / 2
       // The facing edge is the one closer to the other side of the wedge.
       const edgeX = col.nudgedX + (otherSideAlong > col.along ? +halfW : -halfW)
-      return { along_m: screenXToAlong(edgeX), elevation_m: col.surfaceElevM - c.depth_top_m }
+      return { along_m: screenXToAlong(edgeX), elevation_m: col.surfaceElevM - depthTop }
     }
 
     /**
@@ -1114,14 +1135,11 @@ export default function BodyExtentOverlay({
     for (const candidate of ghostCandidates) {
       const sourceCol = colByInv.get(candidate.source_investigation_id)
       if (!sourceCol) continue
-      const aboveC = contactById.get(candidate.above_contact_id)
-      if (!aboveC) continue
-      // A null below_contact_id is valid for deepest-formation open candidates
-      // (the formation runs to the bottom of the hole).
-      const belowC = candidate.below_contact_id
-        ? contactById.get(candidate.below_contact_id)
-        : null
-      if (candidate.below_contact_id && !belowC) continue
+      // No direct contactById guards here: the framing contacts may be UNSEEDED
+      // on this section (the explicit-content filter), in which case
+      // ``worldPtEdge`` resolves them from the litho layer instead. The
+      // per-point ``if (!topSource) / if (!baseSource)`` checks below still bail
+      // when neither a contact nor a layer resolves.
 
       let upperScreen: { x: number; y: number }[]
       let lowerScreen: { x: number; y: number }[]
