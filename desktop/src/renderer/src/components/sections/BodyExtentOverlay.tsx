@@ -923,16 +923,57 @@ export default function BodyExtentOverlay({
           })
         }
 
-        // An OPEN cap renders at the body's EXTREME member column on that side
-        // (leftmost for left, rightmost for right), NOT the body's source column
-        // — a multi-column body's source can sit mid-body, so the open would
-        // draw at the wrong column and "not render" where the user clicked
-        // (dogfeed 2026-06-04: deep units belonging to an S3/S4-sourced body
-        // showed nothing when open-ended on S1).  Returns the extreme member's
-        // column + framing, or null when the body has no on-section member.
-        const _openCapFor = (
+        // Frame a cap from a SPECIFIC layer: its column + depth interval, with
+        // the base contact resolved on the same anchor (else the layer's
+        // depth_base_m floors a bounded band).  Returns null when the layer's
+        // column is not on this section.
+        const _framingFromLayer = (
+          layer: LithoLayerResponse,
+        ): { col: NonNullable<typeof sourceCol>; above: string; below: string | null; memberBase: number | null } | null => {
+          const col = _colByInv.get(_layerAnchorIdOf(layer) ?? '')
+          if (!col) return null
+          const above = layer.id
+          let below: string | null = null
+          let bestDelta = Number.POSITIVE_INFINITY
+          for (const c of contacts) {
+            if (_anchorIdOf(c) !== _layerAnchorIdOf(layer)) continue
+            if (c.id === above) continue
+            const d = Math.abs(c.depth_top_m - layer.depth_base_m)
+            if (d < bestDelta) {
+              bestDelta = d
+              below = c.id
+            }
+          }
+          if (below !== null && bestDelta > 0.01) below = null
+          return { col, above, below, memberBase: below === null ? layer.depth_base_m : null }
+        }
+
+        // Resolve the cap framing for a side.  The per-side ANCHOR layer is the
+        // spatial source of truth — the litho_layer the user (or detector)
+        // pinned the cap to (its column + depths), so it renders deterministically
+        // there and survives a resolver re-run (the wrong-column / not-rendering
+        // / half-width class all came from re-deriving the column from the body's
+        // emergent geometry — dogfeed 2026-06-04).  When the anchor is absent or
+        // off-section, an OPEN cap falls back to the body's EXTREME on-section
+        // member (band end); pinch/extrapolated fall back to the source-member
+        // framing (return null → caller keeps sourceCol/aboveContactId).
+        const _capFramingFor = (
           side: 'left' | 'right',
-        ): { col: typeof sourceCol; above: string; below: string | null; memberBase: number | null } | null => {
+        ): { col: NonNullable<typeof sourceCol>; above: string; below: string | null; memberBase: number | null } | null => {
+          const anchorId =
+            side === 'left'
+              ? body.extent_left_anchor_layer_id
+              : body.extent_right_anchor_layer_id
+          if (anchorId) {
+            const anchored = _layerById.get(anchorId)
+            if (anchored) {
+              const f = _framingFromLayer(anchored)
+              if (f) return f
+            }
+          }
+          const kind = side === 'left' ? body.extent_left_kind : body.extent_right_kind
+          if (kind !== 'open') return null
+          // Unanchored open: frame from the extreme on-section member (band end).
           const members: { l: LithoLayerResponse; col: NonNullable<typeof sourceCol> }[] = []
           for (const l of _memberLayersByBodyId.get(body.id) ?? []) {
             const col = _colByInv.get(_layerAnchorIdOf(l) ?? '')
@@ -940,31 +981,12 @@ export default function BodyExtentOverlay({
           }
           if (members.length === 0) return null
           members.sort((a, b) => a.col.along - b.col.along)
-          const pick = side === 'left' ? members[0] : members[members.length - 1]
-          const above = pick.l.id
-          let below: string | null = null
-          let bestDelta = Number.POSITIVE_INFINITY
-          for (const c of contacts) {
-            if (_anchorIdOf(c) !== _layerAnchorIdOf(pick.l)) continue
-            if (c.id === above) continue
-            const d = Math.abs(c.depth_top_m - pick.l.depth_base_m)
-            if (d < bestDelta) {
-              bestDelta = d
-              below = c.id
-            }
-          }
-          if (below !== null && bestDelta > 0.01) below = null
-          return {
-            col: pick.col,
-            above,
-            below,
-            memberBase: below === null ? pick.l.depth_base_m : null,
-          }
+          return _framingFromLayer(side === 'left' ? members[0].l : members[members.length - 1].l)
         }
 
         // Resolve left side.
         if (isExtentKind(body.extent_left_kind)) {
-          const cap = body.extent_left_kind === 'open' ? _openCapFor('left') : null
+          const cap = _capFramingFor('left')
           const leftResolved = resolveSide(
             'left',
             cap ? cap.col : sourceCol,
@@ -981,7 +1003,7 @@ export default function BodyExtentOverlay({
 
         // Resolve right side.
         if (isExtentKind(body.extent_right_kind)) {
-          const cap = body.extent_right_kind === 'open' ? _openCapFor('right') : null
+          const cap = _capFramingFor('right')
           const rightResolved = resolveSide(
             'right',
             cap ? cap.col : sourceCol,
