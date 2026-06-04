@@ -143,6 +143,21 @@ _MAX_TIN_ARRAY_LEN = 200_000
 # plausible real project. Over the cap → CPT row is skipped with a warning.
 _MAX_CPT_SERIES_ROWS = 100_000
 
+# Per-borehole child-array caps (debt #112, F2). The outer ``boreholes`` array
+# is bounded by _MAX_BOREHOLES_PER_BUNDLE, but a SINGLE borehole can nest an
+# unbounded observation/sample tree — a crafted .strix with one borehole
+# carrying 100 000 observations × 100 layers × 10 admixtures would allocate
+# ~10⁸ ORM objects before the first DB write. These caps are all far above any
+# real DOV borehole (O(10) drill segments, O(100) observations). Over the cap →
+# the array is truncated with a warning (the borehole still restores).
+_MAX_BOREHOLE_DRILL_SEGMENTS = 2_000
+_MAX_BOREHOLE_FIELD_LOG_INTERVALS = 2_000
+_MAX_BOREHOLE_OBSERVATIONS = 5_000
+_MAX_OBSERVATION_LAYERS = 1_000
+_MAX_LAYER_ADMIXTURES = 50
+_MAX_BOREHOLE_SAMPLES = 5_000
+_MAX_SAMPLE_LAB_TESTS = 500
+
 # Debt #48: the module-level `logger = LoggerFactory.get_logger(__name__)`
 # is gone. Logging now flows through `ProjectBundleService(GroundModelLogger)`
 # (defined below) so every entry-point inherits the typed logger surface
@@ -655,11 +670,68 @@ def _series_row_count(cpt_data: dict[str, Any]) -> int | None:
     return len(depths)
 
 
-def _build_borehole(data: dict[str, Any], app_project_id: UUID) -> BoreholeOrm:
-    drill_segments = data.get("drill_segments") or []
-    field_log_intervals = data.get("field_log_intervals") or []
-    observations = data.get("observations") or []
-    samples = data.get("samples") or []
+def _cap(
+    items: list[Any],
+    cap: int,
+    label: str,
+    logger: GroundModelLogger,
+) -> list[Any]:
+    """Truncate an oversized child array to ``cap``, warning what was dropped.
+
+    Defence against a crafted/oversized .strix bundle (debt #112, F2): a nested
+    borehole child array has no Pydantic bound. Over-cap arrays are truncated
+    (the parent row still restores) rather than dropped wholesale.
+
+    Parameters
+    ----------
+    items : list[Any]
+        The raw payload child array.
+    cap : int
+        Maximum number of entries to keep.
+    label : str
+        Human label for the warning (e.g. ``"observations on borehole X"``).
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    list[Any]
+        ``items`` unchanged when within the cap, else the first ``cap`` entries.
+    """
+    if len(items) > cap:
+        logger.warning(f"restore: {label} has {len(items)} entries — capping to {cap} (debt #112)")
+        return items[:cap]
+    return items
+
+
+def _build_borehole(
+    data: dict[str, Any], app_project_id: UUID, *, logger: GroundModelLogger
+) -> BoreholeOrm:
+    bh_label = data.get("name") or data.get("id") or "?"
+    drill_segments = _cap(
+        data.get("drill_segments") or [],
+        _MAX_BOREHOLE_DRILL_SEGMENTS,
+        f"drill_segments on borehole {bh_label}",
+        logger,
+    )
+    field_log_intervals = _cap(
+        data.get("field_log_intervals") or [],
+        _MAX_BOREHOLE_FIELD_LOG_INTERVALS,
+        f"field_log_intervals on borehole {bh_label}",
+        logger,
+    )
+    observations = _cap(
+        data.get("observations") or [],
+        _MAX_BOREHOLE_OBSERVATIONS,
+        f"observations on borehole {bh_label}",
+        logger,
+    )
+    samples = _cap(
+        data.get("samples") or [],
+        _MAX_BOREHOLE_SAMPLES,
+        f"samples on borehole {bh_label}",
+        logger,
+    )
 
     bh_kwargs = _apply_json_to_kwargs(BoreholeOrm, data)
     bh = BoreholeOrm(app_project_id=app_project_id, **bh_kwargs)
@@ -687,7 +759,9 @@ def _build_borehole(data: dict[str, Any], app_project_id: UUID) -> BoreholeOrm:
         FieldLogIntervalOrm(**_apply_json_to_kwargs(FieldLogIntervalOrm, d))
         for d in field_log_intervals
     ]
-    bh.observations = [_build_observation(obs_data, AdmixtureOrm) for obs_data in observations]
+    bh.observations = [
+        _build_observation(obs_data, AdmixtureOrm, logger=logger) for obs_data in observations
+    ]
     bh.samples = [
         _build_sample(
             sample_data,
@@ -697,21 +771,38 @@ def _build_borehole(data: dict[str, Any], app_project_id: UUID) -> BoreholeOrm:
             OrganicContentOrm,
             WaterContentOrm,
             ScalarLabTestOrm,
+            logger=logger,
         )
         for sample_data in samples
     ]
     return bh
 
 
-def _build_observation(data: dict[str, Any], admixture_cls: type[Any]) -> ObservationOrm:
-    layers_payload = data.get("layers") or []
+def _build_observation(
+    data: dict[str, Any], admixture_cls: type[Any], *, logger: GroundModelLogger
+) -> ObservationOrm:
+    layers_payload = _cap(
+        data.get("layers") or [],
+        _MAX_OBSERVATION_LAYERS,
+        f"layers on observation {data.get('id', '?')}",
+        logger,
+    )
     obs = ObservationOrm(**_apply_json_to_kwargs(ObservationOrm, data))
-    obs.layers = [_build_layer(layer_data, admixture_cls) for layer_data in layers_payload]
+    obs.layers = [
+        _build_layer(layer_data, admixture_cls, logger=logger) for layer_data in layers_payload
+    ]
     return obs
 
 
-def _build_layer(data: dict[str, Any], admixture_cls: type[Any]) -> ObservationLayerOrm:
-    admixtures_payload = data.get("admixtures") or []
+def _build_layer(
+    data: dict[str, Any], admixture_cls: type[Any], *, logger: GroundModelLogger
+) -> ObservationLayerOrm:
+    admixtures_payload = _cap(
+        data.get("admixtures") or [],
+        _MAX_LAYER_ADMIXTURES,
+        f"admixtures on layer {data.get('id', '?')}",
+        logger,
+    )
     layer = ObservationLayerOrm(**_apply_json_to_kwargs(ObservationLayerOrm, data))
     layer.admixtures = [
         admixture_cls(**_apply_json_to_kwargs(admixture_cls, a)) for a in admixtures_payload
@@ -727,31 +818,65 @@ def _build_sample(
     organic_cls: type[Any],
     water_cls: type[Any],
     scalar_cls: type[Any],
+    *,
+    logger: GroundModelLogger,
 ) -> SampleOrm:
     sample = SampleOrm(**_apply_json_to_kwargs(SampleOrm, data))
+    sample_label = data.get("id", "?")
+    # Each lab-test family is its own child array; cap them all (#112, F2).
     sample.grain_sizes = [
         grain_size_cls(**_apply_json_to_kwargs(grain_size_cls, d))
-        for d in data.get("grain_sizes") or []
+        for d in _cap(
+            data.get("grain_sizes") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"grain_sizes on sample {sample_label}",
+            logger,
+        )
     ]
     sample.atterberg_limits_tests = [
         atterberg_cls(**_apply_json_to_kwargs(atterberg_cls, d))
-        for d in data.get("atterberg_limits_tests") or []
+        for d in _cap(
+            data.get("atterberg_limits_tests") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"atterberg_limits_tests on sample {sample_label}",
+            logger,
+        )
     ]
     sample.caco3_content_tests = [
         caco3_cls(**_apply_json_to_kwargs(caco3_cls, d))
-        for d in data.get("caco3_content_tests") or []
+        for d in _cap(
+            data.get("caco3_content_tests") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"caco3_content_tests on sample {sample_label}",
+            logger,
+        )
     ]
     sample.organic_content_tests = [
         organic_cls(**_apply_json_to_kwargs(organic_cls, d))
-        for d in data.get("organic_content_tests") or []
+        for d in _cap(
+            data.get("organic_content_tests") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"organic_content_tests on sample {sample_label}",
+            logger,
+        )
     ]
     sample.water_content_tests = [
         water_cls(**_apply_json_to_kwargs(water_cls, d))
-        for d in data.get("water_content_tests") or []
+        for d in _cap(
+            data.get("water_content_tests") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"water_content_tests on sample {sample_label}",
+            logger,
+        )
     ]
     sample.scalar_lab_tests = [
         scalar_cls(**_apply_json_to_kwargs(scalar_cls, d))
-        for d in data.get("scalar_lab_tests") or []
+        for d in _cap(
+            data.get("scalar_lab_tests") or [],
+            _MAX_SAMPLE_LAB_TESTS,
+            f"scalar_lab_tests on sample {sample_label}",
+            logger,
+        )
     ]
     return sample
 
@@ -962,7 +1087,7 @@ async def _restore_boreholes(
             logger.debug(f"[{i}/{total}] borehole {bh_id} already present — skipped")
             skipped += 1
             continue
-        session.add(_build_borehole(bh_payload, project_id))
+        session.add(_build_borehole(bh_payload, project_id, logger=logger))
         new_boreholes += 1
         logger.debug(f"[{i}/{total}] borehole {bh_id} queued for insert")
     logger.info(
