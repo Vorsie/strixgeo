@@ -7,11 +7,18 @@ no FC counterpart by Shape A, so they survive the cascade. A "Clear
 litho model" gesture must wipe those too — otherwise stale suggestion
 ghosts re-appear when the user clicks Suggest again on a "cleared" model.
 
+Also covered:
+* BodyOrm rows for the model are deleted by ClearLithoModel (step 4b).
+  Bodies reference layers via body_id (SET NULL) and
+  extent_*_anchor_layer_id (SET NULL), so the layer delete leaves them
+  as stale orphans without the explicit body DELETE.
+
 Covered:
 * Pending LL rows are deleted by ClearLithoModel
 * Rejected LL rows are deleted by ClearLithoModel
 * Mixed (accepted + pending + rejected) → all gone after clear
 * Other models' layers untouched
+* BodyOrm rows for the model are deleted by ClearLithoModel
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.clear_litho_model import ClearLithoModel
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -250,4 +258,68 @@ async def test_clear_leaves_other_models_layers_untouched(
     # Sibling survives.
     assert (
         await db_session.execute(select(LithoLayerOrm.id).where(LithoLayerOrm.id == on_other.id))
+    ).first() is not None
+
+
+@pytest.mark.asyncio
+async def test_clear_drops_body_rows(db_session: AsyncSession, setup: dict) -> None:
+    """ClearLithoModel step 4b: BodyOrm rows for the model are deleted.
+
+    Bodies reference litho_layer rows via body_id (SET NULL on litho_layer)
+    and extent_*_anchor_layer_id (SET NULL).  Those FKs become null when the
+    layer is deleted, but the body row itself survives — only the explicit
+    body DELETE in step 4b removes it.  A Clear must leave zero BodyOrm rows
+    for the model; bodies on sibling models are untouched.
+
+    ``source_investigation_id`` is a polymorphic UUID with no FK constraint
+    (mirrors the ``formation_contact.borehole_id`` / ``cpt_id`` pattern), so
+    we use the fixture's borehole id as a valid UUID without needing an extra
+    CPT insert.
+    """
+    inv_id = setup["bh"].id  # polymorphic, no FK — reuse the fixture borehole
+
+    # Add a pending layer on the sibling model so that the orphan-formation
+    # check keeps ``sand`` alive after clearing model A's contacts.
+    # Without this, the clear would orphan ``sand`` (no contacts/layers in
+    # any model) and cascade-delete BOTH body rows via formation_id FK.
+    sibling_layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=setup["other_model"].id,
+        formation_id=setup["sand"].id,
+        borehole_id=setup["bh"].id,
+        depth_top_m=0.0,
+        depth_base_m=1.0,
+        status="pending",
+        source="segmenter",
+        confidence="low",
+    )
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=setup["project"].id,
+        model_id=setup["model"].id,
+        formation_id=setup["sand"].id,
+        body_ordinal=0,
+        source_investigation_id=inv_id,
+    )
+    body_on_other = BodyOrm(
+        id=uuid7(),
+        app_project_id=setup["project"].id,
+        model_id=setup["other_model"].id,
+        formation_id=setup["sand"].id,
+        body_ordinal=0,
+        source_investigation_id=inv_id,
+    )
+    db_session.add_all([sibling_layer, body, body_on_other])
+    await db_session.commit()
+
+    await ClearLithoModel(db_session).execute(setup["project"].id, setup["model"].id)
+    await db_session.commit()
+
+    # Body on the cleared model is gone.
+    assert (
+        await db_session.execute(select(BodyOrm.id).where(BodyOrm.id == body.id))
+    ).first() is None
+    # Body on the sibling model survives.
+    assert (
+        await db_session.execute(select(BodyOrm.id).where(BodyOrm.id == body_on_other.id))
     ).first() is not None
