@@ -59,6 +59,9 @@ class DeleteLithoLayer(GroundModelLogger):
     behaves identically to the legacy contact path that A4 retired.
     """
 
+    # Boundary-coincidence tolerance (m). Matches the litho-snap / drag knobs.
+    _EPS_M = 0.01
+
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
@@ -66,6 +69,50 @@ class DeleteLithoLayer(GroundModelLogger):
         self._repo = LithoLayerRepository(session)
         self._geology = GeologyRepository(session)
         self._cross_sections = CrossSectionRepository(session)
+
+    async def _close_surface_gap(self, pre: LithoLayerOrm) -> UUID | None:
+        """Pull the new shallowest layer up when the deleted layer was topmost.
+
+        The soil has no gaps (owner directive 2026-06-04). The FC→LL mirror
+        trigger re-derives every layer's BASE from the next contact, so deleting
+        a MIDDLE or BOTTOM layer already closes the column downward. It does NOT
+        extend the first layer's TOP, so deleting the SHALLOWEST layer would
+        leave a hole between the surface and the new first contact. Close it by
+        pulling the new shallowest accepted layer's top up to the deleted top.
+
+        Parameters
+        ----------
+        pre : LithoLayerOrm
+            Snapshot of the just-deleted layer (depths + anchor + model).
+
+        Returns
+        -------
+        UUID | None
+            The ``formation_id`` of the layer that was extended (so its surface
+            can be marked stale), or ``None`` when nothing needed closing (the
+            delete was not at the surface, or no layer remains on the anchor).
+        """
+        siblings = await self._repo.list_layers(
+            pre.model_id,
+            borehole_id=pre.borehole_id,
+            cpt_id=pre.cpt_id,
+            status="accepted",
+        )
+        if not siblings:
+            return None
+        # A layer whose base meets the deleted top means the delete was NOT at
+        # the surface — the trigger already closed the column downward there.
+        if any(abs(s.depth_base_m - pre.depth_top_m) <= self._EPS_M for s in siblings):
+            return None
+        new_first = min(siblings, key=lambda s: s.depth_top_m)
+        if new_first.depth_top_m <= pre.depth_top_m + self._EPS_M:
+            return None  # already at/above the deleted top
+        await self._repo.update_layer(new_first.id, {"depth_top_m": pre.depth_top_m})
+        self.info(
+            f"Gap-fill: extended first layer {new_first.id} top → {pre.depth_top_m:.2f} m "
+            f"(absorbed surface gap left by deleted {pre.id})"
+        )
+        return new_first.formation_id
 
     async def execute(
         self,
@@ -105,7 +152,13 @@ class DeleteLithoLayer(GroundModelLogger):
             # rejected layers never had an FC counterpart, so the TIN
             # was not built from them and nothing is stale.
             if pre.status == "accepted":
-                await self._geology.mark_surfaces_stale([(pre.model_id, pre.formation_id)])
+                stale: list[tuple[UUID, UUID]] = [(pre.model_id, pre.formation_id)]
+                # Trigger closes middle/bottom gaps; only the surface (topmost)
+                # delete needs the new first layer pulled up.
+                filled_formation = await self._close_surface_gap(pre)
+                if filled_formation is not None:
+                    stale.append((pre.model_id, filled_formation))
+                await self._geology.mark_surfaces_stale(stale)
 
             self.debug(f"litho layer deleted — running resolver for model={model_id}")
             # Correlation edges referencing this layer just cascaded away
