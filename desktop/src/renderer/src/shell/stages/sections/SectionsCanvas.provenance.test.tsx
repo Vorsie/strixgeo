@@ -29,15 +29,17 @@ import { makeBody } from '../../../components/sections/__tests__/bodyTestFixture
 // ---------------------------------------------------------------------------
 
 // Capture the onClaimBodyExtent callback so tests can trigger the gesture.
-let capturedOnClaimBodyExtent:
-  | ((bodyId: string, side: 'left' | 'right', kind: string) => void)
-  | undefined = undefined
+type ClaimCb = (
+  bodyId: string,
+  side: 'left' | 'right',
+  kind: string,
+  anchorLayerId?: string | null,
+  neighbourInvId?: string | null,
+) => void
+let capturedOnClaimBodyExtent: ClaimCb | undefined = undefined
 
 vi.mock('../../../components/SectionPanel', () => ({
-  default: (props: {
-    onClaimBodyExtent?: (bodyId: string, side: 'left' | 'right', kind: string) => void
-    [key: string]: unknown
-  }) => {
+  default: (props: { onClaimBodyExtent?: ClaimCb; [key: string]: unknown }) => {
     capturedOnClaimBodyExtent = props.onClaimBodyExtent
     return null
   },
@@ -444,7 +446,9 @@ describe('SectionsCanvas — ProvenanceConflictDialog retry-race (C2 audit)', ()
     // Trigger the claim gesture via the captured SectionPanel callback.
     expect(capturedOnClaimBodyExtent).toBeDefined()
     await act(async () => {
-      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway')
+      // A neighbour is required for pinch_out_halfway; supply one so the claim
+      // reaches the API and exercises the 409 provenance path under test.
+      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway', null, 'neighbour-1')
     })
 
     // The conflict dialog must now be open.
@@ -476,7 +480,9 @@ describe('SectionsCanvas — ProvenanceConflictDialog retry-race (C2 audit)', ()
 
     // Trigger first claim → 409 → dialog opens.
     await act(async () => {
-      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway')
+      // A neighbour is required for pinch_out_halfway; supply one so the claim
+      // reaches the API and exercises the 409 provenance path under test.
+      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway', null, 'neighbour-1')
     })
     expect(screen.queryByTestId('provenance-conflict-dialog')).not.toBeNull()
 
@@ -513,7 +519,9 @@ describe('SectionsCanvas — ProvenanceConflictDialog retry-race (C2 audit)', ()
 
     // First claim → 409 → dialog opens.
     await act(async () => {
-      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway')
+      // A neighbour is required for pinch_out_halfway; supply one so the claim
+      // reaches the API and exercises the 409 provenance path under test.
+      capturedOnClaimBodyExtent?.('body-1', 'left', 'pinch_out_halfway', null, 'neighbour-1')
     })
     expect(screen.queryByTestId('provenance-conflict-dialog')).not.toBeNull()
 

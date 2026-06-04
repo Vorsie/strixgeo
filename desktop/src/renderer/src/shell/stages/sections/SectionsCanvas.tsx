@@ -732,6 +732,7 @@ export default function SectionsCanvas(): JSX.Element {
       side: 'left' | 'right',
       kind: ClaimableKind,
       anchorLayerId?: string | null,
+      neighbourInvId?: string | null,
     ): Promise<void> => {
       if (!activeLithoModel) return
       const body = lensList.find(b => b.id === bodyId)
@@ -747,6 +748,10 @@ export default function SectionsCanvas(): JSX.Element {
         // band end on this side), so it renders deterministically + survives a
         // resolver re-run. Null leaves it unanchored (legacy fallback render).
         anchor_layer_id: anchorLayerId ?? null,
+        // pinch_out_halfway / extrapolated pinch the body toward this
+        // neighbouring column (the backend requires it for those kinds; it is
+        // ignored for open).
+        neighbour_inv_id: neighbourInvId ?? null,
       })
       void refetchLensData()
       toast('success', `Extent claimed: ${side} → ${kind}`)
@@ -764,13 +769,25 @@ export default function SectionsCanvas(): JSX.Element {
       side: 'left' | 'right',
       kind: ClaimableKind,
       anchorLayerId?: string | null,
+      neighbourInvId?: string | null,
     ): Promise<void> => {
       log.info(
         'section',
-        `claim-body-extent: body=${bodyId} side=${side} kind=${kind}`,
+        `claim-body-extent: body=${bodyId} side=${side} kind=${kind} neighbour=${neighbourInvId ?? 'none'}`,
       )
+      // pinch_out_halfway / extrapolated need a neighbour to pinch toward. When
+      // the edge member sits at the section edge there is none — a pinch-out is
+      // meaningless there, so guide the user to open-end instead of failing with
+      // a generic 422.
+      if ((kind === 'pinch_out_halfway' || kind === 'extrapolated') && !neighbourInvId) {
+        toast(
+          'error',
+          'No neighbouring column on this side to pinch out toward — use Open instead.',
+        )
+        return
+      }
       try {
-        await _doClaimExtent(bodyId, side, kind, anchorLayerId)
+        await _doClaimExtent(bodyId, side, kind, anchorLayerId, neighbourInvId)
       } catch (err: unknown) {
         if (err instanceof ProvenanceViolationError) {
           // HTTP 409: the detector already claimed this side with 'to_target'.
@@ -2348,8 +2365,8 @@ export default function SectionsCanvas(): JSX.Element {
           // #body-with-extent Slice 7.2 — body context menu verbs.
           onClaimBodyExtent={
             isLitho
-              ? (bid, side, kind, anchorLayerId) =>
-                  void handleClaimBodyExtent(bid, side, kind, anchorLayerId)
+              ? (bid, side, kind, anchorLayerId, neighbourInvId) =>
+                  void handleClaimBodyExtent(bid, side, kind, anchorLayerId, neighbourInvId)
               : undefined
           }
           onClearBodyExtent={isLitho ? (bid, side) => void handleClearBodyExtent(bid, side) : undefined}
