@@ -347,6 +347,11 @@ export interface UseGeologicalModelResult {
     contactId: string,
     newDepthM: number,
     snapped: boolean,
+    /** Which depth dimension to update. ``'top'`` (default) writes
+     *  ``depth_top_m``; ``'base'`` writes ``depth_base_m``.
+     *  Used when an absorb/collapse extends an accepted layer's BASE —
+     *  passing ``'top'`` in that case would move the wrong boundary. */
+    field?: 'top' | 'base',
   ) => Promise<void>
   handleBatchCreateContacts: (
     creates: readonly ContactCopyPayload[],
@@ -1466,11 +1471,12 @@ export function useGeologicalModel({
       contactId: string,
       newDepthM: number,
       snapped: boolean,
+      field: 'top' | 'base' = 'top',
     ): Promise<void> => {
       if (!project) return
       log.debug(
         'geology',
-        `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m snapped=${snapped}`,
+        `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m snapped=${snapped} field=${field}`,
       )
       try {
         // Snapshot the pre-update contact so undo can restore depth
@@ -1500,6 +1506,7 @@ export function useGeologicalModel({
           modelId,
           previousDepthM: previous.depth_top_m,
           newDepthM,
+          field,
           delta: previous.depth_top_m - newDepthM,
           direction: newDepthM < previous.depth_top_m ? 'UP' : 'DOWN',
           snapped,
@@ -1514,12 +1521,18 @@ export function useGeologicalModel({
         // — updateLayer can't return null for a row that exists.
         // The source enum maps differently: snap='observation_layer'
         // ↔ FC 'borehole_observation'; unsnapped='manual' ↔ 'manual_pick'.
+        //
+        // field='top' → depth_top_m (the shared-boundary-as-TOP case:
+        //   pending BASE dragged DOWN past the accepted layer below).
+        // field='base' → depth_base_m (the shared-boundary-as-BASE case:
+        //   pending TOP dragged UP into the accepted layer above — the
+        //   accepted layer's BASE must shrink, not its top).
+        const lithoDepthPatch =
+          field === 'base'
+            ? { depth_base_m: newDepthM, source: snapped ? 'observation_layer' as const : 'manual' as const, confidence: snapped ? 'high' as const : 'medium' as const }
+            : { depth_top_m: newDepthM, source: snapped ? 'observation_layer' as const : 'manual' as const, confidence: snapped ? 'high' as const : 'medium' as const }
         const updated = isLitho
-          ? await api.geology.updateLayer(project.id, modelId, contactId, {
-              depth_top_m: newDepthM,
-              source: snapped ? 'observation_layer' : 'manual',
-              confidence: snapped ? 'high' : 'medium',
-            })
+          ? await api.geology.updateLayer(project.id, modelId, contactId, lithoDepthPatch)
           : await api.geology.updateContact(project.id, modelId, contactId, {
               depth_top_m: newDepthM,
               source: snapped ? 'borehole_observation' : 'manual_pick',
@@ -1604,21 +1617,41 @@ export function useGeologicalModel({
         // Layer-shape payloads for the litho path. Status stays as-is
         // (the drag doesn't change accept/reject); source maps the
         // same way as the main update above.
-        const beforeLayerPayload = {
-          depth_top_m: previous.depth_top_m,
-          source: (previous.source === 'borehole_observation' ? 'observation_layer' : 'manual') as
-            | 'observation_layer'
-            | 'manual',
-          confidence: previous.confidence as 'high' | 'medium' | 'low',
-        }
-        const afterLayerPayload = {
-          depth_top_m: updated.depth_top_m,
-          source: (updated.source === 'borehole_observation' ||
-          updated.source === 'observation_layer'
+        // For field='base': the before/after payloads write depth_base_m
+        // back (undo restores the original depth_base_m; reapply re-applies
+        // the dragged depth_base_m). For field='top': the original path.
+        const lithoSource = (src: string) =>
+          (src === 'borehole_observation' || src === 'observation_layer'
             ? 'observation_layer'
-            : 'manual') as 'observation_layer' | 'manual',
-          confidence: updated.confidence as 'high' | 'medium' | 'low',
-        }
+            : 'manual') as 'observation_layer' | 'manual'
+        const beforeLayerPayload =
+          field === 'base'
+            ? {
+                // Undo a BASE edit: restore the layer's depth_base_m to the
+                // pre-drag value. previous.depth_top_m is unchanged — only
+                // the base was touched — so a pure depth_base_m PATCH suffices.
+                // source/confidence carry along for audit-log completeness.
+                depth_base_m: lithoLayers.find(l => l.id === contactId)?.depth_base_m ?? newDepthM,
+                source: lithoSource(previous.source),
+                confidence: previous.confidence as 'high' | 'medium' | 'low',
+              }
+            : {
+                depth_top_m: previous.depth_top_m,
+                source: lithoSource(previous.source),
+                confidence: previous.confidence as 'high' | 'medium' | 'low',
+              }
+        const afterLayerPayload =
+          field === 'base'
+            ? {
+                depth_base_m: newDepthM,
+                source: lithoSource(updated.source),
+                confidence: updated.confidence as 'high' | 'medium' | 'low',
+              }
+            : {
+                depth_top_m: updated.depth_top_m,
+                source: lithoSource(updated.source),
+                confidence: updated.confidence as 'high' | 'medium' | 'low',
+              }
         pushUndo({
           description: 'Move contact',
           revert: async () => {
@@ -1663,6 +1696,7 @@ export function useGeologicalModel({
       project,
       contacts,
       lithoContacts,
+      lithoLayers,
       pushUndo,
       refetchContacts,
       refetchLithoContacts,
