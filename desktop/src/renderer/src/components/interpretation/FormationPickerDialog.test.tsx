@@ -96,6 +96,32 @@ describe('FormationPickerDialog — rendering', () => {
     expect(screen.getByText('Diest Fm')).toBeInTheDocument()
   })
 
+  it('lists formations youngest-first (descending display_order), like the inspector', () => {
+    // The engineer reads the picker like a borehole log / stratigraphic column —
+    // surface/youngest at the top, oldest at depth — matching the
+    // GeologyInspector list (the right pane). The model bus delivers formations
+    // ascending (oldest-first); the picker must flip them for display.
+    const formations = [
+      makeFormation({ id: 'old', name: 'Kortrijk', display_order: 0 }),
+      makeFormation({ id: 'mid', name: 'Pleistoceen', display_order: 1 }),
+      makeFormation({ id: 'young', name: 'Antropogeen', display_order: 2 }),
+    ]
+    render(
+      <FormationPickerDialog
+        open
+        formations={formations}
+        anchor={null}
+        onSelect={vi.fn()}
+        onCreateFormation={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByRole('listitem').map(li => li.textContent ?? '')
+    expect(rows[0]).toContain('Antropogeen')
+    expect(rows[1]).toContain('Pleistoceen')
+    expect(rows[2]).toContain('Kortrijk')
+  })
+
   it('renders nothing when open is false', () => {
     const { container } = render(
       <FormationPickerDialog
