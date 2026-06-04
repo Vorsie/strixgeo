@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import AsyncGenerator
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import httpx
@@ -41,6 +42,12 @@ from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_sessi
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+if TYPE_CHECKING:
+    # Annotation-only — ``_plot_response_from_cpt`` takes a loaded CPT ORM row.
+    # Imported under TYPE_CHECKING so the router doesn't pull the ORM model at
+    # runtime (keeps mypy happy without widening the import surface).
+    from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 
 # Module-level logger — routers are functions, not classes, so the
 # ``GroundModelLogger`` inheritance pattern doesn't apply. The
