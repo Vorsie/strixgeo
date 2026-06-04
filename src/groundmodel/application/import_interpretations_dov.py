@@ -40,6 +40,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
 )
@@ -177,34 +178,24 @@ class ImportInterpretationsDov(GroundModelLogger):
                 name=row.permkey,
             )
 
-        try:
-            t_fetch = time.perf_counter()
-            client = DovInterpretationClient(http, cache=cache)
-            parsed = await client.fetch_bbox_processed(
+        t_fetch = time.perf_counter()
+        client = DovInterpretationClient(http, cache=cache)
+        parsed = await fetch_wfs_or_raise(
+            client.fetch_bbox_processed(
                 west,
                 south,
                 east,
                 north,
                 _process,
                 test_ids=set(test_id_to_borehole_id),
-            )
-            self.info(
-                f"DOV interpretation phase 1+2 (WFS + download + parse): "
-                f"{ms_since(t_fetch)} ms — {len(parsed)} interpretations ready"
-            )
-        except httpx.HTTPStatusError as exc:
-            self.error(
-                f"DOV interpretation WFS request failed with HTTP "
-                f"{exc.response.status_code}: {exc}  "
-                f"response body: {exc.response.text[:300]!r}"
-            )
-            raise
-        except httpx.RequestError as exc:
-            self.error(
-                f"DOV interpretation network error during WFS/download phase: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            raise
+            ),
+            label="interpretation",
+            logger=self,
+        )
+        self.info(
+            f"DOV interpretation phase 1+2 (WFS + download + parse): "
+            f"{ms_since(t_fetch)} ms — {len(parsed)} interpretations ready"
+        )
 
         result = ImportInterpretationsDovResult(fetched=len(parsed))
         for row, parse_result in parsed:
