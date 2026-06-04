@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,6 +63,10 @@ class BodyOrm(Base):
             "body_ordinal",
             name="uq_body_model_formation_ordinal",
         ),
+        # Project-scope key index — the bundle build and _restore_bodies both
+        # filter ``BodyOrm.app_project_id == project_id``; without this index
+        # those are seq-scans (every other project-scoped root has one).
+        Index("idx_body_app_project_id", "app_project_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
