@@ -159,6 +159,15 @@ interface Props {
     investigationId: string,
     side: 'left' | 'right',
   ) => void
+  /** Fired when the user picks "Pinch out layer →/←" — claims a
+   *  ``pinch_out_halfway`` body extent toward ``side`` (the body wedges out to
+   *  the neighbouring column). When absent the items are hidden. */
+  onPinchOutLayer?: (
+    contactId: string,
+    formationId: string,
+    investigationId: string,
+    side: 'left' | 'right',
+  ) => void
   /** All-or-nothing batch UPDATE commit. Used for:
    *
    * * Same-column multi-drag (every selected contact's depth shifts
@@ -987,6 +996,7 @@ export default function ContactsLayer({
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
   onOpenEndLayer,
+  onPinchOutLayer,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   marquee,
@@ -4061,6 +4071,15 @@ export default function ContactsLayer({
                 }
               : undefined
           }
+          onPinchOut={
+            !contactMenu.isReferenceContact && onPinchOutLayer
+              ? side => {
+                  const { contactId, formationId, anchorId } = contactMenu
+                  setContactMenu(null)
+                  onPinchOutLayer(contactId, formationId, anchorId, side)
+                }
+              : undefined
+          }
           onClose={() => setContactMenu(null)}
         />,
         document.body,
@@ -4163,6 +4182,10 @@ interface ContactContextMenuProps {
    *  body extent toward ``side`` (TIN-free). When absent the items are
    *  hidden. */
   onOpenEnd?: (side: 'left' | 'right') => void
+  /** Fired when the user picks "Pinch out layer →/←" — claims a
+   *  ``pinch_out_halfway`` body extent toward ``side``. When absent the items
+   *  are hidden. */
+  onPinchOut?: (side: 'left' | 'right') => void
   /** Fired on click-outside or Esc — closes the menu. */
   onClose: () => void
 }
@@ -4187,7 +4210,8 @@ interface ContactContextMenuProps {
  * onDelete
  *     Optional — shows the "Delete contact" item.
  * onPinchOut
- *     Optional — shows the "Extrapolate pinch-out…" item.
+ *     Optional — shows the "Pinch out layer →/←" items (claims a
+ *     ``pinch_out_halfway`` body extent toward the neighbouring column).
  * onClose
  *     Dismisses the menu on click-outside or Esc.
  *
@@ -4205,6 +4229,7 @@ function ContactContextMenu({
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
   onOpenEnd,
+  onPinchOut,
   onClose,
 }: ContactContextMenuProps): JSX.Element {
   return (
@@ -4231,6 +4256,16 @@ function ContactContextMenu({
           label: 'Open-end layer ←',
           onClick: () => onOpenEnd('left'),
           testid: 'open-end-layer-left',
+        },
+        onPinchOut && {
+          label: 'Pinch out layer →',
+          onClick: () => onPinchOut('right'),
+          testid: 'pinch-out-layer-right',
+        },
+        onPinchOut && {
+          label: 'Pinch out layer ←',
+          onClick: () => onPinchOut('left'),
+          testid: 'pinch-out-layer-left',
         },
         onLinkLithoToGeo && {
           label: 'Link to geology',
