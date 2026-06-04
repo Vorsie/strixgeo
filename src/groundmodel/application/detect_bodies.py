@@ -25,6 +25,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.project_investigations_onto_section import (
+    project_investigations_onto_section,
+)
 from groundmodel.domain.services.detect_body_extents import (
     ContactEdge,
     ContactStack,
@@ -32,8 +35,6 @@ from groundmodel.domain.services.detect_body_extents import (
     detect_body_extents,
 )
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
-from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -41,10 +42,6 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from groundmodel.infrastructure.gis.section_projection import (
-    SectionEndpoints,
-    project_point_onto_line,
-)
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_TO_TARGET,
     is_user_claimed_extent_kind,
@@ -523,46 +520,13 @@ class DetectBodies(GroundModelLogger):
         """
         if section_id is None or not investigation_ids:
             return {}
-        section = (
-            await self._session.execute(
-                select(CrossSectionOrm).where(
-                    CrossSectionOrm.id == section_id,
-                    CrossSectionOrm.app_project_id == project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if section is None:
-            return {}
-
-        endpoints = SectionEndpoints(
-            start_x=section.start_x,
-            start_y=section.start_y,
-            end_x=section.end_x,
-            end_y=section.end_y,
+        # ``missing_ok`` mirrors the legacy section-less fallback: a section not
+        # in the project returns an empty map (UUID-ordering fallback), it does
+        # not raise.
+        return await project_investigations_onto_section(
+            self._session,
+            project_id=project_id,
+            section_id=section_id,
+            restrict_to=investigation_ids,
+            missing_ok=True,
         )
-        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
-
-        # Both investigation families carry planar (x, y); union them.
-        loc_rows = (
-            await self._session.execute(
-                select(CptOrm.id, CptOrm.location_x, CptOrm.location_y).where(
-                    CptOrm.id.in_(investigation_ids)
-                )
-            )
-        ).all()
-        loc_rows += (
-            await self._session.execute(
-                select(BoreholeOrm.id, BoreholeOrm.location_x, BoreholeOrm.location_y).where(
-                    BoreholeOrm.id.in_(investigation_ids)
-                )
-            )
-        ).all()
-
-        along: dict[UUID, float] = {}
-        for r in loc_rows:
-            if r.id in excluded:
-                continue
-            res = project_point_onto_line(endpoints, r.location_x, r.location_y)
-            if res is not None and abs(res.offset) <= section.projection_buffer_m:
-                along[r.id] = res.along
-        return along
