@@ -82,6 +82,7 @@ vi.mock('../../../api/client', async () => {
           bodies_deleted: 0,
           bodies_preserved: 0,
         }),
+        claimBodyExtent: vi.fn().mockResolvedValue({}),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -153,6 +154,7 @@ function makeCtx(overrides: {
   handleAutoCorrelate?: () => Promise<void>
   handleClearSuggestions?: () => Promise<void>
   toast?: () => void
+  pinchOutCandidates?: unknown[]
   setPinchOutCandidates?: (candidates: unknown[]) => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
@@ -375,7 +377,7 @@ function makeCtx(overrides: {
       exitCorrelateMode,
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
+      pinchOutCandidates: (overrides.pinchOutCandidates ?? []) as ShellContextValue['sections']['pinchOutCandidates'],
       setPinchOutCandidates: overrides.setPinchOutCandidates ?? vi.fn(),
     },
     overlays: {
@@ -1138,3 +1140,82 @@ describe('SectionsToolbar Delete all detected lenses', () => {
   })
 })
 
+
+describe('SectionsToolbar Accept all pinch-outs', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
+
+  const openBodies = (): void => {
+    fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
+  }
+
+  const candidate = (overrides: Record<string, unknown> = {}): unknown => ({
+    body_id: 'body-1',
+    source_investigation_id: 'inv-1',
+    above_contact_id: 'layer-1',
+    below_contact_id: null,
+    below_depth_m: null,
+    side: 'left',
+    kind: 'pinch_out_halfway',
+    suggested_neighbour_investigation_id: 'inv-0',
+    ...overrides,
+  })
+
+  it('AP1: item is disabled when there are no pinch-out candidates', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        pinchOutCandidates: [],
+      }),
+    )
+    openBodies()
+    expect(screen.getByTestId('body-accept-all-pinch-outs')).toBeDisabled()
+  })
+
+  it('AP2: with candidates, click claims each (skips null-body), clears ghosts + toasts', async () => {
+    const setPinchOutCandidates = vi.fn()
+    const toast = vi.fn()
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        pinchOutCandidates: [
+          candidate(),
+          candidate({
+            body_id: 'body-2',
+            side: 'right',
+            kind: 'open',
+            suggested_neighbour_investigation_id: null,
+          }),
+          candidate({ body_id: null }), // unresolved → skipped
+        ],
+        setPinchOutCandidates,
+        toast,
+      }),
+    )
+    openBodies()
+    const btn = screen.getByTestId('body-accept-all-pinch-outs')
+    expect(btn).not.toBeDisabled()
+    await act(async () => {
+      fireEvent.click(btn)
+    })
+
+    // Two claimable candidates → two claims (the null-body one is skipped).
+    expect(api.geology.claimBodyExtent).toHaveBeenCalledTimes(2)
+    expect(api.geology.claimBodyExtent).toHaveBeenCalledWith(
+      'proj-1',
+      'model-litho-1',
+      expect.objectContaining({ body_id: 'body-1', kind: 'pinch_out_halfway', neighbour_inv_id: 'inv-0' }),
+    )
+    expect(api.geology.claimBodyExtent).toHaveBeenCalledWith(
+      'proj-1',
+      'model-litho-1',
+      expect.objectContaining({ body_id: 'body-2', kind: 'open', neighbour_inv_id: null }),
+    )
+    expect(setPinchOutCandidates).toHaveBeenCalledWith([])
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('2'))
+  })
+})
