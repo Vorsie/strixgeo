@@ -218,13 +218,13 @@ describe('BodyExtentOverlay', () => {
     expect(queryByTestId('body-dip-arrow-B1')).toBeNull()
   })
 
-  it('BE5b — open kind far endpoint is at col.along + openExtentLengthM, NOT section boundary', () => {
-    // Source column ``inv-source`` is at along=50, width=40 (right edge at 70 in
-    // the identity-transform space). Right side open with length=3 → towardAlong=53.
-    // The source endpoint is the right edge of the source column facing along=53
-    // (edge = nudgedX + halfW = 50 + 20 = 70, then screenXToAlong(70) = 70).
-    // The far endpoint has along_m = 53. So the path spans 53 … 70.
-    // ``min(xs)`` must be ~53 (far point), not 0 / negative (old section boundary).
+  it('BE5b — open stub extends OUTWARD from the column edge by openExtentLengthM', () => {
+    // Source column ``inv-source`` at along=50, width=40 → right edge at along/x=70
+    // (identity transform). A right-side open stub anchors at that edge (x=70) and
+    // extends RIGHT by openExtentLengthM (along-metres), mapped to screen, so the
+    // band spans [70, 70+length].  (The old code measured from the column CENTRE,
+    // which for a wide column put the stub inside the column — dogfeed 2026-06-04.)
+    // Lengths are kept above the OPEN_MIN_STUB_PX=22 floor so they are distinguishable.
     const { getByTestId, rerender } = renderOverlay({
       bodies: [
         makeBody({
@@ -233,13 +233,14 @@ describe('BodyExtentOverlay', () => {
           extent_right_neighbour_inv_id: null,
         }),
       ],
-      openExtentLengthM: 3,
+      openExtentLengthM: 30,
     })
-    const d3 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
-    const xs3 = Array.from(d3.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
-    expect(Math.min(...xs3)).toBeCloseTo(53, 0) // far point at 50 + 3
+    const d30 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs30 = Array.from(d30.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    // Anchored at the edge (70), extends RIGHT to 70 + 30 = 100.
+    expect(Math.min(...xs30)).toBeCloseTo(70, 0)
+    expect(Math.max(...xs30)).toBeCloseTo(100, 0)
 
-    // Re-render with length=8 — far endpoint shifts to 50+8=58.
     rerender(
       <svg>
         <BodyExtentOverlay
@@ -255,16 +256,34 @@ describe('BodyExtentOverlay', () => {
           placedColumns={baseColumns}
           contactEdges={baseEdges}
           {...transforms}
-          openExtentLengthM={8}
+          openExtentLengthM={60}
           onSaveLensShape={vi.fn()}
         />
       </svg>,
     )
-    const d8 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
-    const xs8 = Array.from(d8.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
-    expect(Math.min(...xs8)).toBeCloseTo(58, 0) // far point at 50 + 8
-    // Two different lengths → different far-x values.
-    expect(Math.min(...xs8)).not.toBeCloseTo(Math.min(...xs3), 0)
+    const d60 = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs60 = Array.from(d60.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    expect(Math.max(...xs60)).toBeCloseTo(130, 0) // edge 70 + 60
+    expect(Math.max(...xs60)).not.toBeCloseTo(Math.max(...xs30), 0)
+  })
+
+  it('BE5c — a tiny open length is floored to a minimum on-screen stub width', () => {
+    // length=3 at 1px/m → 3 px, below the OPEN_MIN_STUB_PX=22 floor, so the stub
+    // extends to edge(70) + 22 = 92 instead of collapsing to an invisible sliver.
+    const { getByTestId } = renderOverlay({
+      bodies: [
+        makeBody({
+          content_key: null,
+          extent_right_kind: 'open',
+          extent_right_neighbour_inv_id: null,
+        }),
+      ],
+      openExtentLengthM: 3,
+    })
+    const d = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs = Array.from(d.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    expect(Math.min(...xs)).toBeCloseTo(70, 0)
+    expect(Math.max(...xs)).toBeCloseTo(92, 0) // floored: 70 + 22
   })
 
   it('BE6 — mixed body (to_target left + open right) renders both sides', () => {
