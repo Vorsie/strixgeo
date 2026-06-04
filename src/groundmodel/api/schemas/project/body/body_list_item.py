@@ -60,6 +60,15 @@ class BodyListItem(BaseModel):
     extent_right_anchor_layer_id : UUID | None
         Same as ``extent_left_anchor_layer_id`` but for the right side.
 
+    geo_formation_id : UUID | None
+        A2-derived geological-formation label: the geological formation owning
+        the majority (by thickness) of this body's member layers. Computed fresh
+        on read, never stored. ``None`` when no geological model is defined at
+        the body's member investigations.
+    geo_formation_name : str | None
+        Display name of ``geo_formation_id`` (e.g. ``"Quartair: Pleistoceen"``),
+        or ``None`` when unresolved.
+
     created_at : datetime
         Row creation timestamp.
     updated_at : datetime
@@ -86,6 +95,13 @@ class BodyListItem(BaseModel):
     extent_right_target_contact_id: UUID | None
     extent_right_neighbour_inv_id: UUID | None
     extent_right_anchor_layer_id: UUID | None
+
+    # A2: derived (not stored) geological-formation label — the geological
+    # formation owning the majority of this body's member-layer thickness,
+    # recomputed on every read. ``None`` when no geological model is defined at
+    # the body's investigations.
+    geo_formation_id: UUID | None = None
+    geo_formation_name: str | None = None
 
     created_at: datetime
     updated_at: datetime
