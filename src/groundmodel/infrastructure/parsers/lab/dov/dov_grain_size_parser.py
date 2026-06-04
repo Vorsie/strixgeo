@@ -95,7 +95,12 @@ from uuid import UUID
 import defusedxml.ElementTree as ET
 
 from groundmodel.domain.models.lab.grain_size import GrainSize
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    make_issue as _issue,
+)
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import date_iso, text
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
@@ -423,8 +428,3 @@ class DovGrainSizeParser(GroundModelLogger):
                 )
 
         return lime_removed, organics_removed
-
-
-def _issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
-    """Build a ValidationIssue with the given level/code/message (no row index)."""
-    return ValidationIssue(level=level, code=code, message=message)
