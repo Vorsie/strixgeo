@@ -136,6 +136,14 @@ class BodyOrm(Base):
         ForeignKey("litho_layer.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Provenance of the left extent: 'auto' (set + freely recomputed by
+    # DetectBodies — to_target closures AND auto-completed pinch/open defaults)
+    # vs 'user' (an explicit ClaimBodyExtent the auto pass never overwrites).
+    # Distinct from the KIND because an auto-pinch and a user-pinch share a kind
+    # but must be treated differently — only 'user' sides are protected.
+    extent_left_provenance: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="auto"
+    )
 
     # Right-side extent marker. NULL = no claim on this side.
     extent_right_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -153,6 +161,10 @@ class BodyOrm(Base):
         PG_UUID(as_uuid=True),
         ForeignKey("litho_layer.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    # Provenance of the right extent. See ``extent_left_provenance``.
+    extent_right_provenance: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="auto"
     )
 
     created_at: Mapped[datetime] = mapped_column(
