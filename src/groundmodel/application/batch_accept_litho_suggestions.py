@@ -115,7 +115,6 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         project_id: UUID,
         litho_model_id: UUID,
         anchors: list[BatchAcceptAnchorInput],
-        straddle_min_piece_thickness_m: float = 0.20,
         couple_tolerance_m: float = 0.20,
     ) -> BatchAcceptResult:
         """Accept every anchor's suggestions, then commit once.
@@ -136,9 +135,6 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         anchors : list[BatchAcceptAnchorInput]
             One entry per investigation.  Empty list is a no-op that still
             issues the (empty) commit for a consistent transaction boundary.
-        straddle_min_piece_thickness_m : float
-            Straddle sliver guard (debt #157) forwarded to each inner
-            ``AcceptLithoSuggestions.execute(...)`` call.  Default 0.20 m.
         couple_tolerance_m : float
             Depth window within which a litho contact top is linked to the
             nearest geological contact and the geo contact is snapped to the
@@ -155,7 +151,6 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         self.info(
             f"BatchAcceptLithoSuggestions.execute: litho_model={litho_model_id}, "
             f"{len(anchors)} anchor(s), "
-            f"straddle_min_piece_thickness_m={straddle_min_piece_thickness_m}, "
             f"couple_tolerance_m={couple_tolerance_m}"
         )
 
@@ -191,7 +186,6 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                     defer_inference=True,
                     commit=False,
                     batch_ctx=batch_ctx,
-                    straddle_min_piece_thickness_m=straddle_min_piece_thickness_m,
                     couple_tolerance_m=couple_tolerance_m,
                 )
                 any_created_formation = any_created_formation or bool(result.created_formation_ids)
