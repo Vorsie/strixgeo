@@ -5130,29 +5130,24 @@ pins it (RED confirmed the exact FK violation pre-fix). Commits 0a4afe13 /
 `src/groundmodel/infrastructure/db/repositories/project_bundle.py`.
 
 
-## 200. Electron pre-distribution hardening — DevTools log leak + file:// nav (Tier B — frontend, S)
+## 200. Electron pre-distribution hardening — file:// nav (Tier B — frontend, S)
 
-**What.** Two low-severity Electron findings (security audit 2026-06-04):
-* **F5** — `startApi()` pipes the Python/uvicorn stdout+stderr (including the
-  asyncpg connection string `groundmodel:groundmodel@localhost:5433/…`) to
-  `console.log`/`console.error`. In a packaged build, View → Toggle DevTools
-  stays enabled, so any user who opens DevTools sees the DB URL + everything the
-  backend logs. (`desktop/src/main/index.ts:131-133`).
+**What.** One low-severity Electron finding remains (security audit 2026-06-04;
+F5 DevTools backend-log leak resolved — packaged builds now route uvicorn
+stdout/stderr to `<logs>/backend.log` via `app.isPackaged`, not the renderer
+console):
 * **F6** — `isInAppNavigation` treats ALL `file://` URLs as in-app, so a
   compromised renderer issuing `window.location = 'file://C:/Windows/win.ini'`
   would render a local file. Very low risk today — no user content renders as
   HTML (no raw-HTML injection sink in the UI) — but it widens if free-text
   fields ever render markup. (`desktop/src/main/security.ts:169`).
 
-**Why deferred.** Both require a packaged build + a user opening DevTools / a
-renderer compromise — neither exists on the single-machine dogfeed.
-Pre-distribution concerns.
+**Why deferred.** Requires a renderer compromise — does not exist on the
+single-machine dogfeed. Pre-distribution concern.
 
 **When to revisit.** Day-1 of the first external/paid distribution (ties to Tier
-B #5 tamper hardening). Fix F5: route backend stdout to a log file (electron-log)
-instead of the renderer console in production builds. Fix F6: narrow the
-`file://` check to the renderer's actual base URL (`win.webContents.getURL()`
-after `loadFile`).
+B #5 tamper hardening). Fix F6: narrow the `file://` check to the renderer's
+actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## (end)
 
