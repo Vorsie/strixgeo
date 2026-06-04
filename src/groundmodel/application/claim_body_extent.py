@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_EXTRAPOLATED,
     EXTENT_KIND_OPEN,
@@ -137,6 +138,7 @@ class ClaimBodyExtent(GroundModelLogger):
         source_investigation_id: UUID | None = None,
         neighbour_inv_id: UUID | None = None,
         primary_section_id: UUID | None = None,
+        anchor_layer_id: UUID | None = None,
     ) -> BodyOrm:
         """Claim one side of one body.
 
@@ -170,6 +172,15 @@ class ClaimBodyExtent(GroundModelLogger):
             The section the user invoked the gesture from.  Updates an
             existing NULL value but never overwrites an existing non-NULL
             value.
+        anchor_layer_id : UUID | None
+            The litho_layer this cap is anchored to — the column + depth
+            interval the user clicked.  Stored on ``extent_<side>_anchor_layer_id``
+            so the renderer frames the cap from THAT layer deterministically
+            (column + depths), instead of re-deriving the column from the
+            body's emergent geometry at render time (the root cause of the
+            wrong-column / not-rendering / half-width class, dogfeed
+            2026-06-04).  Must reference a layer in ``model_id`` when given;
+            ``None`` leaves the side unanchored (legacy fallback render).
 
         Returns
         -------
@@ -237,10 +248,20 @@ class ClaimBodyExtent(GroundModelLogger):
                 label="neighbour_inv_id",
             )
 
+        # ----- Anchor-layer guard -----------------------------------------
+        # The anchor layer is the spatial source of truth for the cap. It must
+        # be a real litho_layer in THIS model — a stale/cross-model id would
+        # frame the cap from a column that isn't on the body's section.
+        if anchor_layer_id is not None:
+            anchor_layer = await self._session.get(LithoLayerOrm, anchor_layer_id)
+            if anchor_layer is None or anchor_layer.model_id != model_id:
+                raise ValueError(f"anchor_layer_id {anchor_layer_id} not found in model {model_id}")
+
         # Column name helpers — avoids repetition below.
         kind_col = f"extent_{side}_kind"
         target_col = f"extent_{side}_target_contact_id"
         neighbour_col = f"extent_{side}_neighbour_inv_id"
+        anchor_col = f"extent_{side}_anchor_layer_id"
 
         # ----- Provenance + update path -----------------------------------
         existing_kind: str | None = getattr(body, kind_col)
@@ -274,6 +295,10 @@ class ClaimBodyExtent(GroundModelLogger):
         else:
             # 'open' — clear neighbour_inv_id as well.
             setattr(body, neighbour_col, None)
+        # Anchor the cap to the clicked layer (the spatial source of truth for
+        # where it renders). A new claim always (re)defines the anchor; an old
+        # client that omits it leaves the side unanchored → legacy fallback.
+        setattr(body, anchor_col, anchor_layer_id)
 
         # Back-fill the body's source investigation only if it is NULL.
         #
