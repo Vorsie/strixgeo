@@ -190,6 +190,21 @@ describe('BodyExtentOverlay', () => {
     expect(queryByTestId('body-extent-fill-B1')).not.toBeNull()
   })
 
+  it('BE-LITHO — committed cap fills with its body lithology colour when supplied', () => {
+    // The 2D fill is the source of truth that feeds 3D, so a committed cap must
+    // paint solid in its lithology colour (not the interaction sky-blue) — no
+    // dark "blind spot" where the body terminates (owner directive 2026-06-04).
+    const { getByTestId } = renderOverlay({
+      formationColorById: new Map([['f1', '#d97706']]),
+    })
+    expect(getByTestId('body-extent-fill-B1').getAttribute('fill')).toBe('#d97706')
+  })
+
+  it('BE-LITHO-FALLBACK — fill falls back to sky-blue without a colour map', () => {
+    const { getByTestId } = renderOverlay()
+    expect(getByTestId('body-extent-fill-B1').getAttribute('fill')).toBe('#38bdf8')
+  })
+
   it('BE2 — NULL extent kinds → nothing rendered', () => {
     const { queryByTestId } = renderOverlay({
       bodies: [makeBody({ content_key: null, extent_left_kind: null, extent_right_kind: null })],
