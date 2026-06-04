@@ -196,7 +196,6 @@ function LithoSection({
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
-  const straddleBounds = LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM
   const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
   const lensBounds = LITHO_SEGMENTER_BOUNDS.maxLensThicknessM
   const openLenBounds = LITHO_SEGMENTER_BOUNDS.openExtentLengthM
@@ -217,10 +216,6 @@ function LithoSection({
     Number.isFinite(draft.lithoSnapToleranceM) &&
     draft.lithoSnapToleranceM >= snapBounds.min &&
     draft.lithoSnapToleranceM <= snapBounds.max
-  const straddleValid =
-    Number.isFinite(draft.straddleMinPieceThicknessM) &&
-    draft.straddleMinPieceThicknessM >= straddleBounds.min &&
-    draft.straddleMinPieceThicknessM <= straddleBounds.max
   const autoCorrValid =
     Number.isFinite(draft.autoCorrelateDepthWindowM) &&
     draft.autoCorrelateDepthWindowM >= autoCorrBounds.min &&
@@ -238,7 +233,6 @@ function LithoSection({
     gunsatValid &&
     drValid &&
     snapValid &&
-    straddleValid &&
     autoCorrValid &&
     lensValid &&
     openLenValid
@@ -250,7 +244,6 @@ function LithoSection({
     draft.mergeSameLithology !== initial.mergeSameLithology ||
     draft.useNormalisedQc !== initial.useNormalisedQc ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
-    draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
     draft.maxLensThicknessM !== initial.maxLensThicknessM ||
     draft.openExtentLengthM !== initial.openExtentLengthM
@@ -330,20 +323,6 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!snapValid}
-      />
-      <NumberRow
-        id="settings-straddle-min-piece-thickness"
-        label="Sliver guard (m)"
-        hint={`Litho boundaries within this distance of a geological boundary aren't split — suppresses thin sliver units on accept (#157). A suggestion whose top or base lands closer than this threshold to a formation contact is treated as touching the contact rather than straddling it. Range ${straddleBounds.min}–${straddleBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM} m.`}
-        value={draft.straddleMinPieceThicknessM}
-        onChange={v => setDraft({ ...draft, straddleMinPieceThicknessM: v })}
-        bounds={straddleBounds}
-        sliderMin={straddleBounds.min}
-        sliderMax={1.0}
-        step={0.01}
-        unit="m"
-        disabled={!hasProject}
-        invalid={!straddleValid}
       />
       <NumberRow
         id="settings-auto-correlate-depth-window"
