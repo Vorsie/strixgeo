@@ -698,6 +698,124 @@ async def test_bundle_carries_cross_sections(db_session: AsyncSession) -> None:
     )
 
 
+async def test_cold_restore_reattaches_companion_lens_section_after_bodies(
+    db_session: AsyncSession,
+) -> None:
+    """A lens-companion section restores after its body, FK intact (#196).
+
+    ``cross_section.companion_lens_id`` is an FK → ``body.id``. Sections restore
+    in Phase 6, bodies in Phase 8, so a cold restore of any project that ran
+    "Materialise lens companions" would FK-violate when the section row was
+    inserted before its body existed. The restore must defer the link and
+    re-attach it once bodies are present.
+    """
+    from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    cpt = (
+        await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Sand",
+        code="S",
+        color="#f0d080",
+        display_order=0,
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    db_session.add_all([formation, model])
+    await db_session.flush()
+
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        model_id=model.id,
+        formation_id=formation.id,
+        body_ordinal=0,
+        source_investigation_id=cpt.id,
+    )
+    db_session.add(body)
+    await db_session.flush()
+
+    companion = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Lens companion",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=151000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+        companion_lens_id=body.id,
+        is_lens_companion=True,
+        display_order=0,
+    )
+    db_session.add(companion)
+    await db_session.commit()
+
+    body_id = body.id
+    companion_id = companion.id
+
+    bundle = await build_project_bundle(db_session, source)
+    csec = next(s for s in bundle["cross_sections"] if s["id"] == str(companion_id))
+    assert csec["companion_lens_id"] == str(body_id)
+    assert csec["is_lens_companion"] is True
+
+    # Wipe end-to-end (fresh DB on another machine).
+    await db_session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(BodyOrm).where(BodyOrm.app_project_id == source.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # Cold restore — must NOT FK-violate, and must re-attach the link.
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bodies_payload=bundle["bodies"],
+    )
+    await db_session.commit()
+
+    restored = (
+        await db_session.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == companion_id))
+    ).scalar_one()
+    assert restored.is_lens_companion is True
+    assert restored.companion_lens_id == body_id, (
+        "companion_lens_id must be re-attached after the bodies phase"
+    )
+
+
 async def test_restore_skips_sections_when_payload_omits_them(
     db_session: AsyncSession,
 ) -> None:
