@@ -727,7 +727,12 @@ export default function SectionsCanvas(): JSX.Element {
   // On any error — including ProvenanceViolationError — it rethrows so the
   // caller decides what to show.
   const _doClaimExtent = useCallback(
-    async (bodyId: string, side: 'left' | 'right', kind: ClaimableKind): Promise<void> => {
+    async (
+      bodyId: string,
+      side: 'left' | 'right',
+      kind: ClaimableKind,
+      anchorLayerId?: string | null,
+    ): Promise<void> => {
       if (!activeLithoModel) return
       const body = lensList.find(b => b.id === bodyId)
       if (!body) {
@@ -738,6 +743,10 @@ export default function SectionsCanvas(): JSX.Element {
         body_id: body.id,
         side,
         kind,
+        // Anchor the cap to the extreme member layer the caller resolved (the
+        // band end on this side), so it renders deterministically + survives a
+        // resolver re-run. Null leaves it unanchored (legacy fallback render).
+        anchor_layer_id: anchorLayerId ?? null,
       })
       void refetchLensData()
       toast('success', `Extent claimed: ${side} → ${kind}`)
@@ -750,13 +759,18 @@ export default function SectionsCanvas(): JSX.Element {
   // detector claim) surfaces the ProvenanceConflictDialog so the user can
   // choose to overwrite.  Delegates the actual API call to _doClaimExtent.
   const handleClaimBodyExtent = useCallback(
-    async (bodyId: string, side: 'left' | 'right', kind: ClaimableKind): Promise<void> => {
+    async (
+      bodyId: string,
+      side: 'left' | 'right',
+      kind: ClaimableKind,
+      anchorLayerId?: string | null,
+    ): Promise<void> => {
       log.info(
         'section',
         `claim-body-extent: body=${bodyId} side=${side} kind=${kind}`,
       )
       try {
-        await _doClaimExtent(bodyId, side, kind)
+        await _doClaimExtent(bodyId, side, kind, anchorLayerId)
       } catch (err: unknown) {
         if (err instanceof ProvenanceViolationError) {
           // HTTP 409: the detector already claimed this side with 'to_target'.
@@ -813,6 +827,11 @@ export default function SectionsCanvas(): JSX.Element {
           body_id: bodyId,
           side,
           kind: 'open',
+          // The clicked contact id IS the litho layer id (A2.5 UUID-preserving
+          // backfill) — anchor the cap to exactly the layer the user
+          // open-ended, so the renderer frames it at THIS column + depths and
+          // it survives a resolver re-run (debt #195).
+          anchor_layer_id: contactId,
         })
         void refetchLensData()
         toast('success', `Layer open-ended ${side === 'left' ? '←' : '→'}`)
@@ -950,6 +969,10 @@ export default function SectionsCanvas(): JSX.Element {
             candidate.kind === 'open'
               ? null
               : candidate.suggested_neighbour_investigation_id,
+          // The candidate's above_contact_id is the unit's top-contact id, which
+          // shares the litho layer's UUID — anchor the cap to that layer so it
+          // renders at the right column + depths and survives a resolver re-run.
+          anchor_layer_id: candidate.above_contact_id,
         })
         // Remove only the accepted candidate; the others stay visible.
         setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
@@ -2320,7 +2343,12 @@ export default function SectionsCanvas(): JSX.Element {
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
           // #body-with-extent Slice 7.2 — body context menu verbs.
-          onClaimBodyExtent={isLitho ? (bid, side, kind) => void handleClaimBodyExtent(bid, side, kind) : undefined}
+          onClaimBodyExtent={
+            isLitho
+              ? (bid, side, kind, anchorLayerId) =>
+                  void handleClaimBodyExtent(bid, side, kind, anchorLayerId)
+              : undefined
+          }
           onClearBodyExtent={isLitho ? (bid, side) => void handleClearBodyExtent(bid, side) : undefined}
           onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
