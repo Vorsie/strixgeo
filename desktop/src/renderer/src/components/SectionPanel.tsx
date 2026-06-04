@@ -469,8 +469,6 @@ interface Props {
     onSplitLayer?: (idx: number) => void
     /** Debt #102: merge two adjacent same-lithology pending layers. */
     onMergeLayers?: (upperIdx: number) => void
-    /** Dogfeed 2026-05-25: Shift+drag absorb — dragger absorbs neighbour. */
-    onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
     /** Extend a ghost sentinel to the nearest committed contacts.
      *  Returns ``{ ok: true }`` on success or ``{ ok: false, reason }``
      *  on overlap — caller is expected to surface the reason to the user. */
@@ -487,11 +485,15 @@ interface Props {
      *  pending drag moves a shared boundary with an accepted neighbour.
      *  Same signature as ContactsLayer's drag commit; the suggestion-
      *  drag surface is just another entry point to the audit-point
-     *  ``UpdateFormationContact`` PATCH. */
+     *  ``UpdateFormationContact`` PATCH.
+     *  The ``field`` discriminator selects which depth dimension is written:
+     *  ``'top'`` for a below-neighbour whose TOP moves; ``'base'`` for an
+     *  above-neighbour whose BASE is extended. */
     onUpdateContactDepth?: (
       contactId: string,
       newDepthM: number,
       snapped: boolean,
+      field: 'top' | 'base',
     ) => Promise<void>
     /** P1b (dogfeed 2026-05-30) — live preview during a cross-store
      *  drag. Forwarded to ``useBoundaryDrag`` so it fires on every
@@ -555,8 +557,6 @@ interface Props {
     onSplitLayer?: (anchorId: string, idx: number) => void
     /** Debt #102: bulk variant of merge — takes the anchorId. */
     onMergeLayers?: (anchorId: string, upperIdx: number) => void
-    /** Dogfeed 2026-05-25: bulk variant of absorb — takes the anchorId. */
-    onAbsorbLayer?: (anchorId: string, draggerIdx: number, direction: 'up' | 'down') => void
     /** Extend a bulk ghost sentinel to the nearest committed contacts.
      *  Takes the anchorId; returns ok/reason. */
     onExtendToNearest?: (anchorId: string, idx: number) => { ok: boolean; reason?: string }
@@ -3100,7 +3100,6 @@ export default function SectionPanel({
                 onInsertLayer={lithoGhostState.onInsertLayer}
                 onSplitLayer={lithoGhostState.onSplitLayer}
                 onMergeLayers={lithoGhostState.onMergeLayers}
-                onAbsorbLayer={lithoGhostState.onAbsorbLayer}
                 onExtendToNearest={lithoGhostState.onExtendToNearest}
                 committedContactsForAnchor={lithoGhostState.committedContactsForAnchor}
                 contactIdsByAcceptedIdx={lithoGhostState.contactIdsByAcceptedIdx}
@@ -3180,17 +3179,6 @@ export default function SectionPanel({
                       bulkLithoGhostState.onMergeLayers !== undefined
                         ? upperIdx => {
                             bulkLithoGhostState.onMergeLayers!(anchorId, upperIdx)
-                          }
-                        : undefined
-                    }
-                    onAbsorbLayer={
-                      bulkLithoGhostState.onAbsorbLayer !== undefined
-                        ? (draggerIdx, direction) => {
-                            bulkLithoGhostState.onAbsorbLayer!(
-                              anchorId,
-                              draggerIdx,
-                              direction,
-                            )
                           }
                         : undefined
                     }
