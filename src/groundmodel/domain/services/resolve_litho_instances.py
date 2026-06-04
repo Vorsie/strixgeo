@@ -14,6 +14,14 @@ crossing a facies change) never merges, say, a clay layer and a silt layer
 into one mixed body. Admixture variants of the SAME soil (different formation
 rows, same ``litho_main_soil_code``) still merge.
 
+One-geological-formation invariant (owner directive 2026-06-04): a body must
+not span a geological-formation boundary either. An edge whose endpoints have
+different ``parent_formation_id`` is also dropped, so a sand split at the
+Holocene/Pleistocene boundary into two litho layers stays two bodies — each
+with its own lateral extents — even when stacked on one column and correlated
+same-lithology. The check keys on ``parent_formation_id`` (the geological
+parent), NOT ``formation_id``, so admixture variants under one parent merge.
+
 Ordinals are assigned per ``(parent_formation_id, litho_main_soil_code)``
 naming group, shallowest component first, starting at 0. The component with
 the shallowest member is ordinal 0, the next is 1, and so on. This matches
@@ -206,6 +214,17 @@ def resolve_litho_instances(
         # was painted green). Admixture variants of the SAME soil still merge,
         # because the comparison keys on ``litho_main_soil_code``, not formation.
         if a.litho_main_soil_code != b.litho_main_soil_code:
+            continue
+        # One-geological-formation invariant: a body must not span a geological
+        # boundary either. A sand split at the Holocene/Pleistocene boundary
+        # into two litho layers with different geological PARENTS stays two
+        # bodies, even when stacked on one column and correlated same-lithology.
+        # Without this they re-merge into one body that holds a single open-end
+        # slot, so open-ending one unit moves the cap off the other (dogfeed
+        # 2026-06-04: QHSa2 vs QPSa1 overwriting each other). Admixture variants
+        # under the SAME parent still merge (the check keys on parent, not
+        # ``formation_id``).
+        if a.parent_formation_id != b.parent_formation_id:
             continue
         adjacency[e.layer_a_id].add(e.layer_b_id)
         adjacency[e.layer_b_id].add(e.layer_a_id)
