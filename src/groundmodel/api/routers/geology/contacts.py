@@ -1028,6 +1028,7 @@ async def suggest_litho_contacts(
                 gwater_kNm3=request.gwater_kNm3,
                 dr_compression_factor=request.dr_compression_factor,
                 merge_same_lithology=request.merge_same_lithology,
+                use_normalised_qc=request.use_normalised_qc,
             )
             investigation_type = "cpt"
         else:
