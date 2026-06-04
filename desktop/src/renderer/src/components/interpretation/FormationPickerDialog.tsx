@@ -28,6 +28,7 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
 } from '../../api/client'
+import { formationsYoungestFirst } from '../../utils/formationOrder'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 import FormationDialog from './FormationDialog'
@@ -115,7 +116,9 @@ export default function FormationPickerDialog({
               </div>
             ) : (
               <ul className="flex flex-col gap-1">
-                {formations.map(f => (
+                {/* Youngest-first (surface at top) so this reads like the
+                    GeologyInspector list / a borehole log. */}
+                {formationsYoungestFirst(formations).map(f => (
                   <li key={f.id}>
                     <button
                       onClick={() => void pick(f.id)}
