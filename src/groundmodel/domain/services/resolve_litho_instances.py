@@ -14,19 +14,21 @@ crossing a facies change) never merges, say, a clay layer and a silt layer
 into one mixed body. Admixture variants of the SAME soil (different formation
 rows, same ``litho_main_soil_code``) still merge.
 
-One-geological-formation invariant (owner directive 2026-06-04): a body must
-not span a geological-formation boundary either. An edge whose endpoints have
-different ``parent_formation_id`` is also dropped, so a sand split at the
-Holocene/Pleistocene boundary into two litho layers stays two bodies — each
-with its own lateral extents — even when stacked on one column and correlated
-same-lithology. The check keys on ``parent_formation_id`` (the geological
-parent), NOT ``formation_id``, so admixture variants under one parent merge.
+A2 — geological-formation independence (owner directive 2026-06-04): the
+former one-geological-formation invariant is REVERSED. A body MAY span a
+geological-formation boundary; ``parent_formation_id`` no longer drops edges.
+A continuous sand correlated across the Holocene/Pleistocene boundary is ONE
+body. The geological name becomes a derived, majority-overlap label on the
+body (computed by the use-case / API), not an identity constraint. Lithology
+remains the only edge filter, so merging stays edge-driven and user-controlled
+(the Boom-Klei-on-clay case stays two bodies because the engineer does not
+correlate across that contact).
 
-Ordinals are assigned per ``(parent_formation_id, litho_main_soil_code)``
-naming group, shallowest component first, starting at 0. The component with
-the shallowest member is ordinal 0, the next is 1, and so on. This matches
-the depth-rank the section renderer already computes for body labels
-(QHSa1 = shallowest sand instance under that parent).
+Ordinals are assigned per ``litho_main_soil_code`` naming group, shallowest
+component first, starting at 0. The component with the shallowest member is
+ordinal 0, the next is 1, and so on. This matches the depth-rank the section
+renderer computes for body labels (Sa1 = shallowest sand instance, Sa2 next),
+regardless of which geological formation each instance falls in.
 
 No I/O, no database access, no logging. The caller
 (``ResolveLithoInstances`` use case) loads the data, calls this function, and
@@ -59,8 +61,11 @@ class LayerNode:
     formation_id : UUID
         The layer's naming-type formation row.
     parent_formation_id : UUID | None
-        Parent geological formation. Together with ``litho_main_soil_code``
-        this forms the naming group. Litho layers always have a parent.
+        Parent geological formation. A2: NO longer a resolver filter or part of
+        the naming group — retained only so the use-case layer can derive the
+        body's majority geological label. May be ``None`` (A2 litho units are
+        geologically agnostic; the association is set, if at all, as a later
+        annotation).
     litho_main_soil_code : str | None
         Base lithology token (ZAND/KLEI/SILT/GRIND/VEEN).
     depth_top_m : float
@@ -215,17 +220,15 @@ def resolve_litho_instances(
         # because the comparison keys on ``litho_main_soil_code``, not formation.
         if a.litho_main_soil_code != b.litho_main_soil_code:
             continue
-        # One-geological-formation invariant: a body must not span a geological
-        # boundary either. A sand split at the Holocene/Pleistocene boundary
-        # into two litho layers with different geological PARENTS stays two
-        # bodies, even when stacked on one column and correlated same-lithology.
-        # Without this they re-merge into one body that holds a single open-end
-        # slot, so open-ending one unit moves the cap off the other (dogfeed
-        # 2026-06-04: QHSa2 vs QPSa1 overwriting each other). Admixture variants
-        # under the SAME parent still merge (the check keys on parent, not
-        # ``formation_id``).
-        if a.parent_formation_id != b.parent_formation_id:
-            continue
+        # A2 (owner directive 2026-06-04): the one-geological-formation invariant
+        # is REVERSED. A same-lithology body MAY span a geological boundary — a
+        # continuous sand correlated across the Holocene/Pleistocene line is ONE
+        # body. The geological name is a derived, majority-overlap label on the
+        # body (computed by the use-case / API), not an identity constraint, so
+        # the parent_formation_id no longer drops edges. Lithology is the only
+        # surviving filter. The Boom-Klei-on-clay case stays two bodies because
+        # the engineer does not correlate across that contact (merging is
+        # edge-driven, never lithology-alone).
         adjacency[e.layer_a_id].add(e.layer_b_id)
         adjacency[e.layer_b_id].add(e.layer_a_id)
 
@@ -236,14 +239,18 @@ def resolve_litho_instances(
     def _key(ln: LayerNode) -> tuple[float, str]:
         return (ln.depth_top_m, str(ln.layer_id))
 
-    GroupKey = tuple[UUID | None, str | None]
+    # A2: the naming group keys on lithology ALONE (the geological parent no
+    # longer partitions instances). Two ZAND bodies in different geological
+    # formations share the ZAND naming group and rank by depth (Sa1 = shallowest
+    # sand instance, Sa2 = next), regardless of chrono attribution.
+    GroupKey = tuple[str | None]
     group_to_comps: dict[GroupKey, list[tuple[tuple[float, str], list[UUID], LayerNode]]] = (
         defaultdict(list)
     )
     for comp in components:
         members = [node_map[fid] for fid in comp]
         rep = min(members, key=_key)  # shallowest member = representative
-        gk: GroupKey = (rep.parent_formation_id, rep.litho_main_soil_code)
+        gk: GroupKey = (rep.litho_main_soil_code,)
         group_to_comps[gk].append((_key(rep), comp, rep))
 
     instances: list[InstanceAssignment] = []

@@ -114,16 +114,16 @@ def test_cross_lithology_edge_does_not_merge_into_one_body() -> None:
     assert result.layer_to_ordinal[silt.layer_id] == 0  # different group, own 0
 
 
-def test_edge_across_geological_boundary_does_not_merge() -> None:
-    """A sand split at a geological boundary stays TWO bodies, not one.
+def test_correlated_edge_across_geological_boundary_merges_same_lithology() -> None:
+    """A2: a same-lithology body MAY span a geological-formation boundary.
 
-    A body must not span a geological-formation boundary (owner directive
-    2026-06-04). A single sand split at the Holocene/Pleistocene boundary into
-    two litho layers with DIFFERENT geological parents — even stacked on one
-    column and correlated same-lithology — must resolve to two instances.
-    Without this, the two re-merge into one body that holds a single open-end
-    slot, so open-ending one unit silently moves the cap off the other
-    (dogfeed: QHSa2 vs QPSa1 overwriting each other).
+    Owner directive 2026-06-04 REVERSES the one-geological-formation invariant.
+    A continuous sand correlated across the Holocene/Pleistocene boundary — two
+    litho layers with DIFFERENT geological parents but the SAME lithology,
+    joined by a user-approved edge — now resolves to ONE body. The geological
+    name becomes a derived, majority-overlap label on the body, not an identity
+    constraint. Lithology is the only surviving edge filter; the geological
+    parent no longer drops edges.
     """
     p_holocene = UUID("00000000-0000-0000-0000-0000000000a1")
     p_pleistocene = UUID("00000000-0000-0000-0000-0000000000a2")
@@ -145,12 +145,43 @@ def test_edge_across_geological_boundary_does_not_merge() -> None:
     )
     edges = [LayerEdge(layer_a_id=holocene_sand.layer_id, layer_b_id=pleistocene_sand.layer_id)]
     result = resolve_litho_instances(layers=[holocene_sand, pleistocene_sand], edges=edges)
-    # The cross-geological-boundary edge is dropped → two single-formation bodies,
-    # so the two layers never share a body_id (and thus never share an open cap).
+    # A2: same lithology across a geo boundary, correlated → ONE body.
+    assert len(result.instances) == 1
+    assert set(result.instances[0].member_layer_ids) == {
+        holocene_sand.layer_id,
+        pleistocene_sand.layer_id,
+    }
+
+
+def test_uncorrelated_cross_boundary_same_soil_stay_distinct() -> None:
+    """A2: merging is edge-driven, not lithology-alone — the Boom-Klei safety.
+
+    Two same-lithology layers across a geological boundary that are NOT joined
+    by a user-approved edge stay TWO bodies. This is what keeps a Quaternary
+    clay sitting on Boom Klei (both KLEI, real unconformity) separate: the
+    engineer simply does not correlate across the contact. The resolver never
+    auto-merges on lithology alone — only an explicit edge merges.
+    """
+    p_quaternary = UUID("00000000-0000-0000-0000-0000000000a1")
+    p_boom = UUID("00000000-0000-0000-0000-0000000000a2")
+    quat_clay = LayerNode(
+        layer_id=UUID("00000000-0000-0000-0000-000000000001"),
+        formation_id=F_SAND,
+        parent_formation_id=p_quaternary,
+        litho_main_soil_code="KLEI",
+        depth_top_m=4.0,
+        source_investigation_id=INV_A,
+    )
+    boom_clay = LayerNode(
+        layer_id=UUID("00000000-0000-0000-0000-000000000002"),
+        formation_id=F_SAND,
+        parent_formation_id=p_boom,
+        litho_main_soil_code="KLEI",
+        depth_top_m=12.0,
+        source_investigation_id=INV_A,
+    )
+    result = resolve_litho_instances(layers=[quat_clay, boom_clay], edges=[])
     assert len(result.instances) == 2
-    members_per_instance = [set(i.member_layer_ids) for i in result.instances]
-    assert {holocene_sand.layer_id} in members_per_instance
-    assert {pleistocene_sand.layer_id} in members_per_instance
 
 
 def test_same_soil_different_formation_rows_still_merge() -> None:
