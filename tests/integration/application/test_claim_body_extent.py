@@ -338,6 +338,88 @@ async def test_updates_existing_body_null_extent(
 
 
 # ---------------------------------------------------------------------------
+# Test 2b: an open claim stores the anchor_layer_id on the claimed side
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_open_claim_stores_anchor_layer_id(
+    db_session: AsyncSession,
+    two_stacked_same_formation_instances: _TwoStackedCtx,
+) -> None:
+    """An ``open`` claim with ``anchor_layer_id`` pins the cap to that layer.
+
+    The anchor is the spatial source of truth for where the cap renders; it
+    must land on ``extent_<side>_anchor_layer_id`` (and only that side).
+    """
+    ctx = two_stacked_same_formation_instances
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    deep_body = (
+        await db_session.execute(
+            select(BodyOrm).where(
+                BodyOrm.model_id == ctx.model_id,
+                BodyOrm.body_ordinal == 1,
+            )
+        )
+    ).scalar_one()
+    # Anchor to one of the body's own member layers (the deep one).
+    anchor_layer = (
+        await db_session.execute(
+            select(LithoLayerOrm).where(
+                LithoLayerOrm.body_id == deep_body.id,
+            )
+        )
+    ).scalar_one()
+
+    body = await ClaimBodyExtent(db_session).execute(
+        project_id=ctx.project_id,
+        model_id=ctx.model_id,
+        body_id=deep_body.id,
+        side="left",
+        kind=EXTENT_KIND_OPEN,
+        anchor_layer_id=anchor_layer.id,
+    )
+
+    assert body.extent_left_anchor_layer_id == anchor_layer.id
+    # The unclaimed (right) side stays unanchored.
+    assert body.extent_right_anchor_layer_id is None
+
+
+# ---------------------------------------------------------------------------
+# Test 2c: a cross-model / unknown anchor_layer_id is rejected
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unknown_anchor_layer_id_raises(
+    db_session: AsyncSession,
+    two_stacked_same_formation_instances: _TwoStackedCtx,
+) -> None:
+    """An anchor_layer_id not in this model is a hard ValueError."""
+    ctx = two_stacked_same_formation_instances
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    deep_body = (
+        await db_session.execute(
+            select(BodyOrm).where(
+                BodyOrm.model_id == ctx.model_id,
+                BodyOrm.body_ordinal == 1,
+            )
+        )
+    ).scalar_one()
+
+    with pytest.raises(ValueError, match="anchor_layer_id"):
+        await ClaimBodyExtent(db_session).execute(
+            project_id=ctx.project_id,
+            model_id=ctx.model_id,
+            body_id=deep_body.id,
+            side="left",
+            kind=EXTENT_KIND_OPEN,
+            anchor_layer_id=uuid7(),  # never persisted
+        )
+
+
+# ---------------------------------------------------------------------------
 # Test 3: a user claim OVERRIDES a detector-set to_target (owner directive
 # 2026-06-04 — a to_target is a guess; the engineer's explicit claim wins,
 # no ClearBodyExtent dance).
