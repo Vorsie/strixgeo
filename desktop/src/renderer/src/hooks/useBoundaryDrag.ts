@@ -61,8 +61,12 @@ const CONTACT_MATCH_TOLERANCE_M = 0.01
 
 /**
  * Live drag state — set on mousedown via ``startDrag``, mutated on
- * each mousemove (current depth, snap, absorbPending), cleared on
- * mouseup after the commit dispatch.
+ * each mousemove (current depth, snap), cleared on mouseup after the
+ * commit dispatch.
+ *
+ * The Shift+drag absorb gesture (``absorbPending``) was removed by
+ * owner directive 2026-06-04 — the plain drag-to-collapse path is the
+ * single absorb surface. ``onAbsorbLayer`` is gone from the params.
  */
 export interface BoundaryDragState {
   idx: number
@@ -95,12 +99,6 @@ export interface BoundaryDragState {
   snapTargetM: number | null
   /** Chain of layers to auto-reject on mouseup when ``snapped``. */
   collapseChainOnRelease: number[]
-  /**
-   * Shift+drag absorb direction when the cursor has crossed the
-   * neighbour's MIDPOINT. ``'down'`` = lower neighbour pending
-   * absorption; ``'up'`` = upper. Null = no absorb pending.
-   */
-  absorbPending: 'up' | 'down' | null
 }
 
 /**
@@ -150,9 +148,6 @@ export interface UseBoundaryDragParams {
     | undefined
   /** Reject a pending layer (also used by the zero-thickness auto-reject). */
   onReject: (idx: number) => void
-  /** Optional — Shift+drag absorb gesture. Hook no-ops the absorb
-   *  branch when this prop is absent. */
-  onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
   /** Optional — chain-merge path. Falls back to ``onReject`` when
    *  absent (backwards-compat for callers that haven't opted in). */
   onMergeLayers?: (upperIdx: number) => void
@@ -187,11 +182,18 @@ export interface UseBoundaryDragParams {
    * Slice 3 — PATCH callback fired when a pending drag moves a
    * shared boundary with an accepted neighbour. Optional — when
    * absent, the cross-store dispatch is a no-op.
+   *
+   * The ``field`` discriminator controls which depth dimension is written:
+   * ``'top'`` moves ``depth_top_m`` (the below-neighbour case — the shared
+   * boundary is the below layer's TOP); ``'base'`` moves ``depth_base_m``
+   * (the above-neighbour case — dragging a pending TOP up into an accepted
+   * layer above shrinks that layer's BASE, not its TOP).
    */
   onUpdateContactDepth?: (
     contactId: string,
     newDepthM: number,
     snapped: boolean,
+    field: 'top' | 'base',
   ) => Promise<void>
   /**
    * P1b (dogfeed 2026-05-30) — live preview during a cross-store
@@ -239,7 +241,6 @@ export function useBoundaryDrag(
     effectivelyRejectedIndices,
     onEdit,
     onReject,
-    onAbsorbLayer,
     onMergeLayers,
     investigationId,
     committedContactsForAnchor,
@@ -321,14 +322,13 @@ export function useBoundaryDrag(
       snapped: false,
       snapTargetM: null,
       collapseChainOnRelease: [],
-      absorbPending: null,
     })
   }, [effectivelyRejectedIndices, acceptedIndices, suggestions.length])
 
   // Document-level mousemove + mouseup while a drag is active. The
   // hit-zones are SVG rects but the mouse can leave them during a
   // drag; attaching to document keeps the gesture coherent. Final
-  // depth fires through ``onEdit`` / ``onReject`` / ``onAbsorbLayer``
+  // depth fires through ``onEdit`` / ``onReject`` / ``onMergeLayers``
   // exactly once on mouseup.
   useEffect(() => {
     if (!drag) return
@@ -384,58 +384,6 @@ export function useBoundaryDrag(
       }
       const next = snapTargetM !== null ? snapTargetM : clamped
 
-      // Shift+drag absorb gesture (dogfeed 2026-05-25). When the user
-      // holds Shift AND the cursor has crossed the neighbour's
-      // MIDPOINT, set absorbPending so the indicator renders and the
-      // mouseup handler fires onAbsorbLayer.
-      let absorbPending: 'up' | 'down' | null = null
-      if (e.shiftKey && onAbsorbLayer !== undefined) {
-        if (drag.edge === 'base') {
-          const neighbourBelow = findVisibleNeighbourBelow(
-            drag.idx,
-            suggestions.length,
-            acceptedIndices,
-            effectivelyRejectedIndices,
-          )
-          if (
-            neighbourBelow !== null &&
-            neighbourBelow.kind === 'pending' &&
-            !neighbourBelow.crossedRejected
-          ) {
-            const { topM: nTop, baseM: nBase } = effectiveDepths(
-              suggestions,
-              edits,
-              neighbourBelow.idx,
-            )
-            const midpoint = nTop + (nBase - nTop) / 2
-            if (rawUnclamped > midpoint) {
-              absorbPending = 'down'
-            }
-          }
-        } else {
-          const neighbourAbove = findVisibleNeighbourAbove(
-            drag.idx,
-            acceptedIndices,
-            effectivelyRejectedIndices,
-          )
-          if (
-            neighbourAbove !== null &&
-            neighbourAbove.kind === 'pending' &&
-            !neighbourAbove.crossedRejected
-          ) {
-            const { topM: nTop, baseM: nBase } = effectiveDepths(
-              suggestions,
-              edits,
-              neighbourAbove.idx,
-            )
-            const midpoint = nTop + (nBase - nTop) / 2
-            if (rawUnclamped < midpoint) {
-              absorbPending = 'up'
-            }
-          }
-        }
-      }
-
       setDrag(d =>
         d !== null
           ? {
@@ -444,7 +392,6 @@ export function useBoundaryDrag(
               snapped: snapTargetM !== null,
               snapTargetM,
               collapseChainOnRelease,
-              absorbPending,
             }
           : null,
       )
@@ -487,27 +434,17 @@ export function useBoundaryDrag(
       const ownDepthsAtCommit = effectiveDepths(suggestions, edits, drag.idx)
       log.info(
         'litho-drag',
-        `handleUp idx=${drag.idx} edge=${drag.edge} initial=${drag.initialDepthM.toFixed(2)} final=${drag.currentDepthM.toFixed(2)} snapped=${drag.snapped} chain=[${drag.collapseChainOnRelease.join(',')}] absorbPending=${drag.absorbPending ?? 'none'} ownTopAtCommit=${ownDepthsAtCommit.topM.toFixed(2)} ownBaseAtCommit=${ownDepthsAtCommit.baseM.toFixed(2)}`,
+        `handleUp idx=${drag.idx} edge=${drag.edge} initial=${drag.initialDepthM.toFixed(2)} final=${drag.currentDepthM.toFixed(2)} snapped=${drag.snapped} chain=[${drag.collapseChainOnRelease.join(',')}] ownTopAtCommit=${ownDepthsAtCommit.topM.toFixed(2)} ownBaseAtCommit=${ownDepthsAtCommit.baseM.toFixed(2)}`,
       )
 
       // P1b — clear the live preview at the top of mouseup so that
-      // whichever branch fires (absorb, zero-thickness reject, plain
-      // commit, cross-store dispatch) the section editor stops
-      // rendering the contact at the live drag depth. The
-      // committed-contact PATCH refetch (Slice 3 via the audit-point
-      // wrapper) then takes over rendering at the new persisted
-      // depth on the next render cycle.
+      // whichever branch fires (zero-thickness reject, plain commit,
+      // cross-store dispatch) the section editor stops rendering the
+      // contact at the live drag depth. The committed-contact PATCH
+      // refetch (Slice 3 via the audit-point wrapper) then takes over
+      // rendering at the new persisted depth on the next render cycle.
       if (onContactLivePreview !== undefined) {
         onContactLivePreview(null, 0)
-      }
-
-      // Shift+drag absorb — takes priority over the normal clamp/snap
-      // path. When absorbPending is set, fire onAbsorbLayer and skip
-      // the depth-commit + auto-reject path entirely.
-      if (drag.absorbPending !== null && onAbsorbLayer !== undefined) {
-        onAbsorbLayer(drag.idx, drag.absorbPending)
-        setDrag(null)
-        return
       }
 
       const final = drag.currentDepthM
@@ -551,17 +488,26 @@ export function useBoundaryDrag(
             : nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
         if (neighbourIdx !== null) {
           if (acceptedIndices.has(neighbourIdx)) {
-            // Accepted neighbour: PATCH the contact at the OLD shared
-            // boundary depth (= drag.initialDepthM) to the new
-            // boundary (= the rejected layer's far edge). Identity
-            // resolver handles contact-drift.
+            // Accepted neighbour: PATCH the contact so the survivor layer
+            // extends to cover the rejected territory.
+            //
+            // Field discriminator:
+            //   TOP drag collapses dragger → ABOVE neighbour fills down.
+            //     The above neighbour's BASE extends: field = 'base'.
+            //   BASE drag collapses dragger → BELOW neighbour fills up.
+            //     The below neighbour's TOP extends: field = 'top'.
+            //
+            // Identity resolver handles contact-drift (above-layer case:
+            // the contact's depth_top_m is the layer's TOP, not the shared
+            // boundary; the identity map finds it by id when available).
             if (onUpdateContactDepth !== undefined) {
               const contact = resolveContactForAcceptedNeighbour(
                 neighbourIdx,
                 drag.initialDepthM,
               )
               if (contact !== null) {
-                void onUpdateContactDepth(contact.id, fillBoundary, false)
+                const field: 'top' | 'base' = drag.edge === 'top' ? 'base' : 'top'
+                void onUpdateContactDepth(contact.id, fillBoundary, false, field)
               }
             }
           } else if (onEdit) {
@@ -678,7 +624,11 @@ export function useBoundaryDrag(
             drag.initialDepthM,
           )
           if (contact !== null) {
-            void onUpdateContactDepth(contact.id, final, drag.snapped)
+            // Field discriminator (same rule as the collapsesToZero path):
+            //   TOP drag → neighbour is ABOVE → extend its BASE.
+            //   BASE drag → neighbour is BELOW → extend its TOP.
+            const field: 'top' | 'base' = drag.edge === 'top' ? 'base' : 'top'
+            void onUpdateContactDepth(contact.id, final, drag.snapped, field)
           }
         }
       }
@@ -691,14 +641,12 @@ export function useBoundaryDrag(
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
-  // reason: onAbsorbLayer + onMergeLayers identities are stable
-  // (useCallback in the parent). edits is a ReadonlyMap that changes
-  // by reference on every edit commit; listing it here keeps the
-  // closure fresh for the absorb-midpoint lookup. suggestions is a
-  // readonly array that changes by reference on accept; same pattern
-  // as onEdit. effectivelyRejectedIndices is a useMemo set whose
-  // identity tracks its inputs.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, contactIdsByAcceptedIdx, onUpdateContactDepth, onContactLivePreview])
+  // reason: onMergeLayers identity is stable (useCallback in the parent).
+  // edits is a ReadonlyMap that changes by reference on every edit commit;
+  // listing it here keeps the closure fresh. suggestions is a readonly
+  // array that changes by reference on accept; same pattern as onEdit.
+  // effectivelyRejectedIndices is a useMemo set whose identity tracks its inputs.
+  }, [drag, pxPerM, onEdit, onReject, onMergeLayers, suggestions, edits, acceptedIndices, effectivelyRejectedIndices, committedContactsForAnchor, contactIdsByAcceptedIdx, onUpdateContactDepth, onContactLivePreview])
 
   return { drag, startDrag }
 }
