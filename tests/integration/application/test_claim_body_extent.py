@@ -46,6 +46,12 @@ from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_TO_TARGET,
 )
+from tests.integration._litho_builders import (
+    geo_model as _geo_model,
+)
+from tests.integration._litho_builders import (
+    litho_model as _litho_model,
+)
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers
@@ -64,27 +70,6 @@ def _borehole(project_id: UUID, *, suffix: str, x: float) -> BoreholeOrm:
         location_y=200000.0,
         epsg=31370,
         total_depth_m=20.0,
-    )
-
-
-def _geo_model(project: ProjectOrm) -> GeologicalModelOrm:
-    """Return an unsaved geological GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Geo-CBE",
-        kind="geological",
-    )
-
-
-def _litho_model(project: ProjectOrm, geo: GeologicalModelOrm) -> GeologicalModelOrm:
-    """Return an unsaved lithostratigraphic GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Litho-CBE",
-        kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
     )
 
 
