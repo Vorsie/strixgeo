@@ -8,13 +8,13 @@
 //       correct contact count for THIS model.
 //   I3  When lithoStaleSurfaceCount > 0: the stale banner renders
 //       with the correct count.  When 0: banner is absent.
-//   I4  Litho formations are grouped under their parent geological
-//       formation, ordered ascending by display_order (oldest first).
-//       Units without a parent_formation_id appear in an "Unassigned"
-//       group at the bottom.
+//   I4  A2 flat roster: litho units appear as a flat list ordered ascending
+//       by display_order (oldest first). No parent-group headers or
+//       “Unassigned” bucket. All unit rows are always visible regardless
+//       of parent_formation_id.
 //
 // Claims pinned here (Resolve action):
-//   S3  "Resolve instances" button refetches formations (roster refresh).
+//   S3  “Resolve instances” button refetches formations (roster refresh).
 //
 // Body-model migration (Task 11): the per-formation ordinal badge, the
 // instance-ordinal lock toggle, and the RO-3 stale-ordinal badge were
@@ -22,7 +22,7 @@
 // section). The S1/S2/S4 claims that pinned that obsolete chrome were
 // deleted along with it.
 //
-// Pattern: render LithologyInspector inside a ShellContext.Provider â€”
+// Pattern: render LithologyInspector inside a ShellContext.Provider —
 // same approach as SectionsToolbar.axis.test.tsx.  ModelKindPicker and
 // api are mocked so network calls do not bleed into these tests.
 
@@ -552,112 +552,42 @@ describe('LithologyInspector (Slice C, #55)', () => {
     expect(screen.queryByTestId('litho-stale-banner')).not.toBeInTheDocument()
   })
 
-  // I4: litho formations grouped under geological parent ordered by display_order.
-  it('I4 â€” litho roster is grouped under geological parents ordered ascending by display_order', () => {
-    const tertiair = makeFormation('geo-t', 'Tertiair', { display_order: 0 })
-    const kwartair = makeFormation('geo-k', 'Kwartair', { display_order: 1 })
-
-    const lithoT1 = makeFormation('lf-t1', 'Zand (tertiair)', {
-      parent_formation_id: 'geo-t',
-    })
-    const lithoT2 = makeFormation('lf-t2', 'Klei (tertiair)', {
-      parent_formation_id: 'geo-t',
-    })
-    const lithoK1 = makeFormation('lf-k1', 'Zand (kwartair)', {
-      parent_formation_id: 'geo-k',
-    })
-    const lithoU = makeFormation('lf-u', 'Onbekend', {
-      parent_formation_id: null,
-    })
+  // I4 (A2 flat roster): units appear in display_order-ascending order
+  // regardless of parent_formation_id. No group headers, no “Unassigned”
+  // bucket — all units are always directly visible in the flat list.
+  it('I4 — A2 flat roster: units ordered by display_order, no group headers', () => {
+    // Three units with display_order deliberately scrambled.
+    const unitA = makeFormation('lf-a', 'Zand', { display_order: 2, parent_formation_id: null })
+    const unitB = makeFormation('lf-b', 'Klei', { display_order: 0, parent_formation_id: null })
+    const unitC = makeFormation('lf-c', 'Veen', { display_order: 1, parent_formation_id: null })
 
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
-      formations: [kwartair, tertiair], // deliberately out of order
-      lithoFormations: [lithoT1, lithoT2, lithoK1, lithoU],
-      // Debt #147 follow-up: roster only renders formations with at
-      // least one contact in the active model.
+      lithoFormations: [unitA, unitB, unitC],
       lithoContacts: [
-        makeContact('c-t1', 'lf-t1'),
-        makeContact('c-t2', 'lf-t2'),
-        makeContact('c-k1', 'lf-k1'),
-        makeContact('c-u', 'lf-u'),
+        makeContact('c-a', 'lf-a'),
+        makeContact('c-b', 'lf-b'),
+        makeContact('c-c', 'lf-c'),
       ],
     })
     renderInspector(ctx)
 
-    expect(screen.getByTestId('litho-formation-row-lf-t1')).toBeInTheDocument()
-    expect(screen.getByTestId('litho-formation-row-lf-t2')).toBeInTheDocument()
-    expect(screen.getByTestId('litho-formation-row-lf-k1')).toBeInTheDocument()
-    expect(screen.getByTestId('litho-formation-row-lf-u')).toBeInTheDocument()
+    // All three unit rows are present.
+    expect(screen.getByTestId('litho-formation-row-lf-a')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-formation-row-lf-b')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-formation-row-lf-c')).toBeInTheDocument()
 
-    expect(screen.getByText('Tertiair')).toBeInTheDocument()
-    expect(screen.getByText('Kwartair')).toBeInTheDocument()
-    expect(screen.getByText('Unassigned')).toBeInTheDocument()
+    // No “Unassigned” group header.
+    expect(screen.queryByText('Unassigned')).not.toBeInTheDocument()
 
-    const allSections = document.querySelectorAll('[aria-label]')
-    const labels = Array.from(allSections).map(s => s.getAttribute('aria-label'))
-    const tertiairIdx = labels.indexOf('Tertiair')
-    const kwartairIdx = labels.indexOf('Kwartair')
-    const unassignedIdx = labels.indexOf('Unassigned')
-    expect(tertiairIdx).toBeGreaterThanOrEqual(0)
-    expect(kwartairIdx).toBeGreaterThan(tertiairIdx)
-    expect(unassignedIdx).toBeGreaterThan(kwartairIdx)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Slice 5 / debt #67 tests (I5)
-// ---------------------------------------------------------------------------
-
-describe('LithologyInspector (Slice 5 / debt #67 â€” parent_formation_name)', () => {
-  // I5: roster group heading uses parent_formation_name (server-resolved)
-  //     when present, rather than requiring the geo-join hit.
-  it('I5 â€” group label uses parent_formation_name when set, falls back to geo-join name', () => {
-    // Geological formation whose name differs from what a litho unit reports
-    // as parent_formation_name (simulates a display-name that differs from the
-    // raw ORM row name returned via the geoFormations join â€” e.g. DOV canonical
-    // name vs project shortname).
-    const geoParent = makeFormation('geo-p', 'Boom Klei (geo join)', { display_order: 0 })
-
-    // Litho unit with server-resolved parent_formation_name set to a different
-    // canonical value (Slice 5 enrichment).
-    const lithoWithResolvedName = makeFormation('lf-1', 'Zand', {
-      parent_formation_id: 'geo-p',
-      parent_formation_name: 'Boom Klei (resolved)',
-    })
-
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      formations: [geoParent],
-      lithoFormations: [lithoWithResolvedName],
-      lithoContacts: [makeContact('c1', 'lf-1')],
-    })
-    renderInspector(ctx)
-
-    // The server-resolved name is preferred over the geo-join name.
-    expect(screen.getByText('Boom Klei (resolved)')).toBeInTheDocument()
-    expect(screen.queryByText('Boom Klei (geo join)')).not.toBeInTheDocument()
-  })
-
-  it('I5b â€” group label falls back to geo-join name when parent_formation_name is null', () => {
-    const geoParent = makeFormation('geo-q', 'Diest Zand', { display_order: 0 })
-
-    // Litho unit with no server-resolved parent name (null â†’ fallback to join).
-    const lithoNoResolvedName = makeFormation('lf-2', 'Zand', {
-      parent_formation_id: 'geo-q',
-      parent_formation_name: null,
-    })
-
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      formations: [geoParent],
-      lithoFormations: [lithoNoResolvedName],
-      lithoContacts: [makeContact('c1', 'lf-2')],
-    })
-    renderInspector(ctx)
-
-    // The geo-join name is used when parent_formation_name is null.
-    expect(screen.getByText('Diest Zand')).toBeInTheDocument()
+    // Rows appear in ascending display_order: B(0) < C(1) < A(2).
+    const rows = screen.getAllByTestId(/^litho-formation-row-/)
+    const ids = rows.map(r => r.getAttribute('data-testid'))
+    expect(ids).toEqual([
+      'litho-formation-row-lf-b',
+      'litho-formation-row-lf-c',
+      'litho-formation-row-lf-a',
+    ])
   })
 })
 
