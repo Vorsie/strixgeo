@@ -1,21 +1,26 @@
 /**
- * Display-label helpers for lenses (bodies).
+ * Display-label helpers for bodies.
  *
- * A lens is auto-labelled by its **parent geological formation** + a **depth
- * rank** (shallowest = 1, deepest = N), computed dynamically per formation
- * label so it stays correct as lenses are added/removed/moved
- * (dogfeed 2026-06-01). The label is COMPUTED, never stored: the body's
- * ``name`` column stays reserved for an explicit user name, which is also the
- * "kept / accepted" marker that protects a lens from "Delete all detected
- * lenses" + the detector reconcile. Auto-writing ``name`` would make every
- * lens un-deletable, so the auto-label lives at the presentation boundary.
+ * A2 (owner directive 2026-06-04): a body is auto-labelled by its **lithology**
+ * + a **depth rank** (shallowest = 1, deepest = N) — e.g. ``"Sa1"``, ``"Sa2"``.
+ * Litho units are geologically agnostic, so the old geological-parent prefix
+ * (``"QP"`` / ``"QH"`` → ``"QPSa1"``) is gone; the geological formation a body
+ * falls in is a SEPARATE derived label (``body.geo_formation_name``), shown as
+ * context, not baked into the name. The rank is computed dynamically per
+ * lithology label so it stays correct as bodies are added/removed/moved.
+ *
+ * The label is COMPUTED, never stored: the body's ``name`` column stays
+ * reserved for an explicit user name, which is also the "kept / accepted"
+ * marker that protects a body from "Delete all detected bodies" + the detector
+ * reconcile. Auto-writing ``name`` would make every body un-deletable, so the
+ * auto-label lives at the presentation boundary.
  *
  * Cross-section / 3D-consistent naming (the same physical body keeping one
  * identity across sections) is a separate, harder problem — see debt #194.
  */
 
-/** ``"{base}{depth rank}"`` — the auto-generated lens label, e.g. ``"QPSa1"``
- *  (no separator: the base is already a compact code like ``"QPSa"``). */
+/** ``"{base}{depth rank}"`` — the auto-generated body label, e.g. ``"Sa1"``
+ *  (no separator: the base is a compact lithology code like ``"Sa"``). */
 export function lensAutoLabel(formationLabel: string, depthRank: number): string {
   return `${formationLabel}${depthRank}`
 }
@@ -40,19 +45,6 @@ export function lithologyAbbrev(lithology: string | null | undefined): string {
   const known = LITHOLOGY_ABBREV[raw.toUpperCase()]
   if (known) return known
   return raw.charAt(0).toUpperCase() + raw.slice(1, 2).toLowerCase()
-}
-
-/**
- * Build a lens auto-name BASE: ``{parent formation code}{lithology abbrev}``,
- * e.g. ``"QP" + "Sa" → "QPSa"``. The depth rank is appended later by
- * {@link lensAutoLabel}. When the parent has no DOV code, the base degrades to
- * the lithology abbreviation alone (e.g. ``"Sa"``).
- */
-export function lensFormationBase(
-  parentCode: string | null | undefined,
-  lithology: string | null | undefined,
-): string {
-  return `${(parentCode ?? '').trim()}${lithologyAbbrev(lithology)}`
 }
 
 /**

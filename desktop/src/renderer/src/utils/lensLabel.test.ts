@@ -4,7 +4,6 @@ import {
   computeDepthStacking,
   lensAutoLabel,
   lensDisplayLabel,
-  lensFormationBase,
   lithologyAbbrev,
 } from './lensLabel'
 
@@ -26,16 +25,6 @@ describe('lensLabel', () => {
     expect(lithologyAbbrev('loam')).toBe('Lo')
     expect(lithologyAbbrev(null)).toBe('')
     expect(lithologyAbbrev('  ')).toBe('')
-  })
-
-  it('lensFormationBase — parent code + lithology abbrev', () => {
-    expect(lensFormationBase('QP', 'ZAND')).toBe('QPSa')
-    expect(lensFormationBase('QH', 'KLEI')).toBe('QHC')
-  })
-
-  it('lensFormationBase — degrades to lithology abbrev when code is missing', () => {
-    expect(lensFormationBase(null, 'ZAND')).toBe('Sa')
-    expect(lensFormationBase('  ', 'VEEN')).toBe('P')
   })
 
   it('lensDisplayLabel — explicit name wins over the auto-label', () => {
