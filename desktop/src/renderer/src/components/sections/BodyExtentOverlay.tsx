@@ -69,6 +69,14 @@ const FILL_OPACITY = 0.22
 const NODE_R = 5
 const HIT_STROKE = 12 // transparent click-band width along each boundary
 
+// Open-end stub styling (dogfeed 2026-06-04): bolder than a wedge + a distinct
+// cyan + an out-of-section arrow so EVERY committed open end is unmistakable,
+// and a minimum on-screen width so it never collapses to an invisible sliver
+// when zoomed out (the "not rendering" report was a faint 18 px sliver).
+const OPEN_STROKE_COLOR = '#0ea5e9' // sky-500 — distinct from the emerald wedge edge
+const OPEN_FILL_OPACITY = 0.4
+const OPEN_MIN_STUB_PX = 22 // floor on the stub's on-screen length
+
 // Ghost candidate styling — amber dashed wedge, 30% fill opacity.
 const GHOST_STROKE_COLOR = '#f59e0b' // amber-400
 const GHOST_FILL_OPACITY = 0.18
@@ -1207,25 +1215,42 @@ export default function BodyExtentOverlay({
         const lowerNodes =
           dragMatches && drag!.boundary === 'lower' ? drag!.lowerNodes : body.lowerNodes
 
-        let upperWorld: WorldPt[]
-        let lowerWorld: WorldPt[]
+        let upperScreen: { x: number; y: number }[]
+        let lowerScreen: { x: number; y: number }[]
+        // Far-end arrow for an open stub (out-of-section direction). Empty for wedges.
+        let openArrowD = ''
 
         if (body.isOpen) {
-          // Open band: parallel sides — upper edge at topSource elevation,
-          // lower edge at baseSource elevation. No taper.
-          // The upper boundary goes from the source edge to the section endpoint.
-          const topFar: WorldPt = { along_m: body.farPoint.along_m, elevation_m: body.topSource.elevation_m }
-          const baseFar: WorldPt = { along_m: body.farPoint.along_m, elevation_m: body.baseSource.elevation_m }
-          upperWorld = bodyBoundaryPolyline([body.topSource, topFar], upperNodes, body.style)
-          lowerWorld = bodyBoundaryPolyline([body.baseSource, baseFar], lowerNodes, body.style)
+          // Open stub: a short parallel band hanging off the source column's
+          // facing edge.  Built directly in SCREEN space with a guaranteed
+          // minimum width so it can never collapse to an invisible sliver when
+          // zoomed out (dogfeed 2026-06-04).  No node editing on opens.
+          const srcTop = toScreen(body.topSource)
+          const srcBase = toScreen(body.baseSource)
+          const dir = body.extrapolationDirectionSign // +1 right, -1 left = out of section
+          // Far edge = column EDGE + openExtentLengthM (along-metres), mapped to
+          // screen. topSource.along_m IS the edge, so measure the stub from it —
+          // the resolved farPoint was measured from the column CENTRE, which for
+          // a wide column landed the stub inside the column (the real "thin
+          // sliver / not rendering" cause). Then floor to a minimum on-screen
+          // length so it is always visible when zoomed out (dogfeed 2026-06-04).
+          const edgeAlong = body.topSource.along_m
+          let farX = alongToScreenX(edgeAlong + dir * openExtentLengthM)
+          if (Math.abs(farX - srcTop.x) < OPEN_MIN_STUB_PX) {
+            farX = srcTop.x + dir * OPEN_MIN_STUB_PX
+          }
+          upperScreen = [srcTop, { x: farX, y: srcTop.y }]
+          lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
+          // Arrow at the far edge, vertically centred, pointing out of section.
+          openArrowD = dipArrowPath({ x: farX, y: (srcTop.y + srcBase.y) / 2 }, dir)
         } else {
           // Wedge: taper from source endpoints to a single far point.
-          upperWorld = bodyBoundaryPolyline([body.farPoint, body.topSource], upperNodes, body.style)
-          lowerWorld = bodyBoundaryPolyline([body.farPoint, body.baseSource], lowerNodes, body.style)
+          const upperWorld = bodyBoundaryPolyline([body.farPoint, body.topSource], upperNodes, body.style)
+          const lowerWorld = bodyBoundaryPolyline([body.farPoint, body.baseSource], lowerNodes, body.style)
+          upperScreen = upperWorld.map(toScreen)
+          lowerScreen = lowerWorld.map(toScreen)
         }
 
-        const upperScreen = upperWorld.map(toScreen)
-        const lowerScreen = lowerWorld.map(toScreen)
         const pathFn = body.style === 'rounded' ? catmullRomPath : polylinePath
 
         // Fill polygon = upper boundary forward + lower boundary reversed.
@@ -1272,7 +1297,7 @@ export default function BodyExtentOverlay({
                 data-testid={`body-extent-fill-${body.wedgeKey}`}
                 d={fillD}
                 fill={FILL_COLOR}
-                fillOpacity={FILL_OPACITY}
+                fillOpacity={body.isOpen ? OPEN_FILL_OPACITY : FILL_OPACITY}
                 stroke="none"
                 style={{
                   pointerEvents: (onBodyContextMenu ?? onDeleteLens) ? 'auto' : 'none',
@@ -1324,23 +1349,34 @@ export default function BodyExtentOverlay({
                   />
                 )
               })}
-            {/* Visible boundary lines. */}
+            {/* Visible boundary lines — bolder cyan for open stubs so every
+                committed open end reads clearly (dogfeed 2026-06-04). */}
             <path
               data-testid={`body-boundary-upper-${body.wedgeKey}`}
               d={pathFn(upperScreen)}
               fill="none"
-              stroke={BOUNDARY_COLOR}
-              strokeWidth={1.6}
+              stroke={body.isOpen ? OPEN_STROKE_COLOR : BOUNDARY_COLOR}
+              strokeWidth={body.isOpen ? 2.4 : 1.6}
               pointerEvents="none"
             />
             <path
               data-testid={`body-boundary-lower-${body.wedgeKey}`}
               d={pathFn(lowerScreen)}
               fill="none"
-              stroke={BOUNDARY_COLOR}
-              strokeWidth={1.6}
+              stroke={body.isOpen ? OPEN_STROKE_COLOR : BOUNDARY_COLOR}
+              strokeWidth={body.isOpen ? 2.4 : 1.6}
               pointerEvents="none"
             />
+            {/* Out-of-section arrow at the far edge of an open stub. */}
+            {openArrowD && (
+              <path
+                data-testid={`body-open-arrow-${body.wedgeKey}`}
+                d={openArrowD}
+                fill={OPEN_STROKE_COLOR}
+                stroke="none"
+                pointerEvents="none"
+              />
+            )}
             {/* Dip-arrow glyph for extrapolated extents. */}
             {dipArrowD && (
               <path
