@@ -60,3 +60,66 @@ export function extremeMemberLayerId(
   }
   return bestId
 }
+
+/**
+ * The investigation the body pinches out TOWARD on one side — the nearest
+ * on-section column just BEYOND the body's extreme member.
+ *
+ * A ``pinch_out_halfway`` / ``extrapolated`` extent needs this neighbour: the
+ * cap is drawn between the body's edge member and the neighbouring column where
+ * the body is absent. (An ``open`` extent needs no neighbour — it just runs a
+ * fixed length past the edge.) Returns ``null`` when the extreme member sits at
+ * the section edge (no column beyond it), in which case a pinch-out is
+ * meaningless and the caller should fall back to ``open`` / refuse.
+ *
+ * @param bodyId - The body whose pinch target is sought.
+ * @param side - ``'left'`` or ``'right'``.
+ * @param lithoLayers - All accepted litho layers (member lookup by ``body_id``).
+ * @param columns - The placed columns on this section (along + investigation id).
+ * @returns The neighbouring investigation id, or ``null`` when none exists.
+ */
+export function neighbourInvBeyondExtreme(
+  bodyId: string,
+  side: 'left' | 'right',
+  lithoLayers: readonly LithoLayerResponse[],
+  columns: readonly PlacedColumn[],
+): string | null {
+  const alongByInv = new Map<string, number>()
+  for (const col of columns) alongByInv.set(col.proj.item.id, col.proj.along)
+
+  // The body's extreme member along-position on this side.
+  let extremeAlong: number | null = null
+  for (const layer of lithoLayers) {
+    if (layer.body_id !== bodyId) continue
+    const inv = layerAnchorInvId(layer)
+    if (inv === null) continue
+    const along = alongByInv.get(inv)
+    if (along === undefined) continue
+    if (
+      extremeAlong === null ||
+      (side === 'left' ? along < extremeAlong : along > extremeAlong)
+    ) {
+      extremeAlong = along
+    }
+  }
+  if (extremeAlong === null) return null
+
+  // The nearest column just beyond the extreme member on this side.
+  let bestInv: string | null = null
+  let bestAlong = side === 'left' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY
+  for (const col of columns) {
+    const along = col.proj.along
+    if (side === 'left') {
+      if (along < extremeAlong && along > bestAlong) {
+        bestAlong = along
+        bestInv = col.proj.item.id
+      }
+    } else {
+      if (along > extremeAlong && along < bestAlong) {
+        bestAlong = along
+        bestInv = col.proj.item.id
+      }
+    }
+  }
+  return bestInv
+}
