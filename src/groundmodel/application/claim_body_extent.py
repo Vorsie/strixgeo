@@ -7,12 +7,14 @@ addressed directly by ``body_id`` — the resolver
 exists by the time any claim/pinch-out gesture is possible. There is no
 create branch.
 
-Provenance rule (spec §5.2)
-----------------------------
-Refuses to overwrite an existing ``to_target`` (detector-set) extent
-without an explicit ``ClearBodyExtent`` call first. The user must clear
-the detector's claim before claiming their own — this prevents silent
-override of auto-detection.
+Provenance rule (revised owner directive 2026-06-04)
+----------------------------------------------------
+A user claim ALWAYS wins. Claiming over a detector-set ``to_target`` extent
+overwrites it directly — a ``to_target`` is a machine guess, not a committed
+decision, so the engineer's explicit open/pinch takes precedence with no
+``ClearBodyExtent`` step (the old refuse-and-409 blocked the manual
+interpretation workflow, dogfeed 2026-06-04). The protection that remains —
+the DETECTOR never clobbering a USER claim — lives in ``DetectBodies``.
 
 Kind-specific validation
 ------------------------
@@ -180,9 +182,9 @@ class ClaimBodyExtent(GroundModelLogger):
             On any validation failure: invalid side, invalid kind,
             missing ``neighbour_inv_id`` for halfway/extrapolated,
             ``neighbour_inv_id`` equal to the body's source investigation,
-            a body that does not exist / belongs to another model, or a
-            provenance violation (attempting to overwrite a ``to_target``
-            extent without clearing first).
+            or a body that does not exist / belongs to another model.
+            (Overwriting a detector ``to_target`` is allowed — see the
+            provenance note in the module docstring.)
         """
         # ----- Input validation -------------------------------------------
         if side not in EXTENT_SIDES:
@@ -243,20 +245,21 @@ class ClaimBodyExtent(GroundModelLogger):
         # ----- Provenance + update path -----------------------------------
         existing_kind: str | None = getattr(body, kind_col)
 
-        # Provenance rule §5.2: refuse to overwrite a detector-set
-        # 'to_target' extent.  The user must call ClearBodyExtent first.
-        # Raises ProvenanceViolationError (subclass of ValueError) so the
-        # router can map it to HTTP 409 while other ValueErrors stay 422.
+        # Provenance (revised owner directive 2026-06-04): a user claim ALWAYS
+        # wins over a detector-set 'to_target' extent — a to_target is a guess,
+        # not a committed decision, so an explicit open/pinch from the engineer
+        # overwrites it directly (no ClearBodyExtent dance, no 409).  Forcing a
+        # clear-first blocked the manual interpretation workflow (dogfeed
+        # 2026-06-04).  The protection that still matters — the DETECTOR never
+        # clobbering a USER claim — is enforced in ``DetectBodies``, not here.
         if existing_kind == EXTENT_KIND_TO_TARGET:
-            raise ProvenanceViolationError(
-                f"Cannot overwrite detector-set 'to_target' extent on "
-                f"side={side!r}. Clear the existing extent first via "
-                "ClearBodyExtent."
+            self.info(
+                f"ClaimBodyExtent: user claim {kind!r} overrides detector "
+                f"'to_target' on side={side} (body={body_id})"
             )
-
-        # Replacing one user-claim kind with a different one is allowed;
-        # the user is explicitly changing their mind.
-        if is_user_claimed_extent_kind(existing_kind) and existing_kind != kind:
+        elif is_user_claimed_extent_kind(existing_kind) and existing_kind != kind:
+            # Replacing one user-claim kind with a different one is allowed;
+            # the user is explicitly changing their mind.
             self.info(
                 f"ClaimBodyExtent: replacing user-claim {existing_kind!r} → {kind!r} on side={side}"
             )
