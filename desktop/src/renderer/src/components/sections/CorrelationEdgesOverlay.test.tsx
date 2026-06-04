@@ -539,6 +539,37 @@ describe('CorrelationEdgesOverlay', () => {
     expect(points).not.toContain('200,') //            not B centre
   })
 
+  // SR4 (dogfeed 2026-06-04): closely-spaced columns leave only the ~4 px
+  // nudge edge-gap between their inner edges, so the gap-bridging ribbon
+  // collapses to an invisible sliver and zoom can't widen it. The ribbon must
+  // floor to a minimum on-screen width so the user can see + grab it.
+  it('SR4: closely-spaced columns render a ribbon at least the minimum width', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'em', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    // Centres 100 / 145, width 40 → inner edges 120 / 125 → a 5 px gap. The
+    // gap-bridging ribbon would be a 5 px sliver; the floor must widen it.
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 145, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const points = screen.getByTestId('ribbon-below-em').getAttribute('points') ?? ''
+    const xs = points
+      .trim()
+      .split(/\s+/)
+      .map(p => parseFloat(p.split(',')[0]))
+    const span = Math.max(...xs) - Math.min(...xs)
+    expect(span).toBeGreaterThanOrEqual(16)
+  })
+
   // CE-D1 (#31): the whole seam is grabbable, split at its midpoint into two
   // generous transparent zones (no tiny endpoint handles). Each half is wider
   // than the old 8 px handle and fires onUnapprovedDragStart for its end.
