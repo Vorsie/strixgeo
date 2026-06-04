@@ -1,6 +1,5 @@
 """Schema-level tests for ``AcceptLithoSuggestionsRequest`` and
-``BatchAcceptLithoSuggestionsRequest`` — specifically the new
-``straddle_min_piece_thickness_m`` field (debt #157).
+``BatchAcceptLithoSuggestionsRequest`` — the ``couple_tolerance_m`` field (#162).
 
 Pure Pydantic validation — no DB, no I/O.
 """
@@ -44,64 +43,6 @@ _SUGGESTION = LithoLayerSuggestionItem(
 def _accept_kwargs(**extra) -> dict:
     """Minimal valid kwargs for ``AcceptLithoSuggestionsRequest``."""
     return {"cpt_id": _CPT_ID, "suggestions": [_SUGGESTION], **extra}
-
-
-# ---------------------------------------------------------------------------
-# AcceptLithoSuggestionsRequest — straddle_min_piece_thickness_m
-# ---------------------------------------------------------------------------
-
-
-def test_accept_request_straddle_defaults_to_020() -> None:
-    """``straddle_min_piece_thickness_m`` defaults to 0.20 when absent."""
-    req = AcceptLithoSuggestionsRequest(**_accept_kwargs())
-    assert req.straddle_min_piece_thickness_m == pytest.approx(0.20)
-
-
-def test_accept_request_straddle_accepts_valid_value() -> None:
-    """A valid in-range value is accepted verbatim."""
-    req = AcceptLithoSuggestionsRequest(**_accept_kwargs(straddle_min_piece_thickness_m=0.50))
-    assert req.straddle_min_piece_thickness_m == pytest.approx(0.50)
-
-
-def test_accept_request_straddle_rejects_below_minimum() -> None:
-    """Values below 0.01 m are rejected (ge=0.01)."""
-    with pytest.raises(ValidationError, match="straddle_min_piece_thickness_m"):
-        AcceptLithoSuggestionsRequest(**_accept_kwargs(straddle_min_piece_thickness_m=0.0))
-
-
-def test_accept_request_straddle_rejects_above_maximum() -> None:
-    """Values above 5.0 m are rejected (le=5.0)."""
-    with pytest.raises(ValidationError, match="straddle_min_piece_thickness_m"):
-        AcceptLithoSuggestionsRequest(**_accept_kwargs(straddle_min_piece_thickness_m=5.1))
-
-
-# ---------------------------------------------------------------------------
-# BatchAcceptLithoSuggestionsRequest — straddle_min_piece_thickness_m
-# ---------------------------------------------------------------------------
-
-
-def test_batch_accept_request_straddle_defaults_to_020() -> None:
-    """``straddle_min_piece_thickness_m`` defaults to 0.20 on the batch schema."""
-    req = BatchAcceptLithoSuggestionsRequest(anchors=[])
-    assert req.straddle_min_piece_thickness_m == pytest.approx(0.20)
-
-
-def test_batch_accept_request_straddle_accepts_valid_value() -> None:
-    """A valid in-range value is accepted verbatim on the batch schema."""
-    req = BatchAcceptLithoSuggestionsRequest(anchors=[], straddle_min_piece_thickness_m=1.0)
-    assert req.straddle_min_piece_thickness_m == pytest.approx(1.0)
-
-
-def test_batch_accept_request_straddle_rejects_below_minimum() -> None:
-    """Values below 0.01 m are rejected on the batch schema."""
-    with pytest.raises(ValidationError, match="straddle_min_piece_thickness_m"):
-        BatchAcceptLithoSuggestionsRequest(anchors=[], straddle_min_piece_thickness_m=0.005)
-
-
-def test_batch_accept_request_straddle_rejects_above_maximum() -> None:
-    """Values above 5.0 m are rejected on the batch schema."""
-    with pytest.raises(ValidationError, match="straddle_min_piece_thickness_m"):
-        BatchAcceptLithoSuggestionsRequest(anchors=[], straddle_min_piece_thickness_m=6.0)
 
 
 # ---------------------------------------------------------------------------
