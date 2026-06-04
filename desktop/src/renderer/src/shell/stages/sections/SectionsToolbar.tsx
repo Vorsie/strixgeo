@@ -55,6 +55,7 @@ export default function SectionsToolbar(): JSX.Element {
       correlateMode,
       enterCorrelateMode,
       exitCorrelateMode,
+      pinchOutCandidates,
       setPinchOutCandidates,
     },
     geoModel: {
@@ -121,6 +122,8 @@ export default function SectionsToolbar(): JSX.Element {
   const [detectingLenses, setDetectingLenses] = useState(false)
   // Suggest pinch-outs (#body-with-extent Slice 7.3) — busy flag.
   const [suggestingPinchOuts, setSuggestingPinchOuts] = useState(false)
+  // Accept-all pinch-outs — busy flag for the bulk-claim verb.
+  const [acceptingPinchOuts, setAcceptingPinchOuts] = useState(false)
   // Delete all detected bodies — busy flag + irreversible-confirm modal state.
   const [deletingDetectedBodies, setDeletingDetectedBodies] = useState(false)
   const [deleteBodiesConfirmOpen, setDeleteBodiesConfirmOpen] = useState(false)
@@ -425,6 +428,62 @@ export default function SectionsToolbar(): JSX.Element {
     selectedSectionId,
     setPinchOutCandidates,
     suggestingPinchOuts,
+    toast,
+  ])
+
+  // Accept all pinch-outs: claim every ghost candidate currently suggested in
+  // one gesture (the bulk sibling of clicking each wedge). Skips candidates
+  // with no resolved body_id, clears the ghosts, and forces a body re-list so
+  // the committed wedges appear at once.
+  const handleAcceptAllPinchOuts = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || acceptingPinchOuts || pinchOutCandidates.length === 0) return
+    const claimable = pinchOutCandidates.filter(c => c.body_id !== null)
+    log.info(
+      'sections',
+      `acceptAllPinchOuts: ${claimable.length}/${pinchOutCandidates.length} claimable`,
+    )
+    setAcceptingPinchOuts(true)
+    let ok = 0
+    let failed = 0
+    try {
+      for (const c of claimable) {
+        try {
+          await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
+            body_id: c.body_id as string,
+            source_investigation_id: c.source_investigation_id,
+            side: c.side,
+            kind: c.kind,
+            // open = no neighbour; pinch_out_halfway wedges toward the neighbour.
+            neighbour_inv_id:
+              c.kind === 'open' ? null : c.suggested_neighbour_investigation_id,
+            // The candidate's above_contact_id shares the litho layer's UUID —
+            // anchor the cap to that layer so it frames at the right column.
+            anchor_layer_id: c.above_contact_id,
+          })
+          ok += 1
+        } catch (err) {
+          failed += 1
+          log.warn('sections', 'acceptAllPinchOuts: a claim failed', err)
+        }
+      }
+      setPinchOutCandidates([])
+      requestCorrelationEdgesRefetch?.()
+      toast(
+        failed === 0 ? 'success' : 'error',
+        failed === 0
+          ? `Accepted ${ok} pinch-out${ok === 1 ? '' : 's'}.`
+          : `Accepted ${ok}; ${failed} failed.`,
+      )
+    } finally {
+      setAcceptingPinchOuts(false)
+    }
+  }, [
+    activeLithoModel,
+    acceptingPinchOuts,
+    project.id,
+    pinchOutCandidates,
+    setPinchOutCandidates,
+    requestCorrelationEdgesRefetch,
     toast,
   ])
 
@@ -1096,6 +1155,21 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'body-suggest-pinch-outs',
                 title:
                   'Scan the correlation graph for bodies that can be claimed as pinch-out wedges and render amber ghost candidates in the section view.',
+              },
+              {
+                label: acceptingPinchOuts
+                  ? 'Accepting…'
+                  : pinchOutCandidates.length > 0
+                    ? `Accept all pinch-outs (${pinchOutCandidates.length})`
+                    : 'Accept all pinch-outs',
+                icon: <CheckCheck size={12} />,
+                onClick: () => { void handleAcceptAllPinchOuts() },
+                disabled: acceptingPinchOuts || pinchOutCandidates.length === 0,
+                testid: 'body-accept-all-pinch-outs',
+                title:
+                  pinchOutCandidates.length === 0
+                    ? 'Run "Suggest pinch-outs" first — then this claims every ghost candidate at once.'
+                    : `Claim all ${pinchOutCandidates.length} suggested pinch-outs / open-ends in one gesture.`,
               },
               {
                 label: materialisingCompanions
