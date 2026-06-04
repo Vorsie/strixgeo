@@ -818,7 +818,8 @@ async def test_section_along_order_picks_adjacent_column_not_uuid_neighbour(
 
 
 # ---------------------------------------------------------------------------
-# Test 6: enclosed lens (SAND·SILT·SAND) → only the silt is suggested
+# Test 6: R1 does NOT special-case enclosed-lens host halves
+# (owner directive 2026-06-03 — supersedes the 2026-06-02 host-suppression)
 # ---------------------------------------------------------------------------
 
 
@@ -827,18 +828,21 @@ async def test_enclosed_lens_suppresses_host_half_candidates(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """A source stack of SAND·SILT·SAND·CLAY where both sands share one
-    formation must suggest a pinch-out for the silt lens ONLY — never for
-    the upper or lower sand half (they are one continuous host wrapping the
-    lens).
+    """Under R1 the band-vs-pinch decision is purely lithology continuity —
+    there is no enclosed-lens host-half suppression.  In a SAND·SILT·SAND·CLAY
+    stack with NO correlations, every interior unit (including both sand
+    halves) pinches out toward its uncorrelated neighbours.  Identifying a thin
+    sand as a continuous host wrapping a lens is now the engineer's call (they
+    correlate the host across, which R1 then reads as a band), not an automatic
+    suppression.
 
     Topology on bh_source (depth → formation):
-      2.0  c_sand_top  (f_sand)   ┐ upper sand  (host half — suppressed)
-      4.0  c_silt      (f_silt)   ┤ SILT lens   (suggested)
-      6.0  c_sand_low  (f_sand)   ┤ lower sand  (host half — suppressed)
-      10.0 c_clay      (f_clay)   ┘ base
-    bh_left / bh_right each carry one (uncorrelated) contact so the silt
-    has a neighbour on each side.
+      2.0  c_sand_top  (f_sand)   ┐ upper sand  (pinches — uncorrelated)
+      4.0  c_silt      (f_silt)   ┤ SILT        (pinches — uncorrelated)
+      6.0  c_sand_low  (f_sand)   ┤ lower sand  (pinches — uncorrelated)
+      10.0 c_clay      (f_clay)   ┘ deepest (no candidate — no section)
+    bh_left / bh_right each carry one (uncorrelated) contact so each interior
+    unit has a neighbour on each side.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -873,21 +877,21 @@ async def test_enclosed_lens_suppresses_host_half_candidates(
 
     source_candidates = [c for c in candidates if c.source_investigation_id == bh_source.id]
 
-    # Every emitted candidate is for the SILT lens unit (its top contact is
-    # c_silt); the two sand halves are suppressed.
+    # R1: all three interior units pinch (no host-half suppression).  The
+    # deepest clay emits nothing here (no section → no open).
     above_ids = {c.above_contact_id for c in source_candidates}
-    assert above_ids == {c_silt.id}, (
-        f"Expected only the silt unit suggested, got above-contacts: {above_ids}"
+    assert above_ids == {c_sand_top.id, c_silt.id, c_sand_low.id}, (
+        f"Expected all three interior units suggested under R1, got: {above_ids}"
     )
-    assert c_sand_top.id not in above_ids
-    assert c_sand_low.id not in above_ids
-    # The silt lens still emits (it is the real pinch-out), and its base is
-    # the lower sand's top contact.
-    assert len(source_candidates) == 2, (
-        f"Expected left + right candidate for the silt lens, got "
+    # Each interior unit pinches on both sides (uncorrelated neighbours).
+    assert all(c.kind == "pinch_out_halfway" for c in source_candidates), (
+        f"Uncorrelated interior units must pinch, got "
+        f"{[(c.above_contact_id, c.kind) for c in source_candidates]}"
+    )
+    assert len(source_candidates) == 6, (
+        f"Expected 3 units × 2 sides = 6 pinch candidates, got "
         f"{len(source_candidates)}: {source_candidates}"
     )
-    assert all(c.below_contact_id == c_sand_low.id for c in source_candidates)
 
 
 # ---------------------------------------------------------------------------
@@ -964,12 +968,10 @@ async def test_deepest_formation_open_candidate_at_leftmost_edge(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """The deepest formation on a section-edge investigation has no base
-    contact, so the framed-unit loop never emits for it.  When the
-    investigation is at the LEFT edge of the section (no neighbour to the
-    left), a ``kind='open'`` candidate with ``below_contact_id=None`` and
-    ``below_depth_m`` equal to the borehole's ``total_depth_m`` must be
-    emitted for it.
+    """The deepest formation has no base contact, so it carries a
+    ``below_contact_id=None`` / ``below_depth_m = total_depth_m`` candidate.
+    Under R1 the substrate OPENS wherever its lithology does not continue —
+    both at a section edge and toward an uncorrelated/different neighbour.
 
     Topology (along-section order: bh_left < bh_mid < bh_right):
       bh_left:  c_top  (depth=2, f_top)   ← framed unit above deepest
@@ -977,10 +979,9 @@ async def test_deepest_formation_open_candidate_at_leftmost_edge(
       bh_mid:   c_other (depth=3, f_other) ← interior test, has a right neighbour
       bh_right: c_other2 (depth=3, f_other)
 
-    Expected:
-    - bh_left is leftmost → deepest open candidate side='left' is emitted.
-    - bh_left also has a right neighbour (bh_mid) → no deepest open right candidate.
-    - bh_mid is interior → no deepest open left or right candidate.
+    Expected: bh_left's deepest (c_deep) opens on BOTH sides — left is the
+    section edge, right is bh_mid whose deepest lithology is uncorrelated, so
+    the substrate does not continue there either.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -1039,26 +1040,26 @@ async def test_deepest_formation_open_candidate_at_leftmost_edge(
         if c.source_investigation_id == bh_left.id and c.above_contact_id == c_deep.id
     ]
 
-    # Exactly one deepest-open candidate: the left edge side only.
-    # bh_left has a right neighbour (bh_mid) so no right-open candidate.
-    assert len(deepest_cands) == 1, (
-        f"Expected 1 deepest-open candidate for bh_left, got {len(deepest_cands)}: {deepest_cands}"
+    # R1: the substrate OPENS wherever it does not continue (never pinches).
+    # Left = section edge → open.  Right = bh_mid, whose deepest lithology is
+    # uncorrelated/different → does not continue → open too.  So BOTH sides open.
+    assert {c.side for c in deepest_cands} == {"left", "right"}, (
+        f"Expected deepest-open on both sides for bh_left, got {deepest_cands}"
     )
-    cand = deepest_cands[0]
-    assert cand.side == "left", f"Expected side='left', got {cand.side!r}"
-    assert cand.kind == "open", f"Expected kind='open', got {cand.kind!r}"
-    # No base contact — the substrate extends to the bottom of the hole.
-    assert cand.below_contact_id is None, (
-        f"Expected below_contact_id=None for deepest-open, got {cand.below_contact_id}"
-    )
-    # Bottom depth must match the borehole's total_depth_m.
-    assert cand.below_depth_m == 25.0, f"Expected below_depth_m=25.0, got {cand.below_depth_m}"
-    assert cand.above_contact_id == c_deep.id
+    for cand in deepest_cands:
+        assert cand.kind == "open", f"Expected kind='open', got {cand.kind!r}"
+        # No base contact — the substrate extends to the bottom of the hole.
+        assert cand.below_contact_id is None, (
+            f"Expected below_contact_id=None for deepest-open, got {cand.below_contact_id}"
+        )
+        # Bottom depth must match the borehole's total_depth_m.
+        assert cand.below_depth_m == 25.0, f"Expected below_depth_m=25.0, got {cand.below_depth_m}"
+        assert cand.above_contact_id == c_deep.id
 
 
 # ---------------------------------------------------------------------------
-# Test 9: interior investigation — no deepest-open candidate
-# (dogfeed 2026-06-02)
+# Test 9: interior substrate that does NOT continue → opens both sides (R1)
+# (dogfeed 2026-06-03)
 # ---------------------------------------------------------------------------
 
 
@@ -1067,13 +1068,13 @@ async def test_deepest_formation_no_open_candidate_at_interior_test(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """An interior investigation (neighbours on both sides) must NOT receive
-    a deepest-formation open candidate — the substrate is bounded by data
-    on both sides, so it is not an open edge.
+    """Under R1 the bottom substrate OPENS wherever its lithology does not
+    continue — even at an interior investigation whose deepest contact is
+    uncorrelated to its neighbours.  The substrate never pinches; it opens.
 
     Topology (along-section order: bh_left < bh_mid < bh_right):
-      All three boreholes are model participants.
-      bh_mid is interior → no left or right deepest-open candidate.
+      All three boreholes are model participants; bh_mid's deepest (f_deep)
+      is uncorrelated to either flank → opens on BOTH sides.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -1123,17 +1124,20 @@ async def test_deepest_formation_no_open_candidate_at_interior_test(
         section_id=section.id,
     )
 
-    # No deepest-open candidate should exist for bh_mid — it has neighbours
-    # on both sides, so its deepest formation is not an edge substrate.
-    deepest_open_mid = [
+    # R1: bh_mid's uncorrelated substrate opens on BOTH sides (it does not
+    # continue to either neighbour), and it OPENS — never pinches.
+    deepest_mid = [
         c
         for c in candidates
         if c.source_investigation_id == bh_mid.id
         and c.above_contact_id == c_deep_mid.id
         and c.below_contact_id is None
     ]
-    assert deepest_open_mid == [], (
-        f"Interior bh_mid must not receive a deepest-open candidate; got: {deepest_open_mid}"
+    assert {c.side for c in deepest_mid} == {"left", "right"}, (
+        f"Interior uncorrelated substrate should open both sides; got: {deepest_mid}"
+    )
+    assert all(c.kind == "open" for c in deepest_mid), (
+        f"Substrate must OPEN, never pinch; got {[(c.side, c.kind) for c in deepest_mid]}"
     )
 
 
@@ -1210,18 +1214,137 @@ async def test_open_only_at_section_terminal_test_not_last_participant(
         section_id=section.id,
     )
 
-    src = [c for c in candidates if c.source_investigation_id == bh_source.id]
-    assert {c.side for c in src} == {"left", "right"}, f"Expected one candidate per side, got {src}"
-    # The bare flanks are section tests beyond bh_source → both sides pinch,
-    # neither opens.
-    assert all(c.kind == "pinch_out_halfway" for c in src), (
-        f"Interior participant flanked by bare section tests must pinch on both "
-        f"sides (no open ends), got kinds {[(c.side, c.kind) for c in src]}"
+    # Focus on the FRAMED interior unit (top contact c_top): a bare in-corridor
+    # column is still a section test beyond bh_source, so the interior unit
+    # PINCHES toward it rather than opening against it as if it were the edge.
+    # (The deepest substrate c_base opens under R1 — a separate concern.)
+    framed = [
+        c
+        for c in candidates
+        if c.source_investigation_id == bh_source.id and c.above_contact_id == c_top.id
+    ]
+    assert {c.side for c in framed} == {"left", "right"}, (
+        f"Expected one framed-unit candidate per side, got {framed}"
     )
-    left = next(c for c in src if c.side == "left")
-    right = next(c for c in src if c.side == "right")
+    assert all(c.kind == "pinch_out_halfway" for c in framed), (
+        f"Interior framed unit flanked by bare section tests must pinch on both "
+        f"sides (no open ends), got kinds {[(c.side, c.kind) for c in framed]}"
+    )
+    left = next(c for c in framed if c.side == "left")
+    right = next(c for c in framed if c.side == "right")
     assert left.suggested_neighbour_investigation_id == bh_bare_left.id
     assert right.suggested_neighbour_investigation_id == bh_bare_right.id
+
+
+# ---------------------------------------------------------------------------
+# R1 core: band-vs-pinch is decided by LITHOLOGY continuity, not bare contact
+# correlation (owner directive 2026-06-03).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lithology_continues_across_correlation_is_band(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A unit whose lithology continues across a SAME-lithology correlation is a
+    BAND — no pinch is suggested on that side.
+
+    bh_src ZAND@2 correlates to bh_right ZAND@2 (same soil) → its right side is
+    a continuous band.  (Its left side, toward an uncorrelated flank, still
+    pinches — that is not what this test checks.)
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-r1b")
+    f_zand = _formation(project, parent, name="ZAND-r1b", soil_code="ZAND", ordinal=0)
+    f_below = _formation(project, parent, name="KLEI-r1b", soil_code="KLEI", ordinal=1)
+    f_other = _formation(project, parent, name="SILT-r1b", soil_code="SILT", ordinal=2)
+    db_session.add_all([geo, litho, parent, f_zand, f_below, f_other])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="R1B-L", x=400000.0)
+    bh_src = _borehole(project.id, suffix="R1B-S", x=400500.0)
+    bh_right = _borehole(project.id, suffix="R1B-R", x=401000.0)
+    db_session.add_all([bh_left, bh_src, bh_right])
+    await db_session.flush()
+
+    c_zand = _contact(litho, f_zand, bh_src, depth=2.0)
+    c_base = _contact(litho, f_below, bh_src, depth=6.0)
+    c_r_zand = _contact(litho, f_zand, bh_right, depth=2.2)
+    c_r_base = _contact(litho, f_below, bh_right, depth=6.1)
+    c_left = _contact(litho, f_other, bh_left, depth=3.0)
+    db_session.add_all([c_zand, c_base, c_r_zand, c_r_base, c_left])
+    await db_session.flush()
+    db_session.add(_approved_edge(litho, c_zand, c_r_zand))  # ZAND top ties to ZAND
+    await db_session.commit()
+
+    cands = await SuggestBodyPinchOuts(db_session).execute(project_id=project.id, model_id=litho.id)
+    right = [
+        c
+        for c in cands
+        if c.source_investigation_id == bh_src.id
+        and c.above_contact_id == c_zand.id
+        and c.side == "right"
+    ]
+    assert right == [], (
+        f"ZAND continues to the right via a same-lithology correlation → band; got {right}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lithology_changes_across_correlation_is_pinch(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """R1 fix: a boundary that correlates across but where the LITHOLOGY changes
+    (ZAND↔KLEI) is a pinch-out — even though BOTH bounding contacts correlate to
+    the neighbour.  The old lithology-blind code called this a band (the bug
+    behind the dogfeed screenshot); R1 correctly pinches it.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-SBPO-r1p")
+    f_zand = _formation(project, parent, name="ZAND-r1p", soil_code="ZAND", ordinal=0)
+    f_below = _formation(project, parent, name="KLEI-r1p", soil_code="KLEI", ordinal=1)
+    f_klei_r = _formation(project, parent, name="KLEI-r1p-r", soil_code="KLEI", ordinal=2)
+    f_below_r = _formation(project, parent, name="SILT-r1p-r", soil_code="SILT", ordinal=3)
+    f_other = _formation(project, parent, name="VEEN-r1p", soil_code="VEEN", ordinal=4)
+    db_session.add_all([geo, litho, parent, f_zand, f_below, f_klei_r, f_below_r, f_other])
+    await db_session.flush()
+
+    bh_left = _borehole(project.id, suffix="R1P-L", x=410000.0)
+    bh_src = _borehole(project.id, suffix="R1P-S", x=410500.0)
+    bh_right = _borehole(project.id, suffix="R1P-R", x=411000.0)
+    db_session.add_all([bh_left, bh_src, bh_right])
+    await db_session.flush()
+
+    c_zand = _contact(litho, f_zand, bh_src, depth=2.0)  # ZAND on source
+    c_base = _contact(litho, f_below, bh_src, depth=6.0)
+    c_r_klei = _contact(litho, f_klei_r, bh_right, depth=2.1)  # KLEI on neighbour
+    c_r_base = _contact(litho, f_below_r, bh_right, depth=6.1)
+    c_left = _contact(litho, f_other, bh_left, depth=3.0)
+    db_session.add_all([c_zand, c_base, c_r_klei, c_r_base, c_left])
+    await db_session.flush()
+    # BOTH contacts correlate across (bilaterally paired under the old rule),
+    # but the top tie is ZAND↔KLEI — the lithology changes.
+    db_session.add(_approved_edge(litho, c_zand, c_r_klei))
+    db_session.add(_approved_edge(litho, c_base, c_r_base))
+    await db_session.commit()
+
+    cands = await SuggestBodyPinchOuts(db_session).execute(project_id=project.id, model_id=litho.id)
+    right = [
+        c
+        for c in cands
+        if c.source_investigation_id == bh_src.id
+        and c.above_contact_id == c_zand.id
+        and c.side == "right"
+    ]
+    assert len(right) == 1, (
+        f"ZAND ties to KLEI across the boundary (lithology changes) → pinch, got {right}"
+    )
+    assert right[0].kind == "pinch_out_halfway"
+    assert right[0].suggested_neighbour_investigation_id == bh_right.id
 
 
 # ---------------------------------------------------------------------------
