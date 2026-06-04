@@ -70,6 +70,34 @@ function contact(id: string, inv: string, depth: number): FormationContactRespon
   } as FormationContactResponse
 }
 
+function lithoLayer(
+  id: string,
+  inv: string,
+  bodyId: string,
+  top: number,
+  base: number,
+): LithoLayerResponse {
+  return {
+    id,
+    model_id: 'm1',
+    formation_id: 'f1',
+    borehole_id: inv,
+    cpt_id: null,
+    depth_top_m: top,
+    depth_base_m: base,
+    status: 'accepted',
+    source: 'manual',
+    confidence: 'high',
+    observation_id: null,
+    observation_layer_id: null,
+    parent_geo_contact_id: null,
+    body_id: bodyId,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as LithoLayerResponse
+}
+
 function column(inv: string, along: number, elev: number): PlacedColumn {
   return {
     kind: 'borehole',
@@ -284,6 +312,67 @@ describe('BodyExtentOverlay', () => {
     const xs = Array.from(d.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
     expect(Math.min(...xs)).toBeCloseTo(70, 0)
     expect(Math.max(...xs)).toBeCloseTo(92, 0) // floored: 70 + 22
+  })
+
+  it('BE5d — open cap frames from the body’s EXTREME member column, not the source', () => {
+    // A multi-column body sourced at ``inv-source`` (along=50, mid-body) with a
+    // member layer on ``inv-T`` (along=0, the LEFTMOST member). A left-open cap
+    // must render at inv-T's edge, not the source column — otherwise a deep unit
+    // open-ended on the section's left column "renders nothing" because the open
+    // drew at the body's mid-section source (dogfeed 2026-06-04).
+    const layers = [
+      lithoLayer('L-src', 'inv-source', 'B1', 3, 7),
+      lithoLayer('L-T', 'inv-T', 'B1', 4, 6),
+    ]
+    const body = makeBody({
+      content_key: null,
+      source_investigation_id: 'inv-source',
+      extent_left_kind: 'open',
+      extent_left_neighbour_inv_id: null,
+    })
+    // With members → cap moves the open to inv-T (left edge at along/x = 0 - 20 = -20).
+    const withMembers = render(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[body]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          lithoLayers={layers}
+          {...transforms}
+          openExtentLengthM={30}
+          onSaveLensShape={vi.fn()}
+        />
+      </svg>,
+    )
+    const dWith = withMembers.getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xsWith = Array.from(dWith.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    // Left edge of inv-T (along 0, width 40) = -20; stub extends LEFT by 30 → -50.
+    expect(Math.max(...xsWith)).toBeCloseTo(-20, 0)
+    expect(Math.min(...xsWith)).toBeCloseTo(-50, 0)
+    cleanup()
+
+    // Without members → no cap → frames at the source column (inv-source, edge 30).
+    const noMembers = render(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[body]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          {...transforms}
+          openExtentLengthM={30}
+          onSaveLensShape={vi.fn()}
+        />
+      </svg>,
+    )
+    const dNo = noMembers.getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xsNo = Array.from(dNo.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    // Source left edge (along 50, width 40) = 30; the cap clearly moved it left.
+    expect(Math.max(...xsNo)).toBeCloseTo(30, 0)
+    expect(Math.max(...xsWith)).toBeLessThan(Math.max(...xsNo))
   })
 
   it('BE6 — mixed body (to_target left + open right) renders both sides', () => {
