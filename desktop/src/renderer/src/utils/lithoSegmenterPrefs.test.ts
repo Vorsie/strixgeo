@@ -27,7 +27,6 @@ describe('readLithoSegmenterPrefs', () => {
           dr_compression_factor: 0.6,
           merge_same_lithology: false,
           litho_snap_tolerance_m: 0.30,
-          straddle_min_piece_thickness_m: 0.40,
           auto_correlate_depth_window_m: 1.2,
         },
       }),
@@ -38,7 +37,6 @@ describe('readLithoSegmenterPrefs', () => {
       mergeSameLithology: false,
       useNormalisedQc: LITHO_SEGMENTER_DEFAULTS.useNormalisedQc,
       lithoSnapToleranceM: 0.30,
-      straddleMinPieceThicknessM: 0.40,
       autoCorrelateDepthWindowM: 1.2,
       maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
@@ -63,7 +61,6 @@ describe('readLithoSegmenterPrefs', () => {
       mergeSameLithology: true,
       useNormalisedQc: true,
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
-      straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
       maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
@@ -120,7 +117,6 @@ describe('buildLithoSegmenterPatch', () => {
         mergeSameLithology: true,
         useNormalisedQc: false,
         lithoSnapToleranceM: 0.25,
-        straddleMinPieceThicknessM: 0.35,
         autoCorrelateDepthWindowM: 0.8,
         maxLensThicknessM: 6.0,
         openExtentLengthM: 5.0,
@@ -133,7 +129,6 @@ describe('buildLithoSegmenterPatch', () => {
         merge_same_lithology: true,
         use_normalised_qc: false,
         litho_snap_tolerance_m: 0.25,
-        straddle_min_piece_thickness_m: 0.35,
         auto_correlate_depth_window_m: 0.8,
         max_lens_thickness_m: 6.0,
         open_extent_length_m: 5.0,
@@ -181,48 +176,6 @@ describe('readLithoSegmenterPrefs — lithoSnapToleranceM field', () => {
         litho_segmenter: { litho_snap_tolerance_m: 'fifty cm' },
       }).lithoSnapToleranceM,
     ).toBe(LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM)
-  })
-})
-
-describe('readLithoSegmenterPrefs — straddleMinPieceThicknessM field', () => {
-  it('defaults to 0.20 m when the straddle_min_piece_thickness_m key is absent', () => {
-    expect(
-      readLithoSegmenterPrefs({
-        litho_segmenter: { minimum_layer_thickness_m: 0.15 },
-      }).straddleMinPieceThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
-  })
-
-  it('returns a valid stored value', () => {
-    expect(
-      readLithoSegmenterPrefs({
-        litho_segmenter: { straddle_min_piece_thickness_m: 0.5 },
-      }).straddleMinPieceThicknessM,
-    ).toBe(0.5)
-  })
-
-  it('falls back to default when out of bounds (too low)', () => {
-    expect(
-      readLithoSegmenterPrefs({
-        litho_segmenter: { straddle_min_piece_thickness_m: 0.005 },
-      }).straddleMinPieceThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
-  })
-
-  it('falls back to default when out of bounds (too high)', () => {
-    expect(
-      readLithoSegmenterPrefs({
-        litho_segmenter: { straddle_min_piece_thickness_m: 10.0 },
-      }).straddleMinPieceThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
-  })
-
-  it('falls back to default for non-numeric type', () => {
-    expect(
-      readLithoSegmenterPrefs({
-        litho_segmenter: { straddle_min_piece_thickness_m: 'twenty cm' },
-      }).straddleMinPieceThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM)
   })
 })
 
@@ -317,7 +270,10 @@ describe('readLithoSegmenterPrefs — useNormalisedQc field', () => {
   })
 
   it('round-trips through buildLithoSegmenterPatch', () => {
-    const prefs = { ...LITHO_SEGMENTER_DEFAULTS, useNormalisedQc: false }
+    const prefs: import('./lithoSegmenterPrefs').LithoSegmenterPrefs = {
+      ...LITHO_SEGMENTER_DEFAULTS,
+      useNormalisedQc: false,
+    }
     expect(readLithoSegmenterPrefs(buildLithoSegmenterPatch(prefs)).useNormalisedQc).toBe(false)
   })
 })
