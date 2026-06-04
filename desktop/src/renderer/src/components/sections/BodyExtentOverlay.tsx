@@ -1177,10 +1177,12 @@ export default function BodyExtentOverlay({
         if (baseElev === null) continue
         const srcTop = toScreen(topSource)
         const srcBase = toScreen({ along_m: topSource.along_m, elevation_m: baseElev })
-        let farX = alongToScreenX(topSource.along_m + dir * openExtentLengthM)
-        if (Math.abs(farX - srcTop.x) < OPEN_MIN_STUB_PX) {
-          farX = srcTop.x + dir * OPEN_MIN_STUB_PX
-        }
+        // Screen-space stub length (see the committed-open branch) so the ghost
+        // always extends the correct direction on the first/last column.
+        const pxPerM =
+          Math.abs(alongToScreenX(topSource.along_m + 1) - alongToScreenX(topSource.along_m)) || 1
+        const stubPx = Math.max(openExtentLengthM * pxPerM, OPEN_MIN_STUB_PX)
+        const farX = srcTop.x + dir * stubPx
         upperScreen = [srcTop, { x: farX, y: srcTop.y }]
         lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
         arrowD = dipArrowPath({ x: farX, y: (srcTop.y + srcBase.y) / 2 }, dir)
@@ -1239,17 +1241,19 @@ export default function BodyExtentOverlay({
           const srcTop = toScreen(body.topSource)
           const srcBase = toScreen(body.baseSource)
           const dir = body.extrapolationDirectionSign // +1 right, -1 left = out of section
-          // Far edge = column EDGE + openExtentLengthM (along-metres), mapped to
-          // screen. topSource.along_m IS the edge, so measure the stub from it —
-          // the resolved farPoint was measured from the column CENTRE, which for
-          // a wide column landed the stub inside the column (the real "thin
-          // sliver / not rendering" cause). Then floor to a minimum on-screen
-          // length so it is always visible when zoomed out (dogfeed 2026-06-04).
+          // Far edge computed PURELY in screen space: stub length = the local
+          // px-per-metre scale * openExtentLengthM, floored to a minimum, then
+          // applied as srcEdge + dir * length.  Computing it this way (instead
+          // of alongToScreenX of a point past the column) guarantees the stub
+          // always goes the correct direction even on the FIRST/LAST column,
+          // where the spacing-warp extrapolates unpredictably for an along
+          // value beyond the column range and could fling the stub INTO the
+          // column, behind the opaque litho bands (the real "open end not
+          // drawing on the leftmost column" cause — dogfeed 2026-06-04).
           const edgeAlong = body.topSource.along_m
-          let farX = alongToScreenX(edgeAlong + dir * openExtentLengthM)
-          if (Math.abs(farX - srcTop.x) < OPEN_MIN_STUB_PX) {
-            farX = srcTop.x + dir * OPEN_MIN_STUB_PX
-          }
+          const pxPerM = Math.abs(alongToScreenX(edgeAlong + 1) - alongToScreenX(edgeAlong)) || 1
+          const stubPx = Math.max(openExtentLengthM * pxPerM, OPEN_MIN_STUB_PX)
+          const farX = srcTop.x + dir * stubPx
           upperScreen = [srcTop, { x: farX, y: srcTop.y }]
           lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
           // Arrow at the far edge, vertically centred, pointing out of section.
