@@ -276,7 +276,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
         create_formation_only: bool = False,
         commit: bool = True,
         batch_ctx: BatchAcceptContext | None = None,
-        straddle_min_piece_thickness_m: float = 0.20,  # A2: deprecated, ignored — straddle removed
         couple_tolerance_m: float = 0.20,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
