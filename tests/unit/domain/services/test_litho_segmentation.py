@@ -167,6 +167,50 @@ def test_empty_series_returns_no_layers() -> None:
     assert segment_cpt([], [], [], niveau_m=10.0, yw_m=10.0) == []
 
 
+def test_non_normalised_mode_segments_via_isbt_and_skips_dr_nad() -> None:
+    """use_normalised_qc=False classifies via the non-normalised I_SBT index.
+
+    It builds no effective-stress profile, so Dr (and the NAD packing class
+    derived from it) cannot be computed — sand layers carry dr_pct=None and
+    suggested_nad_class=None. The lithology segmentation itself still works:
+    a dense-sand block over soft clay reads sand-over-fine, contiguous.
+    """
+    step = 0.1
+    depths: list[float] = []
+    qc: list[float] = []
+    fs: list[float | None] = []
+    z = 0.0
+    while z < 4.0 - 1e-9:  # dense sand
+        depths.append(round(z, 2))
+        qc.append(22.0)
+        fs.append(0.10)
+        z += step
+    while z < 8.0 - 1e-9:  # soft clay
+        depths.append(round(z, 2))
+        qc.append(0.7)
+        fs.append(0.045)
+        z += step
+
+    layers = segment_cpt(
+        depths,
+        qc,
+        fs,
+        niveau_m=10.0,
+        yw_m=10.0,
+        minimum_layer_thickness_m=0.5,
+        use_normalised_qc=False,
+    )
+
+    assert layers
+    assert layers[0].suggested_lithology == "ZAND"
+    assert layers[-1].suggested_lithology in ("KLEI", "SILT", "VEEN")
+    for a, b in zip(layers, layers[1:], strict=False):
+        assert b.depth_top_m == a.depth_base_m  # contiguous, gap-free
+    # Dr / NAD need effective stress, which non-normalised mode does not build.
+    assert all(lyr.dr_pct is None for lyr in layers)
+    assert all(lyr.suggested_nad_class is None for lyr in layers)
+
+
 # ---------------------------------------------------------------------------
 # Borehole-path merge tests (dogfeed 2026-05-25)
 # ---------------------------------------------------------------------------
