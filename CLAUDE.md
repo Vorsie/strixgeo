@@ -108,7 +108,18 @@ is reused at every level. See
    (ZAND / KLEI / SILT / GRIND / VEEN, silt-/kleihoudend). Sourced
    from borehole `ObservationLayer` descriptions + an assisted-manual
    CPT Robertson-SBT segmenter (user-accepted ghost nodes, never
-   auto-correlation). `parent_geological_model_id` is mandatory
+   auto-correlation). **The CPT segmenter offers two classifiers, chosen
+   per project via Settings → Litho segmenter → "Normalise qc (Robertson
+   2015)" (`view_state.litho_segmenter.use_normalised_qc`, default ON):**
+   the stress-NORMALISED Robertson 2015 pipeline (Qtn / F / Ic — needs the
+   CPT's elevation + water table to build a stress profile + iterate the
+   stress exponent), or the NON-normalised Robertson 2010 `I_SBT` index
+   (`qc/pa` + Rf, no stress profile) for shallow depth or unreliable
+   groundwater. Non-normalised mode leaves Dr / NAD packing blank
+   (relative density needs effective stress). `I_SBT` lives in its own
+   `domain/services/robertson_sbt_non_normalised.py` so the faithful
+   `robertson_2015.py` `.sce` port stays frozen.
+   `parent_geological_model_id` is mandatory
    (enforced at creation — a litho model cannot exist without its
    geological parent; the column is DB-nullable only because
    geological models share it and have no parent). The
@@ -543,7 +554,11 @@ Strix/
 │   │   │                          grain_size_parse_result.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
 │   │   ├── dem/               dem_provider.py (DemProvider ABC + DemZGrid),
-│   │   │                      dhmvii_dem_provider.py, ahn4_dem_provider.py,
+│   │   │                      wcs_dem_provider.py (WcsDemProvider — shared
+│   │   │                      WCS GetCoverage + tile-cache + GeoTIFF-decode
+│   │   │                      pipeline; subclasses set constants + _extract_tiff
+│   │   │                      / _is_nodata hooks), dhmvii_dem_provider.py,
+│   │   │                      ahn4_dem_provider.py (both thin subclasses),
 │   │   │                      dem_provider_factory.py (build_dem_provider,
 │   │   │                      NoDemProviderError), dem_tile_cache.py,
 │   │   │                      dhmvii_sampler.py (WCS multipart + line sampler)
