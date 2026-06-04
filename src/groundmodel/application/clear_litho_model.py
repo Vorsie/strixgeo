@@ -5,7 +5,10 @@ Deletes, in a single transaction, all of:
   2. ``LithoContactCorrelationEdge`` rows for the model (contact-level
      boundary-to-boundary edges, #133 Phase 1+).
   3. ``FormationSurface`` rows for the model.
-  4. Litho ``GeologicalFormation`` rows (``litho_main_soil_code IS NOT
+  4. ``BodyOrm`` rows for the model — lateral extent primitives that reference
+     layers via body_id (SET NULL) and extent_*_anchor_layer_id (SET NULL), so
+     they survive the layer delete as stale orphans without this explicit step.
+  5. Litho ``GeologicalFormation`` rows (``litho_main_soil_code IS NOT
      NULL``) anywhere in the project that have no remaining contacts in
      any model after the contact delete (orphan-safe — a formation
      shared by a second litho model survives).  Project-scoped, NOT
@@ -29,6 +32,9 @@ FK-cascade notes
   delete first to keep the row-count returned in
   :class:`ClearLithoModelResult` accurate (a CASCADE delete does not
   contribute to the outer statement's ``rowcount``).
+* ``body.model_id`` → ``geological_model`` ON DELETE CASCADE.  Deleting the
+  model row would cascade; but here we KEEP the model and delete content only,
+  so the explicit DELETE is required to avoid leaving stale body + extent rows.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -70,6 +77,8 @@ class ClearLithoModelResult:
         Number of ``LithoContactCorrelationEdge`` rows deleted.
     surfaces : int
         Number of ``FormationSurface`` rows deleted.
+    bodies : int
+        Number of ``BodyOrm`` rows deleted.
     formations : int
         Number of litho ``GeologicalFormation`` rows deleted.
     """
@@ -77,6 +86,7 @@ class ClearLithoModelResult:
     contacts: int
     edges: int
     surfaces: int
+    bodies: int
     formations: int
 
 
@@ -101,7 +111,7 @@ class ClearLithoModel(GroundModelLogger):
 
         1. Collect every litho ``GeologicalFormation`` in the PROJECT
            (``litho_main_soil_code IS NOT NULL``).  These are the candidates
-           for the orphan delete in step 5.  Project-scoped, NOT contact-
+           for the orphan delete in step 6.  Project-scoped, NOT contact-
            scoped: a model whose contacts were already wiped still has
            orphan litho units to remove, and there is no contact link left
            to reach them through.
@@ -112,8 +122,15 @@ class ClearLithoModel(GroundModelLogger):
            out invisibly (CASCADE deletes do not roll into the parent
            statement's ``rowcount``).
         3. Bulk-DELETE all ``FormationContact`` rows for ``model_id``.
-        4. Bulk-DELETE all ``FormationSurface`` rows for ``model_id``.
-        5. For each candidate formation from step 1: delete if and only if
+        4. Bulk-DELETE any remaining ``LithoLayerOrm`` rows for the model
+           (pending/rejected layers have no FC counterpart and survive the
+           cascade from step 3).
+        5. Bulk-DELETE all ``FormationSurface`` rows for ``model_id``.
+        5b. Bulk-DELETE all ``BodyOrm`` rows for ``model_id``.  Bodies
+           reference layers via ``body_id`` (SET NULL on litho_layer) and
+           ``extent_*_anchor_layer_id`` (SET NULL), so the layer delete
+           leaves them as stale orphans; explicit deletion is required.
+        6. For each candidate formation from step 1: delete if and only if
            no contact in ANY model references it (orphan-safe — a litho
            unit shared with a second model survives).
 
@@ -130,7 +147,7 @@ class ClearLithoModel(GroundModelLogger):
         Returns
         -------
         ClearLithoModelResult
-            Row counts for contacts, edges, surfaces, and formations deleted.
+            Row counts for contacts, edges, surfaces, bodies, and formations deleted.
         """
         self.debug(f"clear_litho_model entry project_id={project_id} model_id={model_id}")
 
@@ -183,6 +200,17 @@ class ClearLithoModel(GroundModelLogger):
             delete(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model_id)
         )
         n_surfaces: int = surfaces_result.rowcount or 0
+
+        # Step 4b — bulk-delete body rows for this model.
+        # Bodies reference layers via body_id (SET NULL on litho_layer) and
+        # extent_*_anchor_layer_id (SET NULL), so the step-3.5 layer DELETE
+        # nulls those FKs rather than cascading the body rows away. Without
+        # this step a Clear leaves stale BodyOrm rows with null anchor ids
+        # that persist until the next Detect/Resolve pass.
+        bodies_result = await self._session.execute(
+            delete(BodyOrm).where(BodyOrm.model_id == model_id)
+        )
+        n_bodies: int = bodies_result.rowcount or 0
 
         # Step 5 — delete orphan litho formations (no contacts AND no layers
         # in ANY model). Re-check each candidate: the step-3 contact-delete
@@ -239,12 +267,13 @@ class ClearLithoModel(GroundModelLogger):
         self.success(
             f"clear_litho_model ok model_id={model_id} "
             f"contacts={n_contacts} edges={n_edges} "
-            f"surfaces={n_surfaces} formations={n_formations} "
-            f"seeded_ids_pruned={pruned}"
+            f"surfaces={n_surfaces} bodies={n_bodies} "
+            f"formations={n_formations} seeded_ids_pruned={pruned}"
         )
         return ClearLithoModelResult(
             contacts=n_contacts,
             edges=n_edges,
             surfaces=n_surfaces,
+            bodies=n_bodies,
             formations=n_formations,
         )
