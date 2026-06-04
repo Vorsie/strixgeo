@@ -17,6 +17,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.project_investigations_onto_section import (
+    project_investigations_onto_section,
+)
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
@@ -38,7 +41,6 @@ from groundmodel.domain.services.detect_crossing_pinch_outs import (
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
-from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -46,10 +48,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
-)
-from groundmodel.infrastructure.gis.section_projection import (
-    SectionEndpoints,
-    project_point_onto_line,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -256,7 +254,6 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             section_adjacency = await self._section_along_adjacency(
                 project_id=project_id,
                 section_id=section_id,
-                locations=locations,
                 participant_ids={r.investigation_id for r in contact_records},
             )
             self.debug(
@@ -357,7 +354,6 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         *,
         project_id: UUID,
         section_id: UUID,
-        locations: list[InvestigationLocation],
         participant_ids: set[UUID],
     ) -> set[frozenset[UUID]]:
         """Adjacency = consecutive contact-bearing columns along the section.
@@ -375,12 +371,11 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             Owning project — the section must belong to it (scope guard).
         section_id : UUID
             The cross-section whose along-order defines adjacency.
-        locations : list[InvestigationLocation]
-            Planar (x, y) of every project investigation (CPTs + boreholes).
         participant_ids : set[UUID]
             Investigations that have at least one contact in the model — only
             these can correlate, so a contactless column never splits two
-            contact-bearing neighbours apart.
+            contact-bearing neighbours apart. Passed as ``restrict_to`` so only
+            participants are projected.
 
         Returns
         -------
@@ -393,38 +388,14 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         ValueError
             When the section does not exist in ``project_id``.
         """
-        section = (
-            await self._session.execute(
-                select(CrossSectionOrm).where(
-                    CrossSectionOrm.id == section_id,
-                    CrossSectionOrm.app_project_id == project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if section is None:
-            raise ValueError(f"Section {section_id} not found in project {project_id}")
-
-        endpoints = SectionEndpoints(
-            start_x=section.start_x,
-            start_y=section.start_y,
-            end_x=section.end_x,
-            end_y=section.end_y,
+        along = await project_investigations_onto_section(
+            self._session,
+            project_id=project_id,
+            section_id=section_id,
+            restrict_to=participant_ids,
         )
-        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
-
-        on_section: list[tuple[float, UUID]] = []
-        for loc in locations:
-            iid = loc.investigation_id
-            if iid not in participant_ids or iid in excluded:
-                continue
-            res = project_point_onto_line(endpoints, loc.x, loc.y)
-            if res is None:
-                continue
-            if abs(res.offset) <= section.projection_buffer_m:
-                on_section.append((res.along, iid))
-
-        on_section.sort(key=lambda t: t[0])
+        on_section = sorted(along.items(), key=lambda kv: kv[1])
         adjacency: set[frozenset[UUID]] = set()
         for i in range(len(on_section) - 1):
-            adjacency.add(frozenset((on_section[i][1], on_section[i + 1][1])))
+            adjacency.add(frozenset((on_section[i][0], on_section[i + 1][0])))
         return adjacency
