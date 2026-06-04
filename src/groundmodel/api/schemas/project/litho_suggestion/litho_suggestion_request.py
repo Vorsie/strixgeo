@@ -40,6 +40,14 @@ class LithoSuggestionRequest(BaseModel):
         (after DOV hoofdnaam → lithology mapping).  Set to ``False`` to
         see the un-merged splits (useful for diagnosing packing-density
         boundaries or individual observation-layer sequences).
+    use_normalised_qc : bool
+        CPT path only.  When ``True`` (default), classify with the stress-
+        NORMALISED Robertson 2015 pipeline (Qtn / F / Ic).  When ``False``,
+        use the NON-normalised Robertson 2010 I_SBT index (qc/pa + Rf) — no
+        stress profile or groundwater needed, appropriate at shallow depth or
+        when the effective-stress profile is unreliable.  Ignored on the
+        borehole path.  In non-normalised mode Dr / NAD packing are left blank
+        (relative density needs effective stress).
     """
 
     cpt_id: UUID | None = None
@@ -55,6 +63,11 @@ class LithoSuggestionRequest(BaseModel):
     # stage ships its own split gesture, or individual observation-layer
     # sequences on the borehole path).
     merge_same_lithology: bool = True
+    # CPT path only — choose the non-normalised Robertson 2010 I_SBT classifier
+    # (no stress profile / groundwater) over the default stress-normalised 2015
+    # pipeline. Settings → Litho segmenter exposes this; the borehole path
+    # ignores it.
+    use_normalised_qc: bool = True
 
     @model_validator(mode="after")
     def _exactly_one_anchor(self) -> LithoSuggestionRequest:
