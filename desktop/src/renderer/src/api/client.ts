@@ -303,9 +303,15 @@ export interface BodyListItem {
   extent_left_kind: string | null
   extent_left_target_contact_id: string | null
   extent_left_neighbour_inv_id: string | null
+  /** The litho_layer the left cap is anchored to — the column + depth interval
+   *  the renderer frames it from. Null for legacy / detector caps (renderer
+   *  falls back to the leftmost on-section member). */
+  extent_left_anchor_layer_id?: string | null
   extent_right_kind: string | null
   extent_right_target_contact_id: string | null
   extent_right_neighbour_inv_id: string | null
+  /** The litho_layer the right cap is anchored to. See the left-side note. */
+  extent_right_anchor_layer_id?: string | null
   created_at: string
   updated_at: string
   /** Stable identity of the body (#163f) — sorted hash of its 3 defining
@@ -2684,6 +2690,9 @@ export const api = {
         source_investigation_id?: string | null
         neighbour_inv_id?: string | null
         primary_section_id?: string | null
+        // The litho_layer the user clicked — the spatial anchor for this cap.
+        // The renderer frames the cap from this layer's column + depths.
+        anchor_layer_id?: string | null
       },
     ): Promise<BodyListItem> => {
       const path = `/projects/${projectId}/geology/models/${modelId}/bodies`
