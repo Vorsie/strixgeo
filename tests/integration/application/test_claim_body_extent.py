@@ -8,7 +8,7 @@ ClaimBodyExtent now addresses its target body directly by ``body_id``
    the shallowest — because the body_id disambiguates what
    ``(formation, source_investigation)`` cannot.
 2. Updates an existing body, replaces NULL extent on the claimed side.
-3. Refuses to overwrite a to_target extent without explicit clear (409).
+3. A user claim OVERRIDES a detector-set to_target extent (revised provenance).
 4. Replacing one user-claim with a different user-claim is allowed.
 5. neighbour_inv_id == body source raises ValueError.
 6. kind='pinch_out_halfway' requires neighbour_inv_id.
@@ -338,7 +338,9 @@ async def test_updates_existing_body_null_extent(
 
 
 # ---------------------------------------------------------------------------
-# Test 3: refuses to overwrite a to_target extent without explicit clear
+# Test 3: a user claim OVERRIDES a detector-set to_target (owner directive
+# 2026-06-04 — a to_target is a guess; the engineer's explicit claim wins,
+# no ClearBodyExtent dance).
 # ---------------------------------------------------------------------------
 
 
@@ -347,8 +349,10 @@ async def test_provenance_violation_raises_on_to_target(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Claiming a side that already has a detector-set 'to_target' extent
-    must raise ValueError (provenance rule §5.2).
+    """Claiming a side that already carries a detector-set ``to_target`` extent
+    now OVERWRITES it directly — the user claim wins (revised provenance rule,
+    dogfeed 2026-06-04).  The detector's target_contact_id is cleared and the
+    side takes the user kind.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -370,15 +374,19 @@ async def test_provenance_violation_raises_on_to_target(
     db_session.add(body_row)
     await db_session.commit()
 
-    with pytest.raises(ValueError, match="to_target"):
-        await ClaimBodyExtent(db_session).execute(
-            project_id=project.id,
-            model_id=litho.id,
-            body_id=body_row.id,
-            side="left",
-            kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
-            neighbour_inv_id=bh_neighbour.id,
-        )
+    updated = await ClaimBodyExtent(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        body_id=body_row.id,
+        side="left",
+        kind=EXTENT_KIND_PINCH_OUT_HALFWAY,
+        neighbour_inv_id=bh_neighbour.id,
+    )
+    # The user claim won: the side is now the user kind, the detector's
+    # target_contact_id is cleared, and the neighbour is the claimed one.
+    assert updated.extent_left_kind == EXTENT_KIND_PINCH_OUT_HALFWAY
+    assert updated.extent_left_target_contact_id is None
+    assert updated.extent_left_neighbour_inv_id == bh_neighbour.id
 
 
 # ---------------------------------------------------------------------------
