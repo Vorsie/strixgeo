@@ -4182,6 +4182,7 @@ export function useGeologicalModel({
                 gunsat_kNm3: prefs.gunsatKNm3,
                 dr_compression_factor: prefs.drCompressionFactor,
                 merge_same_lithology: prefs.mergeSameLithology,
+                use_normalised_qc: prefs.useNormalisedQc,
               }
             : {
                 borehole_id: anchorId,
@@ -4703,6 +4704,7 @@ export function useGeologicalModel({
                     gunsat_kNm3: prefs.gunsatKNm3,
                     dr_compression_factor: prefs.drCompressionFactor,
                     merge_same_lithology: prefs.mergeSameLithology,
+                    use_normalised_qc: prefs.useNormalisedQc,
                   }
                 : {
                     borehole_id: id,
