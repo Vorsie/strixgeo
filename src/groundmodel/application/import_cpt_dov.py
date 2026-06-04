@@ -9,9 +9,9 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from uuid import UUID
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov_result import ImportCptDovResult
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
@@ -146,36 +146,40 @@ class ImportCptDov(GroundModelLogger):
         t_total = time.perf_counter()
 
         parser = DovParser()
-        try:
-            async with make_dov_async_client() as http:
-                client = DovClient(http, cache=self._cache)
+        async with make_dov_async_client() as http:
+            client = DovClient(http, cache=self._cache)
 
-                # Phase 1 — WFS discovery: resolve the full recursive bbox-split.
-                # This completes in ~1 s (a few WFS HTTP calls) and lets us emit
-                # the "pins" event so the map shows all N pending markers before
-                # the heavy download phase starts.
-                t_wfs = time.perf_counter()
-                index: list[WfsIndexEntry] = await client.fetch_wfs_index(west, south, east, north)
-                self.info(
-                    f"DOV phase 1 (WFS index): {ms_since(t_wfs)} ms — {len(index)} CPTs discovered"
-                )
+            # Phase 1 — WFS discovery: resolve the full recursive bbox-split.
+            # This completes in ~1 s (a few WFS HTTP calls) and lets us emit
+            # the "pins" event so the map shows all N pending markers before
+            # the heavy download phase starts.
+            t_wfs = time.perf_counter()
+            index: list[WfsIndexEntry] = await fetch_wfs_or_raise(
+                client.fetch_wfs_index(west, south, east, north),
+                label="CPT",
+                logger=self,
+            )
+            self.info(
+                f"DOV phase 1 (WFS index): {ms_since(t_wfs)} ms — {len(index)} CPTs discovered"
+            )
 
-                # Emit the pins event immediately after WFS resolves — before any
-                # XML download starts.  The SSE router wires this callback to push
-                # a structured "pins" event so the map renders all N pending markers
-                # within ~1 s of the user drawing the bbox.
-                await _fire_pins(pins_cb, index)
+            # Emit the pins event immediately after WFS resolves — before any
+            # XML download starts.  The SSE router wires this callback to push
+            # a structured "pins" event so the map renders all N pending markers
+            # within ~1 s of the user drawing the bbox.
+            await _fire_pins(pins_cb, index)
 
-                if not index:
-                    self.info("DOV import: no CPTs found in bbox — nothing to persist")
-                    return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
+            if not index:
+                self.info("DOV import: no CPTs found in bbox — nothing to persist")
+                return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
 
-                # Phase 2 — download + parse: pass the pre-resolved index so the
-                # WFS round-trips are not repeated. The pool (if supplied) offloads
-                # large XML parsing to child processes so the event loop stays free
-                # for concurrent downloads.
-                t_fetch = time.perf_counter()
-                parsed = await client.fetch_bbox_processed(
+            # Phase 2 — download + parse: pass the pre-resolved index so the
+            # WFS round-trips are not repeated. The pool (if supplied) offloads
+            # large XML parsing to child processes so the event loop stays free
+            # for concurrent downloads.
+            t_fetch = time.perf_counter()
+            parsed = await fetch_wfs_or_raise(
+                client.fetch_bbox_processed(
                     west,
                     south,
                     east,
@@ -184,21 +188,13 @@ class ImportCptDov(GroundModelLogger):
                     index=index,
                     progress_cb=progress_cb,
                     pool=pool,
-                )
-                self.info(
-                    f"DOV phase 2 (download + parse): {ms_since(t_fetch)} ms — "
-                    f"{len(parsed)} CPTs ready"
-                )
-
-        except httpx.HTTPStatusError as exc:
-            self.error(
-                f"DOV WFS request failed with HTTP {exc.response.status_code}: {exc}  "
-                f"response body: {exc.response.text[:300]!r}"
+                ),
+                label="CPT",
+                logger=self,
             )
-            raise
-        except httpx.RequestError as exc:
-            self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
-            raise
+            self.info(
+                f"DOV phase 2 (download + parse): {ms_since(t_fetch)} ms — {len(parsed)} CPTs ready"
+            )
 
         total = len(parsed)
         if total == 0:
