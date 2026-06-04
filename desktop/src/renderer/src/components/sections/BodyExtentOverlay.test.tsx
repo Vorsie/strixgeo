@@ -375,6 +375,45 @@ describe('BodyExtentOverlay', () => {
     expect(Math.max(...xsWith)).toBeLessThan(Math.max(...xsNo))
   })
 
+  it('BE5e — an explicit anchor_layer_id frames the cap at that layer, not the extreme member', () => {
+    // Members on inv-T (along=0, leftmost) AND inv-source (along=50). The
+    // left-open extent is ANCHORED to the inv-source layer (mid, NOT the
+    // leftmost member). The cap must render at inv-source's edge (30), proving
+    // the stored anchor is the spatial source of truth — overriding the
+    // band-end fallback that would otherwise pick inv-T (dogfeed 2026-06-04).
+    const layers = [
+      lithoLayer('L-src', 'inv-source', 'B1', 3, 7),
+      lithoLayer('L-T', 'inv-T', 'B1', 4, 6),
+    ]
+    const body = makeBody({
+      content_key: null,
+      source_investigation_id: 'inv-source',
+      extent_left_kind: 'open',
+      extent_left_neighbour_inv_id: null,
+      extent_left_anchor_layer_id: 'L-src', // mid-body, not the leftmost member
+    })
+    const { getByTestId } = render(
+      <svg>
+        <BodyExtentOverlay
+          bodies={[body]}
+          boundariesByBodyId={new Map()}
+          contacts={baseContacts}
+          placedColumns={baseColumns}
+          contactEdges={baseEdges}
+          lithoLayers={layers}
+          {...transforms}
+          openExtentLengthM={30}
+          onSaveLensShape={vi.fn()}
+        />
+      </svg>,
+    )
+    const d = getByTestId('body-boundary-upper-B1').getAttribute('d') ?? ''
+    const xs = Array.from(d.matchAll(/[ML]\s*([-\d.]+),/g)).map(m => parseFloat(m[1]))
+    // inv-source left edge (along 50, width 40) = 30; extends left to 0.
+    expect(Math.max(...xs)).toBeCloseTo(30, 0)
+    expect(Math.min(...xs)).toBeCloseTo(0, 0)
+  })
+
   it('BE6 — mixed body (to_target left + open right) renders both sides', () => {
     const { queryByTestId } = renderOverlay({
       bodies: [
