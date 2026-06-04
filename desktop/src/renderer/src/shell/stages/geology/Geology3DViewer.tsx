@@ -60,6 +60,7 @@ import {
   clipTexTrisToHalfSpace,
   type TexVert,
 } from './cesiumGeometry'
+import { formationsYoungestFirst } from '../../../utils/formationOrder'
 import { formatLithoDisplayName } from '../../../utils/lithoLabels'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
@@ -1792,7 +1793,11 @@ export default function Geology3DViewer({
                   </span>
                 </button>
               </li>
-              {formations.map(f => {
+              {/* Youngest-first (surface at top) so the legend reads like the
+                  GeologyInspector list / a borehole log. The TIN paint order
+                  (ascending display_order) is unaffected — this reverses the
+                  legend list only. */}
+              {formationsYoungestFirst(formations).map(f => {
                 const hidden = hiddenFormationIds.has(f.id)
                 const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
                 return (
