@@ -56,7 +56,7 @@ import type {
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
-import { extremeMemberLayerId } from '../utils/bodyAnchor'
+import { extremeMemberLayerId, neighbourInvBeyondExtreme } from '../utils/bodyAnchor'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
@@ -698,6 +698,9 @@ interface Props {
     side: 'left' | 'right',
     kind: ClaimableKind,
     anchorLayerId?: string | null,
+    /** The column the body pinches toward — required for pinch_out_halfway /
+     *  extrapolated, ignored for open. */
+    neighbourInvId?: string | null,
   ) => void
   /**
    * Clear one side's user extent. Fired from the ``BodyContextMenu`` when the
@@ -3361,7 +3364,16 @@ export default function SectionPanel({
                     lithoLayers ?? [],
                     visibleColumns,
                   )
-                  onClaimBodyExtent?.(bodyId, side, kind, anchorLayerId)
+                  // pinch_out_halfway / extrapolated need the column the body
+                  // pinches toward (the neighbour just beyond the edge member);
+                  // open ignores it.
+                  const neighbourInvId = neighbourInvBeyondExtreme(
+                    bodyId,
+                    side,
+                    lithoLayers ?? [],
+                    visibleColumns,
+                  )
+                  onClaimBodyExtent?.(bodyId, side, kind, anchorLayerId, neighbourInvId)
                   dismissBodyCtxMenu()
                 }}
                 onClearExtent={(bodyId, side) => {
