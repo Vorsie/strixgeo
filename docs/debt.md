@@ -5152,21 +5152,6 @@ the Geotech stage (which adds more section-scoped use cases). Fix: extract
 `project_investigations_onto_section(session, project_id, section_id) -> dict[UUID, ProjectionResult]`
 and adapt each caller to the result. Files: the five use cases above.
 
-## 198. DOV WFS fetch + error-logging block duplicated 5× (Tier E — backend, S)
-
-**What.** The `try: await …fetch_bbox()… except httpx.HTTPStatusError /
-httpx.RequestError: self.error(…); raise` block (varying only by the log-label
-string) is repeated in `import_samples_dov` (×2), `import_cpt_dov`,
-`import_interpretations_dov`, and `import_borehole_dov`. The per-row persist
-try/excepts are correctly left separate (different resilience semantics) — only
-the WFS-fetch wrapper is the duplication. (Surfaced by the 2026-06-04 audit.)
-
-**Why deferred.** Pure DRY; the import family works. Low blast radius.
-
-**When to revisit.** When a new DOV import source adds the 6th copy. Fix:
-parameterise a module-level `_fetch_wfs_or_raise(coro, label, logger)` helper.
-Files: the four `import_*_dov.py` use cases.
-
 ## 199. Integration fixture builders redefined 12–15× (Tier E — testing, S)
 
 **What.** `_litho_model`, `_geo_model`, and `_contact` are redefined verbatim
