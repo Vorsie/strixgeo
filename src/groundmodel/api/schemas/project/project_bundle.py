@@ -48,6 +48,15 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_validator
 
+# Re-exported from the shared floor so infrastructure can import the format
+# constants without depending on this API module (clean-architecture). Callers
+# that already do ``from ...schemas.project.project_bundle import
+# BUNDLE_FORMAT_VERSION`` keep working unchanged.
+from groundmodel.shared.bundle_format import (  # noqa: F401
+    BUNDLE_FORMAT_VERSION,
+    SUPPORTED_BUNDLE_VERSIONS,
+)
+
 # Bounds for the StratigraphyLumping sub-object. The .gmproj file is the
 # highest-trust on-disk input we accept (a crafted/corrupted bundle is the
 # threat) — an unbounded `map` dict lets a malicious file allocate an
@@ -93,26 +102,9 @@ class StratigraphyLumping(BaseModel):
     ]
 
 
-# Current bundle format version. Bumped when the bundle shape changes
-# in a way readers must branch on. New saves always emit this version.
-#
-# v4 (A4 of the unified litho boundary model) — every geological-model
-# payload nests a ``litho_layers`` array carrying the Shape A primitives
-# (id, formation_id, anchor, depth_top_m, depth_base_m, status, source,
-# confidence, ...). Geological models always emit an empty list; litho
-# models emit ALL layers (pending / accepted / rejected). The
-# ``contacts`` array stays populated on litho models too for now (so
-# correlation edges + legacy FE keep working through the cut-over) —
-# the contacts retire in a later A4 slice together with the FC↔LL
-# trigger.
-BUNDLE_FORMAT_VERSION = 4
-
-# Versions a current build will accept on restore. v3 stays parseable
-# (the trigger fills litho_layer from contacts on the way in), v4 is
-# the current writer. Backwards-compat is suspended pre-ship per
-# memory; once shipped, every older version stays in this set forever
-# with an explicit upgrade chain. See CLAUDE.md "Backwards Compatibility".
-SUPPORTED_BUNDLE_VERSIONS: frozenset[int] = frozenset({3, 4})
+# BUNDLE_FORMAT_VERSION + SUPPORTED_BUNDLE_VERSIONS now live in
+# groundmodel.shared.bundle_format (imported + re-exported above) so the
+# infrastructure restore/build path can use them without an API import.
 
 
 # Per-array bounds for the restore body (debt #38). Calibrated well
@@ -273,8 +265,9 @@ class ProjectBundleRequest(BaseModel):
     )
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
     # in bundles saved before this field shipped; default_factory=list so
-    # older files open cleanly.  Restore order: after formation_contact rows
-    # (both contact_a_id and contact_b_id FK into formation_contact).
+    # older files open cleanly.  Restore order: after the litho models exist
+    # (both contact_a_id and contact_b_id FK litho_layer.id post-A4; a v3
+    # bundle's endpoints resolve via the FC↔LL mirror).
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
