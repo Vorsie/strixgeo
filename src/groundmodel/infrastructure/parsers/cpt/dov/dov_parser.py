@@ -69,7 +69,12 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    make_issue as _issue,
+)
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import float_value, text
 from groundmodel.shared.exceptions import ParseError
@@ -475,8 +480,3 @@ class DovParser(GroundModelLogger):
 
         # Step 4 — bare qc/Qt only → CPTM.
         return CPTType.CPTM
-
-
-def _issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
-    """Build a ValidationIssue with the given level/code/message."""
-    return ValidationIssue(level=level, code=code, message=message)
