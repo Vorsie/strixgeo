@@ -1578,6 +1578,9 @@ export default function SectionsCanvas(): JSX.Element {
         lithoContactId: newContactId,
         rawDepthM: acceptedTopM,
         candidates,
+        // The accept path snaps the new contact's TOP (acceptedTopM is the
+        // top of the upper-half interval).
+        field: 'top',
       })
     },
     [
@@ -1596,6 +1599,11 @@ export default function SectionsCanvas(): JSX.Element {
     lithoContactId: string
     rawDepthM: number
     candidates: readonly FormationContactResponse[]
+    // Which boundary of the litho contact the originating drag moved. The
+    // snap PATCH MUST write this same edge — a base-edge drag that snaps to a
+    // geo contact has to set depth_base_m, not depth_top_m. Required (no
+    // default) so the field can never be silently dropped again.
+    field: 'top' | 'base'
   } | null>(null)
   const [lithoGeoSnapBusy, setLithoGeoSnapBusy] = useState(false)
 
@@ -1646,6 +1654,7 @@ export default function SectionsCanvas(): JSX.Element {
         lithoContactId: contactId,
         rawDepthM: newDepthM,
         candidates,
+        field,
       })
     },
     [handleUpdateContactDepth, isLitho, lithoContacts, contacts, lithoSnapToleranceM],
@@ -1660,10 +1669,13 @@ export default function SectionsCanvas(): JSX.Element {
       try {
         // Second PATCH on the litho contact, snapping it to the geo depth.
         // ``snapped=true`` marks the source/confidence on the litho row.
+        // Carry the originating drag's ``field`` so a base-edge snap writes
+        // depth_base_m, not depth_top_m (the dropped-field wrong-boundary bug).
         await handleUpdateContactDepth(
           lithoGeoSnapPrompt.lithoContactId,
           geo.depth_top_m,
           true,
+          lithoGeoSnapPrompt.field,
         )
       } catch (err) {
         toast('error', `Snap failed: ${(err as Error).message}`)
