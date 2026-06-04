@@ -88,7 +88,7 @@ import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
-import BodyBandOverlay from './sections/BodyBandOverlay'
+import MorphFillOverlay from './sections/MorphFillOverlay'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import GhostContextMenu from './sections/GhostContextMenu'
@@ -885,19 +885,6 @@ export default function SectionPanel({
   const formationColorById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) m.set(f.id, f.color)
-    return m
-  }, [formations])
-
-  // formation_id → lithology code (KLEI / SILT / …), for the body band's
-  // one-lithology guard: a band segment is only drawn between two members of
-  // the SAME lithology, so a resolver-mis-grouped mixed body still renders each
-  // member in its own colour instead of one nominal colour.
-  const formationSoilById = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const f of formations) {
-      const soil = f.litho_main_soil_code ?? undefined
-      if (soil) m.set(f.id, soil)
-    }
     return m
   }, [formations])
 
@@ -3257,12 +3244,10 @@ export default function SectionPanel({
                 on top. Litho axis only, and ONLY when the user has clicked
                 "Fill bands" (never auto-drawn). */}
             {axisMode === 'lithostratigraphic' && lenses !== undefined && showBands && (
-              <BodyBandOverlay
-                bodies={lenses}
+              <MorphFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
-                formationSoilById={formationSoilById}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
