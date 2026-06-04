@@ -1193,7 +1193,6 @@ async def accept_litho_suggestions(
             section_id=request.section_id,
             defer_inference=request.defer_inference,
             create_formation_only=request.create_formation_only,
-            straddle_min_piece_thickness_m=request.straddle_min_piece_thickness_m,
             couple_tolerance_m=request.couple_tolerance_m,
         )
     except ValueError as exc:
@@ -1327,7 +1326,6 @@ async def batch_accept_litho_suggestions(
         project_id=project_id,
         litho_model_id=model_id,
         anchors=anchor_inputs,
-        straddle_min_piece_thickness_m=request.straddle_min_piece_thickness_m,
         couple_tolerance_m=request.couple_tolerance_m,
     )
 
