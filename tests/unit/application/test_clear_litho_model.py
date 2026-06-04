@@ -52,6 +52,7 @@ def _make_execute_side_effects(
     n_contacts: int,
     n_edges: int,
     n_surfaces: int,
+    n_bodies: int = 0,
     surviving_fids: list[UUID],
     n_formations: int,
     surviving_fids_from_ll: list[UUID] | None = None,
@@ -66,6 +67,7 @@ def _make_execute_side_effects(
     4. DELETE LithoLayer (Shape A — A4 cleanup, picks up
        pending/rejected layers the FC cascade left behind).
     5. DELETE FormationSurface.
+    5b. DELETE BodyOrm (body rows with stale null-FK anchors after layer delete).
     6. SELECT DISTINCT surviving formation_id from formation_contact.
     7. SELECT DISTINCT surviving formation_id from litho_layer (A4 cleanup).
     8. DELETE GeologicalFormation (orphans only; skipped when no orphans).
@@ -98,6 +100,7 @@ def _make_execute_side_effects(
         _rowcount_result(n_contacts),  # 3 — DELETE contacts
         _rowcount_result(0),  # 4 — DELETE litho_layer (rowcount unused)
         _rowcount_result(n_surfaces),  # 5 — DELETE surfaces
+        _rowcount_result(n_bodies),  # 5b — DELETE bodies
     ]
     if candidate_fids:
         effects.append(_scalars_result(surviving_fids))  # 6 — survivors from FC
@@ -173,7 +176,7 @@ async def test_empty_model_is_idempotent_no_op() -> None:
     uc = ClearLithoModel(session)
     result = await uc.execute(PROJECT_ID, MODEL_ID)
 
-    assert result == ClearLithoModelResult(contacts=0, edges=0, surfaces=0, formations=0)
+    assert result == ClearLithoModelResult(contacts=0, edges=0, surfaces=0, bodies=0, formations=0)
 
 
 @pytest.mark.asyncio
@@ -204,10 +207,10 @@ async def test_geological_formations_not_touched() -> None:
 
     assert result.contacts == 3
     assert result.formations == 0
-    # Only 5 execute calls: candidate-fid SELECT + 4 DELETEs (edges,
-    # contacts, litho_layer, surfaces). No survivor SELECTs or formation
-    # DELETE because candidate_fids was empty.
-    assert session.execute.call_count == 5
+    # Only 6 execute calls: candidate-fid SELECT + 5 DELETEs (edges,
+    # contacts, litho_layer, surfaces, bodies). No survivor SELECTs or
+    # formation DELETE because candidate_fids was empty.
+    assert session.execute.call_count == 6
 
 
 @pytest.mark.asyncio
