@@ -1,4 +1,5 @@
-// Geotechnical stage canvas placeholder — Phase 5.
+// Geotechnical stage canvas placeholder — the next milestone after the
+// lithostratigraphic stage (v1.0 gate step 4, owner rescope 2026-05-18).
 
 import { Layers } from 'lucide-react'
 
@@ -21,7 +22,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     <EmptyState
       icon={<Layers />}
       title="Geotechnical subdivision"
-      hint="Split geological formations into geotechnical units with their own parameter sets. This stage lands in a later phase — the geological model + cross-sections are the v1 focus."
+      hint="Subdivide lithostratigraphic units by packing density into NAD classes (1–31) and view CPT-derived indicators (Ic zone, Dr, NAD class, γ-estimate) per unit. This is the next stage to build after the lithostratigraphic model; design-ready parameter values (φ′, c′, cu, E50) stay Phase 5."
     />
   )
 }
