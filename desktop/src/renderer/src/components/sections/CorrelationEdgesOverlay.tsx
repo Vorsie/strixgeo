@@ -61,6 +61,14 @@ const UNAPPROVED_EDGE_DASH = '4 4'
  *  again 2026-05-31 from 6 → 3 px so the band stops fighting the
  *  lithology stripes for visual weight). */
 const RIBBON_HALF_HEIGHT_PX = 3
+/** Minimum on-screen ribbon width (px). Closely-spaced columns leave only the
+ *  ~4 px nudge edge-gap between their inner edges, so the gap-bridging ribbon
+ *  collapses to an invisible sliver — and zoom can't widen it (the gap is a
+ *  fixed-px constant; zooming grows the columns too). When the inner-edge gap
+ *  is below this, the ribbon is expanded symmetrically about its midpoint so it
+ *  stays visible + grabbable (a small overrun onto the column edges is far
+ *  better than a sliver the user can't see). Dogfeed 2026-06-04. */
+const RIBBON_MIN_WIDTH_PX = 16
 /** Fill opacity for an approved (accepted) correlation ribbon. */
 const RIBBON_APPROVED_OPACITY = 0.9
 /** Fill opacity for a pending (unaccepted) correlation ribbon — faded so a
@@ -1169,8 +1177,20 @@ export default function CorrelationEdgesOverlay({
             // 2026-05-28). topY is unchanged — the contact level is constant
             // across the band, so the inner edge sits at the same depth.
             const aLeftOfB = ptA.x <= ptB.x
-            const xA = aLeftOfB ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
-            const xB = aLeftOfB ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
+            let xA = aLeftOfB ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
+            let xB = aLeftOfB ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
+            // Floor the on-screen ribbon width so closely-spaced columns don't
+            // collapse it to an unreadable sliver (zoom can't fix that — the
+            // inner-edge gap is a fixed-px nudge constant). Expand symmetrically
+            // about the midpoint, preserving A→B order so the colour gradient
+            // and inner-edge anchoring stay correct for separated columns.
+            if (Math.abs(xB - xA) < RIBBON_MIN_WIDTH_PX) {
+              const mid = (xA + xB) / 2
+              const half = RIBBON_MIN_WIDTH_PX / 2
+              const sign = xA <= xB ? 1 : -1
+              xA = mid - sign * half
+              xB = mid + sign * half
+            }
             const stripesA = stripeColorsByContactId.get(ce.contact_a_id)
             const stripesB = stripeColorsByContactId.get(ce.contact_b_id)
             const aboveA = stripesA?.above ?? null
