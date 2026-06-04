@@ -811,6 +811,10 @@ export interface LithoSuggestionRequest {
   // Owner directive 2026-05-25: merge adjacent same-lithology CPT segments
   // by default. False exposes un-merged Robertson-SBT splits.
   merge_same_lithology?: boolean
+  // CPT path only. False selects the non-normalised Robertson 2010 I_SBT
+  // classifier (qc/pa + Rf, no stress profile) over the default normalised
+  // 2015 pipeline. Dr / NAD are left blank in non-normalised mode.
+  use_normalised_qc?: boolean
 }
 
 export interface FormationContactUpdatePayload {
