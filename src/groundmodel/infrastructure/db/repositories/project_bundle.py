@@ -46,7 +46,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from groundmodel.api.schemas.project.project_bundle import BUNDLE_FORMAT_VERSION
+from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION
 
 
 class BundleIntegrityError(ValueError):
@@ -1888,8 +1888,12 @@ async def _restore_contact_edges(
     """Insert litho contact correlation edge rows from the bundle.
 
     Restored AFTER geological_models exist (model_id FK must resolve).
-    Both contact endpoints (contact_a_id, contact_b_id) must resolve to
-    formation_contact rows belonging to this project's models.
+    Both endpoints (contact_a_id, contact_b_id) FK ``litho_layer.id`` post-A4,
+    so they must resolve to a litho_layer (or its mirrored formation_contact)
+    belonging to this project's models. A canonical v4 litho-native bundle
+    emits ``contacts: []`` and carries the endpoints as ``litho_layers``, so
+    the valid-endpoint set unions both id spaces (FC + LL, from DB + payload)
+    rather than relying on the FC↔LL mirror trigger firing before validation.
 
     This restore block does NOT touch seeded_formation_contact_ids on any
     cross-section row — structural proof that the #57/applyUpdatedSection
@@ -1927,12 +1931,32 @@ async def _restore_contact_edges(
         .scalars()
         .all()
     )
-    # Also include contacts queued in this transaction (not yet flushed).
+    # Edges FK litho_layer.id post-A4; a canonical v4 litho-native bundle emits
+    # contacts=[] and carries the endpoints as litho_layers. Union the LL id
+    # space (DB + payload) so endpoint validation matches the real FK target
+    # rather than depending on the FC↔LL mirror + autoflush timing.
+    valid_contact_ids |= set(
+        (
+            await session.execute(
+                select(LithoLayerOrm.id)
+                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Also include contacts + litho_layers queued in this transaction (not yet
+    # flushed) — both id spaces are valid edge endpoints.
     for m_payload in geological_models_payload:
         for c in m_payload.get("contacts") or []:
             cid = _uuid(c.get("id"))
             if cid is not None:
                 valid_contact_ids.add(cid)
+        for ly in m_payload.get("litho_layers") or []:
+            lid = _uuid(ly.get("id"))
+            if lid is not None:
+                valid_contact_ids.add(lid)
 
     existing = set(
         (
