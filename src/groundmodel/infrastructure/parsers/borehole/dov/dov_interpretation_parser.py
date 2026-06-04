@@ -123,7 +123,12 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.borehole.dov.interpretation_parse_result import (
     InterpretationParseResult,
 )
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    make_issue as _issue,
+)
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
     date_iso,
@@ -467,8 +472,3 @@ class DovInterpretationParser(GroundModelLogger):
         if lid2:
             return lid2
         return None
-
-
-def _issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
-    """Build a ValidationIssue with the given level/code/message (no row index)."""
-    return ValidationIssue(level=level, code=code, message=message)
