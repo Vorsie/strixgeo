@@ -32,6 +32,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._litho_builders import contact as _contact
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -108,25 +109,6 @@ def _borehole(project_id, *, suffix: str, x: float = 150000.0) -> BoreholeOrm:  
         location_y=200000.0,
         epsg=31370,
         total_depth_m=20.0,
-    )
-
-
-def _contact(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
-    *,
-    depth: float,
-) -> FormationContactOrm:
-    """A formation_contact anchored to a borehole at ``depth``."""
-    return FormationContactOrm(
-        id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=depth,
-        source="borehole_observation",
-        confidence="medium",
     )
 
 
