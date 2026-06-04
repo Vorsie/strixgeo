@@ -5129,29 +5129,6 @@ pins it (RED confirmed the exact FK violation pre-fix). Commits 0a4afe13 /
 52a4975c on develop. File:
 `src/groundmodel/infrastructure/db/repositories/project_bundle.py`.
 
-## 197. Section-projection block duplicated across ≥5 use cases (Tier E — backend, M)
-
-**What.** The "load the `CrossSectionOrm`, build `SectionEndpoints`, query
-CPT/borehole locations, project via `project_point_onto_line`, filter by
-`projection_buffer_m`" block is copy-pasted across
-`suggest_body_pinch_outs._section_along_positions`, `detect_bodies`,
-`auto_correlate_contact_edges._section_along_adjacency`, `build_section_snapshot`,
-and `materialize_wedge_tips_for_formation`. The variants differ only in return
-shape (along-distance dict vs adjacency pairs vs full projections);
-`suggest_body_pinch_outs` even documents "Mirrors
-`AutoCorrelateContactEdges._section_along_adjacency`". `load_corridor_investigations`
-(in `recompute_formation_absences_for_body.py`) is the existing precedent for the
-shared shape. (Surfaced by the 2026-06-04 whole-codebase audit.)
-
-**Why deferred.** Pure DRY — no behaviour bug. A 5-site production extraction
-needs its own focused pass + a regression test per caller so the projection math
-can't drift across the refactor.
-
-**When to revisit.** Next time a 6th caller needs section projection, OR alongside
-the Geotech stage (which adds more section-scoped use cases). Fix: extract
-`project_investigations_onto_section(session, project_id, section_id) -> dict[UUID, ProjectionResult]`
-and adapt each caller to the result. Files: the five use cases above.
-
 
 ## 200. Electron pre-distribution hardening — DevTools log leak + file:// nav (Tier B — frontend, S)
 
