@@ -50,6 +50,9 @@ from groundmodel.domain.services.robertson_2015 import (
     sbt_zone_series,
     stress_profile,
 )
+from groundmodel.domain.services.robertson_sbt_non_normalised import (
+    sbt_zone_series_non_normalised,
+)
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
@@ -257,6 +260,7 @@ def segment_cpt(
     gwater_kNm3: float = 9.81,
     dr_compression_factor: float = 0.675,
     merge_same_lithology: bool = True,
+    use_normalised_qc: bool = True,
 ) -> list[LithoLayerSuggestion]:
     """Segment a CPT series into lithostratigraphic layers via Robertson 2015/2009.
 
@@ -288,6 +292,15 @@ def segment_cpt(
         code into a single layer.  Set to ``False`` to see the un-merged
         Robertson-SBT-driven splits (useful for diagnosing packing-density
         boundaries before the Geotech stage ships its own split gesture).
+    use_normalised_qc : bool
+        When ``True`` (default), classify each point with the stress-NORMALISED
+        Robertson 2015 pipeline (Qtn / F / Ic — needs the niveau/yw stress
+        profile + iterative convergence).  When ``False``, classify with the
+        NON-normalised Robertson 2010 index ``I_SBT`` (qc/pa + Rf directly), which
+        needs no stress profile or groundwater table — the appropriate choice at
+        shallow depth or when the effective-stress profile is unreliable.  In
+        non-normalised mode ``niveau_m`` / ``yw_m`` are ignored and Dr / NAD
+        packing class are left ``None`` (relative density needs effective stress).
 
     Returns
     -------
@@ -300,12 +313,21 @@ def segment_cpt(
     if n == 0:
         return []
 
-    # --- Step 1: stress profile + Robertson 2015 normalisation ---
-    stress: list[StressResult] = stress_profile(
-        depths_m, qc_mpa, fs_mpa, niveau_m, yw_m, gunsat_kNm3, gwater_kNm3
-    )
-    qtn_results: list[QtnResult | None] = qtn_f_ic_series(depths_m, qc_mpa, fs_mpa, stress)
-    raw_zones: list[int | None] = sbt_zone_series(qtn_results)
+    # --- Step 1: per-point SBT zones — normalised (Robertson 2015) or not ---
+    # Non-normalised mode (use_normalised_qc=False) skips the stress profile +
+    # iterative convergence entirely and reads the Robertson 2010 I_SBT index
+    # from qc/pa + Rf. ``stress`` / ``qtn_results`` stay None in that mode and
+    # Dr / NAD (which need effective stress) are left blank in Step 5.
+    stress: list[StressResult] | None
+    qtn_results: list[QtnResult | None] | None
+    if use_normalised_qc:
+        stress = stress_profile(depths_m, qc_mpa, fs_mpa, niveau_m, yw_m, gunsat_kNm3, gwater_kNm3)
+        qtn_results = qtn_f_ic_series(depths_m, qc_mpa, fs_mpa, stress)
+        raw_zones: list[int | None] = sbt_zone_series(qtn_results)
+    else:
+        stress = None
+        qtn_results = None
+        raw_zones = sbt_zone_series_non_normalised(qc_mpa, fs_mpa)
 
     # --- Step 2: rolling-median smoother ---
     # Window half-size in number of depth rows to cover minimum_layer_thickness_m.
@@ -352,10 +374,12 @@ def segment_cpt(
         raw_qcs = [qc_mpa[k] for k in range(s, e) if qc_mpa[k] > 0]
         mean_qc: float | None = sum(raw_qcs) / len(raw_qcs) if raw_qcs else None
 
-        # Relative density + NAD class (sand zones only, per CPTE_2025.sce criterion)
+        # Relative density + NAD class (sand zones only, per CPTE_2025.sce
+        # criterion). Only available in the normalised pipeline — Dr needs the
+        # effective-stress profile, which non-normalised mode never builds.
         dr_pct: float | None = None
         nad_class: int | None = None
-        if lithology == "ZAND":
+        if lithology == "ZAND" and qtn_results is not None and stress is not None:
             # Compute per-point Dr for points satisfying Ic<2.45 AND
             # FR<1.2, then average. ``FR`` here is the RAW friction
             # ratio ``fs/qc*100`` (CPTE_2025.sce M-matrix column 4),
