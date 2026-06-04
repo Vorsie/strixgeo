@@ -1628,8 +1628,8 @@ export default function SectionsCanvas(): JSX.Element {
   // exist, opens the prompt; otherwise the wrapper is a no-op past the
   // initial PATCH.
   const handleLithoSnapAwareUpdateContactDepth = useCallback(
-    async (contactId: string, newDepthM: number, snapped: boolean): Promise<void> => {
-      await handleUpdateContactDepth(contactId, newDepthM, snapped)
+    async (contactId: string, newDepthM: number, snapped: boolean, field: 'top' | 'base' = 'top'): Promise<void> => {
+      await handleUpdateContactDepth(contactId, newDepthM, snapped, field)
       if (!isLitho) return
       const dragged = lithoContacts.find(c => c.id === contactId)
       if (!dragged) return
@@ -2017,11 +2017,6 @@ export default function SectionsCanvas(): JSX.Element {
         if (focusedSuggestAnchorId === null) return
         handleMergeLithoLayers(focusedSuggestAnchorId, upperIdx)
       },
-      // Dogfeed 2026-05-25: Shift+drag absorb.
-      onAbsorbLayer: (draggerIdx: number, direction: 'up' | 'down') => {
-        if (focusedSuggestAnchorId === null) return
-        handleAbsorbLithoLayer(focusedSuggestAnchorId, draggerIdx, direction)
-      },
       // Extend a manual ghost sentinel to the nearest committed contacts.
       onExtendToNearest: (idx: number) => {
         if (focusedSuggestAnchorId === null) return { ok: false, reason: 'No focused anchor.' }
@@ -2073,7 +2068,6 @@ export default function SectionsCanvas(): JSX.Element {
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
-    handleAbsorbLithoLayer,
     handleExtendLithoGhostToNearestContacts,
     visibleCpts,
     visibleBoreholes,
@@ -2123,8 +2117,6 @@ export default function SectionsCanvas(): JSX.Element {
       onSplitLayer: handleSplitLithoLayer,
       // Debt #102: bulk variant takes (anchorId, upperIdx).
       onMergeLayers: handleMergeLithoLayers,
-      // Dogfeed 2026-05-25: bulk variant takes (anchorId, draggerIdx, direction).
-      onAbsorbLayer: handleAbsorbLithoLayer,
       // Extend a manual ghost sentinel — bulk variant takes (anchorId, idx).
       onExtendToNearest: (anchorId: string, idx: number) => {
         const cpt = visibleCpts.find(c => c.id === anchorId)
@@ -2143,7 +2135,6 @@ export default function SectionsCanvas(): JSX.Element {
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
-    handleAbsorbLithoLayer,
     handleExtendLithoGhostToNearestContacts,
     visibleCpts,
     visibleBoreholes,
