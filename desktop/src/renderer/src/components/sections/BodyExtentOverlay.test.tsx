@@ -541,11 +541,12 @@ describe('BodyExtentOverlay', () => {
     expect(stopPropagationSpy).toHaveBeenCalled()
   })
 
-  it('BE-GHOST-OPEN — an open edge candidate renders a fixed-length band past the source column', () => {
-    // Edge-test candidate: kind='open', neighbour=null. It must still render
-    // (the halfway path would have bailed on the missing neighbour) and the far
-    // endpoint must be openExtentLengthM past the source column's along, NOT at
-    // the section boundary (dogfeed 2026-06-02).
+  it('BE-GHOST-OPEN — open ghost stub anchors at the column edge and extends outward', () => {
+    // Edge-test candidate: kind='open', neighbour=null. The ghost matches the
+    // committed open render — anchored at the source column EDGE, extended
+    // outward by openExtentLengthM (NOT from the column centre, which used to put
+    // the stub inside the column — dogfeed 2026-06-04).  Lengths are above the
+    // OPEN_MIN_STUB_PX=22 floor so they stay distinguishable.
     const candidate: PinchOutCandidate = {
       body_id: null,
       source_investigation_id: 'inv-source',
@@ -555,24 +556,21 @@ describe('BodyExtentOverlay', () => {
       kind: 'open',
       suggested_neighbour_investigation_id: null,
     }
-    // Render with openExtentLengthM=3 (the default). Source along=50, left side →
-    // far endpoint at along = 50 - 3 = 47.
+    // Source along=50, left side → left edge at nudgedX - halfW = 50 - 20 = 30.
+    // length=30 → stub extends LEFT to 30 - 30 = 0. Band spans 0 … 30.
     const { getByTestId, rerender } = renderOverlay({
       bodies: [],
       ghostCandidates: [candidate],
       onRequestClaimGhostCandidate: vi.fn(),
-      openExtentLengthM: 3,
+      openExtentLengthM: 30,
     })
     const fill = getByTestId('body-ghost-fill-inv-source-left')
-    const xs3 = Array.from(
+    const xs30 = Array.from(
       (fill.getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
     ).map(m => parseFloat(m[1]))
-    // Source left edge facing along=47 is nudgedX - halfW = 50 - 20 = 30.
-    // Far point is at along=47. Path spans 30 … 47.
-    // ``max(xs)`` must be ~47 (far point), NOT the section boundary at 200+.
-    expect(Math.max(...xs3)).toBeCloseTo(47, 0)
+    expect(Math.max(...xs30)).toBeCloseTo(30, 0) // anchored at the edge
+    expect(Math.min(...xs30)).toBeCloseTo(0, 0) // edge 30 - length 30
 
-    // Re-render with a different openExtentLengthM — far endpoint must shift.
     rerender(
       <svg>
         <BodyExtentOverlay
@@ -582,19 +580,18 @@ describe('BodyExtentOverlay', () => {
           placedColumns={baseColumns}
           contactEdges={baseEdges}
           {...transforms}
-          openExtentLengthM={10}
+          openExtentLengthM={60}
           ghostCandidates={[candidate]}
           onRequestClaimGhostCandidate={vi.fn()}
         />
       </svg>,
     )
     const fillAfter = getByTestId('body-ghost-fill-inv-source-left')
-    const xs10 = Array.from(
+    const xs60 = Array.from(
       (fillAfter.getAttribute('d') ?? '').matchAll(/[ML]\s*([-\d.]+),/g),
     ).map(m => parseFloat(m[1]))
-    // Far x = along 40 (source 50 - length 10). max(xs) = 40. Different from 47.
-    expect(Math.max(...xs10)).toBeCloseTo(40, 0)
-    expect(Math.max(...xs10)).not.toBeCloseTo(Math.max(...xs3), 0)
+    expect(Math.min(...xs60)).toBeCloseTo(-30, 0) // edge 30 - length 60
+    expect(Math.min(...xs60)).not.toBeCloseTo(Math.min(...xs30), 0)
   })
 
   it('BE15 — multi-formation source frames the wedge to the body’s own layer, not the whole column', () => {
