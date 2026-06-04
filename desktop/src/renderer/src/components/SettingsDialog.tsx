@@ -248,6 +248,7 @@ function LithoSection({
     draft.gunsatKNm3 !== initial.gunsatKNm3 ||
     draft.drCompressionFactor !== initial.drCompressionFactor ||
     draft.mergeSameLithology !== initial.mergeSameLithology ||
+    draft.useNormalisedQc !== initial.useNormalisedQc ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.straddleMinPieceThicknessM !== initial.straddleMinPieceThicknessM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
@@ -306,6 +307,14 @@ function LithoSection({
         hint="Adjacent splits that share lithology (sand-on-sand, etc.) are absorbed into one. Packing-density splits will return as suggestions in the Geotech stage when it ships."
         checked={draft.mergeSameLithology}
         onChange={v => setDraft({ ...draft, mergeSameLithology: v })}
+        disabled={!hasProject}
+      />
+      <CheckboxRow
+        id="settings-use-normalised-qc"
+        label="Normalise qc (Robertson 2015)"
+        hint="On (default): classify CPTs with the stress-normalised Robertson 2015 pipeline (Qtn / F / Ic), using the unit weight + water table above. Off: use the non-normalised Robertson 2010 I_SBT index (qc/pa + Rf) — no stress profile or groundwater needed, better at shallow depth or when the water table is uncertain. Off-mode leaves Dr / NAD packing blank (relative density needs effective stress). CPT path only."
+        checked={draft.useNormalisedQc}
+        onChange={v => setDraft({ ...draft, useNormalisedQc: v })}
         disabled={!hasProject}
       />
       <NumberRow
