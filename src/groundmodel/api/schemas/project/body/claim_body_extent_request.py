@@ -45,6 +45,12 @@ class ClaimBodyExtentRequest(BaseModel):
     primary_section_id : UUID | None
         The cross-section from which the gesture was invoked.  Stored so
         the perpendicular-companion use case can locate the section.
+    anchor_layer_id : UUID | None
+        The litho_layer the user clicked — the spatial anchor for this cap.
+        The renderer frames the cap from this layer's column + depth interval
+        (deterministic), instead of re-deriving the column from the body's
+        emergent geometry.  Must reference a layer in the model.  Omit to
+        leave the cap unanchored (legacy fallback render).
     """
 
     body_id: UUID
@@ -53,3 +59,4 @@ class ClaimBodyExtentRequest(BaseModel):
     source_investigation_id: UUID | None = None
     neighbour_inv_id: UUID | None = None
     primary_section_id: UUID | None = None
+    anchor_layer_id: UUID | None = None
