@@ -27,6 +27,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
     EXTENT_KIND_PINCH_OUT_HALFWAY,
@@ -713,3 +714,100 @@ async def test_detect_rematerialises_bodies_after_clear_all(
     # A body row exists again.
     list_after_heal = await async_client.get(f"{base_url}/bodies")
     assert len(list_after_heal.json()) >= 1, "Detect must rebuild at least one body row"
+
+
+# ---------------------------------------------------------------------------
+# A2: GET /bodies derives each body's geological label by thickness majority.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_bodies_derives_majority_geo_label(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    bodies_api_fixture: tuple,
+) -> None:
+    """A2: ``GET /bodies`` labels each body with its majority geological formation.
+
+    The geological model tops Quartair at 0 m and Pleistoceen at 8 m. A ZAND
+    body whose member straddles that boundary with its midpoint below it is
+    labelled Pleistoceen — derived fresh from the body membership + the geo
+    contacts, never stored. This pins the endpoint wiring (the unit tests cover
+    the majority maths).
+    """
+    project, litho, _litho_formation, bh, _nbr = bodies_api_fixture
+    geo_model_id = litho.parent_geological_model_id
+
+    quartair = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="Quartair", color="#ffcc00", display_order=0
+    )
+    pleistocene = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="Pleistoceen", color="#cc8800", display_order=1
+    )
+    db_session.add_all([quartair, pleistocene])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            FormationContactOrm(
+                id=uuid7(),
+                model_id=geo_model_id,
+                formation_id=quartair.id,
+                borehole_id=bh.id,
+                depth_top_m=0.0,
+                source="manual_pick",
+                confidence="high",
+            ),
+            FormationContactOrm(
+                id=uuid7(),
+                model_id=geo_model_id,
+                formation_id=pleistocene.id,
+                borehole_id=bh.id,
+                depth_top_m=8.0,
+                source="manual_pick",
+                confidence="high",
+            ),
+        ]
+    )
+
+    sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND",
+        color="#fbbf24",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add(sand)
+    await db_session.flush()
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=litho.id,
+        formation_id=sand.id,
+        body_ordinal=0,
+        source_investigation_id=bh.id,
+    )
+    db_session.add(body)
+    await db_session.flush()
+    # Single member straddling the 8 m boundary; midpoint 11 m → Pleistoceen.
+    db_session.add(
+        LithoLayerOrm(
+            id=uuid7(),
+            model_id=litho.id,
+            formation_id=sand.id,
+            borehole_id=bh.id,
+            depth_top_m=6.0,
+            depth_base_m=16.0,
+            status="accepted",
+            source="segmenter",
+            body_id=body.id,
+        )
+    )
+    await db_session.commit()
+
+    resp = await async_client.get(f"/projects/{project.id}/geology/models/{litho.id}/bodies")
+    assert resp.status_code == 200, resp.text
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["geo_formation_id"] == str(pleistocene.id)
+    assert items[0]["geo_formation_name"] == "Pleistoceen"
