@@ -424,6 +424,7 @@ async def claim_body_extent(
             kind=request.kind,
             neighbour_inv_id=request.neighbour_inv_id,
             primary_section_id=request.primary_section_id,
+            anchor_layer_id=request.anchor_layer_id,
         )
     except ProvenanceViolationError as exc:
         # Provenance rule §5.2: detector-set extent cannot be overwritten
