@@ -4739,7 +4739,17 @@ untested); **C5** `BuildSectionSnapshot`/`BuildGroundModelSnapshot` only indirec
 coverage (projection math feeds every exporter); **C6** lens/companion/wedge-tip
 mutation use cases (`create_perpendicular_companion`, `name_lens_body`,
 `delete_lens_metadata`, `upsert_formation_absence`, `materialize_wedge_tips_for_formation`
-— the skip-and-count branches at :478/:633 untested). **Fix.** A test per item
+— the skip-and-count branches at :478/:633 untested). **C11** (added 2026-06-04
+audit) — the single-resource by-id endpoints (`GET`/`DELETE /cpt/{id}`,
+`GET /cpt/{id}/plot`, `PATCH /cpt|borehole/{id}/elevation`, `GET /borehole/{id}`)
+have no "foreign `project_id` → 404" integration test though the geology routers
+do; the `get_in_project_or_404` guards are correct in code but the IDOR contract
+isn't pinned for the most-enumerable endpoints. **C12** (added 2026-06-04) — the
+`POST /projects/{id}/restore` route branches (version `not in
+SUPPORTED_BUNDLE_VERSIONS` → 400, `BundleIntegrityError` → 422,
+ValueError/KeyError/TypeError → 400) are covered only end-to-end via
+`flow_bundle_roundtrip`, not at the route-handler level where they're most likely
+to regress silently. **Fix.** A test per item
 (golden-output for exporters; integration for the guarded use cases). **Effort.** M.
 (Domain services — TIN, pinch-out geometry, Robertson, age-order, lens inference —
 are already well covered; this is the application/exporter layer.)
@@ -4755,8 +4765,14 @@ pin it (land the #137 fix with a regression test). **C9** `useSections.ts`
 seed/draw/`applyUpdatedSection` path untested though the "nothing appears" bug has
 recurred 3× (memory). **C10** several `shell/stages/*` canvas tests are render-only
 ("renders without crash") on interactive logic — audit each for ≥1 behavioural
-assertion, rename pure mounts to explicit "smoke". **Effort.** M (C8/C9/C10), L (C7,
-pairs with the #111/#175b split).
+assertion, rename pure mounts to explicit "smoke". **C11** (added 2026-06-04
+audit) — load-bearing pure helpers have no `.test.ts`: `bodyAnchor.ts`
+(`extremeMemberLayerId`, the #195 body-cap spatial source of truth),
+`lithoLayerToContact.ts` (`lithoLayersToContacts`, the A3 read-switch projection
+with accepted/pending/rejected filtering), `projectFile.ts` (.gmproj build/parse),
+`lithoBoundaryHelpers.ts` — exactly the behaviour-shaped pure functions the
+testing rule targets, while the rest of `utils/` is well covered. **Effort.**
+M (C8/C9/C10/C11), L (C7, pairs with the #111/#175b split).
 
 ## 177. `_reorder_by_age` assigns youngest formation the LOWEST display_order — RESOLVED 2026-06-01
 
@@ -5095,32 +5111,103 @@ body for that component, or (b) broaden the preserve guard to
 layers reference it — simpler, but accumulates orphans until the next clean
 resolve). File: `src/groundmodel/application/resolve_litho_instances_use_case.py`.
 
-## 196. Cold-restore FK violation on companion sections (Tier B — backend, S)
+## 196. Cold-restore FK violation on companion sections — RESOLVED 2026-06-04
 
-**What.** `restore_project_bundle` restores cross-sections (Phase 6) before
-bodies (Phase 8). A companion cross-section carries
-`companion_lens_id` → `body.id` (`fk_cross_section_companion_lens_id`). On a
-**cold** restore (wiped DB / fresh machine) Phase 6 INSERTs the companion
-section before its referenced body exists → FK violation, project fails to open.
-The **idempotent** restore path is safe (existing sections are skipped, so no
-INSERT fires) — which is why `flow_bundle_roundtrip` passes while logging the
-violation. Only users who have run "Materialise lens companions" and then open
-the `.gmproj` on a fresh install are affected; for them it's a data-access
-outage, not data loss (the bundle still carries everything).
+`restore_project_bundle` restored cross-sections (Phase 6) before bodies
+(Phase 8), so a **cold** restore (wiped DB / fresh machine) of a project with a
+`companion_lens_id` → `body.id` companion section INSERTed the section before
+its body existed → `fk_cross_section_companion_lens_id` violation, project
+failed to open. (The idempotent path was safe — existing sections are skipped —
+which is why `flow_bundle_roundtrip` passed while logging the violation.)
 
-**Why deferred.** Pre-ship amnesty; today's single-machine dogfeed never hits the
-cold-restore path. Pre-existing ordering issue (predates the per-instance-body
-work — surfaced by it). Companion sections are an explicit user gesture, so the
-blast radius is narrow.
+Fixed by **deferring the FK**: `_restore_cross_sections` strips
+`companion_lens_id` and returns a `{section_id: body_id}` map;
+`_attach_companion_lens_links` re-attaches it after the bodies phase (dangling
+links logged + left NULL). Mirrors the existing `litho_layer.body_id` deferral.
+Integration test `test_cold_restore_reattaches_companion_lens_section_after_bodies`
+pins it (RED confirmed the exact FK violation pre-fix). Commits 0a4afe13 /
+52a4975c on develop. File:
+`src/groundmodel/infrastructure/db/repositories/project_bundle.py`.
 
-**When to revisit.** Before first external distribution OR before "Materialise
-lens companions" is documented as a supported feature — whichever is first. Fix:
-swap the restore phase order (bodies before cross-sections; audit confirms the
-only section→body FK is `companion_lens_id`, and `body.primary_section_id` is
-SET NULL so a body can be inserted before its section), OR strip `companion_lens_id`
-on the cross-section insert and backfill it in a second pass after bodies restore.
-File: `src/groundmodel/infrastructure/db/repositories/project_bundle.py`
-(restore phase ordering).
+## 197. Section-projection block duplicated across ≥5 use cases (Tier E — backend, M)
+
+**What.** The "load the `CrossSectionOrm`, build `SectionEndpoints`, query
+CPT/borehole locations, project via `project_point_onto_line`, filter by
+`projection_buffer_m`" block is copy-pasted across
+`suggest_body_pinch_outs._section_along_positions`, `detect_bodies`,
+`auto_correlate_contact_edges._section_along_adjacency`, `build_section_snapshot`,
+and `materialize_wedge_tips_for_formation`. The variants differ only in return
+shape (along-distance dict vs adjacency pairs vs full projections);
+`suggest_body_pinch_outs` even documents "Mirrors
+`AutoCorrelateContactEdges._section_along_adjacency`". `load_corridor_investigations`
+(in `recompute_formation_absences_for_body.py`) is the existing precedent for the
+shared shape. (Surfaced by the 2026-06-04 whole-codebase audit.)
+
+**Why deferred.** Pure DRY — no behaviour bug. A 5-site production extraction
+needs its own focused pass + a regression test per caller so the projection math
+can't drift across the refactor.
+
+**When to revisit.** Next time a 6th caller needs section projection, OR alongside
+the Geotech stage (which adds more section-scoped use cases). Fix: extract
+`project_investigations_onto_section(session, project_id, section_id) -> dict[UUID, ProjectionResult]`
+and adapt each caller to the result. Files: the five use cases above.
+
+## 198. DOV WFS fetch + error-logging block duplicated 5× (Tier E — backend, S)
+
+**What.** The `try: await …fetch_bbox()… except httpx.HTTPStatusError /
+httpx.RequestError: self.error(…); raise` block (varying only by the log-label
+string) is repeated in `import_samples_dov` (×2), `import_cpt_dov`,
+`import_interpretations_dov`, and `import_borehole_dov`. The per-row persist
+try/excepts are correctly left separate (different resilience semantics) — only
+the WFS-fetch wrapper is the duplication. (Surfaced by the 2026-06-04 audit.)
+
+**Why deferred.** Pure DRY; the import family works. Low blast radius.
+
+**When to revisit.** When a new DOV import source adds the 6th copy. Fix:
+parameterise a module-level `_fetch_wfs_or_raise(coro, label, logger)` helper.
+Files: the four `import_*_dov.py` use cases.
+
+## 199. Integration fixture builders redefined 12–15× (Tier E — testing, S)
+
+**What.** `_litho_model`, `_geo_model`, and `_contact` are redefined verbatim
+across ~12 litho/body integration test files
+(`test_update_formation_contact_cross_merge`, `test_detect_bodies`,
+`test_claim_body_extent`, `test_suggest_body_pinch_outs`,
+`test_materialise_body_companions`, …), differing only in a `name=` literal.
+factory-boy is a dev dependency but barely used. (Surfaced by the 2026-06-04 audit.)
+
+**Why deferred.** Test-only churn; the counterweight rule applies — verify each
+copy is genuinely identical (not a subtly-different fixture) before unifying, or
+a shared builder silently changes a test's setup. High file-count, low
+correctness value.
+
+**When to revisit.** Next time a litho/body schema change forces editing all 12
+copies (the pain trigger). Fix: a shared `tests/integration/_litho_builders.py`
+(or conftest fixtures / factory-boy factories) parameterised on the label.
+
+## 200. Electron pre-distribution hardening — DevTools log leak + file:// nav (Tier B — frontend, S)
+
+**What.** Two low-severity Electron findings (security audit 2026-06-04):
+* **F5** — `startApi()` pipes the Python/uvicorn stdout+stderr (including the
+  asyncpg connection string `groundmodel:groundmodel@localhost:5433/…`) to
+  `console.log`/`console.error`. In a packaged build, View → Toggle DevTools
+  stays enabled, so any user who opens DevTools sees the DB URL + everything the
+  backend logs. (`desktop/src/main/index.ts:131-133`).
+* **F6** — `isInAppNavigation` treats ALL `file://` URLs as in-app, so a
+  compromised renderer issuing `window.location = 'file://C:/Windows/win.ini'`
+  would render a local file. Very low risk today — no user content renders as
+  HTML (no raw-HTML injection sink in the UI) — but it widens if free-text
+  fields ever render markup. (`desktop/src/main/security.ts:169`).
+
+**Why deferred.** Both require a packaged build + a user opening DevTools / a
+renderer compromise — neither exists on the single-machine dogfeed.
+Pre-distribution concerns.
+
+**When to revisit.** Day-1 of the first external/paid distribution (ties to Tier
+B #5 tamper hardening). Fix F5: route backend stdout to a log file (electron-log)
+instead of the renderer console in production builds. Fix F6: narrow the
+`file://` check to the renderer's actual base URL (`win.webContents.getURL()`
+after `loadFile`).
 
 ## (end)
 
