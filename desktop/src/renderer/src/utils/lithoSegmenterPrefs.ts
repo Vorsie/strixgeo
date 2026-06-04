@@ -58,13 +58,6 @@ export interface LithoSegmenterPrefs {
    *  (#134-C).  Backend range: 0.01 – 5.0 m.  Default 0.20 m
    *  matches the MVP that shipped 2026-05-27. */
   lithoSnapToleranceM: number
-  /** Straddle sliver guard (metres) for the accept flow (debt #157).
-   *  When a CPT suggestion's top or base falls within this distance
-   *  of a geological formation boundary, the straddle split is
-   *  suppressed for that near-edge piece — avoiding sub-tolerance
-   *  slivers that would be narrower than this threshold.  Backend
-   *  range: 0.01 – 5.0 m.  Default 0.20 m. */
-  straddleMinPieceThicknessM: number
   /** Auto-correlate depth-match window (metres) at zero column
    *  distance (debt #163b).  Two contacts on neighbouring tests are
    *  eligible to correlate when their depth difference is below this
@@ -96,7 +89,6 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   mergeSameLithology: true,
   useNormalisedQc: true,
   lithoSnapToleranceM: 0.20,
-  straddleMinPieceThicknessM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
   maxLensThicknessM: 5.0,
   openExtentLengthM: 3.0,
@@ -107,7 +99,6 @@ export const LITHO_SEGMENTER_BOUNDS = {
   gunsatKNm3: { min: 8.0, max: 25.0 },
   drCompressionFactor: { min: 0.1, max: 2.0 },
   lithoSnapToleranceM: { min: 0.01, max: 5.0 },
-  straddleMinPieceThicknessM: { min: 0.01, max: 5.0 },
   autoCorrelateDepthWindowM: { min: 0.05, max: 5.0 },
   // min 0 so 0 is a VALID value meaning "guard off" (not clamped to a default).
   maxLensThicknessM: { min: 0, max: 20.0 },
@@ -178,11 +169,6 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM,
       LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
     ),
-    straddleMinPieceThicknessM: readBoundedNumber(
-      dict.straddle_min_piece_thickness_m,
-      LITHO_SEGMENTER_BOUNDS.straddleMinPieceThicknessM,
-      LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
-    ),
     autoCorrelateDepthWindowM: readBoundedNumber(
       dict.auto_correlate_depth_window_m,
       LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM,
@@ -218,7 +204,6 @@ export function buildLithoSegmenterPatch(
       merge_same_lithology: prefs.mergeSameLithology,
       use_normalised_qc: prefs.useNormalisedQc,
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
-      straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
       max_lens_thickness_m: prefs.maxLensThicknessM,
       open_extent_length_m: prefs.openExtentLengthM,
