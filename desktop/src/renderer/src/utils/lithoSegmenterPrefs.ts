@@ -41,6 +41,14 @@ export interface LithoSegmenterPrefs {
    *  signal returns at the right layer: the Geotech stage's future
    *  "Suggest packing split" gesture. CPT path only. */
   mergeSameLithology: boolean
+  /** When true (default), the CPT segmenter classifies with the stress-
+   *  NORMALISED Robertson 2015 pipeline (Qtn / F / Ic). When false, it uses
+   *  the NON-normalised Robertson 2010 I_SBT index (qc/pa + Rf) — no stress
+   *  profile or groundwater table needed, appropriate at shallow depth or
+   *  when the effective-stress profile is unreliable. Non-normalised mode
+   *  leaves Dr / NAD packing blank (relative density needs effective stress).
+   *  CPT path only. */
+  useNormalisedQc: boolean
   /** Inclusive snap tolerance (metres) used by the litho↔geological
    *  contact-drag prompt (debt #134).  When a litho contact is
    *  dragged within ±tolerance of any geological contact on the
@@ -86,6 +94,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   gunsatKNm3: 16.0,
   drCompressionFactor: 0.675,
   mergeSameLithology: true,
+  useNormalisedQc: true,
   lithoSnapToleranceM: 0.20,
   straddleMinPieceThicknessM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
@@ -158,6 +167,12 @@ export function readLithoSegmenterPrefs(
       typeof dict.merge_same_lithology === 'boolean'
         ? dict.merge_same_lithology
         : LITHO_SEGMENTER_DEFAULTS.mergeSameLithology,
+    // Boolean — missing/undefined defaults to true (normalised). Only an
+    // explicit false selects the non-normalised I_SBT classifier.
+    useNormalisedQc:
+      typeof dict.use_normalised_qc === 'boolean'
+        ? dict.use_normalised_qc
+        : LITHO_SEGMENTER_DEFAULTS.useNormalisedQc,
     lithoSnapToleranceM: readBoundedNumber(
       dict.litho_snap_tolerance_m,
       LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM,
@@ -201,6 +216,7 @@ export function buildLithoSegmenterPatch(
       gunsat_kNm3: prefs.gunsatKNm3,
       dr_compression_factor: prefs.drCompressionFactor,
       merge_same_lithology: prefs.mergeSameLithology,
+      use_normalised_qc: prefs.useNormalisedQc,
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
       straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
