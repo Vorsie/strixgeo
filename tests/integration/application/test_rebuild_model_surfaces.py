@@ -37,11 +37,19 @@ from uuid6 import uuid7
 
 from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._litho_builders import (
+    contact as _contact,
+)
+from tests.integration._litho_builders import (
+    geo_model as _geo_model,
+)
+from tests.integration._litho_builders import (
+    litho_model as _litho_model,
+)
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers
@@ -61,27 +69,6 @@ def _borehole(project_id: UUID, *, suffix: str, x: float, y: float = 200_000.0) 
         elevation_m=5.0,
         epsg=31370,
         total_depth_m=20.0,
-    )
-
-
-def _geo_model(project: ProjectOrm) -> GeologicalModelOrm:
-    """Unsaved geological GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Geo-REBUILD",
-        kind="geological",
-    )
-
-
-def _litho_model(project: ProjectOrm, geo: GeologicalModelOrm) -> GeologicalModelOrm:
-    """Unsaved lithostratigraphic GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Litho-REBUILD",
-        kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
     )
 
 
@@ -119,25 +106,6 @@ def _litho_formation(
         display_order=display_order,
         parent_formation_id=parent.id,
         litho_main_soil_code="ZAND",
-    )
-
-
-def _contact(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
-    *,
-    depth: float,
-) -> FormationContactOrm:
-    """Unsaved FormationContactOrm."""
-    return FormationContactOrm(
-        id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=depth,
-        source="borehole_observation",
-        confidence="medium",
     )
 
 
