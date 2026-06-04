@@ -93,7 +93,7 @@ import { useBandFillVisible } from '../utils/bandFillStore'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import GhostContextMenu from './sections/GhostContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
-import { lensFormationBase } from '../utils/lensLabel'
+import { lithologyAbbrev } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
@@ -847,21 +847,19 @@ export default function SectionPanel({
   } | null>(null)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
 
-  // formation_id → lens auto-name BASE: parent geological formation DOV code +
-  // lithology abbreviation, e.g. "QP" + "Sa" → "QPSa" (owner directive
-  // 2026-06-01). BodyExtentOverlay appends the depth rank → "QPSa1".
+  // formation_id → body auto-name BASE. A2 (owner directive 2026-06-04): litho
+  // units are geologically agnostic, so the base is just the lithology
+  // abbreviation (e.g. ZAND → "Sa"); BodyExtentOverlay appends the depth rank →
+  // "Sa1", "Sa2". The geological formation a body falls in is a SEPARATE derived
+  // label (``body.geo_formation_name``), shown as context, not baked into the
+  // name — so the old "QP"/"QH" geo-parent prefix is gone.
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
       // Litho units carry the soil in ``litho_main_soil_code`` (e.g. ZAND);
       // ``lithology`` is a separate, usually-null field. Use the main soil.
-      const base = lensFormationBase(
-        f.parent_formation_code,
-        f.litho_main_soil_code ?? f.lithology,
-      )
-      // Degrade gracefully when neither code nor soil resolves: fall back to
-      // the parent name / unit name so the lens still has *some* label.
-      m.set(f.id, base || (f.parent_formation_name ?? '').trim() || f.name)
+      const base = lithologyAbbrev(f.litho_main_soil_code ?? f.lithology)
+      m.set(f.id, base || f.name)
     }
     return m
   }, [formations])
