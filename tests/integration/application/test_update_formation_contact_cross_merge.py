@@ -36,8 +36,16 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
-from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._litho_builders import (
+    contact as _shared_contact,
+)
+from tests.integration._litho_builders import (
+    geo_model as _geo_model,
+)
+from tests.integration._litho_builders import (
+    litho_model as _litho_model,
+)
 
 # ---------------------------------------------------------------------------
 # Fixture helpers (private)
@@ -56,27 +64,6 @@ def _borehole(project_id: UUID, *, suffix: str, x: float = 100000.0) -> Borehole
         location_y=200000.0,
         epsg=31370,
         total_depth_m=30.0,
-    )
-
-
-def _geo_model(project: ProjectOrm) -> GeologicalModelOrm:
-    """Return an unsaved geological GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Geo-CM",
-        kind="geological",
-    )
-
-
-def _litho_model(project: ProjectOrm, geo: GeologicalModelOrm) -> GeologicalModelOrm:
-    """Return an unsaved lithostratigraphic GeologicalModelOrm."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Litho-CM",
-        kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
     )
 
 
@@ -99,23 +86,9 @@ def _formation(
     )
 
 
-def _contact(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
-    *,
-    depth: float,
-) -> FormationContactOrm:
-    """Return an unsaved FormationContactOrm anchored to a borehole."""
-    return FormationContactOrm(
-        id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=depth,
-        source="manual_pick",
-        confidence="medium",
-    )
+def _contact(model, formation, borehole, *, depth):
+    """manual_pick-sourced contact (cross-merge fixtures use manual picks)."""
+    return _shared_contact(model, formation, borehole, depth=depth, source="manual_pick")
 
 
 async def _all_contacts_on_anchor(
