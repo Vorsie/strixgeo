@@ -144,7 +144,15 @@ class DovWfsClientBase(GroundModelLogger, Generic[RowT]):
             props: dict[str, Any] = feat.get("properties", {})
             row = self._build_row(props)
             if row is None:
-                self._on_skipped_feature(props, skip_state)
+                # Reassign — the default int-counter hook returns the
+                # incremented value (an int is immutable, so the new count
+                # only propagates via the return). Mutate-in-place dict/
+                # dataclass overrides return their same state object, so the
+                # reassignment is a no-op for them. Discarding the return
+                # (the pre-fix bug) left the int counter stuck at 0, so the
+                # "N features skipped — available properties: …" diagnostic
+                # never fired for boreholes (debt: dead skip-warning).
+                skip_state = self._on_skipped_feature(props, skip_state)
                 continue
             rows.append(row)
 
@@ -182,13 +190,12 @@ class DovWfsClientBase(GroundModelLogger, Generic[RowT]):
         single-reason case). Subclasses with multi-reason counters
         mutate their own state structure here.
 
-        NOTE: the default returns the incremented value, but mutation-
-        in-place is the usual pattern for dict/dataclass state.
+        Contract: the caller reassigns ``skip_state`` to the return value,
+        so EVERY override MUST return the (possibly-mutated) state. The
+        immutable-int default relies on this — discarding the return left
+        the counter stuck at 0 and silenced the skip-summary warning.
+        Mutate-in-place dict/dataclass overrides return their same object.
         """
-        # Default impl: state is an int; rebind upward isn't possible
-        # without returning to the caller, so callers using the default
-        # should expect the single-counter shape. Subclasses with
-        # mutable state mutate in place and don't read the return.
         return state + 1
 
     def _emit_skip_warning(
