@@ -714,10 +714,6 @@ export interface AcceptLithoSuggestionsRequest {
   // formation so the ghost-accept finds it by key rather than duplicating
   // it (Bug 2 dogfeed 2026-05-26). Default false.
   create_formation_only?: boolean
-  // Straddle sliver guard (debt #157). When a suggestion's top or base
-  // falls within this distance of a geological formation boundary, the
-  // split piece is suppressed. Default 0.20 m. Range 0.01–5.0 m.
-  straddle_min_piece_thickness_m?: number
   // Litho↔geo coupling coincidence tolerance (#162). A litho contact
   // within this distance of a geological contact on the same investigation
   // is linked and snapped to it. Sourced from litho_snap_tolerance_m pref.
@@ -763,9 +759,6 @@ export interface BatchAcceptLithoSuggestionsRequest {
   // When true (default), the server runs recompute-all-absences once after the
   // batch — the frontend no longer makes a separate recompute call.
   run_inference?: boolean
-  // Straddle sliver guard (debt #157). Forwarded to every per-anchor accept.
-  // Default 0.20 m. Range 0.01–5.0 m.
-  straddle_min_piece_thickness_m?: number
   // Litho↔geo coupling coincidence tolerance (#162). Forwarded to every
   // per-anchor accept. Sourced from litho_snap_tolerance_m pref.
   // Default 0.20 m. Range 0.01–5.0 m.
