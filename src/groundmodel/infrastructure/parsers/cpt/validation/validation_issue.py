@@ -20,6 +20,17 @@ class ValidationIssue:
 # ---------------------------------------------------------------------------
 
 
+def make_issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
+    """Build a row-less ``ValidationIssue`` from (level, code, message).
+
+    Single source of truth for the no-row-index factory that the four DOV
+    parsers (CPT / boring / interpretation / grain-size) each defined
+    identically as a private ``_issue`` helper. Each imports this as ``_issue``
+    so its call sites are unchanged.
+    """
+    return ValidationIssue(level=level, code=code, message=message)
+
+
 def issues_have_errors(issues: list[ValidationIssue]) -> bool:
     """Return ``True`` when any issue has ERROR severity.
 
