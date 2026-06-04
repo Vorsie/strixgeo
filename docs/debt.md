@@ -3930,7 +3930,15 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Double SAND / SILT units after Accept-litho (Tier G — OPEN)
+## 149. Double SAND / SILT units after Accept-litho (Tier G — OPEN, A2-narrowed)
+
+**A2 update 2026-06-04.** A2 removes straddle-split entirely (a crossing layer
+stays one layer; see #157 RESOLVED + the A2 spec), so the
+straddle-re-split-at-geo-boundary path — the strongly-suspected root cause per
+the 2026-05-28 dogfeed — is gone. The residual hypothesis (admixture-sig drift
+across investigations / auto-populate↔Suggest aggregation mismatch) is NOT
+addressed by A2. Re-verify on a fresh post-A2 dogfeed: if doubling no longer
+reproduces, close this; if it does, it's the admixture-drift path.
 
 **What.** Owner dogfeed 2026-05-27 reported "double sand or silt
 units" appearing in the inspector after Accept-litho, even when
@@ -4126,65 +4134,13 @@ intended target with the owner (Sections stage vs a section-mode Geology
 stage) before wiring.
 Filed from dogfeed session 2026-05-28.
 
-## 157. Accepted litho units get thin slivers from straddle-split at geo boundaries (Tier G) — CORE + SETTINGS KNOB SHIPPED 2026-05-28
+## 157. Accepted litho slivers from straddle-split — RESOLVED 2026-06-04 (A2)
 
-**SHIPPED 2026-05-28 (lever b, the min-thickness guard).**
-`_compute_straddle_splits` now drops any geology boundary within
-`min_piece_thickness_m` of the ghost's top OR base (a sub-tolerance
-crossing → would leave a sliver), and assigns the whole ghost to the
-formation covering its **midpoint** (robust: a ghost 99% in the lower
-formation no longer mis-parents to the thin upper one). Boundaries clear
-of both edges still split. Threaded through `execute()` +
-`BatchAcceptLithoSuggestions` as `straddle_min_piece_thickness_m` and
-exposed as a per-project **Settings → Litho segmenter → "Sliver guard (m)"**
-NumberRow (`view_state.litho_segmenter.straddle_min_piece_thickness_m`,
-default 0.20 m, range 0.01–5.0 m), mirroring the #134-A snap-tolerance
-knob. AS1-AS3 unit pins + 8 Pydantic schema tests + frontend pref tests.
-**Caveats:** (1) preventive, not retroactive — slivers already in the DB
-persist until those anchors are re-accepted; no retroactive cleanup was
-written (re-accept is safer). (2) This is lever (b); lever (a)
-suggestion-stage snap was NOT done — the midpoint-assignment guard made it
-unnecessary for the sliver symptom. The deeper structural fix (couple
-coincident litho/geo boundaries so they can't drift apart) is **#162**.
-Dogfeed-confirmed working 2026-05-28.
-
-**Original entry (for context):**
-
-**What.** Owner dogfeed 2026-05-28: after merging adjacent litho units in
-the *suggestion* view and accepting, thin sliver units appear in the
-accepted model (e.g. a ~10 cm SAND sliver wedged between CLAY and SAND).
-The owner's read is correct: the suggestion merge **is** preserved as one
-ghost, but `AcceptLithoSuggestions` **straddle-splits** each ghost at the
-geological formation boundaries it crosses (the three-level model assigns
-each interval to its geo parent). When a litho ghost boundary sits a few
-cm off a geo boundary, the split leaves a sub-tolerance sliver.
-
-**Almost certainly the same mechanism as #149** (the "double SAND/SILT
-units after accept" reports): a merged ghost straddling a geo boundary →
-two units, the thinner reading as a sliver / the pair reading as a
-"double". Treat #157 and #149 as one root cause.
-
-**Fix direction (owner asked "would suggestion-stage snap help?" — yes).**
-Two complementary levers:
-* **(a) Snap the litho boundary to a near geo boundary before the split**
-  — the owner's suggestion-stage snap idea, applied to the straddle-split
-  input. If the ghost boundary is within tolerance of a geo boundary,
-  align them so the split produces no sliver. Reuses the #134 litho-geo
-  snap tolerance (`view_state.litho_segmenter.litho_snap_tolerance_m`,
-  default 0.20 m).
-* **(b) Minimum-sliver-thickness guard** — when a straddle-split would
-  create a segment thinner than the tolerance, absorb it into the adjacent
-  segment instead of emitting it. A safety net for the cases (a) misses.
-
-Recommendation: do both — snap is the principled fix, the min-thickness
-floor is the backstop. **Decide the snap direction** (move litho to geo,
-the common case, vs move geo to litho) with the owner; default to
-litho→geo since the geo model is the substrate.
-
-**When to revisit.** This is litho-finishing (Tier G), above the geotech
-gate — slivers make the accepted model visibly wrong. Pair with the #149
-investigation; they likely close together.
-Filed from dogfeed session 2026-05-28.
+Straddle-split is removed entirely by the A2 litho/geo decoupling (owner
+directive 2026-06-04): a layer crossing a geological boundary stays ONE layer,
+so the sliver mechanism no longer exists. The whole `_compute_straddle_splits`
+/ sliver-guard machinery + the "Sliver guard" Settings knob are retired. See
+`docs/superpowers/specs/2026-06-04-a2-litho-geo-decoupling-design.md`.
 
 ## 158. Thin litho bands/slivers are hard to click — expand the hit target (Tier E)
 
