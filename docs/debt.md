@@ -5152,23 +5152,6 @@ the Geotech stage (which adds more section-scoped use cases). Fix: extract
 `project_investigations_onto_section(session, project_id, section_id) -> dict[UUID, ProjectionResult]`
 and adapt each caller to the result. Files: the five use cases above.
 
-## 199. Integration fixture builders redefined 12–15× (Tier E — testing, S)
-
-**What.** `_litho_model`, `_geo_model`, and `_contact` are redefined verbatim
-across ~12 litho/body integration test files
-(`test_update_formation_contact_cross_merge`, `test_detect_bodies`,
-`test_claim_body_extent`, `test_suggest_body_pinch_outs`,
-`test_materialise_body_companions`, …), differing only in a `name=` literal.
-factory-boy is a dev dependency but barely used. (Surfaced by the 2026-06-04 audit.)
-
-**Why deferred.** Test-only churn; the counterweight rule applies — verify each
-copy is genuinely identical (not a subtly-different fixture) before unifying, or
-a shared builder silently changes a test's setup. High file-count, low
-correctness value.
-
-**When to revisit.** Next time a litho/body schema change forces editing all 12
-copies (the pain trigger). Fix: a shared `tests/integration/_litho_builders.py`
-(or conftest fixtures / factory-boy factories) parameterised on the label.
 
 ## 200. Electron pre-distribution hardening — DevTools log leak + file:// nav (Tier B — frontend, S)
 
