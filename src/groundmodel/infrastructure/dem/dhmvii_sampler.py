@@ -269,7 +269,14 @@ class DhmviiSampler(GroundModelLogger):
             f"WCS GetCoverage bbox=({bbox_min_x:.1f},{bbox_min_y:.1f}) → "
             f"({bbox_max_x:.1f},{bbox_max_y:.1f}) for {n_samples} samples"
         )
+        self.trace(f"GET {DHMVII_WCS_URL} params={params}")
         resp = await self._client.get(DHMVII_WCS_URL, params=params)
+        # Log status + size BEFORE raise_for_status so a non-2xx still records
+        # the response (DoD: external calls log status after; non-2xx logs the
+        # body, truncated). raise_for_status alone would discard the body.
+        self.debug(f"WCS GetCoverage → HTTP {resp.status_code}, {len(resp.content)} B")
+        if resp.status_code >= 400:
+            self.error(f"WCS GetCoverage failed: HTTP {resp.status_code} — {resp.text[:500]}")
         resp.raise_for_status()
         tiff = parse_wcs_multipart(resp.content)
         self.debug(f"WCS payload {len(resp.content)} B, TIFF {len(tiff)} B")
