@@ -305,11 +305,34 @@ async def test_bilateral_closure_emits_no_candidates(
     e3 = _approved_edge(litho, c_top, c_right_top)
     e4 = _approved_edge(litho, c_base, c_right_base)
     db_session.add_all([e1, e2, e3, e4])
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="SEC-t2",
+        description=None,
+        start_x=161900.0,
+        start_y=200000.0,
+        end_x=163100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
     await db_session.commit()
+
+    # A2: continuity is read from the RESOLVED body, so resolve before
+    # suggesting (production does on every correlation change). Bilateral
+    # closure merges bh_source with bh_left + bh_right into one body per
+    # lithology, so bh_source bands on both sides → no candidates.
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
 
     candidates = await SuggestBodyPinchOuts(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=section.id,
     )
 
     # bh_source's pair is fully paired — no candidates from it.
@@ -1246,9 +1269,33 @@ async def test_lithology_continues_across_correlation_is_band(
     db_session.add_all([c_zand, c_base, c_r_zand, c_r_base, c_left])
     await db_session.flush()
     db_session.add(_approved_edge(litho, c_zand, c_r_zand))  # ZAND top ties to ZAND
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="SEC-r1b",
+        description=None,
+        start_x=399900.0,
+        start_y=200000.0,
+        end_x=401100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        vertical_exaggeration=1.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+    )
+    db_session.add(section)
     await db_session.commit()
 
-    cands = await SuggestBodyPinchOuts(db_session).execute(project_id=project.id, model_id=litho.id)
+    # A2: continuity is read from the RESOLVED body (the correlation connected-
+    # component), so resolve before suggesting — as production does on every
+    # correlation change. The ZAND↔ZAND edge merges bh_src + bh_right into one
+    # body, so bh_src's right side bands.
+    await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+
+    cands = await SuggestBodyPinchOuts(db_session).execute(
+        project_id=project.id, model_id=litho.id, section_id=section.id
+    )
     right = [
         c
         for c in cands

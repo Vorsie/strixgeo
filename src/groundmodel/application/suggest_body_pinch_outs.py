@@ -1,11 +1,11 @@
 """Suggest-body-pinch-outs use case — ephemeral candidate pass.
 
-Scans bodies in a model whose source pair has ZERO approved
-correlations in some direction; emits one ``PinchOutCandidate`` per
-adjacent neighbour in that direction. NO persistence side effects —
-candidates are returned in-memory. The frontend renders them as ghost
-wedges; click-to-commit fires ``ClaimBodyExtent`` to materialise the
-claim.
+For every unit, emits a ``PinchOutCandidate`` on each lateral side where its
+BODY terminates — i.e. the body has no member further along that side, so the
+user's correlation chain ends here. NO persistence side effects — candidates
+are returned in-memory. The frontend renders them as ghost wedges;
+click-to-commit fires ``ClaimBodyExtent`` to materialise the claim. See the
+``SuggestBodyPinchOuts`` class docstring for the band/open/pinch rule.
 
 Refreshed on every "Suggest pinch-outs" verb click.
 
@@ -50,11 +50,7 @@ from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
-    LithoContactCorrelationEdgeOrm,
-)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.constants.extent_kind import is_user_claimed_extent_kind
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -116,23 +112,30 @@ class PinchOutCandidate:
 
 
 class SuggestBodyPinchOuts(GroundModelLogger):
-    """Ephemeral candidate generator for body pinch-out suggestions (R1).
+    """Ephemeral candidate generator for body pinch-out suggestions.
 
-    Iterates every unit on every investigation that participates in the
-    model and classifies each lateral side by **lithology continuity**
-    (R1, owner directive 2026-06-03):
+    Classifies each lateral side of every unit by **body-membership continuity**
+    (owner directive 2026-06-04, supersedes the 2026-06-03 R1 contact-correlation
+    rule). Under A2 a body IS the connected-component of the user's approved
+    correlation bands (the resolver stamps ``litho_layer.body_id``), so its
+    lateral span is its membership — reading that span is reading the user's
+    correlations directly:
 
-    * **BAND** (no candidate) — the unit's lithology continues across to the
-      nearest neighbour on that side: its top contact has an approved edge to
-      a SAME-soil contact there, and that neighbour is deep enough to carry the
-      unit.  A correlation to a DIFFERENT-soil contact (a boundary tie where
-      the lithology changes) does NOT make it a band.
+    * **BAND** (no candidate) — the unit's BODY has a member further along on
+      that side (the correlation chain continues past this column).
     * **OPEN** — there is no neighbour on that side (the section's first/last
       column), OR the unit is the bottom substrate (deepest unit, no base
-      contact) wherever it does not continue.  The substrate never pinches.
-    * **PINCH** — an interior unit whose lithology does not continue to an
-      EXISTING neighbour (different lithology, no correlation, or the neighbour
-      is too shallow to carry it).
+      contact). The substrate never pinches.
+    * **PINCH** — an interior unit whose body terminates here (no member further
+      along this side) and a neighbour exists to pinch toward.
+
+    Validated against a real cross-section (test.strix CS3, 2026-06-04): this
+    reproduces 100% of the user's deliberate pinch/open marks, where the prior
+    contact-correlation rule reproduced 72% — it over-pinched section-spanning
+    bodies whose chain skipped a column or routed through a non-nearest
+    neighbour. Requires a resolved body + a section (both always present in
+    production: the resolver runs on every correlation change; the frontend
+    always passes the active section).
 
     A user-claimed extent (open / pinch_out_halfway / extrapolated) on a side
     settles it — no candidate is re-suggested there.  ``open`` candidates need
@@ -209,30 +212,13 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         contact_rows = (await self._session.execute(contacts_stmt)).all()
         self.debug(f"SuggestBodyPinchOuts: {len(contact_rows)} contact row(s) loaded")
 
-        # Lithology (main soil code) per formation — the R1 rule (owner directive
-        # 2026-06-03) decides band-vs-pinch on whether the unit's LITHOLOGY
-        # continues across a correlation, not merely whether the contacts
-        # correlate.  So we need each contact's soil code, resolved via its
-        # formation.
-        soil_rows = (
-            await self._session.execute(
-                select(
-                    GeologicalFormationOrm.id,
-                    GeologicalFormationOrm.litho_main_soil_code,
-                ).where(GeologicalFormationOrm.app_project_id == project_id)
-            )
-        ).all()
-        soil_by_formation: dict[UUID, str | None] = {
-            r.id: r.litho_main_soil_code for r in soil_rows
-        }
-
         # Build per-investigation stacks (depth-sorted tuples) and a
-        # contact→investigation reverse map.
+        # contact→investigation reverse map.  A2: band-vs-pinch is decided by
+        # body membership (the correlation connected-component), not raw contact
+        # correlations, so no per-contact soil / edge lookup is needed.
         stacks: dict[UUID, list[tuple[float, UUID, UUID]]] = {}
         # Maps contact_id → investigation_id (polymorphic).
         contact_inv: dict[UUID, UUID] = {}
-        # Maps contact_id → the soil code of the unit that STARTS at this contact.
-        soil_by_contact: dict[UUID, str | None] = {}
         for r in contact_rows:
             inv_id: UUID | None = r.borehole_id if r.borehole_id is not None else r.cpt_id
             if inv_id is None:
@@ -240,7 +226,6 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 continue
             stacks.setdefault(inv_id, []).append((r.depth_top_m, r.id, r.formation_id))
             contact_inv[r.id] = inv_id
-            soil_by_contact[r.id] = soil_by_formation.get(r.formation_id)
 
         # Sort each stack ascending by depth.
         for entries in stacks.values():
@@ -272,33 +257,10 @@ class SuggestBodyPinchOuts(GroundModelLogger):
             bottom_depth_by_inv[r.id] = r.total_depth_m
 
         # ------------------------------------------------------------------ #
-        # 2. Load all user-approved edges.                                    #
-        # ------------------------------------------------------------------ #
-        edges_stmt = select(
-            LithoContactCorrelationEdgeOrm.contact_a_id,
-            LithoContactCorrelationEdgeOrm.contact_b_id,
-        ).where(
-            LithoContactCorrelationEdgeOrm.model_id == model_id,
-            LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-        )
-        edge_rows = (await self._session.execute(edges_stmt)).all()
-        self.debug(f"SuggestBodyPinchOuts: {len(edge_rows)} approved edge(s) loaded")
-
-        # For each contact, the set of contacts it is correlated to (both
-        # directions).  R1 checks not just THAT a contact correlates to a
-        # neighbour but whether the correlated contact carries the SAME
-        # lithology — so we keep the contact ids (not just their investigations)
-        # to look up the target soil.
-        contact_corr: dict[UUID, set[UUID]] = {}
-        for r in edge_rows:
-            if contact_inv.get(r.contact_a_id) is None or contact_inv.get(r.contact_b_id) is None:
-                # Edge references a synthetic / unanchored contact — skip.
-                continue
-            contact_corr.setdefault(r.contact_a_id, set()).add(r.contact_b_id)
-            contact_corr.setdefault(r.contact_b_id, set()).add(r.contact_a_id)
-
-        # ------------------------------------------------------------------ #
-        # 3. Load existing body rows + the per-layer body backlink.           #
+        # 2. Load existing body rows + the per-layer body backlink.           #
+        #    The body IS the correlation connected-component (resolver-stamped #
+        #    body_id), so the body membership encodes the user's correlation   #
+        #    bands directly — no separate edge load is needed.                 #
         # ------------------------------------------------------------------ #
         bodies_stmt = select(BodyOrm).where(BodyOrm.model_id == model_id)
         bodies = (await self._session.execute(bodies_stmt)).scalars().all()
@@ -341,23 +303,36 @@ class SuggestBodyPinchOuts(GroundModelLogger):
 
         ordered: list[UUID] = sorted(position.keys(), key=lambda iid: position[iid])
 
+        # A2 body-membership span: the along-positions of each body's member
+        # columns on the section. A body is the correlation connected-component
+        # (resolver-stamped ``body_id``), so this set IS the span of the user's
+        # correlation chain. A unit continues on a side iff its body has a member
+        # further along that side — reading the resolved chain, not raw
+        # nearest-contact edges. This is what fixes R1's over-pinch of
+        # section-spanning bodies (CS3 dogfeed: the old check reproduced 72% of
+        # the user's positive marks; this reproduces 100%).
+        body_alongs: dict[UUID, set[float]] = {}
+        for contact_id, bid in body_id_by_layer.items():
+            if bid is None:
+                continue
+            inv = contact_inv.get(contact_id)
+            pos = position.get(inv) if inv is not None else None
+            if pos is not None:
+                body_alongs.setdefault(bid, set()).add(pos)
+
         # ------------------------------------------------------------------ #
-        # 5. Iterate every unit on every source and classify each side via R1. #
+        # 5. Iterate every unit on every source and classify each side via    #
+        #    BODY MEMBERSHIP (owner directive 2026-06-04, supersedes R1).      #
         #                                                                      #
-        # R1 (owner directive 2026-06-03): the band-vs-pinch-vs-open decision  #
-        # is driven by LITHOLOGY CONTINUITY, not bare contact correlation:     #
-        #                                                                      #
-        #   * BAND  (no candidate) — the unit's lithology continues across to  #
-        #     the nearest neighbour: the unit's top contact has an approved    #
-        #     edge to a SAME-soil contact there, and that neighbour reaches    #
-        #     this depth.                                                      #
+        #   * BAND  (no candidate) — the unit's body has a member further      #
+        #     along this side: the correlation chain continues past this       #
+        #     column, so there is nothing to pinch.                            #
         #   * OPEN  — no neighbour on that side (the section's first/last       #
         #     column), OR the bottom substrate (deepest unit, no base contact) #
         #     wherever it does not continue.  The substrate never pinches; it  #
         #     opens.                                                           #
-        #   * PINCH — an interior unit whose lithology does not continue to an #
-        #     EXISTING neighbour (different lithology, no correlation, or the   #
-        #     neighbour is too shallow to carry it).                           #
+        #   * PINCH — an interior unit whose body terminates here (no member   #
+        #     further along this side) and a neighbour exists to pinch toward. #
         #                                                                      #
         # Open candidates require section context (the frontend renders them   #
         # against the section), so they are only emitted when a section is     #
@@ -382,10 +357,9 @@ class SuggestBodyPinchOuts(GroundModelLogger):
 
             n_units = len(entries)
             for i in range(n_units):
-                top_depth, top_id, _top_formation = entries[i]
+                _top_depth, top_id, _top_formation = entries[i]
                 is_deepest = i == n_units - 1
                 below_id: UUID | None = entries[i + 1][1] if not is_deepest else None
-                unit_soil = soil_by_contact.get(top_id)
 
                 # Per-INSTANCE body identity: post-A4 the litho layer's id IS
                 # its top contact id, so resolve the body from THAT layer's
@@ -412,19 +386,21 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                     if existing_body is not None and is_user_claimed_extent_kind(extent_kind):
                         continue
 
-                    # R1: does the lithology continue across to the neighbour?
-                    continues = False
-                    if neighbour is not None and unit_soil is not None:
-                        nbr_bottom = bottom_depth_by_inv.get(neighbour)
-                        reaches = nbr_bottom is None or nbr_bottom >= top_depth
-                        if reaches:
-                            continues = any(
-                                contact_inv.get(c) == neighbour
-                                and soil_by_contact.get(c) == unit_soil
-                                for c in contact_corr.get(top_id, set())
-                            )
-                    if continues:
-                        continue  # BAND — no suggestion
+                    # A2 body-membership continuity: the unit continues on this
+                    # side iff its body (the correlation connected-component) has
+                    # a member further along that side. Reading the resolved
+                    # correlation chain — not raw nearest-contact edges — fixes
+                    # R1's over-pinch of section-spanning bodies whose chain
+                    # skips a column or routes through a non-nearest neighbour.
+                    member_alongs = body_alongs.get(body_id) if body_id is not None else None
+                    if member_alongs:
+                        continues = (
+                            any(a < src_pos for a in member_alongs)
+                            if side == "left"
+                            else any(a > src_pos for a in member_alongs)
+                        )
+                        if continues:
+                            continue  # BAND — no suggestion
 
                     if is_deepest:
                         # Substrate opens where it does not continue (never pinches).
