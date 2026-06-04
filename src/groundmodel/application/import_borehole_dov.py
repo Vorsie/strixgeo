@@ -20,6 +20,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
 from groundmodel.application.import_interpretations_dov import ImportInterpretationsDov
 from groundmodel.application.import_interpretations_dov_result import (
@@ -359,26 +360,19 @@ class ImportBoreholeDov(GroundModelLogger):
             so WFS and download phase ticks surface to the UI.
         """
         parser = DovBoringParser()
-        try:
-            t_fetch = time.perf_counter()
-            parsed = await DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
+        t_fetch = time.perf_counter()
+        parsed = await fetch_wfs_or_raise(
+            DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
                 west, south, east, north, parser.parse, progress_cb=progress_cb
-            )
-            self.info(
-                f"DOV phase 1+2 (WFS + download + parse): {ms_since(t_fetch)} ms — "
-                f"{len(parsed)} boreholes ready"
-            )
-            return parsed
-        except httpx.HTTPStatusError as exc:
-            self.error(
-                f"DOV WFS request failed with HTTP "
-                f"{exc.response.status_code}: {exc}  "
-                f"response body: {exc.response.text[:300]!r}"
-            )
-            raise
-        except httpx.RequestError as exc:
-            self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
-            raise
+            ),
+            label="borehole",
+            logger=self,
+        )
+        self.info(
+            f"DOV phase 1+2 (WFS + download + parse): {ms_since(t_fetch)} ms — "
+            f"{len(parsed)} boreholes ready"
+        )
+        return parsed
 
     async def _fetch_and_attach_interpretations(
         self,
