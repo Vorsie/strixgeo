@@ -5149,5 +5149,27 @@ single-machine dogfeed. Pre-distribution concern.
 B #5 tamper hardening). Fix F6: narrow the `file://` check to the renderer's
 actual base URL (`win.webContents.getURL()` after `loadFile`).
 
+## 201. God-component file-size split (Tier E — readability, L)
+
+**What.** Five files dominate the codebase by size — extends resolved #114
+(which fixed the function-level readability: `_restore_project_bundle_impl`
+phase helpers + `computeSlabsAndPolylines`). The remaining problem is *file
+size + mixed concerns in one module*: `useGeologicalModel.ts` (5,180 lines,
+47 handlers / 23 `useState`), `ContactsLayer.tsx` (4,249),
+`SectionPanel.tsx` (3,709), `api/client.ts` (3,201),
+`project_bundle.py` (2,682). (Surfaced 2026-06-04 by owner question.)
+
+**Why deferred.** The React splits carry TDZ / hook-ordering / dep-array
+regression risk (own memory documents the bite classes) and must not land
+under a live dogfeed. The backend + client splits are low-risk and bankable
+first.
+
+**When to revisit.** After the current dogfeed pass. A full lowest-risk →
+highest-risk decomposition plan (5 ordered moves, per-move verification bar,
+constraints) lives at
+`docs/superpowers/plans/2026-06-04-god-component-decomposition.md`. Start with
+Move 1 (`project_bundle.py` module split) and Move 2 (`client.ts` per-domain
+split) — both near-zero risk.
+
 ## (end)
 
