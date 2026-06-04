@@ -114,6 +114,45 @@ def test_cross_lithology_edge_does_not_merge_into_one_body() -> None:
     assert result.layer_to_ordinal[silt.layer_id] == 0  # different group, own 0
 
 
+def test_edge_across_geological_boundary_does_not_merge() -> None:
+    """A sand split at a geological boundary stays TWO bodies, not one.
+
+    A body must not span a geological-formation boundary (owner directive
+    2026-06-04). A single sand split at the Holocene/Pleistocene boundary into
+    two litho layers with DIFFERENT geological parents — even stacked on one
+    column and correlated same-lithology — must resolve to two instances.
+    Without this, the two re-merge into one body that holds a single open-end
+    slot, so open-ending one unit silently moves the cap off the other
+    (dogfeed: QHSa2 vs QPSa1 overwriting each other).
+    """
+    p_holocene = UUID("00000000-0000-0000-0000-0000000000a1")
+    p_pleistocene = UUID("00000000-0000-0000-0000-0000000000a2")
+    holocene_sand = LayerNode(
+        layer_id=UUID("00000000-0000-0000-0000-000000000001"),
+        formation_id=F_SAND,
+        parent_formation_id=p_holocene,
+        litho_main_soil_code="ZAND",
+        depth_top_m=6.9,
+        source_investigation_id=INV_A,
+    )
+    pleistocene_sand = LayerNode(
+        layer_id=UUID("00000000-0000-0000-0000-000000000002"),
+        formation_id=F_SAND,
+        parent_formation_id=p_pleistocene,
+        litho_main_soil_code="ZAND",
+        depth_top_m=10.0,
+        source_investigation_id=INV_A,
+    )
+    edges = [LayerEdge(layer_a_id=holocene_sand.layer_id, layer_b_id=pleistocene_sand.layer_id)]
+    result = resolve_litho_instances(layers=[holocene_sand, pleistocene_sand], edges=edges)
+    # The cross-geological-boundary edge is dropped → two single-formation bodies,
+    # so the two layers never share a body_id (and thus never share an open cap).
+    assert len(result.instances) == 2
+    members_per_instance = [set(i.member_layer_ids) for i in result.instances]
+    assert {holocene_sand.layer_id} in members_per_instance
+    assert {pleistocene_sand.layer_id} in members_per_instance
+
+
 def test_same_soil_different_formation_rows_still_merge() -> None:
     """Same lithology, different formation rows (admixture) still merge.
 
