@@ -211,21 +211,9 @@ export interface LithoSuggestionGhostColumnsProps {
    * NAD-class signal we don't want to auto-erase.
    */
   onMergeLayers?: (upperIdx: number) => void
-  /**
-   * Dogfeed 2026-05-25 — Shift+drag absorb gesture. Fired on mouseup
-   * when the user Shift-drags an edge past the neighbour's midpoint.
-   * The dragger's depth extends to cover the absorbed layer's outer
-   * edge; the neighbour is removed; the dragger's composition wins.
-   *
-   * ``draggerIdx`` is the index of the dragged layer; ``direction`` is
-   * ``'down'`` when the lower neighbour is absorbed (base-drag past its
-   * midpoint) or ``'up'`` when the upper neighbour is absorbed
-   * (top-drag past its midpoint).
-   *
-   * Optional — when absent, Shift+drag clamps at the neighbour boundary
-   * without absorbing (zero regression for callers that haven't opted in).
-   */
-  onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
+  // onAbsorbLayer removed by owner directive 2026-06-04. The plain
+  // drag-to-collapse path is the single absorb surface; Shift+drag was
+  // deleted because it was never used and added gesture complexity.
   /**
    * "Extend to nearest contacts" right-click gesture on a pending ghost
    * layer.  Fired when the user picks the menu item; returns
@@ -262,11 +250,16 @@ export interface LithoSuggestionGhostColumnsProps {
    * snap-aware wrapper at the SectionsCanvas level so the post-PATCH
    * litho-geo snap prompt still fires identically). Optional — when
    * absent the cross-store dispatch is a no-op.
+   *
+   * ``field`` selects which depth dimension is written:
+   * ``'top'`` for the below-neighbour case (its TOP moves);
+   * ``'base'`` for the above-neighbour case (its BASE shrinks or extends).
    */
   onUpdateContactDepth?: (
     contactId: string,
     newDepthM: number,
     snapped: boolean,
+    field: 'top' | 'base',
   ) => Promise<void>
   /**
    * P1b (dogfeed 2026-05-30) — live preview callback fired on every
@@ -359,7 +352,6 @@ export default function LithoSuggestionGhostColumns({
   onInsertLayer,
   onSplitLayer,
   onMergeLayers,
-  onAbsorbLayer,
   onExtendToNearest,
   committedContactsForAnchor,
   contactIdsByAcceptedIdx,
@@ -383,7 +375,7 @@ export default function LithoSuggestionGhostColumns({
   // boundary drag work). The component owns the hit-strip render +
   // their onMouseDown callbacks; the hook owns the live drag state
   // and the mouseup commit dispatch (onEdit / onReject /
-  // onAbsorbLayer / onMergeLayers + the zero-thickness auto-reject).
+  // onMergeLayers + the zero-thickness auto-reject).
   // ``startDrag`` is what the hit-strip onMouseDowns call; ``drag``
   // is what the indicator + readout renderers consume.
 
@@ -515,7 +507,6 @@ export default function LithoSuggestionGhostColumns({
     effectivelyRejectedIndices,
     onEdit,
     onReject,
-    onAbsorbLayer,
     onMergeLayers,
     investigationId,
     committedContactsForAnchor,
@@ -1034,13 +1025,10 @@ export default function LithoSuggestionGhostColumns({
           - "release to collapse" — dragged layer collapses onto itself (chain=[own.idx])
           NOT shown for outer-edge snap (chain=[]): cursor hit the test-bottom
           or ground surface, so snapping here changes nothing on release and
-          showing "release to merge" is misleading (dogfeed 2026-05-25).
-          NOT shown when absorbPending is set — the absorb indicator takes
-          precedence (mutually exclusive: Shift+drag vs plain drag). */}
+          showing "release to merge" is misleading (dogfeed 2026-05-25). */}
       {drag?.snapped &&
         drag.snapTargetM !== null &&
-        drag.collapseChainOnRelease.length > 0 &&
-        drag.absorbPending === null && (
+        drag.collapseChainOnRelease.length > 0 && (
         <g data-testid="litho-snap-indicator" style={{ pointerEvents: 'none' }}>
           {(() => {
             const y = Math.max(
@@ -1074,54 +1062,6 @@ export default function LithoSuggestionGhostColumns({
                   style={{ userSelect: 'none' }}
                 >
                   {label}
-                </text>
-              </>
-            )
-          })()}
-        </g>
-      )}
-      {/* Absorb indicator (dogfeed 2026-05-25 — Shift+drag gesture).
-          Renders when absorbPending is non-null: user is holding Shift
-          and has dragged the edge past the neighbour's midpoint. A
-          dark-amber solid line + a directional arrow label distinguishes
-          this from the plain merge/collapse indicator (amber dashed).
-          Colour: #92400e (amber-800) — darker than the snap indicator's
-          #d97706 (amber-600), so the two are visually distinct without
-          needing a completely different hue. Arrow: ⇩ for absorb-down,
-          ⇧ for absorb-up. Mutually exclusive with the snap indicator. */}
-      {drag?.absorbPending !== null && drag?.absorbPending !== undefined && (
-        <g data-testid="litho-absorb-indicator" style={{ pointerEvents: 'none' }}>
-          {(() => {
-            // Position the indicator at the current drag depth so it
-            // tracks the boundary live.
-            const y = Math.max(
-              plotTop,
-              Math.min(
-                plotBottom,
-                levelToScreen(surfaceElevationM - drag.currentDepthM),
-              ),
-            )
-            const arrow = drag.absorbPending === 'down' ? '⇩ absorb' : '⇧ absorb'
-            return (
-              <>
-                <line
-                  x1={left - 2}
-                  y1={y}
-                  x2={left + ghostWidth + 2}
-                  y2={y}
-                  stroke="#92400e"
-                  strokeWidth={2}
-                  strokeDasharray="none"
-                />
-                <text
-                  x={left + ghostWidth / 2}
-                  y={y - 4}
-                  textAnchor="middle"
-                  fontSize={9}
-                  fill="#92400e"
-                  style={{ userSelect: 'none' }}
-                >
-                  {arrow}
                 </text>
               </>
             )
