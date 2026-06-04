@@ -57,6 +57,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_samples_dov_result import ImportSamplesDovResult
 from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
 from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
@@ -172,25 +173,22 @@ class ImportSamplesDov(GroundModelLogger):
         # Phase 1+2 — sample WFS + persist
         # ------------------------------------------------------------------
         permkey_to_sample_id: dict[str, UUID] = {}
-        try:
-            t_samples = time.perf_counter()
-            sample_rows = await DovSampleClient(http).fetch_bbox(
+        t_samples = time.perf_counter()
+        sample_rows = await fetch_wfs_or_raise(
+            DovSampleClient(http).fetch_bbox(
                 west,
                 south,
                 east,
                 north,
                 parent_permkeys=set(permkey_to_borehole_id),
-            )
-            self.info(
-                f"DOV sample phase 1 (WFS): {ms_since(t_samples)} ms — "
-                f"{len(sample_rows)} samples for known boreholes"
-            )
-        except httpx.HTTPStatusError as exc:
-            self.error(f"DOV sample WFS request failed with HTTP {exc.response.status_code}: {exc}")
-            raise
-        except httpx.RequestError as exc:
-            self.error(f"DOV sample WFS network error: {type(exc).__name__}: {exc}")
-            raise
+            ),
+            label="sample",
+            logger=self,
+        )
+        self.info(
+            f"DOV sample phase 1 (WFS): {ms_since(t_samples)} ms — "
+            f"{len(sample_rows)} samples for known boreholes"
+        )
 
         # Refresh-on-duplicate: pre-load existing samples for the
         # in-scope boreholes BEFORE the empty-sample-rows early-exit
@@ -274,29 +272,24 @@ class ImportSamplesDov(GroundModelLogger):
             parsed = parser.parse(xml_bytes, sample_id=sample_id, name=row.permkey)
             return _apply_grain_size_method_fallback(parsed, row)
 
-        try:
-            t_gs = time.perf_counter()
-            client = DovGrainSizeClient(http, cache=grain_size_cache)
-            parsed = await client.fetch_bbox_processed(
+        t_gs = time.perf_counter()
+        client = DovGrainSizeClient(http, cache=grain_size_cache)
+        parsed = await fetch_wfs_or_raise(
+            client.fetch_bbox_processed(
                 west,
                 south,
                 east,
                 north,
                 _process,
                 parent_permkeys=set(permkey_to_sample_id),
-            )
-            self.info(
-                f"DOV grain-size phase 3 (WFS + download + parse): "
-                f"{ms_since(t_gs)} ms — {len(parsed)} grain-size results ready"
-            )
-        except httpx.HTTPStatusError as exc:
-            self.error(
-                f"DOV grain-size WFS request failed with HTTP {exc.response.status_code}: {exc}"
-            )
-            raise
-        except httpx.RequestError as exc:
-            self.error(f"DOV grain-size WFS network error: {type(exc).__name__}: {exc}")
-            raise
+            ),
+            label="grain-size",
+            logger=self,
+        )
+        self.info(
+            f"DOV grain-size phase 3 (WFS + download + parse): "
+            f"{ms_since(t_gs)} ms — {len(parsed)} grain-size results ready"
+        )
 
         result.grain_sizes_fetched = len(parsed)
         for row, parse_result in parsed:
