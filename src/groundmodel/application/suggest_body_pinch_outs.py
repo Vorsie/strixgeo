@@ -43,14 +43,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.domain.services.classify_enclosed_lenses import (
-    classify_enclosed_lenses,
-)
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -85,14 +83,14 @@ class PinchOutCandidate:
         The shallower contact of the source pair; its ``formation_id``
         is the body's formation.
     below_contact_id : UUID | None
-        The deeper contact of the source pair.  ``None`` for the
-        deepest-formation open candidate — that unit has no base contact
-        because it extends to the bottom of the hole.
+        The deeper contact bounding the unit.  ``None`` only for the bottom
+        substrate (the deepest unit), which has no base contact because it
+        extends to the bottom of the hole — interior open/pinch candidates
+        carry a real base contact.
     below_depth_m : float | None
-        Investigation bottom depth (m below surface) for the
-        deepest-formation open candidate, whose base is the bottom of the
-        hole rather than a contact.  ``None`` for normal framed candidates
-        (they use ``below_contact_id``).
+        Investigation bottom depth (m below surface) for a bottom-substrate
+        candidate, whose base is the bottom of the hole rather than a contact.
+        ``None`` for interior candidates (they use ``below_contact_id``).
     side : Literal["left", "right"]
         Direction of the suggested pinch-out relative to the source
         investigation in the section's along axis.  ``"left"`` = lower
@@ -100,10 +98,10 @@ class PinchOutCandidate:
         fallback).
     kind : Literal["pinch_out_halfway", "open"]
         The extent kind the candidate would claim. ``"pinch_out_halfway"``
-        for an interior pinch-out toward ``suggested_neighbour_investigation_id``;
-        ``"open"`` for an EDGE test that has no neighbour on ``side`` — we
-        don't know what's beyond the furthest test, so it opens to the
-        section boundary (only emitted when a section is given).
+        for an interior unit whose lithology does not continue, tapering toward
+        ``suggested_neighbour_investigation_id``; ``"open"`` at the section's
+        first/last column (no neighbour) or for the bottom substrate wherever
+        it does not continue (only emitted when a section is given).
     suggested_neighbour_investigation_id : UUID | None
         The nearest adjacent investigation on ``side`` (the halfway target).
         ``None`` for an ``"open"`` edge candidate.
@@ -120,17 +118,27 @@ class PinchOutCandidate:
 
 
 class SuggestBodyPinchOuts(GroundModelLogger):
-    """Ephemeral candidate generator for body pinch-out suggestions.
+    """Ephemeral candidate generator for body pinch-out suggestions (R1).
 
-    Iterates every depth-adjacent contact pair on every investigation
-    that participates in the given model.  For each pair that behaves
-    as a body source (two contacts sharing a formation_id boundary):
+    Iterates every unit on every investigation that participates in the
+    model and classifies each lateral side by **lithology continuity**
+    (R1, owner directive 2026-06-03):
 
-    * Left side: emit one candidate if there are ZERO approved
-      correlation edges joining either contact to a lower-adjacent
-      investigation, AND the existing body row (if any) has no
-      user-claimed left extent.
-    * Right side: same logic for the higher-adjacent direction.
+    * **BAND** (no candidate) — the unit's lithology continues across to the
+      nearest neighbour on that side: its top contact has an approved edge to
+      a SAME-soil contact there, and that neighbour is deep enough to carry the
+      unit.  A correlation to a DIFFERENT-soil contact (a boundary tie where
+      the lithology changes) does NOT make it a band.
+    * **OPEN** — there is no neighbour on that side (the section's first/last
+      column), OR the unit is the bottom substrate (deepest unit, no base
+      contact) wherever it does not continue.  The substrate never pinches.
+    * **PINCH** — an interior unit whose lithology does not continue to an
+      EXISTING neighbour (different lithology, no correlation, or the neighbour
+      is too shallow to carry it).
+
+    A user-claimed extent (open / pinch_out_halfway / extrapolated) on a side
+    settles it — no candidate is re-suggested there.  ``open`` candidates need
+    section context, so they are only emitted when a section is given.
 
     No DB writes are performed; every candidate is purely in-memory.
     """
@@ -203,11 +211,30 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         contact_rows = (await self._session.execute(contacts_stmt)).all()
         self.debug(f"SuggestBodyPinchOuts: {len(contact_rows)} contact row(s) loaded")
 
+        # Lithology (main soil code) per formation — the R1 rule (owner directive
+        # 2026-06-03) decides band-vs-pinch on whether the unit's LITHOLOGY
+        # continues across a correlation, not merely whether the contacts
+        # correlate.  So we need each contact's soil code, resolved via its
+        # formation.
+        soil_rows = (
+            await self._session.execute(
+                select(
+                    GeologicalFormationOrm.id,
+                    GeologicalFormationOrm.litho_main_soil_code,
+                ).where(GeologicalFormationOrm.app_project_id == project_id)
+            )
+        ).all()
+        soil_by_formation: dict[UUID, str | None] = {
+            r.id: r.litho_main_soil_code for r in soil_rows
+        }
+
         # Build per-investigation stacks (depth-sorted tuples) and a
         # contact→investigation reverse map.
         stacks: dict[UUID, list[tuple[float, UUID, UUID]]] = {}
         # Maps contact_id → investigation_id (polymorphic).
         contact_inv: dict[UUID, UUID] = {}
+        # Maps contact_id → the soil code of the unit that STARTS at this contact.
+        soil_by_contact: dict[UUID, str | None] = {}
         for r in contact_rows:
             inv_id: UUID | None = r.borehole_id if r.borehole_id is not None else r.cpt_id
             if inv_id is None:
@@ -215,6 +242,7 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 continue
             stacks.setdefault(inv_id, []).append((r.depth_top_m, r.id, r.formation_id))
             contact_inv[r.id] = inv_id
+            soil_by_contact[r.id] = soil_by_formation.get(r.formation_id)
 
         # Sort each stack ascending by depth.
         for entries in stacks.values():
@@ -258,17 +286,18 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         edge_rows = (await self._session.execute(edges_stmt)).all()
         self.debug(f"SuggestBodyPinchOuts: {len(edge_rows)} approved edge(s) loaded")
 
-        # For each contact, accumulate the set of neighbour-investigation
-        # ids it has at least one approved edge to.
-        contact_neighbour_invs: dict[UUID, set[UUID]] = {}
+        # For each contact, the set of contacts it is correlated to (both
+        # directions).  R1 checks not just THAT a contact correlates to a
+        # neighbour but whether the correlated contact carries the SAME
+        # lithology — so we keep the contact ids (not just their investigations)
+        # to look up the target soil.
+        contact_corr: dict[UUID, set[UUID]] = {}
         for r in edge_rows:
-            inv_a = contact_inv.get(r.contact_a_id)
-            inv_b = contact_inv.get(r.contact_b_id)
-            if inv_a is None or inv_b is None:
+            if contact_inv.get(r.contact_a_id) is None or contact_inv.get(r.contact_b_id) is None:
                 # Edge references a synthetic / unanchored contact — skip.
                 continue
-            contact_neighbour_invs.setdefault(r.contact_a_id, set()).add(inv_b)
-            contact_neighbour_invs.setdefault(r.contact_b_id, set()).add(inv_a)
+            contact_corr.setdefault(r.contact_a_id, set()).add(r.contact_b_id)
+            contact_corr.setdefault(r.contact_b_id, set()).add(r.contact_a_id)
 
         # ------------------------------------------------------------------ #
         # 3. Load existing body rows + the per-layer body backlink.           #
@@ -315,7 +344,26 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         ordered: list[UUID] = sorted(position.keys(), key=lambda iid: position[iid])
 
         # ------------------------------------------------------------------ #
-        # 5. Iterate source pairs and emit candidates.                        #
+        # 5. Iterate every unit on every source and classify each side via R1. #
+        #                                                                      #
+        # R1 (owner directive 2026-06-03): the band-vs-pinch-vs-open decision  #
+        # is driven by LITHOLOGY CONTINUITY, not bare contact correlation:     #
+        #                                                                      #
+        #   * BAND  (no candidate) — the unit's lithology continues across to  #
+        #     the nearest neighbour: the unit's top contact has an approved    #
+        #     edge to a SAME-soil contact there, and that neighbour reaches    #
+        #     this depth.                                                      #
+        #   * OPEN  — no neighbour on that side (the section's first/last       #
+        #     column), OR the bottom substrate (deepest unit, no base contact) #
+        #     wherever it does not continue.  The substrate never pinches; it  #
+        #     opens.                                                           #
+        #   * PINCH — an interior unit whose lithology does not continue to an #
+        #     EXISTING neighbour (different lithology, no correlation, or the   #
+        #     neighbour is too shallow to carry it).                           #
+        #                                                                      #
+        # Open candidates require section context (the frontend renders them   #
+        # against the section), so they are only emitted when a section is     #
+        # given — matching the previous behaviour.                            #
         # ------------------------------------------------------------------ #
         candidates: list[PinchOutCandidate] = []
 
@@ -326,180 +374,106 @@ class SuggestBodyPinchOuts(GroundModelLogger):
                 continue
             src_pos = position[inv_id]
 
-            # Lens-aware suppression: a thin unit bracketed by the SAME
-            # formation above and below (e.g. SAND·SILT·SAND, both sands one
-            # formation row) is an enclosed lens — the bracketing formation is
-            # one continuous host wrapping it.  The lens itself stays a normal
-            # candidate (it is the real pinch-out); the host halves must NOT be
-            # suggested as independent pinch-outs.  See spec
-            # docs/superpowers/specs/2026-06-02-lens-aware-pinch-out-suggestions-design.md.
-            host_half_units = classify_enclosed_lenses(
-                [entry[2] for entry in entries]
-            ).host_half_units
+            # Nearest neighbour on each side, in along-section order.
+            left_neighbours = [n for n in ordered if position[n] < src_pos]
+            right_neighbours = [n for n in ordered if position[n] > src_pos]
+            nearest: dict[str, UUID | None] = {
+                "left": left_neighbours[-1] if left_neighbours else None,
+                "right": right_neighbours[0] if right_neighbours else None,
+            }
 
-            for i in range(len(entries) - 1):
-                if i in host_half_units:
-                    # Interior to a continuous host wrapping a lens — the host
-                    # is presumptively continuous here, not a pinch-out. Skip.
-                    continue
-                _, above_id, _above_formation = entries[i]
-                _, below_id, _below_formation = entries[i + 1]
+            n_units = len(entries)
+            for i in range(n_units):
+                top_depth, top_id, _top_formation = entries[i]
+                is_deepest = i == n_units - 1
+                below_id: UUID | None = entries[i + 1][1] if not is_deepest else None
+                unit_soil = soil_by_contact.get(top_id)
 
-                # The framed unit is the layer whose TOP is ``above_id`` — and
-                # post-A4 that layer's id IS ``above_id``.  Resolve the body
-                # from that specific layer's ``body_id`` so suppression is
-                # per-instance: a sibling same-formation instance has its own
-                # distinct body and is reasoned about independently.
-                body_id: UUID | None = body_id_by_layer.get(above_id)
+                # Per-INSTANCE body identity: post-A4 the litho layer's id IS
+                # its top contact id, so resolve the body from THAT layer's
+                # ``body_id``.  Used only to honour user-claimed extents (a
+                # committed claim settles the side — do not re-suggest).
+                body_id = body_id_by_layer.get(top_id)
                 existing_body = bodies_by_id.get(body_id) if body_id is not None else None
 
-                # A side is "paired" when both the above and below
-                # contacts of this source pair share at least one approved
-                # edge to the same neighbour investigation on that side.
-                # "Same side" = lower along-position (left) or higher (right);
-                # off-section paired neighbours are ignored (not in position).
-                above_neighbours = contact_neighbour_invs.get(above_id, set())
-                below_neighbours = contact_neighbour_invs.get(below_id, set())
-                paired_neighbours = above_neighbours & below_neighbours
+                for side in ("left", "right"):
+                    neighbour = nearest[side]
 
-                left_paired = any(position[n] < src_pos for n in paired_neighbours if n in position)
-                right_paired = any(
-                    position[n] > src_pos for n in paired_neighbours if n in position
-                )
-
-                # A side is "claimed" only when the user has COMMITTED an extent
-                # there (open / pinch_out_halfway / extrapolated).  A detector
-                # ``to_target`` is just a guess — the user must be able to
-                # override it with a suggestion, so it does NOT suppress the
-                # candidate (dogfeed 2026-06-03: a detected sand lens blocked its
-                # own open-end suggestions).
-                left_claimed = existing_body is not None and is_user_claimed_extent_kind(
-                    existing_body.extent_left_kind
-                )
-                right_claimed = existing_body is not None and is_user_claimed_extent_kind(
-                    existing_body.extent_right_kind
-                )
-
-                # Left-side candidate: no approved bilateral pairing AND
-                # no existing extent claim. "Left" = lower along-position.
-                if not left_paired and not left_claimed:
-                    left_neighbours = [n for n in ordered if position[n] < src_pos]
-                    if left_neighbours:
-                        # Interior: pinch out halfway to the nearest left neighbour.
-                        candidates.append(
-                            PinchOutCandidate(
-                                body_id=body_id,
-                                source_investigation_id=inv_id,
-                                above_contact_id=above_id,
-                                below_contact_id=below_id,
-                                below_depth_m=None,
-                                side="left",
-                                kind="pinch_out_halfway",
-                                suggested_neighbour_investigation_id=left_neighbours[-1],
-                            )
+                    # A user-claimed extent (open / pinch_out_halfway /
+                    # extrapolated) settles the side — skip.  A detector
+                    # ``to_target`` is just a guess and does NOT suppress.
+                    extent_kind = (
+                        (
+                            existing_body.extent_left_kind
+                            if side == "left"
+                            else existing_body.extent_right_kind
                         )
-                    elif section_id is not None:
-                        # Section EDGE (leftmost test): nothing to the left, no
-                        # data beyond — open the layer to the section boundary.
+                        if existing_body is not None
+                        else None
+                    )
+                    if existing_body is not None and is_user_claimed_extent_kind(extent_kind):
+                        continue
+
+                    # R1: does the lithology continue across to the neighbour?
+                    continues = False
+                    if neighbour is not None and unit_soil is not None:
+                        nbr_bottom = bottom_depth_by_inv.get(neighbour)
+                        reaches = nbr_bottom is None or nbr_bottom >= top_depth
+                        if reaches:
+                            continues = any(
+                                contact_inv.get(c) == neighbour
+                                and soil_by_contact.get(c) == unit_soil
+                                for c in contact_corr.get(top_id, set())
+                            )
+                    if continues:
+                        continue  # BAND — no suggestion
+
+                    if is_deepest:
+                        # Substrate opens where it does not continue (never pinches).
+                        if section_id is None:
+                            continue
                         candidates.append(
                             PinchOutCandidate(
                                 body_id=body_id,
                                 source_investigation_id=inv_id,
-                                above_contact_id=above_id,
-                                below_contact_id=below_id,
-                                below_depth_m=None,
-                                side="left",
+                                above_contact_id=top_id,
+                                below_contact_id=None,
+                                below_depth_m=bottom_depth_by_inv.get(inv_id),
+                                side=side,
                                 kind="open",
                                 suggested_neighbour_investigation_id=None,
                             )
                         )
-
-                # Right-side candidate: no approved bilateral pairing AND
-                # no existing extent claim. "Right" = higher along-position.
-                if not right_paired and not right_claimed:
-                    right_neighbours = [n for n in ordered if position[n] > src_pos]
-                    if right_neighbours:
-                        # Interior: pinch out halfway to the nearest right neighbour.
+                    elif neighbour is None:
+                        # Interior unit at the section's first/last column → open.
+                        if section_id is None:
+                            continue
                         candidates.append(
                             PinchOutCandidate(
                                 body_id=body_id,
                                 source_investigation_id=inv_id,
-                                above_contact_id=above_id,
+                                above_contact_id=top_id,
                                 below_contact_id=below_id,
                                 below_depth_m=None,
-                                side="right",
-                                kind="pinch_out_halfway",
-                                suggested_neighbour_investigation_id=right_neighbours[0],
-                            )
-                        )
-                    elif section_id is not None:
-                        # Section EDGE (rightmost test): open to the boundary.
-                        candidates.append(
-                            PinchOutCandidate(
-                                body_id=body_id,
-                                source_investigation_id=inv_id,
-                                above_contact_id=above_id,
-                                below_contact_id=below_id,
-                                below_depth_m=None,
-                                side="right",
+                                side=side,
                                 kind="open",
                                 suggested_neighbour_investigation_id=None,
                             )
                         )
-
-            # Deepest-formation open end (dogfeed 2026-06-02): the deepest
-            # contact's formation has no base contact (it extends to the bottom
-            # of the hole), so the framed-unit loop above never emits for it.
-            # At a section EDGE (no neighbour on a side) emit an ``open``
-            # candidate so the substrate shows it continues past the section.
-            # No interior (halfway) candidate — a substrate does not pinch out
-            # toward a neighbour. Only emitted when a section is given (open
-            # candidates require section context, matching the framed-open branches).
-            if section_id is not None and entries:
-                _deepest_depth, deepest_contact_id, _deepest_formation = entries[-1]
-                # Per-instance body: the deepest layer's id IS its top contact
-                # id; resolve the body from THAT layer's body_id (see above).
-                deepest_body_id: UUID | None = body_id_by_layer.get(deepest_contact_id)
-                deepest_body = (
-                    bodies_by_id.get(deepest_body_id) if deepest_body_id is not None else None
-                )
-                deepest_bottom = bottom_depth_by_inv.get(inv_id)
-                left_neighbours_d = [n for n in ordered if position[n] < src_pos]
-                right_neighbours_d = [n for n in ordered if position[n] > src_pos]
-                left_claimed_d = deepest_body is not None and is_user_claimed_extent_kind(
-                    deepest_body.extent_left_kind
-                )
-                right_claimed_d = deepest_body is not None and is_user_claimed_extent_kind(
-                    deepest_body.extent_right_kind
-                )
-                # Left edge: no neighbour to the left and not already claimed.
-                if not left_neighbours_d and not left_claimed_d:
-                    candidates.append(
-                        PinchOutCandidate(
-                            body_id=deepest_body_id,
-                            source_investigation_id=inv_id,
-                            above_contact_id=deepest_contact_id,
-                            below_contact_id=None,
-                            below_depth_m=deepest_bottom,
-                            side="left",
-                            kind="open",
-                            suggested_neighbour_investigation_id=None,
+                    else:
+                        # Interior unit whose lithology does not continue → pinch.
+                        candidates.append(
+                            PinchOutCandidate(
+                                body_id=body_id,
+                                source_investigation_id=inv_id,
+                                above_contact_id=top_id,
+                                below_contact_id=below_id,
+                                below_depth_m=None,
+                                side=side,
+                                kind="pinch_out_halfway",
+                                suggested_neighbour_investigation_id=neighbour,
+                            )
                         )
-                    )
-                # Right edge: no neighbour to the right and not already claimed.
-                if not right_neighbours_d and not right_claimed_d:
-                    candidates.append(
-                        PinchOutCandidate(
-                            body_id=deepest_body_id,
-                            source_investigation_id=inv_id,
-                            above_contact_id=deepest_contact_id,
-                            below_contact_id=None,
-                            below_depth_m=deepest_bottom,
-                            side="right",
-                            kind="open",
-                            suggested_neighbour_investigation_id=None,
-                        )
-                    )
 
         # Breakdown so a "missing suggestion" report is diagnosable from the log
         # alone: section vs UUID adjacency, how many investigations projected,
