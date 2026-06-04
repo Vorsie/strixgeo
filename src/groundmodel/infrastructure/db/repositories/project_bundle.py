@@ -1552,6 +1552,27 @@ async def _restore_bodies(
             if cid is not None:
                 valid_contact_ids.add(cid)
 
+    # Valid litho-layer ids — DB rows + layers queued in the models payload.
+    # Used to validate each extent's ``anchor_layer_id`` (FK litho_layer.id); a
+    # dangling anchor is NULLed (the cap falls back to band-end framing) rather
+    # than dropping the body.
+    valid_layer_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLayerOrm.id)
+                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for m_p in geological_models_payload:
+        for ly in m_p.get("litho_layers") or []:
+            lid = _uuid(ly.get("id"))
+            if lid is not None:
+                valid_layer_ids.add(lid)
+
     existing = set(
         (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
         .scalars()
@@ -1655,6 +1676,18 @@ async def _restore_bodies(
                     )
                     kwargs[kind_key] = None
                     kwargs[neighbour_key] = None
+
+            # Anchor guard (any kind): NULL a dangling anchor_layer_id so the
+            # INSERT doesn't FK-violate. The cap still renders via band-end
+            # fallback; only the deterministic anchor is lost.
+            anchor_key = f"extent_{side}_anchor_layer_id"
+            anchor_id = _uuid(kwargs.get(anchor_key))
+            if anchor_id is not None and anchor_id not in valid_layer_ids:
+                logger.warning(
+                    f"[{i}/{total}] body {lens_id}: {anchor_key} {anchor_id} "
+                    f"not in this project's litho layers — NULLing anchor"
+                )
+                kwargs[anchor_key] = None
 
         kwargs["app_project_id"] = project_id
         session.add(BodyOrm(**kwargs))
