@@ -36,6 +36,7 @@ describe('readLithoSegmenterPrefs', () => {
       gunsatKNm3: 18.0,
       drCompressionFactor: 0.6,
       mergeSameLithology: false,
+      useNormalisedQc: LITHO_SEGMENTER_DEFAULTS.useNormalisedQc,
       lithoSnapToleranceM: 0.30,
       straddleMinPieceThicknessM: 0.40,
       autoCorrelateDepthWindowM: 1.2,
@@ -60,6 +61,7 @@ describe('readLithoSegmenterPrefs', () => {
       gunsatKNm3: 20.0,
       drCompressionFactor: 0.5,
       mergeSameLithology: true,
+      useNormalisedQc: true,
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
       straddleMinPieceThicknessM: LITHO_SEGMENTER_DEFAULTS.straddleMinPieceThicknessM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
@@ -116,6 +118,7 @@ describe('buildLithoSegmenterPatch', () => {
         gunsatKNm3: 17.5,
         drCompressionFactor: 0.7,
         mergeSameLithology: true,
+        useNormalisedQc: false,
         lithoSnapToleranceM: 0.25,
         straddleMinPieceThicknessM: 0.35,
         autoCorrelateDepthWindowM: 0.8,
@@ -128,6 +131,7 @@ describe('buildLithoSegmenterPatch', () => {
         gunsat_kNm3: 17.5,
         dr_compression_factor: 0.7,
         merge_same_lithology: true,
+        use_normalised_qc: false,
         litho_snap_tolerance_m: 0.25,
         straddle_min_piece_thickness_m: 0.35,
         auto_correlate_depth_window_m: 0.8,
@@ -284,6 +288,37 @@ describe('readLithoSegmenterPrefs — mergeSameLithology field', () => {
         litho_segmenter: { merge_same_lithology: 'yes' },
       }).mergeSameLithology,
     ).toBe(true)
+  })
+})
+
+describe('readLithoSegmenterPrefs — useNormalisedQc field', () => {
+  it('defaults to true (normalised) when the key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { minimum_layer_thickness_m: 0.15 },
+      }).useNormalisedQc,
+    ).toBe(true)
+  })
+
+  it('returns false when stored as false (non-normalised I_SBT selected)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { use_normalised_qc: false },
+      }).useNormalisedQc,
+    ).toBe(false)
+  })
+
+  it('defaults to true when stored as a non-boolean', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { use_normalised_qc: 'no' },
+      }).useNormalisedQc,
+    ).toBe(true)
+  })
+
+  it('round-trips through buildLithoSegmenterPatch', () => {
+    const prefs = { ...LITHO_SEGMENTER_DEFAULTS, useNormalisedQc: false }
+    expect(readLithoSegmenterPrefs(buildLithoSegmenterPatch(prefs)).useNormalisedQc).toBe(false)
   })
 })
 
