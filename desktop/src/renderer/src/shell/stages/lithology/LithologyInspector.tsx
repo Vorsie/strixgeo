@@ -1,14 +1,14 @@
 // Lithology stage inspector — model picker, stale-surface banner,
-// read-only formation roster grouped under geological parents, and
-// workflow guidance footer.
+// flat roster of litho units, and workflow guidance footer.
 //
 // Slice C of #55 litho peer-stage scaffolding.
 //
-// Phase 1 update: lithoFormations roster is now grouped under parent
-// geological formations ordered ascending by display_order (oldest
-// first, matching the geological superposition convention used by all
-// other renderers). Litho units without a parent_formation_id are
-// collected under an "Unassigned" group at the bottom.
+// A2 update: litho units are geo-agnostic (parent_formation_id is always
+// null on accept-created rows). Grouping by geological parent produced an
+// "Unassigned" bucket for every unit. The roster is now a FLAT list of
+// litho units ordered by display_order (ascending — oldest first, matching
+// the superposition convention used by all other renderers). The parent-
+// group headers and the parentNameById lookup are removed.
 //
 // Body-model migration (Task 11): instance numbering is now per-body on
 // the section (labels QHSa1/QHSa2 render there), NOT per-formation. The
@@ -29,10 +29,6 @@
 //   • Guidance footer pointing engineers to Sections.
 //   • EmptyState primitive for the no-model / empty-roster branches.
 //   • Semantic tokens for chrome — no raw dark: pairs.
-//
-// Slice 4: // connect-gesture UI on the section canvas (not here)
-// Slice 5: parent_formation_name server-resolved (debt #67) — consumed
-//           in LithoFormationRoster group labels below.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Circle, RefreshCw, Trash2 } from 'lucide-react'
@@ -335,13 +331,13 @@ export default function LithologyInspector(): JSX.Element {
             </button>
           </div>
 
-          {/* Read-only formation roster grouped under parent geological formations.
-              Geological parents ordered ascending by display_order (oldest=0
-              first — geological superposition convention used by all renderers).
-              Litho units share a parent via parent_formation_id; units without
-              a parent are shown under an "Unassigned" group at the bottom.
-              Formations are project-scoped shared vocabulary; CRUD stays in
-              GeologyInspector. */}
+          {/* Read-only flat formation roster, ordered ascending by
+              display_order (oldest first — superposition convention).
+              Under A2 all litho units are geo-agnostic
+              (parent_formation_id=null), so grouping by parent would
+              put every unit in "Unassigned". Flat list is honest.
+              Formations are project-scoped shared vocabulary; CRUD
+              stays in GeologyInspector. */}
           {lithoFormationsInModel.length === 0 ? (
             <EmptyState
               icon={<Layers3 />}
@@ -351,7 +347,6 @@ export default function LithologyInspector(): JSX.Element {
             />
           ) : (
             <LithoFormationRoster
-              geoFormations={formations}
               lithoFormations={lithoFormationsInModel}
               lithoContacts={lithoContacts}
               lensCountByFormationId={lensCountByFormationId}
@@ -520,12 +515,10 @@ function LithoUnitRow({
 }
 
 // ---------------------------------------------------------------------------
-// LithoFormationRoster — grouped roster of litho units with ordinal badges
+// LithoFormationRoster — flat roster of litho units
 // ---------------------------------------------------------------------------
 
 interface LithoFormationRosterProps {
-  /** Parent geological formations — ordered ascending by display_order. */
-  geoFormations: readonly GeologicalFormationResponse[]
   /** Litho units in the active litho model. */
   lithoFormations: readonly GeologicalFormationResponse[]
   /** All contacts in the active litho model — used for per-unit count. */
@@ -541,113 +534,54 @@ interface LithoFormationRosterProps {
 }
 
 /**
- * Renders lithostratigraphic units grouped under their parent geological
- * formations, ordered ascending by the geological formation's
- * ``display_order`` (oldest first — superposition convention).
+ * Renders lithostratigraphic units as a flat list ordered ascending by
+ * ``display_order`` (oldest first — superposition convention used by all
+ * renderers).
+ *
+ * Under A2 litho units are geo-agnostic (``parent_formation_id`` is always
+ * ``null`` on accept-created rows), so parent-group headers would only
+ * produce a single "Unassigned" bucket for every unit. The flat list is
+ * simpler and honest: the engineer sees the units in stratigraphic order
+ * without misleading group structure.
  *
  * Each unit row shows: colour swatch, name, and contact count.
  *
  * Parameters
  * ----------
- * geoFormations
- *     Geological formations sorted by display_order.  Units inherit the
- *     parent's ordering.
  * lithoFormations
- *     Litho units to display — may have parent_formation_id = null.
+ *     Litho units to display, ordered by ``display_order`` (caller sorts).
  * lithoContacts
  *     All contacts in the litho model for per-unit contact counting.
+ * lensCountByFormationId
+ *     Per-formation lens count map.
+ * onReviewParent
+ *     Callback when the user clicks a unit's parent-review dot.
  *
  * Returns
  * -------
  * JSX.Element
- *     The grouped roster element.
+ *     The flat roster element.
  */
 function LithoFormationRoster({
-  geoFormations,
   lithoFormations,
   lithoContacts,
   lensCountByFormationId,
   onReviewParent,
 }: LithoFormationRosterProps): JSX.Element {
-  // Group litho units by parent_formation_id.
-  const byParent = new Map<string | null, GeologicalFormationResponse[]>()
-  // Slice 5 / debt #67: collect server-resolved parent names so the group
-  // heading uses the canonical name without an extra geoFormations join.
-  const parentNameById = new Map<string, string>()
-  for (const lf of lithoFormations) {
-    const key = lf.parent_formation_id ?? null
-    const existing = byParent.get(key) ?? []
-    existing.push(lf)
-    byParent.set(key, existing)
-    if (key !== null && lf.parent_formation_name !== null && !parentNameById.has(key)) {
-      parentNameById.set(key, lf.parent_formation_name)
-    }
-  }
-
-  // Build the ordered parent sequence: geological formations ascending by
-  // display_order, keeping only those with at least one litho child.
-  const geoById = new Map(geoFormations.map(gf => [gf.id, gf]))
-  const sortedParents = [...geoFormations].sort((a, b) => a.display_order - b.display_order)
-  const parentsWithChildren = sortedParents.filter(gf => byParent.has(gf.id))
-  const unassigned = byParent.get(null) ?? []
+  // Sort ascending by display_order (oldest first — superposition convention).
+  const sorted = [...lithoFormations].sort((a, b) => a.display_order - b.display_order)
 
   return (
-    <div className="flex flex-col gap-2" aria-label="Litho formations">
-      {parentsWithChildren.map(gf => {
-        // Prefer server-resolved name (Slice 5); fall back to geo-join name.
-        const groupLabel = parentNameById.get(gf.id) ?? gf.name
-        const geoRow = geoById.get(gf.id)
-        return (
-        <section key={gf.id} aria-label={groupLabel}>
-          {/* Parent geological formation header */}
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span
-              className="h-2.5 w-2.5 flex-shrink-0 rounded-sm border border-border-subtle opacity-60"
-              style={{ backgroundColor: geoRow?.color ?? gf.color }}
-              aria-hidden="true"
-            />
-            <span
-              className="text-[10px] font-semibold text-text-muted uppercase tracking-wide truncate"
-              title={groupLabel}
-            >
-              {groupLabel}
-            </span>
-          </div>
-          {/* Litho units under this parent */}
-          <ul className="flex flex-col gap-0.5 pl-3 border-l border-border-subtle">
-            {(byParent.get(gf.id) ?? []).map(f => (
-              <LithoUnitRow
-                key={f.id}
-                f={f}
-                lithoContacts={lithoContacts}
-                lensCount={lensCountByFormationId.get(f.id) ?? 0}
-                onReviewParent={onReviewParent}
-              />
-            ))}
-          </ul>
-        </section>
-        )
-      })}
-
-      {/* Unassigned units — litho formations without a parent_formation_id */}
-      {unassigned.length > 0 && (
-        <section aria-label="Unassigned">
-          <div className="text-[10px] font-semibold text-text-muted uppercase tracking-wide mb-0.5">
-            Unassigned
-          </div>
-          <ul className="flex flex-col gap-0.5">
-            {unassigned.map(f => (
-              <LithoUnitRow
-                key={f.id}
-                f={f}
-                lithoContacts={lithoContacts}
-                lensCount={lensCountByFormationId.get(f.id) ?? 0}
-                onReviewParent={onReviewParent}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
+    <ul className="flex flex-col gap-0.5" aria-label="Litho formations">
+      {sorted.map(f => (
+        <LithoUnitRow
+          key={f.id}
+          f={f}
+          lithoContacts={lithoContacts}
+          lensCount={lensCountByFormationId.get(f.id) ?? 0}
+          onReviewParent={onReviewParent}
+        />
+      ))}
+    </ul>
   )
 }
