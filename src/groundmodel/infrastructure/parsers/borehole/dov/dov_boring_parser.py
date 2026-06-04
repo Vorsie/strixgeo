@@ -116,7 +116,12 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_VERTICAL_EPSG,
     DOV_XML_NAMESPACE,
 )
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    make_issue as _issue,
+)
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
     date_iso,
@@ -578,11 +583,6 @@ class DovBoringParser(GroundModelLogger):
                         )
                     )
         return intervals
-
-
-def _issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
-    """Build a ValidationIssue with the given level/code/message (no row index)."""
-    return ValidationIssue(level=level, code=code, message=message)
 
 
 # Re-export for static analysis / type checkers — FieldLogKind is referenced
