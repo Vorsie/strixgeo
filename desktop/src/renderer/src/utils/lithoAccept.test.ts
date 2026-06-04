@@ -1,6 +1,6 @@
 // Tests for the litho-accept builders (#167).
 //
-//   LA1  tuning params read both knobs from view-state.
+//   LA1  tuning params reads the couple knob from view-state.
 //   LA2  body carries cpt_id (not borehole_id) for a cpt anchor + tuning.
 //   LA3  body carries borehole_id for a borehole anchor; null section passes through.
 //   LA4  recordCreatedRows adds each kind only when non-empty.
@@ -13,19 +13,17 @@ import {
   recordCreatedRows,
 } from './lithoAccept'
 
-// A view-state with both knobs set away from the defaults so we can see them
-// flow through verbatim.
+// A view-state with the couple knob set away from the default so we can see
+// it flow through verbatim.
 const viewState = {
   litho_segmenter: {
-    straddle_min_piece_thickness_m: 0.35,
     litho_snap_tolerance_m: 0.5,
   },
 }
 
 describe('lithoAccept builders (#167)', () => {
-  it('LA1 — tuning params read both knobs from view-state', () => {
+  it('LA1 — tuning params reads the couple knob from view-state', () => {
     expect(lithoAcceptTuningParams(viewState)).toEqual({
-      straddle_min_piece_thickness_m: 0.35,
       couple_tolerance_m: 0.5,
     })
   })
@@ -41,7 +39,6 @@ describe('lithoAccept builders (#167)', () => {
     expect(body.cpt_id).toBe('c1')
     expect(body.borehole_id).toBeUndefined()
     expect(body.section_id).toBe('s1')
-    expect(body.straddle_min_piece_thickness_m).toBe(0.35)
     expect(body.couple_tolerance_m).toBe(0.5)
   })
 
