@@ -10,7 +10,7 @@ quirks rather than re-implementing the basics each time.
 Why a separate module from ``dov_common``
 -----------------------------------------
 ``dov_common`` carries WFS-row helpers and constants — those operate on
-GeoJSON property dicts. These helpers operate on ``ET.Element``s. Mixing
+GeoJSON property dicts. These helpers operate on ``Element``s. Mixing
 the two would force every WFS client to import XML primitives it never
 uses (and vice versa). Split by data-source shape.
 
@@ -26,11 +26,17 @@ case).
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+# TYPE-HINT IMPORT ONLY. This module never PARSES XML — callers parse with
+# ``defusedxml.ElementTree`` and pass us already-parsed ``Element`` objects.
+# Do NOT add a parse call here (``Element.fromstring`` / ``ElementTree.parse``):
+# stdlib ``xml.etree`` is vulnerable to billion-laughs entity expansion and
+# external-DTD fetches that defusedxml guards against. If you need to parse,
+# ``import defusedxml.ElementTree`` in the calling parser, not here.
 from datetime import date
+from xml.etree.ElementTree import Element
 
 
-def text(elem: ET.Element | None, tag: str) -> str:
+def text(elem: Element | None, tag: str) -> str:
     """Return stripped text of the *tag* child of *elem*, or ``""`` when absent.
 
     ``""`` is the chosen empty representation because most callers compose
@@ -43,7 +49,7 @@ def text(elem: ET.Element | None, tag: str) -> str:
     return (child.text or "").strip() if child is not None else ""
 
 
-def float_value(elem: ET.Element | None, tag: str) -> float | None:
+def float_value(elem: Element | None, tag: str) -> float | None:
     """Parse a numeric *tag* child of *elem*, or ``None`` when missing/non-numeric.
 
     Empty strings, missing elements, and ``ValueError`` from ``float()``
@@ -57,7 +63,7 @@ def float_value(elem: ET.Element | None, tag: str) -> float | None:
         return None
 
 
-def date_iso(elem: ET.Element | None, tag: str) -> date | None:
+def date_iso(elem: Element | None, tag: str) -> date | None:
     """Parse an ISO-format ``<tag>YYYY-MM-DD</tag>`` child, or ``None`` on failure.
 
     DOV ships dates as plain ISO 8601 strings (``"2002-11-26"``); empty
