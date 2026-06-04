@@ -134,7 +134,6 @@ function renderGhost(
     ) => void
     onSplitLayer?: (idx: number) => void
     onMergeLayers?: (upperIdx: number) => void
-    onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
     cptPlotByAnchorId?: ReadonlyMap<
       string,
       {
@@ -171,7 +170,6 @@ function renderGhost(
         onInsertLayer={opts.onInsertLayer}
         onSplitLayer={opts.onSplitLayer}
         onMergeLayers={opts.onMergeLayers}
-        onAbsorbLayer={opts.onAbsorbLayer}
         cptPlotByAnchorId={opts.cptPlotByAnchorId}
       />
     </svg>,
@@ -1733,154 +1731,12 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer1Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
   })
 
+  // AB section removed by owner directive 2026-06-04 — Shift+drag absorb
+  // gesture deleted. Plain drag-to-collapse is the only absorb surface.
+
   // -----------------------------------------------------------------
-  // AB — Shift+drag absorb gesture (dogfeed 2026-05-25)
+  // DR — drag handles are functional after any merge (dogfeed 2026-05-25)
   // -----------------------------------------------------------------
-
-  // AB1: Shift+drag-down past lower neighbour's midpoint → onAbsorbLayer
-  // called with (draggerIdx=0, direction='down').
-  it('AB1 — Shift+drag-down past lower neighbour midpoint calls onAbsorbLayer(0, down)', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    expect(baseHandle).not.toBeNull()
-    // Drag down to depth 3 m (= midpoint 3 of neighbour [2,4]) + a bit more.
-    // levelToScreen: pxPerM=100, surface=5, layer-0-base at depth 2 → clientY=200.
-    // Neighbour midpoint = 2 + (4-2)/2 = 3 m → clientY = 200 + (3-2)*100 = 300.
-    // Overshoot to clientY=350 (depth 3.5 m > midpoint 3 m).
-    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
-    fireEvent.mouseUp(document, { shiftKey: true })
-    // onAbsorbLayer fires; onEdit does NOT fire (absorb replaces the depth commit).
-    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
-    expect(onAbsorbLayer).toHaveBeenCalledWith(0, 'down')
-    expect(onEdit).not.toHaveBeenCalled()
-  })
-
-  // AB2: Shift+drag-down to a depth BEFORE the lower neighbour's midpoint
-  // → no absorb, normal clamp behaviour, no onAbsorbLayer call.
-  it('AB2 — Shift+drag-down short of midpoint clamps; no absorb', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    // Drag to depth 2.4 m — short of midpoint 3. clientY = 200 + 0.4*100 = 240.
-    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 240, shiftKey: true })
-    fireEvent.mouseUp(document, { shiftKey: true })
-    expect(onAbsorbLayer).not.toHaveBeenCalled()
-    // onEdit still fires with the clamped depth (2.4 m within bounds).
-    expect(onEdit).toHaveBeenCalled()
-  })
-
-  // AB3: plain drag (no Shift) past the neighbour midpoint → clamps as
-  // today, no absorb. The absorb gesture is Shift-exclusive.
-  it('AB3 — plain drag (no Shift) past midpoint clamps; no absorb', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    // Plain drag past midpoint — no shiftKey.
-    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: false })
-    fireEvent.mouseMove(document, { clientY: 350, shiftKey: false })
-    fireEvent.mouseUp(document, { shiftKey: false })
-    expect(onAbsorbLayer).not.toHaveBeenCalled()
-    expect(onEdit).toHaveBeenCalled()
-  })
-
-  // AB4: Shift+drag-UP past upper neighbour's midpoint → onAbsorbLayer
-  // called with (draggerIdx=1, direction='up').
-  it('AB4 — Shift+drag-up past upper neighbour midpoint calls onAbsorbLayer(1, up)', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    // Top handle of layer 1 (drag it UP).
-    const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
-    expect(topHandle).not.toBeNull()
-    // Layer 1 top at depth 2 → clientY=200.
-    // Upper neighbour is [0,2], midpoint = 1 m → clientY = 200 - (2-1)*100 = 100.
-    // Overshoot: drag to clientY=50 → depth = 2 - 1.5 = 0.5 m < midpoint 1 m.
-    fireEvent.mouseDown(topHandle!, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 50, shiftKey: true })
-    fireEvent.mouseUp(document, { shiftKey: true })
-    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
-    expect(onAbsorbLayer).toHaveBeenCalledWith(1, 'up')
-    expect(onEdit).not.toHaveBeenCalled()
-  })
-
-  // AB5: while Shift-dragging past the midpoint, the absorb indicator
-  // renders; when NOT past midpoint (or plain drag), it does not.
-  it('AB5 — absorb indicator renders only while Shift-dragging past neighbour midpoint', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    // Before midpoint → no absorb indicator.
-    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 240, shiftKey: true })
-    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
-    // Past midpoint → absorb indicator appears.
-    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
-    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).not.toBeNull()
-    // Merge/collapse indicator must NOT appear at the same time.
-    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
-    fireEvent.mouseUp(document, { shiftKey: true })
-  })
-
-  // AB6: after a Shift-drag absorb commit (mouseUp), the absorb
-  // indicator clears. Pins the Slice-3 lesson — drag state must reset
-  // fully on mouseUp; absorbPending must not linger.
-  it('AB6 — absorb indicator absent after mouseUp commit (no stuck state)', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onAbsorbLayer },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    // Drag past midpoint → indicator appears.
-    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
-    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).not.toBeNull()
-    // Release → absorb fires, drag state clears, indicator gone.
-    fireEvent.mouseUp(document, { shiftKey: true })
-    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
-    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
-  })
 
   // -----------------------------------------------------------------
   // DR — drag handles are functional after any merge (dogfeed 2026-05-25)
@@ -2016,82 +1872,12 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer0Edit![1].depth_base_m).toBeCloseTo(3.5, 5)
   })
 
-  // DR3: Shift+drag absorb path — after onAbsorbLayer fires, the
-  // parent removes the absorbed neighbour. Re-render with the post-
-  // absorb state and verify the dragger's handle responds.
-  it('DR3 — base handle responds after Shift+drag absorb (dogfeed 2026-05-25)', () => {
-    const onAbsorbLayer = vi.fn()
-    const onEdit = vi.fn()
-    const id = 'cpt-1'
-    const { container, rerender } = render(
-      <svg>
-        <LithoSuggestionGhostColumns
-          columns={[makeColumn(id)]}
-          investigationId={id}
-          suggestions={[
-            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
-          ]}
-          levelToScreen={levelToScreen}
-          surfaceElevationM={5}
-          plotTop={0}
-          plotBottom={600}
-          bandHalfWidth={20}
-          acceptedIndices={new Set()}
-          rejectedIndices={new Set()}
-          onAccept={vi.fn()}
-          onReject={vi.fn()}
-          onEdit={onEdit}
-          onAbsorbLayer={onAbsorbLayer}
-        />
-      </svg>,
-    )
-    // Shift-drag base of layer 0 past layer 1's midpoint.
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
-    fireEvent.mouseDown(baseHandle, { clientY: 200, shiftKey: true })
-    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true }) // past midpoint 3m
-    fireEvent.mouseUp(document, { shiftKey: true })
-    expect(onAbsorbLayer).toHaveBeenCalledWith(0, 'down')
-    // Simulate parent applying absorb: layer 1 removed, layer 0 base = 4.
-    onEdit.mockClear()
-    rerender(
-      <svg>
-        <LithoSuggestionGhostColumns
-          columns={[makeColumn(id)]}
-          investigationId={id}
-          suggestions={[
-            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // raw; edit carries absorbed base
-            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
-          ]}
-          levelToScreen={levelToScreen}
-          surfaceElevationM={5}
-          plotTop={0}
-          plotBottom={600}
-          bandHalfWidth={20}
-          acceptedIndices={new Set()}
-          rejectedIndices={new Set()}
-          onAccept={vi.fn()}
-          onReject={vi.fn()}
-          onEdit={onEdit}
-          edits={new Map([[0, { depth_base_m: 4 }]])}
-          onAbsorbLayer={onAbsorbLayer}
-        />
-      </svg>,
-    )
-    // After absorb, layer 0 base is at 4 m. Drag UP 50 px → depth 3.5.
-    const baseHandlePost = container.querySelector('[data-testid="litho-drag-base-0"]')!
-    fireEvent.mouseDown(baseHandlePost, { clientY: 400 }) // baseY = levelToScreen(5-4) = 400
-    fireEvent.mouseMove(document, { clientY: 350 })
-    fireEvent.mouseUp(document)
-    expect(onEdit).toHaveBeenCalled()
-    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
-    expect(layer0Edit).toBeDefined()
-    expect(layer0Edit![1].depth_base_m).toBeCloseTo(3.5, 5)
-  })
+  // DR3 removed — it tested the Shift+drag absorb gesture (deleted by
+  // owner directive 2026-06-04). The plain drag-to-collapse path (DR1/DR2)
+  // is the surviving absorb mechanism.
 
-  // DR4: after a merge + a successful resize-drag, the drag state is
-  // fully clean (no leftover mergePending / absorbPending / snapTarget).
+  // DR4: after a plain drag-to-collapse merge + a subsequent resize-drag,
+  // the drag state is fully clean (no leftover snapTarget etc.).
   it('DR4 — drag state is fully clean after merge + subsequent resize (dogfeed 2026-05-25)', () => {
     const onEdit = vi.fn()
     const id = 'cpt-1'
@@ -2437,7 +2223,11 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
   // moves a shared boundary with an ACCEPTED neighbour AND a committed
   // contact exists at the pre-drag boundary depth, the hook fires
   // onUpdateContactDepth so the contact follows the pending edit.
-  it('CS1 — drag past accepted neighbour fires onUpdateContactDepth on the matching contact', () => {
+  // CS1 — Slice 3 cross-store commit dispatch. The pending layer drags its
+  // TOP up, crossing into the accepted layer ABOVE. The accepted layer
+  // above must have its stored BASE (depth_base_m) extended upward —
+  // NOT its top. The 4th arg 'base' signals this to handleUpdateContactDepth.
+  it('CS1 — drag past accepted neighbour above fires onUpdateContactDepth with field=base', () => {
     const onEdit = vi.fn()
     const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
     // Layer 0 (accepted) at [0, 2]; layer 1 (pending) at [2, 4]; layer 2 (pending) at [4, 6].
@@ -2498,9 +2288,71 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     expect(layer1Edit).toBeDefined()
     expect(layer1Edit![1].depth_top_m).toBeCloseTo(1, 5)
-    // Cross-store PATCH fires for the contact at the matching depth.
+    // Cross-store PATCH fires with field='base' — the layer ABOVE must have
+    // its BASE extended upward (not its TOP moved, which would be wrong).
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
-    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2m', 1, false)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2m', 1, false, 'base')
+  })
+
+  // CS1b — mirror: drag layer 0's BASE down, crossing into accepted layer
+  // BELOW. The layer below must have its stored TOP (depth_top_m) moved
+  // downward. The 4th arg 'top' signals this.
+  it('CS1b — drag base past accepted neighbour below fires onUpdateContactDepth with field=top', () => {
+    const onEdit = vi.fn()
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    // Layer 0 (pending) at [0, 2]; layer 1 (accepted) at [2, 4].
+    // Committed contact for layer 1 at depth_top_m=2.
+    const contact = {
+      id: 'contact-at-2m',
+      model_id: 'litho-1',
+      formation_id: 'f-1',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2,
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([1])}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          committedContactsForAnchor={[contact]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    // Drag layer 0's base DOWN from depth 2 (clientY=300) to depth 3 (clientY=400).
+    const base0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(base0, { clientY: 300 }) // depth 2
+    fireEvent.mouseMove(document, { clientY: 400 }) // depth 3
+    fireEvent.mouseUp(document)
+    // The layer below (accepted, idx 1) must have its TOP moved — field='top'.
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2m', 3, false, 'top')
   })
 
   // CS2 — no cross-store PATCH fires when the neighbour is PENDING
@@ -2589,10 +2441,11 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     expect(layer1Edit![1].depth_top_m).toBeCloseTo(0, 5)
   })
 
-  // ZT-FILL3 — P1a: when the fill neighbour is ACCEPTED, the
-  // committed contact at the OLD shared boundary is PATCHed to the
-  // new boundary (auto-reject path's cross-store dispatch).
-  it('ZT-FILL3 — collapse with accepted fill-neighbour fires onUpdateContactDepth', () => {
+  // ZT-FILL3 — P1a: when the fill neighbour is ACCEPTED and ABOVE, the
+  // committed contact is PATCHed with field='base' to extend its BASE down
+  // to the rejected layer's own base. 'top' would be wrong — it would move
+  // the above layer's top boundary instead of its base.
+  it('ZT-FILL3 — collapse-top with accepted fill-neighbour above fires onUpdateContactDepth field=base', () => {
     const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
     const contact = {
       id: 'contact-at-2',
@@ -2627,7 +2480,7 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
           plotTop={0}
           plotBottom={600}
           bandHalfWidth={20}
-          acceptedIndices={new Set([0])} // layer 0 (A) is accepted
+          acceptedIndices={new Set([0])} // layer 0 (A) is accepted, above B
           rejectedIndices={new Set()}
           onAccept={vi.fn()}
           onReject={vi.fn()}
@@ -2637,15 +2490,74 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
         />
       </svg>,
     )
-    // Drag layer B's top from depth 2 down to depth 4 — collapse B.
-    // Fill direction: TOP drag → extend layer ABOVE (= A, accepted).
-    // Contact at depth 2 must move to depth 4.
+    // Drag layer B's TOP from depth 2 (clientY=200) down to depth 4 (clientY=400) — collapse B.
+    // Fill direction: TOP drag collapse → extend layer ABOVE (= A, accepted) BASE to B's base (4).
     const top1 = container.querySelector('[data-testid="litho-drag-top-1"]')!
     fireEvent.mouseDown(top1, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 400 })
     fireEvent.mouseUp(document)
+    // Must fire with field='base' — the above layer's BASE moves to 4, not its TOP.
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
-    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2', 4, false)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-at-2', 4, false, 'base')
+  })
+
+  // ZT-FILL4 — P1a mirror: collapse-BASE with accepted fill-neighbour BELOW.
+  // The layer below must have its TOP (depth_top_m) moved upward — field='top'.
+  it('ZT-FILL4 — collapse-base with accepted fill-neighbour below fires onUpdateContactDepth field=top', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    // Layer 0 (pending) at [0, 2]; layer 1 (accepted) at [2, 4].
+    const contact = {
+      id: 'contact-below',
+      model_id: 'm',
+      formation_id: 'f',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 2,
+      source: 'manual_pick' as const,
+      confidence: 'medium' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      parent_geo_contact_id: null,
+      created_at: '2026-05-30T00:00:00Z',
+      updated_at: '2026-05-30T00:00:00Z',
+    }
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn('cpt-1')]}
+          investigationId="cpt-1"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+          ]}
+          levelToScreen={(level: number) => 500 - level * 100}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set([1])} // layer 1 is accepted, below layer 0
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          committedContactsForAnchor={[contact]}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    // Drag layer 0's BASE from depth 2 (clientY=300) up to depth 0 (clientY=100) — collapse layer 0.
+    // Fill direction: BASE drag collapse → extend layer BELOW (= layer 1, accepted) TOP to layer 0's top (0).
+    const base0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(base0, { clientY: 300 }) // depth 2 → levelToScreen(5-2)=300
+    fireEvent.mouseMove(document, { clientY: 100 }) // depth 0 → collapse onto layer 0's top
+    fireEvent.mouseUp(document)
+    // Must fire with field='top' — the layer below has its TOP moved upward.
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-below', 0, false, 'top')
   })
 
   // CS4 — robust-fix follow-up (dogfeed 2026-05-30). When
@@ -2717,7 +2629,8 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     fireEvent.mouseMove(document, { clientY: 200 })
     fireEvent.mouseUp(document)
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
-    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-drifted', 1, false)
+    // Identity-resolved contact for the ABOVE accepted layer → field='base'.
+    expect(onUpdateContactDepth).toHaveBeenCalledWith('contact-drifted', 1, false, 'base')
   })
 
   // CS3 — no PATCH fires when the drag didn't actually move the
