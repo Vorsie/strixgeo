@@ -42,7 +42,7 @@ from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1362,8 +1362,20 @@ async def _restore_cross_sections(
     session: AsyncSession,
     project_id: UUID,
     cross_sections_payload: list[dict[str, Any]],
-) -> int:
-    """Insert cross-section rows from the bundle.
+) -> tuple[int, dict[UUID, UUID]]:
+    """Insert cross-section rows from the bundle, deferring the body FK (#196).
+
+    ``cross_section.companion_lens_id`` is an FK → ``body.id``, but bodies
+    restore in a LATER phase (Phase 8) than sections (Phase 6). Inserting a
+    lens-companion section with that column set therefore FK-violates on flush
+    on a cold restore. We strip the column here and return a
+    ``{section_id: body_id}`` map so the caller re-attaches it after the bodies
+    phase (see ``_attach_companion_lens_links``). ``is_lens_companion`` (a bool
+    flag, not an FK) stays on the row so the companion is flagged immediately.
+
+    This phase writes its own dedupe+insert loop rather than going through
+    ``_restore_flat_rows`` because of that deferral need — the same reason
+    ``_restore_investigation_reviews`` carries its own loop.
 
     Parameters
     ----------
@@ -1376,10 +1388,90 @@ async def _restore_cross_sections(
 
     Returns
     -------
-    int
-        Number of cross-section rows newly inserted.
+    tuple[int, dict[UUID, UUID]]
+        ``(inserted, deferred_companion_links)`` — the second is a map of
+        ``cross_section.id → companion body.id`` to re-attach after Phase 8.
     """
-    return await _restore_flat_rows(session, project_id, CrossSectionOrm, cross_sections_payload)
+    existing = set(
+        (
+            await session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    inserted = 0
+    deferred: dict[UUID, UUID] = {}
+    for item in cross_sections_payload:
+        item_id = _uuid(item.get("id"))
+        if item_id is None or item_id in existing:
+            continue
+        kwargs = _apply_json_to_kwargs(CrossSectionOrm, item)
+        kwargs["app_project_id"] = project_id
+        # Defer the body FK — bodies don't exist yet on a cold restore.
+        companion_id = _uuid(kwargs.pop("companion_lens_id", None))
+        if companion_id is not None:
+            deferred[item_id] = companion_id
+        session.add(CrossSectionOrm(**kwargs))
+        inserted += 1
+    return inserted, deferred
+
+
+async def _attach_companion_lens_links(
+    session: AsyncSession,
+    project_id: UUID,
+    deferred_companion_links: dict[UUID, UUID],
+    *,
+    logger: GroundModelLogger,
+) -> int:
+    """Set the deferred ``cross_section.companion_lens_id`` now bodies exist (#196).
+
+    Runs after the bodies phase. Re-queries the project's body ids (forcing an
+    autoflush of the pending body inserts) so a link whose body was dropped /
+    skipped during restore is logged and left NULL rather than FK-violating.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    deferred_companion_links : dict[UUID, UUID]
+        ``{cross_section.id: companion body.id}`` from ``_restore_cross_sections``.
+    logger : GroundModelLogger
+        Caller's logger (dangling-link warnings).
+
+    Returns
+    -------
+    int
+        Number of companion links re-attached.
+    """
+    if not deferred_companion_links:
+        return 0
+    valid_body_ids = set(
+        (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    attached = 0
+    for section_id, body_id in deferred_companion_links.items():
+        if body_id not in valid_body_ids:
+            logger.warning(
+                f"restore_project_bundle({project_id}): companion section {section_id} "
+                f"→ body {body_id} not present after restore — leaving companion_lens_id NULL"
+            )
+            continue
+        await session.execute(
+            update(CrossSectionOrm)
+            .where(
+                CrossSectionOrm.id == section_id,
+                CrossSectionOrm.app_project_id == project_id,
+            )
+            .values(companion_lens_id=body_id)
+        )
+        attached += 1
+    return attached
 
 
 async def _restore_investigation_reviews(
@@ -2221,7 +2313,10 @@ async def _restore_project_bundle_impl(
     )
 
     # ---- Phase 6: Cross-sections -----------------------------------------
-    new_sections = await _restore_cross_sections(session, project_id, cross_sections_payload)
+    # companion_lens_id is deferred (FK → body, which restores in Phase 8).
+    new_sections, deferred_companion_links = await _restore_cross_sections(
+        session, project_id, cross_sections_payload
+    )
 
     # ---- Phase 7: Investigation reviews (FK → CPT / borehole) ------------
     new_reviews, dropped_reviews = await _restore_investigation_reviews(
@@ -2245,6 +2340,13 @@ async def _restore_project_bundle_impl(
         valid_model_ids,
         geological_models_payload,
         logger=logger,
+    )
+
+    # ---- Phase 8b: Re-attach deferred companion-lens links (#196) --------
+    # Now bodies exist, set the cross_section.companion_lens_id FKs that
+    # Phase 6 stripped to avoid the cold-restore FK violation.
+    reattached_companions = await _attach_companion_lens_links(
+        session, project_id, deferred_companion_links, logger=logger
     )
 
     # ---- Phase 9: Formation absences -------------------------------------
@@ -2282,7 +2384,7 @@ async def _restore_project_bundle_impl(
         f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
         f"+{new_formations} formations, +{new_units} geotech units, "
         f"+{new_models} models (+{new_contacts} contacts), "
-        f"+{new_sections} sections, "
+        f"+{new_sections} sections ({reattached_companions} companion links re-attached), "
         f"+{new_reviews} reviews ({dropped_reviews} dropped as orphan), "
         f"+{new_contact_edges} litho contact edges "
         f"({skipped_contact_edges} skipped, {dropped_contact_edges} dropped), "
