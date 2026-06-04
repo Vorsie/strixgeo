@@ -312,6 +312,12 @@ export interface BodyListItem {
   extent_right_neighbour_inv_id: string | null
   /** The litho_layer the right cap is anchored to. See the left-side note. */
   extent_right_anchor_layer_id?: string | null
+  /** A2-derived geological-formation label: the geological formation owning the
+   *  majority (by thickness) of this body's member layers. Computed fresh on
+   *  read, never stored. Null when no geological model is defined at the body's
+   *  investigations. */
+  geo_formation_id?: string | null
+  geo_formation_name?: string | null
   created_at: string
   updated_at: string
   /** Stable identity of the body (#163f) — sorted hash of its 3 defining
