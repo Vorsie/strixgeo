@@ -46,6 +46,10 @@ class BodyListItem(BaseModel):
     extent_left_neighbour_inv_id : UUID | None
         The neighbouring investigation used to compute the halfway point or
         extrapolation anchor on the left.
+    extent_left_anchor_layer_id : UUID | None
+        The litho_layer the left cap is anchored to — the column + depth
+        interval the renderer frames it from.  ``None`` for legacy / detector
+        caps (renderer falls back to the leftmost on-section member).
 
     extent_right_kind : str | None
         Same as ``extent_left_kind`` but for the right lateral extent.
@@ -53,6 +57,8 @@ class BodyListItem(BaseModel):
         Same as ``extent_left_target_contact_id`` but for the right side.
     extent_right_neighbour_inv_id : UUID | None
         Same as ``extent_left_neighbour_inv_id`` but for the right side.
+    extent_right_anchor_layer_id : UUID | None
+        Same as ``extent_left_anchor_layer_id`` but for the right side.
 
     created_at : datetime
         Row creation timestamp.
@@ -74,10 +80,12 @@ class BodyListItem(BaseModel):
     extent_left_kind: str | None
     extent_left_target_contact_id: UUID | None
     extent_left_neighbour_inv_id: UUID | None
+    extent_left_anchor_layer_id: UUID | None
 
     extent_right_kind: str | None
     extent_right_target_contact_id: UUID | None
     extent_right_neighbour_inv_id: UUID | None
+    extent_right_anchor_layer_id: UUID | None
 
     created_at: datetime
     updated_at: datetime
