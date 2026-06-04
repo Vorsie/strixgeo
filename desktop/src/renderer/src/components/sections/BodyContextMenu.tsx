@@ -197,7 +197,12 @@ export default function BodyContextMenu({
       y={y}
       width={300}
       height={500}
-      header={`Lens · ${displayLabel ?? body.name ?? body.id.slice(0, 8)}`}
+      header={
+        `Lens · ${displayLabel ?? body.name ?? body.id.slice(0, 8)}` +
+        // A2: the derived geological formation this body mostly falls in,
+        // shown as context next to the lithology name (e.g. "Sa · Pleistoceen").
+        (body.geo_formation_name ? ` · ${body.geo_formation_name}` : '')
+      }
       ariaLabel="Body extent actions"
       testid="body-context-menu"
       items={items}
