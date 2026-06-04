@@ -923,34 +923,75 @@ export default function BodyExtentOverlay({
           })
         }
 
+        // An OPEN cap renders at the body's EXTREME member column on that side
+        // (leftmost for left, rightmost for right), NOT the body's source column
+        // — a multi-column body's source can sit mid-body, so the open would
+        // draw at the wrong column and "not render" where the user clicked
+        // (dogfeed 2026-06-04: deep units belonging to an S3/S4-sourced body
+        // showed nothing when open-ended on S1).  Returns the extreme member's
+        // column + framing, or null when the body has no on-section member.
+        const _openCapFor = (
+          side: 'left' | 'right',
+        ): { col: typeof sourceCol; above: string; below: string | null; memberBase: number | null } | null => {
+          const members: { l: LithoLayerResponse; col: NonNullable<typeof sourceCol> }[] = []
+          for (const l of _memberLayersByBodyId.get(body.id) ?? []) {
+            const col = _colByInv.get(_layerAnchorIdOf(l) ?? '')
+            if (col) members.push({ l, col })
+          }
+          if (members.length === 0) return null
+          members.sort((a, b) => a.col.along - b.col.along)
+          const pick = side === 'left' ? members[0] : members[members.length - 1]
+          const above = pick.l.id
+          let below: string | null = null
+          let bestDelta = Number.POSITIVE_INFINITY
+          for (const c of contacts) {
+            if (_anchorIdOf(c) !== _layerAnchorIdOf(pick.l)) continue
+            if (c.id === above) continue
+            const d = Math.abs(c.depth_top_m - pick.l.depth_base_m)
+            if (d < bestDelta) {
+              bestDelta = d
+              below = c.id
+            }
+          }
+          if (below !== null && bestDelta > 0.01) below = null
+          return {
+            col: pick.col,
+            above,
+            below,
+            memberBase: below === null ? pick.l.depth_base_m : null,
+          }
+        }
+
         // Resolve left side.
         if (isExtentKind(body.extent_left_kind)) {
+          const cap = body.extent_left_kind === 'open' ? _openCapFor('left') : null
           const leftResolved = resolveSide(
             'left',
-            sourceCol,
-            aboveContactId,
-            belowContactId,
+            cap ? cap.col : sourceCol,
+            cap ? cap.above : aboveContactId,
+            cap ? cap.below : belowContactId,
             body.extent_left_kind,
             body.extent_left_target_contact_id,
             body.extent_left_neighbour_inv_id,
             true, // left side = primary for edge-anchoring purposes
-            memberBaseDepthM,
+            cap ? cap.memberBase : memberBaseDepthM,
           )
           if (leftResolved) _resolved.push(leftResolved)
         }
 
         // Resolve right side.
         if (isExtentKind(body.extent_right_kind)) {
+          const cap = body.extent_right_kind === 'open' ? _openCapFor('right') : null
           const rightResolved = resolveSide(
             'right',
-            sourceCol,
-            aboveContactId,
-            belowContactId,
+            cap ? cap.col : sourceCol,
+            cap ? cap.above : aboveContactId,
+            cap ? cap.below : belowContactId,
             body.extent_right_kind,
             body.extent_right_target_contact_id,
             body.extent_right_neighbour_inv_id,
             !isExtentKind(body.extent_left_kind), // only primary if no left side
-            memberBaseDepthM,
+            cap ? cap.memberBase : memberBaseDepthM,
           )
           if (rightResolved) _resolved.push(rightResolved)
         }
