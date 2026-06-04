@@ -39,11 +39,6 @@ class AcceptLithoSuggestionsRequest(BaseModel):
         for calling ``POST .../recompute-all-absences`` once after the full
         batch of deferred accepts to run inference in a single pass.  Defaults
         to ``False`` (original per-accept behaviour).
-    straddle_min_piece_thickness_m : float
-        Straddle sliver guard (debt #157).  When a suggestion's top or base
-        falls within this distance of a geological formation boundary, the
-        split piece for that near-edge is suppressed.  Default 0.20 m.
-        Range 0.01 – 5.0 m.
     couple_tolerance_m : float
         Litho↔geo coupling coincidence tolerance (#162).  A litho contact
         within this distance of a geological contact on the same investigation
@@ -80,17 +75,6 @@ class AcceptLithoSuggestionsRequest(BaseModel):
             "the user drags the ghost, so the normal ghost-accept can find it by its "
             "find-or-create key (Bug 2 dogfeed 2026-05-26). "
             "Default False preserves the original per-accept behaviour."
-        ),
-    )
-    straddle_min_piece_thickness_m: float = Field(
-        default=0.20,
-        ge=0.01,
-        le=5.0,
-        description=(
-            "Straddle sliver guard (debt #157).  When a suggestion's top or base "
-            "falls within this distance of a geological formation boundary, the "
-            "split piece for that near-edge is suppressed — avoiding sub-tolerance "
-            "sliver contacts.  Default 0.20 m.  Range 0.01 – 5.0 m."
         ),
     )
     couple_tolerance_m: float = Field(
