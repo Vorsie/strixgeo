@@ -128,28 +128,9 @@ def test_r3_no_section_id_in_execute_signature() -> None:
     assert "updated_section" not in field_names
     assert "section_id" not in field_names
 
-
-# ---------------------------------------------------------------------------
-# R4 — does NOT duplicate resolution logic
-# ---------------------------------------------------------------------------
-
-
-def test_r4_does_not_reimplement_resolver() -> None:
-    """ResolveLithoInstances.execute() must delegate to _run_resolver.
-
-    The source of the execute method must reference _run_resolver, not
-    re-implement BFS / ordinal assignment inline.  This is a governance
-    test: if execute() ever grows a full BFS loop, the test fails and
-    forces a code-review discussion.
-    """
-    src = inspect.getsource(ResolveLithoInstances.execute)
-    # The method must call _run_resolver (the shared implementation).
-    assert "_run_resolver" in src, (
-        "ResolveLithoInstances.execute() must call _run_resolver — "
-        "do not duplicate the BFS/ordinal logic inline"
-    )
-    # It must NOT contain BFS keywords that would indicate inline reimplementation.
-    assert "deque" not in src, "BFS deque found in execute() — extract to _run_resolver"
-    assert "connected_component" not in src, (
-        "Connected-component logic found in execute() — extract to _run_resolver"
-    )
+    # The delegation-to-_run_resolver contract is covered behaviourally by R1
+    # (mocks _run_resolver and asserts it is awaited). The previous R4 test
+    # asserted on the source text of execute() (``"deque" not in src``) — an
+    # impl-shaped canary that a legitimate refactor would break while a broken
+    # resolver could pass; removed in favour of the behavioural R1/R2 + the
+    # domain resolver's own unit tests.
