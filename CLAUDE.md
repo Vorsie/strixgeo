@@ -483,6 +483,15 @@ Geophysical: MASW, Seismic CPT
   frame. The resolver (``_run_resolver``) carries anchored extents forward
   by re-attaching each to the body that NOW owns its anchor layer, so a
   user-claimed open survives an instance renumber (was the #195 loss).
+  **One-geological-formation invariant (owner directive 2026-06-04):** a body
+  must not span a geological-formation boundary. ``resolve_litho_instances``
+  drops a correlation edge whose endpoints have different ``parent_formation_id``
+  (in addition to the one-lithology / different-``litho_main_soil_code`` drop),
+  so a sand split at the Holocene/Pleistocene boundary into two litho layers
+  stays TWO bodies — each with its own extents — even stacked on one column and
+  correlated same-lithology. Keys on the geological PARENT, not ``formation_id``,
+  so admixture variants under one parent still merge. Fixed the dogfeed where
+  open-ending one half of such a sand moved the single body cap off the other.
 
 ---
 
