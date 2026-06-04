@@ -15,27 +15,25 @@ import type {
 } from '../api/client'
 import { readLithoSegmenterPrefs } from './lithoSegmenterPrefs'
 
-/** The two segmenter knobs every accept call forwards to the backend. */
+/** The segmenter knob every accept call forwards to the backend. */
 export interface LithoAcceptTuningParams {
-  straddle_min_piece_thickness_m: number
   couple_tolerance_m: number
 }
 
 /**
- * Read the straddle + couple tuning knobs from a project's view-state.
+ * Read the couple tuning knob from a project's view-state.
  *
- * One ``readLithoSegmenterPrefs`` call instead of the two each accept site
- * used to make. Spread into both the single-accept body and the batch body.
+ * One ``readLithoSegmenterPrefs`` call per accept site. Spread into
+ * both the single-accept body and the batch body.
  *
  * @param viewState - ``project.view_state`` (or null/undefined).
- * @returns The two tuning params, keyed as the backend request expects.
+ * @returns The tuning param, keyed as the backend request expects.
  */
 export function lithoAcceptTuningParams(
   viewState: Record<string, unknown> | null | undefined,
 ): LithoAcceptTuningParams {
   const prefs = readLithoSegmenterPrefs(viewState)
   return {
-    straddle_min_piece_thickness_m: prefs.straddleMinPieceThicknessM,
     couple_tolerance_m: prefs.lithoSnapToleranceM,
   }
 }
