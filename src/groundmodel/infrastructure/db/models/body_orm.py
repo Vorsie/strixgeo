@@ -120,6 +120,18 @@ class BodyOrm(Base):
     extent_left_neighbour_inv_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
     )
+    # The litho_layer the user (or detector) anchored this cap to — the
+    # SPATIAL source of truth for where the left cap renders (its column +
+    # depth interval). NULL = legacy / unanchored extent → the renderer falls
+    # back to the body's leftmost on-section member.  SET NULL on layer delete
+    # so the body row survives; the resolver carry-forward re-attaches the cap
+    # to whichever body now contains this layer, which is what makes a
+    # user-claimed open survive an instance renumber (debt #195).
+    extent_left_anchor_layer_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("litho_layer.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Right-side extent marker. NULL = no claim on this side.
     extent_right_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -131,6 +143,12 @@ class BodyOrm(Base):
     # Polymorphic UUID — refs the neighbouring investigation. NO FK constraint.
     extent_right_neighbour_inv_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
+    )
+    # The litho_layer the right cap is anchored to. See the left-side note.
+    extent_right_anchor_layer_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("litho_layer.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(
