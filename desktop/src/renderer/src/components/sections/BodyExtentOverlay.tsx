@@ -76,6 +76,11 @@ const HIT_STROKE = 12 // transparent click-band width along each boundary
 const OPEN_STROKE_COLOR = '#0ea5e9' // sky-500 — distinct from the emerald wedge edge
 const OPEN_FILL_OPACITY = 0.4
 const OPEN_MIN_STUB_PX = 22 // floor on the stub's on-screen length
+// Floor on the stub's on-screen HEIGHT — open ends sit on thin units (often
+// <0.5 m → a few px tall), so without this the bold stub is still an invisible
+// hairline (dogfeed 2026-06-04). A clear marker beats exact thickness here.
+const OPEN_MIN_HEIGHT_PX = 9
+const OPEN_ARROW_SIZE = 11 // bigger than the dip arrow so a thin open still reads
 
 // Ghost candidate styling — amber dashed wedge, 30% fill opacity.
 const GHOST_STROKE_COLOR = '#f59e0b' // amber-400
@@ -153,8 +158,11 @@ function polygonCentroid(
 }
 
 /** Build an SVG triangle marker pointing in the direction of ``dx`` (left=-1, right=+1). */
-function dipArrowPath(tip: { x: number; y: number }, directionSign: number): string {
-  const size = DIP_ARROW_SIZE
+function dipArrowPath(
+  tip: { x: number; y: number },
+  directionSign: number,
+  size: number = DIP_ARROW_SIZE,
+): string {
   const bx = tip.x - directionSign * size
   return [
     `M ${tip.x},${tip.y}`,
@@ -542,8 +550,14 @@ export default function BodyExtentOverlay({
         l => _layerAnchorIdOf(l) === body.source_investigation_id,
       )
       if (!sourceMember) return null
-      // The member layer's id == the contact id at its top boundary.
-      if (!_contactById.has(sourceMember.id)) return null
+      // The member layer's id == the contact id at its top boundary.  It need
+      // NOT be SEEDED on this section — ``_worldPtEdge`` resolves an unseeded
+      // contact from the litho layer, and ``sourceMember.depth_base_m`` gives
+      // the floor directly.  Requiring it to be seeded sent unseeded-member
+      // bodies down the formation_id proxy, which collapsed their vertical span
+      // to a zero-height band (open ends "not drawing" on the leftmost column —
+      // dogfeed 2026-06-04).  Only require the member layer itself to be known.
+      if (!_layerById.has(sourceMember.id) && !_contactById.has(sourceMember.id)) return null
       const aboveContactId = sourceMember.id
       // Base contact = the source-column contact whose top sits at this layer's
       // base (within a small tolerance — both are derived from the same
@@ -626,8 +640,12 @@ export default function BodyExtentOverlay({
         // supplies a finite base depth (bounded band from the member layer).
         if (!belowContactId && extentKindRaw !== 'open' && memberBaseDepthM === null) return null
 
-        const aboveContact = _contactById.get(aboveContactId)
-        if (!aboveContact) return null
+        // The above contact may be UNSEEDED on this section (its litho layer
+        // still supplies the depth via ``_worldPtEdge``); accept it as long as
+        // either a seeded contact OR a litho layer resolves it.  Requiring a
+        // seeded contact dropped member-framed open bands whose top contact is
+        // not seeded (dogfeed 2026-06-04).
+        if (!_contactById.has(aboveContactId) && !_layerById.has(aboveContactId)) return null
         // For non-open kinds a belowContact is required; for open it may be null
         // when the formation runs to the bottom of the hole (no base contact).
         if (belowContactId !== null && !_contactById.has(belowContactId)) return null
@@ -1183,9 +1201,16 @@ export default function BodyExtentOverlay({
           Math.abs(alongToScreenX(topSource.along_m + 1) - alongToScreenX(topSource.along_m)) || 1
         const stubPx = Math.max(openExtentLengthM * pxPerM, OPEN_MIN_STUB_PX)
         const farX = srcTop.x + dir * stubPx
-        upperScreen = [srcTop, { x: farX, y: srcTop.y }]
-        lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
-        arrowD = dipArrowPath({ x: farX, y: (srcTop.y + srcBase.y) / 2 }, dir)
+        let topY = srcTop.y
+        let baseY = srcBase.y
+        if (Math.abs(baseY - topY) < OPEN_MIN_HEIGHT_PX) {
+          const mid = (topY + baseY) / 2
+          topY = mid - OPEN_MIN_HEIGHT_PX / 2
+          baseY = mid + OPEN_MIN_HEIGHT_PX / 2
+        }
+        upperScreen = [{ x: srcTop.x, y: topY }, { x: farX, y: topY }]
+        lowerScreen = [{ x: srcTop.x, y: baseY }, { x: farX, y: baseY }]
+        arrowD = dipArrowPath({ x: farX, y: (topY + baseY) / 2 }, dir, OPEN_ARROW_SIZE)
       } else {
         // Interior — pinch out halfway toward the suggested neighbour.
         const neighbourId = candidate.suggested_neighbour_investigation_id
@@ -1254,10 +1279,19 @@ export default function BodyExtentOverlay({
           const pxPerM = Math.abs(alongToScreenX(edgeAlong + 1) - alongToScreenX(edgeAlong)) || 1
           const stubPx = Math.max(openExtentLengthM * pxPerM, OPEN_MIN_STUB_PX)
           const farX = srcTop.x + dir * stubPx
-          upperScreen = [srcTop, { x: farX, y: srcTop.y }]
-          lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
+          // Floor the on-screen HEIGHT so a thin unit's stub is still a visible
+          // marker, not a hairline.  Expand symmetrically about the band centre.
+          let topY = srcTop.y
+          let baseY = srcBase.y
+          if (Math.abs(baseY - topY) < OPEN_MIN_HEIGHT_PX) {
+            const mid = (topY + baseY) / 2
+            topY = mid - OPEN_MIN_HEIGHT_PX / 2
+            baseY = mid + OPEN_MIN_HEIGHT_PX / 2
+          }
+          upperScreen = [{ x: srcTop.x, y: topY }, { x: farX, y: topY }]
+          lowerScreen = [{ x: srcTop.x, y: baseY }, { x: farX, y: baseY }]
           // Arrow at the far edge, vertically centred, pointing out of section.
-          openArrowD = dipArrowPath({ x: farX, y: (srcTop.y + srcBase.y) / 2 }, dir)
+          openArrowD = dipArrowPath({ x: farX, y: (topY + baseY) / 2 }, dir, OPEN_ARROW_SIZE)
         } else {
           // Wedge: taper from source endpoints to a single far point.
           const upperWorld = bodyBoundaryPolyline([body.farPoint, body.topSource], upperNodes, body.style)
