@@ -1137,6 +1137,8 @@ export default function BodyExtentOverlay({
     upperScreen: { x: number; y: number }[]
     lowerScreen: { x: number; y: number }[]
     fillD: string
+    /** Out-of-section arrow path (open candidates only; empty for pinch). */
+    arrowD: string
   }
   const ghostWedges: GhostWedge[] = []
   if (ghostCandidates) {
@@ -1151,15 +1153,19 @@ export default function BodyExtentOverlay({
 
       let upperScreen: { x: number; y: number }[]
       let lowerScreen: { x: number; y: number }[]
+      let arrowD = ''
 
       if (candidate.kind === 'open') {
-        // Edge test — open the layer a fixed length past the source column
-        // (configurable; default 3 m), not to the section boundary
-        // (dogfeed 2026-06-02). No neighbour.
-        const towardAlong =
-          candidate.side === 'left'
-            ? sourceCol.along - openExtentLengthM
-            : sourceCol.along + openExtentLengthM
+        // Edge test — open stub past the source column.  Anchored at the column
+        // EDGE and extended outward by openExtentLengthM, floored to a minimum
+        // on-screen width + an out-of-section arrow, matching the committed
+        // open render so the ghost preview looks like what it commits to
+        // (dogfeed 2026-06-04).
+        const dir = candidate.side === 'left' ? -1 : 1
+        // ``towardAlong`` only decides WHICH edge worldPtEdge returns (the side
+        // facing the open direction); the stub length is recomputed from the
+        // edge below.
+        const towardAlong = sourceCol.along + dir * openExtentLengthM
         const topSource = worldPtEdge(candidate.above_contact_id, towardAlong)
         if (!topSource) continue
         // When below_contact_id is null, the formation is the deepest on the
@@ -1169,11 +1175,15 @@ export default function BodyExtentOverlay({
             ? openDeepestBaseElevation(sourceCol)
             : (worldPtEdge(candidate.below_contact_id, towardAlong)?.elevation_m ?? null)
         if (baseElev === null) continue
-        const topFar: WorldPt = { along_m: towardAlong, elevation_m: topSource.elevation_m }
-        const baseSourcePt: WorldPt = { along_m: topSource.along_m, elevation_m: baseElev }
-        const baseFar: WorldPt = { along_m: towardAlong, elevation_m: baseElev }
-        upperScreen = [toScreen(topSource), toScreen(topFar)]
-        lowerScreen = [toScreen(baseSourcePt), toScreen(baseFar)]
+        const srcTop = toScreen(topSource)
+        const srcBase = toScreen({ along_m: topSource.along_m, elevation_m: baseElev })
+        let farX = alongToScreenX(topSource.along_m + dir * openExtentLengthM)
+        if (Math.abs(farX - srcTop.x) < OPEN_MIN_STUB_PX) {
+          farX = srcTop.x + dir * OPEN_MIN_STUB_PX
+        }
+        upperScreen = [srcTop, { x: farX, y: srcTop.y }]
+        lowerScreen = [srcBase, { x: farX, y: srcBase.y }]
+        arrowD = dipArrowPath({ x: farX, y: (srcTop.y + srcBase.y) / 2 }, dir)
       } else {
         // Interior — pinch out halfway toward the suggested neighbour.
         const neighbourId = candidate.suggested_neighbour_investigation_id
@@ -1202,6 +1212,7 @@ export default function BodyExtentOverlay({
         upperScreen,
         lowerScreen,
         fillD,
+        arrowD,
       })
     }
   }
@@ -1498,6 +1509,11 @@ export default function BodyExtentOverlay({
             strokeDasharray={GHOST_STROKE_DASH}
             pointerEvents="none"
           />
+          {/* Out-of-section arrow for an open-candidate ghost (matches the
+              committed open render so the preview reads the same). */}
+          {ghost.arrowD && (
+            <path d={ghost.arrowD} fill={GHOST_STROKE_COLOR} stroke="none" pointerEvents="none" />
+          )}
         </g>
       ))}
     </g>
