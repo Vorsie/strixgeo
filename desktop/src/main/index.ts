@@ -9,6 +9,8 @@ import {
   writeFileSync,
   existsSync,
   mkdirSync,
+  createWriteStream,
+  WriteStream,
 } from 'fs'
 
 import {
@@ -128,11 +130,32 @@ function startApi(): void {
     env: { ...process.env }
   })
 
-  apiProcess.stdout?.on('data', (d) => console.log('[api]', d.toString().trim()))
-  apiProcess.stderr?.on('data', (d) => console.error('[api]', d.toString().trim()))
+  // Backend stdout/stderr carry the asyncpg DSN (groundmodel:groundmodel@…)
+  // plus every backend log line. In a packaged build View → Toggle DevTools
+  // stays enabled, so echoing these to the renderer console would leak the DB
+  // connection string to any user who opens DevTools (debt #200 F5). Route
+  // them to a log file under the app's logs dir in production; keep the
+  // console in dev for fast iteration.
+  let logStream: WriteStream | null = null
+  if (app.isPackaged) {
+    const logsDir = app.getPath('logs')
+    mkdirSync(logsDir, { recursive: true })
+    logStream = createWriteStream(join(logsDir, 'backend.log'), { flags: 'a' })
+  }
+
+  apiProcess.stdout?.on('data', (d: Buffer) => {
+    if (logStream) logStream.write(`[api] ${d.toString()}`)
+    else console.log('[api]', d.toString().trim())
+  })
+  apiProcess.stderr?.on('data', (d: Buffer) => {
+    if (logStream) logStream.write(`[api:err] ${d.toString()}`)
+    else console.error('[api]', d.toString().trim())
+  })
 
   apiProcess.on('exit', (code) => {
-    console.log(`[api] process exited with code ${code}`)
+    const line = `[api] process exited with code ${code}`
+    if (logStream) logStream.write(`${line}\n`)
+    else console.log(line)
     apiProcess = null
   })
 }
