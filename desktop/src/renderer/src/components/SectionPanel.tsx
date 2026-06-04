@@ -56,6 +56,7 @@ import type {
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
+import { extremeMemberLayerId } from '../utils/bodyAnchor'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
@@ -692,7 +693,12 @@ interface Props {
    * Claim a user extent on a body (one side at a time). Fired from the
    * ``BodyContextMenu`` when the user picks a "Claim <side>" item.
    */
-  onClaimBodyExtent?: (bodyId: string, side: 'left' | 'right', kind: ClaimableKind) => void
+  onClaimBodyExtent?: (
+    bodyId: string,
+    side: 'left' | 'right',
+    kind: ClaimableKind,
+    anchorLayerId?: string | null,
+  ) => void
   /**
    * Clear one side's user extent. Fired from the ``BodyContextMenu`` when the
    * user picks "Clear <side> extent".
@@ -3357,7 +3363,19 @@ export default function SectionPanel({
                   undefined
                 }
                 onClaimExtent={(bodyId, side, kind) => {
-                  onClaimBodyExtent?.(bodyId, side, kind)
+                  // Anchor the cap to the body's EXTREME on-section member for
+                  // this side (leftmost member for left, rightmost for right) —
+                  // the band end the cap renders from.  Computed here because
+                  // SectionPanel holds both the member layers and the placed
+                  // columns' along-positions.  Null when no member is on this
+                  // section → the cap renders via the legacy fallback.
+                  const anchorLayerId = extremeMemberLayerId(
+                    bodyId,
+                    side,
+                    lithoLayers ?? [],
+                    visibleColumns,
+                  )
+                  onClaimBodyExtent?.(bodyId, side, kind, anchorLayerId)
                   dismissBodyCtxMenu()
                 }}
                 onClearExtent={(bodyId, side) => {
