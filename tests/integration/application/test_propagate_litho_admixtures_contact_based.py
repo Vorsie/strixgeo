@@ -31,6 +31,15 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._litho_builders import (
+    contact as _contact,
+)
+from tests.integration._litho_builders import (
+    geo_model as _geo_model,
+)
+from tests.integration._litho_builders import (
+    litho_model as _litho_model,
+)
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers (not reusable outside this module)
@@ -55,27 +64,6 @@ def _borehole(project_id: UUID, *, suffix: str, x: float) -> BoreholeOrm:
         location_y=200000.0,
         epsg=31370,
         total_depth_m=20.0,
-    )
-
-
-def _geo_model(project: ProjectOrm) -> GeologicalModelOrm:
-    """Return an unsaved geological ``GeologicalModelOrm``."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Geo-PLAB",
-        kind="geological",
-    )
-
-
-def _litho_model(project: ProjectOrm, geo: GeologicalModelOrm) -> GeologicalModelOrm:
-    """Return an unsaved lithostratigraphic ``GeologicalModelOrm``."""
-    return GeologicalModelOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="Litho-PLAB",
-        kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
     )
 
 
@@ -119,25 +107,6 @@ def _formation(
         display_order=0,
         parent_formation_id=parent.id,
         litho_main_soil_code=soil_code,
-    )
-
-
-def _contact(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
-    *,
-    depth: float,
-) -> FormationContactOrm:
-    """Return an unsaved ``FormationContactOrm`` for a given (model, formation, borehole)."""
-    return FormationContactOrm(
-        id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=depth,
-        source="borehole_observation",
-        confidence="medium",
     )
 
 
