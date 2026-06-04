@@ -96,6 +96,7 @@ class SuggestLithoContacts(GroundModelLogger):
         gwater_kNm3: float = 9.81,
         dr_compression_factor: float = 0.675,
         merge_same_lithology: bool = True,
+        use_normalised_qc: bool = True,
     ) -> list[LithoLayerSuggestion]:
         """Suggest litho contacts for a CPT investigation.
 
@@ -120,6 +121,11 @@ class SuggestLithoContacts(GroundModelLogger):
             When ``True`` (default), collapse adjacent same-lithology segments
             into a single layer after Robertson segmentation.  Pass ``False``
             to expose the un-merged splits (diagnostics / pre-geotech-stage).
+        use_normalised_qc : bool
+            When ``True`` (default), classify with the stress-normalised
+            Robertson 2015 pipeline.  When ``False``, use the non-normalised
+            Robertson 2010 I_SBT index (no stress profile / groundwater); Dr /
+            NAD packing are left blank in that mode.
 
         Returns
         -------
@@ -135,7 +141,8 @@ class SuggestLithoContacts(GroundModelLogger):
         """
         self.info(
             f"SuggestLithoContacts.execute_for_cpt: model={model_id}, "
-            f"cpt={cpt_id}, min_thickness={minimum_layer_thickness_m}m"
+            f"cpt={cpt_id}, min_thickness={minimum_layer_thickness_m}m, "
+            f"qc={'normalised' if use_normalised_qc else 'non-normalised (I_SBT)'}"
         )
         project_id = await self._assert_litho_model(model_id)
 
@@ -180,6 +187,7 @@ class SuggestLithoContacts(GroundModelLogger):
             gwater_kNm3=gwater_kNm3,
             dr_compression_factor=dr_compression_factor,
             merge_same_lithology=merge_same_lithology,
+            use_normalised_qc=use_normalised_qc,
         )
 
         self.success(f"SuggestLithoContacts: cpt={cpt.name} → {len(suggestions)} suggested layers")
