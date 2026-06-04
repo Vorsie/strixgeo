@@ -5,6 +5,14 @@ committed ``FormationContact`` + ``GeologicalFormation`` rows in the
 lithostratigraphic model, then unions every created/found contact id into the
 section's ``seeded_formation_contact_ids`` (explicit-content invariant).
 
+A2 BEHAVIOUR (geo-agnostic litho units)
+----------------------------------------
+Under A2 a suggestion that crosses a geological-formation boundary stays as ONE
+litho layer spanning the full [top, base] interval.  Litho units are keyed on
+lithology + admixture composition only; ``parent_formation_id`` is always
+``None`` on every created row.  The geological name is a derived body-level
+label resolved at display time — it is NOT stored per litho unit.
+
 PHASE-1 BOUNDARY (non-negotiable)
 -----------------------------------
 * ``instance_ordinal`` stays NULL for every row created here.  Phase 2's
@@ -15,8 +23,7 @@ PHASE-1 BOUNDARY (non-negotiable)
 
 FIND-OR-CREATE KEY
 ------------------
-``(litho_model_id, parent_formation_id, litho_main_soil_code,
-canonical_admixture_signature)``
+``(litho_main_soil_code, canonical_admixture_signature)``
 
 The *canonical admixture signature* is a deterministic string built from the
 admixtures' ``canonical_key()`` pairs (excludes ``locally`` so two otherwise-
@@ -24,23 +31,11 @@ identical units that differ only in local/global presence stay in the same
 bucket by owner decision).  Signature = ``"|".join(sorted([a.canonical_key()
 for a in admixtures]))`` — empty string when no admixtures.
 
-STRADDLE SPLIT
---------------
-A suggestion whose depth interval [top, base] crosses a parent geological-
-formation boundary is SPLIT into two contacts: one for the upper parent
-formation, one for the lower.  The split elevation is the boundary depth at the
-investigation's (x, y) — sampled via ``evaluate_tin_at`` on the geology TIN
-cached for each geological formation.  When the TIN is stale or absent the
-boundary is approximated by sorting existing contacts on the investigation by
-depth and picking the one that falls inside [top, base] — a WARNING is logged
-(debt #68).
-
 NON-NEGOTIABLE TRAP (recurred 3 × in prior builds)
 ---------------------------------------------------
-Every created AND found contact id — including BOTH halves of a straddle split
-— MUST be unioned into the section's ``seeded_formation_contact_ids`` before
-this use case returns.  The caller must forward ``applyUpdatedSection``
-(explicit-content invariant).
+Every created AND found contact id MUST be unioned into the section's
+``seeded_formation_contact_ids`` before this use case returns.  The caller must
+forward ``applyUpdatedSection`` (explicit-content invariant).
 """
 
 from __future__ import annotations
@@ -60,12 +55,10 @@ from groundmodel.application.recompute_formation_absences_for_formation import (
 )
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
-from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
@@ -157,33 +150,6 @@ def _canonical_admixture_signature(admixtures: tuple[Admixture, ...]) -> str:
     return "|".join(sorted(a.canonical_key() for a in admixtures))
 
 
-def _tin_from_surface_orm(surface: FormationSurfaceOrm) -> TinSurface | None:
-    """Reconstruct a :class:`TinSurface` from a cached ORM row.
-
-    Parameters
-    ----------
-    surface : FormationSurfaceOrm
-        ORM row whose ``vertices`` / ``triangles`` are JSONB lists.
-
-    Returns
-    -------
-    TinSurface | None
-        The reconstructed surface, or ``None`` when either payload is empty /
-        the surface is stale (the stale flag is checked by the caller for the
-        WARNING path, not here — the surface may still be geometrically usable).
-    """
-    raw_v = surface.vertices or []
-    raw_t = surface.triangles or []
-    if not raw_v:
-        return None
-    vertices = [tuple(v) for v in raw_v]
-    triangles = [tuple(t) for t in raw_t]
-    return TinSurface(
-        vertices=vertices,  # type: ignore[arg-type]
-        triangles=triangles,  # type: ignore[arg-type]
-    )
-
-
 @dataclass(frozen=True)
 class AcceptLithoResult:
     """Return value of :meth:`AcceptLithoSuggestions.execute`.
@@ -199,22 +165,23 @@ class AcceptLithoResult:
     found_contact_ids : list[UUID]
         ``FormationContact`` rows that already existed (idempotent re-accept).
     straddle_split_count : int
-        Number of suggestions that were split across a geological-formation
-        boundary — each split produces two contacts.
+        A2-deprecated, always zero.  Retained for API / client compat.
+        Previously counted suggestions split across a geological-formation
+        boundary.  Straddle-split was removed under A2.
     stale_tin_fallback_count : int
-        Number of straddle splits that fell back to depth-ordering because
-        the geology TIN was stale/absent (debt #68).
+        A2-deprecated, always zero.  Retained for API / client compat.
+        Previously counted straddle splits that fell back to depth-ordering
+        because the geology TIN was stale/absent.
     extrapolated_formation_ids : list[UUID]
-        Litho formation rows created in this call whose ``parent_formation_id``
-        was inferred from TIN extrapolation (no geology contact at this
-        investigation covered the suggestion's depth).  These rows carry
-        ``parent_extrapolated=True`` and should be reviewed by the engineer
-        before they enter downstream design exports (debt #87).
+        A2-deprecated, always empty.  Retained for API / client compat.
+        Previously listed litho formations whose parent was inferred via TIN
+        extrapolation (debt #87).  Under A2 all litho units are geo-agnostic
+        (``parent_formation_id=None``).
     orphan_formation_ids : list[UUID]
-        Litho formation rows created in this call with
-        ``parent_formation_id=NULL`` because neither contact-based assignment
-        nor TIN extrapolation could resolve a parent (debt #87).  The
-        engineer must manually assign or detach these in the inspector.
+        A2-deprecated, always empty.  Retained for API / client compat.
+        Previously listed litho formations with ``parent_formation_id=NULL``
+        that could not be parented.  Under A2 all units are geo-agnostic
+        and ``parent_formation_id`` is always ``None``.
     updated_section_id : UUID | None
         The section whose seeded set was updated, or ``None`` when no
         ``section_id`` was provided.
@@ -242,11 +209,11 @@ class BatchAcceptContext:
     """Shared, pre-loaded state for a multi-anchor batch accept (#153 hoist).
 
     The single-accept path re-loads all of this on every call.  When a batch
-    accepts N anchors, the geology surfaces + the litho-formation lookup are
-    identical across anchors, the existing-contact set is loaded once instead of
-    one existence ``SELECT`` per layer, and the display-order recompute runs once
-    after the batch instead of per anchor.  ``BatchAcceptLithoSuggestions`` builds
-    this once and passes it to every ``AcceptLithoSuggestions.execute`` call.
+    accepts N anchors, the litho-formation lookup is identical across anchors,
+    the existing-contact set is loaded once instead of one existence ``SELECT``
+    per layer, and the display-order recompute runs once after the batch instead
+    of per anchor.  ``BatchAcceptLithoSuggestions`` builds this once and passes
+    it to every ``AcceptLithoSuggestions.execute`` call.
 
     The dicts are MUTATED as the batch proceeds (a formation/contact created for
     anchor *k* is visible to anchor *k+1*), which also dedupes shared litho units
@@ -256,11 +223,9 @@ class BatchAcceptContext:
     ----------
     geology_model_id : UUID | None
         Parent geological model id (constant for the batch).
-    geology_surfaces : dict[UUID, FormationSurfaceOrm]
-        Cached geology TIN surfaces keyed by formation id (for straddle).
-    litho_formations : dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+    litho_formations : dict[tuple[str, str], GeologicalFormationOrm]
         Find-or-create lookup keyed by
-        ``(parent_formation_id, litho_main_soil_code, canonical_sig)``.
+        ``(litho_main_soil_code, canonical_sig)`` — geo-agnostic under A2.
     existing_contacts : dict[tuple, UUID]
         Existing contacts keyed by
         ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)`` → id.
@@ -269,8 +234,7 @@ class BatchAcceptContext:
     """
 
     geology_model_id: UUID | None
-    geology_surfaces: dict[UUID, FormationSurfaceOrm]
-    litho_formations: dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+    litho_formations: dict[tuple[str, str], GeologicalFormationOrm]
     existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
 
 
@@ -312,7 +276,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         create_formation_only: bool = False,
         commit: bool = True,
         batch_ctx: BatchAcceptContext | None = None,
-        straddle_min_piece_thickness_m: float = 0.20,
+        straddle_min_piece_thickness_m: float = 0.20,  # A2: deprecated, ignored — straddle removed
         couple_tolerance_m: float = 0.20,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
@@ -369,12 +333,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
             after the whole batch — collapsing N per-anchor commits into one.
         batch_ctx : BatchAcceptContext | None
             Pre-loaded shared state for a batch accept (#153 hoist).  When
-            given: the geology surfaces + litho-formation lookup are reused
-            (not re-loaded), contact find-or-create answers from the in-memory
-            existing-contacts dict (no per-layer ``SELECT``), and the
-            display-order recompute is skipped (the batch caller runs it once
-            after all anchors).  ``None`` (default) is the self-loading
-            single-accept path.
+            given: the litho-formation lookup is reused (not re-loaded), contact
+            find-or-create answers from the in-memory existing-contacts dict (no
+            per-layer ``SELECT``), and the display-order recompute is skipped
+            (the batch caller runs it once after all anchors).  ``None``
+            (default) is the self-loading single-accept path.
         couple_tolerance_m : float
             Maximum depth difference (metres) for linking a litho contact to a
             geological contact at the same investigation (#162 Task 3).  When the
@@ -396,6 +359,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
         """
         if (cpt_id is None) == (borehole_id is None):
             raise ValueError("Exactly one of cpt_id or borehole_id must be set.")
+
+        # Scope-guard the investigation anchor (VULN-10): raises ValueError
+        # when the investigation does not exist or belongs to a different project.
+        await self._verify_investigation_scope(
+            project_id=project_id, cpt_id=cpt_id, borehole_id=borehole_id
+        )
 
         self.info(
             f"AcceptLithoSuggestions.execute: litho_model={litho_model_id}, "
@@ -424,55 +393,23 @@ class AcceptLithoSuggestions(GroundModelLogger):
             )
             geology_model_id = litho_model.parent_geological_model_id
 
-        # --- Load investigation x/y/elevation for straddle sampling ---------
-        # project_id is threaded in to enforce investigation scope (VULN-10).
-        # ``inv_elevation_m`` is required for TIN extrapolation (debt #87):
-        # converting a suggestion's depth-below-ground to absolute z lets us
-        # ask which geology TIN owns that elevation laterally.  When the
-        # investigation has no surveyed elevation, extrapolation is skipped
-        # and the parent stays NULL (orphan path).
-        inv_x, inv_y, inv_elevation_m = await self._load_investigation_xyz(
-            project_id=project_id, cpt_id=cpt_id, borehole_id=borehole_id
-        )
-        self.debug(
-            f"Investigation xyz: ({inv_x:.1f}, {inv_y:.1f}) elev={inv_elevation_m} "
-            f"{'cpt' if cpt_id else 'borehole'}={cpt_id or borehole_id}"
-        )
-
-        # --- Load geology TIN surfaces (for straddle detection) -------------
-        geology_surfaces: dict[UUID, FormationSurfaceOrm] = {}
-        if batch_ctx is not None:
-            # Constant across the batch — loaded once when the context was built.
-            geology_surfaces = batch_ctx.geology_surfaces
-        elif geology_model_id is not None:
-            geology_surfaces = await self._load_geology_surfaces(geology_model_id)
-            self.debug(
-                f"Loaded {len(geology_surfaces)} geology TIN surface(s) for straddle detection"
-            )
-        else:
-            self.warning(
-                f"Litho model {litho_model_id} has no parent geological model — "
-                "straddle detection disabled; suggestions accepted as-is"
-            )
-
-        # --- Load existing geology contacts at this investigation (fallback) -
-        # Used when a TIN is stale / absent to approximate formation boundaries
-        # from depth-ordered contacts (debt #68) and for litho↔geo coupling
-        # (#162 Task 3).  Each entry is (depth_top_m, formation_id, contact_id).
+        # --- Load existing geology contacts at this investigation (#162) ------
+        # Used for litho↔geo coupling (#162 Task 3).
+        # Each entry is (depth_top_m, formation_id, contact_id).
         geology_contacts_at_inv: list[tuple[float, UUID, UUID]] = []
         if geology_model_id is not None:
             geology_contacts_at_inv = await self._load_geology_contacts_at_inv(
                 geology_model_id, cpt_id=cpt_id, borehole_id=borehole_id
             )
             self.debug(
-                f"Loaded {len(geology_contacts_at_inv)} geology contact(s) for straddle fallback"
+                f"Loaded {len(geology_contacts_at_inv)} geology contact(s) for litho↔geo coupling"
             )
 
         # --- Load all project formations for lookup --------------------------
-        # Keyed by (parent_formation_id, litho_main_soil_code, canonical_sig).
+        # Keyed by (litho_main_soil_code, canonical_sig) — geo-agnostic under A2.
         # In batch mode the lookup is shared + mutated across anchors (loaded
         # once, and a unit created for one anchor is found by the next).
-        litho_formations: dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
+        litho_formations: dict[tuple[str, str], GeologicalFormationOrm]
         if batch_ctx is not None:
             litho_formations = batch_ctx.litho_formations
         else:
@@ -480,15 +417,14 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 await self._repo.list_formations(project_id)
             )
 
-        # --- Main loop: one contact per suggestion (or two per straddle) -----
+        # --- Main loop: one contact per suggestion ----------------------------
+        # A2: each suggestion produces exactly ONE litho layer — no straddle
+        # split.  Litho units are keyed by lithology + admixture only;
+        # parent_formation_id is always None.
         created_formation_ids: list[UUID] = []
         found_formation_ids: list[UUID] = []
         created_contact_ids: list[UUID] = []
         found_contact_ids: list[UUID] = []
-        extrapolated_formation_ids: list[UUID] = []
-        orphan_formation_ids: list[UUID] = []
-        straddle_split_count = 0
-        stale_tin_fallback_count = 0
         # Geo formations whose contacts were snapped during coupling (#162 T3).
         touched_geo_formation_ids_set: set[UUID] = set()
 
@@ -498,144 +434,108 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 f"depth={sug.depth_top_m:.2f}–{sug.depth_base_m:.2f}m"
             )
 
-            # Detect straddle: does this suggestion span a geology formation
-            # boundary at the investigation's (x, y)?
-            splits = self._compute_straddle_splits(
-                suggestion=sug,
-                geology_surfaces=geology_surfaces,
-                geology_contacts_at_inv=geology_contacts_at_inv,
-                inv_x=inv_x,
-                inv_y=inv_y,
-                inv_elevation_m=inv_elevation_m,
-                suggestion_index=idx,
-                min_piece_thickness_m=straddle_min_piece_thickness_m,
-            )
-            stale_tin_fallback_count += splits.stale_tin_fallback_count
-            if len(splits.intervals) > 1:
-                straddle_split_count += 1
+            # Find-or-create the litho formation unit (geo-agnostic key).
+            sig = _canonical_admixture_signature(sug.suggested_admixtures)
+            fkey = (sug.suggested_lithology, sig)
+            formation = litho_formations.get(fkey)
+            if formation is None:
+                formation = await self._create_litho_formation(
+                    project_id=project_id,
+                    litho_main_soil_code=sug.suggested_lithology,
+                    admixtures=sug.suggested_admixtures,
+                    sig=sig,
+                )
+                litho_formations[fkey] = formation
+                created_formation_ids.append(formation.id)
+                self.debug(
+                    f"  Created litho formation {formation.id} — "
+                    f"{sug.suggested_lithology} sig='{sig}'"
+                )
+            else:
+                # A formation created earlier in THIS request is in
+                # litho_formations + created_formation_ids already — do
+                # NOT also list it as "found" (review S1, bookkeeping).
+                if (
+                    formation.id not in found_formation_ids
+                    and formation.id not in created_formation_ids
+                ):
+                    found_formation_ids.append(formation.id)
+                self.debug(
+                    f"  Found litho formation {formation.id} — "
+                    f"{sug.suggested_lithology} sig='{sig}'"
+                )
 
-            for interval_top, interval_base, interval_parent_fid in splits.intervals:
-                # Find-or-create the litho formation unit.
-                sig = _canonical_admixture_signature(sug.suggested_admixtures)
-                fkey = (interval_parent_fid, sug.suggested_lithology, sig)
-                formation = litho_formations.get(fkey)
-                if formation is None:
-                    # Extrapolation flag rides on the straddle result, not the
-                    # interval — extrapolation only fires on the single-interval
-                    # no-boundary path (the split path always has contact-based
-                    # parents on both halves).  Stamp the flag at creation so a
-                    # later contact-based accept that reuses the bucket does
-                    # NOT toggle the existing row's provenance.
-                    formation = await self._create_litho_formation(
-                        project_id=project_id,
-                        parent_formation_id=interval_parent_fid,
-                        litho_main_soil_code=sug.suggested_lithology,
-                        admixtures=sug.suggested_admixtures,
-                        sig=sig,
-                        parent_extrapolated=splits.extrapolated,
-                    )
-                    litho_formations[fkey] = formation
-                    created_formation_ids.append(formation.id)
-                    if splits.extrapolated:
-                        extrapolated_formation_ids.append(formation.id)
-                    elif interval_parent_fid is None:
-                        orphan_formation_ids.append(formation.id)
-                    self.debug(
-                        f"  Created litho formation {formation.id} — "
-                        f"{sug.suggested_lithology} parent={interval_parent_fid} "
-                        f"extrapolated={splits.extrapolated}"
-                    )
+            # Find-or-create the contact — skipped when create_formation_only=True
+            # (Bug 2 dogfeed 2026-05-26: "Add new unit" ghost flow needs the
+            # formation row without any committed contact; the ghost-accept
+            # call creates the contact when the user drags + accepts).
+            if not create_formation_only:
+                # A4 cleanup — native LithoLayer write. The LL→FC trigger
+                # mirrors an accepted layer into formation_contact so legacy
+                # readers stay coherent. Source enum maps to the litho_layer
+                # source set: contact 'borehole_observation' ↔ layer
+                # 'observation_layer'; everything else maps to 'segmenter'.
+                contact_id, was_created = await self._find_or_create_layer(
+                    litho_model_id=litho_model_id,
+                    formation_id=formation.id,
+                    depth_top_m=sug.depth_top_m,
+                    depth_base_m=sug.depth_base_m,
+                    borehole_id=borehole_id,
+                    cpt_id=cpt_id,
+                    confidence=sug.confidence.value.lower(),
+                    source=_map_contact_source_to_layer(sug.source),
+                    existing_contacts=batch_ctx.existing_contacts if batch_ctx else None,
+                )
+                if was_created:
+                    created_contact_ids.append(contact_id)
                 else:
-                    # A formation created earlier in THIS request (e.g. the
-                    # other half of a straddle split sharing the key) is in
-                    # litho_formations + created_formation_ids already — do
-                    # NOT also list it as "found" (review S1, bookkeeping).
-                    if (
-                        formation.id not in found_formation_ids
-                        and formation.id not in created_formation_ids
-                    ):
-                        found_formation_ids.append(formation.id)
-                    self.debug(
-                        f"  Found litho formation {formation.id} — "
-                        f"{sug.suggested_lithology} parent={interval_parent_fid}"
-                    )
+                    found_contact_ids.append(contact_id)
 
-                # Find-or-create the contact — skipped when create_formation_only=True
-                # (Bug 2 dogfeed 2026-05-26: "Add new unit" ghost flow needs the
-                # formation row without any committed contact; the ghost-accept
-                # call creates the contact when the user drags + accepts).
-                if not create_formation_only:
-                    # A4 cleanup — native LithoLayer write. The use case
-                    # creates the layer with explicit depth_top + depth_base
-                    # from the straddle split; the LL→FC trigger mirrors
-                    # an accepted layer into formation_contact so legacy
-                    # readers stay coherent. Source enum maps to the
-                    # litho_layer source set: contact 'borehole_observation'
-                    # ↔ layer 'observation_layer'; everything else maps to
-                    # 'manual' (close enough for the segmenter / manual_pick
-                    # provenance — full fidelity isn't required for litho).
-                    contact_id, was_created = await self._find_or_create_layer(
-                        litho_model_id=litho_model_id,
-                        formation_id=formation.id,
-                        depth_top_m=interval_top,
-                        depth_base_m=interval_base,
-                        borehole_id=borehole_id,
-                        cpt_id=cpt_id,
-                        confidence=sug.confidence.value.lower(),
-                        source=_map_contact_source_to_layer(sug.source),
-                        existing_contacts=batch_ctx.existing_contacts if batch_ctx else None,
+                # Litho↔geo coupling (#162 Task 3): link the litho contact
+                # to the nearest geo contact within couple_tolerance_m and
+                # snap the geo contact's depth to match the litho depth.
+                # Only new contacts are coupled — re-accepts that found an
+                # existing contact leave its existing coupling unchanged so
+                # a re-accept never silently snaps a geo contact a second
+                # time if the litho depth has since been dragged.
+                if was_created and geology_contacts_at_inv:
+                    geo_contact_id = _geo_contact_to_link(
+                        sug.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
                     )
-                    if was_created:
-                        created_contact_ids.append(contact_id)
-                    else:
-                        found_contact_ids.append(contact_id)
-
-                    # Litho↔geo coupling (#162 Task 3): link the litho contact
-                    # to the nearest geo contact within couple_tolerance_m and
-                    # snap the geo contact's depth to match the litho depth.
-                    # Only new contacts are coupled — re-accepts that found an
-                    # existing contact leave its existing coupling unchanged so
-                    # a re-accept never silently snaps a geo contact a second
-                    # time if the litho depth has since been dragged.
-                    if was_created and geology_contacts_at_inv:
-                        geo_contact_id = _geo_contact_to_link(
-                            interval_top, geology_contacts_at_inv, couple_tolerance_m
-                        )
-                        if geo_contact_id is not None:
-                            # Set parent_geo_contact_id on the LITHO LAYER row
-                            # (A4 cleanup — used to load FormationContactOrm
-                            # here; same id post Shape A but the LL is the
-                            # source of truth). The LL→FC trigger mirrors the
-                            # coupling label onto the FC mirror.
-                            litho_layer = await self._session.get(LithoLayerOrm, contact_id)
-                            if litho_layer is not None:
-                                litho_layer.parent_geo_contact_id = geo_contact_id
-                                geo_contact = await self._session.get(
-                                    FormationContactOrm, geo_contact_id
+                    if geo_contact_id is not None:
+                        # Set parent_geo_contact_id on the LITHO LAYER row
+                        # (A4 cleanup — LL is the source of truth). The
+                        # LL→FC trigger mirrors the coupling label onto the
+                        # FC mirror.
+                        litho_layer = await self._session.get(LithoLayerOrm, contact_id)
+                        if litho_layer is not None:
+                            litho_layer.parent_geo_contact_id = geo_contact_id
+                            geo_contact = await self._session.get(
+                                FormationContactOrm, geo_contact_id
+                            )
+                            if (
+                                geo_contact is not None
+                                and geo_contact.depth_top_m != sug.depth_top_m
+                            ):
+                                # Geo follows litho: snap the geological
+                                # contact's depth to the litho boundary so
+                                # both levels agree at the same physical
+                                # surface (#162).
+                                old_geo_depth = geo_contact.depth_top_m
+                                geo_contact.depth_top_m = sug.depth_top_m
+                                touched_geo_formation_ids_set.add(geo_contact.formation_id)
+                                self.debug(
+                                    f"  Coupled litho contact {contact_id} → "
+                                    f"geo contact {geo_contact_id} "
+                                    f"(snapped geo depth {old_geo_depth:.3f}m → "
+                                    f"{sug.depth_top_m:.3f}m, "
+                                    f"geo formation {geo_contact.formation_id})"
                                 )
-                                if (
-                                    geo_contact is not None
-                                    and geo_contact.depth_top_m != interval_top
-                                ):
-                                    # Geo follows litho: snap the geological
-                                    # contact's depth to the litho boundary so
-                                    # both levels agree at the same physical
-                                    # surface (#162).
-                                    old_geo_depth = geo_contact.depth_top_m
-                                    geo_contact.depth_top_m = interval_top
-                                    touched_geo_formation_ids_set.add(geo_contact.formation_id)
-                                    self.debug(
-                                        f"  Coupled litho contact {contact_id} → "
-                                        f"geo contact {geo_contact_id} "
-                                        f"(snapped geo depth {old_geo_depth:.3f}m → "
-                                        f"{interval_top:.3f}m, "
-                                        f"geo formation {geo_contact.formation_id})"
-                                    )
-                                else:
-                                    self.debug(
-                                        f"  Coupled litho contact {contact_id} → "
-                                        f"geo contact {geo_contact_id} (depths already match)"
-                                    )
+                            else:
+                                self.debug(
+                                    f"  Coupled litho contact {contact_id} → "
+                                    f"geo contact {geo_contact_id} (depths already match)"
+                                )
 
         # Stale-flag surfaces for affected (litho_model, formation) pairs.
         # Skipped when create_formation_only=True — no contacts were created
@@ -734,10 +634,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"AcceptLithoSuggestions: litho_model={litho_model_id} — "
             f"{len(created_contact_ids)} contact(s) created, "
             f"{len(found_contact_ids)} found, "
-            f"{straddle_split_count} straddle split(s), "
-            f"{stale_tin_fallback_count} stale-TIN fallback(s), "
-            f"{len(extrapolated_formation_ids)} extrapolated parent(s), "
-            f"{len(orphan_formation_ids)} orphan(s), "
             f"{len(touched_geo_formation_ids)} geo formation(s) snapped"
         )
 
@@ -746,10 +642,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
             found_formation_ids=found_formation_ids,
             created_contact_ids=created_contact_ids,
             found_contact_ids=found_contact_ids,
-            straddle_split_count=straddle_split_count,
-            stale_tin_fallback_count=stale_tin_fallback_count,
-            extrapolated_formation_ids=extrapolated_formation_ids,
-            orphan_formation_ids=orphan_formation_ids,
+            straddle_split_count=0,  # A2: deprecated, always zero
+            stale_tin_fallback_count=0,  # A2: deprecated, always zero
+            extrapolated_formation_ids=[],  # A2: deprecated, always empty
+            orphan_formation_ids=[],  # A2: deprecated, always empty
             updated_section_id=section_id,
             touched_geo_formation_ids=touched_geo_formation_ids,
         )
@@ -758,76 +654,21 @@ class AcceptLithoSuggestions(GroundModelLogger):
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _load_investigation_xyz(
-        self,
-        *,
-        project_id: UUID,
-        cpt_id: UUID | None,
-        borehole_id: UUID | None,
-    ) -> tuple[float, float, float | None]:
-        """Load raw (x, y, elevation_m) for the investigation, project-scoped.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Owning project — the investigation must belong to this project
-            (VULN-10).
-        cpt_id : UUID | None
-        borehole_id : UUID | None
-
-        Returns
-        -------
-        tuple[float, float, float | None]
-            ``(location_x, location_y, elevation_m)``.  ``elevation_m`` is
-            ``None`` when the investigation has no surveyed surface elevation;
-            in that case TIN extrapolation (debt #87) is disabled and an
-            otherwise-orphan suggestion stays orphan.
-
-        Raises
-        ------
-        ValueError
-            When the investigation row does not exist or belongs to a
-            different project.
-        """
-        if cpt_id is not None:
-            row = await load_scoped_or_raise(self._session, CptOrm, cpt_id, project_id, label="CPT")
-            return row.location_x, row.location_y, row.elevation_m
-        else:
-            row = await load_scoped_or_raise(
-                self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
-            )
-            return row.location_x, row.location_y, row.elevation_m
-
-    async def _load_geology_surfaces(
-        self,
-        geology_model_id: UUID,
-    ) -> dict[UUID, FormationSurfaceOrm]:
-        """Load all cached TIN surfaces for a geological model.
-
-        Parameters
-        ----------
-        geology_model_id : UUID
-            Parent geological model id.
-
-        Returns
-        -------
-        dict[UUID, FormationSurfaceOrm]
-            Keyed by ``formation_id``.
-        """
-        stmt = select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == geology_model_id)
-        rows = list((await self._session.execute(stmt)).scalars().all())
-        return {r.formation_id: r for r in rows}
-
     def _build_litho_formation_lookup(
         self,
         project_formations: list[GeologicalFormationOrm],
-    ) -> dict[tuple[UUID | None, str, str], GeologicalFormationOrm]:
+    ) -> dict[tuple[str, str], GeologicalFormationOrm]:
         """Build the find-or-create lookup from a project's formation rows.
 
-        Keyed by ``(parent_formation_id, litho_main_soil_code,
-        canonical_admixture_signature)`` — geological (non-litho) rows are
-        skipped.  Shared by the single-accept load path and
-        :meth:`build_batch_context` so both index identically.
+        Keyed by ``(litho_main_soil_code, canonical_admixture_signature)`` —
+        geo-agnostic under A2.  Geological (non-litho) rows are skipped.
+        Shared by the single-accept load path and :meth:`build_batch_context`
+        so both index identically.
+
+        Under A2, two old rows that differ only in ``parent_formation_id``
+        collapse to one bucket; the later row wins.  In practice the DB is
+        cleared on schema change (pre-ship amnesty) so no silent collision
+        occurs.
 
         Parameters
         ----------
@@ -836,10 +677,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         Returns
         -------
-        dict[tuple[UUID | None, str, str], GeologicalFormationOrm]
-            The find-or-create lookup.
+        dict[tuple[str, str], GeologicalFormationOrm]
+            The find-or-create lookup keyed by
+            ``(litho_main_soil_code, canonical_admixture_sig)``.
         """
-        lookup: dict[tuple[UUID | None, str, str], GeologicalFormationOrm] = {}
+        lookup: dict[tuple[str, str], GeologicalFormationOrm] = {}
         for f in project_formations:
             if f.litho_main_soil_code is not None:
                 sig = _canonical_admixture_signature(
@@ -852,8 +694,35 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         for a in (f.litho_admixtures or [])
                     )
                 )
-                lookup[(f.parent_formation_id, f.litho_main_soil_code, sig)] = f
+                lookup[(f.litho_main_soil_code, sig)] = f
         return lookup
+
+    async def _verify_investigation_scope(
+        self,
+        *,
+        project_id: UUID,
+        cpt_id: UUID | None,
+        borehole_id: UUID | None,
+    ) -> None:
+        """Assert the investigation anchor belongs to ``project_id`` (VULN-10).
+
+        Raises ``ValueError`` when the investigation row does not exist or
+        belongs to a different project.  No data is returned — the check is
+        purely a scope guard before any contact is written.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Expected owning project.
+        cpt_id : UUID | None
+        borehole_id : UUID | None
+        """
+        if cpt_id is not None:
+            await load_scoped_or_raise(self._session, CptOrm, cpt_id, project_id, label="CPT")
+        else:
+            await load_scoped_or_raise(
+                self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
+            )
 
     async def _load_existing_contacts(
         self,
@@ -911,10 +780,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
     ) -> BatchAcceptContext:
         """Load the shared state a multi-anchor batch accept reuses (#153 hoist).
 
-        Reads, once: the parent geology model id (+ scope guard), the geology
-        TIN surfaces, the litho-formation find-or-create lookup, and the
-        existing-contact idempotency map.  Pass the result as ``batch_ctx`` to
-        each :meth:`execute` call so none of these is re-loaded per anchor.
+        Reads, once: the parent geology model id (+ scope guard), the
+        litho-formation find-or-create lookup, and the existing-contact
+        idempotency map.  Pass the result as ``batch_ctx`` to each
+        :meth:`execute` call so none of these is re-loaded per anchor.
 
         Parameters
         ----------
@@ -937,10 +806,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
         )
         geology_model_id: UUID | None = litho_model.parent_geological_model_id
 
-        geology_surfaces: dict[UUID, FormationSurfaceOrm] = {}
-        if geology_model_id is not None:
-            geology_surfaces = await self._load_geology_surfaces(geology_model_id)
-
         litho_formations = self._build_litho_formation_lookup(
             await self._repo.list_formations(project_id)
         )
@@ -948,7 +813,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         return BatchAcceptContext(
             geology_model_id=geology_model_id,
-            geology_surfaces=geology_surfaces,
             litho_formations=litho_formations,
             existing_contacts=existing_contacts,
         )
@@ -962,8 +826,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
     ) -> list[tuple[float, UUID, UUID]]:
         """Load depth-ordered contacts for an investigation in the geology model.
 
-        Used as stale-TIN fallback for straddle detection (debt #68) and as the
-        source list for litho↔geo coupling (#162 Task 3).
+        Used for litho↔geo coupling (#162 Task 3).
 
         Parameters
         ----------
@@ -992,313 +855,18 @@ class AcceptLithoSuggestions(GroundModelLogger):
         rows = (await self._session.execute(stmt)).all()
         return [(row.depth_top_m, row.formation_id, row.id) for row in rows]
 
-    def _compute_straddle_splits(
-        self,
-        *,
-        suggestion: LithoLayerSuggestion,
-        geology_surfaces: dict[UUID, FormationSurfaceOrm],
-        geology_contacts_at_inv: list[tuple[float, UUID, UUID]],
-        inv_x: float,
-        inv_y: float,
-        inv_elevation_m: float | None,
-        suggestion_index: int,
-        min_piece_thickness_m: float = 0.20,
-    ) -> _StraddleResult:
-        """Determine whether a suggestion straddles a geology boundary.
-
-        Returns a :class:`_StraddleResult` whose ``intervals`` list contains:
-        * One entry ``(depth_top_m, parent_formation_id)`` for a non-straddle.
-        * Two entries for a straddle — upper half + lower half — each with its
-          own ``parent_formation_id``.
-
-        When no parent geology surfaces exist, returns a single-interval result
-        with ``parent_formation_id=None``.
-
-        Parameters
-        ----------
-        suggestion : LithoLayerSuggestion
-            The suggestion to evaluate.
-        geology_surfaces : dict[UUID, FormationSurfaceOrm]
-            Cached TIN surfaces keyed by geology formation id.
-        geology_contacts_at_inv : list[tuple[float, UUID, UUID]]
-            Depth-ordered contacts from the parent geology model at this
-            investigation (used as stale-TIN fallback and for coupling).
-            Each entry is ``(depth_top_m, formation_id, contact_id)``.
-        inv_x, inv_y : float
-            Investigation location for TIN sampling.
-        suggestion_index : int
-            0-based index within the suggestions list (for logging).
-        min_piece_thickness_m : float
-            Sliver guard (#157).  A geology boundary closer than this to the
-            ghost's top OR base is too near an edge to be a real crossing —
-            splitting there would leave a sub-tolerance same-lithology sliver.
-            Such boundaries are dropped and the whole ghost is assigned to the
-            geology formation covering its MIDPOINT.  Only boundaries clear of
-            both edges by this margin produce a split.  Default 0.20 m.
-
-        Returns
-        -------
-        _StraddleResult
-        """
-        top = suggestion.depth_top_m
-        base = suggestion.depth_base_m
-
-        if not geology_surfaces and not geology_contacts_at_inv:
-            # No geology context AT ALL — single interval, no parent. TIN
-            # extrapolation is impossible here (no surfaces to sample) so
-            # the suggestion is destined for the orphan bucket.  The
-            # surfaces-exist-but-no-contacts-here case takes the "no
-            # boundaries" exit below; it CAN extrapolate.
-            return _StraddleResult(
-                intervals=[(top, base, None)],
-                stale_tin_fallback_count=0,
-            )
-
-        # Build a list of (boundary_depth, upper_fid, lower_fid) from TINs.
-        # A boundary at depth D means: suggestion [top, D] → upper_fid,
-        # suggestion [D, base] → lower_fid.
-        boundaries: list[tuple[float, UUID | None, UUID | None]] = []
-        stale_fallbacks = 0
-
-        # Sort geology contacts by depth to establish formation order at inv.
-        # Each contact is "formation X tops at depth D" — sorted ascending we
-        # get the stratigraphic column for this investigation.
-        # Entries are (depth_top_m, formation_id, contact_id); sort on [0].
-        contacts_sorted = sorted(geology_contacts_at_inv, key=lambda c: c[0])
-
-        # For each consecutive pair of geology contacts, their boundary falls
-        # at the upper contact's depth (that is where the younger formation
-        # ends and the older one begins, from depth perspective).
-        # But we want the boundary DEPTH that falls WITHIN [top, base].
-        # Boundary is the depth at which a lower (older) formation begins,
-        # i.e. the depth_top_m of the LOWER formation's contact.
-        for i in range(len(contacts_sorted) - 1):
-            upper_depth, upper_fid, _upper_cid = contacts_sorted[i]
-            lower_depth, lower_fid, _lower_cid = contacts_sorted[i + 1]
-            # The boundary is at lower_depth (the lower formation tops here).
-            boundary_candidate = lower_depth
-            # Sliver guard (#157): require the boundary to clear BOTH edges by
-            # ``min_piece_thickness_m``.  A boundary within tolerance of the
-            # top or base would split off a sub-tolerance same-lithology sliver
-            # — drop it; the ghost is assigned to its midpoint formation below.
-            if top + min_piece_thickness_m < boundary_candidate < base - min_piece_thickness_m:
-                # Try TIN evaluation for the precise elevation-depth; fall back
-                # to depth ordering (debt #68).
-                tin_ok = False
-                if upper_fid in geology_surfaces:
-                    surf_orm = geology_surfaces[upper_fid]
-                    if not surf_orm.is_stale and surf_orm.vertices:
-                        tin = _tin_from_surface_orm(surf_orm)
-                        if tin is not None:
-                            tin_ok = True
-                            # TIN gives elevation above datum; we need depth.
-                            # Surface elevation is in absolute TAW metres;
-                            # depth = inv_elevation - surface_elev.  We only
-                            # need the RELATIVE boundary position within [top,
-                            # base] to decide which parent formation each half
-                            # belongs to.  The depth from the contact already
-                            # provides that; TIN just gives a more precise split
-                            # when the surface dips across the investigation.
-                            _ = evaluate_tin_at(tin, inv_x, inv_y)
-                            # Use the TIN-based value only when it falls within
-                            # [top, base]; otherwise keep the contact depth.
-                            # At Phase 1, depth-ordering is good enough for the
-                            # parent-formation assignment; the TIN tells us the
-                            # formation surface elevation, not the split depth in
-                            # depth coordinates directly. Keep depth-based for now
-                            # and log if the TIN was available.
-                            self.trace(
-                                f"[{suggestion_index + 1}] TIN surface available for "
-                                f"formation {upper_fid} — using contact-depth boundary "
-                                f"{boundary_candidate:.2f}m (TIN provides absolute elevation; "
-                                "depth-coord split is exact here)"
-                            )
-
-                if not tin_ok:
-                    stale_fallbacks += 1
-                    self.warning(
-                        f"[{suggestion_index + 1}] Straddle at depth {boundary_candidate:.2f}m: "
-                        f"TIN for geology formation {upper_fid} is stale or absent — "
-                        "falling back to contact-depth boundary (debt #68). "
-                        "Rebuild the geology model to improve straddle precision."
-                    )
-
-                boundaries.append((boundary_candidate, upper_fid, lower_fid))
-
-        if not boundaries:
-            # No meaningful boundary within [top, base] — determine parent from
-            # the geology formation covering the ghost's MIDPOINT (not its top).
-            # Midpoint is robust for the sliver-guard case (#157): when a
-            # near-top boundary was dropped, the ghost is mostly in the LOWER
-            # formation, and the midpoint correctly lands there — whereas
-            # ``top`` would mis-pick the thin upper formation.  For a genuine
-            # no-boundary ghost (fully inside one formation) top and midpoint
-            # resolve to the same formation, so this is behaviour-preserving.
-            mid = (top + base) / 2
-            parent_fid = self._parent_fid_for_depth(mid, contacts_sorted)
-            extrapolated = False
-            if parent_fid is None and geology_surfaces and inv_elevation_m is not None:
-                # Debt #87: contact-based lookup failed (no contacts at this
-                # investigation, OR suggestion top sits above the shallowest
-                # contact) but geology TINs exist — extrapolate.  Convert
-                # depth-below-ground to absolute z and ask which formation's
-                # TIN surface lies just above z at (inv_x, inv_y).
-                target_z = inv_elevation_m - top
-                parent_fid = self._extrapolate_parent_from_tins(
-                    target_z=target_z,
-                    geology_surfaces=geology_surfaces,
-                    inv_x=inv_x,
-                    inv_y=inv_y,
-                    suggestion_index=suggestion_index,
-                )
-                if parent_fid is not None:
-                    extrapolated = True
-                    self.info(
-                        f"[{suggestion_index + 1}] TIN-extrapolated parent: "
-                        f"depth_top={top:.2f}m → abs_z={target_z:.2f}m → "
-                        f"formation {parent_fid} (engineer should confirm)"
-                    )
-                else:
-                    self.warning(
-                        f"[{suggestion_index + 1}] Could not extrapolate parent: "
-                        f"depth_top={top:.2f}m abs_z={target_z:.2f}m sits above all "
-                        "geology TIN surfaces at this (x, y) or outside every TIN "
-                        "footprint — accepting as orphan (parent_formation_id NULL)"
-                    )
-            return _StraddleResult(
-                intervals=[(top, base, parent_fid)],
-                stale_tin_fallback_count=stale_fallbacks,
-                extrapolated=extrapolated,
-            )
-
-        # There is at least one boundary in [top, base] — take the first one
-        # (Phase 1: one straddle boundary per suggestion).
-        boundary_depth, upper_fid, lower_fid = boundaries[0]
-        self.info(
-            f"[{suggestion_index + 1}] Straddle: suggestion [{top:.2f}, {base:.2f}]m "
-            f"crosses geology boundary at {boundary_depth:.2f}m — "
-            f"splitting into upper (parent={upper_fid}) + lower (parent={lower_fid})"
-        )
-        return _StraddleResult(
-            intervals=[
-                # Upper half: [top, boundary_depth] → upper geology parent.
-                (top, boundary_depth, upper_fid),
-                # Lower half: [boundary_depth, base] → lower geology parent.
-                (boundary_depth, base, lower_fid),
-            ],
-            stale_tin_fallback_count=stale_fallbacks,
-        )
-
-    @staticmethod
-    def _parent_fid_for_depth(
-        depth_m: float,
-        contacts_sorted: list[tuple[float, UUID, UUID]],
-    ) -> UUID | None:
-        """Return the formation id that contains ``depth_m``.
-
-        Finds the last geology contact whose ``depth_top_m <= depth_m``
-        (the formation "active" at that depth).
-
-        Parameters
-        ----------
-        depth_m : float
-            Depth below ground surface to classify.
-        contacts_sorted : list[tuple[float, UUID, UUID]]
-            Depth-ascending ``(depth_top_m, formation_id, contact_id)`` triples.
-
-        Returns
-        -------
-        UUID | None
-            Formation id, or ``None`` when ``contacts_sorted`` is empty.
-        """
-        best_fid: UUID | None = None
-        for d, fid, _cid in contacts_sorted:
-            if d <= depth_m:
-                best_fid = fid
-            else:
-                break
-        return best_fid
-
-    def _extrapolate_parent_from_tins(
-        self,
-        *,
-        target_z: float,
-        geology_surfaces: dict[UUID, FormationSurfaceOrm],
-        inv_x: float,
-        inv_y: float,
-        suggestion_index: int,
-    ) -> UUID | None:
-        """Pick the geology formation owning ``target_z`` from TIN surfaces.
-
-        Samples each non-stale TIN at ``(inv_x, inv_y)`` and returns the
-        formation whose surface elevation is the smallest value still
-        ``>= target_z`` (i.e. the youngest formation whose top sits above
-        the target elevation — the formation "active" at that elevation
-        because no younger formation reaches that deep here).
-
-        Returns ``None`` when:
-
-        * ``target_z`` sits above every TIN surface at this (x, y) — the
-          suggestion is shallower than the youngest formation here.
-        * ``(inv_x, inv_y)`` falls outside every TIN footprint — no surface
-          covers this location.
-        * Every cached TIN is stale or has no vertices.
-
-        Stale TINs are skipped (the safer answer "no parent" over a
-        possibly-wrong extrapolation) — the engineer rebuilds the geology
-        model and re-accepts to get the precise assignment.
-
-        Parameters
-        ----------
-        target_z : float
-            Absolute elevation (metres TAW or matching CRS) at which to
-            classify.  Computed as ``inv_elevation_m - depth_top_m``.
-        geology_surfaces : dict[UUID, FormationSurfaceOrm]
-            Cached TIN surfaces keyed by geology formation id.
-        inv_x, inv_y : float
-            Investigation (x, y) in the surfaces' horizontal CRS.
-        suggestion_index : int
-            0-based index within the suggestions list (for trace logging).
-
-        Returns
-        -------
-        UUID | None
-            Geology formation id whose surface owns ``target_z``, or
-            ``None`` when extrapolation cannot be performed.
-        """
-        candidates: list[tuple[float, UUID]] = []
-        for fid, surf_orm in geology_surfaces.items():
-            if surf_orm.is_stale or not surf_orm.vertices:
-                self.trace(
-                    f"[{suggestion_index + 1}] extrapolation: skipping surface for "
-                    f"formation {fid} (stale or empty)"
-                )
-                continue
-            tin = _tin_from_surface_orm(surf_orm)
-            if tin is None:
-                continue
-            surf_z = evaluate_tin_at(tin, inv_x, inv_y)
-            if surf_z is None:
-                continue  # (inv_x, inv_y) outside this TIN's footprint
-            if surf_z >= target_z:
-                candidates.append((surf_z, fid))
-        if not candidates:
-            return None
-        # min(surf_z) among candidates = closest surface above target_z =
-        # youngest formation whose top is above the target elevation.
-        return min(candidates, key=lambda c: c[0])[1]
-
     async def _create_litho_formation(
         self,
         *,
         project_id: UUID,
-        parent_formation_id: UUID | None,
         litho_main_soil_code: str,
         admixtures: tuple[Admixture, ...],
         sig: str,
-        parent_extrapolated: bool = False,
     ) -> GeologicalFormationOrm:
         """Insert a new lithostratigraphic formation (unit) row.
+
+        Under A2 all litho units are geo-agnostic: ``parent_formation_id`` is
+        always ``None`` and ``parent_extrapolated`` is always ``False``.
 
         The name is auto-derived from the soil code + admixtures so the user
         can distinguish units in the inspector before Phase 2 ordinal resolution.
@@ -1307,19 +875,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         Parameters
         ----------
         project_id : UUID
-        parent_formation_id : UUID | None
         litho_main_soil_code : str
             BaseLithology token (ZAND / KLEI / SILT / GRIND / VEEN).
         admixtures : tuple[Admixture, ...]
         sig : str
             Canonical admixture signature (pre-computed by caller).
-        parent_extrapolated : bool
-            ``True`` when ``parent_formation_id`` was inferred via TIN
-            extrapolation (debt #87) — no geology contact at this
-            investigation covered the suggestion's depth.  Stamps the
-            column so the LithologyInspector can flag the row for engineer
-            confirmation.  ``False`` for contact-based parents and for
-            orphans (``parent_formation_id=None``).
 
         Returns
         -------
@@ -1327,12 +887,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
             The freshly flushed row (id assigned, not yet committed).
         """
         # Entry log (DoD §1): a private helper that flushes a real row logs
-        # its key params so a failed flush correlates to the inputs (S5).
-        self.debug(
-            f"  _create_litho_formation: soil={litho_main_soil_code} "
-            f"parent={parent_formation_id} sig='{sig}' "
-            f"extrapolated={parent_extrapolated}"
-        )
+        # its key params so a failed flush correlates to the inputs.
+        self.debug(f"  _create_litho_formation: soil={litho_main_soil_code} sig='{sig}'")
 
         # Auto-name: e.g. "ZAND" or "KLEI (KL:Z)" — readable in the inspector.
         admix_label = f" ({sig})" if sig else ""
@@ -1352,8 +908,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
             # Falls back to neutral grey only for an unrecognised soil code.
             color=LITHOLOGY_COLORS.get(litho_main_soil_code, LITHOLOGY_FALLBACK_COLOR),
             display_order=0,
-            parent_formation_id=parent_formation_id,
-            parent_extrapolated=parent_extrapolated,
+            parent_formation_id=None,  # A2: geo-agnostic, always None
+            parent_extrapolated=False,  # A2: no TIN extrapolation
             litho_main_soil_code=litho_main_soil_code,
             litho_admixtures=admixtures_json,
             instance_ordinal=None,  # Phase 2 assigns
@@ -1539,9 +1095,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         formation_id : UUID
         depth_top_m : float
         depth_base_m : float
-            Layer base, derived from the straddle-split interval. Required
-            by the LL CHECK (top < base); the LL→FC trigger ignores it on
-            the FC mirror (FC has no base concept).
+            Layer base depth.  Required by the LL CHECK (top < base); the
+            LL→FC trigger ignores it on the FC mirror (FC has no base concept).
         borehole_id : UUID | None
         cpt_id : UUID | None
         confidence : str
@@ -1567,11 +1122,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
             for the trigger-mirrored FC row (UUID preserved end-to-end).
         """
         # ``depth_top_m`` is part of the idempotency key. Without it, a
-        # re-accept after a re-segmentation that moved the boundary (param
-        # change, or a straddle re-split at a different geology-TIN depth)
-        # would match the OLD layer on (model, formation, anchor) alone
-        # and silently keep the stale depth (review B1). Float match is
-        # safe for the idempotent path: an unchanged suggestion yields a
+        # re-accept after a re-segmentation that moved the boundary would
+        # match the OLD layer on (model, formation, anchor) alone and
+        # silently keep the stale depth (review B1). Float match is safe
+        # for the idempotent path: an unchanged suggestion yields a
         # bit-identical depth from the same pipeline.
         key = (litho_model_id, formation_id, depth_top_m, borehole_id, cpt_id)
 
@@ -1622,32 +1176,3 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 f"(formation={formation_id}, depth={depth_top_m:.2f}–{depth_base_m:.2f}m)"
             )
         return layer.id, True
-
-
-@dataclass(frozen=True)
-class _StraddleResult:
-    """Internal result from straddle detection.
-
-    Attributes
-    ----------
-    intervals : list[tuple[float, float, UUID | None]]
-        ``[(depth_top_m, depth_base_m, parent_formation_id), ...]`` — one
-        entry per layer to create. Two entries mean the suggestion was
-        split at a geology boundary; each half carries explicit top + base
-        depths so the use case can write LithoLayerOrm natively (A4 cleanup
-        — was ``(depth_top_m, parent_formation_id)`` when the use case
-        wrote FormationContactOrm and the FC→LL trigger derived the base
-        via LEAD).
-    stale_tin_fallback_count : int
-        How many splits fell back to depth-ordering (debt #68).
-    extrapolated : bool
-        ``True`` when ``parent_formation_id`` was inferred from TIN
-        extrapolation rather than from a contact at this investigation
-        (debt #87).  Always ``False`` on the split path (both halves are
-        always contact-based) and on the no-geology-at-all path (no TINs
-        to sample).
-    """
-
-    intervals: list[tuple[float, float, UUID | None]]
-    stale_tin_fallback_count: int
-    extrapolated: bool = False

@@ -1,9 +1,9 @@
 """Unit tests for AcceptLithoSuggestions (Phase 1 litho builder).
 
-Covers the five key scenarios:
+Covers the key scenarios:
 A1 — within-formation: suggestion fully inside one geology formation → one contact created.
-A2 — straddle split: suggestion crosses a geology boundary → two contacts created.
-A3 — stale-TIN fallback: TIN is stale but contacts give depth ordering → WARNING, split still works.
+A2 — geo-agnostic (A2): a suggestion crossing a geology boundary stays ONE contact spanning
+     the full [top, base] interval.  Straddle-split was removed under A2.
 A4 — idempotent re-accept: same investigation, same suggestions → contacts found, nothing inserted.
 A5 — seeded section: section_id provided → ``_seed_section_contacts`` called with all ids.
 D1 — display_order: two litho units at different depths under the same parent get correct order.
@@ -106,8 +106,6 @@ def _make_session(
     borehole_x: float = 100.0,
     borehole_y: float = 200.0,
     borehole_elevation_m: float | None = None,
-    # Geology surface rows keyed by formation_id
-    surface_rows: list | None = None,
     # Existing contacts at investigation (depth, fid) pairs
     geo_contacts_at_inv: list | None = None,
     # Existing project formations
@@ -191,29 +189,25 @@ def _make_session(
     session.flush = AsyncMock()
 
     # Build the execute side-effect sequence.
-    # AcceptLithoSuggestions issues these queries in order:
-    # 1. Formation surfaces query (one time, at the start)
-    # 2. Geology contacts at investigation (one time)
-    # 3. Per-suggestion: existing contact id check
-    # [4–6 when expect_recompute=True]
-    # 4. _recompute: contacts query (litho model contacts)
-    # 5. _recompute: formations query (formation rows by id)
-    # 6. _recompute: parent-formations display_order query (omitted when no
+    # AcceptLithoSuggestions issues these queries in order under A2:
+    # 1. Geology contacts at investigation (one time; for litho↔geo coupling #162)
+    # 2. Per-suggestion: existing contact id check
+    # [3–5 when expect_recompute=True]
+    # 3. _recompute: contacts query (litho model contacts)
+    # 4. _recompute: formations query (formation rows by id)
+    # 5. _recompute: parent-formations display_order query (omitted when no
     #    parent ids — the helper guards with ``if parent_ids``; we supply it
     #    anyway so callers don't have to account for the guard in every test)
     # The repo.mark_surfaces_stale + repo.list_formations are mocked on _repo.
 
-    surface_rows = surface_rows or []
     geo_contacts_at_inv = geo_contacts_at_inv or []
     existing_contact_ids = existing_contact_ids or [None]
 
     execute_calls = [
-        # 1 — formation surfaces query
-        _execute_all_result(surface_rows),
-        # 2 — geology contacts at investigation
+        # 1 — geology contacts at investigation
         _execute_all_result(geo_contacts_at_inv),
     ]
-    # 3 — per-suggestion existing-contact checks
+    # 2 — per-suggestion existing-contact checks
     for eid in existing_contact_ids:
         execute_calls.append(_execute_result(eid))
 
@@ -257,8 +251,6 @@ def _use_case(session: AsyncMock, formations: list | None = None) -> AcceptLitho
 async def test_a1_within_formation_creates_one_contact() -> None:
     """A suggestion fully inside one geology formation creates exactly one contact."""
     session = _make_session(
-        # No surfaces, no prior contacts at investigation → no straddle.
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],  # no existing contact → create
     )
@@ -301,7 +293,6 @@ async def test_c1_created_litho_formation_uses_lithology_color() -> None:
     )
 
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],  # no existing contact → create formation
     )
@@ -329,23 +320,28 @@ async def test_c1_created_litho_formation_uses_lithology_color() -> None:
 
 
 # ---------------------------------------------------------------------------
-# A2 — straddle split: suggestion spans boundary between two geology formations
+# A2 — geo-agnostic: a suggestion crossing a geology boundary stays ONE contact
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_a2_straddle_split_creates_two_contacts() -> None:
-    """A suggestion spanning a geology boundary is split into two contacts."""
+async def test_a2_crossing_suggestion_stays_one_contact() -> None:
+    """A2: a suggestion crossing a geology boundary creates ONE contact spanning [top, base].
+
+    Under A2 straddle-split is removed.  Even with two geology contacts at the
+    investigation (UPPER at 0.0 m, LOWER at 3.0 m), a suggestion [0.0, 6.0]
+    must produce a single accepted layer spanning the full interval — not two
+    split at the 3.0 m boundary.
+    """
     # Two geology contacts at investigation: UPPER_FORMATION tops at 0.0m,
-    # LOWER_FORMATION tops at 3.0m.  Suggestion is [0.0, 6.0] → straddle at 3.0m.
+    # LOWER_FORMATION tops at 3.0m.
     geo_contacts = [
         SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID, id=CONTACT_A_ID),
         SimpleNamespace(depth_top_m=3.0, formation_id=LOWER_FORMATION_ID, id=CONTACT_B_ID),
     ]
     session = _make_session(
-        surface_rows=[],  # no TIN → depth-order fallback
         geo_contacts_at_inv=geo_contacts,
-        existing_contact_ids=[None, None],  # two contacts to create
+        existing_contact_ids=[None],  # one contact to create
     )
     uc = _use_case(session)
 
@@ -357,70 +353,15 @@ async def test_a2_straddle_split_creates_two_contacts() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    assert result.straddle_split_count == 1
-    # stale_tin_fallback_count is 1 because no TIN was available.
-    assert result.stale_tin_fallback_count == 1
-    # Two contacts — one per parent formation.
-    assert len(result.created_contact_ids) == 2
+    # A2: straddle-split removed → exactly ONE contact for the full [0, 6] interval.
+    assert len(result.created_contact_ids) == 1
     assert result.found_contact_ids == []
-
-
-# ---------------------------------------------------------------------------
-# A3 — stale TIN fallback: TIN present but stale → WARNING + depth fallback
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a3_stale_tin_fallback_warns_and_still_splits() -> None:
-    """Stale TIN surfaces fall back to depth-ordering with a WARNING logged."""
-    # Provide a surface ORM stub that is stale and has no vertices.
-    stale_surface = SimpleNamespace(
-        formation_id=UPPER_FORMATION_ID,
-        model_id=GEO_MODEL_ID,
-        is_stale=True,
-        vertices=[],  # empty → _tin_from_surface_orm returns None
-        triangles=[],
-    )
-    geo_contacts = [
-        SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID, id=CONTACT_A_ID),
-        SimpleNamespace(depth_top_m=4.0, formation_id=LOWER_FORMATION_ID, id=CONTACT_B_ID),
-    ]
-
-    # _load_geology_surfaces returns keyed dict — patch scalars result.
-    session = _make_session(
-        surface_rows=[stale_surface],
-        geo_contacts_at_inv=geo_contacts,
-        existing_contact_ids=[None, None],
-    )
-    session.execute = AsyncMock(
-        side_effect=[
-            # surfaces query — scalars().all() returns the stale surface
-            _execute_all_result([stale_surface]),
-            # geo contacts query
-            _execute_all_result(geo_contacts),
-            # two contact exists-checks → None (create both)
-            _execute_result(None),
-            _execute_result(None),
-            # _recompute_litho_display_orders: contacts, formations, parents
-            _execute_all_result([]),
-            _execute_all_result([]),
-            _execute_all_result([]),
-        ]
-    )
-    uc = _use_case(session)
-
-    suggestions = [_make_suggestion(0.0, 8.0, "KLEI")]
-    result = await uc.execute(
-        project_id=PROJECT_ID,
-        litho_model_id=LITHO_MODEL_ID,
-        suggestions=suggestions,
-        borehole_id=BOREHOLE_ID,
-    )
-
-    assert result.straddle_split_count == 1
-    # Stale TIN triggers the fallback counter.
-    assert result.stale_tin_fallback_count >= 1
-    assert len(result.created_contact_ids) == 2
+    # Deprecated straddle counters are always zero under A2.
+    assert result.straddle_split_count == 0
+    assert result.stale_tin_fallback_count == 0
+    # Deprecated parent lists are always empty under A2.
+    assert result.extrapolated_formation_ids == []
+    assert result.orphan_formation_ids == []
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +374,6 @@ async def test_a4_idempotent_reaccept_returns_found_contacts() -> None:
     """Re-accepting the same suggestions returns existing contact ids unchanged."""
     existing_contact_id = uuid4()
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[existing_contact_id],  # already exists
         # No new formation created → _recompute_litho_display_orders not called.
@@ -484,7 +424,6 @@ async def test_a4b_idempotency_key_includes_depth_top_m() -> None:
     honest unit-level guard is to pin the depth predicate into the SELECT.
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
     )
@@ -497,8 +436,8 @@ async def test_a4b_idempotency_key_includes_depth_top_m() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    # Execute order: 1=surfaces, 2=geo contacts, 3=existing-contact check.
-    contact_check_stmt = session.execute.await_args_list[2].args[0]
+    # Execute order under A2: 1=geo contacts, 2=existing-contact check.
+    contact_check_stmt = session.execute.await_args_list[1].args[0]
     assert "depth_top_m" in str(contact_check_stmt), (
         "existing-contact lookup must filter on depth_top_m, else a "
         "re-accept at a moved boundary silently returns the stale contact (B1)"
@@ -516,7 +455,6 @@ async def test_a5_section_seeding_called_with_all_contact_ids() -> None:
     section_id = uuid4()
 
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
     )
@@ -581,7 +519,6 @@ async def test_a6_bulk_segmenter_source_passthrough() -> None:
     previous hard-coded behaviour).
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
     )
@@ -629,7 +566,6 @@ async def test_a7_manual_pick_source_stamps_manual_pick() -> None:
     use case must NOT override it with the anchor-derived source.
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
     )
@@ -950,347 +886,6 @@ async def test_v10_wrong_project_litho_model_raises_value_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# E1–E5 — TIN extrapolation paths (debt #87)
-#
-# Tests target ``_compute_straddle_splits`` directly: it is a pure method
-# (logger access only — no DB) so the cheapest test surface is constructing
-# the use case with an empty mocked session and calling the method.
-# ---------------------------------------------------------------------------
-
-
-def _make_surface_stub(
-    *,
-    formation_id: object,
-    vertices: list[tuple[float, float, float]],
-    triangles: list[tuple[int, int, int]],
-    is_stale: bool = False,
-) -> SimpleNamespace:
-    """Build a FormationSurfaceOrm-shaped stub for extrapolation tests."""
-    return SimpleNamespace(
-        formation_id=formation_id,
-        vertices=vertices,
-        triangles=triangles,
-        is_stale=is_stale,
-    )
-
-
-def _bare_use_case() -> AcceptLithoSuggestions:
-    """Minimal AcceptLithoSuggestions for pure-method tests (no DB calls)."""
-    return AcceptLithoSuggestions(AsyncMock())
-
-
-# A square TIN covering (0..200, 0..400) at constant elevation. Two triangles.
-def _square_tin(z: float) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
-    """Square TIN at constant elevation ``z`` covering a generous footprint."""
-    vertices = [
-        (0.0, 0.0, z),
-        (200.0, 0.0, z),
-        (200.0, 400.0, z),
-        (0.0, 400.0, z),
-    ]
-    triangles = [(0, 1, 2), (0, 2, 3)]
-    return vertices, triangles
-
-
-def test_e1_no_geology_at_all_returns_orphan_not_extrapolated() -> None:
-    """No surfaces AND no contacts → orphan with extrapolated=False."""
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(0.0, 5.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces={},
-        geology_contacts_at_inv=[],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(0.0, 5.0, None)]
-    assert result.extrapolated is False
-    assert result.stale_tin_fallback_count == 0
-
-
-def test_e2_tin_extrapolates_parent_when_no_contacts_at_inv() -> None:
-    """Surfaces exist + no contacts here + suggestion within TIN → extrapolated parent.
-
-    Two formations: upper TIN at elev=5, lower TIN at elev=2. Investigation
-    elevation 10m, suggestion at depth_top=2m → target_z = 10 - 2 = 8m, which
-    is above both surfaces → orphan (above youngest). Move depth to 7m →
-    target_z = 3m, which lies between upper(5) and lower(2) → upper wins
-    (smallest surf_z that's still >= 3 is 5 → upper formation).
-    """
-    upper_fid = uuid4()
-    lower_fid = uuid4()
-    upper_vertices, upper_tri = _square_tin(5.0)
-    lower_vertices, lower_tri = _square_tin(2.0)
-    surfaces = {
-        upper_fid: _make_surface_stub(
-            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
-        ),
-        lower_fid: _make_surface_stub(
-            formation_id=lower_fid, vertices=lower_vertices, triangles=lower_tri
-        ),
-    }
-    uc = _bare_use_case()
-    # depth_top=7m, inv_elevation=10m → target_z=3m. Upper surface at 5m
-    # is the smallest surf_z >= 3 → upper wins.
-    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(7.0, 9.0, upper_fid)]
-    assert result.extrapolated is True
-
-
-def test_e3_suggestion_above_all_surfaces_is_orphan() -> None:
-    """Suggestion sits above every TIN at this (x, y) → orphan.
-
-    Upper TIN at elev=5, suggestion at depth=2m with inv_elev=10m →
-    target_z=8m sits above both surfaces → no candidate → orphan.
-    """
-    upper_fid = uuid4()
-    upper_vertices, upper_tri = _square_tin(5.0)
-    surfaces = {
-        upper_fid: _make_surface_stub(
-            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
-        ),
-    }
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(2.0, 4.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(2.0, 4.0, None)]
-    assert result.extrapolated is False
-
-
-def test_e4_inv_outside_tin_footprint_is_orphan() -> None:
-    """Investigation (x, y) outside every TIN footprint → orphan.
-
-    TIN covers (0..200, 0..400); investigation at (500, 500) sits outside →
-    no candidate → orphan. evaluate_tin_at returns None for out-of-footprint.
-    """
-    upper_fid = uuid4()
-    upper_vertices, upper_tri = _square_tin(5.0)
-    surfaces = {
-        upper_fid: _make_surface_stub(
-            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
-        ),
-    }
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[],
-        inv_x=500.0,
-        inv_y=500.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(7.0, 9.0, None)]
-    assert result.extrapolated is False
-
-
-def test_e5_stale_tin_is_skipped_during_extrapolation() -> None:
-    """Stale TIN surfaces are skipped — extrapolation falls back to orphan.
-
-    Stale surfaces are NOT used (the migration-time backfill and runtime
-    accept both prefer "no parent" over a possibly-wrong extrapolation
-    from a TIN the engineer hasn't rebuilt). Only non-stale surface here
-    is stale → orphan.
-    """
-    upper_fid = uuid4()
-    upper_vertices, upper_tri = _square_tin(5.0)
-    surfaces = {
-        upper_fid: _make_surface_stub(
-            formation_id=upper_fid,
-            vertices=upper_vertices,
-            triangles=upper_tri,
-            is_stale=True,
-        ),
-    }
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(7.0, 9.0, None)]
-    assert result.extrapolated is False
-
-
-def test_e6_no_inv_elevation_disables_extrapolation() -> None:
-    """Investigation with NULL elevation_m → no extrapolation, orphan path.
-
-    Without surveyed elevation we cannot convert depth-below-ground to
-    absolute z. The code falls through to the orphan branch.
-    """
-    upper_fid = uuid4()
-    upper_vertices, upper_tri = _square_tin(5.0)
-    surfaces = {
-        upper_fid: _make_surface_stub(
-            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
-        ),
-    }
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=None,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(7.0, 9.0, None)]
-    assert result.extrapolated is False
-
-
-def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
-    """When contacts cover the depth, extrapolation does not run.
-
-    Contact at depth=0 names UPPER_FORMATION as the parent for any
-    depth >= 0. Suggestion at depth=2m matches that contact's bucket →
-    extrapolated stays False even though TIN surfaces are present.
-    """
-    upper_fid = uuid4()
-    other_fid = uuid4()  # an unrelated surface that would extrapolate to itself
-    other_vertices, other_tri = _square_tin(99.0)  # surface above target_z
-    surfaces = {
-        other_fid: _make_surface_stub(
-            formation_id=other_fid, vertices=other_vertices, triangles=other_tri
-        ),
-    }
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(2.0, 4.0, "KLEI")
-    # Contact id is irrelevant for straddle tests — a sentinel uuid is fine.
-    sentinel_cid = uuid4()
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces=surfaces,
-        geology_contacts_at_inv=[(0.0, upper_fid, sentinel_cid)],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-    )
-    assert result.intervals == [(2.0, 4.0, upper_fid)]
-    assert result.extrapolated is False
-
-
-# ---------------------------------------------------------------------------
-# AS1-AS3 — straddle-split sliver guard (#157). A geology boundary within
-# ``min_piece_thickness_m`` of the ghost's top or base is too close to an
-# edge to be a real crossing: splitting there would leave a sub-tolerance
-# sliver (same-lithology thin unit). The guard drops such boundaries and
-# assigns the whole ghost to the formation covering its MIDPOINT, so a
-# ghost that's 99% in the lower formation isn't mis-parented to the upper.
-# Boundaries clear of both edges still split (AS3, unchanged behaviour).
-# ---------------------------------------------------------------------------
-
-
-def test_as1_near_base_boundary_does_not_split_parent_is_upper() -> None:
-    """A boundary within tolerance of the ghost BASE → no split, parent=upper.
-
-    Ghost [0, 6]; geology boundary at 5.95 (within 0.20 m of base 6.0).
-    Splitting would leave a 5 cm lower sliver — suppressed. The ghost is
-    almost entirely in the UPPER formation (midpoint 3.0 sits above the
-    boundary), so the single interval is parented to UPPER.
-    """
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces={},
-        geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
-            (5.95, LOWER_FORMATION_ID, CONTACT_B_ID),
-        ],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-        min_piece_thickness_m=0.20,
-    )
-    assert result.intervals == [(0.0, 6.0, UPPER_FORMATION_ID)]
-    assert result.stale_tin_fallback_count == 0
-
-
-def test_as2_near_top_boundary_does_not_split_parent_is_lower() -> None:
-    """A boundary within tolerance of the ghost TOP → no split, parent=lower.
-
-    Ghost [0, 6]; geology boundary at 0.05 (within 0.20 m of top 0.0).
-    Splitting would leave a 5 cm upper sliver — suppressed. The ghost is
-    almost entirely in the LOWER formation (midpoint 3.0 sits below the
-    boundary), so the single interval is parented to LOWER — NOT the upper
-    formation that ``depth_top`` alone would have selected.
-    """
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces={},
-        geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
-            (0.05, LOWER_FORMATION_ID, CONTACT_B_ID),
-        ],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-        min_piece_thickness_m=0.20,
-    )
-    assert result.intervals == [(0.0, 6.0, LOWER_FORMATION_ID)]
-    assert result.stale_tin_fallback_count == 0
-
-
-def test_as3_clear_boundary_still_splits() -> None:
-    """A boundary clear of both edges still produces a two-interval split.
-
-    Ghost [0, 6]; geology boundary at 3.0 (well clear of both edges by more
-    than 0.20 m). The straddle-split is unchanged — upper + lower halves.
-    """
-    uc = _bare_use_case()
-    suggestion = _make_suggestion(0.0, 6.0, "ZAND")
-    result = uc._compute_straddle_splits(
-        suggestion=suggestion,
-        geology_surfaces={},
-        geology_contacts_at_inv=[
-            (0.0, UPPER_FORMATION_ID, CONTACT_A_ID),
-            (3.0, LOWER_FORMATION_ID, CONTACT_B_ID),
-        ],
-        inv_x=100.0,
-        inv_y=200.0,
-        inv_elevation_m=10.0,
-        suggestion_index=0,
-        min_piece_thickness_m=0.20,
-    )
-    assert result.intervals == [
-        (0.0, 3.0, UPPER_FORMATION_ID),
-        (3.0, 6.0, LOWER_FORMATION_ID),
-    ]
-
-
-# ---------------------------------------------------------------------------
 # BI1/BI2 — defer_inference=True batch-mode path (#129b)
 # ---------------------------------------------------------------------------
 
@@ -1307,7 +902,6 @@ async def test_bi1_defer_inference_skips_r7_hook() -> None:
     """
     # Session without inference execute calls (inference_formation_count=0).
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],  # no existing contact → create
         inference_formation_count=0,  # R7 hook skipped when defer_inference=True
@@ -1343,7 +937,6 @@ async def test_bi2_defer_inference_false_keeps_r7_hook() -> None:
     mock includes that extra call, and it is consumed.
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
         inference_formation_count=1,  # default: R7 fires for the one affected formation
@@ -1390,7 +983,6 @@ async def test_ac1_two_adjacent_sand_ghosts_produce_two_contacts() -> None:
     undo the user's split/insert/absorb intent.
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         # Two suggestions → two find-or-create checks.
         existing_contact_ids=[None, None],
@@ -1426,7 +1018,6 @@ async def test_ac2_single_merged_ghost_produces_single_contact() -> None:
     splits nor merges; it copies.
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None],
     )
@@ -1456,7 +1047,6 @@ async def test_ac3_non_adjacent_same_litho_stays_separate() -> None:
     composition → same formation).
     """
     session = _make_session(
-        surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[None, None, None],
         inference_formation_count=2,
