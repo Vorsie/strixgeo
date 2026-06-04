@@ -3278,6 +3278,7 @@ export default function SectionPanel({
                 contacts={correlateContacts}
                 lithoLayers={lithoLayers}
                 formationLabelById={formationLabelById}
+                formationColorById={formationColorById}
                 placedColumns={visibleColumns}
                 contactEdges={contactEdges ?? []}
                 // Use the SAME warped forward + inverse the columns and
