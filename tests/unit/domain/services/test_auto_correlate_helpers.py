@@ -1,11 +1,11 @@
-"""Unit tests for ``auto_correlate_helpers``.
+"""Unit tests for ``auto_correlate_helpers._mnn_by_id``.
 
-These tests cover the extracted ``_mutual_nearest_neighbour`` helper in
-isolation from the formation-level auto-correlate orchestrator.  The
-formation-level tests (``test_auto_correlate.py``) exercise the same
-helper indirectly via the full pipeline; this module pins the helper's
-behavioural contract on its own so the contact-level algorithm
-(#133 Phase 2+3) can rely on it as a stable shared dep.
+Pin the mutual-nearest-neighbour reducer's behavioural contract in isolation:
+empty / single / non-mutual drop / 1:1 best assignment / deterministic
+tie-break / generic-item support. ``_mnn_by_id`` is the live shared dependency
+of the contact-level auto-correlate algorithm (#133); these tests guard it
+directly (the old formation-level ``_CandidatePair`` wrapper was removed once
+its only caller was its own test).
 """
 
 from __future__ import annotations
@@ -13,176 +13,91 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from groundmodel.domain.services.auto_correlate_helpers import (
-    _CandidatePair,
-    _mnn_by_id,
-    _mutual_nearest_neighbour,
-    mutual_nearest_neighbour,
-)
-
-
-def _make_uuid(seed: int) -> UUID:
-    """Deterministic UUID for test fixtures.
-
-    Parameters
-    ----------
-    seed : int
-        Integer seed used as the UUID's int representation.
-
-    Returns
-    -------
-    UUID
-        A deterministic UUID built from ``seed``.
-    """
-    return UUID(int=seed)
-
-
-def test_mnn_empty_returns_empty() -> None:
-    """No candidates → no survivors."""
-    assert _mutual_nearest_neighbour([]) == []
-
-
-def test_mnn_single_candidate_passes_through() -> None:
-    """A lone candidate trivially survives MNN (it is its own best on both sides)."""
-    fa = _make_uuid(1)
-    fb = _make_uuid(2)
-    cand = _CandidatePair(
-        formation_a_id=fa,
-        formation_b_id=fb,
-        depth_a=1.0,
-        depth_b=1.05,
-        residual=0.05,
-    )
-    result = _mutual_nearest_neighbour([cand])
-    assert result == [cand]
-
-
-def test_mnn_drops_non_mutual_pair() -> None:
-    """When A1's best B is B1 but B1's best A is A2 → drop the (A1, B1) pair.
-
-    Setup: A1→B1 has residual 0.5, but A2→B1 has residual 0.1.  B1 prefers
-    A2.  A1 has no other candidate.  The pair (A1, B1) is not mutual and
-    must be dropped.  (A2, B1) remains mutual and survives.
-    """
-    fa1 = _make_uuid(1)
-    fa2 = _make_uuid(2)
-    fb1 = _make_uuid(10)
-    c1 = _CandidatePair(
-        formation_a_id=fa1,
-        formation_b_id=fb1,
-        depth_a=1.0,
-        depth_b=1.5,
-        residual=0.5,
-    )
-    c2 = _CandidatePair(
-        formation_a_id=fa2,
-        formation_b_id=fb1,
-        depth_a=5.0,
-        depth_b=5.1,
-        residual=0.1,
-    )
-    result = _mutual_nearest_neighbour([c1, c2])
-    assert len(result) == 1
-    assert result[0].formation_a_id == fa2
-    assert result[0].formation_b_id == fb1
-
-
-def test_mnn_picks_best_when_multiple_competing() -> None:
-    """Three A formations × two B formations: assignment must be 1:1 by best score."""
-    fa1 = _make_uuid(1)
-    fa2 = _make_uuid(2)
-    fa3 = _make_uuid(3)
-    fb1 = _make_uuid(10)
-    fb2 = _make_uuid(11)
-
-    candidates = [
-        _CandidatePair(fa1, fb1, 1.0, 1.05, 0.05),  # A1 best for B1, B1 best for A1
-        _CandidatePair(fa1, fb2, 1.0, 5.05, 4.05),
-        _CandidatePair(fa2, fb1, 5.0, 1.05, 4.05),
-        _CandidatePair(fa2, fb2, 5.0, 5.05, 0.05),  # A2 best for B2, B2 best for A2
-        _CandidatePair(fa3, fb1, 9.0, 1.05, 7.95),
-        _CandidatePair(fa3, fb2, 9.0, 5.05, 3.95),  # A3 has no mutual partner
-    ]
-    result = _mutual_nearest_neighbour(candidates)
-
-    # Expect two surviving mutual pairs: (A1,B1) and (A2,B2).
-    assert len(result) == 2
-    pairs = {(c.formation_a_id, c.formation_b_id) for c in result}
-    assert pairs == {(fa1, fb1), (fa2, fb2)}
-
-
-def test_mnn_public_alias_matches_private() -> None:
-    """``mutual_nearest_neighbour`` is the public alias for ``_mutual_nearest_neighbour``."""
-    assert mutual_nearest_neighbour is _mutual_nearest_neighbour
+from groundmodel.domain.services.auto_correlate_helpers import _mnn_by_id
 
 
 @dataclass(frozen=True)
-class _GenericItem:
-    """Tiny stand-in dataclass for exercising ``_mnn_by_id`` directly.
+class _Item:
+    """Tiny (id_a, id_b, residual) stand-in for exercising ``_mnn_by_id``."""
 
-    The generic core does not know about ``_CandidatePair``; this test
-    fixture confirms that any (id_a, id_b, residual) projection works.
-    """
-
-    left: UUID
-    right: UUID
-    score: float
+    a: UUID
+    b: UUID
+    r: float
 
 
-def test_mnn_by_id_breaks_ties_by_opposite_key() -> None:
-    """When two items have identical residuals competing for the same
-    endpoint, _mnn_by_id keeps the one whose OPPOSITE key has the
-    lower UUID — deterministic tie-break, not insertion order.
-    """
-    from dataclasses import dataclass
+def _uid(seed: int) -> UUID:
+    """Deterministic UUID from an integer seed."""
+    return UUID(int=seed)
 
-    @dataclass(frozen=True)
-    class _Item:
-        a: UUID
-        b: UUID
-        r: float
 
-    a = UUID(int=10)
-    b_high = UUID(int=20)
-    b_low = UUID(int=5)
-    # Both target ``a`` from different ``b``s at identical residual 0.5.
+def _mnn(items: list[_Item]) -> list[_Item]:
+    """Run the reducer with the standard (a, b, r) projections."""
+    return _mnn_by_id(items, key_a=lambda x: x.a, key_b=lambda x: x.b, residual=lambda x: x.r)
+
+
+def test_empty_returns_empty() -> None:
+    """No candidates → no survivors."""
+    assert _mnn([]) == []
+
+
+def test_single_candidate_passes_through() -> None:
+    """A lone candidate trivially survives (its own best on both sides)."""
+    item = _Item(a=_uid(1), b=_uid(2), r=0.05)
+    assert _mnn([item]) == [item]
+
+
+def test_drops_non_mutual_pair() -> None:
+    """A1→B1 (residual 0.5) loses B1 to A2→B1 (residual 0.1); only (A2,B1) survives."""
+    a1, a2, b1 = _uid(1), _uid(2), _uid(10)
+    c1 = _Item(a=a1, b=b1, r=0.5)
+    c2 = _Item(a=a2, b=b1, r=0.1)
+    result = _mnn([c1, c2])
+    assert result == [c2]
+
+
+def test_picks_best_when_multiple_competing() -> None:
+    """Three A × two B: assignment is 1:1 by best residual — (A1,B1) and (A2,B2)."""
+    a1, a2, a3 = _uid(1), _uid(2), _uid(3)
+    b1, b2 = _uid(10), _uid(11)
     items = [
-        _Item(a=a, b=b_high, r=0.5),
-        _Item(a=a, b=b_low, r=0.5),
+        _Item(a1, b1, 0.05),  # A1 best for B1, B1 best for A1
+        _Item(a1, b2, 4.05),
+        _Item(a2, b1, 4.05),
+        _Item(a2, b2, 0.05),  # A2 best for B2, B2 best for A2
+        _Item(a3, b1, 7.95),
+        _Item(a3, b2, 3.95),  # A3 has no mutual partner
     ]
-    survivors = _mnn_by_id(
-        items,
-        key_a=lambda x: x.a,
-        key_b=lambda x: x.b,
-        residual=lambda x: x.r,
-    )
-    # The min-b-UUID side wins on equal residuals.
+    pairs = {(c.a, c.b) for c in _mnn(items)}
+    assert pairs == {(a1, b1), (a2, b2)}
+
+
+def test_breaks_ties_by_opposite_key() -> None:
+    """Equal residuals competing for the same endpoint → the lower opposite UUID wins."""
+    a = _uid(10)
+    b_high, b_low = _uid(20), _uid(5)
+    survivors = _mnn([_Item(a=a, b=b_high, r=0.5), _Item(a=a, b=b_low, r=0.5)])
     assert len(survivors) == 1
     assert survivors[0].b == b_low
 
 
-def test_mnn_by_id_works_on_custom_dataclass() -> None:
-    """``_mnn_by_id`` operates on any item type given key + residual callables.
+def test_works_on_any_item_via_key_callables() -> None:
+    """The generic core operates on any item type given key + residual callables."""
 
-    Setup: three items between two pairs of ids.  Item ``c1`` has the
-    lowest residual and ties up (L1, R1) mutually.  ``c2`` competes for
-    R1 from a different left endpoint but loses on residual; it should
-    be dropped.  ``c3`` is the unique candidate for (L2, R2) and
-    survives trivially.
-    """
-    l1 = _make_uuid(101)
-    l2 = _make_uuid(102)
-    r1 = _make_uuid(201)
-    r2 = _make_uuid(202)
-    c1 = _GenericItem(left=l1, right=r1, score=0.1)
-    c2 = _GenericItem(left=l2, right=r1, score=0.5)  # loses to c1 on R1
-    c3 = _GenericItem(left=l2, right=r2, score=0.2)
+    @dataclass(frozen=True)
+    class _Generic:
+        left: UUID
+        right: UUID
+        score: float
 
+    l1, l2 = _uid(101), _uid(102)
+    r1, r2 = _uid(201), _uid(202)
+    c1 = _Generic(left=l1, right=r1, score=0.1)
+    c2 = _Generic(left=l2, right=r1, score=0.5)  # loses to c1 on R1
+    c3 = _Generic(left=l2, right=r2, score=0.2)
     result = _mnn_by_id(
         [c1, c2, c3],
         key_a=lambda it: it.left,
         key_b=lambda it: it.right,
         residual=lambda it: it.score,
     )
-
     assert result == [c1, c3]
