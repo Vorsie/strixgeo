@@ -42,11 +42,13 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.project_investigations_onto_section import (
+    project_investigations_onto_section,
+)
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
-from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -54,10 +56,6 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-from groundmodel.infrastructure.gis.section_projection import (
-    SectionEndpoints,
-    project_point_onto_line,
-)
 from groundmodel.shared.constants.extent_kind import is_user_claimed_extent_kind
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -534,51 +532,10 @@ class SuggestBodyPinchOuts(GroundModelLogger):
         ValueError
             When the section does not exist in ``project_id``.
         """
-        section = (
-            await self._session.execute(
-                select(CrossSectionOrm).where(
-                    CrossSectionOrm.id == section_id,
-                    CrossSectionOrm.app_project_id == project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if section is None:
-            raise ValueError(f"Section {section_id} not found in project {project_id}")
-
-        endpoints = SectionEndpoints(
-            start_x=section.start_x,
-            start_y=section.start_y,
-            end_x=section.end_x,
-            end_y=section.end_y,
+        # Every in-corridor, non-excluded test counts — bare columns (no litho
+        # contacts yet) included (``restrict_to=None``), so the section-edge
+        # test for ``open`` is over the columns the user sees, not only litho
+        # participants (dogfeed 2026-06-03).
+        return await project_investigations_onto_section(
+            self._session, project_id=project_id, section_id=section_id
         )
-        excluded = set(section.excluded_cpt_ids) | set(section.excluded_borehole_ids)
-
-        cpt_locs = (
-            await self._session.execute(
-                select(CptOrm.id, CptOrm.location_x, CptOrm.location_y).where(
-                    CptOrm.app_project_id == project_id,
-                )
-            )
-        ).all()
-        bh_locs = (
-            await self._session.execute(
-                select(BoreholeOrm.id, BoreholeOrm.location_x, BoreholeOrm.location_y).where(
-                    BoreholeOrm.app_project_id == project_id,
-                )
-            )
-        ).all()
-
-        along: dict[UUID, float] = {}
-        for r in (*cpt_locs, *bh_locs):
-            # Every in-corridor, non-excluded test counts — bare columns (no
-            # litho contacts yet) included, so the section-edge test for
-            # ``open`` is over the columns the user sees, not only litho
-            # participants (dogfeed 2026-06-03).
-            if r.id in excluded:
-                continue
-            res = project_point_onto_line(endpoints, r.location_x, r.location_y)
-            if res is None:
-                continue
-            if abs(res.offset) <= section.projection_buffer_m:
-                along[r.id] = res.along
-        return along
