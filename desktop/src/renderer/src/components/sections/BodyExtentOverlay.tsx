@@ -64,8 +64,17 @@ export function halfwayFarPoint(
 }
 
 const BOUNDARY_COLOR = '#10b981' // emerald — matches correlation-edge colour
-const FILL_COLOR = '#38bdf8' // sky — body fill
-const FILL_OPACITY = 0.22
+const FILL_COLOR = '#38bdf8' // sky — body fill (fallback when no lithology colour)
+// Committed caps/lenses fill with their LITHOLOGY colour (not the interaction
+// sky-blue) so a pinch-out wedge or lens reads as the SAME unit as its band —
+// the section paints with no dark "blind spots" where a body terminates
+// (owner directive 2026-06-04: the 2D body fill is the source of truth that
+// feeds the 3D model, so every committed body must render solid). Opacity
+// matches BodyBandOverlay's 0.62 so a cap is indistinguishable from its band.
+const LITHO_FILL_OPACITY = 0.6
+// An open end reads a touch lighter ("continues off-section"), reinforced by
+// the cyan stroke + out-of-section arrow that already mark the open kind.
+const LITHO_OPEN_FILL_OPACITY = 0.45
 const NODE_R = 5
 const HIT_STROKE = 12 // transparent click-band width along each boundary
 
@@ -74,7 +83,6 @@ const HIT_STROKE = 12 // transparent click-band width along each boundary
 // and a minimum on-screen width so it never collapses to an invisible sliver
 // when zoomed out (the "not rendering" report was a faint 18 px sliver).
 const OPEN_STROKE_COLOR = '#0ea5e9' // sky-500 — distinct from the emerald wedge edge
-const OPEN_FILL_OPACITY = 0.4
 const OPEN_MIN_STUB_PX = 22 // floor on the stub's on-screen length
 // Floor on the stub's on-screen HEIGHT — open ends sit on thin units (often
 // <0.5 m → a few px tall), so without this the bold stub is still an invisible
@@ -197,6 +205,14 @@ export interface Props {
    * shows the explicit name only (or nothing when also un-named).
    */
   formationLabelById?: ReadonlyMap<string, string>
+  /**
+   * formation_id → lithology fill colour. A committed cap / lens fills with
+   * its body's lithology colour (not the interaction sky-blue) so it reads as
+   * the same unit as its band — the 2D fill is the source of truth that feeds
+   * 3D, so every committed body paints solid (owner directive 2026-06-04).
+   * Absent / missing entry → falls back to the sky-blue ``FILL_COLOR``.
+   */
+  formationColorById?: ReadonlyMap<string, string>
   /** Placed columns (carry ``proj.along`` + surface elevation). */
   placedColumns: readonly PlacedColumn[]
   /** Approved correlation edges — drives the pinch/top/base role resolution
@@ -327,6 +343,7 @@ export default function BodyExtentOverlay({
   contacts,
   lithoLayers,
   formationLabelById,
+  formationColorById,
   placedColumns,
   contactEdges,
   alongToScreenX,
@@ -1386,6 +1403,12 @@ export default function BodyExtentOverlay({
         const formationLabel = labelBodyItem
           ? formationLabelById?.get(labelBodyItem.formation_id)
           : undefined
+        // Fill the committed cap / lens with its LITHOLOGY colour so it reads
+        // as the same unit as its band (no dark blind spot at a termination).
+        // Falls back to the interaction sky-blue when no colour is supplied.
+        const lithoFill = labelBodyItem
+          ? (formationColorById?.get(labelBodyItem.formation_id) ?? FILL_COLOR)
+          : FILL_COLOR
         const depthRank = stackingByBodyId.get(body.bodyId) ?? 1
         const wedgeLabel =
           labelBodyItem && formationLabel
@@ -1408,8 +1431,8 @@ export default function BodyExtentOverlay({
               <path
                 data-testid={`body-extent-fill-${body.wedgeKey}`}
                 d={fillD}
-                fill={FILL_COLOR}
-                fillOpacity={body.isOpen ? OPEN_FILL_OPACITY : FILL_OPACITY}
+                fill={lithoFill}
+                fillOpacity={body.isOpen ? LITHO_OPEN_FILL_OPACITY : LITHO_FILL_OPACITY}
                 stroke="none"
                 style={{
                   pointerEvents: (onBodyContextMenu ?? onDeleteLens) ? 'auto' : 'none',
