@@ -230,6 +230,7 @@ class SaveBodyBoundary(GroundModelLogger):
         upper_nodes: list[BoundaryNode],
         lower_nodes: list[BoundaryNode],
         render_style: str,
+        prefer_section_id: UUID | None = None,
     ) -> BodyBoundaryState:
         """Upsert the body's shape row + replace its nodes atomically.
 
@@ -269,9 +270,15 @@ class SaveBodyBoundary(GroundModelLogger):
 
         body = await _load_body_scoped(self._session, body_id, project_id, model_id)
         if body.primary_section_id is None:
-            raise BodyNoPrimarySectionError(
-                f"Body {body_id} has no primary section to anchor boundary nodes"
-            )
+            # A resolver-created lens (e.g. a morph pinch-out the user is shaping)
+            # carries no primary section — the boundary nodes are section-local,
+            # so adopt the section the user is editing on as the anchor.  Only set
+            # it when null: an existing body keeps its established section.
+            if prefer_section_id is None:
+                raise BodyNoPrimarySectionError(
+                    f"Body {body_id} has no primary section to anchor boundary nodes"
+                )
+            body.primary_section_id = prefer_section_id
 
         self.info(
             f"SaveBodyBoundary: body={body_id} "
