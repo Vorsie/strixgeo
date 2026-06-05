@@ -1344,12 +1344,32 @@ async def batch_accept_litho_suggestions(
         for anchor in request.anchors
     ]
 
-    batch_result = await BatchAcceptLithoSuggestions(session).execute(
-        project_id=project_id,
-        litho_model_id=model_id,
-        anchors=anchor_inputs,
-        couple_tolerance_m=request.couple_tolerance_m,
-    )
+    try:
+        batch_result = await BatchAcceptLithoSuggestions(session).execute(
+            project_id=project_id,
+            litho_model_id=model_id,
+            anchors=anchor_inputs,
+            couple_tolerance_m=request.couple_tolerance_m,
+        )
+    except IntegrityError as exc:
+        # The ``litho_layer_accepted_no_overlap`` exclusion constraint fires when
+        # accepted layers for one or more anchors would overlap existing accepted
+        # layers on the same investigation column. The whole batch-transaction is
+        # rolled back. Return 409 so callers can detect the conflict rather than
+        # seeing an unhandled 500.
+        orig = str(exc.orig) if exc.orig else str(exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "litho_layer_overlap",
+                "message": (
+                    "One or more anchors produced accepted layers that would overlap "
+                    "existing accepted layers on the same investigation column. "
+                    "Re-clear affected CPTs (DELETE /contacts) before re-accepting."
+                ),
+                "detail": orig[:400],
+            },
+        ) from exc
 
     # Aggregate the created/found contact ids across all anchors and seed the
     # section ONCE (one array rewrite instead of one per anchor).
