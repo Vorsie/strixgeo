@@ -2609,8 +2609,15 @@ export const api = {
         lower_nodes: BodyBoundaryNode[]
         render_style: BodyRenderStyle
       },
+      // The active section anchors the (section-local) nodes — and a body with
+      // no primary section yet (a resolver-created morph lens) adopts it on save.
+      sectionId?: string,
     ): Promise<BodyBoundaryResponse> =>
-      put(`/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary`, body),
+      put(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary` +
+          (sectionId ? `?section_id=${sectionId}` : ''),
+        body,
+      ),
 
     // PATCH body row (currently: name update). Creates a body row on first
     // call when name is provided; updates on subsequent calls.
