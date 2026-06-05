@@ -42,7 +42,7 @@
  *    ``stopPropagation`` so the region's ``onContextMenu`` never sees it.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { BodyBoundaryNode, BodyListItem, LithoLayerResponse } from '../../api/client'
 import {
@@ -254,6 +254,22 @@ function buildLensPolygon(
 // Main component
 // ---------------------------------------------------------------------------
 
+/**
+ * SVG coordinates + colour for the add-strip hover preview dot (Task 2,
+ * owner directive 2026-06-05 litho declutter). Stored as state so React
+ * re-renders the single preview circle on every mousemove over an add-strip
+ * and removes it on mouseleave.
+ *
+ * ``color`` is the strip's gesture colour: sky-400 (#38bdf8) for a matched-
+ * boundary strip, amber-400 (#f59e0b) for a lens strip — mirrors the stored
+ * handle colour so the preview telegraphs what the click will produce.
+ */
+interface AddNodePreview {
+  x: number
+  y: number
+  color: string
+}
+
 /** Render the partition fill (+ labels, open-end stubs, context menu). */
 export default function PartitionFillOverlay({
   lithoLayers,
@@ -277,7 +293,25 @@ export default function PartitionFillOverlay({
   const rootRef = useRef<SVGGElement>(null)
   const [boundaryDrag, setBoundaryDrag] = useState<BoundaryDrag | null>(null)
   const [lensDrag, setLensDrag] = useState<LensDrag | null>(null)
+  // Owner directive 2026-06-05 (litho declutter, Task 2): single dot at the
+  // cursor position while hovering an add-strip, cleared on mouseleave.
+  // One piece of state suffices — only one add-strip can be hovered at a time.
+  const [addNodePreview, setAddNodePreview] = useState<AddNodePreview | null>(null)
   const bodyById = useMemo(() => new Map((bodies ?? []).map((b) => [b.id, b])), [bodies])
+
+  // Helper: compute SVG coords from a React synthetic mouse event.
+  // Reads the ownerSVGElement bounding rect at call time (cheap DOM read,
+  // same pattern as the click handlers above).
+  const svgCoordsFromEvent = useCallback(
+    (e: React.MouseEvent): { x: number; y: number } => {
+      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+      return {
+        x: e.clientX - (rect?.left ?? 0),
+        y: e.clientY - (rect?.top ?? 0),
+      }
+    },
+    [],
+  )
 
   // -------------------------------------------------------------------------
   // Matched-boundary multi-node drag
@@ -1087,7 +1121,9 @@ export default function PartitionFillOverlay({
         const [ne0, ne1] = sb.naturalEdge
         return (
           <g key={`pf-bnd-${sb.upperBodyId}-${sb.lowerBodyId}`}>
-            {/* Add-strip: transparent line along the boundary edge */}
+            {/* Add-strip: transparent line along the boundary edge.
+                Hover shows a preview dot at the cursor (owner directive
+                2026-06-05 litho declutter, Task 2). */}
             <line
               data-testid={`partition-boundary-addstrip-${sb.upperBodyId}-${sb.lowerBodyId}`}
               x1={ne0.x}
@@ -1097,6 +1133,11 @@ export default function PartitionFillOverlay({
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              onMouseMove={(e) => {
+                const { x, y } = svgCoordsFromEvent(e)
+                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
+              }}
+              onMouseLeave={() => setAddNodePreview(null)}
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -1200,7 +1241,8 @@ export default function PartitionFillOverlay({
 
         return (
           <g key={`pf-lens-${sl.bodyId}`}>
-            {/* Upper-edge add-strip */}
+            {/* Upper-edge add-strip. Hover shows a preview dot at the cursor
+                (owner directive 2026-06-05 litho declutter, Task 2). */}
             <line
               data-testid={`partition-lens-addstrip-${sl.bodyId}-upper`}
               x1={sl.sourceTopPt.x}
@@ -1210,6 +1252,11 @@ export default function PartitionFillOverlay({
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              onMouseMove={(e) => {
+                const { x, y } = svgCoordsFromEvent(e)
+                setAddNodePreview({ x, y, color: LENS_COLOR })
+              }}
+              onMouseLeave={() => setAddNodePreview(null)}
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -1222,7 +1269,7 @@ export default function PartitionFillOverlay({
                 )
               }}
             />
-            {/* Lower-edge add-strip */}
+            {/* Lower-edge add-strip. Hover shows a preview dot at the cursor. */}
             <line
               data-testid={`partition-lens-addstrip-${sl.bodyId}-lower`}
               x1={lowerStripStart.x}
@@ -1232,6 +1279,11 @@ export default function PartitionFillOverlay({
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              onMouseMove={(e) => {
+                const { x, y } = svgCoordsFromEvent(e)
+                setAddNodePreview({ x, y, color: LENS_COLOR })
+              }}
+              onMouseLeave={() => setAddNodePreview(null)}
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -1376,6 +1428,27 @@ export default function PartitionFillOverlay({
             )
           })
         })}
+
+      {/* Add-strip hover preview dot (owner directive 2026-06-05 litho
+          declutter, Task 2).  Renders ONE small circle at the cursor
+          position while the pointer is over any add-strip (boundary or
+          lens).  Colour matches the strip's gesture: sky-blue (#38bdf8)
+          for a matched-boundary strip, amber (#f59e0b) for a lens strip,
+          so the preview telegraphs what the click will produce.
+          pointerEvents="none" — the preview must never block the underlying
+          add-strip's own pointer events. */}
+      {addNodePreview && (
+        <circle
+          data-testid="partition-addnode-preview"
+          cx={addNodePreview.x}
+          cy={addNodePreview.y}
+          r={3}
+          fill={addNodePreview.color}
+          stroke="#0f172a"
+          strokeWidth={1}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
     </g>
   )
 }
