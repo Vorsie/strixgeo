@@ -40,7 +40,6 @@ import type {
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
-import { useBandFillVisible } from '../../../utils/bandFillStore'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import NameBodyDialog from '../../../components/sections/NameBodyDialog'
@@ -478,40 +477,12 @@ export default function SectionsCanvas(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLitho, activeLithoModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
 
-  // Fill-bands sand merge (owner directive 2026-06-05): clicking "Fill bands"
-  // (OFF→ON) fuses any lithology split on one column only by a LOCAL lens into
-  // ONE body — it correlates the bracketing host halves to the neighbour's
-  // continuous host, re-resolves, then refetches so the morph renders the merged
-  // body with the lens cut out. Runs once per ON-transition; idempotent on the
-  // backend (only same-lithology hosts whose lens is absent on a neighbour).
-  const bandsVisible = useBandFillVisible()
-  const prevBandsOnRef = useRef(false)
-  useEffect(() => {
-    const turnedOn = bandsVisible && !prevBandsOnRef.current
-    prevBandsOnRef.current = bandsVisible
-    if (!turnedOn || !isLitho || !activeLithoModel || !selectedSectionId) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const r = await api.geology.mergeEnclosedLenses(
-          project.id,
-          activeLithoModel.id,
-          selectedSectionId,
-        )
-        if (cancelled || r.edges_created === 0) return
-        log.success('section', `fill-bands merge: ${r.edges_created} edge(s) → bodies merged`)
-        await Promise.all([refetchLithoContacts(), refetchContactEdges(), refetchLensData()])
-      } catch (err) {
-        log.warn('section', 'fill-bands merge failed', err)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // reason: refetch fns are stable closures; bandsVisible drives the OFF→ON
-    // transition and the id deps re-arm the guard when the section/model changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bandsVisible, isLitho, activeLithoModel?.id, selectedSectionId, project.id])
+  // (Fill-bands sand-merge removed 2026-06-05.) It correlated host halves on
+  // every Fill-bands OFF→ON to fuse a lens-split lithology into one body — but
+  // the partition fill now extracts enclosed lenses in pure geometry, so the
+  // DB-edge merge is redundant, and it re-created correlation edges the user had
+  // just DELETED (dogfeed 2026-06-05). The matrix stays continuous from the
+  // bodies' existing correlations; the user owns the correlation graph.
 
   const handleSaveLensShape = useCallback(
     async (
