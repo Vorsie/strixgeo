@@ -73,6 +73,7 @@ from groundmodel.api.schemas.project.body import (
     ClaimBodyExtentRequest,
     ClearDetectedBodiesResponse,
     DetectBodiesResponse,
+    MergeEnclosedLensResponse,
     NameBodyRequest,
     NameBodyResponse,
     PinchOutCandidateItem,
@@ -97,6 +98,7 @@ from groundmodel.application.create_perpendicular_companion import CreatePerpend
 from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.delete_detected_bodies import DeleteDetectedBodies
 from groundmodel.application.detect_bodies import DetectBodies
+from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
@@ -369,6 +371,74 @@ async def detect_bodies(
         bodies_created=result.bodies_created,
         bodies_removed=result.bodies_removed,
         bodies_skipped_unresolved_ordinal=result.bodies_skipped_unresolved_ordinal,
+    )
+
+
+@router.post(
+    "/models/{model_id}/bodies/merge-enclosed-lenses",
+    response_model=MergeEnclosedLensResponse,
+)
+async def merge_enclosed_lenses(
+    project_id: UUID,
+    model_id: UUID,
+    section_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> MergeEnclosedLensResponse:
+    """Merge a lithology split only by a local lens into one body (Fill bands).
+
+    For each enclosed lens on the active section whose lithology is ABSENT on a
+    neighbour (a true pinch), correlates the bracketing host halves to that
+    neighbour's continuous host and re-resolves, so they become one body. The
+    lens stays its own body. Idempotent — re-running adds only new edges.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Must be a lithostratigraphic model in this project.
+    section_id : UUID
+        The active cross-section — defines column adjacency (section-scoped).
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    MergeEnclosedLensResponse
+        Counts of created + skipped correlation edges.
+
+    Raises
+    ------
+    HTTPException(404)
+        Model not found in the project.
+    HTTPException(422)
+        Model is not lithostratigraphic.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Model {model_id} is of kind {model.kind!r}; "
+                "lens merging only runs on lithostratigraphic models."
+            ),
+        )
+    result = await MergeEnclosedLensBodies(session).execute(
+        project_id=project_id,
+        model_id=model_id,
+        section_id=section_id,
+    )
+    logger.success(
+        f"merge_enclosed_lenses: project={project_id} model={model_id} "
+        f"created={result.edges_created} skipped={result.edges_skipped_existing}"
+    )
+    return MergeEnclosedLensResponse(
+        edges_created=result.edges_created,
+        edges_skipped_existing=result.edges_skipped_existing,
     )
 
 
