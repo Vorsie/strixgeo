@@ -1205,7 +1205,18 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
               },
-            ]}
+            ].filter(
+              // Hidden 2026-06-05: the partition fill ("Fill bands") derives
+              // lenses + pinch-outs in pure geometry, so these manual DB-entity
+              // verbs are redundant + confusing ("draw bands does everything").
+              // Handlers kept wired in case we ever re-expose them.
+              (it) =>
+                ![
+                  'litho-detect-lenses',
+                  'body-suggest-pinch-outs',
+                  'body-accept-all-pinch-outs',
+                ].includes(it.testid ?? ''),
+            )}
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
               admixtures on the ghost suggestions before accepting. The

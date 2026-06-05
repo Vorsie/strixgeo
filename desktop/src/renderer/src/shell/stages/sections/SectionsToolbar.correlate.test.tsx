@@ -1161,61 +1161,23 @@ describe('SectionsToolbar Accept all pinch-outs', () => {
     ...overrides,
   })
 
-  it('AP1: item is disabled when there are no pinch-out candidates', () => {
+  it('AP1: Detect / Suggest / Accept body verbs are hidden (superseded by the partition fill)', () => {
+    // Hidden 2026-06-05: the partition fill derives lenses + pinch-outs in
+    // geometry, so the manual DB-entity verbs are filtered out of the Bodies
+    // menu (handlers stay wired). Fill bands + Materialise + Delete remain.
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
-        pinchOutCandidates: [],
+        pinchOutCandidates: [candidate()],
       }),
     )
     openBodies()
-    expect(screen.getByTestId('body-accept-all-pinch-outs')).toBeDisabled()
-  })
-
-  it('AP2: with candidates, click claims each (skips null-body), clears ghosts + toasts', async () => {
-    const setPinchOutCandidates = vi.fn()
-    const toast = vi.fn()
-    renderWith(
-      makeCtx({
-        sectionModelAxis: 'lithostratigraphic',
-        activeLithoModel: makeLithoModel(),
-        selectedSectionId: 'sec-1',
-        pinchOutCandidates: [
-          candidate(),
-          candidate({
-            body_id: 'body-2',
-            side: 'right',
-            kind: 'open',
-            suggested_neighbour_investigation_id: null,
-          }),
-          candidate({ body_id: null }), // unresolved → skipped
-        ],
-        setPinchOutCandidates,
-        toast,
-      }),
-    )
-    openBodies()
-    const btn = screen.getByTestId('body-accept-all-pinch-outs')
-    expect(btn).not.toBeDisabled()
-    await act(async () => {
-      fireEvent.click(btn)
-    })
-
-    // Two claimable candidates → two claims (the null-body one is skipped).
-    expect(api.geology.claimBodyExtent).toHaveBeenCalledTimes(2)
-    expect(api.geology.claimBodyExtent).toHaveBeenCalledWith(
-      'proj-1',
-      'model-litho-1',
-      expect.objectContaining({ body_id: 'body-1', kind: 'pinch_out_halfway', neighbour_inv_id: 'inv-0' }),
-    )
-    expect(api.geology.claimBodyExtent).toHaveBeenCalledWith(
-      'proj-1',
-      'model-litho-1',
-      expect.objectContaining({ body_id: 'body-2', kind: 'open', neighbour_inv_id: null }),
-    )
-    expect(setPinchOutCandidates).toHaveBeenCalledWith([])
-    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('2'))
+    expect(screen.queryByTestId('litho-detect-lenses')).toBeNull()
+    expect(screen.queryByTestId('body-suggest-pinch-outs')).toBeNull()
+    expect(screen.queryByTestId('body-accept-all-pinch-outs')).toBeNull()
+    // The keeper verb is still present.
+    expect(screen.getByTestId('litho-fill-bands')).toBeTruthy()
   })
 })
