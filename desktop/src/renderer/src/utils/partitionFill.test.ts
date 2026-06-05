@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computePartitionFill,
   LENS_PINCH_FRACTION,
-  type MorphColumn,
+  type PartitionColumn,
   type PartitionRegion,
 } from './partitionFill'
 
@@ -18,12 +18,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Shorthand: build a MorphColumn. */
+/** Shorthand: build a PartitionColumn. */
 function col(
   id: string,
   surfaceElevM: number,
   units: { top: number; base: number; f: string; b: string | null }[],
-): MorphColumn {
+): PartitionColumn {
   return {
     investigationId: id,
     surfaceElevM,
@@ -54,8 +54,8 @@ function col(
  */
 function assertTiles(
   regions: PartitionRegion[],
-  left: MorphColumn,
-  right: MorphColumn,
+  left: PartitionColumn,
+  right: PartitionColumn,
   excludeKinds: Set<PartitionRegion['kind']> = new Set(['lens']),
 ): void {
   const tilingRegions = regions.filter((r) => !excludeKinds.has(r.kind))

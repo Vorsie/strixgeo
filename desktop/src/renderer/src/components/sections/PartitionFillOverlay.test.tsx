@@ -35,7 +35,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { BodyBoundaryResponse, BodyListItem, LithoLayerResponse } from '../../api/client'
 import PartitionFillOverlay from './PartitionFillOverlay'
-import type { Props } from './MorphFillOverlay'
+import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
 
 afterEach(() => cleanup())

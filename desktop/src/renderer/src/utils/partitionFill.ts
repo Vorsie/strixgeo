@@ -70,9 +70,23 @@
  * The overlay maps ``fraction → screenX`` and ``elevation → screenY``.
  */
 
-// Re-export the input types from morphFill so consumers import from one place.
-export type { MorphColumn, MorphUnit } from './morphFill'
-import type { MorphColumn, MorphUnit } from './morphFill'
+/** One unit (accepted litho layer) on a column, in depth-below-surface metres. */
+export interface PartitionUnit {
+  topDepthM: number
+  baseDepthM: number
+  /** Drives the fill colour (lithology). */
+  formationId: string
+  /** Resolver-stamped body — members sharing a body merge into one envelope. */
+  bodyId: string | null
+}
+
+/** One column's placement + its gap-free unit stack (sorted by ``topDepthM``). */
+export interface PartitionColumn {
+  investigationId: string
+  /** Surface elevation (mTAW) — converts depth → absolute elevation. */
+  surfaceElevM: number
+  units: readonly PartitionUnit[]
+}
 
 const EPS = 1e-9
 
@@ -182,7 +196,7 @@ interface ExtractedLens {
  *
  * Parameters
  * ----------
- * units : MorphUnit[]
+ * units : PartitionUnit[]
  *     The mutable working copy of the column's units.
  * otherIds : Set<string>
  *     All bodyIds present in the OTHER column (non-null).
@@ -195,7 +209,7 @@ interface ExtractedLens {
  *     after each extraction).
  */
 function extractEnclosedLenses(
-  units: MorphUnit[],
+  units: PartitionUnit[],
   otherIds: Set<string>,
   side: 'left' | 'right',
 ): ExtractedLens[] {
@@ -231,7 +245,7 @@ function extractEnclosedLenses(
 
       // Merge: replace the three units (above, u, below) with one merged unit
       // that spans above.topDepthM → below.baseDepthM.
-      const merged: MorphUnit = {
+      const merged: PartitionUnit = {
         topDepthM: above.topDepthM,
         baseDepthM: below.baseDepthM,
         formationId: above.formationId,
@@ -621,9 +635,9 @@ function emitInterval(
  *
  * Parameters
  * ----------
- * left : MorphColumn
+ * left : PartitionColumn
  *     The left column.  ``units`` must be gap-free, sorted by ``topDepthM``.
- * right : MorphColumn
+ * right : PartitionColumn
  *     The right column, same constraints.
  *
  * Returns
@@ -633,8 +647,8 @@ function emitInterval(
  *     overlay regions.  Empty when the left column has no units.
  */
 export function computePartitionFill(
-  left: MorphColumn,
-  right: MorphColumn,
+  left: PartitionColumn,
+  right: PartitionColumn,
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): PartitionRegion[] {
   if (left.units.length === 0) return []
@@ -659,8 +673,8 @@ export function computePartitionFill(
   // pinch for the outer sand piece.  After extraction the two sand pieces are
   // merged into ONE entry that matches the right-column sand cleanly as a quad.
   // -------------------------------------------------------------------------
-  const leftUnits: MorphUnit[] = left.units.map((u) => ({ ...u }))
-  const rightUnits: MorphUnit[] = right.units.map((u) => ({ ...u }))
+  const leftUnits: PartitionUnit[] = left.units.map((u) => ({ ...u }))
+  const rightUnits: PartitionUnit[] = right.units.map((u) => ({ ...u }))
 
   const rightIdSet = new Set(rightUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
   const leftIdSet = new Set(leftUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))

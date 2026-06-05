@@ -44,17 +44,74 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { BodyBoundaryNode, BodyListItem, LithoLayerResponse } from '../../api/client'
+import type {
+  BodyBoundaryNode,
+  BodyBoundaryResponse,
+  BodyListItem,
+  LithoLayerResponse,
+} from '../../api/client'
 import {
   computePartitionFill,
   type LensApexOverride,
-  type MorphColumn,
-  type MorphUnit,
+  type PartitionColumn,
+  type PartitionUnit,
   type PartitionRegion,
   LENS_PINCH_FRACTION,
 } from '../../utils/partitionFill'
-import type { Props } from './MorphFillOverlay'
 import type { PlacedColumn } from './utils'
+
+/**
+ * Props for the partition fill overlay. Self-contained since the retirement
+ * of ``MorphFillOverlay`` (2026-06-05) — this overlay is the sole owner of the
+ * section litho fill + its pinch / lens shaping.
+ */
+export interface Props {
+  /** Accepted litho layers carrying ``body_id`` + the unit's depth interval. */
+  lithoLayers: readonly LithoLayerResponse[]
+  /** Placed columns (carry ``proj.along`` + surface elevation + screen x/width). */
+  placedColumns: readonly PlacedColumn[]
+  /** formation_id → lithology colour for the fill. */
+  formationColorById: ReadonlyMap<string, string>
+  /** formation_id → display label (e.g. "Sa1") for the per-region label. */
+  formationLabelById?: ReadonlyMap<string, string>
+  /** Absolute elevation (mTAW) → screen y. */
+  levelToScreen: (level: number) => number
+  /**
+   * When true, paint the continuous matrix BAND fill (matched bodies) + edge
+   * stubs + labels. The pinch-out wedges + their draggable apex handles render
+   * REGARDLESS, so the user can shape pinch-outs on the clean (bands-off) view
+   * and then turn the fill on (owner directive 2026-06-05: "fix the shape of the
+   * pinchouts and then fill it").
+   */
+  showBands: boolean
+  /** Top / bottom of the plot area in screen px (clamp). */
+  plotTop: number
+  plotBottom: number
+  /** Left / right of the plot area in screen px — the first/last column's units
+   *  fill OUT to these so the section's open ends reach the edge (no gap). When
+   *  absent the open-end stub falls back to a fixed length. */
+  plotLeft?: number
+  plotRight?: number
+  /** Stored per-body boundary shapes — a pinch reads its apex override here. */
+  boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>
+  /** Warped along_m → screen x (same transform the columns + caps use). */
+  alongToScreenX?: (along: number) => number
+  /** Inverse of ``alongToScreenX`` (drag-commit). */
+  screenXToAlong?: (x: number) => number
+  /** Inverse of ``levelToScreen`` (drag-commit). */
+  screenToLevel?: (y: number) => number
+  /** Persist a dragged apex as the body's boundary shape. Absent = read-only. */
+  onSaveBoundary?: (
+    bodyId: string,
+    upperNodes: BodyBoundaryNode[],
+    lowerNodes: BodyBoundaryNode[],
+    style: 'straight' | 'blocky' | 'rounded',
+  ) => void
+  /** Bodies on the model — used to resolve a right-clicked pinch to its body. */
+  bodies?: readonly BodyListItem[]
+  /** Right-click a pinch (lens) → open the body context menu (Dissolve / Name). */
+  onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
+}
 
 const FILL_OPACITY = 0.62
 // A lens (one-test body enclosed in a matrix) is drawn a touch more solid so it
@@ -433,14 +490,14 @@ export default function PartitionFillOverlay({
   }, [lensDrag, onSaveBoundary, screenXToAlong, screenToLevel, boundariesByBodyId])
 
   // Build each column's gap-free unit stack + its screen x-edges (identical to
-  // the morph overlay — the partition consumes the same MorphColumn input).
+  // the morph overlay — the partition consumes the same PartitionColumn input).
   const { orderedInvs, colByInv, screenByInv } = useMemo(() => {
-    const unitsByInv = new Map<string, MorphUnit[]>()
+    const unitsByInv = new Map<string, PartitionUnit[]>()
     for (const layer of lithoLayers) {
       if (layer.status !== 'accepted') continue
       const inv = layer.cpt_id ?? layer.borehole_id
       if (!inv) continue
-      const unit: MorphUnit = {
+      const unit: PartitionUnit = {
         topDepthM: layer.depth_top_m,
         baseDepthM: layer.depth_base_m,
         formationId: layer.formation_id,
@@ -451,7 +508,7 @@ export default function PartitionFillOverlay({
       else unitsByInv.set(inv, [unit])
     }
 
-    const cols = new Map<string, MorphColumn>()
+    const cols = new Map<string, PartitionColumn>()
     const screen = new Map<string, ColumnScreen>()
     const ordered: string[] = []
     for (const col of placedColumns as readonly PlacedColumn[]) {
