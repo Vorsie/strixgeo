@@ -522,11 +522,19 @@ export default function SectionsCanvas(): JSX.Element {
     ): Promise<void> => {
       if (!activeLithoModel) return
       try {
-        const saved = await api.geology.saveLensBoundary(project.id, activeLithoModel.id, lensId, {
-          upper_nodes: upperNodes,
-          lower_nodes: lowerNodes,
-          render_style: style,
-        })
+        const saved = await api.geology.saveLensBoundary(
+          project.id,
+          activeLithoModel.id,
+          lensId,
+          {
+            upper_nodes: upperNodes,
+            lower_nodes: lowerNodes,
+            render_style: style,
+          },
+          // Anchor section-local nodes (+ adopt as primary section for a
+          // resolver-created morph lens that has none yet).
+          selectedSectionId ?? undefined,
+        )
         setLensBoundaries(prev => {
           const next = new Map(prev)
           next.set(lensId, saved)
@@ -538,7 +546,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not save lens shape — see console.')
       }
     },
-    [activeLithoModel, project.id, toast, markMutated],
+    [activeLithoModel, project.id, selectedSectionId, toast, markMutated],
   )
 
   const handleCreateContactCorrelation = useCallback(
