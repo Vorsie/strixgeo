@@ -204,4 +204,115 @@ describe('PartitionFillOverlay', () => {
     expect(onSaveBoundary.mock.calls[0][1]).toHaveLength(1)
     expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
   })
+
+  // --- matched-boundary drag -------------------------------------------------
+  // Two-body matched stack: sand 0-5 on L / 0-6 on R; clay 5-10 on L / 6-10 on R.
+  // Both bodies are on both columns → two quads, one shared sand/clay boundary.
+  // Column L is nudgedX=0 width=40 → leftX=-20, rightX=20.
+  // Column R is nudgedX=100 width=40 → leftX=80, rightX=120.
+  // Gap: leftX=20, rightX=80.
+  // The base fixture already uses this layer set (``base``), so these tests
+  // extend it with transforms + onSaveBoundary.
+
+  it('MB1 — a matched boundary renders a draggable handle between the two bodies', () => {
+    const { getByTestId } = renderOverlay({
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    // The handle testid encodes upper/lower bodyId so we can assert it exists.
+    expect(getByTestId('partition-boundary-handle-sand-clay')).toBeTruthy()
+  })
+
+  it('MB2 — a stored lower_nodes node on the upper body bends both polygons at the control point', () => {
+    // Store a control point at along_m=60 (screen x=60, inside the gap 20..80),
+    // elevation_m=4.0 (screen y=100-4.0*10=60).  With transforms identity/inverse
+    // the stored node maps directly to (60, 60) in screen space.
+    //
+    // The sand quad's natural base edge runs from baseR=(1, rightElev-6) to
+    // baseL=(0, leftElev-5): screen (80, 60) to (20, 50).  After inserting cp the
+    // polygon gains a 5th vertex at (60, 60).  The clay quad's natural top edge is
+    // topL=(0, leftElev-5) to topR=(1, rightElev-6): screen (20, 50) to (80, 60);
+    // after insertion the polygon gains a vertex at (60, 60) between those two.
+    const { queryAllByTestId } = renderOverlay({
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        [
+          'sand',
+          {
+            upper_nodes: [],
+            lower_nodes: [{ along_m: 60, elevation_m: 4.0 }],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    // Both the sand and clay regions should exist; the bend is a polygon-internal
+    // detail not directly observable on the element, but we can verify the regions
+    // still render (no crash, partition intact).
+    expect(queryAllByTestId('partition-region-sand').length).toBeGreaterThanOrEqual(1)
+    expect(queryAllByTestId('partition-region-clay').length).toBeGreaterThanOrEqual(1)
+
+    // The sand region's <path d> should now contain MORE than 4 vertex commands
+    // (4 = natural quad; ≥5 after the bend inserts a control point).
+    const sandPaths = queryAllByTestId('partition-region-sand')
+    const dAttr = sandPaths[0].getAttribute('d') ?? ''
+    // Count 'M' + 'L' commands — a natural quad has 4 commands; bent has 5.
+    const vertexCount = (dAttr.match(/[ML]/g) ?? []).length
+    expect(vertexCount).toBeGreaterThanOrEqual(5)
+  })
+
+  it('MB3 — dragging the boundary hit halo calls onSaveBoundary with lower_nodes on the upper body', () => {
+    // Mousedown on the hit halo, then window mouseup.  onSaveBoundary should be
+    // called with:
+    //   arg0 = 'sand'       (the upper body id)
+    //   arg1 = []           (upper_nodes preserved, was empty)
+    //   arg2 = [oneNode]    (lower_nodes gets the single control-point node)
+    //   arg3 = 'straight'
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    fireEvent.mouseDown(getByTestId('partition-boundary-hit-sand-clay'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    // Upper body id.
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('sand')
+    // upper_nodes preserved (was empty → empty array).
+    expect(onSaveBoundary.mock.calls[0][1]).toEqual([])
+    // lower_nodes = exactly one control-point node.
+    expect(onSaveBoundary.mock.calls[0][2]).toHaveLength(1)
+    // Style.
+    expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
+  })
+
+  it('MB4 — lens-apex behaviour is untouched when a matched boundary is present alongside a lens', () => {
+    // L: sand 0-4, silt-lens 4-5, sand 5-8, clay 8-10.
+    // R: sand 0-7, clay 7-10.
+    // The partition extracts silt as a lens (sand matrix on both sides on L,
+    // sand is on R) and matches sand + clay as quads.  Both a boundary handle
+    // (sand/clay) AND a lens apex (silt) should exist.
+    const mixedLayers = [
+      layer('m1', 'L', 'sand', 'fSand', 0, 4),
+      layer('m2', 'L', 'silt', 'fSilt', 4, 5),
+      layer('m3', 'L', 'sand', 'fSand', 5, 8),
+      layer('m4', 'L', 'clay', 'fClay', 8, 10),
+      layer('m5', 'R', 'sand', 'fSand', 0, 7),
+      layer('m6', 'R', 'clay', 'fClay', 7, 10),
+    ]
+    const { getByTestId } = renderOverlay({
+      lithoLayers: mixedLayers,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    // PFO5 invariant: the lens apex handle still exists.
+    expect(getByTestId('partition-lens-apex-silt')).toBeTruthy()
+    // New invariant: the matched boundary handle also exists.
+    expect(getByTestId('partition-boundary-handle-sand-clay')).toBeTruthy()
+  })
 })
