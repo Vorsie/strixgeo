@@ -142,6 +142,8 @@ function renderLayer(
     onLinkLithoToGeo?: (id: string) => Promise<void>
     renderFormationSurfaces?: boolean
     surfaceThroughPicks?: boolean
+    axisMode?: 'geological' | 'lithostratigraphic'
+    correlateMode?: boolean
   } = {},
 ) {
   return render(
@@ -174,6 +176,8 @@ function renderLayer(
         onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
         renderFormationSurfaces={extras.renderFormationSurfaces}
         surfaceThroughPicks={extras.surfaceThroughPicks}
+        axisMode={extras.axisMode}
+        correlateMode={extras.correlateMode}
       />
     </svg>,
   )
@@ -199,6 +203,60 @@ describe('ContactsLayer', () => {
     // No circles anywhere — the old per-contact dot was the user's
     // specific complaint.
     expect(container.querySelectorAll('circle').length).toBe(0)
+  })
+
+  // ---- Litho-axis contact-marker dot gating (owner directive 2026-06-05) ----
+  //
+  // The coupling-glyph amber circles rendered per coupled contact are noise on
+  // the litho axis when the partition fill is the primary interaction surface.
+  // Rule: hidden when axisMode='lithostratigraphic' AND NOT correlating; shown
+  // when correlating (contacts are clickable for the correlate gesture).
+
+  it('AM1 — litho axis, not correlating → coupling-glyph circles hidden', () => {
+    // A coupled contact (parent_geo_contact_id set) on the litho axis without
+    // correlate mode should NOT render the coupling glyph circles.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3, parent_geo_contact_id: 'geo-c-1' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation()],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { axisMode: 'lithostratigraphic', correlateMode: false },
+    )
+    // The coupling glyph carries a testid starting with 'coupling-glyph-'.
+    expect(container.querySelectorAll('[data-testid^="coupling-glyph-"]').length).toBe(0)
+  })
+
+  it('AM2 — litho axis + correlating → coupling-glyph circles present', () => {
+    // Correlate mode lifts the gate so contacts are clickable for correlate.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3, parent_geo_contact_id: 'geo-c-1' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation()],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { axisMode: 'lithostratigraphic', correlateMode: true },
+    )
+    expect(container.querySelectorAll('[data-testid^="coupling-glyph-"]').length).toBe(1)
+  })
+
+  it('AM3 — geology axis → coupling-glyph circles present regardless of correlateMode', () => {
+    // Geological axis always shows the glyph (the full contact-marker set).
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3, parent_geo_contact_id: 'geo-c-1' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation()],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { axisMode: 'geological', correlateMode: false },
+    )
+    expect(container.querySelectorAll('[data-testid^="coupling-glyph-"]').length).toBe(1)
   })
 
   it('renders one cross-column polyline per formation with ≥2 anchors', () => {
