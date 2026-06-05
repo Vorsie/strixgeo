@@ -84,6 +84,19 @@ const EPS = 1e-9
  */
 export const LENS_PINCH_FRACTION = 0.45
 
+/**
+ * A user override for a lens's pinch apex (shaping, dogfeed 2026-06-05).
+ *
+ * ``fraction`` is the apex's horizontal position 0 (left column) → 1 (right
+ * column); ``elevation`` is its mTAW elevation. Replaces the auto default
+ * (``LENS_PINCH_FRACTION`` / ``1 − LENS_PINCH_FRACTION`` at the lens's
+ * mid-elevation) so the engineer can set how far a lens reaches + at what depth.
+ */
+export interface LensApexOverride {
+  fraction: number
+  elevation: number
+}
+
 // ---------------------------------------------------------------------------
 // Output types
 // ---------------------------------------------------------------------------
@@ -440,11 +453,16 @@ function buildRightPinchPolygon(
  * baseElev : number
  *     Base elevation of the lens (mTAW) = leftSurface − depthBaseM.
  */
-function buildLeftLensPolygon(topElev: number, baseElev: number): PartitionPoint[] {
-  const apexElev = (topElev + baseElev) / 2
+function buildLeftLensPolygon(
+  topElev: number,
+  baseElev: number,
+  apex?: LensApexOverride,
+): PartitionPoint[] {
+  const apexFraction = apex?.fraction ?? LENS_PINCH_FRACTION
+  const apexElev = apex?.elevation ?? (topElev + baseElev) / 2
   return [
     { fraction: 0, elevation: topElev },
-    { fraction: LENS_PINCH_FRACTION, elevation: apexElev },
+    { fraction: apexFraction, elevation: apexElev },
     { fraction: 0, elevation: baseElev },
   ]
 }
@@ -457,11 +475,16 @@ function buildLeftLensPolygon(topElev: number, baseElev: number): PartitionPoint
  *
  * Corner order: top-right → apex → base-right.
  */
-function buildRightLensPolygon(topElev: number, baseElev: number): PartitionPoint[] {
-  const apexElev = (topElev + baseElev) / 2
+function buildRightLensPolygon(
+  topElev: number,
+  baseElev: number,
+  apex?: LensApexOverride,
+): PartitionPoint[] {
+  const apexFraction = apex?.fraction ?? 1 - LENS_PINCH_FRACTION
+  const apexElev = apex?.elevation ?? (topElev + baseElev) / 2
   return [
     { fraction: 1, elevation: topElev },
-    { fraction: 1 - LENS_PINCH_FRACTION, elevation: apexElev },
+    { fraction: apexFraction, elevation: apexElev },
     { fraction: 1, elevation: baseElev },
   ]
 }
@@ -609,7 +632,11 @@ function emitInterval(
  *     Top-to-bottom ordered MAIN regions that tile the gap, followed by lens
  *     overlay regions.  Empty when the left column has no units.
  */
-export function computePartitionFill(left: MorphColumn, right: MorphColumn): PartitionRegion[] {
+export function computePartitionFill(
+  left: MorphColumn,
+  right: MorphColumn,
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+): PartitionRegion[] {
   if (left.units.length === 0) return []
 
   const leftSurface = left.surfaceElevM
@@ -774,21 +801,23 @@ export function computePartitionFill(left: MorphColumn, right: MorphColumn): Par
   for (const lens of leftLenses) {
     const topElev = leftSurface - lens.depthTopM
     const baseElev = leftSurface - lens.depthBaseM
+    const apex = lens.bodyId ? lensApexOverrides?.get(lens.bodyId) : undefined
     regions.push({
       formationId: lens.formationId,
       bodyId: lens.bodyId,
       kind: 'lens',
-      polygon: buildLeftLensPolygon(topElev, baseElev),
+      polygon: buildLeftLensPolygon(topElev, baseElev, apex),
     })
   }
   for (const lens of rightLenses) {
     const topElev = rightSurface - lens.depthTopM
     const baseElev = rightSurface - lens.depthBaseM
+    const apex = lens.bodyId ? lensApexOverrides?.get(lens.bodyId) : undefined
     regions.push({
       formationId: lens.formationId,
       bodyId: lens.bodyId,
       kind: 'lens',
-      polygon: buildRightLensPolygon(topElev, baseElev),
+      polygon: buildRightLensPolygon(topElev, baseElev, apex),
     })
   }
 
