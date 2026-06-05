@@ -960,6 +960,7 @@ async def put_body_boundary(
     model_id: UUID,
     body_id: UUID,
     request: BodyBoundaryWriteRequest,
+    section_id: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> BodyBoundaryResponse:
     """Full-replace the boundary shape + nodes for a body.
@@ -999,6 +1000,7 @@ async def put_body_boundary(
             upper_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.upper_nodes],
             lower_nodes=[BoundaryNode(n.along_m, n.elevation_m) for n in request.lower_nodes],
             render_style=request.render_style,
+            prefer_section_id=section_id,
         )
     except BodyNotFoundError as exc:
         raise HTTPException(
