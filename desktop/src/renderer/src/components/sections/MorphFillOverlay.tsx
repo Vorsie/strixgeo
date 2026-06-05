@@ -55,6 +55,11 @@ export interface Props {
   /** Top / bottom of the plot area in screen px (clamp). */
   plotTop: number
   plotBottom: number
+  /** Left / right of the plot area in screen px — the first/last column's units
+   *  fill OUT to these so the section's open ends reach the edge (no gap). When
+   *  absent the open-end stub falls back to a fixed length. */
+  plotLeft?: number
+  plotRight?: number
   /** Stored per-body boundary shapes — a pinch reads its apex override here. */
   boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Warped along_m → screen x (same transform the columns + caps use). */
@@ -96,6 +101,8 @@ export default function MorphFillOverlay({
   levelToScreen,
   plotTop,
   plotBottom,
+  plotLeft,
+  plotRight,
   boundariesByBodyId,
   alongToScreenX,
   screenXToAlong,
@@ -328,7 +335,13 @@ export default function MorphFillOverlay({
         const colScreen = screenByInv.get(id)
         if (!colMorph || !colScreen) return []
         const edgeX = dir < 0 ? colScreen.leftX : colScreen.rightX
-        const x0 = dir < 0 ? edgeX - EDGE_STUB_PX : edgeX
+        // Fill OUT to the plot edge ("plot whole width") when known, else a
+        // fixed stub. Clamp so a column already at the edge draws nothing.
+        const outerX =
+          dir < 0 ? (plotLeft ?? edgeX - EDGE_STUB_PX) : (plotRight ?? edgeX + EDGE_STUB_PX)
+        const x0 = Math.min(edgeX, outerX)
+        const w = Math.abs(outerX - edgeX)
+        if (w <= 0.5) return []
         return colMorph.units.map((u, ui) => {
           const color = formationColorById.get(u.formationId) ?? FALLBACK_COLOR
           const yT = clampY(levelToScreen(colMorph.surfaceElevM - u.topDepthM))
@@ -339,7 +352,7 @@ export default function MorphFillOverlay({
               data-testid={`morph-edge-${edgeIdx}-${id}-${ui}`}
               x={x0}
               y={yT}
-              width={EDGE_STUB_PX}
+              width={w}
               height={Math.max(0.5, yB - yT)}
               fill={color}
               fillOpacity={FILL_OPACITY}
