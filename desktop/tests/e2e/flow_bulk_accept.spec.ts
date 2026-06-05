@@ -142,8 +142,9 @@ test.describe('flow_bulk_accept', () => {
         // 200 = accepted cleanly; 409 = column already occupied (non-regression
         // outcome when the shared fixture DB has pre-seeded contacts on this CPT).
         // A 500 means the backend crashed — that is the regression to guard against.
-        expect(acceptRes.status, `CPT ${cptId} accept status`).not.toBe(500)
-        expect(acceptRes.status, `CPT ${cptId} accept status`).toBeOneOf([200, 409])
+        // Playwright has no toBeOneOf; use toContain on the allowed-statuses array.
+        expect(acceptRes.status, `CPT ${cptId} accept status must not be 500`).not.toBe(500)
+        expect([200, 409], `CPT ${cptId} accept must be 200 or 409`).toContain(acceptRes.status)
         if (acceptRes.status === 200) successCount += 1
       }
       // At least one CPT must accept cleanly (series-bearing CPTs 0/1/2 have no
