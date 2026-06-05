@@ -1,13 +1,12 @@
 /**
  * Flow — per-instance bodies (two-instance fill renders, deep below shallow,
- * collapse on correlate).
+ * resolver keeps them separate).
  *
  * End-to-end proof of the per-instance body feature on a real section render.
  * The fixture pre-seeds (build_synthetic_fixture.py action seed, Section D) two
  * UNCORRELATED same-lithology (KLEI) units on ONE source column (CPT-8) at
  * different depths, each closing bilaterally to a left + right target. The
- * resolver makes one body per connected component; both share the KLEI naming
- * group so they are depth-ranked (body_ordinal 0 = shallow, 1 = deep).
+ * resolver makes one body per connected component.
  *
  * Assertions (retargeted 2026-06-05 from BodyExtentOverlay ``body-label-*``
  * labels to PartitionFillOverlay ``partition-region-*`` regions — the legacy
@@ -28,19 +27,16 @@
  *    member layer, not the shallowest same-formation occurrence. The shallow/deep
  *    identity is resolved via formation_id from CPT-8's contacts (body_ordinal
  *    is unreliable when sibling specs add bodies for the same formation key).
- * 3. Merge on correlate — correlating the deep KLEI unit to the shallow body's
- *    component (one cross-column edge) collapses the two instances into ONE:
- *    after a reload, Section D shows exactly one distinct KLEI ``partition-region``
- *    (the two bodyIds collapse to one).
- *
- * The merge step drives the model-level ``contact-correlations`` endpoint
- * directly (the same API the correlate gesture hits — it runs
- * ResolveLithoInstances inline, which merges the two connected components into
- * one body). The contacts are resolved by depth + anchor from the live
- * ``/contacts`` endpoint, so the spec never hard-codes a UUID.
+ * 3. Resolver integrity — exactly 2 CPT-8 KLEI bodies persist. The seeded
+ *    edges cross lithologies (KLEI↔ZAND) and are dropped by the A2 one-lithology
+ *    rule; both KLEI contacts are on the same CPT-8 so a direct merge is blocked
+ *    by the same-investigation guard. The same-lithology guard added 2026-06-05
+ *    would also reject a KLEI@7m ↔ ZAND@3m edge (422) — this spec confirms the
+ *    bodies stay distinct. The "merge on correlate" behaviour is covered by
+ *    flow_auto_correlate.spec.ts on proper same-lithology topology.
  *
  * Self-contained: the two-instance scenario lives in the fixture, so no per-run
- * UI build-up — the spec only reads the render + fires one merge edge.
+ * UI build-up — the spec only reads the render.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
@@ -104,8 +100,8 @@ test.describe('flow_per_instance_body', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first',
   )
 
-  test('two KLEI partition regions render, deep below shallow, and collapse on correlate', async () => {
-    test.slow() // opens project + renders the section + a merge round-trip
+  test('two KLEI partition regions render, deep below shallow, resolver keeps them separate', async () => {
+    test.slow() // opens project + renders the section
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
@@ -268,94 +264,23 @@ test.describe('flow_per_instance_body', () => {
       // "Greater screen-y" = further down the page (SVG y-axis: 0 at top).
       expect(boxDeep!.y).toBeGreaterThan(boxShallow!.y)
 
-      // --- Assertion 3: merge on correlate collapses the two instances -------
-      // Resolve the litho contacts, then correlate the DEEP KLEI unit's top
-      // contact (CPT-8 @7 m) to a shallow target (CPT-9 @3 m). That
-      // cross-column edge joins the two connected components into one → the
-      // resolver (run inline by the correlate endpoint) reduces two bodies to
-      // one. After a reload, only one KLEI ``partition-region`` is visible.
-      const contacts = (await page.evaluate(
-        async ([base, pid, mid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
-      )) as ContactRow[]
-
-      // CPT-8 carries two KLEI tops @2 m + @7 m; find the deep one (@7 m) and
-      // a shallow target (@3 m) on a DIFFERENT investigation.
-      const deepKleiTop = contacts.find(
-        (c) => c.cpt_id !== null && Math.abs(c.depth_top_m - 7.0) < 0.01,
-      )
-      const shallowTarget = contacts.find(
-        (c) =>
-          c.cpt_id !== null &&
-          Math.abs(c.depth_top_m - 3.0) < 0.01 &&
-          c.cpt_id !== deepKleiTop?.cpt_id,
-      )
-      expect(deepKleiTop, 'deep KLEI top @7 m not found on source column').toBeTruthy()
-      expect(shallowTarget, 'shallow target @3 m not found on a neighbour').toBeTruthy()
-
-      const correlateStatus = await page.evaluate(
-        async ([base, pid, mid, aId, bId]) => {
-          const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId }),
-            },
-          )
-          return r.status
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, deepKleiTop!.id, shallowTarget!.id],
-      )
-      // 201 new edge / 200 idempotent — both merge the components.
-      expect(correlateStatus).toBeGreaterThanOrEqual(200)
-      expect(correlateStatus).toBeLessThan(300)
-
-      // Reload so the renderer re-fetches the now-merged bodies + member layers.
-      await page.reload()
-      await page.waitForLoadState('domcontentloaded')
-      await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
-      const entry = page.getByTestId(`welcome-recent-entry-${tmpPath}`)
-      await expect(entry).toBeVisible({ timeout: 10_000 })
-      await entry.click()
-      await expect(page.getByTestId('welcome-screen')).toBeHidden({ timeout: 20_000 })
-      // The merge correlate ran ResolveLithoInstances inline (one merged body
-      // now), which recreated the body row without its detector extent — re-stamp
-      // it so the merged body's partition regions render correctly.
-      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
-      await openSectionDLitho(page)
-      await enableFillBands(page)
-
-      // After merge the two KLEI bodies collapse into one: exactly ONE of the
-      // original bodyIds is present (the merged body keeps one of the old ids or
-      // gets a new one). Assert the count of distinct KLEI ``partition-region``
-      // elements: the original separate regions (0 + 1) must now be at most 1
-      // visible region for the merged body. Use the bodies API to get the
-      // current merged bodyId.
-      const mergedBodiesJson = await page.evaluate(
-        async ([base, pid, mid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/bodies`)
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
-      )
-      // Filter merged bodies by source_investigation_id = CPT-8 (same as before).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mergedKleiBodyIds: string[] = (mergedBodiesJson as any[])
-        .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
-        .map((b: any) => b.id as string)
-      // Two KLEI formations → one merged body after correlate (ordinals collapse).
-      expect(mergedKleiBodyIds.length).toBeLessThan(kleiBodyIds.length)
-
-      // The one surviving merged body must render a visible partition region.
-      if (mergedKleiBodyIds.length === 1) {
-        await expect(
-          page.locator(`[data-testid="partition-region-${mergedKleiBodyIds[0]}"]`).first(),
-        ).toBeVisible({ timeout: 20_000 })
-      }
+      // --- Assertion 3: resolver integrity — exactly two CPT-8 bodies persist ---
+      // The per-instance scenario seeds TWO UNCORRELATED KLEI bodies on CPT-8
+      // with ZAND targets on CPT-9/10. The resolver keeps them separate because:
+      //   (a) the seeded correlation edges cross lithology (KLEI↔ZAND) and are
+      //       DROPPED by the one-lithology A2 rule — no spurious merges.
+      //   (b) there are no same-lithology edges between the two KLEI instances
+      //       (both on the same CPT-8 → the same-investigation guard would
+      //       block them anyway).
+      // Verify EXACTLY 2 bodies with source=CPT-8 remain (no accidental merge
+      // from auto-correlate or other sibling specs).
+      //
+      // NOTE: the original assertion 3 tried to merge by correlating KLEI@7m ↔
+      // ZAND@3m. With the same-lithology guard added on 2026-06-05 the correlate
+      // endpoint correctly rejects that cross-lithology edge (422). The merge
+      // concept is retired here; "merge on correlate" is covered separately by
+      // flow_auto_correlate.spec.ts on properly same-lithology topology.
+      expect(kleiBodyIds.length, 'two CPT-8 KLEI bodies persist (no spurious merge)').toBe(2)
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
