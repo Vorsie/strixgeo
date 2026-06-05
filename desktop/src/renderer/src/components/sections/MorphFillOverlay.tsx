@@ -36,6 +36,10 @@ const FALLBACK_COLOR = '#888888'
 // Apex drag-handle radius + its transparent hit halo.
 const APEX_R = 5
 const APEX_HIT_R = 11
+// Length (screen px) the first/last column's units continue OFF-SECTION as a
+// parallel stub, so the section's open ends are filled gap-free (every unit
+// continues, not only the bodies that carry an explicit 'open' extent).
+const EDGE_STUB_PX = 64
 
 export interface Props {
   /** Accepted litho layers carrying ``body_id`` + the unit's depth interval. */
@@ -279,6 +283,43 @@ export default function MorphFillOverlay({
               </g>
             ) : null,
           ]
+        })
+      })}
+
+      {/* Open-end stubs: every unit of the first / last column continues
+          OFF-SECTION as a parallel band, so the section edges fill gap-free
+          (dogfeed 2026-06-05 "no gaps in the open ends"). */}
+      {(
+        [
+          { id: orderedInvs[0], dir: -1 },
+          { id: orderedInvs[orderedInvs.length - 1], dir: 1 },
+        ] as const
+      ).flatMap(({ id, dir }, edgeIdx) => {
+        if (!id) return []
+        const colMorph = morphColByInv.get(id)
+        const colScreen = screenByInv.get(id)
+        if (!colMorph || !colScreen) return []
+        const edgeX = dir < 0 ? colScreen.leftX : colScreen.rightX
+        const x0 = dir < 0 ? edgeX - EDGE_STUB_PX : edgeX
+        return colMorph.units.map((u, ui) => {
+          const color = formationColorById.get(u.formationId) ?? FALLBACK_COLOR
+          const yT = clampY(levelToScreen(colMorph.surfaceElevM - u.topDepthM))
+          const yB = clampY(levelToScreen(colMorph.surfaceElevM - u.baseDepthM))
+          return (
+            <rect
+              key={`morph-edge-${edgeIdx}-${ui}`}
+              data-testid={`morph-edge-${edgeIdx}-${id}-${ui}`}
+              x={x0}
+              y={yT}
+              width={EDGE_STUB_PX}
+              height={Math.max(0.5, yB - yT)}
+              fill={color}
+              fillOpacity={FILL_OPACITY}
+              stroke={color}
+              strokeOpacity={STROKE_OPACITY}
+              strokeWidth={0.5}
+            />
+          )
         })
       })}
     </g>
