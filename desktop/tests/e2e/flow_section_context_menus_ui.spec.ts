@@ -184,6 +184,10 @@ test.describe('flow_section_context_menus_ui', () => {
   })
 
   test('body wedge right-click → body menu (the name-body surface)', async () => {
+    // Retargeted 2026-06-05: BodyExtentOverlay (``body-extent-fill-*``) was
+    // disabled behind SHOW_LEGACY_BODY_EXTENT=false in the partition-fill
+    // rewrite.  The body context menu is now reached via PartitionFillOverlay's
+    // ``partition-region-*`` paths, which only render when "Fill bands" is ON.
     test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
@@ -191,9 +195,9 @@ test.describe('flow_section_context_menus_ui', () => {
       // Re-stamp the seeded body's detector extents BEFORE opening the project —
       // a sibling spec's model-wide auto-correlate + accept on the shared fixture
       // DB recreates body rows without extents (ordinal shift), so
-      // ``body-extent-fill`` would be absent. Running detect before the open means
-      // the section render fetches the already-corrected bodies (re-stamping AFTER
-      // the open leaves the first fetch stale). Idempotent on a fresh seed.
+      // ``partition-region`` would be absent (no bodies → no regions). Running
+      // detect before the open means the section render fetches the
+      // already-corrected bodies. Idempotent on a fresh seed.
       await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
@@ -211,11 +215,24 @@ test.describe('flow_section_context_menus_ui', () => {
       await sectionB.click()
       await page.getByRole('radio', { name: 'Litho' }).click()
 
-      // The pre-seeded body renders as a fill wedge — right-click opens its menu.
-      const bodyFill = page.locator('[data-testid^="body-extent-fill-"]').first()
-      await expect(bodyFill).toBeVisible({ timeout: 20_000 })
-      // dispatchEvent bypasses SVG z-order (overlays cover the wedge centre).
-      await bodyFill.dispatchEvent('contextmenu', {
+      // Enable "Fill bands" so PartitionFillOverlay renders partition-region-*
+      // paths. The Bodies dropdown is disabled until the litho model is active;
+      // wait for it, then retry opening until the item sticks.
+      const bodiesDropdown = page.getByTestId('litho-bodies-dropdown')
+      await expect(bodiesDropdown).toBeEnabled({ timeout: 30_000 })
+      const fillBands = page.getByTestId('litho-fill-bands')
+      await expect(async () => {
+        await bodiesDropdown.click()
+        await expect(fillBands).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 30_000 })
+      await fillBands.click()
+
+      // The pre-seeded body renders as a filled partition region —
+      // right-click opens its body context menu.
+      const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
+      await expect(partitionRegion).toBeVisible({ timeout: 20_000 })
+      // dispatchEvent bypasses SVG z-order (overlays cover the region centre).
+      await partitionRegion.dispatchEvent('contextmenu', {
         button: 2,
         clientX: 340,
         clientY: 340,
