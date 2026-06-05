@@ -141,7 +141,8 @@ test.describe('flow_per_instance_body', () => {
       const [formationsJson, bodiesJson] = await Promise.all([
         page.evaluate(
           async ([base, pid]) => {
-            const r = await fetch(`${base}/projects/${pid}/formations`)
+            // Formations are mounted under the /geology sub-router.
+            const r = await fetch(`${base}/projects/${pid}/geology/formations`)
             return r.json()
           },
           [API_BASE, FIXTURE_PROJECT_ID],
