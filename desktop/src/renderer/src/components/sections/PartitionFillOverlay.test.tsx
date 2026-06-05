@@ -480,4 +480,57 @@ describe('PartitionFillOverlay', () => {
     // — verified by checking that sand regions still exist without error.
     expect(queryAllByTestId('partition-region-sand').length).toBeGreaterThanOrEqual(1)
   })
+
+  // --------------------------------------------------------------------------
+  // HP1-HP2: Add-strip hover preview dot (owner directive 2026-06-05)
+  //
+  //   HP1 — mouseMove over a matched-boundary add-strip → preview dot appears.
+  //   HP2 — mouseLeave the add-strip → preview dot disappears.
+  // --------------------------------------------------------------------------
+
+  it('HP1 — mouseMove over a matched-boundary add-strip renders a partition-addnode-preview circle', () => {
+    // No nodes stored — the strip is always rendered when onSaveBoundary is wired.
+    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    // Preview absent before hover.
+    expect(queryByTestId('partition-addnode-preview')).toBeNull()
+    // Move the pointer over the add-strip.
+    fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
+      clientX: 55,
+      clientY: 60,
+    })
+    // Preview dot now present.
+    expect(getByTestId('partition-addnode-preview')).toBeTruthy()
+  })
+
+  it('HP2 — mouseLeave the matched-boundary add-strip removes the preview dot', () => {
+    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    // Hover in.
+    fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
+      clientX: 55,
+      clientY: 60,
+    })
+    expect(getByTestId('partition-addnode-preview')).toBeTruthy()
+    // Hover out.
+    fireEvent.mouseLeave(getByTestId('partition-boundary-addstrip-sand-clay'))
+    expect(queryByTestId('partition-addnode-preview')).toBeNull()
+  })
+
+  it('HP3 — mouseMove over a lens add-strip renders a partition-addnode-preview circle', () => {
+    const { getByTestId, queryByTestId } = renderOverlay({
+      lithoLayers: lensLayers,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+    })
+    // No preview before hover.
+    expect(queryByTestId('partition-addnode-preview')).toBeNull()
+    // Move over the upper-edge lens strip.
+    fireEvent.mouseMove(getByTestId('partition-lens-addstrip-silt-upper'), {
+      clientX: 50,
+      clientY: 65,
+    })
+    expect(getByTestId('partition-addnode-preview')).toBeTruthy()
+    // Leave → gone.
+    fireEvent.mouseLeave(getByTestId('partition-lens-addstrip-silt-upper'))
+    expect(queryByTestId('partition-addnode-preview')).toBeNull()
+  })
 })
