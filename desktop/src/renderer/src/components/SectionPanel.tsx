@@ -3248,6 +3248,7 @@ export default function SectionPanel({
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
+                formationLabelById={formationLabelById}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
