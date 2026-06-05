@@ -23,7 +23,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { BodyBoundaryNode, BodyBoundaryResponse, LithoLayerResponse } from '../../api/client'
+import type {
+  BodyBoundaryNode,
+  BodyBoundaryResponse,
+  BodyListItem,
+  LithoLayerResponse,
+} from '../../api/client'
 import { computeMorphFill, type MorphColumn, type MorphUnit } from '../../utils/morphFill'
 import type { PlacedColumn } from './utils'
 
@@ -75,6 +80,10 @@ export interface Props {
     lowerNodes: BodyBoundaryNode[],
     style: 'straight' | 'blocky' | 'rounded',
   ) => void
+  /** Bodies on the model — used to resolve a right-clicked pinch to its body. */
+  bodies?: readonly BodyListItem[]
+  /** Right-click a pinch (lens) → open the body context menu (Dissolve / Name). */
+  onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
 }
 
 interface ColumnScreen {
@@ -108,9 +117,12 @@ export default function MorphFillOverlay({
   screenXToAlong,
   screenToLevel,
   onSaveBoundary,
+  bodies,
+  onBodyContextMenu,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<ApexDrag | null>(null)
+  const bodyById = useMemo(() => new Map((bodies ?? []).map((b) => [b.id, b])), [bodies])
 
   const { orderedInvs, morphColByInv, screenByInv } = useMemo(() => {
     const unitsByInv = new Map<string, MorphUnit[]>()
@@ -289,6 +301,27 @@ export default function MorphFillOverlay({
               stroke={color}
               strokeOpacity={STROKE_OPACITY}
               strokeWidth={0.75}
+              style={
+                onBodyContextMenu && q.bodyId
+                  ? { pointerEvents: 'auto', cursor: 'context-menu' }
+                  : undefined
+              }
+              onContextMenu={
+                onBodyContextMenu && q.bodyId
+                  ? (e) => {
+                      const body = bodyById.get(q.bodyId as string)
+                      if (!body) return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+                      onBodyContextMenu(
+                        body,
+                        e.clientX - (rect?.left ?? 0),
+                        e.clientY - (rect?.top ?? 0),
+                      )
+                    }
+                  : undefined
+              }
             />,
             canDrag ? (
               <g key={`morph-apex-${leftId}-${i}`}>
@@ -342,14 +375,30 @@ export default function MorphFillOverlay({
         const x0 = Math.min(edgeX, outerX)
         const w = Math.abs(outerX - edgeX)
         if (w <= 0.5) return []
-        return colMorph.units.map((u, ui) => {
-          const color = formationColorById.get(u.formationId) ?? FALLBACK_COLOR
-          const yT = clampY(levelToScreen(colMorph.surfaceElevM - u.topDepthM))
-          const yB = clampY(levelToScreen(colMorph.surfaceElevM - u.baseDepthM))
+        // Group the edge column's units into per-BODY envelopes so a lithology
+        // split by a lens fills as ONE open-end stub (the sand), with the lens
+        // painted over it — largest envelope first (owner directive 2026-06-05:
+        // "Sa4 and the sand below Si3 are one body → one open end").
+        const byBody = new Map<string, { formationId: string; top: number; base: number }>()
+        colMorph.units.forEach((u, ui) => {
+          const k = u.bodyId ?? `__u${ui}`
+          const e = byBody.get(k)
+          if (e) {
+            e.top = Math.min(e.top, u.topDepthM)
+            e.base = Math.max(e.base, u.baseDepthM)
+          } else {
+            byBody.set(k, { formationId: u.formationId, top: u.topDepthM, base: u.baseDepthM })
+          }
+        })
+        const envs = [...byBody.values()].sort((a, b) => b.base - b.top - (a.base - a.top))
+        return envs.map((e, ei) => {
+          const color = formationColorById.get(e.formationId) ?? FALLBACK_COLOR
+          const yT = clampY(levelToScreen(colMorph.surfaceElevM - e.top))
+          const yB = clampY(levelToScreen(colMorph.surfaceElevM - e.base))
           return (
             <rect
-              key={`morph-edge-${edgeIdx}-${ui}`}
-              data-testid={`morph-edge-${edgeIdx}-${id}-${ui}`}
+              key={`morph-edge-${edgeIdx}-${ei}`}
+              data-testid={`morph-edge-${edgeIdx}-${id}-${ei}`}
               x={x0}
               y={yT}
               width={w}
