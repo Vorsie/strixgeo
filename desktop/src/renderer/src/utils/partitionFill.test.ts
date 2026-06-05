@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { computePartitionFill, type MorphColumn, type PartitionRegion } from './partitionFill'
+import {
+  computePartitionFill,
+  LENS_PINCH_FRACTION,
+  type MorphColumn,
+  type PartitionRegion,
+} from './partitionFill'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,6 +39,11 @@ function col(
 /**
  * Core partition invariant checker.
  *
+ * Accepts an optional ``excludeKinds`` set — regions whose ``kind`` is in that
+ * set are filtered out before the tiling check.  Use this to exclude lens
+ * regions (``kind: 'lens'``) which deliberately overlay their matrix quad and
+ * are therefore NOT part of the tile partition.
+ *
  * At 25 evenly-spaced fractions across [0, 1], verifies that the regions'
  * vertical intervals at that fraction:
  *   (a) cover the FULL column height (no gap at the top or bottom), and
@@ -42,8 +52,14 @@ function col(
  * The column height at fraction f is linearly interpolated between the left
  * surface+floor and the right surface+floor.
  */
-function assertTiles(regions: PartitionRegion[], left: MorphColumn, right: MorphColumn): void {
-  if (regions.length === 0) return
+function assertTiles(
+  regions: PartitionRegion[],
+  left: MorphColumn,
+  right: MorphColumn,
+  excludeKinds: Set<PartitionRegion['kind']> = new Set(['lens']),
+): void {
+  const tilingRegions = regions.filter((r) => !excludeKinds.has(r.kind))
+  if (tilingRegions.length === 0) return
 
   // The covered region starts at the top of the first unit (may be depth>0 when
   // logs begin slightly below the surface) and ends at the floor.
@@ -73,7 +89,7 @@ function assertTiles(regions: PartitionRegion[], left: MorphColumn, right: Morph
 
     // Collect every region's [lo, hi] elevation interval at fraction f.
     const intervals: Array<[number, number]> = []
-    for (const region of regions) {
+    for (const region of tilingRegions) {
       const poly = region.polygon
       // Intersect polygon with vertical line x = f.
       // Walk edges; collect y-values where the edge crosses or touches x = f.
@@ -264,9 +280,9 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
-  // PF-REAL — Real CS3 S2→S6 data (dogfeed 2026-06-05 clay-over-silt overlap)
+  // PF6 — (formerly PF-REAL): Real CS3 S2→S6 data tiles with no gap or overlap
   // -----------------------------------------------------------------------
-  it('PF-REAL — real CS3 S2→S6 data tiles with no gap or overlap', () => {
+  it('PF6 — real CS3 S2→S6 data tiles with no gap or overlap', () => {
     // Surface elevations: S2 = 13.04, S6 = 12.68.
     // Unit sequences (depthTop, depthBase, bodyId) top-down as provided.
     // The bodyId short codes: Z=sand, Si=silt, K=clay, V=peat.
@@ -298,7 +314,168 @@ describe('computePartitionFill', () => {
     const regions = computePartitionFill(s2, s6)
     // Must produce at least one region.
     expect(regions.length).toBeGreaterThan(0)
-    // Core invariant: no gap, no overlap.
+    // The two silt lenses inside the sand on S2 (0a6dee, 2044d2) must be
+    // extracted as lens pinch-outs, so the sand (dc5b80) must appear as a
+    // CONTINUOUS quad (no spurious dc5b80 pinch).
+    const dcRegions = regions.filter((r) => r.bodyId === 'dc5b80')
+    expect(
+      dcRegions.every((r) => r.kind === 'quad'),
+      'dc5b80 (sand) must be continuous quads only — no spurious pinch after lens extraction',
+    ).toBe(true)
+    // The silt lenses must be emitted as lens kind, not pinch.
+    expect(regions.some((r) => r.bodyId === '0a6dee' && r.kind === 'lens')).toBe(true)
+    expect(regions.some((r) => r.bodyId === '2044d2' && r.kind === 'lens')).toBe(true)
+    // Core invariant: no gap, no overlap in the main (non-lens) regions.
     assertTiles(regions, s2, s6)
+  })
+
+  // -----------------------------------------------------------------------
+  // PF7 — Synthetic enclosed lens: sand/silt/sand on L, sand on R
+  //
+  // The silt is enclosed by the same sand body on both sides on L, and sand
+  // is present on R.  The silt MUST be extracted as a horizontal lens pinch-out
+  // (kind:'lens'), NOT a partition 'pinch'.  The sand MUST be a single continuous
+  // quad.  The lens apex fraction must equal LENS_PINCH_FRACTION (≈ 0.45), NOT
+  // 0 or 1.  The apex elevation must be the silt's OWN mid-elevation.
+  // -----------------------------------------------------------------------
+  it('PF7 — enclosed silt lens inside sand: continuous sand quad + horizontal lens pinch-out', () => {
+    // L: sand 0-4, silt 4-5, sand 5-10  (silt enclosed by same sand body)
+    // R: sand 0-10
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'fSand', b: 'sand' },
+      { top: 4, base: 5, f: 'fSilt', b: 'silt' },
+      { top: 5, base: 10, f: 'fSand', b: 'sand' },
+    ])
+    const right = col('R', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
+    const regions = computePartitionFill(left, right)
+
+    // Sand must appear as exactly ONE quad (no pinch — the pre-pass merged it).
+    const sandRegions = regions.filter((r) => r.bodyId === 'sand')
+    expect(sandRegions).toHaveLength(1)
+    expect(sandRegions[0].kind).toBe('quad')
+
+    // Silt must appear as exactly ONE lens region.
+    const siltRegions = regions.filter((r) => r.bodyId === 'silt')
+    expect(siltRegions).toHaveLength(1)
+    expect(siltRegions[0].kind).toBe('lens')
+
+    // The lens polygon is a left-side triangle:
+    //   [{f:0, e:topElev}, {f:LENS_PINCH_FRACTION, e:midElev}, {f:0, e:baseElev}]
+    // topElev = leftSurface - 4 = 0 - 4 = -4
+    // baseElev = leftSurface - 5 = 0 - 5 = -5
+    // midElev = (-4 + -5) / 2 = -4.5
+    const poly = siltRegions[0].polygon
+    expect(poly).toHaveLength(3)
+
+    // Base edge at fraction 0 (left column).
+    const baseEdgePts = poly.filter((p) => p.fraction === 0)
+    expect(baseEdgePts).toHaveLength(2)
+    const baseEdgeElevs = baseEdgePts.map((p) => p.elevation).sort((a, b) => b - a)
+    expect(baseEdgeElevs[0]).toBeCloseTo(-4, 9) // topElev
+    expect(baseEdgeElevs[1]).toBeCloseTo(-5, 9) // baseElev
+
+    // Apex at LENS_PINCH_FRACTION (not 0 and not 1).
+    const apexPts = poly.filter((p) => p.fraction > 0)
+    expect(apexPts).toHaveLength(1)
+    expect(apexPts[0].fraction).toBeCloseTo(LENS_PINCH_FRACTION, 9)
+    // Apex elevation is the silt's OWN mid-elevation (horizontal, not interpolated).
+    expect(apexPts[0].elevation).toBeCloseTo(-4.5, 9)
+
+    // Main-region tiling invariant (lens excluded by default).
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
+  // PF-REAL-S1 — Real S2→S1 data (the originally-broken case)
+  //
+  // dc5b80 (sand) is a continuous body on S2 broken by three one-test lenses
+  // (a89669, 9d4278, 67cd19) on S1.  After lens extraction the sand must be
+  // a continuous quad.  Each lens must render at its OWN elevation, NOT sharing
+  // an interval with another lens.
+  // -----------------------------------------------------------------------
+  it('PF-REAL-S1 — S2→S1: dc5b80 sand continuous, lenses at own elevations, no shared interval', () => {
+    // S2: surface 12.95
+    const s2 = col('S2', 12.95, [
+      { top: 0.05, base: 2.10, f: 'fZ', b: '966cf2' },
+      { top: 2.10, base: 2.40, f: 'fSi', b: '540679' },
+      { top: 2.40, base: 3.81, f: 'fK', b: 'a6a877' },
+      { top: 3.81, base: 4.25, f: 'fK', b: '62a923' },
+      { top: 4.25, base: 7.50, f: 'fSi', b: '2ad749' },
+      { top: 7.50, base: 12.04, f: 'fZ', b: 'dc5b80' },
+      { top: 12.04, base: 12.39, f: 'fSi', b: 'a89669' },
+      { top: 12.39, base: 16.97, f: 'fZ', b: 'dc5b80' },
+      { top: 16.97, base: 29.42, f: 'fK', b: '0ca539' },
+    ])
+    // S1: surface 13.13
+    const s1 = col('S1', 13.13, [
+      { top: 0.05, base: 1.73, f: 'fZ', b: 'c3bb1b' },
+      { top: 1.73, base: 2.36, f: 'fZ', b: '966cf2' },
+      { top: 2.36, base: 2.80, f: 'fSi', b: '540679' },
+      { top: 2.80, base: 3.88, f: 'fK', b: 'a6a877' },
+      { top: 3.88, base: 4.95, f: 'fK', b: '62a923' },
+      { top: 4.95, base: 5.50, f: 'fSi', b: '2ad749' },
+      { top: 5.50, base: 12.78, f: 'fZ', b: 'dc5b80' },
+      { top: 12.78, base: 14.47, f: 'fK', b: '9d4278' },
+      { top: 14.47, base: 14.98, f: 'fZ', b: 'dc5b80' },
+      { top: 14.98, base: 15.54, f: 'fK', b: '67cd19' },
+      { top: 15.54, base: 18.37, f: 'fZ', b: 'dc5b80' },
+      { top: 18.37, base: 23.81, f: 'fK', b: '0ca539' },
+    ])
+    const regions = computePartitionFill(s2, s1)
+    expect(regions.length).toBeGreaterThan(0)
+
+    // --- dc5b80 (continuous sand) must appear ONLY as quads (no pinch) ---
+    const sandRegions = regions.filter((r) => r.bodyId === 'dc5b80')
+    expect(
+      sandRegions.every((r) => r.kind === 'quad'),
+      'dc5b80 sand must render as continuous quads only, no spurious pinch',
+    ).toBe(true)
+
+    // --- a89669 is on S2 (left), enclosed in dc5b80: must be a LEFT lens ---
+    const a89669Regions = regions.filter((r) => r.bodyId === 'a89669')
+    expect(a89669Regions).toHaveLength(1)
+    expect(a89669Regions[0].kind).toBe('lens')
+    // Left lens: base edge at fraction 0, apex at fraction = LENS_PINCH_FRACTION.
+    const a89669Poly = a89669Regions[0].polygon
+    expect(a89669Poly).toHaveLength(3)
+    const a89669Apex = a89669Poly.find((p) => p.fraction > 0)!
+    expect(a89669Apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 9)
+    // Apex elevation = mid of lens on S2: surface=12.95, top=12.04, base=12.39
+    // topElev = 12.95 - 12.04 = 0.91, baseElev = 12.95 - 12.39 = 0.56, mid = 0.735
+    expect(a89669Apex.elevation).toBeCloseTo((12.95 - 12.04 + (12.95 - 12.39)) / 2, 6)
+
+    // --- 9d4278 is on S1 (right), enclosed in dc5b80: must be a RIGHT lens ---
+    const nd4278Regions = regions.filter((r) => r.bodyId === '9d4278')
+    expect(nd4278Regions).toHaveLength(1)
+    expect(nd4278Regions[0].kind).toBe('lens')
+    // Right lens: base edge at fraction 1, apex at fraction = 1 - LENS_PINCH_FRACTION.
+    const nd4278Poly = nd4278Regions[0].polygon
+    expect(nd4278Poly).toHaveLength(3)
+    const nd4278Apex = nd4278Poly.find((p) => p.fraction < 1)!
+    expect(nd4278Apex.fraction).toBeCloseTo(1 - LENS_PINCH_FRACTION, 9)
+    // Apex elevation = mid of lens on S1: surface=13.13, top=12.78, base=14.47
+    // topElev = 13.13 - 12.78 = 0.35, baseElev = 13.13 - 14.47 = -1.34, mid = -0.495
+    expect(nd4278Apex.elevation).toBeCloseTo((13.13 - 12.78 + (13.13 - 14.47)) / 2, 6)
+
+    // --- 67cd19 is on S1 (right), enclosed in dc5b80: must be a RIGHT lens ---
+    const c67Regions = regions.filter((r) => r.bodyId === '67cd19')
+    expect(c67Regions).toHaveLength(1)
+    expect(c67Regions[0].kind).toBe('lens')
+    const c67Poly = c67Regions[0].polygon
+    expect(c67Poly).toHaveLength(3)
+    const c67Apex = c67Poly.find((p) => p.fraction < 1)!
+    expect(c67Apex.fraction).toBeCloseTo(1 - LENS_PINCH_FRACTION, 9)
+    // Apex elevation = mid of lens on S1: surface=13.13, top=14.98, base=15.54
+    // topElev = 13.13 - 14.98 = -1.85, baseElev = 13.13 - 15.54 = -2.41, mid = -2.13
+    expect(c67Apex.elevation).toBeCloseTo((13.13 - 14.98 + (13.13 - 15.54)) / 2, 6)
+
+    // --- 9d4278 and 67cd19 must NOT share an interval:
+    //     their apex elevations must be distinct (one near 0.35 mTAW, the other near -1.85 mTAW).
+    const nd4278MidElev = nd4278Apex.elevation
+    const c67MidElev = c67Apex.elevation
+    expect(Math.abs(nd4278MidElev - c67MidElev)).toBeGreaterThan(1.0)
+
+    // --- Main-region tiling invariant (lenses excluded) ---
+    assertTiles(regions, s2, s1)
   })
 })

@@ -13,6 +13,23 @@
  *
  * The partition algorithm
  * -----------------------
+ * 0.  **Enclosed-lens pre-pass.** Before alignment, extract any unit U on either
+ *     column where (a) U.bodyId does not appear on the OTHER column (it is a
+ *     one-test body in this gap), AND (b) the units immediately above AND below U
+ *     on U's own column share the SAME bodyId (the enclosing matrix), AND (c) that
+ *     matrix body IS present on the other column.  U is removed from its column and
+ *     the two enclosing matrix units are merged into one contiguous unit.  The
+ *     extraction repeats until no more enclosed lenses exist (a matrix can enclose
+ *     several lenses).  Each extracted lens is stored for step 3.
+ *
+ *     Why horizontal apex: a one-test lens physically terminates AT ITS OWN
+ *     ELEVATION inside the gap — it does not curve along the enclosing interfaces.
+ *     The apex is at (e_top + e_base)/2 of the lens on its own column, so the
+ *     pinch-out triangle has a flat horizontal top and flat horizontal base with
+ *     an apex at the lens's own mid-elevation.  This is geometrically distinct from
+ *     the interval-fraction mechanism (step 3), which slants along the enclosing
+ *     interfaces.
+ *
  * 1.  **Monotonic LCS alignment.** Match units across columns by ``bodyId``
  *     using a longest-common-subsequence that preserves order. Matching is
  *     order-preserving (monotonic) — a body that appears *before* a shared
@@ -43,15 +60,29 @@
  *     each successive interface is non-decreasing in depth, preventing a
  *     crossing correlation from inverting a region.
  *
+ * 5.  **Lens append.** Each extracted enclosed lens is appended to the region
+ *     list AFTER the main partition regions.  The overlay draws regions in array
+ *     order, so lenses paint on top of their enclosing matrix band — the standard
+ *     geological nested-body representation.  These lens regions deliberately
+ *     OVERLAY their matrix quad and are therefore excluded from ``assertTiles``.
+ *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  * The overlay maps ``fraction → screenX`` and ``elevation → screenY``.
  */
 
 // Re-export the input types from morphFill so consumers import from one place.
 export type { MorphColumn, MorphUnit } from './morphFill'
-import type { MorphColumn } from './morphFill'
+import type { MorphColumn, MorphUnit } from './morphFill'
 
 const EPS = 1e-9
+
+/**
+ * How far across the gap (fraction of the total column spacing) an enclosed
+ * lens reaches before its pinch-out apex.  0.45 means the lens tapers to a
+ * point at 45 % of the way across; the engineer can adjust this later via a
+ * per-lens override.
+ */
+export const LENS_PINCH_FRACTION = 0.45
 
 // ---------------------------------------------------------------------------
 // Output types
@@ -79,8 +110,11 @@ export interface PartitionRegion {
    * ``pinch`` = body present on one column only; cut at the meeting fraction
    *             inside its interval (triangular when alone, trapezoidal when
    *             sharing the interval with an opposite pinch).
+   * ``lens``  = enclosed lens extracted in the pre-pass; horizontal pinch-out
+   *             triangle that overlays its enclosing matrix quad.  Excluded
+   *             from the tiling invariant (it deliberately overlaps its matrix).
    */
-  kind: 'quad' | 'pinch'
+  kind: 'quad' | 'pinch' | 'lens'
   /** Closed polygon ring, no repeated last point. */
   polygon: PartitionPoint[]
 }
@@ -103,6 +137,100 @@ interface PinchUnit {
   /** Depth span on the unit's own column. */
   ownTopDepth: number
   ownBaseDepth: number
+}
+
+/** A lens extracted during the pre-pass, with its column-side and depths. */
+interface ExtractedLens {
+  bodyId: string
+  formationId: string
+  side: 'left' | 'right'
+  depthTopM: number
+  depthBaseM: number
+}
+
+// ---------------------------------------------------------------------------
+// Enclosed-lens pre-pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract all enclosed lenses from a column's unit array, merging each lens's
+ * enclosing matrix neighbours into one contiguous unit.
+ *
+ * A unit U at index i is an enclosed lens when:
+ *   (a) U.bodyId does not appear anywhere in the OTHER column's units (one-test body).
+ *   (b) The units immediately above (i-1) AND below (i+1) share the SAME bodyId
+ *       (the enclosing matrix).
+ *   (c) That matrix bodyId IS present in the OTHER column (it is a genuine matrix,
+ *       not itself absent).
+ *
+ * The function iterates until no more lenses can be extracted (handles a matrix
+ * that encloses several consecutive lenses — e.g. sand/silt/sand/clay/sand on
+ * one column where silt and clay are both enclosed in sand).
+ *
+ * Parameters
+ * ----------
+ * units : MorphUnit[]
+ *     The mutable working copy of the column's units.
+ * otherIds : Set<string>
+ *     All bodyIds present in the OTHER column (non-null).
+ *
+ * Returns
+ * -------
+ * ExtractedLens[]
+ *     Each extracted lens in the order it was removed (top-to-bottom reading
+ *     order within the column, because we always scan top-to-bottom and restart
+ *     after each extraction).
+ */
+function extractEnclosedLenses(
+  units: MorphUnit[],
+  otherIds: Set<string>,
+  side: 'left' | 'right',
+): ExtractedLens[] {
+  const lenses: ExtractedLens[] = []
+
+  // Iterative scan: restart after each extraction because merging two neighbours
+  // can create a new enclosed-lens opportunity (e.g. sand/silt/sand/clay/sand →
+  // after silt extracted: sand[merged]/clay/sand → clay is now enclosed).
+  let changed = true
+  while (changed) {
+    changed = false
+    for (let i = 1; i < units.length - 1; i++) {
+      const u = units[i]
+      if (u.bodyId === null) continue
+      // (a) One-test body: bodyId not present on the other column.
+      if (otherIds.has(u.bodyId)) continue
+      // (b) Immediate neighbours share the same bodyId.
+      const above = units[i - 1]
+      const below = units[i + 1]
+      if (above.bodyId === null || below.bodyId === null) continue
+      if (above.bodyId !== below.bodyId) continue
+      // (c) The matrix bodyId IS present on the other column.
+      if (!otherIds.has(above.bodyId)) continue
+
+      // Extract this lens.
+      lenses.push({
+        bodyId: u.bodyId,
+        formationId: u.formationId,
+        side,
+        depthTopM: u.topDepthM,
+        depthBaseM: u.baseDepthM,
+      })
+
+      // Merge: replace the three units (above, u, below) with one merged unit
+      // that spans above.topDepthM → below.baseDepthM.
+      const merged: MorphUnit = {
+        topDepthM: above.topDepthM,
+        baseDepthM: below.baseDepthM,
+        formationId: above.formationId,
+        bodyId: above.bodyId,
+      }
+      units.splice(i - 1, 3, merged)
+      changed = true
+      break // restart from the top of the while loop
+    }
+  }
+
+  return lenses
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +422,50 @@ function buildRightPinchPolygon(
   ]
 }
 
+/**
+ * Build the horizontal triangle polygon for an enclosed LEFT lens.
+ *
+ * The apex is at the lens's OWN mid-elevation (not interpolated from the
+ * enclosing interfaces), so the pinch-out is horizontal — geologically correct
+ * because the lens terminates at its own stratigraphic level, not along the
+ * dipping interfaces of the enclosing body.
+ *
+ * Polygon: base edge at fraction=0 (the source column), apex at fraction=LENS_PINCH_FRACTION.
+ * Corner order: top-left → apex → base-left.
+ *
+ * Parameters
+ * ----------
+ * topElev : number
+ *     Top elevation of the lens (mTAW) = leftSurface − depthTopM.
+ * baseElev : number
+ *     Base elevation of the lens (mTAW) = leftSurface − depthBaseM.
+ */
+function buildLeftLensPolygon(topElev: number, baseElev: number): PartitionPoint[] {
+  const apexElev = (topElev + baseElev) / 2
+  return [
+    { fraction: 0, elevation: topElev },
+    { fraction: LENS_PINCH_FRACTION, elevation: apexElev },
+    { fraction: 0, elevation: baseElev },
+  ]
+}
+
+/**
+ * Build the horizontal triangle polygon for an enclosed RIGHT lens.
+ *
+ * Mirror of ``buildLeftLensPolygon``: base edge at fraction=1, apex at
+ * fraction=1−LENS_PINCH_FRACTION.
+ *
+ * Corner order: top-right → apex → base-right.
+ */
+function buildRightLensPolygon(topElev: number, baseElev: number): PartitionPoint[] {
+  const apexElev = (topElev + baseElev) / 2
+  return [
+    { fraction: 1, elevation: topElev },
+    { fraction: 1 - LENS_PINCH_FRACTION, elevation: apexElev },
+    { fraction: 1, elevation: baseElev },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Interval emission
 // ---------------------------------------------------------------------------
@@ -417,7 +589,12 @@ function emitInterval(
  * Compute the partition fill for one adjacent column gap.
  *
  * Every point in the gap between ``left`` and ``right`` belongs to exactly one
- * region — no overlaps, no empty spaces.  The regions are ordered top→bottom.
+ * MAIN region — no overlaps, no empty spaces.  Enclosed lenses are APPENDED
+ * after the main regions as ``kind: 'lens'`` regions that overlay their
+ * enclosing matrix quad.
+ *
+ * The main regions are ordered top→bottom.  The lens regions follow in
+ * extraction order (top-to-bottom within each side).
  *
  * Parameters
  * ----------
@@ -429,25 +606,43 @@ function emitInterval(
  * Returns
  * -------
  * PartitionRegion[]
- *     Top-to-bottom ordered regions that tile the gap.  Empty when the left
- *     column has no units.
+ *     Top-to-bottom ordered MAIN regions that tile the gap, followed by lens
+ *     overlay regions.  Empty when the left column has no units.
  */
 export function computePartitionFill(left: MorphColumn, right: MorphColumn): PartitionRegion[] {
   if (left.units.length === 0) return []
 
-  const leftUnits = left.units
-  const rightUnits = right.units
-
   const leftSurface = left.surfaceElevM
   const rightSurface = right.surfaceElevM
 
-  const leftTop = leftUnits[0].topDepthM
-  const rightTop = rightUnits.length > 0 ? rightUnits[0].topDepthM : leftTop
-  const leftFloor = leftUnits[leftUnits.length - 1].baseDepthM
-  const rightFloor = rightUnits.length > 0 ? rightUnits[rightUnits.length - 1].baseDepthM : leftFloor
+  // -------------------------------------------------------------------------
+  // Step 0: Enclosed-lens pre-pass.
+  //
+  // Build mutable copies of each column's unit arrays.  Extract any unit U
+  // where (a) U.bodyId is absent on the other column, (b) both immediate
+  // neighbours on the SAME column share the same bodyId (the matrix), AND
+  // (c) that matrix bodyId IS present on the other column.  Each extracted
+  // lens has the two surrounding matrix units merged into one.
+  //
+  // WHY do this before LCS: without pre-extraction the sand that brackets a
+  // silt lens appears as THREE separate entries (sand, silt, sand) in the left
+  // column.  The LCS matches the FIRST sand to the right-column sand and the
+  // THIRD sand to a different part of the right column (or not at all), so the
+  // LCS treats the three-piece sand as an interrupted body, producing a spurious
+  // pinch for the outer sand piece.  After extraction the two sand pieces are
+  // merged into ONE entry that matches the right-column sand cleanly as a quad.
+  // -------------------------------------------------------------------------
+  const leftUnits: MorphUnit[] = left.units.map((u) => ({ ...u }))
+  const rightUnits: MorphUnit[] = right.units.map((u) => ({ ...u }))
+
+  const rightIdSet = new Set(rightUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
+  const leftIdSet = new Set(leftUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
+
+  const leftLenses = extractEnclosedLenses(leftUnits, rightIdSet, 'left')
+  const rightLenses = extractEnclosedLenses(rightUnits, leftIdSet, 'right')
 
   // -------------------------------------------------------------------------
-  // Step 1: Monotonic LCS alignment on bodyId.
+  // Step 1: Monotonic LCS alignment on bodyId (post-extraction units).
   // -------------------------------------------------------------------------
   const leftIds = leftUnits.map((u) => u.bodyId)
   const rightIds = rightUnits.map((u) => u.bodyId)
@@ -466,6 +661,11 @@ export function computePartitionFill(left: MorphColumn, right: MorphColumn): Par
   // Within each interval we collect all unmatched left and right units, then
   // call emitInterval to tile them side-by-side.
   // -------------------------------------------------------------------------
+  const leftTop = leftUnits[0].topDepthM
+  const rightTop = rightUnits.length > 0 ? rightUnits[0].topDepthM : leftTop
+  const leftFloor = leftUnits[leftUnits.length - 1].baseDepthM
+  const rightFloor = rightUnits.length > 0 ? rightUnits[rightUnits.length - 1].baseDepthM : leftFloor
+
   const surfaceIface: Interface = { leftDepth: leftTop, rightDepth: rightTop }
   const floorIface: Interface = { leftDepth: leftFloor, rightDepth: rightFloor }
 
@@ -558,6 +758,38 @@ export function computePartitionFill(left: MorphColumn, right: MorphColumn): Par
       prevMatchLi = mli
       prevMatchRi = mri
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 3: Append extracted lens regions.
+  //
+  // Each lens is a horizontal pinch-out triangle that overlays its enclosing
+  // matrix quad.  The apex elevation is the lens's OWN mid-elevation so it
+  // terminates at its own stratigraphic level (horizontal), not along the
+  // dipping enclosing interfaces.  The overlay draws these on top of the main
+  // regions (array order) so the lens colour is visible over the matrix.
+  // These regions deliberately overlap their matrix and are excluded from the
+  // tiling invariant.
+  // -------------------------------------------------------------------------
+  for (const lens of leftLenses) {
+    const topElev = leftSurface - lens.depthTopM
+    const baseElev = leftSurface - lens.depthBaseM
+    regions.push({
+      formationId: lens.formationId,
+      bodyId: lens.bodyId,
+      kind: 'lens',
+      polygon: buildLeftLensPolygon(topElev, baseElev),
+    })
+  }
+  for (const lens of rightLenses) {
+    const topElev = rightSurface - lens.depthTopM
+    const baseElev = rightSurface - lens.depthBaseM
+    regions.push({
+      formationId: lens.formationId,
+      bodyId: lens.bodyId,
+      kind: 'lens',
+      polygon: buildRightLensPolygon(topElev, baseElev),
+    })
   }
 
   return regions
