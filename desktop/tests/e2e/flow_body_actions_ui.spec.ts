@@ -14,6 +14,12 @@
  *
  * Self-contained — the body is seeded by build_synthetic_fixture.py on Section B.
  *
+ * Retargeted 2026-06-05 from ``body-extent-fill-*`` (BodyExtentOverlay) to
+ * ``partition-region-*`` (PartitionFillOverlay) — BodyExtentOverlay was disabled
+ * behind SHOW_LEGACY_BODY_EXTENT=false in the partition-fill rewrite.  The
+ * partition fill only renders regions when "Fill bands" is ON, so each test now
+ * enables the fill first before right-clicking the region.
+ *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
  */
@@ -41,11 +47,34 @@ async function openBodySection(page: Page): Promise<void> {
   await page.getByRole('radio', { name: 'Litho' }).click()
 }
 
-/** Right-click the first body wedge and wait for its context menu. */
+/**
+ * Enable the "Fill bands" toggle in the Bodies dropdown so
+ * PartitionFillOverlay renders ``partition-region-*`` elements.
+ *
+ * Uses ``toPass`` to retry opening the dropdown until the fill-bands item is
+ * present and clickable — a background SectionsToolbar refetch can reset the
+ * dropdown's local open state between the click and the item appearing.
+ */
+async function enableFillBands(page: Page): Promise<void> {
+  const bodiesDropdown = page.getByTestId('litho-bodies-dropdown')
+  await expect(bodiesDropdown).toBeEnabled({ timeout: 30_000 })
+  const fillBands = page.getByTestId('litho-fill-bands')
+  await expect(async () => {
+    await bodiesDropdown.click()
+    await expect(fillBands).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+  await fillBands.click()
+}
+
+/** Enable fill bands, right-click the first partition region, and wait for its context menu. */
 async function openBodyMenu(page: Page): Promise<void> {
-  const bodyFill = page.locator('[data-testid^="body-extent-fill-"]').first()
-  await expect(bodyFill).toBeVisible({ timeout: 20_000 })
-  await bodyFill.dispatchEvent('contextmenu', {
+  // The partition fill (PartitionFillOverlay) renders ``partition-region-*``
+  // paths when showBands is ON; each path fires onBodyContextMenu on right-click
+  // when the body has a known bodyId.
+  await enableFillBands(page)
+  const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
+  await expect(partitionRegion).toBeVisible({ timeout: 20_000 })
+  await partitionRegion.dispatchEvent('contextmenu', {
     button: 2,
     clientX: 360,
     clientY: 360,
@@ -85,9 +114,9 @@ test.describe('flow_body_actions_ui', () => {
       await page.getByTestId('body-ctx-dissolve-body').click()
 
       // The confirm dialog fired (gesture reached it) and — dismissed — the
-      // body survives.
+      // body survives (partition region still present).
       await expect.poll(() => confirmFired, { timeout: 5_000 }).toBe(true)
-      await expect(page.locator('[data-testid^="body-extent-fill-"]').first()).toBeVisible()
+      await expect(page.locator('[data-testid^="partition-region-"]').first()).toBeVisible()
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
@@ -116,8 +145,8 @@ test.describe('flow_body_actions_ui', () => {
       await page.getByTestId('body-ctx-side-right').dispatchEvent('click')
       await page.getByTestId('body-ctx-claim-right-open').dispatchEvent('click')
 
-      // The claim commits without error; the body still renders.
-      await expect(page.locator('[data-testid^="body-extent-fill-"]').first()).toBeVisible({
+      // The claim commits without error; the partition region still renders.
+      await expect(page.locator('[data-testid^="partition-region-"]').first()).toBeVisible({
         timeout: 10_000,
       })
     } finally {
@@ -151,8 +180,8 @@ test.describe('flow_body_actions_ui', () => {
       await page.getByTestId('body-ctx-side-right').dispatchEvent('click')
       await page.getByTestId('body-ctx-clear-right').dispatchEvent('click')
 
-      // The body survives the clear.
-      await expect(page.locator('[data-testid^="body-extent-fill-"]').first()).toBeVisible({
+      // The body survives the clear (partition region still present).
+      await expect(page.locator('[data-testid^="partition-region-"]').first()).toBeVisible({
         timeout: 10_000,
       })
     } finally {
