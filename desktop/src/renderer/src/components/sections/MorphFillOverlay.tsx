@@ -48,6 +48,8 @@ export interface Props {
   placedColumns: readonly PlacedColumn[]
   /** formation_id → lithology colour for the fill. */
   formationColorById: ReadonlyMap<string, string>
+  /** formation_id → display label (e.g. "Sa1") for the per-region label. */
+  formationLabelById?: ReadonlyMap<string, string>
   /** Absolute elevation (mTAW) → screen y. */
   levelToScreen: (level: number) => number
   /** Top / bottom of the plot area in screen px (clamp). */
@@ -90,6 +92,7 @@ export default function MorphFillOverlay({
   lithoLayers,
   placedColumns,
   formationColorById,
+  formationLabelById,
   levelToScreen,
   plotTop,
   plotBottom,
@@ -203,7 +206,7 @@ export default function MorphFillOverlay({
               `L ${rightX.toFixed(2)},${rTop.toFixed(2)} ` +
               `L ${rightX.toFixed(2)},${rBase.toFixed(2)} ` +
               `L ${leftX.toFixed(2)},${lBase.toFixed(2)} Z`
-            return [
+            const bandEls: JSX.Element[] = [
               <path
                 key={`morph-${leftId}-${i}`}
                 data-testid={`morph-fill-${leftId}-${i}`}
@@ -215,6 +218,31 @@ export default function MorphFillOverlay({
                 strokeWidth={0.75}
               />,
             ]
+            // Per-region label (lithology + rank, e.g. "Sa1") at the band centre
+            // — only when the band is tall enough to carry it legibly.
+            const bandLabel = formationLabelById?.get(q.formationId)
+            const bandMinH = Math.min(Math.abs(lBase - lTop), Math.abs(rBase - rTop))
+            if (bandLabel && bandMinH > 14) {
+              bandEls.push(
+                <text
+                  key={`morph-label-${leftId}-${i}`}
+                  x={(leftX + rightX) / 2}
+                  y={(lTop + lBase + rTop + rBase) / 4}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={11}
+                  fontWeight={600}
+                  fill="#e2e8f0"
+                  stroke="#0f172a"
+                  strokeWidth={2.5}
+                  paintOrder="stroke"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {bandLabel}
+                </text>,
+              )
+            }
+            return bandEls
           }
 
           // --- pinch: triangle to a draggable apex --------------------------
