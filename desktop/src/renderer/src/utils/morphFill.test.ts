@@ -122,4 +122,24 @@ describe('computeMorphFill', () => {
   it('MF5 — empty left column yields no quads', () => {
     expect(computeMorphFill(col('L', 0, []), col('R', 0, []))).toEqual([])
   })
+
+  it('MF6 — a body present only on the RIGHT wedges left (sourceSide right)', () => {
+    // A lens absent on the LEFT neighbour must still render + be shapeable —
+    // not only a right-wedging one (dogfeed 2026-06-05: "only works on left
+    // sided pinchouts").
+    const left = col('L', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'fSand', b: 'sand' },
+      { top: 4, base: 6, f: 'fSilt', b: 'silt' }, // right-only lens
+      { top: 6, base: 10, f: 'fSand', b: 'sand' },
+    ])
+    const quads = computeMorphFill(left, right)
+    const silt = quads.find((q) => q.bodyId === 'silt')!
+    expect(silt.kind).toBe('pinch')
+    expect(silt.sourceSide).toBe('right')
+    // The apex is on the LEFT (the two left elevations collapse to a point).
+    expect(silt.leftTopElev).toBeCloseTo(silt.leftBaseElev)
+    // The source edge is the silt's real thickness on the right column.
+    expect(Math.abs(silt.rightTopElev - silt.rightBaseElev)).toBeCloseTo(2)
+  })
 })
