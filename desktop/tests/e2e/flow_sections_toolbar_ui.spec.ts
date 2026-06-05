@@ -133,12 +133,15 @@ test.describe('flow_sections_toolbar_ui', () => {
       await expect(page.getByTestId('litho-clear-suggestions')).toBeVisible()
       await dismissMenu(page)
 
-      // --- Bodies ToolbarDropdown: four body verbs. -------------------------
+      // --- Bodies ToolbarDropdown: visible body verbs. ---------------------
+      // ``litho-detect-lenses`` and ``body-suggest-pinch-outs`` were hidden
+      // on 2026-06-05 (partition-fill supersedes them — the fill derives lenses
+      // + pinch-outs in pure geometry so the manual DB-entity verbs are
+      // redundant). The three remaining verbs + the fill toggle are visible.
       await openDropdown(page, 'litho-bodies-dropdown')
-      await expect(page.getByTestId('litho-detect-lenses')).toBeVisible()
-      await expect(page.getByTestId('body-suggest-pinch-outs')).toBeVisible()
       await expect(page.getByTestId('litho-materialise-lens-companions')).toBeVisible()
       await expect(page.getByTestId('litho-delete-detected-bodies')).toBeVisible()
+      await expect(page.getByTestId('litho-fill-bands')).toBeVisible()
       await dismissMenu(page)
 
       // --- Admixtures ToolbarDropdown: present (disabled until litho
