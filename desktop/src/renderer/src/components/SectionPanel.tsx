@@ -88,7 +88,7 @@ import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import BodyExtentOverlay from './sections/BodyExtentOverlay'
-import MorphFillOverlay from './sections/MorphFillOverlay'
+import PartitionFillOverlay from './sections/PartitionFillOverlay'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
 import GhostContextMenu from './sections/GhostContextMenu'
@@ -3296,13 +3296,14 @@ export default function SectionPanel({
                 }
               />
             )}
-            {/* Morph fill — the single litho lens system. Renders the pinch-out
-                wedges + draggable apex handles ALWAYS (so they can be shaped on
-                the clean bands-off view), and the continuous matrix band fill +
-                edge stubs + labels only when Fill bands is on (owner directive
-                2026-06-05: "fix the shape of the pinchouts and then fill it"). */}
+            {/* Partition fill — every point belongs to exactly one body, no
+                overlaps + no gaps (owner directive 2026-06-05; the 2D section
+                defines the 3D model). Renders the tiled partition + labels +
+                open-end stubs when Fill bands is on. The move-shared-boundary
+                drag (replacing the morph apex drag) lands next; the drag props
+                are still passed for call-site stability. */}
             {axisMode === 'lithostratigraphic' && lenses !== undefined && (
-              <MorphFillOverlay
+              <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
