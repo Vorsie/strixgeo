@@ -18,8 +18,10 @@
  *      "Delete contact" + the open-end items). Needs committed contacts.
  *   4. Body wedge → body menu (``body-context-menu``). This is the
  *      "name body hits a dead end" surface the owner reported. Needs a
- *      detected body: build contacts → auto-correlate → accept-correlations
- *      → detect-lenses, then right-click ``body-extent-fill-{key}``.
+ *      detected body: uses the pre-seeded bilateral body on Section B with
+ *      Fill bands ON, then right-clicks ``partition-region-{bodyId}``
+ *      (PartitionFillOverlay, retargeted 2026-06-05 from ``body-extent-fill-*``
+ *      which was disabled in the partition-fill rewrite).
  *
  * RISK NOTES (these are the parts a green run validates):
  * - Menus 2–4 depend on the segmenter producing litho contacts on the
