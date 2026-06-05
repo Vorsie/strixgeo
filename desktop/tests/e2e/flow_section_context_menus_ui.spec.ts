@@ -11,11 +11,12 @@
  *      the EMPTY litho model: the per-column capture rect
  *      (``per-column-rclick-capture-{id}``) renders on the litho axis
  *      regardless of contacts, and with no bands its centre is empty space.
- *   2. Litho band → "Remove this litho unit" (``litho-band-remove``). Needs
- *      committed contacts (built via the Suggest→Accept pipeline) so a
- *      ``per-column-litho-band-{key}`` exists to right-click.
+ *   2. Litho band → "Remove this litho unit" (``litho-band-remove``). Uses
+ *      Section B (pre-seeded bilateral body contacts from the fixture) so
+ *      ``per-column-litho-band-{key}`` renders immediately without a build step.
  *   3. Contact strip → contact menu (``contact-context-menu`` with
- *      "Delete contact" + the open-end items). Needs committed contacts.
+ *      "Delete contact" + the open-end items). Also uses Section B for the
+ *      same reason — ``contact-drag-strip`` renders from fixture contacts.
  *   4. Body wedge → body menu (``body-context-menu``). This is the
  *      "name body hits a dead end" surface the owner reported. Needs a
  *      detected body: uses the pre-seeded bilateral body on Section B with
@@ -87,28 +88,37 @@ async function buildLithoContacts(page: Page): Promise<void> {
     .catch(() => false)
   if (existing) return
 
-  // No bands yet — try to create them via suggest-new-tests. This is only
-  // possible when at least one section-visible CPT has no existing contacts
-  // (``litho-suggest-new-tests`` is disabled otherwise). If disabled, there is
-  // a race: bands may be loading but haven't appeared within 30 s yet. Bail
-  // out now and let the caller's own element waits surface the real failure.
-  const suggestCaret = page.getByTestId('litho-suggest-caret')
-  await suggestCaret.click()
-  const newTestsBtn = page.getByTestId('litho-suggest-new-tests')
-  const isEnabled = await newTestsBtn.isEnabled().catch(() => false)
-  if (!isEnabled) {
-    // ``litho-suggest-new-tests`` is disabled: all CPTs already have contacts.
-    // Close the caret (Escape) and wait one more pass for bands to appear.
-    await page.keyboard.press('Escape')
+  // No bands yet — run suggest-new-tests to create contacts for clean CPTs.
+  // Wait for the "Suggest all (N)" label with N > 0 first — this proves
+  // ``bulkAnchors`` (the section's visible CPTs) has loaded; without this wait
+  // ``newTestAnchors`` may be empty (visibleCpts not yet fetched) and the
+  // suggest-new-tests click silently does nothing.
+  await expect(
+    page.getByRole('button', { name: /^Suggest all \(\d+\)$/ }).first(),
+  ).toBeVisible({ timeout: 15_000 })
+
+  await page.getByTestId('litho-suggest-caret').click()
+  // Wait for the menu item to be visible (portal may take a moment to mount).
+  await expect(page.getByTestId('litho-suggest-new-tests')).toBeVisible({ timeout: 3_000 })
+  await page.getByTestId('litho-suggest-new-tests').click()
+
+  const acceptBulkAppeared = await page
+    .getByTestId('litho-accept-all-bulk')
+    .waitFor({ state: 'visible', timeout: 45_000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (!acceptBulkAppeared) {
+    // Suggest-new-tests produced no ghosts (all CPTs occupied or suggest
+    // failed). Bands from DB contacts should be loading — wait one more pass.
     await page
       .locator('[data-testid^="per-column-litho-band-"]')
       .first()
       .waitFor({ state: 'visible', timeout: 30_000 })
     return
   }
-  await newTestsBtn.click()
+
   const acceptBulk = page.getByTestId('litho-accept-all-bulk')
-  await expect(acceptBulk).toBeVisible({ timeout: 45_000 })
   await acceptBulk.click()
 
   // Dismiss the bulk-ghost overlay FIRST — committed bands are subtracted under
@@ -160,16 +170,25 @@ test.describe('flow_section_context_menus_ui', () => {
   })
 
   test('litho band right-click → Remove-litho-unit menu', async () => {
-    test.slow() // builds litho contacts first
+    // Retargeted 2026-06-05 to Section B (pre-seeded bilateral body contacts
+    // from the fixture) instead of Section A + buildLithoContacts. Section B's
+    // fixture contacts are seeded into seeded_formation_contact_ids on load, so
+    // per-column-litho-band-* elements render immediately — no suggest flow needed.
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await enterLithoAxis(page)
-      await buildLithoContacts(page)
+      await goToStage(page, 'Sections')
+      const sectionB = page
+        .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+        .filter({ hasText: 'Section B' })
+        .first()
+      await expect(sectionB).toBeVisible({ timeout: 10_000 })
+      await sectionB.click()
+      await page.getByRole('radio', { name: 'Litho' }).click()
 
       const band = page.locator('[data-testid^="per-column-litho-band-"]').first()
-      await expect(band).toBeVisible({ timeout: 10_000 })
+      await expect(band).toBeVisible({ timeout: 20_000 })
       // dispatchEvent bypasses SVG z-order: a transparent overlay covers the
       // band's centre, so a real right-click lands on the wrong element. The
       // band's onContextMenu reads clientX/clientY to position the menu.
@@ -189,14 +208,27 @@ test.describe('flow_section_context_menus_ui', () => {
   })
 
   test('contact strip right-click → contact menu (delete + open-end)', async () => {
-    test.slow() // builds litho contacts first
+    // Retargeted 2026-06-05 to Section B (pre-seeded bilateral body contacts
+    // from the fixture) instead of Section A + buildLithoContacts. Section B's
+    // contacts are seeded into seeded_formation_contact_ids, so contact-drag-strip
+    // elements render immediately — no suggest flow needed.
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await enterLithoAxis(page)
-      await buildLithoContacts(page)
+      await goToStage(page, 'Sections')
+      const sectionB = page
+        .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+        .filter({ hasText: 'Section B' })
+        .first()
+      await expect(sectionB).toBeVisible({ timeout: 10_000 })
+      await sectionB.click()
+      await page.getByRole('radio', { name: 'Litho' }).click()
 
+      await page
+        .locator('[data-testid="contact-drag-strip"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 20_000 })
       await page
         .locator('[data-testid="contact-drag-strip"]')
         .first()
