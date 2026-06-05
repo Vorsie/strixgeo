@@ -170,6 +170,15 @@ export default function MorphFillOverlay({
 
   const clampY = (y: number): number => Math.max(plotTop, Math.min(plotBottom, y))
 
+  // Open-end stub length: a fixed ~5 m of section, not all the way to the plot
+  // edge (dogfeed 2026-06-05 "don't draw the open ends all the way to the end
+  // of the screen, just make a 5 metres or so"). Derived from the section's
+  // horizontal scale so it stays 5 m through zoom; clamped so it never vanishes.
+  const OPEN_END_M = 5
+  const openEndPx = alongToScreenX
+    ? Math.max(8, OPEN_END_M * Math.abs(alongToScreenX(1) - alongToScreenX(0)))
+    : EDGE_STUB_PX
+
   // Window drag listeners — live-update the apex, commit + save on mouse-up.
   useEffect(() => {
     if (!drag) return
@@ -260,12 +269,19 @@ export default function MorphFillOverlay({
             const bandLabel = formationLabelById?.get(q.formationId)
             const bandMinH = Math.min(Math.abs(lBase - lTop), Math.abs(rBase - rTop))
             const alreadyLabelled = q.bodyId ? labelledBodies.has(q.bodyId) : false
-            if (bandLabel && bandMinH > 14 && !alreadyLabelled) {
+            // Clamp the label to the VISIBLE part of the band so it stays on
+            // screen when zoomed onto a single test (dogfeed 2026-06-05); dedupe
+            // by first VISIBLE gap, so the surviving label is always one that
+            // can actually be seen rather than one parked in an off-screen gap.
+            const visL = plotLeft != null ? Math.max(leftX, plotLeft) : leftX
+            const visR = plotRight != null ? Math.min(rightX, plotRight) : rightX
+            const horizVisible = visR - visL > 4
+            if (bandLabel && bandMinH > 14 && !alreadyLabelled && horizVisible) {
               if (q.bodyId) labelledBodies.add(q.bodyId)
               bandEls.push(
                 <text
                   key={`morph-label-${leftId}-${i}`}
-                  x={(leftX + rightX) / 2}
+                  x={(visL + visR) / 2}
                   y={(lTop + lBase + rTop + rBase) / 4}
                   textAnchor="middle"
                   dominantBaseline="middle"
@@ -394,8 +410,9 @@ export default function MorphFillOverlay({
         // Bands ON: fill OUT to the plot edge ("plot whole width") when known.
         // Bands OFF: a short fixed stub — a marker, not a fill — so the shape
         // view stays uncluttered but the open ends are still visible.
-        const stubX = dir < 0 ? edgeX - EDGE_STUB_PX : edgeX + EDGE_STUB_PX
-        const outerX = showBands ? (dir < 0 ? (plotLeft ?? stubX) : (plotRight ?? stubX)) : stubX
+        // ~5 m in both views (full-opacity fill when bands on, faded marker
+        // when off) — never the full plot width.
+        const outerX = dir < 0 ? edgeX - openEndPx : edgeX + openEndPx
         const x0 = Math.min(edgeX, outerX)
         const w = Math.abs(outerX - edgeX)
         if (w <= 0.5) return []
