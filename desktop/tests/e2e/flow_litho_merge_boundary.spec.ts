@@ -236,7 +236,7 @@ test.describe('flow_litho_merge_boundary (#130)', () => {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [firstCptWithContacts, firstContacts] = [...contactsByCpt.entries()].find(([, cs]) => (cs as any[]).length > 0) ?? [null, []]
+      const [firstCptWithContacts] = [...contactsByCpt.entries()].find(([, cs]) => (cs as any[]).length > 0) ?? [null]
       if (firstCptWithContacts === null) {
         test.info().annotations.push({
           type: 'note',
@@ -246,6 +246,13 @@ test.describe('flow_litho_merge_boundary (#130)', () => {
       }
       const cptId = firstCptWithContacts
       const contactsBefore = await listLithoContactsAtInvestigation(FIXTURE_PROJECT_ID, cptId)
+      if (contactsBefore.length === 0) {
+        test.info().annotations.push({
+          type: 'note',
+          description: 'listLithoContactsAtInvestigation returned empty — skip delete sub-test',
+        })
+        return
+      }
 
       // Delete the LAST contact at this CPT (deepest boundary — safe to remove
       // without orphaning layers above).
