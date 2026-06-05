@@ -3246,11 +3246,12 @@ export default function SectionPanel({
             {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
                 to_target / pinch_out_halfway / extrapolated / open / null.
                 Litho axis only; isolated from CorrelationEdgesOverlay.
-                Rendered BENEATH the morph fill so its right-click context menu
-                stays reachable (the morph fill is pointer-events:none and passes
-                clicks through), while the morph's draggable apex handles win the
-                left-click on top (dogfeed 2026-06-05 "can't drag right pinchouts"). */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
+                Shown ONLY when Fill bands is OFF — when the morph fill is on it
+                is the single lens system (fill + draggable apex + context menu),
+                so the two don't fight over the same pinch (dogfeed 2026-06-05
+                "can't drag right pinchouts" — clicks fell through to this layer's
+                cyan nodes). */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && !showBands && (
               <BodyExtentOverlay
                 bodies={lenses}
                 boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
@@ -3309,6 +3310,12 @@ export default function SectionPanel({
                 screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
                 onSaveBoundary={onSaveLensShape}
+                bodies={lenses}
+                onBodyContextMenu={
+                  onClaimBodyExtent ?? onClearBodyExtent ?? onNameBody ?? onDissolveBody
+                    ? handleBodyContextMenu
+                    : undefined
+                }
               />
             )}
 
