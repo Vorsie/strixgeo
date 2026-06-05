@@ -123,6 +123,41 @@ describe('computeMorphFill', () => {
     expect(computeMorphFill(col('L', 0, []), col('R', 0, []))).toEqual([])
   })
 
+  it('MF7 — a body split by a MATCHED band does NOT merge across it', () => {
+    // 62a923 clay split by a VEEN present on BOTH columns (a matched band, not
+    // a lens). The over-eager envelope merge swept the clay across the veen as
+    // one band → a crossing artifact (dogfeed 2026-06-05 "weird polygon"). The
+    // clay must stay TWO segments: the segment with a lateral partner bands, the
+    // orphan (no clay on the other side of the veen) pinches out.
+    const left = col('L', 0, [
+      { top: 0, base: 1, f: 'fK', b: 'clay' }, // clay ABOVE the veen
+      { top: 1, base: 2, f: 'fV', b: 'veen' }, // matched separator
+      { top: 2, base: 3, f: 'fK', b: 'clay' }, // clay BELOW the veen (same body)
+      { top: 3, base: 8, f: 'fZ', b: 'sand' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 1.5, f: 'fV', b: 'veen' },
+      { top: 1.5, base: 2.5, f: 'fK', b: 'clay' }, // clay only BELOW the veen
+      { top: 2.5, base: 8, f: 'fZ', b: 'sand' },
+    ])
+    const quads = computeMorphFill(left, right)
+    const clayBands = quads.filter((q) => q.bodyId === 'clay' && q.kind === 'band')
+    const clayPinches = quads.filter((q) => q.bodyId === 'clay' && q.kind === 'pinch')
+    // NOT one merged 0..3 band — two distinct segments.
+    expect(clayBands).toHaveLength(1)
+    expect(clayPinches).toHaveLength(1)
+    // The band is the BELOW-veen segment (2..3 on the left), not the merged 0..3.
+    expect(clayBands[0].leftTopElev).toBeCloseTo(-2)
+    expect(clayBands[0].leftBaseElev).toBeCloseTo(-3)
+    // The orphan ABOVE-veen segment pinches out toward the right.
+    expect(clayPinches[0].leftTopElev).toBeCloseTo(0)
+    expect(clayPinches[0].leftBaseElev).toBeCloseTo(-1)
+    expect(clayPinches[0].sourceSide).toBe('left')
+    // veen + sand still band straight across.
+    expect(quads.some((q) => q.bodyId === 'veen' && q.kind === 'band')).toBe(true)
+    expect(quads.some((q) => q.bodyId === 'sand' && q.kind === 'band')).toBe(true)
+  })
+
   it('MF6 — a body present only on the RIGHT wedges left (sourceSide right)', () => {
     // A lens absent on the LEFT neighbour must still render + be shapeable —
     // not only a right-wedging one (dogfeed 2026-06-05: "only works on left

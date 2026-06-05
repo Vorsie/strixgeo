@@ -9,35 +9,43 @@
  * draw between 2 correlation bands from test to test, then cut out the
  * pinch-outs."*
  *
- * The model (per-BODY envelopes)
- * ------------------------------
- * A body can carry SEVERAL members on one column (a sand split by thin clay /
- * silt lenses is ONE sand body with 3 members — owner directive 2026-06-05:
- * "the big sand is one body"). So the fill works per BODY, not per unit:
+ * The model (per-body SEGMENTS, lens-merged)
+ * ------------------------------------------
+ * A body can carry SEVERAL members on one column. Whether those members fuse
+ * into one envelope or stay separate depends on WHAT splits them (owner
+ * directive 2026-06-05):
  *
- *   - Each body's ENVELOPE on a column is ``[min member top, max member base]``.
- *   - A body present on BOTH columns (matched) fills one continuous BAND quad
- *     from its left envelope to its right envelope — the merged sand fills
- *     straight across, never "breaking up".
- *   - A body present on the left only (a lens / pinch-out) draws a PINCH
- *     triangle from its left envelope to a single apex on the right, at the
- *     depth the morph maps its centre to — i.e. it wedges out at its
- *     proportional depth inside the enclosing matrix. Drawn ON TOP of the
- *     bands, so the clay / silt lens is "cut out" of the continuous sand.
+ *   - Split by a LENS (a body absent on the neighbour column → it pinches out):
+ *     the members fuse into ONE envelope. This is the merged-sand case — a sand
+ *     broken only by thin clay/silt lenses is one continuous sand band, the
+ *     lenses cut out on top.
+ *   - Split by a MATCHED band (a body present on the neighbour too, e.g. a VEEN
+ *     that runs through both columns): the members STAY SEPARATE envelopes. The
+ *     matched band is drawn between them; fusing across it produced a crossing
+ *     artifact — the band swept over the matched band (dogfeed 2026-06-05
+ *     "weird polygon").
  *
- * The morph itself is the piecewise-linear depth map L-depth → R-depth built
- * from the matched bodies' envelope boundaries (plus surface 0↔0 and the column
- * floors). Bands are emitted largest-envelope-first then pinches last, so a
- * nested band / lens always paints over the body that encloses it. The bands
- * tile the gap surface-to-floor with no hole; the pinches refine it.
+ * So each column collapses into an ordered list of SEGMENTS (a body may appear
+ * more than once). Then:
+ *
+ *   - A segment matched on BOTH columns fills one continuous BAND quad from its
+ *     left envelope to its right envelope.
+ *   - A left-only segment (a lens / pinch-out, or the orphan half of a
+ *     matched-band split) draws a PINCH triangle wedging RIGHT to a single apex
+ *     at its morphed centre depth; a right-only segment wedges LEFT. Drawn ON
+ *     TOP of the bands, so the lens is "cut out" of the continuous matrix.
+ *
+ * Segments of the SAME body are paired left↔right by MORPHED-depth overlap (the
+ * segment whose mapped depth range overlaps a partner bands; an orphan with no
+ * overlapping partner pinches). The morph itself is the piecewise-linear depth
+ * map L-depth → R-depth built from the UNAMBIGUOUS matches (bodies with exactly
+ * one segment on each side) plus surface 0↔0 and the column floors. Bands are
+ * emitted largest-envelope-first then pinches last, so a nested band / lens
+ * always paints over the body that encloses it.
  *
  * Pure module (no React, no screen transforms) in world coordinates
  * (depth + mTAW elevation) so the geometry is unit-testable; the overlay maps a
  * quad to screen space + column edges.
- *
- * Scope note (v1): computed L→R, so a body present ONLY on the right is shown by
- * its claimed cap in ``BodyExtentOverlay``. Bidirectional interfingering stays a
- * refinement.
  */
 
 const EPS = 1e-9
@@ -86,8 +94,9 @@ export interface MorphQuad {
   rightBaseElev: number
 }
 
-/** A body's vertical envelope on one column (depth-below-surface metres). */
-interface BodyEnvelope {
+/** One body SEGMENT's vertical envelope on a column (depth-below-surface m). */
+interface BodySegment {
+  /** ``bodyId`` (or a synthetic per-unit key for body-less units). */
   key: string
   bodyId: string | null
   formationId: string
@@ -102,48 +111,97 @@ interface Anchor {
   r: number
 }
 
+/** The set of real body ids present on a column (drives the lens-vs-matched test). */
+function bodyKeySet(col: MorphColumn): Set<string> {
+  const s = new Set<string>()
+  for (const u of col.units) if (u.bodyId != null) s.add(u.bodyId)
+  return s
+}
+
 /**
- * Collapse a column's units into one envelope per body (members merged).
+ * Collapse a column into ordered body SEGMENTS, fusing a body's members across
+ * LENS gaps only.
  *
- * A unit with no ``bodyId`` becomes its own single-unit envelope so it still
- * renders (defensive — accepted layers always carry a body in practice).
+ * Walks the gap-free stack top→bottom. A body's members extend its open segment
+ * UNLESS a MATCHED band (a unit whose body is present on the other column too)
+ * intervenes: a matched unit seals every OTHER open body, so a member appearing
+ * below it starts a NEW segment — the matched band will be drawn between the two
+ * (never swept across). The matched unit's own body stays open so its members
+ * still fuse across lens gaps.
+ *
+ * Parameters
+ * ----------
+ * col : MorphColumn
+ *     The column whose units to segment.
+ * otherKeys : Set<string>
+ *     Body ids present on the OTHER column of the gap — a unit whose body is in
+ *     this set is a matched band (a barrier), not a lens.
+ *
+ * Returns
+ * -------
+ * BodySegment[]
+ *     Segments in top→bottom order; a body may appear more than once.
  */
-function envelopesByBody(col: MorphColumn): Map<string, BodyEnvelope> {
-  const m = new Map<string, BodyEnvelope>()
+function buildSegments(col: MorphColumn, otherKeys: Set<string>): BodySegment[] {
+  const segs: BodySegment[] = []
+  // key → index of that body's currently-open (extendable) segment.
+  const open = new Map<string, number>()
   col.units.forEach((u, i) => {
     const key = u.bodyId ?? `__u${i}`
-    const e = m.get(key)
-    if (e) {
-      e.topDepth = Math.min(e.topDepth, u.topDepthM)
-      e.baseDepth = Math.max(e.baseDepth, u.baseDepthM)
+    const idx = open.get(key)
+    if (idx !== undefined) {
+      segs[idx].topDepth = Math.min(segs[idx].topDepth, u.topDepthM)
+      segs[idx].baseDepth = Math.max(segs[idx].baseDepth, u.baseDepthM)
     } else {
-      m.set(key, {
+      segs.push({
         key,
         bodyId: u.bodyId,
         formationId: u.formationId,
         topDepth: u.topDepthM,
         baseDepth: u.baseDepthM,
       })
+      open.set(key, segs.length - 1)
+    }
+    // A unit present on the OTHER column is a matched band: it separates above
+    // from below, so seal every OTHER open body. A reappearance below then
+    // starts a new segment (a separate band), never merging across it.
+    if (u.bodyId != null && otherKeys.has(u.bodyId)) {
+      for (const k of [...open.keys()]) if (k !== key) open.delete(k)
     }
   })
-  return m
+  return segs
+}
+
+/** Count how many segments each body key has in a column's segment list. */
+function countByKey(segs: BodySegment[]): Map<string, number> {
+  const c = new Map<string, number>()
+  for (const s of segs) c.set(s.key, (c.get(s.key) ?? 0) + 1)
+  return c
 }
 
 /**
- * Build the monotonic anchor list (left-depth ↔ right-depth) from the matched
- * bodies' ENVELOPE boundaries, plus the surface (0↔0) and the column floors.
- * Sorted by left-depth, de-duplicated, clamped to a non-decreasing right-depth
- * so a crossing correlation can't invert a quad.
+ * Build the monotonic anchor list (left-depth ↔ right-depth) from the
+ * UNAMBIGUOUS matches — bodies with exactly one segment on each side — plus the
+ * surface (0↔0) and the column floors. Multi-segment bodies are placed against
+ * this morph (overlap pairing), so they don't need to seed it. Sorted by
+ * left-depth, de-duplicated, clamped non-decreasing so a crossing correlation
+ * can't invert a quad.
  */
-function buildAnchors(
-  leftEnv: Map<string, BodyEnvelope>,
-  rightEnv: Map<string, BodyEnvelope>,
+function buildAnchorsFromSegments(
+  leftSegs: BodySegment[],
+  rightSegs: BodySegment[],
+  leftCount: Map<string, number>,
+  rightCount: Map<string, number>,
   leftFloor: number,
   rightFloor: number,
 ): Anchor[] {
+  const rightByKey = new Map<string, BodySegment>()
+  for (const re of rightSegs) if (rightCount.get(re.key) === 1) rightByKey.set(re.key, re)
+
   const anchors: Anchor[] = [{ l: 0, r: 0 }]
-  for (const le of leftEnv.values()) {
-    const re = rightEnv.get(le.key)
+  for (const le of leftSegs) {
+    if (leftCount.get(le.key) !== 1) continue
+    const re = rightByKey.get(le.key)
     if (!re) continue
     anchors.push({ l: le.topDepth, r: re.topDepth })
     anchors.push({ l: le.baseDepth, r: re.baseDepth })
@@ -193,29 +251,62 @@ function morphDepth(d: number, anchors: Anchor[]): number {
  * Returns
  * -------
  * MorphQuad[]
- *     Band quads (matched bodies, largest envelope first) followed by pinch
- *     triangles (left-only lenses, painted on top). Tiles the gap with no hole.
+ *     Band quads (matched segments, largest envelope first) followed by pinch
+ *     triangles (orphan segments, painted on top). Tiles the gap with no hole.
  *     Empty when the left column has no units.
  */
 export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQuad[] {
   if (left.units.length === 0) return []
 
-  const leftEnv = envelopesByBody(left)
-  const rightEnv = envelopesByBody(right)
+  const leftKeys = bodyKeySet(left)
+  const rightKeys = bodyKeySet(right)
+  const leftSegs = buildSegments(left, rightKeys)
+  const rightSegs = buildSegments(right, leftKeys)
+
   const leftFloor = left.units[left.units.length - 1].baseDepthM
   const rightFloor = right.units.length ? right.units[right.units.length - 1].baseDepthM : 0
-  const anchors = buildAnchors(leftEnv, rightEnv, leftFloor, rightFloor)
 
-  // Reverse anchors (right-depth → left-depth) for R-only pinch apexes.
+  const leftCount = countByKey(leftSegs)
+  const rightCount = countByKey(rightSegs)
+  const anchors = buildAnchorsFromSegments(
+    leftSegs,
+    rightSegs,
+    leftCount,
+    rightCount,
+    leftFloor,
+    rightFloor,
+  )
+  // Reverse anchors (right-depth → left-depth) for right-only pinch apexes.
   const reverseAnchors = buildReverseAnchors(anchors)
+
+  // Pair same-body segments by MORPHED-depth overlap: the best-overlapping pair
+  // wins (global greedy), each segment used once. An unpaired segment pinches.
+  const pairs: { li: number; ri: number; ov: number }[] = []
+  leftSegs.forEach((le, li) => {
+    const mTop = morphDepth(le.topDepth, anchors)
+    const mBase = morphDepth(le.baseDepth, anchors)
+    rightSegs.forEach((re, ri) => {
+      if (re.key !== le.key) return
+      const ov = Math.min(mBase, re.baseDepth) - Math.max(mTop, re.topDepth)
+      if (ov > EPS) pairs.push({ li, ri, ov })
+    })
+  })
+  pairs.sort((a, b) => b.ov - a.ov)
+  const matchOf = new Map<number, number>() // left index → right index
+  const rightUsed = new Set<number>()
+  for (const p of pairs) {
+    if (matchOf.has(p.li) || rightUsed.has(p.ri)) continue
+    matchOf.set(p.li, p.ri)
+    rightUsed.add(p.ri)
+  }
 
   const bands: MorphQuad[] = []
   const pinches: MorphQuad[] = []
 
-  for (const le of leftEnv.values()) {
-    const re = rightEnv.get(le.key)
-    if (re) {
-      // Matched body → one continuous band from envelope to envelope.
+  leftSegs.forEach((le, li) => {
+    const ri = matchOf.get(li)
+    if (ri !== undefined) {
+      const re = rightSegs[ri]
       bands.push({
         formationId: le.formationId,
         bodyId: le.bodyId,
@@ -226,8 +317,8 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
         rightBaseElev: right.surfaceElevM - re.baseDepth,
       })
     } else {
-      // Left-only body → triangle wedging RIGHT to a single apex at the morphed
-      // centre (its proportional depth inside the enclosing matrix).
+      // Left-only segment → triangle wedging RIGHT to a single apex at the
+      // morphed centre (its proportional depth inside the enclosing matrix).
       const apexDepth = (morphDepth(le.topDepth, anchors) + morphDepth(le.baseDepth, anchors)) / 2
       const apexElev = right.surfaceElevM - apexDepth
       pinches.push({
@@ -241,13 +332,12 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
         rightBaseElev: apexElev,
       })
     }
-  }
+  })
 
-  // Right-only bodies (present on the right column, absent on the left) → a
-  // triangle wedging LEFT. This is what makes a lens absent on its LEFT
-  // neighbour render + be shapeable, not only a right-wedging one.
-  for (const re of rightEnv.values()) {
-    if (leftEnv.has(re.key)) continue
+  // Right-only segments (absent on the left) → a triangle wedging LEFT, so a
+  // lens absent on its LEFT neighbour still renders + is shapeable.
+  rightSegs.forEach((re, ri) => {
+    if (rightUsed.has(ri)) return
     const apexDepth =
       (morphDepth(re.topDepth, reverseAnchors) + morphDepth(re.baseDepth, reverseAnchors)) / 2
     const apexElev = left.surfaceElevM - apexDepth
@@ -261,11 +351,14 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
       rightTopElev: right.surfaceElevM - re.topDepth,
       rightBaseElev: right.surfaceElevM - re.baseDepth,
     })
-  }
+  })
 
   // Largest envelope first so a nested band / lens paints over its enclosing
   // body; pinches last so a lens is always cut out of the matrix on top.
-  bands.sort((a, b) => Math.abs(b.leftTopElev - b.leftBaseElev) - Math.abs(a.leftTopElev - a.leftBaseElev))
+  bands.sort(
+    (a, b) =>
+      Math.abs(b.leftTopElev - b.leftBaseElev) - Math.abs(a.leftTopElev - a.leftBaseElev),
+  )
   return [...bands, ...pinches]
 }
 
