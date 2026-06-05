@@ -58,7 +58,17 @@ async function enterLithoAxis(page: Page): Promise<void> {
   await page.getByRole('radio', { name: 'Litho' }).click()
 }
 
-/** Build committed litho contacts via Suggest-all → bulk-confirm → Accept-all-bulk. */
+/**
+ * Build committed litho contacts via Suggest-new-tests → bulk-confirm → Accept-all-bulk.
+ *
+ * Uses ``litho-suggest-new-tests`` (section-scoped: only CPTs with NO existing
+ * litho contacts) rather than ``litho-suggest-all`` (model-wide: all CPTs).
+ * The model-wide path hits the ``litho_layer_accepted_no_overlap`` constraint
+ * when the shared fixture DB has pre-seeded accepted layers on CPTs 3/4/5
+ * (body + per-instance scenarios), causing the batch accept to 409 and leaving
+ * section A without committed bands. The new-tests path is safe: section A's
+ * CPTs (0/1/2) have no pre-seeded contacts, so the batch accept always succeeds.
+ */
 async function buildLithoContacts(page: Page): Promise<void> {
   // The tests in this file share the fixture DB, so contacts committed by an
   // earlier test persist. If committed bands are already on the section, skip
@@ -71,14 +81,13 @@ async function buildLithoContacts(page: Page): Promise<void> {
     .catch(() => false)
   if (existing) return
 
+  // ``litho-suggest-new-tests`` fires directly (no modal confirmation unlike
+  // ``litho-suggest-all``). It is a caret item — open the caret, then click it.
+  // The item is disabled when all investigations already have litho contacts;
+  // section A's CPTs (0/1/2) have none on a fresh seed so it is always enabled
+  // when this helper runs.
   await page.getByTestId('litho-suggest-caret').click()
-  await page.getByTestId('litho-suggest-all').click()
-  await expect(page.getByText('Suggest lithos for all tests?')).toBeVisible({ timeout: 5_000 })
-  // Scope to the modal — the toolbar's primary Suggest button also reads "Suggest all (N)".
-  await page
-    .getByLabel('Suggest lithos for all tests?')
-    .getByRole('button', { name: /^Suggest all \(\d+\)$/ })
-    .click()
+  await page.getByTestId('litho-suggest-new-tests').click()
   const acceptBulk = page.getByTestId('litho-accept-all-bulk')
   await expect(acceptBulk).toBeVisible({ timeout: 45_000 })
   await acceptBulk.click()
