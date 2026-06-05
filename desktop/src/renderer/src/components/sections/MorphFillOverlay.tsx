@@ -57,6 +57,14 @@ export interface Props {
   formationLabelById?: ReadonlyMap<string, string>
   /** Absolute elevation (mTAW) → screen y. */
   levelToScreen: (level: number) => number
+  /**
+   * When true, paint the continuous matrix BAND fill (matched bodies) + edge
+   * stubs + labels. The pinch-out wedges + their draggable apex handles render
+   * REGARDLESS, so the user can shape pinch-outs on the clean (bands-off) view
+   * and then turn the fill on (owner directive 2026-06-05: "fix the shape of the
+   * pinchouts and then fill it").
+   */
+  showBands: boolean
   /** Top / bottom of the plot area in screen px (clamp). */
   plotTop: number
   plotBottom: number
@@ -107,6 +115,7 @@ export default function MorphFillOverlay({
   placedColumns,
   formationColorById,
   formationLabelById,
+  showBands,
   levelToScreen,
   plotTop,
   plotBottom,
@@ -161,58 +170,6 @@ export default function MorphFillOverlay({
 
   const clampY = (y: number): number => Math.max(plotTop, Math.min(plotBottom, y))
 
-  // --- DIAGNOSTIC (dogfeed 2026-06-05: measure, don't guess) ----------------
-  // Logs whether the morph is live + every pinch's body/side/screen-apex, so a
-  // "can't drag" report can be traced to the actual geometry instead of guessed.
-  useEffect(() => {
-    let bands = 0
-    const pinches: string[] = []
-    for (let g = 0; g < orderedInvs.length - 1; g += 1) {
-      const left = morphColByInv.get(orderedInvs[g])
-      const right = morphColByInv.get(orderedInvs[g + 1])
-      const ls = screenByInv.get(orderedInvs[g])
-      const rs = screenByInv.get(orderedInvs[g + 1])
-      if (!left || !right || !ls || !rs) continue
-      const leftX = ls.rightX
-      const rightX = rs.leftX
-      if (rightX <= leftX) continue
-      for (const q of computeMorphFill(left, right)) {
-        if (q.kind === 'band') {
-          bands += 1
-          continue
-        }
-        const sourceLeft = q.sourceSide !== 'right'
-        const apexX = sourceLeft ? rightX : leftX
-        const apexY = clampY(levelToScreen(sourceLeft ? q.rightTopElev : q.leftTopElev))
-        pinches.push(
-          `body=${q.bodyId?.slice(-6) ?? 'NULL'} side=${q.sourceSide ?? 'left'} ` +
-            `apex=(${apexX.toFixed(0)},${apexY.toFixed(0)})`,
-        )
-      }
-    }
-    // eslint-disable-next-line no-console
-    console.info(
-      `[MORPH-DIAG] RENDER cols=${orderedInvs.length} bands=${bands} pinches=${pinches.length} ` +
-        `onSaveBoundary=${!!onSaveBoundary} onBodyCtx=${!!onBodyContextMenu} ` +
-        `boundaries=${boundariesByBodyId?.size ?? 0}`,
-    )
-    // eslint-disable-next-line no-console
-    pinches.forEach((p) => console.info(`[MORPH-DIAG]   ${p}`))
-    // reason: diagnostic-only; clampY is a pure inline fn over plotTop/plotBottom
-    // (both listed) and computeMorphFill is a module import.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    orderedInvs,
-    morphColByInv,
-    screenByInv,
-    levelToScreen,
-    plotTop,
-    plotBottom,
-    onSaveBoundary,
-    onBodyContextMenu,
-    boundariesByBodyId,
-  ])
-
   // Window drag listeners — live-update the apex, commit + save on mouse-up.
   useEffect(() => {
     if (!drag) return
@@ -227,11 +184,6 @@ export default function MorphFillOverlay({
       })
     }
     const up = (): void => {
-      // eslint-disable-next-line no-console
-      console.info(
-        `[MORPH-DIAG] APEX MOUSEUP body=${drag.bodyId.slice(-6)} side=${drag.side} ` +
-          `save=${!!(onSaveBoundary && screenXToAlong && screenToLevel)}`,
-      )
       if (onSaveBoundary && screenXToAlong && screenToLevel) {
         const apex: BodyBoundaryNode = {
           along_m: screenXToAlong(drag.x),
@@ -275,6 +227,10 @@ export default function MorphFillOverlay({
           const lBase = clampY(levelToScreen(q.leftBaseElev))
 
           if (q.kind === 'band') {
+            // Matrix band fill is the "Fill bands" layer — skip it (and its
+            // label) when off, so the bands-off view shows only the shapeable
+            // pinch-out wedges.
+            if (!showBands) return []
             const rTop = clampY(levelToScreen(q.rightTopElev))
             const rBase = clampY(levelToScreen(q.rightBaseElev))
             const d =
@@ -390,10 +346,6 @@ export default function MorphFillOverlay({
                   fill="transparent"
                   style={{ pointerEvents: 'auto', cursor: 'grab' }}
                   onMouseDown={(e) => {
-                    // eslint-disable-next-line no-console
-                    console.info(
-                      `[MORPH-DIAG] APEX MOUSEDOWN body=${(q.bodyId as string).slice(-6)} side=${sideKey}`,
-                    )
                     e.preventDefault()
                     e.stopPropagation()
                     setDrag({ bodyId: q.bodyId as string, side: sideKey, x: apexX, y: apexY })
@@ -417,13 +369,15 @@ export default function MorphFillOverlay({
 
       {/* Open-end stubs: every unit of the first / last column continues
           OFF-SECTION as a parallel band, so the section edges fill gap-free
-          (dogfeed 2026-06-05 "no gaps in the open ends"). */}
-      {(
-        [
-          { id: orderedInvs[0], dir: -1 },
-          { id: orderedInvs[orderedInvs.length - 1], dir: 1 },
-        ] as const
-      ).flatMap(({ id, dir }, edgeIdx) => {
+          (dogfeed 2026-06-05 "no gaps in the open ends"). Part of the fill, so
+          only when Fill bands is on. */}
+      {showBands &&
+        (
+          [
+            { id: orderedInvs[0], dir: -1 },
+            { id: orderedInvs[orderedInvs.length - 1], dir: 1 },
+          ] as const
+        ).flatMap(({ id, dir }, edgeIdx) => {
         if (!id) return []
         const colMorph = morphColByInv.get(id)
         const colScreen = screenByInv.get(id)
