@@ -76,8 +76,45 @@ test.describe('flow_litho_merge_boundary (#130)', () => {
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((cptsJson as any[]).length).toBeGreaterThan(0)
+
+      // Pick the FIRST series-bearing CPT with NO existing accepted litho layers
+      // on this model. The shared fixture DB pre-seeds accepted contacts on CPTs
+      // 3/4/5 (body + crossing scenarios), and a sibling spec (flow_section_context_
+      // menus_ui) may have accepted segmenter suggestions on any series CPT.
+      // Accepting a merged payload on a CPT that already has accepted layers at
+      // overlapping depths would trigger the ``litho_layer_accepted_no_overlap``
+      // constraint and return 500 → 409 (fixed). Filtering to a clean CPT makes
+      // this spec order-independent within the suite.
+      const existingContactsJson = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+      )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cptId: string = (cptsJson as any[])[0].id
+      const occupiedCptIds = new Set<string>(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (existingContactsJson as any[])
+          .filter((c: any) => c.cpt_id !== null)
+          .map((c: any) => c.cpt_id as string),
+      )
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cleanCpt = (cptsJson as any[]).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any) => (c.n_rows ?? 0) > 0 && !occupiedCptIds.has(c.id),
+      )
+      if (!cleanCpt) {
+        // All series CPTs already have accepted layers — the merge spec cannot
+        // run a clean accept without a model-level clear. Skip this test run.
+        test.info().annotations.push({
+          type: 'note',
+          description: 'All series CPTs have accepted layers — skip merge test (shared fixture state).',
+        })
+        return
+      }
+      const cptId: string = cleanCpt.id
 
       // 2. Get suggestions for this CPT.
       const suggestJson = await page.evaluate(
@@ -177,64 +214,38 @@ test.describe('flow_litho_merge_boundary (#130)', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      const cptsJson = await page.evaluate(
-        async ([base, pid]) => {
-          const r = await fetch(`${base}/cpt/?project_id=${pid}`)
+      // Find the FIRST CPT that already has accepted litho contacts (from the
+      // fixture seed or a prior spec's accept). If none exist, try to accept on
+      // a clean series-bearing CPT. The delete test only needs contacts to exist
+      // at the anchor — it doesn't matter how they got there.
+      const allContactsJson = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
           return r.json()
         },
-        [API_BASE, FIXTURE_PROJECT_ID],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cptId: string = (cptsJson as any[])[0].id
+      const contactsByCpt = new Map<string, typeof allContactsJson>()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const c of allContactsJson as any[]) {
+        if (c.cpt_id === null) continue
+        if (!contactsByCpt.has(c.cpt_id)) contactsByCpt.set(c.cpt_id, [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(contactsByCpt.get(c.cpt_id) as any[]).push(c)
+      }
 
-      // Ensure there are contacts to work with — suggest + accept first.
-      const suggestJson = await page.evaluate(
-        async ([base, pid, mid, cid]) => {
-          const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/suggest-litho`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cpt_id: cid }),
-            },
-          )
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, cptId],
-      )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const layers = (suggestJson as any).layers
-      if (layers.length === 0) {
+      const [firstCptWithContacts, firstContacts] = [...contactsByCpt.entries()].find(([, cs]) => (cs as any[]).length > 0) ?? [null, []]
+      if (firstCptWithContacts === null) {
         test.info().annotations.push({
           type: 'note',
-          description: 'No suggestions returned — skip delete sub-test',
+          description: 'No CPT has accepted litho contacts yet — skip delete sub-test',
         })
         return
       }
-
-      await page.evaluate(
-        async ([base, pid, mid, cid, layersJson]) => {
-          const suggestions = JSON.parse(layersJson as string)
-          await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cpt_id: cid, suggestions, defer_inference: false }),
-            },
-          )
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, cptId, JSON.stringify(layers)],
-      )
-
+      const cptId = firstCptWithContacts
       const contactsBefore = await listLithoContactsAtInvestigation(FIXTURE_PROJECT_ID, cptId)
-      if (contactsBefore.length === 0) {
-        test.info().annotations.push({
-          type: 'note',
-          description: 'No contacts at CPT after accept — skip delete sub-test',
-        })
-        return
-      }
 
       // Delete the LAST contact at this CPT (deepest boundary — safe to remove
       // without orphaning layers above).
@@ -286,58 +297,22 @@ test.describe('flow_litho_merge_boundary (#130)', () => {
       expect(geoModel).toBeTruthy()
       const geoModelId: string = geoModel.id
 
-      // Accept some contacts in the litho model so we have a real contact id.
-      const cptsJson = await page.evaluate(
-        async ([base, pid]) => {
-          const r = await fetch(`${base}/cpt/?project_id=${pid}`)
+      // Use existing accepted contacts from the litho model — the fixture pre-seeds
+      // contacts on CPTs 3/4/5 so at least some exist without needing a fresh accept.
+      // The rejection test only needs ANY valid contact id from this litho model.
+      const allContactsJson = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
           return r.json()
         },
-        [API_BASE, FIXTURE_PROJECT_ID],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cptId: string = (cptsJson as any[])[0].id
-
-      const suggestJson = await page.evaluate(
-        async ([base, pid, mid, cid]) => {
-          const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/suggest-litho`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cpt_id: cid }),
-            },
-          )
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, cptId],
-      )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const layers = (suggestJson as any).layers
-
-      if (layers.length === 0) return
-
-      const acceptJson = await page.evaluate(
-        async ([base, pid, mid, cid, layersJson]) => {
-          const suggestions = JSON.parse(layersJson as string)
-          const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cpt_id: cid, suggestions, defer_inference: false }),
-            },
-          )
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, cptId, JSON.stringify(layers)],
-      )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const contactIds: string[] = (acceptJson as any).created_contact_ids ?? []
+      const contactIds: string[] = (allContactsJson as any[]).map((c: any) => c.id as string)
       if (contactIds.length === 0) {
-        // Already accepted — list and grab one.
-        const existing = await listLithoContactsAtInvestigation(FIXTURE_PROJECT_ID, cptId)
-        if (existing.length === 0) return
-        contactIds.push(existing[0].id)
+        // No contacts exist at all — skip this path (cannot test wrong-model 404
+        // without a real contact id).
+        return
       }
 
       // Attempt to DELETE a litho contact through the GEOLOGICAL model's
