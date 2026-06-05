@@ -74,6 +74,8 @@ interface ColumnScreen {
 
 interface ApexDrag {
   bodyId: string
+  /** Which wedge side is being dragged ('left' = right-wedging, 'right' = left). */
+  side: 'left' | 'right'
   /** Live apex position in screen px while dragging. */
   x: number
   y: number
@@ -139,7 +141,12 @@ export default function MorphFillOverlay({
     const svg = rootRef.current?.ownerSVGElement
     const move = (e: MouseEvent): void => {
       const rect = svg?.getBoundingClientRect()
-      setDrag({ bodyId: drag.bodyId, x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) })
+      setDrag({
+        bodyId: drag.bodyId,
+        side: drag.side,
+        x: e.clientX - (rect?.left ?? 0),
+        y: e.clientY - (rect?.top ?? 0),
+      })
     }
     const up = (): void => {
       if (onSaveBoundary && screenXToAlong && screenToLevel) {
@@ -147,9 +154,13 @@ export default function MorphFillOverlay({
           along_m: screenXToAlong(drag.x),
           elevation_m: screenToLevel(drag.y),
         }
-        // A single apex node on both boundaries = the wedge tip; the morph
-        // reads it back as the pinch apex.
-        onSaveBoundary(drag.bodyId, [apex], [apex], 'straight')
+        // upper_nodes hold the RIGHT-wedge apex, lower_nodes the LEFT-wedge apex,
+        // so a symmetric (bow-tie) lens carries an independent shape per side.
+        // The dragged side is written; the other side is preserved.
+        const existing = boundariesByBodyId?.get(drag.bodyId)
+        const upper = drag.side === 'left' ? [apex] : (existing?.upper_nodes ?? [])
+        const lower = drag.side === 'right' ? [apex] : (existing?.lower_nodes ?? [])
+        onSaveBoundary(drag.bodyId, upper, lower, 'straight')
       }
       setDrag(null)
     }
@@ -159,7 +170,7 @@ export default function MorphFillOverlay({
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
     }
-  }, [drag, onSaveBoundary, screenXToAlong, screenToLevel])
+  }, [drag, onSaveBoundary, screenXToAlong, screenToLevel, boundariesByBodyId])
 
   return (
     <g ref={rootRef} data-testid="morph-fill-overlay" style={{ pointerEvents: 'none' }}>
@@ -203,23 +214,31 @@ export default function MorphFillOverlay({
           }
 
           // --- pinch: triangle to a draggable apex --------------------------
-          // Apex screen position: live drag > stored boundary override >
-          // default (the morphed convergence at the right column edge).
-          const stored = q.bodyId ? boundariesByBodyId?.get(q.bodyId)?.upper_nodes?.[0] : undefined
-          let apexX = rightX
-          let apexY = clampY(levelToScreen(q.rightTopElev))
+          // sourceSide 'left' = body on the left column, wedges RIGHT (apex near
+          // the right column); 'right' = body on the right column, wedges LEFT.
+          const sourceLeft = q.sourceSide !== 'right'
+          const sideKey: 'left' | 'right' = sourceLeft ? 'left' : 'right'
+          const srcX = sourceLeft ? leftX : rightX
+          const srcTop = clampY(levelToScreen(sourceLeft ? q.leftTopElev : q.rightTopElev))
+          const srcBase = clampY(levelToScreen(sourceLeft ? q.leftBaseElev : q.rightBaseElev))
+          // Apex: live drag > stored per-side override > default convergence.
+          // upper_nodes hold the right-wedge apex, lower_nodes the left-wedge one.
+          const boundary = q.bodyId ? boundariesByBodyId?.get(q.bodyId) : undefined
+          const stored = (sourceLeft ? boundary?.upper_nodes : boundary?.lower_nodes)?.[0]
+          let apexX = sourceLeft ? rightX : leftX
+          let apexY = clampY(levelToScreen(sourceLeft ? q.rightTopElev : q.leftTopElev))
           if (stored && alongToScreenX) {
             apexX = alongToScreenX(stored.along_m)
             apexY = clampY(levelToScreen(stored.elevation_m))
           }
-          if (drag && drag.bodyId === q.bodyId) {
+          if (drag && drag.bodyId === q.bodyId && drag.side === sideKey) {
             apexX = drag.x
             apexY = drag.y
           }
           const d =
-            `M ${leftX.toFixed(2)},${lTop.toFixed(2)} ` +
+            `M ${srcX.toFixed(2)},${srcTop.toFixed(2)} ` +
             `L ${apexX.toFixed(2)},${apexY.toFixed(2)} ` +
-            `L ${leftX.toFixed(2)},${lBase.toFixed(2)} Z`
+            `L ${srcX.toFixed(2)},${srcBase.toFixed(2)} Z`
           const canDrag = Boolean(q.bodyId && onSaveBoundary)
           return [
             <path
@@ -244,11 +263,11 @@ export default function MorphFillOverlay({
                   onMouseDown={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    setDrag({ bodyId: q.bodyId as string, x: apexX, y: apexY })
+                    setDrag({ bodyId: q.bodyId as string, side: sideKey, x: apexX, y: apexY })
                   }}
                 />
                 <circle
-                  data-testid={`morph-apex-${q.bodyId}`}
+                  data-testid={`morph-apex-${q.bodyId}-${sideKey}`}
                   cx={apexX}
                   cy={apexY}
                   r={APEX_R}
