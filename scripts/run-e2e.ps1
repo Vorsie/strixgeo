@@ -18,8 +18,8 @@
 #   5. Run ``npx playwright test`` with whatever args the caller passed.
 #   6. Always stop the backend + free :8765 on the way out.
 #
-# Prerequisites: ``npm run build`` in desktop/ (the Electron main entry must
-# exist) and Docker Postgres on :5433.
+# Prerequisites: Docker Postgres on :5433. (The desktop build runs
+# automatically below -- step 0 -- so out/ is always current.)
 #
 # Usage:
 #   .\scripts\run-e2e.ps1                                  # full suite
@@ -63,6 +63,23 @@ if ($existing) {
     )
     exit 1
 }
+
+# Build the renderer + main + preload to desktop/out/ BEFORE launching, so the
+# Electron app under test always runs the CURRENT code. electron-vite does not
+# rebuild on launch, so without this step a stale out/ silently tests old code
+# -- a renderer feature added since the last build is simply invisible to every
+# spec (cost a full debugging session 2026-06-05: the partition fill was
+# untestable until a manual `npm run build`). Always rebuild; e2e is slow + run
+# deliberately, so correctness beats shaving the build seconds.
+Write-Host "==> npm run build (desktop renderer/main/preload)"
+Push-Location desktop
+try {
+    npm run build
+    $buildCode = $LASTEXITCODE
+} finally {
+    Pop-Location
+}
+if ($buildCode -ne 0) { Write-Error "desktop build failed"; exit $buildCode }
 
 Write-Host "==> alembic upgrade head (integration DB)"
 uv run alembic upgrade head
