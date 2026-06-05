@@ -48,22 +48,33 @@ async function openBodySection(page: Page): Promise<void> {
 }
 
 /**
- * Enable the "Fill bands" toggle in the Bodies dropdown so
- * PartitionFillOverlay renders ``partition-region-*`` elements.
+ * Ensure the "Fill bands" toggle is ON so PartitionFillOverlay renders
+ * ``partition-region-*`` elements.
  *
- * Uses ``toPass`` to retry opening the dropdown until the fill-bands item is
- * present and clickable — a background SectionsToolbar refetch can reset the
- * dropdown's local open state between the click and the item appearing.
+ * Idempotent: checks the current label ("Fill bands" = OFF → click; "Hide bands"
+ * = already ON → skip). Uses ``toPass`` to retry opening the dropdown until the
+ * item is visible. The idempotent check prevents the toggle-OFF bug when a prior
+ * test in the same spec already enabled it.
  */
 async function enableFillBands(page: Page): Promise<void> {
   const bodiesDropdown = page.getByTestId('litho-bodies-dropdown')
   await expect(bodiesDropdown).toBeEnabled({ timeout: 30_000 })
   const fillBands = page.getByTestId('litho-fill-bands')
+
+  // Open dropdown to read the current label.
   await expect(async () => {
     await bodiesDropdown.click()
     await expect(fillBands).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 30_000 })
-  await fillBands.click()
+
+  // Only click if currently OFF ("Fill bands"); if already ON ("Hide bands"), skip.
+  const currentLabel = await fillBands.textContent().catch(() => '')
+  if (currentLabel?.includes('Fill bands')) {
+    await fillBands.click()
+  } else {
+    // Already ON — dismiss the dropdown without toggling.
+    await page.keyboard.press('Escape')
+  }
 }
 
 /** Enable fill bands, right-click the first partition region, and wait for its context menu. */
@@ -73,7 +84,9 @@ async function openBodyMenu(page: Page): Promise<void> {
   // when the body has a known bodyId.
   await enableFillBands(page)
   const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
-  await expect(partitionRegion).toBeVisible({ timeout: 20_000 })
+  // Use a longer timeout: after a ClaimBodyExtent API call the frontend
+  // refetches bodies/layers which can briefly remove regions from the DOM.
+  await expect(partitionRegion).toBeVisible({ timeout: 30_000 })
   await partitionRegion.dispatchEvent('contextmenu', {
     button: 2,
     clientX: 360,
