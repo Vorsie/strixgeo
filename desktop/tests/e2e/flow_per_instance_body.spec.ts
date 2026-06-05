@@ -21,11 +21,13 @@
  *    and filtering ``GET /bodies`` to ``source_investigation_id = CPT-8.id``
  *    (formation-name matching was unreliable since sibling specs reuse the same
  *    formation key via the find-or-create litho_main_soil_code lookup).
- * 2. No jump on framing — the deep body (body_ordinal=1, top @7 m) renders
- *    BELOW the shallow one (body_ordinal=0, top @2 m): its region's minY
+ * 2. No jump on framing — the deep body (contact @7 m on CPT-8) renders
+ *    BELOW the shallow one (contact @2 m on CPT-8): its region's minY
  *    (top edge in screen coords) is greater than the shallow region's. This
  *    is the Bug C "body jump" fix — a committed body frames from its OWN
- *    member layer, not the shallowest same-formation occurrence.
+ *    member layer, not the shallowest same-formation occurrence. The shallow/deep
+ *    identity is resolved via formation_id from CPT-8's contacts (body_ordinal
+ *    is unreliable when sibling specs add bodies for the same formation key).
  * 3. Merge on correlate — correlating the deep KLEI unit to the shallow body's
  *    component (one cross-column edge) collapses the two instances into ONE:
  *    after a reload, Section D shows exactly one distinct KLEI ``partition-region``
@@ -225,21 +227,31 @@ test.describe('flow_per_instance_body', () => {
       // --- Assertion 2: no jump — deep region renders BELOW the shallow ------
       // The PartitionFillOverlay builds polygon rows in top→bottom order for
       // each gap; the deep body's region has a greater screen-y minY (SVG
-      // y-axis grows downward). Resolve body → depth rank via body_ordinal:
-      // body_ordinal=0 is the shallow KLEI (@2 m), ordinal=1 is the deep (@7 m).
-      // Build ordinal map for the two per-instance KLEI bodies (source=CPT-8).
+      // y-axis grows downward). Resolve shallow/deep bodies by the FORMATION
+      // ID from CPT-8's contacts (body_ordinal is not reliable when sibling
+      // specs add more bodies for the same formation key, shifting ordinals).
+      //
+      // CPT-8 contacts: pi_klei_top at ~2 m (shallow), pi_klei_deep at ~7 m (deep).
+      // Map: formation_id → body_id by joining contacts → bodies.
+      const cpt8Contacts = sectionDContacts.filter((c) => c.cpt_id === sourceCpt8Id)
+      const shallowContact = cpt8Contacts.find((c) => Math.abs(c.depth_top_m - 2.0) < 0.5)
+      const deepContact = cpt8Contacts.find((c) => Math.abs(c.depth_top_m - 7.0) < 0.5)
+      expect(shallowContact, 'shallow CPT-8 contact @2 m not found').toBeTruthy()
+      expect(deepContact, 'deep CPT-8 contact @7 m not found').toBeTruthy()
+
+      // Map formation_id → body_id for the two per-instance bodies.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const kleiBodyOrdinals: Map<string, number> = new Map(
+      const formationToBodyId = new Map<string, string>(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (bodiesJson as any[])
           .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((b: any) => [b.id as string, b.body_ordinal as number]),
+          .map((b: any) => [b.formation_id as string, b.id as string]),
       )
-      const shallowBodyId = kleiBodyIds.find((id) => kleiBodyOrdinals.get(id) === 0)
-      const deepBodyId = kleiBodyIds.find((id) => kleiBodyOrdinals.get(id) === 1)
-      expect(shallowBodyId, 'shallow KLEI body (ordinal=0) not found').toBeTruthy()
-      expect(deepBodyId, 'deep KLEI body (ordinal=1) not found').toBeTruthy()
+      const shallowBodyId = formationToBodyId.get(shallowContact!.formation_id)
+      const deepBodyId = formationToBodyId.get(deepContact!.formation_id)
+      expect(shallowBodyId, 'shallow KLEI body (at @2 m) not found in bodies list').toBeTruthy()
+      expect(deepBodyId, 'deep KLEI body (at @7 m) not found in bodies list').toBeTruthy()
 
       const shallowRegion = page
         .locator(`[data-testid="partition-region-${shallowBodyId!}"]`)
