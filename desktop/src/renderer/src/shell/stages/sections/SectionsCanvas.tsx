@@ -537,7 +537,7 @@ export default function SectionsCanvas(): JSX.Element {
           contactBId,
           sectionIdAtPush,
         )
-        await refetchContactEdges()
+        await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
         // Lens-aware gesture (debt #135): keep ``armedContactId`` set after
         // a successful correlation and record the target's investigation in
@@ -571,7 +571,7 @@ export default function SectionsCanvas(): JSX.Element {
               contactBId,
               sectionIdAtPush,
             )
-            await refetchContactEdges()
+            await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
           },
           reapply: async () => {
@@ -582,7 +582,7 @@ export default function SectionsCanvas(): JSX.Element {
               contactBId,
               sectionIdAtPush,
             )
-            await refetchContactEdges()
+            await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
           },
         })
@@ -630,7 +630,7 @@ export default function SectionsCanvas(): JSX.Element {
           contactBId,
           sectionIdAtPush,
         )
-        await refetchContactEdges()
+        await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
         // Mirror of the create path — undo restores the edge,
         // redo removes it again. Symmetric so a Ctrl-Z + Ctrl-Y
@@ -645,7 +645,7 @@ export default function SectionsCanvas(): JSX.Element {
               contactBId,
               sectionIdAtPush,
             )
-            await refetchContactEdges()
+            await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
           },
           reapply: async () => {
@@ -656,7 +656,7 @@ export default function SectionsCanvas(): JSX.Element {
               contactBId,
               sectionIdAtPush,
             )
-            await refetchContactEdges()
+            await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
           },
         })
@@ -670,7 +670,7 @@ export default function SectionsCanvas(): JSX.Element {
           'handleDeleteContactCorrelation: DELETE failed — rolling back optimistic removal',
           err,
         )
-        await refetchContactEdges()
+        await Promise.all([refetchContactEdges(), refetchLithoContacts()])
       }
     },
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
@@ -693,7 +693,7 @@ export default function SectionsCanvas(): JSX.Element {
           modelId,
           edgeId,
         )
-        await refetchContactEdges()
+        await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         await refetchLensData()
         markMutated()
         log.success(
@@ -1335,7 +1335,7 @@ export default function SectionsCanvas(): JSX.Element {
             dropContactId,
             selectedSectionId,
           )
-          await refetchContactEdges()
+          await Promise.all([refetchContactEdges(), refetchLithoContacts()])
           void refetchLensData()
           markMutated()
           log.success('section', 'edgeDrag: extra correlation created (anchor ↔ both targets)')
@@ -1374,7 +1374,7 @@ export default function SectionsCanvas(): JSX.Element {
           selectedSectionId,
         )
         // 3. Refetch so the section reflects the re-targeted edge.
-        await refetchContactEdges()
+        await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
         log.success(
           'section',
