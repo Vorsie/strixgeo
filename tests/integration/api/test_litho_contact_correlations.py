@@ -224,6 +224,45 @@ async def test_self_loop_is_422(
     assert r.status_code == 422, r.text
 
 
+async def test_cross_lithology_correlation_is_422(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    db_session: AsyncSession,
+    two_contacts_in_litho_model: tuple[str, str, str],
+) -> None:
+    """A correlation between two DIFFERENT lithologies is rejected (422).
+
+    A cross-lithology edge groups nothing (the resolver drops it) yet still
+    renders as a stray ribbon — the "black diagonal" (dogfeed 2026-06-05).
+    """
+    from uuid import UUID
+
+    litho_id, ca, cb = two_contacts_in_litho_model
+    # Give the two endpoints distinct lithologies: ca → ZAND, cb → KLEI.
+    ca_contact = await db_session.get(FormationContactOrm, UUID(ca))
+    assert ca_contact is not None
+    sand = await db_session.get(GeologicalFormationOrm, ca_contact.formation_id)
+    assert sand is not None
+    sand.litho_main_soil_code = "ZAND"
+    clay = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="KLEI-CC",
+        color="#6b7280",
+        display_order=1,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add(clay)
+    cb_contact = await db_session.get(FormationContactOrm, UUID(cb))
+    assert cb_contact is not None
+    cb_contact.formation_id = clay.id
+    await db_session.commit()
+
+    base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
+    r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    assert r.status_code == 422, r.text
+
+
 async def test_cross_project_model_is_404(
     async_client: AsyncClient,
     project: ProjectOrm,
