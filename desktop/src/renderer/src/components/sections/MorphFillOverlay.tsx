@@ -27,6 +27,9 @@ import type { PlacedColumn } from './utils'
 // A fairly solid fill so the gap reads as continuous units; matches the prior
 // band fill weight so the look is unchanged where bands already worked.
 const FILL_OPACITY = 0.62
+// A pinch (lens) is drawn a touch more solid so it reads as a unit CUT OUT of
+// the continuous matrix it sits on top of, not a faint wash over it.
+const PINCH_OPACITY = 0.82
 const STROKE_OPACITY = 0.5
 const FALLBACK_COLOR = '#888888'
 
@@ -136,7 +139,7 @@ export default function MorphFillOverlay({
               data-testid={`morph-fill-${leftId}-${i}`}
               d={d}
               fill={color}
-              fillOpacity={FILL_OPACITY}
+              fillOpacity={q.kind === 'pinch' ? PINCH_OPACITY : FILL_OPACITY}
               stroke={color}
               strokeOpacity={STROKE_OPACITY}
               strokeWidth={0.75}
