@@ -1145,6 +1145,7 @@ export default function PartitionFillOverlay({
       {labels.map((l) => (
         <text
           key={`pf-label-${l.key}`}
+          data-testid={`partition-label-${l.key}`}
           x={l.x}
           y={l.y}
           textAnchor="middle"
