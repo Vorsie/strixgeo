@@ -312,7 +312,15 @@ export default function MorphFillOverlay({
           // upper_nodes hold the right-wedge apex, lower_nodes the left-wedge one.
           const boundary = q.bodyId ? boundariesByBodyId?.get(q.bodyId) : undefined
           const stored = (sourceLeft ? boundary?.upper_nodes : boundary?.lower_nodes)?.[0]
-          let apexX = sourceLeft ? rightX : leftX
+          // Apex X from the morph's along-fraction (0=left col, 1=right col) so
+          // opposite overlapping pinches meet at a shared boundary; fall back to
+          // the far column edge when no fraction is set.
+          let apexX =
+            q.apexAlongFraction != null
+              ? leftX + q.apexAlongFraction * (rightX - leftX)
+              : sourceLeft
+                ? rightX
+                : leftX
           let apexY = clampY(levelToScreen(sourceLeft ? q.rightTopElev : q.leftTopElev))
           if (stored && alongToScreenX) {
             apexX = alongToScreenX(stored.along_m)

@@ -123,6 +123,34 @@ describe('computeMorphFill', () => {
     expect(computeMorphFill(col('L', 0, []), col('R', 0, []))).toEqual([])
   })
 
+  it('MF7 — opposite overlapping pinches meet at a boundary, not crossing', () => {
+    // KLEI on the left, a different SAND body on the right, same elevation band,
+    // each absent on the other → both would wedge across the FULL gap and
+    // overlap. They must meet at a shared fraction inside the gap (dogfeed
+    // 2026-06-05 "2 pinch-outs ... can't overlap, ideally fully adjacent").
+    const left = col('L', 0, [
+      { top: 0, base: 1, f: 'fK', b: 'clay' }, // KLEI top, thin (1 m)
+      { top: 1, base: 10, f: 'fZ', b: 'sand' }, // shared sand below
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 3, f: 'fZ2', b: 'sandtop' }, // SAND top, thick (3 m), own body
+      { top: 3, base: 10, f: 'fZ', b: 'sand' },
+    ])
+    const quads = computeMorphFill(left, right)
+    const clay = quads.find((q) => q.bodyId === 'clay')!
+    const sandtop = quads.find((q) => q.bodyId === 'sandtop')!
+    expect(clay.kind).toBe('pinch')
+    expect(clay.sourceSide).toBe('left')
+    expect(sandtop.kind).toBe('pinch')
+    expect(sandtop.sourceSide).toBe('right')
+    // Both meet at the SAME fraction, strictly inside the gap (not 0 / not 1).
+    expect(clay.apexAlongFraction).toBeGreaterThan(0)
+    expect(clay.apexAlongFraction).toBeLessThan(1)
+    expect(clay.apexAlongFraction).toBeCloseTo(sandtop.apexAlongFraction!)
+    // Thinner clay (1 m) vs thicker sand (3 m) → boundary nearer the LEFT.
+    expect(clay.apexAlongFraction).toBeCloseTo(1 / 4)
+  })
+
   it('MF6 — a body present only on the RIGHT wedges left (sourceSide right)', () => {
     // A lens absent on the LEFT neighbour must still render + be shapeable —
     // not only a right-wedging one (dogfeed 2026-06-05: "only works on left

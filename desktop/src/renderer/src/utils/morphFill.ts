@@ -75,6 +75,14 @@ export interface MorphQuad {
    */
   sourceSide?: 'left' | 'right'
   /**
+   * Pinch only: where the apex sits horizontally across the gap, as a fraction
+   * ``0`` (left column) → ``1`` (right column). Default ``1`` for a left pinch
+   * (apex at the right column) and ``0`` for a right pinch. When a left and a
+   * right pinch overlap in elevation they share a fraction strictly inside the
+   * gap so they meet at a boundary instead of crossing.
+   */
+  apexAlongFraction?: number
+  /**
    * Absolute elevation (mTAW) of the corners. For a ``'left'`` pinch the source
    * is ``left*`` and the apex is ``rightTopElev == rightBaseElev``; for a
    * ``'right'`` pinch the source is ``right*`` and the apex is
@@ -235,6 +243,7 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
         bodyId: le.bodyId,
         kind: 'pinch',
         sourceSide: 'left',
+        apexAlongFraction: 1,
         leftTopElev: left.surfaceElevM - le.topDepth,
         leftBaseElev: left.surfaceElevM - le.baseDepth,
         rightTopElev: apexElev,
@@ -256,11 +265,38 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
       bodyId: re.bodyId,
       kind: 'pinch',
       sourceSide: 'right',
+      apexAlongFraction: 0,
       leftTopElev: apexElev,
       leftBaseElev: apexElev,
       rightTopElev: right.surfaceElevM - re.topDepth,
       rightBaseElev: right.surfaceElevM - re.baseDepth,
     })
+  }
+
+  // Where a left-wedging pinch and a right-wedging pinch overlap in elevation
+  // they would BOTH span the full gap and cross (dogfeed 2026-06-05: "2 pinch
+  // outs ... can't overlap, ideally fully adjacent"). Make each such pair meet
+  // at a shared boundary — the thicker lithology keeps the larger share of the
+  // gap — so the lithologies sit side by side instead of overlapping.
+  const rights = pinches.filter((p) => p.sourceSide === 'right')
+  const pairedRight = new Set<MorphQuad>()
+  for (const L of pinches) {
+    if (L.sourceSide !== 'left') continue
+    const lLo = Math.min(L.leftTopElev, L.leftBaseElev)
+    const lHi = Math.max(L.leftTopElev, L.leftBaseElev)
+    for (const R of rights) {
+      if (pairedRight.has(R)) continue
+      const rLo = Math.min(R.rightTopElev, R.rightBaseElev)
+      const rHi = Math.max(R.rightTopElev, R.rightBaseElev)
+      if (Math.min(lHi, rHi) - Math.max(lLo, rLo) <= EPS) continue // no overlap
+      const tL = lHi - lLo
+      const tR = rHi - rLo
+      const f = tL + tR > EPS ? tL / (tL + tR) : 0.5
+      L.apexAlongFraction = f
+      R.apexAlongFraction = f
+      pairedRight.add(R)
+      break
+    }
   }
 
   // Largest envelope first so a nested band / lens paints over its enclosing
