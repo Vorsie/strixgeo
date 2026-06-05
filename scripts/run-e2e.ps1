@@ -96,13 +96,23 @@ docker exec strix-db-1 psql -U groundmodel -d groundmodel_integration -c `
     "TRUNCATE TABLE investigation_review, cross_section, geological_model, geological_formation, cpt, borehole, project CASCADE;"
 if ($LASTEXITCODE -ne 0) { Write-Error "truncate failed -- is the strix-db-1 container up?"; exit $LASTEXITCODE }
 
-Write-Host "==> starting uvicorn on :8765"
+# Redirect the backend's stdout/stderr to log files instead of letting it
+# bleed onto the console. uvicorn runs as a separate process that writes
+# straight to the shared console handle, which BURIES the Playwright reporter
+# output under app-logger noise and makes a failing spec's error impossible to
+# read (diagnosed 2026-06-05). With the redirect, the console carries only the
+# Playwright result; a 500's traceback lands in the .err log for diagnosis.
+$backendLog = Join-Path $env:TEMP "strix-e2e-backend.log"
+$backendErrLog = "$backendLog.err"
+Write-Host "==> starting uvicorn on :8765 (logs: $backendLog{,.err})"
 $uvicorn = Start-Process -FilePath "uv" `
     -ArgumentList @(
         "run", "uvicorn", "groundmodel.api.main:app",
-        "--host", "127.0.0.1", "--port", "8765", "--log-level", "warning"
+        "--host", "127.0.0.1", "--port", "8765", "--log-level", "info"
     ) `
-    -PassThru -NoNewWindow
+    -PassThru -NoNewWindow `
+    -RedirectStandardOutput $backendLog `
+    -RedirectStandardError $backendErrLog
 
 try {
     # Wait for readiness (max ~15 s).
