@@ -64,10 +64,22 @@ export interface MorphColumn {
 export interface MorphQuad {
   formationId: string
   bodyId: string | null
-  /** ``band`` = matched both sides (quad); ``pinch`` = left-only lens (triangle). */
+  /** ``band`` = matched both sides (quad); ``pinch`` = single-column lens. */
   kind: 'band' | 'pinch'
-  /** Absolute elevation (mTAW) of the corners. For a pinch the two right
-   *  elevations are equal (the apex). */
+  /**
+   * Pinch only: which column carries the full-width SOURCE edge. ``'left'`` =
+   * body on the left column, wedges toward the right (apex near the right
+   * column). ``'right'`` = body on the right column, wedges toward the left.
+   * A lens absent on BOTH neighbours is emitted once per adjacent gap, so it
+   * pinches symmetrically (a handle on each side).
+   */
+  sourceSide?: 'left' | 'right'
+  /**
+   * Absolute elevation (mTAW) of the corners. For a ``'left'`` pinch the source
+   * is ``left*`` and the apex is ``rightTopElev == rightBaseElev``; for a
+   * ``'right'`` pinch the source is ``right*`` and the apex is
+   * ``leftTopElev == leftBaseElev``.
+   */
   leftTopElev: number
   leftBaseElev: number
   rightTopElev: number
@@ -194,6 +206,9 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
   const rightFloor = right.units.length ? right.units[right.units.length - 1].baseDepthM : 0
   const anchors = buildAnchors(leftEnv, rightEnv, leftFloor, rightFloor)
 
+  // Reverse anchors (right-depth → left-depth) for R-only pinch apexes.
+  const reverseAnchors = buildReverseAnchors(anchors)
+
   const bands: MorphQuad[] = []
   const pinches: MorphQuad[] = []
 
@@ -211,14 +226,15 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
         rightBaseElev: right.surfaceElevM - re.baseDepth,
       })
     } else {
-      // Left-only body (lens / pinch-out) → triangle to a single apex at the
-      // morphed centre (its proportional depth inside the enclosing matrix).
+      // Left-only body → triangle wedging RIGHT to a single apex at the morphed
+      // centre (its proportional depth inside the enclosing matrix).
       const apexDepth = (morphDepth(le.topDepth, anchors) + morphDepth(le.baseDepth, anchors)) / 2
       const apexElev = right.surfaceElevM - apexDepth
       pinches.push({
         formationId: le.formationId,
         bodyId: le.bodyId,
         kind: 'pinch',
+        sourceSide: 'left',
         leftTopElev: left.surfaceElevM - le.topDepth,
         leftBaseElev: left.surfaceElevM - le.baseDepth,
         rightTopElev: apexElev,
@@ -227,8 +243,44 @@ export function computeMorphFill(left: MorphColumn, right: MorphColumn): MorphQu
     }
   }
 
+  // Right-only bodies (present on the right column, absent on the left) → a
+  // triangle wedging LEFT. This is what makes a lens absent on its LEFT
+  // neighbour render + be shapeable, not only a right-wedging one.
+  for (const re of rightEnv.values()) {
+    if (leftEnv.has(re.key)) continue
+    const apexDepth =
+      (morphDepth(re.topDepth, reverseAnchors) + morphDepth(re.baseDepth, reverseAnchors)) / 2
+    const apexElev = left.surfaceElevM - apexDepth
+    pinches.push({
+      formationId: re.formationId,
+      bodyId: re.bodyId,
+      kind: 'pinch',
+      sourceSide: 'right',
+      leftTopElev: apexElev,
+      leftBaseElev: apexElev,
+      rightTopElev: right.surfaceElevM - re.topDepth,
+      rightBaseElev: right.surfaceElevM - re.baseDepth,
+    })
+  }
+
   // Largest envelope first so a nested band / lens paints over its enclosing
   // body; pinches last so a lens is always cut out of the matrix on top.
   bands.sort((a, b) => Math.abs(b.leftTopElev - b.leftBaseElev) - Math.abs(a.leftTopElev - a.leftBaseElev))
   return [...bands, ...pinches]
+}
+
+/** Swap + re-sort anchors so the morph can map a right-depth back to a left-depth. */
+function buildReverseAnchors(anchors: Anchor[]): Anchor[] {
+  const swapped = anchors.map((a) => ({ l: a.r, r: a.l }))
+  swapped.sort((a, b) => a.l - b.l)
+  const dedup: Anchor[] = []
+  for (const a of swapped) {
+    const prev = dedup[dedup.length - 1]
+    if (prev && Math.abs(prev.l - a.l) < EPS) prev.r = Math.max(prev.r, a.r)
+    else dedup.push({ ...a })
+  }
+  for (let i = 1; i < dedup.length; i += 1) {
+    if (dedup[i].r < dedup[i - 1].r) dedup[i].r = dedup[i - 1].r
+  }
+  return dedup
 }
