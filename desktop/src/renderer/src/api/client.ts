@@ -2957,6 +2957,22 @@ export const api = {
         {},
       ),
 
+    // --- Merge enclosed-lens bodies (Fill-bands sand merge) -------------------
+    //
+    // A lithology split on one column only by a local lens (silt/clay) is fused
+    // into one body by correlating the bracketing host halves to the neighbour's
+    // continuous host (owner directive 2026-06-05). Section-scoped; idempotent.
+    mergeEnclosedLenses: (
+      projectId: string,
+      modelId: string,
+      sectionId: string,
+    ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/bodies/merge-enclosed-lenses` +
+          `?section_id=${sectionId}`,
+        {},
+      ),
+
     // --- Materialise body companion sections (#133 Phase 3) -------------------
     //
     // For every body without a companion section, gate on all contacts in its
