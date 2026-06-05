@@ -207,6 +207,11 @@ export default function MorphFillOverlay({
     }
   }, [drag, onSaveBoundary, screenXToAlong, screenToLevel, boundariesByBodyId])
 
+  // A body that spans several gaps must be labelled ONCE, not once per gap
+  // (dogfeed 2026-06-05 "double label"). Tracked across the whole render pass;
+  // re-seeded on every render (StrictMode re-invokes the component cleanly).
+  const labelledBodies = new Set<string>()
+
   return (
     <g ref={rootRef} data-testid="morph-fill-overlay" style={{ pointerEvents: 'none' }}>
       {orderedInvs.slice(0, -1).flatMap((leftId, gapIndex) => {
@@ -254,7 +259,9 @@ export default function MorphFillOverlay({
             // — only when the band is tall enough to carry it legibly.
             const bandLabel = formationLabelById?.get(q.formationId)
             const bandMinH = Math.min(Math.abs(lBase - lTop), Math.abs(rBase - rTop))
-            if (bandLabel && bandMinH > 14) {
+            const alreadyLabelled = q.bodyId ? labelledBodies.has(q.bodyId) : false
+            if (bandLabel && bandMinH > 14 && !alreadyLabelled) {
+              if (q.bodyId) labelledBodies.add(q.bodyId)
               bandEls.push(
                 <text
                   key={`morph-label-${leftId}-${i}`}
@@ -369,10 +376,11 @@ export default function MorphFillOverlay({
 
       {/* Open-end stubs: every unit of the first / last column continues
           OFF-SECTION as a parallel band, so the section edges fill gap-free
-          (dogfeed 2026-06-05 "no gaps in the open ends"). Part of the fill, so
-          only when Fill bands is on. */}
-      {showBands &&
-        (
+          (dogfeed 2026-06-05 "no gaps in the open ends"). Rendered in BOTH
+          views so the engineer can track where the open ends sit while shaping
+          (dogfeed 2026-06-05 "where did the open ends go?"): full-width fill
+          when Fill bands is on, a short marker-stub when it is off. */}
+      {(
           [
             { id: orderedInvs[0], dir: -1 },
             { id: orderedInvs[orderedInvs.length - 1], dir: 1 },
@@ -383,10 +391,11 @@ export default function MorphFillOverlay({
         const colScreen = screenByInv.get(id)
         if (!colMorph || !colScreen) return []
         const edgeX = dir < 0 ? colScreen.leftX : colScreen.rightX
-        // Fill OUT to the plot edge ("plot whole width") when known, else a
-        // fixed stub. Clamp so a column already at the edge draws nothing.
-        const outerX =
-          dir < 0 ? (plotLeft ?? edgeX - EDGE_STUB_PX) : (plotRight ?? edgeX + EDGE_STUB_PX)
+        // Bands ON: fill OUT to the plot edge ("plot whole width") when known.
+        // Bands OFF: a short fixed stub — a marker, not a fill — so the shape
+        // view stays uncluttered but the open ends are still visible.
+        const stubX = dir < 0 ? edgeX - EDGE_STUB_PX : edgeX + EDGE_STUB_PX
+        const outerX = showBands ? (dir < 0 ? (plotLeft ?? stubX) : (plotRight ?? stubX)) : stubX
         const x0 = Math.min(edgeX, outerX)
         const w = Math.abs(outerX - edgeX)
         if (w <= 0.5) return []
@@ -419,7 +428,7 @@ export default function MorphFillOverlay({
               width={w}
               height={Math.max(0.5, yB - yT)}
               fill={color}
-              fillOpacity={FILL_OPACITY}
+              fillOpacity={showBands ? FILL_OPACITY : FILL_OPACITY * 0.45}
               stroke={color}
               strokeOpacity={STROKE_OPACITY}
               strokeWidth={0.5}
