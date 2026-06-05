@@ -99,6 +99,14 @@ import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
 /** Stable empty map so the BodyExtentOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
+
+/**
+ * The morph fill superseded BodyExtentOverlay as the litho lens system (it now
+ * renders the pinch wedges + draggable apexes in both bands-on and bands-off
+ * views). Flip to ``true`` to restore the legacy wedge/ghost overlay if the
+ * deprecated suggest/claim flow is ever needed again (dogfeed 2026-06-05).
+ */
+const SHOW_LEGACY_BODY_EXTENT = false
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -3243,15 +3251,13 @@ export default function SectionPanel({
                 BENEATH the wedge/extent overlay so the caps + interaction paint
                 on top. Litho axis only, and ONLY when the user has clicked
                 "Fill bands" (never auto-drawn). */}
-            {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
-                to_target / pinch_out_halfway / extrapolated / open / null.
-                Litho axis only; isolated from CorrelationEdgesOverlay.
-                Shown ONLY when Fill bands is OFF — when the morph fill is on it
-                is the single lens system (fill + draggable apex + context menu),
-                so the two don't fight over the same pinch (dogfeed 2026-06-05
-                "can't drag right pinchouts" — clicks fell through to this layer's
-                cyan nodes). */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && !showBands && (
+            {/* Body extent wedges (#163f Slice 6) — SUPERSEDED by the morph fill,
+                which now renders the pinch wedges + draggable apexes in BOTH the
+                bands-on and bands-off views (dogfeed 2026-06-05). Render-gated off
+                so the two never double-draw the same pinch (the cyan-node
+                interception that blocked the apex drag). Kept for the deprecated
+                suggest/ghost flow if it ever needs restoring. */}
+            {SHOW_LEGACY_BODY_EXTENT && axisMode === 'lithostratigraphic' && lenses !== undefined && (
               <BodyExtentOverlay
                 bodies={lenses}
                 boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
@@ -3290,16 +3296,18 @@ export default function SectionPanel({
                 }
               />
             )}
-            {/* Morph fill — the continuous litho fill + draggable pinch apexes.
-                ON TOP of BodyExtentOverlay (see note above): the fill is
-                pointer-events:none so the context menu stays reachable, while the
-                amber apex handles win the left-click for shaping. */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && showBands && (
+            {/* Morph fill — the single litho lens system. Renders the pinch-out
+                wedges + draggable apex handles ALWAYS (so they can be shaped on
+                the clean bands-off view), and the continuous matrix band fill +
+                edge stubs + labels only when Fill bands is on (owner directive
+                2026-06-05: "fix the shape of the pinchouts and then fill it"). */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
               <MorphFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
+                showBands={showBands}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
