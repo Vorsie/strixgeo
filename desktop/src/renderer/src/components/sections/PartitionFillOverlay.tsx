@@ -31,6 +31,9 @@ import type { Props } from './MorphFillOverlay'
 import type { PlacedColumn } from './utils'
 
 const FILL_OPACITY = 0.62
+// A lens (one-test body enclosed in a matrix) is drawn a touch more solid so it
+// reads as a unit CUT OUT of the continuous matrix it sits on, not a faint wash.
+const LENS_OPACITY = 0.85
 const STROKE_OPACITY = 0.45
 const FALLBACK_COLOR = '#888888'
 const EDGE_STUB_PX = 64
@@ -196,7 +199,7 @@ export default function PartitionFillOverlay({
             data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
             d={d}
             fill={color}
-            fillOpacity={FILL_OPACITY}
+            fillOpacity={sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY}
             stroke={color}
             strokeOpacity={STROKE_OPACITY}
             strokeWidth={0.75}
