@@ -333,6 +333,20 @@ interface Props {
    *  user is selecting boundaries, not editing depths.  Depth-drag is a
    *  normal-mode gesture. */
   correlateMode?: boolean
+  /**
+   * Axis mode the section panel is currently displaying (owner directive
+   * 2026-06-05 litho-declutter).  Controls per-contact visual noise:
+   *
+   * - ``'geological'``        — full contact-marker set (default).
+   * - ``'lithostratigraphic'`` — coupling-glyph circles are hidden unless
+   *                             ``correlateMode`` is also true, because the
+   *                             partition fill + freedraw handles are the
+   *                             primary interaction surface on the litho axis
+   *                             and the per-contact amber dots add visual
+   *                             clutter without functional value outside the
+   *                             correlate gesture.
+   */
+  axisMode?: 'geological' | 'lithostratigraphic'
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -1011,6 +1025,7 @@ export default function ContactsLayer({
   renderFormationSurfaces = true,
   surfaceThroughPicks = false,
   correlateMode = false,
+  axisMode = 'geological',
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   pendingGhostRangesByAnchorId,
@@ -3534,8 +3549,14 @@ export default function ContactsLayer({
                 contact carries a parent_geo_contact_id so the user can see
                 at a glance which accepted contacts are bound to the
                 geological surface.  pointerEvents="none" so it doesn't
-                interfere with drag / context-menu hit-testing. */}
-            {contacts.find(c => c.id === layer.contactId)?.parent_geo_contact_id != null &&
+                interfere with drag / context-menu hit-testing.
+                Owner directive 2026-06-05 (litho declutter): hidden on the
+                litho axis unless correlate mode is active — the per-contact
+                amber dots are noise when the partition fill is the primary
+                interaction surface; correlate mode restores them so the user
+                can click contacts for the correlate gesture. */}
+            {(axisMode !== 'lithostratigraphic' || correlateMode) &&
+              contacts.find(c => c.id === layer.contactId)?.parent_geo_contact_id != null &&
               layer.segY >= plotTop &&
               layer.segY <= plotBottom && (
                 <g
