@@ -75,21 +75,38 @@ async function buildLithoContacts(page: Page): Promise<void> {
   // The tests in this file share the fixture DB, so contacts committed by an
   // earlier test persist. If committed bands are already on the section, skip
   // the (slow) rebuild — the right-click targets only need contacts to EXIST.
+  // Bands render from contacts that are seeded in the section. When a prior test
+  // already accepted contacts for this section, they appear once the litho-layer
+  // fetch resolves — wait up to 30 s. 30 s accounts for the full async load
+  // (bundle fetch + section fetch + litho layer fetch) after a fresh app open.
   const existing = await page
     .locator('[data-testid^="per-column-litho-band-"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 4_000 })
+    .waitFor({ state: 'visible', timeout: 30_000 })
     .then(() => true)
     .catch(() => false)
   if (existing) return
 
-  // ``litho-suggest-new-tests`` fires directly (no modal confirmation unlike
-  // ``litho-suggest-all``). It is a caret item — open the caret, then click it.
-  // The item is disabled when all investigations already have litho contacts;
-  // section A's CPTs (0/1/2) have none on a fresh seed so it is always enabled
-  // when this helper runs.
-  await page.getByTestId('litho-suggest-caret').click()
-  await page.getByTestId('litho-suggest-new-tests').click()
+  // No bands yet — try to create them via suggest-new-tests. This is only
+  // possible when at least one section-visible CPT has no existing contacts
+  // (``litho-suggest-new-tests`` is disabled otherwise). If disabled, there is
+  // a race: bands may be loading but haven't appeared within 30 s yet. Bail
+  // out now and let the caller's own element waits surface the real failure.
+  const suggestCaret = page.getByTestId('litho-suggest-caret')
+  await suggestCaret.click()
+  const newTestsBtn = page.getByTestId('litho-suggest-new-tests')
+  const isEnabled = await newTestsBtn.isEnabled().catch(() => false)
+  if (!isEnabled) {
+    // ``litho-suggest-new-tests`` is disabled: all CPTs already have contacts.
+    // Close the caret (Escape) and wait one more pass for bands to appear.
+    await page.keyboard.press('Escape')
+    await page
+      .locator('[data-testid^="per-column-litho-band-"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 })
+    return
+  }
+  await newTestsBtn.click()
   const acceptBulk = page.getByTestId('litho-accept-all-bulk')
   await expect(acceptBulk).toBeVisible({ timeout: 45_000 })
   await acceptBulk.click()
