@@ -363,14 +363,6 @@ export default function BodyExtentOverlay({
   const rootRef = useRef<SVGGElement>(null)
   const [drag, setDrag] = useState<NodeDrag | null>(null)
 
-  // --- DIAGNOSTIC (dogfeed 2026-06-05) — if this logs while Fill bands is ON,
-  // the !showBands gate failed and BodyExtentOverlay is double-drawing lenses
-  // under the morph (the cyan-node interception that blocks the apex drag).
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.info(`[BODYEXTENT-DIAG] RENDER bodies=${bodies.length} (should be HIDDEN when Fill bands is on)`)
-  }, [bodies.length])
-
   // --- world-coordinate lookup maps + resolve pass ----------------------------
   // Memoized so that drag-mousemove renders (which only change ``drag``) do not
   // rebuild all Maps and re-run the O(bodies × contacts) resolve loop on every
