@@ -18,11 +18,12 @@
  * drag-related props are accepted for call-site compatibility but unused here.
  */
 
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { BodyListItem, LithoLayerResponse } from '../../api/client'
+import type { BodyBoundaryNode, BodyListItem, LithoLayerResponse } from '../../api/client'
 import {
   computePartitionFill,
+  type LensApexOverride,
   type MorphColumn,
   type MorphUnit,
   type PartitionRegion,
@@ -40,6 +41,11 @@ const EDGE_STUB_PX = 64
 const OPEN_END_M = 5
 /** Minimum on-screen region height (px) to carry a label legibly. */
 const LABEL_MIN_H = 14
+// Lens-apex drag handle radius + its transparent hit halo.
+const APEX_R = 5
+const APEX_HIT_R = 11
+
+const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
 
 interface ColumnScreen {
   rightX: number
@@ -47,10 +53,21 @@ interface ColumnScreen {
   along: number
 }
 
-/** A region already mapped to screen polygon points, tagged with its gap. */
+/** A live lens-apex drag. ``side`` 'left' = lens on the left column (wedges
+ *  right, stored in upper_nodes); 'right' = lens on the right column. */
+interface ApexDrag {
+  bodyId: string
+  side: 'left' | 'right'
+  x: number
+  y: number
+}
+
+/** A region already mapped to screen polygon points, tagged with its gap edges. */
 interface ScreenRegion {
   region: PartitionRegion
   points: { x: number; y: number }[]
+  leftX: number
+  rightX: number
   minX: number
   maxX: number
   minY: number
@@ -70,11 +87,53 @@ export default function PartitionFillOverlay({
   plotLeft,
   plotRight,
   alongToScreenX,
+  screenXToAlong,
+  screenToLevel,
+  boundariesByBodyId,
+  onSaveBoundary,
   bodies,
   onBodyContextMenu,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
+  const [drag, setDrag] = useState<ApexDrag | null>(null)
   const bodyById = useMemo(() => new Map((bodies ?? []).map((b) => [b.id, b])), [bodies])
+
+  // Lens-apex drag: live-track the apex, persist the shape on mouse-up. The
+  // apex is stored on the body's boundary (upper_nodes = right-wedging / left
+  // lens, lower_nodes = left-wedging / right lens), reusing the same store the
+  // morph apex used so a shaped lens survives a reload.
+  useEffect(() => {
+    if (!drag) return
+    const svg = rootRef.current?.ownerSVGElement
+    const move = (e: MouseEvent): void => {
+      const rect = svg?.getBoundingClientRect()
+      setDrag({
+        bodyId: drag.bodyId,
+        side: drag.side,
+        x: e.clientX - (rect?.left ?? 0),
+        y: e.clientY - (rect?.top ?? 0),
+      })
+    }
+    const up = (): void => {
+      if (onSaveBoundary && screenXToAlong && screenToLevel) {
+        const apex: BodyBoundaryNode = {
+          along_m: screenXToAlong(drag.x),
+          elevation_m: screenToLevel(drag.y),
+        }
+        const existing = boundariesByBodyId?.get(drag.bodyId)
+        const upper = drag.side === 'left' ? [apex] : (existing?.upper_nodes ?? [])
+        const lower = drag.side === 'right' ? [apex] : (existing?.lower_nodes ?? [])
+        onSaveBoundary(drag.bodyId, upper, lower, 'straight')
+      }
+      setDrag(null)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+  }, [drag, onSaveBoundary, screenXToAlong, screenToLevel, boundariesByBodyId])
 
   // Build each column's gap-free unit stack + its screen x-edges (identical to
   // the morph overlay — the partition consumes the same MorphColumn input).
@@ -141,7 +200,35 @@ export default function PartitionFillOverlay({
       const leftX = lScreen.rightX
       const rightX = rScreen.leftX
       if (rightX <= leftX) continue
-      for (const region of computePartitionFill(left, right)) {
+
+      // Lens apex overrides for this gap: a left-column-only body keys its apex
+      // in upper_nodes, a right-column-only body in lower_nodes (morph
+      // convention). The live drag wins over the stored shape so the lens
+      // follows the cursor.
+      const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+      const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+      const overrides = new Map<string, LensApexOverride>()
+      const addOverride = (bodyId: string, side: 'left' | 'right'): void => {
+        if (drag && drag.bodyId === bodyId && drag.side === side) {
+          overrides.set(bodyId, {
+            fraction: clamp01((drag.x - leftX) / (rightX - leftX)),
+            elevation: screenToLevel ? screenToLevel(drag.y) : 0,
+          })
+          return
+        }
+        const b = boundariesByBodyId?.get(bodyId)
+        const node = (side === 'left' ? b?.upper_nodes : b?.lower_nodes)?.[0]
+        if (node && alongToScreenX) {
+          overrides.set(bodyId, {
+            fraction: clamp01((alongToScreenX(node.along_m) - leftX) / (rightX - leftX)),
+            elevation: node.elevation_m,
+          })
+        }
+      }
+      for (const id of leftIds) if (!rightIds.has(id)) addOverride(id, 'left')
+      for (const id of rightIds) if (!leftIds.has(id)) addOverride(id, 'right')
+
+      for (const region of computePartitionFill(left, right, overrides)) {
         let minX = Infinity
         let maxX = -Infinity
         let minY = Infinity
@@ -157,11 +244,23 @@ export default function PartitionFillOverlay({
           if (y > maxY) maxY = y
           return { x, y }
         })
-        out.push({ region, points, minX, maxX, minY, maxY })
+        out.push({ region, points, leftX, rightX, minX, maxX, minY, maxY })
       }
     }
     return out
-  }, [orderedInvs, colByInv, screenByInv, showBands, levelToScreen, plotTop, plotBottom])
+  }, [
+    orderedInvs,
+    colByInv,
+    screenByInv,
+    showBands,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+    drag,
+    boundariesByBodyId,
+    alongToScreenX,
+    screenToLevel,
+  ])
 
   // One label per BODY at its tallest visible region, clamped to the viewport so
   // it survives a zoom onto a single test (dogfeed 2026-06-05).
@@ -193,7 +292,12 @@ export default function PartitionFillOverlay({
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
         const interactive = Boolean(onBodyContextMenu && body)
-        return (
+        // A lens carries a draggable apex (its pinch point = polygon[1]). Side
+        // comes from the source corner: fraction 0 → left lens, 1 → right lens.
+        const apex = sr.region.kind === 'lens' ? sr.points[1] : undefined
+        const side: 'left' | 'right' = sr.region.polygon[0].fraction === 0 ? 'left' : 'right'
+        const canShape = Boolean(apex && onSaveBoundary && sr.region.bodyId)
+        return [
           <path
             key={`pf-${i}`}
             data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
@@ -218,8 +322,36 @@ export default function PartitionFillOverlay({
                   }
                 : undefined
             }
-          />
-        )
+          />,
+          canShape && apex ? (
+            <g key={`pf-apex-${i}`}>
+              {/* Transparent hit halo so the small handle is easy to grab. */}
+              <circle
+                data-testid={`partition-lens-apex-hit-${sr.region.bodyId}`}
+                cx={apex.x}
+                cy={apex.y}
+                r={APEX_HIT_R}
+                fill="transparent"
+                style={{ pointerEvents: 'auto', cursor: 'grab' }}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setDrag({ bodyId: sr.region.bodyId as string, side, x: apex.x, y: apex.y })
+                }}
+              />
+              <circle
+                data-testid={`partition-lens-apex-${sr.region.bodyId}`}
+                cx={apex.x}
+                cy={apex.y}
+                r={APEX_R}
+                fill="#f59e0b"
+                stroke="#0f172a"
+                strokeWidth={1}
+                style={{ pointerEvents: 'none' }}
+              />
+            </g>
+          ) : null,
+        ]
       })}
 
       {labels.map((l) => (

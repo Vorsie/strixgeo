@@ -7,10 +7,10 @@
 //   PFO4 an interrupted body (clay below silt on the left, clay at surface +
 //        below silt on the right) renders as TWO clay regions, not one.
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { BodyListItem, LithoLayerResponse } from '../../api/client'
+import type { BodyBoundaryResponse, BodyListItem, LithoLayerResponse } from '../../api/client'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './MorphFillOverlay'
 import type { PlacedColumn } from './utils'
@@ -138,5 +138,70 @@ describe('PartitionFillOverlay', () => {
     // The clay body appears in TWO regions (the matched lower quad + the
     // surface pinch), never collapsed into a single swept band.
     expect(queryAllByTestId('partition-region-clay').length).toBeGreaterThanOrEqual(2)
+  })
+
+  // --- lens-apex shaping drag ------------------------------------------------
+  // Enclosed silt lens in a sand matrix on L; continuous sand on R. The gap
+  // edges are leftX=20 (L.right), rightX=80 (R.left).
+  const lensLayers = [
+    layer('l1', 'L', 'sand', 'fSand', 0, 4),
+    layer('l2', 'L', 'silt', 'fSilt', 4, 5),
+    layer('l3', 'L', 'sand', 'fSand', 5, 10),
+    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+  ]
+  const transforms = {
+    alongToScreenX: (a: number) => a,
+    screenXToAlong: (x: number) => x,
+    screenToLevel: (y: number) => (100 - y) / 10, // inverse of levelToScreen
+  }
+
+  it('PFO5 — an enclosed lens carries a draggable apex handle', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: lensLayers,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    expect(getByTestId('partition-lens-apex-silt')).toBeTruthy()
+  })
+
+  it('PFO6 — a stored apex override repositions the lens pinch', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: lensLayers,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            upper_nodes: [{ along_m: 68, elevation_m: 5 }],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    // override along_m 68 → fraction (68-20)/60 = 0.8 → apex x 20+0.8*60 = 68
+    // (the auto default would put it at LENS_PINCH_FRACTION 0.45 → x 47).
+    const cx = Number(getByTestId('partition-lens-apex-silt').getAttribute('cx'))
+    expect(cx).toBeCloseTo(68, 0)
+  })
+
+  it('PFO7 — dragging the apex persists the shape via onSaveBoundary', () => {
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: lensLayers,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    fireEvent.mouseDown(getByTestId('partition-lens-apex-hit-silt'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+    // Left lens → apex stored in upper_nodes (arg 1), lower_nodes (arg 2) empty.
+    expect(onSaveBoundary.mock.calls[0][1]).toHaveLength(1)
+    expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
   })
 })
