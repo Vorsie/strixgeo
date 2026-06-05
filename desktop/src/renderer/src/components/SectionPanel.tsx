@@ -3243,25 +3243,13 @@ export default function SectionPanel({
                 BENEATH the wedge/extent overlay so the caps + interaction paint
                 on top. Litho axis only, and ONLY when the user has clicked
                 "Fill bands" (never auto-drawn). */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && showBands && (
-              <MorphFillOverlay
-                lithoLayers={lithoLayers ?? []}
-                placedColumns={visibleColumns}
-                formationColorById={formationColorById}
-                formationLabelById={formationLabelById}
-                levelToScreen={levelToScreen}
-                plotTop={MARGIN.top}
-                plotBottom={MARGIN.top + plotHeight}
-                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
-                alongToScreenX={warpedXToScreen}
-                screenXToAlong={warpedScreenXToAlongCb}
-                screenToLevel={screenToLevel}
-                onSaveBoundary={onSaveLensShape}
-              />
-            )}
             {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
                 to_target / pinch_out_halfway / extrapolated / open / null.
-                Litho axis only; isolated from CorrelationEdgesOverlay. */}
+                Litho axis only; isolated from CorrelationEdgesOverlay.
+                Rendered BENEATH the morph fill so its right-click context menu
+                stays reachable (the morph fill is pointer-events:none and passes
+                clicks through), while the morph's draggable apex handles win the
+                left-click on top (dogfeed 2026-06-05 "can't drag right pinchouts"). */}
             {axisMode === 'lithostratigraphic' && lenses !== undefined && (
               <BodyExtentOverlay
                 bodies={lenses}
@@ -3299,6 +3287,28 @@ export default function SectionPanel({
                     ? (c, svgX, svgY) => setGhostCtxMenu({ candidate: c, svgX, svgY })
                     : undefined
                 }
+              />
+            )}
+            {/* Morph fill — the continuous litho fill + draggable pinch apexes.
+                ON TOP of BodyExtentOverlay (see note above): the fill is
+                pointer-events:none so the context menu stays reachable, while the
+                amber apex handles win the left-click for shaping. */}
+            {axisMode === 'lithostratigraphic' && lenses !== undefined && showBands && (
+              <MorphFillOverlay
+                lithoLayers={lithoLayers ?? []}
+                placedColumns={visibleColumns}
+                formationColorById={formationColorById}
+                formationLabelById={formationLabelById}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                plotLeft={MARGIN.left}
+                plotRight={MARGIN.left + plotWidth}
+                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
+                alongToScreenX={warpedXToScreen}
+                screenXToAlong={warpedScreenXToAlongCb}
+                screenToLevel={screenToLevel}
+                onSaveBoundary={onSaveLensShape}
               />
             )}
 
