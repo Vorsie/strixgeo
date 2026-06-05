@@ -14,13 +14,20 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
+from groundmodel.shared.exceptions import LithoLayerOverlapError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# The exclusion constraint added in f7a8b9c0d1e2 — its name appears verbatim in
+# the asyncpg error text, so we can tell it apart from any other integrity
+# violation and translate only this one into a clean domain error.
+_NO_OVERLAP_CONSTRAINT = "litho_layer_accepted_no_overlap"
 
 
 class UpdateLithoLayer(GroundModelLogger):
@@ -51,13 +58,30 @@ class UpdateLithoLayer(GroundModelLogger):
         -------
         LithoLayerOrm | None
             The updated row, or ``None`` when the id does not exist.
+
+        Raises
+        ------
+        LithoLayerOverlapError
+            When the edit would overlap an accepted sibling on the same
+            investigation (the deferred no-overlap exclusion constraint fires
+            at commit). Any other integrity error propagates unchanged.
         """
         self.debug(f"UpdateLithoLayer: id={layer_id} patch_keys={list(patch.keys())}")
         layer = await self._repo.update_layer(layer_id, patch)
         if layer is None:
             self.warning(f"UpdateLithoLayer: id={layer_id} not found")
             return None
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError as err:
+            await self._session.rollback()
+            if _NO_OVERLAP_CONSTRAINT in str(err.orig):
+                self.warning(
+                    f"UpdateLithoLayer: id={layer_id} rejected — edit would overlap "
+                    "an accepted layer on the same investigation"
+                )
+                raise LithoLayerOverlapError(layer_id) from err
+            raise
         # onupdate=func.now() on updated_at expires the in-memory value
         # at flush; refresh so Pydantic's response serializer doesn't
         # try a lazy-load outside the async greenlet (MissingGreenlet).

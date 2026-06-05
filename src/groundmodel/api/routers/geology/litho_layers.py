@@ -63,6 +63,7 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
     CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.exceptions import LithoLayerOverlapError
 
 router = APIRouter()
 
@@ -423,7 +424,24 @@ async def update_layer(
     )
     patch = request.model_dump(exclude_unset=True)
     use_case = UpdateLithoLayer(session)
-    updated = await use_case.execute(layer_id, patch)
+    try:
+        updated = await use_case.execute(layer_id, patch)
+    except LithoLayerOverlapError as err:
+        # The no-overlap exclusion constraint fired at commit. Answer 409 with a
+        # named code instead of leaking a raw 500 — the edit would put this
+        # layer inside an accepted sibling on the same column.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "litho_layer_overlap",
+                "message": (
+                    "This depth edit would overlap an accepted layer on the same "
+                    "investigation. Move the neighbouring boundary first, or "
+                    "delete the overlapping layer."
+                ),
+                "layer_id": str(err.layer_id),
+            },
+        ) from err
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
