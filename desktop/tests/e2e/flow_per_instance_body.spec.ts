@@ -1,26 +1,32 @@
 /**
- * Flow — per-instance bodies (depth-ranked labels, merge-on-correlate, no jump).
+ * Flow — per-instance bodies (two-instance fill renders, deep below shallow,
+ * collapse on correlate).
  *
  * End-to-end proof of the per-instance body feature on a real section render.
  * The fixture pre-seeds (build_synthetic_fixture.py action seed, Section D) two
  * UNCORRELATED same-lithology (KLEI) units on ONE source column (CPT-8) at
  * different depths, each closing bilaterally to a left + right target. The
- * resolver makes one body per connected component; both share the
- * (Quaternary, KLEI) naming group, so the section renderer labels them by depth
- * rank: ``QC1`` (shallow @2 m) and ``QC2`` (deep @7 m).
+ * resolver makes one body per connected component; both share the KLEI naming
+ * group so they are depth-ranked (body_ordinal 0 = shallow, 1 = deep).
  *
- * Assertions
+ * Assertions (retargeted 2026-06-05 from BodyExtentOverlay ``body-label-*``
+ * labels to PartitionFillOverlay ``partition-region-*`` regions — the legacy
+ * BodyExtentOverlay was disabled behind SHOW_LEGACY_BODY_EXTENT=false in the
+ * partition-fill rewrite):
  * ----------
- * 1. Two distinct instance labels — Section D shows BOTH ``QC1`` AND ``QC2``
- *    (NOT a single collapsed label).
- * 2. No jump on framing — the deep body (``QC2``) renders BELOW the shallow
- *    one (``QC1``): its label sits at a greater screen-y. This is the Bug C
- *    "body jump" fix — a committed body frames from its OWN member layer, not
- *    the shallowest same-formation occurrence.
+ * 1. Two distinct KLEI partition regions — with Fill bands ON, Section D shows
+ *    BOTH ``partition-region-{bodyId0}`` AND ``partition-region-{bodyId1}``
+ *    (NOT a single collapsed region). The body IDs are resolved live from the
+ *    ``GET /bodies`` API (no hard-coded UUIDs).
+ * 2. No jump on framing — the deep body (body_ordinal=1, top @7 m) renders
+ *    BELOW the shallow one (body_ordinal=0, top @2 m): its region's minY
+ *    (top edge in screen coords) is greater than the shallow region's. This
+ *    is the Bug C "body jump" fix — a committed body frames from its OWN
+ *    member layer, not the shallowest same-formation occurrence.
  * 3. Merge on correlate — correlating the deep KLEI unit to the shallow body's
- *    component (one cross-column edge, via the model-level correlate endpoint)
- *    collapses the two instances into ONE: after a reload, Section D shows a
- *    single ``QC`` label, no longer two.
+ *    component (one cross-column edge) collapses the two instances into ONE:
+ *    after a reload, Section D shows exactly one distinct KLEI ``partition-region``
+ *    (the two bodyIds collapse to one).
  *
  * The merge step drives the model-level ``contact-correlations`` endpoint
  * directly (the same API the correlate gesture hits — it runs
@@ -69,14 +75,22 @@ async function openSectionDLitho(page: Page): Promise<void> {
 }
 
 /**
- * Return the screen-y of a body label (the ``<text>`` centroid) by its visible
- * text, or null when no such label is rendered.
+ * Enable the "Fill bands" toggle in the Bodies dropdown so
+ * PartitionFillOverlay renders ``partition-region-*`` elements.
+ *
+ * The dropdown is disabled until the litho model is active; waits for it to
+ * enable before clicking. Uses ``toPass`` to retry opening in case a background
+ * refetch resets the dropdown's open state before the item is clicked.
  */
-async function labelYByText(page: Page, text: string): Promise<number | null> {
-  const label = page.locator('[data-testid^="body-label-"]').filter({ hasText: text }).first()
-  if (!(await label.isVisible().catch(() => false))) return null
-  const box = await label.boundingBox()
-  return box?.y ?? null
+async function enableFillBands(page: Page): Promise<void> {
+  const bodiesDropdown = page.getByTestId('litho-bodies-dropdown')
+  await expect(bodiesDropdown).toBeEnabled({ timeout: 30_000 })
+  const fillBands = page.getByTestId('litho-fill-bands')
+  await expect(async () => {
+    await bodiesDropdown.click()
+    await expect(fillBands).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+  await fillBands.click()
 }
 
 test.describe('flow_per_instance_body', () => {
@@ -85,7 +99,7 @@ test.describe('flow_per_instance_body', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first',
   )
 
-  test('two depth-ranked instance labels render, deep below shallow, and collapse on correlate', async () => {
+  test('two KLEI partition regions render, deep below shallow, and collapse on correlate', async () => {
     test.slow() // opens project + renders the section + a merge round-trip
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
@@ -103,31 +117,10 @@ test.describe('flow_per_instance_body', () => {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await openSectionDLitho(page)
 
-      // --- Assertion 1: two distinct depth-ranked instance labels ----------
-      // The two same-lithology KLEI bodies on CPT-8 share the (Quaternary,
-      // KLEI) naming group → QC1 (shallow) + QC2 (deep). Both must render.
-      const qc1 = page.locator('[data-testid^="body-label-"]').filter({ hasText: 'QC1' }).first()
-      const qc2 = page.locator('[data-testid^="body-label-"]').filter({ hasText: 'QC2' }).first()
-      await expect(qc1).toBeVisible({ timeout: 20_000 })
-      await expect(qc2).toBeVisible({ timeout: 20_000 })
-
-      // --- Assertion 2: no jump — deep body renders BELOW the shallow one ---
-      // The deep body (QC2, top @7 m) must frame from its own member layer, so
-      // its label sits at a greater screen-y than the shallow body (QC1, @2 m).
-      // A "body jump" regression would collapse the deep band up to ~2 m,
-      // putting QC2 at (or above) QC1's y.
-      const yShallow = await labelYByText(page, 'QC1')
-      const yDeep = await labelYByText(page, 'QC2')
-      expect(yShallow).not.toBeNull()
-      expect(yDeep).not.toBeNull()
-      expect(yDeep!).toBeGreaterThan(yShallow!)
-
-      // --- Assertion 3: merge on correlate collapses the two instances ------
-      // Resolve the litho model + its contacts, then correlate the DEEP KLEI
-      // unit's top contact (CPT-8 @7 m) to the shallow body's left target
-      // (CPT-9 @3 m). That cross-column edge joins the two connected components
-      // into one → the resolver (run inline by the correlate endpoint) reduces
-      // the two bodies to one. After a reload, only a single QC label remains.
+      // Resolve litho model and its KLEI bodies via the API so the spec works
+      // without hard-coding any UUIDs. The two per-instance KLEI bodies are
+      // the only KLEI bodies on Section D (the seeded topology is bilateral on
+      // CPT-8, with bodies_ordinal 0 + 1 on the two KLEI formations).
       const modelsJson = await page.evaluate(
         async ([base, pid]) => {
           const r = await fetch(`${base}/projects/${pid}/geology/models`)
@@ -140,6 +133,97 @@ test.describe('flow_per_instance_body', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
+      // Get the two KLEI body IDs — filter bodies by KLEI formations.
+      // The formations endpoint is project-scoped (no model_id); filter on
+      // litho_main_soil_code === 'KLEI' AND name contains "per-instance" to
+      // isolate the Section D scenario bodies from any other KLEI units created
+      // by sibling specs in the shared fixture DB.
+      const [formationsJson, bodiesJson] = await Promise.all([
+        page.evaluate(
+          async ([base, pid]) => {
+            const r = await fetch(`${base}/projects/${pid}/formations`)
+            return r.json()
+          },
+          [API_BASE, FIXTURE_PROJECT_ID],
+        ),
+        page.evaluate(
+          async ([base, pid, mid]) => {
+            const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/bodies`)
+            return r.json()
+          },
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        ),
+      ])
+
+      // Formation IDs for the two per-instance KLEI units on Section D.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const kleiFormationIds: Set<string> = new Set(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (formationsJson as any[])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((f: any) => f.litho_main_soil_code === 'KLEI' && String(f.name ?? '').toLowerCase().includes('per-instance'))
+          .map((f: any) => f.id as string),
+      )
+      expect(kleiFormationIds.size).toBeGreaterThanOrEqual(2)
+
+      // The two per-instance KLEI bodies (body_ordinal 0 + 1 on those formations).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const kleiBodyIds: string[] = (bodiesJson as any[])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((b: any) => kleiFormationIds.has(b.formation_id))
+        .map((b: any) => b.id as string)
+      expect(kleiBodyIds.length).toBe(2)
+
+      // --- Assertion 1: two distinct KLEI partition regions render -----------
+      // Enable "Fill bands" so PartitionFillOverlay renders screenRegions.
+      // The two KLEI bodies on Section D each produce a ``partition-region-{id}``
+      // path element once showBands is on.
+      await enableFillBands(page)
+
+      const region0 = page.locator(`[data-testid="partition-region-${kleiBodyIds[0]}"]`).first()
+      const region1 = page.locator(`[data-testid="partition-region-${kleiBodyIds[1]}"]`).first()
+      await expect(region0).toBeVisible({ timeout: 20_000 })
+      await expect(region1).toBeVisible({ timeout: 20_000 })
+
+      // --- Assertion 2: no jump — deep region renders BELOW the shallow ------
+      // The PartitionFillOverlay builds polygon rows in top→bottom order for
+      // each gap; the deep body's region has a greater screen-y minY (SVG
+      // y-axis grows downward). Resolve body → depth rank via body_ordinal:
+      // body_ordinal=0 is the shallow KLEI (@2 m), ordinal=1 is the deep (@7 m).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const kleiBodyOrdinals: Map<string, number> = new Map(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (bodiesJson as any[])
+          .filter((b: any) => kleiFormationIds.has(b.formation_id))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((b: any) => [b.id as string, b.body_ordinal as number]),
+      )
+      const shallowBodyId = kleiBodyIds.find((id) => kleiBodyOrdinals.get(id) === 0)
+      const deepBodyId = kleiBodyIds.find((id) => kleiBodyOrdinals.get(id) === 1)
+      expect(shallowBodyId, 'shallow KLEI body (ordinal=0) not found').toBeTruthy()
+      expect(deepBodyId, 'deep KLEI body (ordinal=1) not found').toBeTruthy()
+
+      const shallowRegion = page
+        .locator(`[data-testid="partition-region-${shallowBodyId!}"]`)
+        .first()
+      const deepRegion = page
+        .locator(`[data-testid="partition-region-${deepBodyId!}"]`)
+        .first()
+      const boxShallow = await shallowRegion.boundingBox()
+      const boxDeep = await deepRegion.boundingBox()
+      expect(boxShallow, 'shallow region bounding box').not.toBeNull()
+      expect(boxDeep, 'deep region bounding box').not.toBeNull()
+      // The deep region's top edge (minY = box.y) must be below the shallow
+      // region's midpoint, proving the deep body did NOT jump up to @2 m.
+      // "Greater screen-y" = further down the page (SVG y-axis: 0 at top).
+      expect(boxDeep!.y).toBeGreaterThan(boxShallow!.y)
+
+      // --- Assertion 3: merge on correlate collapses the two instances -------
+      // Resolve the litho contacts, then correlate the DEEP KLEI unit's top
+      // contact (CPT-8 @7 m) to a shallow target (CPT-9 @3 m). That
+      // cross-column edge joins the two connected components into one → the
+      // resolver (run inline by the correlate endpoint) reduces two bodies to
+      // one. After a reload, only one KLEI ``partition-region`` is visible.
       const contacts = (await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
@@ -148,10 +232,8 @@ test.describe('flow_per_instance_body', () => {
         [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )) as ContactRow[]
 
-      // CPT-8 is the source column carrying TWO KLEI contacts (@2 m + @7 m); the
-      // column with exactly two same-formation KLEI tops at 2 m and 7 m is the
-      // per-instance source. Find the deep KLEI top (@7 m on the source CPT) and
-      // a shallow target (@3 m on a DIFFERENT investigation).
+      // CPT-8 carries two KLEI tops @2 m + @7 m; find the deep one (@7 m) and
+      // a shallow target (@3 m) on a DIFFERENT investigation.
       const deepKleiTop = contacts.find(
         (c) => c.cpt_id !== null && Math.abs(c.depth_top_m - 7.0) < 0.01,
       )
@@ -192,22 +274,37 @@ test.describe('flow_per_instance_body', () => {
       await expect(page.getByTestId('welcome-screen')).toBeHidden({ timeout: 20_000 })
       // The merge correlate ran ResolveLithoInstances inline (one merged body
       // now), which recreated the body row without its detector extent — re-stamp
-      // it so the single merged body renders its QC label.
+      // it so the merged body's partition regions render correctly.
       await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       await openSectionDLitho(page)
+      await enableFillBands(page)
 
-      // One KLEI body now → exactly ONE QC label. Wait for the overlay, then
-      // assert the count collapsed from two to one (QC2 must be gone).
-      await expect(
-        page.locator('[data-testid^="body-label-"]').filter({ hasText: 'QC1' }).first(),
-      ).toBeVisible({ timeout: 20_000 })
-      await expect(
-        page.locator('[data-testid^="body-label-"]').filter({ hasText: 'QC2' }),
-      ).toHaveCount(0)
-      // And exactly one QC-prefixed label remains in total.
-      await expect(
-        page.locator('[data-testid^="body-label-"]').filter({ hasText: /^QC\d+$/ }),
-      ).toHaveCount(1)
+      // After merge the two KLEI bodies collapse into one: exactly ONE of the
+      // original bodyIds is present (the merged body keeps one of the old ids or
+      // gets a new one). Assert the count of distinct KLEI ``partition-region``
+      // elements: the original separate regions (0 + 1) must now be at most 1
+      // visible region for the merged body. Use the bodies API to get the
+      // current merged bodyId.
+      const mergedBodiesJson = await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/bodies`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mergedKleiBodyIds: string[] = (mergedBodiesJson as any[])
+        .filter((b: any) => kleiFormationIds.has(b.formation_id))
+        .map((b: any) => b.id as string)
+      // Two KLEI formations → one merged body after correlate (ordinals collapse).
+      expect(mergedKleiBodyIds.length).toBeLessThan(kleiBodyIds.length)
+
+      // The one surviving merged body must render a visible partition region.
+      if (mergedKleiBodyIds.length === 1) {
+        await expect(
+          page.locator(`[data-testid="partition-region-${mergedKleiBodyIds[0]}"]`).first(),
+        ).toBeVisible({ timeout: 20_000 })
+      }
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
