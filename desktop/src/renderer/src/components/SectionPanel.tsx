@@ -3087,6 +3087,9 @@ export default function SectionPanel({
               }}
               alongMToScreenX={warpedXToScreen}
               onEditInGeologyStage={onEditInGeologyStage}
+              // Owner directive 2026-06-05 (litho declutter): pass the axis
+              // so ContactsLayer can gate per-contact amber dots on it.
+              axisMode={axisMode}
             />
 
             {/* Litho-suggestion ghost column (slice 3, #55) — interactive
