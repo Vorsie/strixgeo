@@ -40,17 +40,45 @@ test.describe('flow_single_accept', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      const cptsRes = await page.evaluate(
-        async ([base, pid]) => {
-          const r = await fetch(`${base}/cpt/?project_id=${pid}`)
-          return r.json()
-        },
-        [API_BASE, FIXTURE_PROJECT_ID],
-      )
+      const [cptsRes, existingContactsRes] = await Promise.all([
+        page.evaluate(
+          async ([base, pid]) => {
+            const r = await fetch(`${base}/cpt/?project_id=${pid}`)
+            return r.json()
+          },
+          [API_BASE, FIXTURE_PROJECT_ID],
+        ),
+        page.evaluate(
+          async ([base, pid, mid]) => {
+            const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
+            return r.json()
+          },
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        ),
+      ])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((cptsRes as any[]).length).toBeGreaterThan(0)
+
+      // Pick the FIRST series-bearing CPT with NO existing accepted litho layers.
+      // Pre-seeded contacts (body/per-instance scenarios) on CPTs 3/4/5 share the
+      // ZAND/KLEI formation key with the segmenter — accepting would hit the
+      // litho_layer_accepted_no_overlap constraint (409). Use a clean CPT so the
+      // single-accept path exercises the happy 200 path.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cptId: string = (cptsRes as any[])[0].id
+      const occupiedCptIds = new Set<string>(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (existingContactsRes as any[])
+          .filter((c: any) => c.cpt_id !== null)
+          .map((c: any) => c.cpt_id as string),
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cleanCpt = (cptsRes as any[]).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any) => (c.n_rows ?? 0) > 0 && !occupiedCptIds.has(c.id),
+      )
+      expect(cleanCpt, 'at least one series-bearing CPT must have no pre-existing contacts').toBeTruthy()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cptId: string = (cleanCpt as any).id
 
       // 2. Request suggestions for this CPT.
       const suggestRes = await page.evaluate(
