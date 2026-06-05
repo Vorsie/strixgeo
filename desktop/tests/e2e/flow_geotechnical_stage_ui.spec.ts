@@ -35,9 +35,12 @@ test.describe('flow_geotechnical_stage_ui', () => {
       await goToStage(page, 'Geotech')
 
       // The EmptyState placeholder's title + hint (GeotechnicalCanvas.tsx).
+      // Title is stable; the hint text was updated when the MVP scope was
+      // revised to NAD packing classes + CPT-derived indicators (2026-05-18
+      // owner directive). Assert on a stable substring of the current hint.
       await expect(page.getByText('Geotechnical subdivision')).toBeVisible()
       await expect(
-        page.getByText(/Split geological formations into geotechnical units/),
+        page.getByText(/Subdivide lithostratigraphic units by packing density/),
       ).toBeVisible()
     } finally {
       await closeApp(app)
