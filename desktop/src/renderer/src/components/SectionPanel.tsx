@@ -3251,6 +3251,11 @@ export default function SectionPanel({
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
+                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
+                alongToScreenX={warpedXToScreen}
+                screenXToAlong={warpedScreenXToAlongCb}
+                screenToLevel={screenToLevel}
+                onSaveBoundary={onSaveLensShape}
               />
             )}
             {/* Body extent wedges (#163f Slice 6) — per-side dispatch:
