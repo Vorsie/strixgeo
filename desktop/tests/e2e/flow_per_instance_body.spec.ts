@@ -16,8 +16,11 @@
  * ----------
  * 1. Two distinct KLEI partition regions — with Fill bands ON, Section D shows
  *    BOTH ``partition-region-{bodyId0}`` AND ``partition-region-{bodyId1}``
- *    (NOT a single collapsed region). The body IDs are resolved live from the
- *    ``GET /bodies`` API (no hard-coded UUIDs).
+ *    (NOT a single collapsed region). The body IDs are resolved live by finding
+ *    the source CPT-8 (identified by depth signature @2 m + @7 m on Section D)
+ *    and filtering ``GET /bodies`` to ``source_investigation_id = CPT-8.id``
+ *    (formation-name matching was unreliable since sibling specs reuse the same
+ *    formation key via the find-or-create litho_main_soil_code lookup).
  * 2. No jump on framing — the deep body (body_ordinal=1, top @7 m) renders
  *    BELOW the shallow one (body_ordinal=0, top @2 m): its region's minY
  *    (top edge in screen coords) is greater than the shallow region's. This
@@ -133,16 +136,22 @@ test.describe('flow_per_instance_body', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      // Get the two KLEI body IDs — filter bodies by KLEI formations.
-      // The formations endpoint is project-scoped (no model_id); filter on
-      // litho_main_soil_code === 'KLEI' AND name contains "per-instance" to
-      // isolate the Section D scenario bodies from any other KLEI units created
-      // by sibling specs in the shared fixture DB.
-      const [formationsJson, bodiesJson] = await Promise.all([
+      // Resolve the two per-instance KLEI body IDs by targeting Section D's
+      // source column (CPT-8). Section D hosts exactly two correlated KLEI bodies
+      // seeded by the fixture; CPT-8 is their source_investigation_id. Other specs
+      // may create additional KLEI bodies on other CPTs (shared fixture DB), so
+      // we filter by source_investigation_id being a Section-D CPT rather than by
+      // formation name (formation-name matching was unreliable because the
+      // find-or-create key is litho_main_soil_code+admixture only, so segmenter
+      // accepts on other CPTs reuse the same formation row).
+      //
+      // Identify CPT-8: query Section D's contacts. Section D's seeded contacts
+      // include the per-instance contacts on CPTs 8/9/10. The source CPT (CPT-8)
+      // is the one that has exactly TWO KLEI contacts at different depths (2 m + 7 m).
+      const [sectionsJson, bodiesJson] = await Promise.all([
         page.evaluate(
           async ([base, pid]) => {
-            // Formations are mounted under the /geology sub-router.
-            const r = await fetch(`${base}/projects/${pid}/geology/formations`)
+            const r = await fetch(`${base}/projects/${pid}/sections`)
             return r.json()
           },
           [API_BASE, FIXTURE_PROJECT_ID],
@@ -156,22 +165,49 @@ test.describe('flow_per_instance_body', () => {
         ),
       ])
 
-      // Formation IDs for the two per-instance KLEI units on Section D.
+      // Verify Section D exists (sanity check; unused below).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const kleiFormationIds: Set<string> = new Set(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (formationsJson as any[])
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((f: any) => f.litho_main_soil_code === 'KLEI' && String(f.name ?? '').toLowerCase().includes('per-instance'))
-          .map((f: any) => f.id as string),
-      )
-      expect(kleiFormationIds.size).toBeGreaterThanOrEqual(2)
+      const sectionD = (sectionsJson as any[]).find((s: any) => String(s.name ?? '').includes('Section D'))
+      expect(sectionD, 'Section D not found in sections list').toBeTruthy()
 
-      // The two per-instance KLEI bodies (body_ordinal 0 + 1 on those formations).
+      // Get ALL model contacts — identify CPT-8 by depth signature.
+      // The contacts endpoint has no section_id filter; we filter client-side.
+      const sectionDContacts = (await page.evaluate(
+        async ([base, pid, mid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+      )) as ContactRow[]
+
+      // Find the CPT that has TWO contacts at depths close to 2 m and 7 m —
+      // that is CPT-8 (the per-instance source column).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cptContactMap = new Map<string, number[]>()
+      for (const c of sectionDContacts) {
+        if (!c.cpt_id) continue
+        const depths = cptContactMap.get(c.cpt_id) ?? []
+        depths.push(c.depth_top_m)
+        cptContactMap.set(c.cpt_id, depths)
+      }
+      // The source CPT-8 has contacts at ~2 m and ~7 m among others.
+      let sourceCpt8Id: string | undefined
+      for (const [cptId, depths] of cptContactMap) {
+        const hasShallow = depths.some((d) => Math.abs(d - 2.0) < 0.5)
+        const hasDeep = depths.some((d) => Math.abs(d - 7.0) < 0.5)
+        if (hasShallow && hasDeep) {
+          sourceCpt8Id = cptId
+          break
+        }
+      }
+      expect(sourceCpt8Id, 'CPT-8 (source with contacts @2 m and @7 m) not found on Section D').toBeTruthy()
+
+      // The two per-instance KLEI bodies have source_investigation_id = CPT-8.id.
+      // Filter all model bodies to those with that source.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const kleiBodyIds: string[] = (bodiesJson as any[])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((b: any) => kleiFormationIds.has(b.formation_id))
+        .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
         .map((b: any) => b.id as string)
       expect(kleiBodyIds.length).toBe(2)
 
@@ -191,11 +227,12 @@ test.describe('flow_per_instance_body', () => {
       // each gap; the deep body's region has a greater screen-y minY (SVG
       // y-axis grows downward). Resolve body → depth rank via body_ordinal:
       // body_ordinal=0 is the shallow KLEI (@2 m), ordinal=1 is the deep (@7 m).
+      // Build ordinal map for the two per-instance KLEI bodies (source=CPT-8).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const kleiBodyOrdinals: Map<string, number> = new Map(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (bodiesJson as any[])
-          .filter((b: any) => kleiFormationIds.has(b.formation_id))
+          .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((b: any) => [b.id as string, b.body_ordinal as number]),
       )
@@ -293,9 +330,10 @@ test.describe('flow_per_instance_body', () => {
         },
         [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
       )
+      // Filter merged bodies by source_investigation_id = CPT-8 (same as before).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mergedKleiBodyIds: string[] = (mergedBodiesJson as any[])
-        .filter((b: any) => kleiFormationIds.has(b.formation_id))
+        .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
         .map((b: any) => b.id as string)
       // Two KLEI formations → one merged body after correlate (ordinals collapse).
       expect(mergedKleiBodyIds.length).toBeLessThan(kleiBodyIds.length)
