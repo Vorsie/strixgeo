@@ -70,10 +70,17 @@ async function enableFillBands(page: Page): Promise<void> {
   // Only click if currently OFF ("Fill bands"); if already ON ("Hide bands"), skip.
   const currentLabel = await fillBands.textContent().catch(() => '')
   if (currentLabel?.includes('Fill bands')) {
+    // Was OFF → click turns it ON (and closes the dropdown).
     await fillBands.click()
   } else {
-    // Already ON — dismiss the dropdown without toggling.
-    await page.keyboard.press('Escape')
+    // Already ON — close the dropdown by TOGGLING THE TRIGGER, never Escape.
+    // SectionPanel's document-level Escape handler peels the section view and,
+    // with no menu/focus open, hits its final branch — DESELECT the section,
+    // which unmounts the profile and every ``partition-region-*`` element.
+    // That was the root cause of the test-3 flake: it is the only test that
+    // re-enters openBodyMenu with bands already ON, so the only one that
+    // reached this branch; the stray Escape closed the whole section.
+    await bodiesDropdown.click()
   }
 }
 
