@@ -10,6 +10,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -1199,6 +1200,27 @@ async def accept_litho_suggestions(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "accept_litho_error", "message": str(exc)},
+        ) from exc
+    except IntegrityError as exc:
+        # The ``litho_layer_accepted_no_overlap`` exclusion constraint fires when
+        # the accepted layers would overlap existing accepted layers on the same
+        # investigation column. This happens when pre-seeded contacts (from manual
+        # or fixture scenarios) and segmenter-derived contacts share the same
+        # formation key (same litho_main_soil_code + empty admixture signature)
+        # and produce overlapping depth intervals. Return 409 so callers can detect
+        # the conflict without hitting an unhandled 500.
+        orig = str(exc.orig) if exc.orig else str(exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "litho_layer_overlap",
+                "message": (
+                    "Accepted layers would overlap an existing accepted layer on the same "
+                    "investigation column. Re-clear the column (DELETE /contacts) or choose "
+                    "a different anchor before re-accepting."
+                ),
+                "detail": orig[:400],
+            },
         ) from exc
 
     # Explicit-content invariant: seed section after the use case committed.
