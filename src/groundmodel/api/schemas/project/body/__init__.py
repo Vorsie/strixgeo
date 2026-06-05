@@ -16,6 +16,9 @@ from groundmodel.api.schemas.project.body.clear_detected_bodies_response import 
 from groundmodel.api.schemas.project.body.detect_bodies_response import (
     DetectBodiesResponse,
 )
+from groundmodel.api.schemas.project.body.merge_enclosed_lens_response import (
+    MergeEnclosedLensResponse,
+)
 from groundmodel.api.schemas.project.body.name_body_request import (
     NameBodyRequest,
     NameBodyResponse,
@@ -34,6 +37,7 @@ __all__ = [
     "ClaimBodyExtentRequest",
     "ClearDetectedBodiesResponse",
     "DetectBodiesResponse",
+    "MergeEnclosedLensResponse",
     "NameBodyRequest",
     "NameBodyResponse",
     "PinchOutCandidateItem",
