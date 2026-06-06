@@ -5133,9 +5133,15 @@ constraints) lives at
 `api/client.ts` (was 3,201 lines) replaced by a 211-line barrel re-exporting
 from 7 `api/clients/` domain modules (shared.ts, borehole.ts, codelist.ts,
 cpt.ts, geology.ts, project.ts, section.ts — 189/315/143/190/1886/215/267 lines).
-Zero caller import-path changes; tsc + 1,619 vitest tests green. Moves 3–5
-(ContactsLayer geometry, SectionPanel, useGeologicalModel) remain — post-dogfeed,
-medium-high risk.
+Zero caller import-path changes; tsc + 1,619 vitest tests green. Move 3
+(`ContactsLayer.tsx` geometry + subcomponent split) **RESOLVED 2026-06-06:**
+`contactsLayerGeometry.ts` (536 lines — pure geometry: `computeSlabsAndPolylines`
++ 5 helpers + 5 interfaces; zero React) + `ContactContextMenu.tsx` (160 lines —
+portalled menu subcomponent) extracted; `ContactsLayer.tsx` 4,249 → 3,812 lines
+(−493 total across both commits). `computeSlabsAndPolylines` re-exported from
+`ContactsLayer.tsx` so all existing callers and test imports are unchanged.
+tsc + 1,619/1,620 vitest (1 pre-existing skip) green. Moves 4–5
+(SectionPanel, useGeologicalModel) remain — post-dogfeed, medium-high risk.
 
 ## (end)
 
