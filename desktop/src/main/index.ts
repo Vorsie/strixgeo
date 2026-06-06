@@ -403,6 +403,14 @@ function buildMenu(win: BrowserWindow): void {
     {
       label: 'Help',
       submenu: [
+        {
+          label: 'Gesture cheatsheet…',
+          // One-way main→renderer fire — same pattern as Settings. The
+          // renderer owns the CheatsheetDialog open state.
+          accelerator: 'F1',
+          click: () => win.webContents.send('menu:open-cheatsheet'),
+        },
+        { type: 'separator' },
         { label: 'About Strix', click: () => {
           dialog.showMessageBox(win, {
             type: 'info',
