@@ -77,6 +77,7 @@ import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../ut
 import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
 import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import type { UndoCommand } from './useUndoStack'
+import { useFormationCrud } from './useFormationCrud'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
 import { addAllToSet } from '../utils/sets'
@@ -1403,51 +1404,24 @@ export function useGeologicalModel({
   // Formation callbacks
   // ---------------------------------------------------------------------------
 
-  const handleFormationCreated = useCallback(
-    (id: string) => {
-      addToManifest('formation', [id])
-      addToSessionImports('formation', [id])
-      refetchFormations()
-    },
-    [addToManifest, addToSessionImports, refetchFormations],
-  )
-  const handleFormationUpdated = useCallback(() => {
-    // No manifest / dirty change on update (the formation is already
-    // in the manifest); just resync the cached list so renames and
-    // recolour land in the picker + section overlay.
-    refetchFormations()
-  }, [refetchFormations])
-  const handleFormationDeleted = useCallback(
-    (id: string) => {
-      removeFromManifest('formation', new Set([id]))
-      // Drop it from the session-import set too. Deleting a formation
-      // that was created-but-not-yet-saved must clear its dirty
-      // contribution — otherwise ``projectDirty`` stays true forever
-      // over a row that no longer exists (the normal delete-then-save
-      // path never reaches discardSessionImports).
-      removeFromSessionImports('formation', [id])
-      refetchFormations()
-    },
-    [removeFromManifest, removeFromSessionImports, refetchFormations],
-  )
-
-  const handleInlineCreateFormation = useCallback(
-    async (
-      payload: GeologicalFormationCreatePayload,
-    ): Promise<{ id: string } | null> => {
-      if (!project) return null
-      try {
-        const created = await api.geology.createFormation(project.id, payload)
-        setFormations(prev => [...prev, created])
-        handleFormationCreated(created.id)
-        return { id: created.id }
-      } catch (err) {
-        log.error('geology', 'inline createFormation failed', err)
-        return null
-      }
-    },
-    [project, handleFormationCreated],
-  )
+  // Formation create / update / delete — extracted to useFormationCrud
+  // (debt #201 Move 5). A leaf cluster: no other handler calls these, so
+  // it lifts out cleanly. Shared state (formations list, manifest,
+  // session-imports) stays here and is passed down.
+  const {
+    handleFormationCreated,
+    handleFormationUpdated,
+    handleFormationDeleted,
+    handleInlineCreateFormation,
+  } = useFormationCrud({
+    project,
+    addToManifest,
+    removeFromManifest,
+    addToSessionImports,
+    removeFromSessionImports,
+    refetchFormations,
+    setFormations,
+  })
 
   // ---------------------------------------------------------------------------
   // Contact callbacks
