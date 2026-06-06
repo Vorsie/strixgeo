@@ -852,24 +852,6 @@ export interface BodyBoundaryResponse {
   lower_nodes: BodyBoundaryNode[]
 }
 
-/** One pinch-out candidate from ``POST .../bodies/suggest-pinch-outs``. */
-export interface PinchOutCandidate {
-  body_id: string | null
-  source_investigation_id: string
-  above_contact_id: string
-  below_contact_id: string | null
-  /** Hole-bottom depth for a deepest-formation open candidate. */
-  below_depth_m?: number | null
-  side: 'left' | 'right'
-  kind: 'pinch_out_halfway' | 'open'
-  suggested_neighbour_investigation_id: string | null
-}
-
-/** Response from ``POST .../bodies/suggest-pinch-outs``. */
-export interface SuggestPinchOutsResponse {
-  candidates: PinchOutCandidate[]
-}
-
 /**
  * Thrown when ``POST /models/{mid}/bodies`` returns HTTP 409 (provenance rule §5.2).
  *
@@ -1634,37 +1616,6 @@ export const geologyClient = {
     return res.json() as Promise<BodyListItem>
   },
 
-  // Clear one side's extent back to NULL.
-  clearBodyExtent: async (
-    projectId: string,
-    modelId: string,
-    bodyId: string,
-    side: 'left' | 'right',
-  ): Promise<BodyListItem | null> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/extents/${side}`
-    const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-    }
-    // 204 = body was reaped; 200 = body still alive.
-    if (res.status === 204) return null
-    return res.json() as Promise<BodyListItem>
-  },
-
-  // Ephemeral pinch-out candidates from the current correlation graph topology.
-  suggestBodyPinchOuts: (
-    projectId: string,
-    modelId: string,
-    sectionId?: string | null,
-  ): Promise<SuggestPinchOutsResponse> => {
-    const q = sectionId ? `?section_id=${encodeURIComponent(sectionId)}` : ''
-    return post(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/suggest-pinch-outs${q}`,
-      {},
-    )
-  },
-
   updateBody: (
     projectId: string,
     modelId: string,
@@ -1769,22 +1720,6 @@ export const geologyClient = {
 
   // --- Detect bodies (explicit verb, owner directive 2026-05-31) -------
   detectBodies: (
-    projectId: string,
-    modelId: string,
-    sectionId?: string,
-  ): Promise<{
-    bodies_created: number
-    bodies_removed: number
-    bodies_skipped_unresolved_ordinal: number
-  }> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/detect` +
-        (sectionId ? `?section_id=${sectionId}` : ''),
-      {},
-    ),
-
-  // Backwards-compat alias.
-  detectLithoLenses: (
     projectId: string,
     modelId: string,
     sectionId?: string,

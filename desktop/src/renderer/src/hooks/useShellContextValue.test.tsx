@@ -1,4 +1,4 @@
-﻿// Net for the debt #12 shellContextValue extraction + debt #53.
+// Net for the debt #12 shellContextValue extraction + debt #53.
 //
 // This memo's failure modes are invisible to every other check:
 // smoke catches mount crashes/TDZ, tsc catches missing names, the
@@ -214,8 +214,6 @@ function makeCtx(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

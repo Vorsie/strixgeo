@@ -1,4 +1,4 @@
-﻿// Behavioural regression net for SectionsInspector.SectionRow confirm modal
+// Behavioural regression net for SectionsInspector.SectionRow confirm modal
 // (debt #105 fix 1 â€” replaces window.confirm with a Modal dialog).
 //
 // DM1 â€” delete button renders; clicking it opens the confirm modal (does NOT
@@ -268,8 +268,6 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

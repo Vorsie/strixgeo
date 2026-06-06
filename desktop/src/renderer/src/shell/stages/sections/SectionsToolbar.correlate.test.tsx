@@ -154,8 +154,6 @@ function makeCtx(overrides: {
   handleAutoCorrelate?: () => Promise<void>
   handleClearSuggestions?: () => Promise<void>
   toast?: () => void
-  pinchOutCandidates?: unknown[]
-  setPinchOutCandidates?: (candidates: unknown[]) => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
   const enterCorrelateMode = overrides.enterCorrelateMode ?? vi.fn()
@@ -377,8 +375,6 @@ function makeCtx(overrides: {
       exitCorrelateMode,
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: (overrides.pinchOutCandidates ?? []) as ShellContextValue['sections']['pinchOutCandidates'],
-      setPinchOutCandidates: overrides.setPinchOutCandidates ?? vi.fn(),
     },
     overlays: {
       demSource: null,
@@ -1088,7 +1084,6 @@ describe('SectionsToolbar Delete all detected lenses', () => {
       bodies_preserved: 2,
     })
     const toast = vi.fn()
-    const setPinchOutCandidates = vi.fn()
 
     renderWith(
       makeCtx({
@@ -1096,7 +1091,6 @@ describe('SectionsToolbar Delete all detected lenses', () => {
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
         toast,
-        setPinchOutCandidates,
       }),
     )
 
@@ -1109,7 +1103,6 @@ describe('SectionsToolbar Delete all detected lenses', () => {
     })
 
     expect(api.geology.clearDetectedBodies).toHaveBeenCalledWith('proj-1', 'model-litho-1')
-    expect(setPinchOutCandidates).toHaveBeenCalledWith([])
     expect(toast).toHaveBeenCalledTimes(1)
     const [level, message] = toast.mock.calls[0] as [string, string]
     expect(level).toBe('success')
@@ -1149,28 +1142,15 @@ describe('SectionsToolbar Accept all pinch-outs', () => {
     fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
   }
 
-  const candidate = (overrides: Record<string, unknown> = {}): unknown => ({
-    body_id: 'body-1',
-    source_investigation_id: 'inv-1',
-    above_contact_id: 'layer-1',
-    below_contact_id: null,
-    below_depth_m: null,
-    side: 'left',
-    kind: 'pinch_out_halfway',
-    suggested_neighbour_investigation_id: 'inv-0',
-    ...overrides,
-  })
-
-  it('AP1: Detect / Suggest / Accept body verbs are hidden (superseded by the partition fill)', () => {
-    // Hidden 2026-06-05: the partition fill derives lenses + pinch-outs in
-    // geometry, so the manual DB-entity verbs are filtered out of the Bodies
-    // menu (handlers stay wired). Fill bands + Materialise + Delete remain.
+  it('AP1: Detect / Suggest / Accept body verbs are absent (retired with body-extent system)', () => {
+    // Retired 2026-06-06: the partition fill renders bodies in pure geometry;
+    // the manual DB-entity verbs are no longer wired. Fill bands + Materialise
+    // + Delete remain.
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
-        pinchOutCandidates: [candidate()],
       }),
     )
     openBodies()

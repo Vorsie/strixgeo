@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, ScanSearch, PaintBucket } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -55,8 +55,6 @@ export default function SectionsToolbar(): JSX.Element {
       correlateMode,
       enterCorrelateMode,
       exitCorrelateMode,
-      pinchOutCandidates,
-      setPinchOutCandidates,
     },
     geoModel: {
       activeGeologicalModel,
@@ -116,14 +114,6 @@ export default function SectionsToolbar(): JSX.Element {
   // gate on "all contacts in its primary section have ≥1 approved edge" and
   // create a perpendicular companion section.
   const [materialisingCompanions, setMaterialisingCompanions] = useState(false)
-  // Detect lenses (owner directive 2026-05-31) — busy flag for the explicit
-  // "Detect lenses" verb.  Replaces the auto-detect that used to fire from
-  // every edge mutation + destructive op.
-  const [detectingLenses, setDetectingLenses] = useState(false)
-  // Suggest pinch-outs (#body-with-extent Slice 7.3) — busy flag.
-  const [suggestingPinchOuts, setSuggestingPinchOuts] = useState(false)
-  // Accept-all pinch-outs — busy flag for the bulk-claim verb.
-  const [acceptingPinchOuts, setAcceptingPinchOuts] = useState(false)
   // Delete all detected bodies — busy flag + irreversible-confirm modal state.
   const [deletingDetectedBodies, setDeletingDetectedBodies] = useState(false)
   const [deleteBodiesConfirmOpen, setDeleteBodiesConfirmOpen] = useState(false)
@@ -342,151 +332,6 @@ export default function SectionsToolbar(): JSX.Element {
     toast,
   ])
 
-  // Detect lenses (owner directive 2026-05-31): explicit verb that replaces
-  // the auto-detect previously embedded in every edge mutation + destructive
-  // op.  Runs the correlation-graph lens detector on the active litho model
-  // and reports counts in a toast.  Idempotent — re-running with no
-  // topology change is a no-op.
-  const handleDetectLenses = useCallback(async (): Promise<void> => {
-    if (!activeLithoModel || detectingLenses) return
-    log.info('sections', `detectLenses: model=${activeLithoModel.id}`)
-    setDetectingLenses(true)
-    try {
-      // Body extents are section-scoped (2D): pass the active section so each
-      // body closes to the NEAREST target on each side along this section's
-      // column order, instead of the geometry-free fallback that tapered every
-      // body to the first/leftmost test (dogfeed 2026-06-03).
-      const result = await api.geology.detectLithoLenses(
-        project.id,
-        activeLithoModel.id,
-        selectedSectionId ?? undefined,
-      )
-      log.success(
-        'sections',
-        `detectLenses: created=${result.bodies_created} removed=${result.bodies_removed} ` +
-          `skipped_unresolved_ordinal=${result.bodies_skipped_unresolved_ordinal}`,
-      )
-      const parts: string[] = [
-        `${result.bodies_created} new`,
-        `${result.bodies_removed} stale removed`,
-      ]
-      if (result.bodies_skipped_unresolved_ordinal > 0) {
-        parts.push(`${result.bodies_skipped_unresolved_ordinal} skipped (ordinal pending)`)
-      }
-      toast('success', `Lens detect: ${parts.join(', ')}.`)
-      // Refresh the canvas so the new/updated body wedges render without a
-      // manual section reselect (same bus signal as auto-correlate).
-      requestCorrelationEdgesRefetch?.()
-    } catch (err) {
-      log.error('sections', 'detectLenses: failed', err)
-      toast('error', 'Detect lenses failed — try again.')
-    } finally {
-      setDetectingLenses(false)
-    }
-  }, [
-    activeLithoModel,
-    detectingLenses,
-    project.id,
-    selectedSectionId,
-    requestCorrelationEdgesRefetch,
-    toast,
-  ])
-
-  // Suggest pinch-outs (#body-with-extent Slice 7.3): call the
-  // suggest-pinch-outs endpoint and store candidates on the sections bus so
-  // SectionsCanvas can pass them to BodyExtentOverlay as ghost wedges.
-  const handleSuggestBodyPinchOuts = useCallback(async (): Promise<void> => {
-    if (!activeLithoModel || suggestingPinchOuts) return
-    log.info('sections', `suggestBodyPinchOuts: model=${activeLithoModel.id}`)
-    setSuggestingPinchOuts(true)
-    try {
-      const result = await api.geology.suggestBodyPinchOuts(
-        project.id,
-        activeLithoModel.id,
-        selectedSectionId,
-      )
-      setPinchOutCandidates(result.candidates)
-      log.success(
-        'sections',
-        `suggestBodyPinchOuts: ${result.candidates.length} candidate(s)`,
-      )
-      toast(
-        'success',
-        result.candidates.length === 0
-          ? 'No pinch-out candidates found.'
-          : `${result.candidates.length} pinch-out candidate${result.candidates.length === 1 ? '' : 's'} suggested.`,
-      )
-    } catch (err) {
-      log.error('sections', 'suggestBodyPinchOuts: failed', err)
-      toast('error', 'Suggest pinch-outs failed — try again.')
-    } finally {
-      setSuggestingPinchOuts(false)
-    }
-  }, [
-    activeLithoModel,
-    project.id,
-    selectedSectionId,
-    setPinchOutCandidates,
-    suggestingPinchOuts,
-    toast,
-  ])
-
-  // Accept all pinch-outs: claim every ghost candidate currently suggested in
-  // one gesture (the bulk sibling of clicking each wedge). Skips candidates
-  // with no resolved body_id, clears the ghosts, and forces a body re-list so
-  // the committed wedges appear at once.
-  const handleAcceptAllPinchOuts = useCallback(async (): Promise<void> => {
-    if (!activeLithoModel || acceptingPinchOuts || pinchOutCandidates.length === 0) return
-    const claimable = pinchOutCandidates.filter(c => c.body_id !== null)
-    log.info(
-      'sections',
-      `acceptAllPinchOuts: ${claimable.length}/${pinchOutCandidates.length} claimable`,
-    )
-    setAcceptingPinchOuts(true)
-    let ok = 0
-    let failed = 0
-    try {
-      for (const c of claimable) {
-        try {
-          await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-            body_id: c.body_id as string,
-            source_investigation_id: c.source_investigation_id,
-            side: c.side,
-            kind: c.kind,
-            // open = no neighbour; pinch_out_halfway wedges toward the neighbour.
-            neighbour_inv_id:
-              c.kind === 'open' ? null : c.suggested_neighbour_investigation_id,
-            // The candidate's above_contact_id shares the litho layer's UUID —
-            // anchor the cap to that layer so it frames at the right column.
-            anchor_layer_id: c.above_contact_id,
-          })
-          ok += 1
-        } catch (err) {
-          failed += 1
-          log.warn('sections', 'acceptAllPinchOuts: a claim failed', err)
-        }
-      }
-      setPinchOutCandidates([])
-      requestCorrelationEdgesRefetch?.()
-      toast(
-        failed === 0 ? 'success' : 'error',
-        failed === 0
-          ? `Accepted ${ok} pinch-out${ok === 1 ? '' : 's'}.`
-          : `Accepted ${ok}; ${failed} failed.`,
-      )
-    } finally {
-      setAcceptingPinchOuts(false)
-    }
-  }, [
-    activeLithoModel,
-    acceptingPinchOuts,
-    project.id,
-    pinchOutCandidates,
-    setPinchOutCandidates,
-    requestCorrelationEdgesRefetch,
-    toast,
-  ])
-
   // Delete all detected bodies (dogfeed 2026-06-01): bulk-clear every
   // purely-detected body wedge in one gesture. The backend preserves
   // user-named + user-claimed ("accepted") bodies (provenance rule), so the
@@ -504,9 +349,6 @@ export default function SectionsToolbar(): JSX.Element {
         `deleteDetectedBodies: deleted=${result.bodies_deleted} ` +
           `preserved=${result.bodies_preserved}`,
       )
-      // Drop any amber pinch-out ghosts too — they reference bodies that may
-      // no longer exist.
-      setPinchOutCandidates([])
       // Force the canvas to re-list bodies so the wedges disappear at once.
       requestCorrelationEdgesRefetch?.()
       toast(
@@ -528,7 +370,6 @@ export default function SectionsToolbar(): JSX.Element {
     deletingDetectedBodies,
     project.id,
     requestCorrelationEdgesRefetch,
-    setPinchOutCandidates,
     toast,
   ])
 
@@ -1139,39 +980,6 @@ export default function SectionsToolbar(): JSX.Element {
             testid="litho-bodies-dropdown"
             items={[
               {
-                label: detectingLenses ? 'Detecting…' : 'Detect lenses',
-                icon: <ScanSearch size={12} />,
-                onClick: () => { void handleDetectLenses() },
-                disabled: detectingLenses,
-                testid: 'litho-detect-lenses',
-                title:
-                  'Scan the approved contact-correlation graph for closed #135 topologies and materialise / reconcile lens rows. Idempotent — safe to re-run.',
-              },
-              {
-                label: suggestingPinchOuts ? 'Suggesting…' : 'Suggest pinch-outs',
-                icon: <Sparkles size={12} />,
-                onClick: () => { void handleSuggestBodyPinchOuts() },
-                disabled: suggestingPinchOuts,
-                testid: 'body-suggest-pinch-outs',
-                title:
-                  'Scan the correlation graph for bodies that can be claimed as pinch-out wedges and render amber ghost candidates in the section view.',
-              },
-              {
-                label: acceptingPinchOuts
-                  ? 'Accepting…'
-                  : pinchOutCandidates.length > 0
-                    ? `Accept all pinch-outs (${pinchOutCandidates.length})`
-                    : 'Accept all pinch-outs',
-                icon: <CheckCheck size={12} />,
-                onClick: () => { void handleAcceptAllPinchOuts() },
-                disabled: acceptingPinchOuts || pinchOutCandidates.length === 0,
-                testid: 'body-accept-all-pinch-outs',
-                title:
-                  pinchOutCandidates.length === 0
-                    ? 'Run "Suggest pinch-outs" first — then this claims every ghost candidate at once.'
-                    : `Claim all ${pinchOutCandidates.length} suggested pinch-outs / open-ends in one gesture.`,
-              },
-              {
                 label: materialisingCompanions
                   ? 'Materialising…'
                   : 'Materialise lens companions',
@@ -1205,18 +1013,7 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
               },
-            ].filter(
-              // Hidden 2026-06-05: the partition fill ("Fill bands") derives
-              // lenses + pinch-outs in pure geometry, so these manual DB-entity
-              // verbs are redundant + confusing ("draw bands does everything").
-              // Handlers kept wired in case we ever re-expose them.
-              (it) =>
-                ![
-                  'litho-detect-lenses',
-                  'body-suggest-pinch-outs',
-                  'body-accept-all-pinch-outs',
-                ].includes(it.testid ?? ''),
-            )}
+            ]}
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
               admixtures on the ghost suggestions before accepting. The

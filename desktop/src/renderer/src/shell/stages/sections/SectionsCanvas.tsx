@@ -32,7 +32,6 @@ import type {
   BodyRenderStyle,
   LithoContactCorrelationEdge,
   BodyListItem,
-  PinchOutCandidate,
 } from '../../../api/client'
 import type {
   ContactGestureState,
@@ -45,7 +44,6 @@ import CompanionOfferDialog from '../../../components/sections/CompanionOfferDia
 import NameBodyDialog from '../../../components/sections/NameBodyDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
-import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
 import { ProvenanceViolationError } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
@@ -155,8 +153,6 @@ export default function SectionsCanvas(): JSX.Element {
       exitCorrelateMode,
       armCorrelationSource,
       clearCorrelationSource,
-      pinchOutCandidates,
-      setPinchOutCandidates,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -725,90 +721,6 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Body context menu handlers — wired from BodyContextMenu via SectionPanel.
 
-  // Low-level claim helper — calls the API directly WITHOUT the 409 → dialog
-  // branch.  Used on the retry path inside the ProvenanceConflictDialog onApply
-  // handler so a race between clear and re-claim cannot reopen the dialog.
-  // On success it updates local state (refetch + success toast).
-  // On any error — including ProvenanceViolationError — it rethrows so the
-  // caller decides what to show.
-  const _doClaimExtent = useCallback(
-    async (
-      bodyId: string,
-      side: 'left' | 'right',
-      kind: ClaimableKind,
-      anchorLayerId?: string | null,
-      neighbourInvId?: string | null,
-    ): Promise<void> => {
-      if (!activeLithoModel) return
-      const body = lensList.find(b => b.id === bodyId)
-      if (!body) {
-        log.warn('section', `_doClaimExtent: body ${bodyId} not found in lensList`)
-        return
-      }
-      await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-        body_id: body.id,
-        side,
-        kind,
-        // Anchor the cap to the extreme member layer the caller resolved (the
-        // band end on this side), so it renders deterministically + survives a
-        // resolver re-run. Null leaves it unanchored (legacy fallback render).
-        anchor_layer_id: anchorLayerId ?? null,
-        // pinch_out_halfway / extrapolated pinch the body toward this
-        // neighbouring column (the backend requires it for those kinds; it is
-        // ignored for open).
-        neighbour_inv_id: neighbourInvId ?? null,
-      })
-      void refetchLensData()
-      toast('success', `Extent claimed: ${side} → ${kind}`)
-    },
-    [activeLithoModel, project.id, lensList, refetchLensData, toast],
-  )
-
-  // Claim a user-extent on a body.  Looks up the body row from lensList to
-  // supply formation_id + source_investigation_id for the POST.  409 (existing
-  // detector claim) surfaces the ProvenanceConflictDialog so the user can
-  // choose to overwrite.  Delegates the actual API call to _doClaimExtent.
-  const handleClaimBodyExtent = useCallback(
-    async (
-      bodyId: string,
-      side: 'left' | 'right',
-      kind: ClaimableKind,
-      anchorLayerId?: string | null,
-      neighbourInvId?: string | null,
-    ): Promise<void> => {
-      log.info(
-        'section',
-        `claim-body-extent: body=${bodyId} side=${side} kind=${kind} neighbour=${neighbourInvId ?? 'none'}`,
-      )
-      // pinch_out_halfway / extrapolated need a neighbour to pinch toward. When
-      // the edge member sits at the section edge there is none — a pinch-out is
-      // meaningless there, so guide the user to open-end instead of failing with
-      // a generic 422.
-      if ((kind === 'pinch_out_halfway' || kind === 'extrapolated') && !neighbourInvId) {
-        toast(
-          'error',
-          'No neighbouring column on this side to pinch out toward — use Open instead.',
-        )
-        return
-      }
-      try {
-        await _doClaimExtent(bodyId, side, kind, anchorLayerId, neighbourInvId)
-      } catch (err: unknown) {
-        if (err instanceof ProvenanceViolationError) {
-          // HTTP 409: the detector already claimed this side.  Dialog removed
-          // (ProvenanceConflictDialog retired in body-extent retirement).
-          // The detector itself is retired in Task 5; this branch is dead code.
-          log.info('section', `claim-body-extent: 409 provenance conflict for body=${bodyId} side=${side}`)
-          toast('error', 'Extent already claimed — try again.')
-        } else {
-          toast('error', 'Failed to claim extent.')
-          log.warn('section', 'handleClaimBodyExtent: failed', err)
-        }
-      }
-    },
-    [_doClaimExtent, toast],
-  )
-
   // Open-end a litho LAYER from its contact right-click (replaces the retired
   // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent on the
   // body that frames this layer. The resolver owns body creation, so a body
@@ -925,23 +837,6 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, lithoLayers, refetchLensData, toast],
   )
 
-  // Clear one side's user extent.  204 = body reaped; 200 = still alive.
-  const handleClearBodyExtent = useCallback(
-    async (bodyId: string, side: 'left' | 'right'): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info('section', `clear-body-extent: body=${bodyId} side=${side}`)
-      try {
-        await api.geology.clearBodyExtent(project.id, activeLithoModel.id, bodyId, side)
-        void refetchLensData()
-        toast('success', `Extent cleared: ${side}`)
-      } catch (err) {
-        toast('error', 'Failed to clear extent.')
-        log.warn('section', 'handleClearBodyExtent: failed', err)
-      }
-    },
-    [activeLithoModel, project.id, refetchLensData, toast],
-  )
-
   // Name a body via a native prompt (quick path; full rename in the
   // InspectLensBodyPanel).
   // Open the name dialog for a body. (The actual PATCH happens in
@@ -1008,78 +903,6 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, refetchLensData, toast],
   )
 
-  // Two candidates are the same suggestion when their source pair, side, and
-  // base contact all match. Used to drop only the accepted/dismissed one from
-  // the local list so the remaining candidates stay visible.
-  const sameGhostCandidate = (a: PinchOutCandidate, b: PinchOutCandidate): boolean =>
-    a.source_investigation_id === b.source_investigation_id &&
-    a.above_contact_id === b.above_contact_id &&
-    a.below_contact_id === b.below_contact_id &&
-    a.side === b.side
-
-  // Accept a ghost pinch-out candidate — claims the suggested extent on the
-  // backend, removes only that candidate from the list, and refreshes body data.
-  // Other candidates remain visible so the user can accept several in sequence.
-  const handleClaimGhostCandidate = useCallback(
-    async (candidate: PinchOutCandidate): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info('section', `claim-ghost-candidate: body=${candidate.body_id ?? 'none'} inv=${candidate.source_investigation_id} side=${candidate.side}`)
-      // The candidate carries the resolved body_id directly. Post-resolver this
-      // is always set for an accepted unit; a null id means the body has not
-      // been resolved yet, so we refuse rather than fabricate one.
-      if (candidate.body_id === null) {
-        log.warn(
-          'section',
-          `claim-ghost-candidate: candidate has no body_id (inv=${candidate.source_investigation_id}) — resolve/rebuild first`,
-        )
-        toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
-        return
-      }
-      try {
-        // Edge candidates open to the section boundary (no neighbour);
-        // interior candidates pinch out halfway toward the neighbour.
-        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          body_id: candidate.body_id,
-          source_investigation_id: candidate.source_investigation_id,
-          side: candidate.side,
-          kind: candidate.kind,
-          neighbour_inv_id:
-            candidate.kind === 'open'
-              ? null
-              : candidate.suggested_neighbour_investigation_id,
-          // The candidate's above_contact_id is the unit's top-contact id, which
-          // shares the litho layer's UUID — anchor the cap to that layer so it
-          // renders at the right column + depths and survives a resolver re-run.
-          anchor_layer_id: candidate.above_contact_id,
-        })
-        // Remove only the accepted candidate; the others stay visible.
-        setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
-        void refetchLensData()
-        toast('success', candidate.kind === 'open' ? 'Layer open-ended.' : 'Pinch-out claimed.')
-      } catch (err) {
-        toast('error', 'Failed to claim pinch-out.')
-        log.warn('section', 'handleClaimGhostCandidate: failed', err)
-      }
-    },
-    // reason: sameGhostCandidate closes over no state or props — it is a pure
-    // comparator of its two arguments, so its identity never affects correctness;
-    // the linter's missing-dep warning is a false positive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeLithoModel, project.id, pinchOutCandidates, setPinchOutCandidates, refetchLensData, toast],
-  )
-
-  // Dismiss a ghost candidate — removes it from the local list without any
-  // DB write.  Pure UI action; other candidates are unaffected.
-  const handleDismissGhostCandidate = useCallback(
-    (candidate: PinchOutCandidate): void => {
-      setPinchOutCandidates(pinchOutCandidates.filter(c => !sameGhostCandidate(c, candidate)))
-    },
-    // reason: sameGhostCandidate closes over no state or props — it is a pure
-    // comparator of its two arguments, so its identity never affects correctness;
-    // the linter's missing-dep warning is a false positive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setPinchOutCandidates, pinchOutCandidates],
-  )
 
   // Right-click "Delete contact" gesture from the section overlay.
   // Presents window.confirm (irreversible action), delegates to the
@@ -2424,20 +2247,8 @@ export default function SectionsCanvas(): JSX.Element {
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
-          // #body-with-extent Slice 7.2 — body context menu verbs.
-          onClaimBodyExtent={
-            isLitho
-              ? (bid, side, kind, anchorLayerId, neighbourInvId) =>
-                  void handleClaimBodyExtent(bid, side, kind, anchorLayerId, neighbourInvId)
-              : undefined
-          }
-          onClearBodyExtent={isLitho ? (bid, side) => void handleClearBodyExtent(bid, side) : undefined}
           onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
-          // #body-with-extent Slice 7.4 — ghost candidate rendering.
-          ghostCandidates={isLitho ? pinchOutCandidates : undefined}
-          onClaimGhostCandidate={isLitho ? candidate => void handleClaimGhostCandidate(candidate) : undefined}
-          onDismissGhostCandidate={isLitho ? handleDismissGhostCandidate : undefined}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on

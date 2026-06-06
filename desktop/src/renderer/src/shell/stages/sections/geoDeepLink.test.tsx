@@ -1,4 +1,4 @@
-﻿// Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
+// Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
 //
 // GD1 â€” right-click on a reference (geological backdrop) contact hit-strip
 //        in the litho section view â†’ the contact context menu opens with the
@@ -663,8 +663,6 @@ function makeStubContext(overrides?: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

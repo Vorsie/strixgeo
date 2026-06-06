@@ -1,4 +1,4 @@
-﻿// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
+// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
 //
 // Mirrors SectionsStage.test.tsx.  Mounts the two Geology zone components with
 // a stub ShellContext to catch:
@@ -246,8 +246,6 @@ function makeStubContext(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

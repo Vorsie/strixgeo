@@ -1,4 +1,4 @@
-﻿// Smoke + consistency test for the Data stage components (DataStage,
+// Smoke + consistency test for the Data stage components (DataStage,
 // DataInspector).
 //
 // Pins that the Data badge (DataStage.ts â†’ useDataStageSummary) and the
@@ -214,8 +214,6 @@ function makeStubContext(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

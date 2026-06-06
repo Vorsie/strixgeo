@@ -1,4 +1,4 @@
-﻿// Behavioral net for the slice-2 (#55) axis toggle in SectionsToolbar.
+// Behavioral net for the slice-2 (#55) axis toggle in SectionsToolbar.
 //
 // Claims pinned here:
 //   B1  When activeLithoModel is null, the "Litho" radio button is disabled.
@@ -322,8 +322,6 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

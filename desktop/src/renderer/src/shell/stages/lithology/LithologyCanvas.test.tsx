@@ -1,4 +1,4 @@
-﻿// Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
+// Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
 //
 // Claims pinned here:
 //   C1  When no litho surfaces exist (empty map or all vertices=[]) â†’
@@ -291,8 +291,6 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

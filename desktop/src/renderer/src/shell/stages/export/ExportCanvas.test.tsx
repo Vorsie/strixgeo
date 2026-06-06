@@ -1,4 +1,4 @@
-﻿// Behaviour + smoke test for the Export stage canvas (debt #30).
+// Behaviour + smoke test for the Export stage canvas (debt #30).
 //
 // Mirrors GeologyStage.test.tsx's stub-ShellContext approach. Covers:
 //   * smoke render with no prerequisites (both cards show guidance)
@@ -211,8 +211,6 @@ function makeStubContext(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

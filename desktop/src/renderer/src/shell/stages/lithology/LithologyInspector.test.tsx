@@ -1,4 +1,4 @@
-﻿// Behavioral net for LithologyInspector.
+// Behavioral net for LithologyInspector.
 //
 // Claims pinned here (Slice C, #55 peer-stage scaffolding):
 //   I1  When activeGeologicalModel is null: guidance to create a
@@ -370,8 +370,6 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

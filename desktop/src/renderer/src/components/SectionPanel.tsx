@@ -50,14 +50,13 @@ import type {
   LithoContactCorrelationEdge,
   LithoLayerResponse,
   LithoLayerSuggestion,
-  PinchOutCandidate,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
 import { computeScrubBounds } from '../utils/scrubBounds'
-import { extremeMemberLayerId, neighbourInvBeyondExtreme } from '../utils/bodyAnchor'
+import { neighbourInvBeyondExtreme } from '../utils/bodyAnchor'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
@@ -97,7 +96,7 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import PartitionFillOverlay from './sections/PartitionFillOverlay'
 import { useBandFillVisible } from '../utils/bandFillStore'
-import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
+import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
@@ -696,24 +695,6 @@ interface Props {
   /** Right-click a wedge → dissolve the lens by deleting its defining edges. */
   onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
   /**
-   * Claim a user extent on a body (one side at a time). Fired from the
-   * ``BodyContextMenu`` when the user picks a "Claim <side>" item.
-   */
-  onClaimBodyExtent?: (
-    bodyId: string,
-    side: 'left' | 'right',
-    kind: ClaimableKind,
-    anchorLayerId?: string | null,
-    /** The column the body pinches toward — required for pinch_out_halfway /
-     *  extrapolated, ignored for open. */
-    neighbourInvId?: string | null,
-  ) => void
-  /**
-   * Clear one side's user extent. Fired from the ``BodyContextMenu`` when the
-   * user picks "Clear <side> extent".
-   */
-  onClearBodyExtent?: (bodyId: string, side: 'left' | 'right') => void
-  /**
    * Open the name-body dialog / flow. Fired from the ``BodyContextMenu`` when
    * the user picks "Name body".
    */
@@ -744,24 +725,6 @@ interface Props {
     side: 'left' | 'right',
     neighbourInvId: string | null,
   ) => void
-  /**
-   * Auto-suggest pinch-out candidates from the "Suggest pinch-outs" toolbar
-   * verb. Forwarded to ``BodyExtentOverlay`` to render dashed amber ghost
-   * wedges. Absent or empty = no ghost overlay.
-   */
-  ghostCandidates?: readonly PinchOutCandidate[]
-  /**
-   * Confirmed acceptance of a ghost candidate → claim the suggested pinch-out.
-   * Called after the user confirms the dialog (left-click path) or picks
-   * "Accept" from the right-click menu.  Forwarded to the BodyExtentOverlay
-   * indirectly via the ghost dialog + menu state.
-   */
-  onClaimGhostCandidate?: (candidate: PinchOutCandidate) => void
-  /**
-   * Dismiss a ghost candidate — removes it from the local list without any
-   * DB write.  Called from the right-click "Dismiss suggestion" menu item.
-   */
-  onDismissGhostCandidate?: (candidate: PinchOutCandidate) => void
 }
 
 export default function SectionPanel({
@@ -828,15 +791,10 @@ export default function SectionPanel({
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
-  onClaimBodyExtent,
   onOpenEndLayer,
   onPinchOutLayer,
-  onClearBodyExtent,
   onNameBody,
   onDissolveBody,
-  ghostCandidates,
-  onClaimGhostCandidate,
-  onDismissGhostCandidate,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2999,7 +2957,7 @@ export default function SectionPanel({
                 onSaveBoundary={onSaveLensShape}
                 bodies={lenses}
                 onBodyContextMenu={
-                  onClaimBodyExtent ?? onClearBodyExtent ?? onNameBody ?? onDissolveBody
+                  onNameBody ?? onDissolveBody
                     ? handleBodyContextMenu
                     : undefined
                 }
@@ -3074,35 +3032,6 @@ export default function SectionPanel({
                   formationLabelById.get(bodyCtxMenu.body.formation_id) ||
                   undefined
                 }
-                onClaimExtent={(bodyId, side, kind) => {
-                  // Anchor the cap to the body's EXTREME on-section member for
-                  // this side (leftmost member for left, rightmost for right) —
-                  // the band end the cap renders from.  Computed here because
-                  // SectionPanel holds both the member layers and the placed
-                  // columns' along-positions.  Null when no member is on this
-                  // section → the cap renders via the legacy fallback.
-                  const anchorLayerId = extremeMemberLayerId(
-                    bodyId,
-                    side,
-                    lithoLayers ?? [],
-                    visibleColumns,
-                  )
-                  // pinch_out_halfway / extrapolated need the column the body
-                  // pinches toward (the neighbour just beyond the edge member);
-                  // open ignores it.
-                  const neighbourInvId = neighbourInvBeyondExtreme(
-                    bodyId,
-                    side,
-                    lithoLayers ?? [],
-                    visibleColumns,
-                  )
-                  onClaimBodyExtent?.(bodyId, side, kind, anchorLayerId, neighbourInvId)
-                  dismissBodyCtxMenu()
-                }}
-                onClearExtent={(bodyId, side) => {
-                  onClearBodyExtent?.(bodyId, side)
-                  dismissBodyCtxMenu()
-                }}
                 onNameBody={bodyId => {
                   onNameBody?.(bodyId)
                   dismissBodyCtxMenu()

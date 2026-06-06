@@ -1,4 +1,4 @@
-﻿// Behavioral net for LithologyToolbar (Phase 1 litho accept flow).
+// Behavioral net for LithologyToolbar (Phase 1 litho accept flow).
 //
 // "Build litho" was moved from SectionsToolbar to LithologyToolbar so
 // it lives beside the model-management surface, not the section editor.
@@ -293,8 +293,6 @@ function makeCtx(overrides: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

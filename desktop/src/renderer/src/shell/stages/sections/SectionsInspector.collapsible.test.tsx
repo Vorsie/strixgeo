@@ -1,4 +1,4 @@
-﻿// Regression anchors for InspectorSection collapsibility (debt #115 sub-item 1).
+// Regression anchors for InspectorSection collapsibility (debt #115 sub-item 1).
 //
 // IC1 â€” header is a <button> with aria-expanded="true" by default (first mount,
 //        no stored preference).
@@ -238,8 +238,6 @@ function makeCtx(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

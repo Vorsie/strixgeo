@@ -1,4 +1,4 @@
-﻿// Behavioural net for the SectionsInspector ModelActions row (debt #97).
+// Behavioural net for the SectionsInspector ModelActions row (debt #97).
 //
 // Build / Sync geology / Seed / Seed-for-new-tests / Dedupe â€” moved here
 // from the Sections toolbar per the owner directive 2026-05-22 ("model-
@@ -348,8 +348,6 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

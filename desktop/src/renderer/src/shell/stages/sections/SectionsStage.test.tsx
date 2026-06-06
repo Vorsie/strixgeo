@@ -1,4 +1,4 @@
-﻿// Smoke test for the Sections stage components (SectionsCanvas,
+// Smoke test for the Sections stage components (SectionsCanvas,
 // SectionsToolbar, SectionsInspector).
 //
 // The App.smoke.test.tsx only mounts App with project=null â€” it never reaches
@@ -252,8 +252,6 @@ function makeStubContext(): ShellContextValue {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,

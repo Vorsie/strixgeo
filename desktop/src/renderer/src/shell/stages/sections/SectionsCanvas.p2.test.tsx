@@ -1,4 +1,4 @@
-﻿// P2 explicit-content invariant tests.
+// P2 explicit-content invariant tests.
 //
 // Owner directive 2026-05-17: nothing appears on a section without the user
 // clicking a button on that section. These tests verify:
@@ -388,8 +388,6 @@ function makeStubContext(overrides?: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
-      pinchOutCandidates: [],
-      setPinchOutCandidates: vi.fn(),
     },
     overlays: {
       demSource: null,
