@@ -1,0 +1,295 @@
+/**
+ * Lithostratigraphic-model operations handler cluster for
+ * {@link useGeologicalModel} (debt #201 Move 5). Extracted as a focused
+ * sub-hook so the composer stays a thin owner of shared state. This cluster
+ * covers litho-model-level mutations: rebuild litho surfaces, clear litho
+ * model, create/activate/delete lithostratigraphic model.
+ *
+ * The shared state (ghost overlay, focused-anchor flag, stale-TIN counter,
+ * the model list, and the refetch helpers) lives in the composer and is
+ * passed in; this hook owns only the five operation callbacks.
+ *
+ * Dep-array convention: ``set*`` setters (``setGhostsByAnchor``,
+ * ``setFocusedSuggestAnchorId``, ``setLithoStaleTinSessionCount``) are
+ * omitted from dep arrays — they are stable-by-construction useState
+ * setters. Unlike the modelOps cluster, ``toast`` IS listed in dep arrays
+ * for this cluster (carried verbatim from the composer — the original
+ * handlers listed it explicitly). Refs (``activeLithoModelRef``,
+ * ``activeGeologicalModelRef``) are stable across renders and never appear
+ * in dep arrays.
+ */
+import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+
+import { api } from '../api/client'
+import type { GeologicalModelResponse, ProjectResponse } from '../api/client'
+import type { BulkAnchorGhost } from './useGeologicalModel'
+import { log } from '../utils/log'
+
+/** Inputs for {@link useLithoModelOps}. */
+export interface UseLithoModelOpsParams {
+  /** The open project, or null when none is loaded. */
+  project: ProjectResponse | null
+  /**
+   * Stable ref to the active lithostratigraphic model. Used by
+   * handleRebuildLithoSurfaces and handleClearLithoModel so they can read
+   * the latest value without listing it as a dep.
+   */
+  activeLithoModelRef: MutableRefObject<GeologicalModelResponse | null>
+  /**
+   * Stable ref to the active geological model. Used by
+   * handleCreateLithoModel to read the parent backbone without a dep.
+   */
+  activeGeologicalModelRef: MutableRefObject<GeologicalModelResponse | null>
+  /** Resync the model list + derive the active-litho pointer. */
+  refreshModels: () => Promise<GeologicalModelResponse[]>
+  /** Resync the litho layers (and derived litho contacts) from the server. */
+  refetchLithoContacts: () => void
+  /** Resync the formation list from the server. */
+  refetchFormations: () => void
+  /** Refetch the litho surface TIN cache from the server. */
+  refetchLithoSurfaces: () => void
+  /**
+   * Setter for the ghost-suggestion Map. Stable — omitted from dep arrays.
+   * Called by handleClearLithoModel to dismiss stale ghost overlays.
+   */
+  setGhostsByAnchor: Dispatch<SetStateAction<ReadonlyMap<string, BulkAnchorGhost>>>
+  /**
+   * Setter for the focused-anchor pointer. Stable — omitted from dep arrays.
+   * Cleared by handleClearLithoModel alongside the ghost Map.
+   */
+  setFocusedSuggestAnchorId: Dispatch<SetStateAction<string | null>>
+  /**
+   * Setter for the stale-TIN session counter. Stable — omitted from dep
+   * arrays. Cleared by handleClearLithoModel to reset the inspector pill.
+   */
+  setLithoStaleTinSessionCount: Dispatch<SetStateAction<number>>
+  /** Mark the project dirty after a mutation of pre-existing rows. */
+  markMutated: () => void
+  /** Surface a toast to the user. Listed in dep arrays for this cluster. */
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
+}
+
+/** Handlers returned by {@link useLithoModelOps}. */
+export interface UseLithoModelOpsResult {
+  handleRebuildLithoSurfaces: () => Promise<void>
+  handleClearLithoModel: () => Promise<void>
+  handleCreateLithoModel: (name: string) => Promise<GeologicalModelResponse | null>
+  handleActivateLithoModel: (modelId: string) => Promise<void>
+  handleDeleteLithoModel: (modelId: string) => Promise<void>
+}
+
+/**
+ * Lithostratigraphic-model operation callbacks (rebuild surfaces, clear,
+ * create, activate, delete).
+ *
+ * Parameters
+ * ----------
+ * params
+ *     See {@link UseLithoModelOpsParams}.
+ *
+ * Returns
+ * -------
+ * UseLithoModelOpsResult
+ *     The five operation handlers.
+ */
+export function useLithoModelOps({
+  project,
+  activeLithoModelRef,
+  activeGeologicalModelRef,
+  refreshModels,
+  refetchLithoContacts,
+  refetchFormations,
+  refetchLithoSurfaces,
+  setGhostsByAnchor,
+  setFocusedSuggestAnchorId,
+  setLithoStaleTinSessionCount,
+  markMutated,
+  toast,
+}: UseLithoModelOpsParams): UseLithoModelOpsResult {
+  // Rebuild TIN surfaces for the active lithostratigraphic model.
+  // Closes over activeLithoModelRef; the dep array is
+  // [project, refetchLithoSurfaces, toast] — refetchLithoSurfaces is a
+  // stable useCallback keyed on [project] and toast is caller-stable,
+  // so the callback identity tracks project identity.  The rebuild
+  // endpoint is model-id-
+  // agnostic (POST .../models/{mid}/surfaces/rebuild works for any kind);
+  // no backend change is required.  After a successful rebuild we
+  // call refetchLithoSurfaces so lithoSurfacesByFormationId + the
+  // stale-count badge update synchronously.
+  const handleRebuildLithoSurfaces = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.debug('geology', `rebuildLithoSurfaces entry model=${model.id}`)
+    try {
+      const result = await api.geology.rebuildSurfaces(project.id, model.id)
+      refetchLithoSurfaces()
+      log.success(
+        'geology',
+        `rebuildLithoSurfaces ok considered=${result.formations_considered} rebuilt=${result.formations_rebuilt}`,
+      )
+      if (result.formations_considered === 0) {
+        toast('success', 'No litho formations with contacts yet — nothing to rebuild.')
+      } else if (result.formations_rebuilt === 0) {
+        toast(
+          'success',
+          `Litho cache in sync (${result.formations_considered} ` +
+            `surface${result.formations_considered === 1 ? '' : 's'} checked).`,
+        )
+      } else {
+        toast(
+          'success',
+          `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} litho surface${result.formations_considered === 1 ? '' : 's'}.`,
+        )
+      }
+    } catch (err) {
+      log.error('geology', 'rebuildLithoSurfaces failed', err)
+      toast('error', 'Could not rebuild litho surfaces — see console.')
+    }
+  }, [project, refetchLithoSurfaces, toast])
+
+  // Debt #94 fix: clear all content from the active litho model.
+  // Removes contacts, correlation edges, TIN surfaces, and orphan litho
+  // formations in one atomic call. Irreversible — the caller
+  // (LithologyInspector) must present a confirm dialog first.
+  const handleClearLithoModel = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.info('geology', `clearLithoModel entry model=${model.id}`)
+    try {
+      const result = await api.geology.clearLithoModel(project.id, model.id)
+      // Refetch contacts (now empty), formations (litho units gone), and
+      // surfaces (TIN rows deleted) so the inspector roster and 3D viewer
+      // both update without a page reload.
+      refetchLithoContacts()
+      refetchFormations()
+      refetchLithoSurfaces()
+      // Also dismiss any litho suggestion ghosts — they were proposals
+      // for the model we just emptied; leaving the coloured ghost bands
+      // on the section after a "Clear litho model" is confusing (dogfeed
+      // 2026-05-22). The ghost overlay is ephemeral frontend state,
+      // separate from the DB model, so the clear endpoint never touched
+      // it — reset it here. (Setters from useState are stable; the
+      // closure resolves them at call time, well after declaration.)
+      setGhostsByAnchor(new Map())
+      setFocusedSuggestAnchorId(null)
+      setLithoStaleTinSessionCount(0)
+      const total = result.contacts + result.formations
+      // Rows were deleted — mark dirty so a close-without-save reverts.
+      if (total > 0) markMutated()
+      log.success(
+        'geology',
+        `clearLithoModel ok contacts=${result.contacts} edges=${result.edges} ` +
+          `surfaces=${result.surfaces} formations=${result.formations}`,
+      )
+      toast(
+        'success',
+        total === 0
+          ? 'Litho model already empty.'
+          : `Cleared litho model — ${result.contacts} contact${result.contacts === 1 ? '' : 's'}, ` +
+              `${result.formations} unit${result.formations === 1 ? '' : 's'} removed.`,
+      )
+    } catch (err) {
+      log.error('geology', 'clearLithoModel failed', err)
+      toast('error', 'Could not clear litho model — see console.')
+    }
+  }, [project, refetchLithoContacts, refetchFormations, refetchLithoSurfaces, toast, markMutated])
+
+  // #55 model-kind picker — create a lithostratigraphic model under
+  // the active geological backbone. The backend enforces the parent
+  // invariant (422 if parent missing / wrong kind); we surface that
+  // as a toast and return null rather than throwing into the UI.
+  const handleCreateLithoModel = useCallback(
+    async (name: string): Promise<GeologicalModelResponse | null> => {
+      if (!project) return null
+      const parent = activeGeologicalModelRef.current
+      if (!parent) {
+        toast('error', 'Create a geological model before adding a lithostratigraphic one.')
+        return null
+      }
+      try {
+        const created = await api.geology.createModel(project.id, {
+          name,
+          kind: 'lithostratigraphic',
+          parent_geological_model_id: parent.id,
+          is_active: true,
+        })
+        await refreshModels()
+        log.success('geology', `created litho model ${created.id} (${name})`)
+        return created
+      } catch (err) {
+        log.error('geology', `handleCreateLithoModel failed (${name})`, err)
+        toast('error', 'Could not create the lithostratigraphic model.')
+        return null
+      }
+    },
+    [project, refreshModels, toast],
+  )
+
+  // #55 — activate a lithostratigraphic model (backend clears the
+  // same-kind sibling only; the geological backbone is untouched).
+  const handleActivateLithoModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      if (!project) return
+      try {
+        await api.geology.activateModel(project.id, modelId)
+        await refreshModels()
+        log.success('geology', `activated litho model ${modelId}`)
+      } catch (err) {
+        log.error('geology', `handleActivateLithoModel failed ${modelId}`, err)
+        toast('error', 'Could not activate the lithostratigraphic model.')
+      }
+    },
+    [project, refreshModels, toast],
+  )
+
+  // #55 — delete a lithostratigraphic model. A litho model has no
+  // children (it is itself a leaf that refines a geological parent),
+  // so the backend delete never 409s here. refreshModels re-derives
+  // activeLithoModel from the fresh list; when the deleted model was
+  // active it becomes null and the activeLithoModel-watching effect
+  // clears the parallel litho formation/contact state — no manual
+  // teardown needed. The picker shows a confirm dialog before calling
+  // this (irreversible-action rule, docs/ux.md).
+  const handleDeleteLithoModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      if (!project) return
+      log.info('geology', `handleDeleteLithoModel entry model=${modelId}`)
+      try {
+        await api.geology.deleteModel(project.id, modelId)
+        await refreshModels()
+        // Debt #147 follow-up — the backend delete cascade removes
+        // every litho formation that had a contact ONLY in this model
+        // (per the model-aware vocabulary rule in
+        // ``GeologyRepository.delete_model``).  The frontend
+        // ``formations`` list is project-scoped and isn't auto-
+        // refreshed by ``refreshModels``, so the deleted litho units
+        // would linger in ``lithoFormations`` → the LithologyInspector
+        // INSTANCES section keeps showing the OLD 69 unit rows under
+        // a freshly-created new model.  Refetch formations so the
+        // local vocabulary reflects what's actually in the DB.
+        refetchFormations()
+        markMutated()
+        log.success('geology', `deleted litho model ${modelId}`)
+      } catch (err) {
+        log.error('geology', `handleDeleteLithoModel failed ${modelId}`, err)
+        // Surface the server's reason (del() now carries `detail`).
+        toast(
+          'error',
+          err instanceof Error
+            ? err.message
+            : 'Could not delete the lithostratigraphic model.',
+        )
+        throw err
+      }
+    },
+    [project, refreshModels, refetchFormations, toast, markMutated],
+  )
+
+  return {
+    handleRebuildLithoSurfaces,
+    handleClearLithoModel,
+    handleCreateLithoModel,
+    handleActivateLithoModel,
+    handleDeleteLithoModel,
+  }
+}
