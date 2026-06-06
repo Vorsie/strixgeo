@@ -1,13 +1,16 @@
 # God-component decomposition plan (debt #114, extended)
 
-**Status:** Moves 1–3 DONE (2026-06-06). Move 1 (`project_bundle.py` → package),
+**Status:** Moves 1–4 DONE. Move 1 (`project_bundle.py` → package),
 Move 2 (`api/client.ts` → per-domain barrel), Move 3 (`ContactsLayer` pure-geometry
-+ `ContactContextMenu` extraction; drag core deliberately left in place) all
-landed on `develop`, each verified green (mypy + pytest unit + bundle round-trip
-for BE; tsc + full Vitest for FE). **Moves 4–5 remain (SectionPanel,
-useGeologicalModel)** — the high-risk React splits (TDZ / hook-ordering /
-dep-array + the spacing-warp trap). These MUST land in a dedicated session with
-a `senior-code-reviewer` pass on each diff, NOT under a live dogfeed.
++ `ContactContextMenu` extraction; drag core deliberately left in place) landed
+2026-06-06. **Move 4 (`SectionPanel.tsx`) DONE 2026-06-06** — `CanvasHints.tsx`,
+`useSectionCanvasGestures.ts` (wheel zoom + Esc cascade hooks), `SectionGrid.tsx`
+extracted; 3,709 → 3,455 lines; the stateful drag/overlay core left in place;
+TDZ verified; tsc + 1,619 Vitest green; senior-code-reviewer pass clean.
+Each move verified green (mypy + pytest unit + bundle round-trip for BE; tsc +
+full Vitest for FE). **Move 5 remains (useGeologicalModel)** — the highest-risk
+React split (TDZ / hook-ordering / dep-array). It MUST land with a
+`senior-code-reviewer` pass on each cluster diff, NOT under a live dogfeed.
 
 **Why now-as-a-plan:** five files dominate the codebase by size. None is a
 single unreadable mega-function; the problem is *file size + mixed concerns in
