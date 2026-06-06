@@ -829,7 +829,6 @@ async def _restore_project_bundle_impl(
         boreholes_payload,
         valid_formation_ids,
         valid_model_ids,
-        geological_models_payload,
         logger=logger,
     )
 

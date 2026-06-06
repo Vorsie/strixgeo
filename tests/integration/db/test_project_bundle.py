@@ -2009,3 +2009,176 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
     assert {m.kind for m in models} == {"geological", "lithostratigraphic"}
     litho_after = next(m for m in models if m.kind == "lithostratigraphic")
     assert litho_after.parent_geological_model_id == geo_model_id
+
+
+# ---------------------------------------------------------------------------
+# Bundle-strip step: extent field retirement
+# ---------------------------------------------------------------------------
+
+
+async def test_restore_ignores_legacy_extent_fields(db_session: AsyncSession) -> None:
+    """A legacy .strix bundle with stale extent_* keys on body dicts restores
+    cleanly — the body row and its boundary nodes round-trip correctly and no
+    FK-violation or UnexpectedField error is raised.
+
+    The extent system is retired (partition-fill replaces it).  Bundles saved
+    before this commit carry ``extent_left_kind``, ``extent_right_kind``,
+    ``extent_left_target_contact_id``, etc. on every body dict.  After the
+    strip step these keys must be silently dropped so that projects saved by
+    an older build open in a new one without error.
+    """
+    from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
+    from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+    from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+
+    source = await _make_source_project(db_session)
+    cpt = (
+        await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="ZAND",
+        code="ZD",
+        color="#f5e642",
+        display_order=0,
+    )
+    # A lithostratigraphic model requires a parent geological model (DB
+    # constraint ck_geological_model_kind_parent_null).
+    geo_backbone = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo backbone",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="geological",
+    )
+    db_session.add_all([formation, geo_backbone])
+    await db_session.flush()
+
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_backbone.id,
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        model_id=model.id,
+        formation_id=formation.id,
+        body_ordinal=0,
+        source_investigation_id=cpt.id,
+    )
+    db_session.add(body)
+    await db_session.flush()
+
+    # Add a boundary shape + node so we can verify they also round-trip.
+    shape = BodyBoundaryShapeOrm(
+        id=uuid7(),
+        model_id=model.id,
+        body_id=body.id,
+        render_style="straight",
+    )
+    db_session.add(shape)
+    await db_session.flush()
+
+    node = BodyBoundaryNodeOrm(
+        id=uuid7(),
+        shape_id=shape.id,
+        boundary="upper",
+        node_index=0,
+        along_m=12.5,
+        elevation_m=-3.0,
+    )
+    db_session.add(node)
+    await db_session.commit()
+
+    body_id = body.id
+    shape_id = shape.id
+    node_id = node.id
+
+    # Build a genuine bundle, then inject legacy extent_* keys onto the body
+    # dict to simulate a bundle written by an older build.
+    bundle = await build_project_bundle(db_session, source)
+    assert len(bundle["bodies"]) == 1
+    # Verify the new serialize path already omits extent fields.
+    assert not any(k.startswith("extent_") for k in bundle["bodies"][0])
+
+    # Now inject the legacy keys — this is what an old .strix on-disk looks like.
+    bundle["bodies"][0]["extent_left_kind"] = "to_target"
+    bundle["bodies"][0]["extent_left_target_contact_id"] = str(uuid7())
+    bundle["bodies"][0]["extent_left_neighbour_inv_id"] = None
+    bundle["bodies"][0]["extent_left_anchor_layer_id"] = str(uuid7())
+    bundle["bodies"][0]["extent_left_provenance"] = "user"
+    bundle["bodies"][0]["extent_right_kind"] = "open"
+    bundle["bodies"][0]["extent_right_target_contact_id"] = None
+    bundle["bodies"][0]["extent_right_neighbour_inv_id"] = None
+    bundle["bodies"][0]["extent_right_anchor_layer_id"] = None
+    bundle["bodies"][0]["extent_right_provenance"] = "auto"
+
+    # Wipe end-to-end (simulate a cold restore on a fresh DB).
+    await db_session.execute(
+        delete(BodyBoundaryNodeOrm).where(BodyBoundaryNodeOrm.shape_id == shape_id)
+    )
+    await db_session.execute(
+        delete(BodyBoundaryShapeOrm).where(BodyBoundaryShapeOrm.body_id == body_id)
+    )
+    await db_session.execute(delete(BodyOrm).where(BodyOrm.app_project_id == source.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # Restore must succeed even though the bundle has legacy extent_* keys.
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bodies_payload=bundle["bodies"],
+        body_boundary_shapes_payload=bundle["body_boundary_shapes"],
+        body_boundary_nodes_payload=bundle["body_boundary_nodes"],
+    )
+    await db_session.commit()
+
+    # Body round-tripped with correct id and no extent state.
+    restored_body = (
+        await db_session.execute(select(BodyOrm).where(BodyOrm.id == body_id))
+    ).scalar_one()
+    assert restored_body.id == body_id
+    assert restored_body.formation_id == formation.id
+    assert restored_body.body_ordinal == 0
+    # Extent columns must be NULL — the legacy keys were not written.
+    assert restored_body.extent_left_kind is None
+    assert restored_body.extent_right_kind is None
+    assert restored_body.extent_left_target_contact_id is None
+    assert restored_body.extent_right_anchor_layer_id is None
+
+    # Boundary shape + node also round-tripped correctly.
+    restored_node = (
+        await db_session.execute(
+            select(BodyBoundaryNodeOrm).where(BodyBoundaryNodeOrm.id == node_id)
+        )
+    ).scalar_one()
+    assert restored_node.along_m == 12.5
+    assert restored_node.elevation_m == -3.0
+    assert restored_node.node_index == 0

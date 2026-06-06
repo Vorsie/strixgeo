@@ -242,9 +242,9 @@ class ProjectBundleRequest(BaseModel):
     )
     # Body rows (replaces litho_lenses — slice 4.1 rename).  Each row carries
     # id, model_id, formation_id, body_ordinal, source_investigation_id, name,
-    # primary_section_id, and the six extent columns (extent_left_kind /
-    # target_contact_id / neighbour_inv_id, same for right).  Restore order:
-    # models first, then bodies (model_id + formation_id FK-respecting).
+    # primary_section_id.  Extent columns are intentionally excluded — the
+    # extent system is retired in favour of the partition-fill model.  Restore
+    # order: models first, then bodies (model_id + formation_id FK-respecting).
     # Additive field: absence in an older bundle restores cleanly via
     # default_factory=list.  Older bundles carrying ``litho_lenses`` key
     # are ignored on restore (pre-ship amnesty — no upgrade path needed;

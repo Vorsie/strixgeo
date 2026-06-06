@@ -48,6 +48,7 @@ from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 from .bundle_serialization import (
+    _BODY_SKIP_COLUMNS,
     _SKIP_COLUMNS,
     _borehole_to_dict,
     _column_to_json,
@@ -307,13 +308,15 @@ async def _build_project_bundle_impl(
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
         "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
         # Body rows (slice 4.1 rename from litho_lenses). Each row carries the
-        # full BodyOrm column set: id, model_id, formation_id, body_ordinal,
-        # source_investigation_id, name, primary_section_id, and the six extent
-        # columns (extent_left/right_kind / target_contact_id / neighbour_inv_id).
+        # core BodyOrm column set: id, model_id, formation_id, body_ordinal,
+        # source_investigation_id, name, primary_section_id.  Extent columns
+        # (extent_left/right_kind / target_contact_id / neighbour_inv_id /
+        # anchor_layer_id / provenance) are intentionally omitted — the
+        # extent system is retired in favour of the partition-fill model.
         # formation_absences carries (formation_id, investigation_kind,
         # investigation_id, source). Bundles saved before these fields existed
         # open cleanly via the schema's default_factory=list.
-        "bodies": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
+        "bodies": [_column_to_json(lens, _BODY_SKIP_COLUMNS) for lens in lenses],
         "formation_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
         # Contact-level correlation edges (#133 Phase 2+3). Each row carries
         # (model_id, contact_a_id, contact_b_id, source, user_approved).

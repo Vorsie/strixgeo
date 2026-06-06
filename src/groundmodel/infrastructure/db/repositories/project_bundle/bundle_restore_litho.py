@@ -12,7 +12,7 @@ Functions
 _restore_geological_models
     Insert model rows with nested contacts, surfaces, and litho layers.
 _restore_bodies
-    Insert body (lens) rows with FK integrity guards on extent columns.
+    Insert body (lens) rows with FK integrity guards; extent fields are stripped.
 _restore_formation_absences
     Insert formation-absence rows, skipping orphaned formation refs.
 _restore_contact_edges
@@ -52,6 +52,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 from .bundle_row_builders import _uuid, _validate_tin_payload
 from .bundle_serialization import (
+    _BODY_EXTENT_COLUMNS,
     _MAX_SURFACE_SOURCE_CONTACTS,
     _MAX_TIN_ARRAY_LEN,
     _apply_json_to_kwargs,
@@ -366,15 +367,16 @@ async def _restore_bodies(
     boreholes_payload: list[dict[str, Any]],
     valid_formation_ids: set[UUID],
     valid_model_ids: set[UUID],
-    geological_models_payload: list[dict[str, Any]],
     *,
     logger: GroundModelLogger,
 ) -> tuple[int, int, int]:
     """Insert body (lens) rows from the bundle with FK integrity guards.
 
-    Extent guards strip unresolvable ``to_target`` / ``pinch_out_halfway``
-    /``extrapolated`` extent links rather than dropping the entire body —
-    losing an extent hint is less destructive than losing the body.
+    Extent fields (``extent_left/right_kind``, ``_target_contact_id``,
+    ``_neighbour_inv_id``, ``_anchor_layer_id``, ``_provenance``) are
+    stripped before insert — the extent system is retired in favour of the
+    partition-fill model.  Legacy bundles that still carry these keys restore
+    cleanly; the keys are silently dropped before ``_apply_json_to_kwargs``.
 
     Parameters
     ----------
@@ -393,9 +395,6 @@ async def _restore_bodies(
         Pre-computed union of DB + payload formation ids.
     valid_model_ids : set[UUID]
         Model ids that belong to this project (bundle-injection guard).
-    geological_models_payload : list[dict[str, Any]]
-        Raw model dicts — used to include contacts queued in this transaction
-        when validating ``to_target`` extents.
     logger : GroundModelLogger
         Caller's logger.
 
@@ -427,54 +426,11 @@ async def _restore_bodies(
         if bid is not None:
             valid_inv_ids.add(bid)
 
-    # Valid formation-contact ids — DB rows + contacts queued in models payload.
-    valid_contact_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(FormationContactOrm.id)
-                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for m_p in geological_models_payload:
-        for c in m_p.get("contacts") or []:
-            cid = _uuid(c.get("id"))
-            if cid is not None:
-                valid_contact_ids.add(cid)
-
-    # Valid litho-layer ids — DB rows + layers queued in the models payload.
-    # Used to validate each extent's ``anchor_layer_id`` (FK litho_layer.id); a
-    # dangling anchor is NULLed (the cap falls back to band-end framing) rather
-    # than dropping the body.
-    valid_layer_ids: set[UUID] = set(
-        (
-            await session.execute(
-                select(LithoLayerOrm.id)
-                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for m_p in geological_models_payload:
-        for ly in m_p.get("litho_layers") or []:
-            lid = _uuid(ly.get("id"))
-            if lid is not None:
-                valid_layer_ids.add(lid)
-
     existing = set(
         (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
         .scalars()
         .all()
     )
-
-    _EXTENT_SIDES = ("left", "right")
-    _TARGET_KINDS = frozenset({"to_target"})
-    _NEIGHBOUR_KINDS = frozenset({"pinch_out_halfway", "extrapolated"})
 
     new_lenses = 0
     skipped = 0
@@ -531,57 +487,13 @@ async def _restore_bodies(
             dropped += 1
             continue
 
-        # Extent FK checks — strip unresolvable extents rather than dropping the body.
-        kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
-        for side in _EXTENT_SIDES:
-            kind_key = f"extent_{side}_kind"
-            target_key = f"extent_{side}_target_contact_id"
-            neighbour_key = f"extent_{side}_neighbour_inv_id"
-            extent_kind = kwargs.get(kind_key)
-            if extent_kind in _TARGET_KINDS:
-                target_id = _uuid(kwargs.get(target_key))
-                if target_id is None:
-                    logger.warning(
-                        f"[{i}/{total}] body {lens_id}: {kind_key}='to_target' "
-                        f"but {target_key} is NULL — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                    kwargs[target_key] = None
-                elif target_id not in valid_contact_ids:
-                    logger.warning(
-                        f"[{i}/{total}] body {lens_id}: {target_key} {target_id} "
-                        f"not in this project's contacts — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                    kwargs[target_key] = None
-            elif extent_kind in _NEIGHBOUR_KINDS:
-                nbr_id = _uuid(kwargs.get(neighbour_key))
-                if nbr_id is None:
-                    logger.warning(
-                        f"[{i}/{total}] body {lens_id}: {kind_key}={extent_kind!r} "
-                        f"but {neighbour_key} is NULL — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                elif nbr_id not in valid_inv_ids:
-                    logger.warning(
-                        f"[{i}/{total}] body {lens_id}: {neighbour_key} {nbr_id} "
-                        f"not in this project's investigations — stripping extent"
-                    )
-                    kwargs[kind_key] = None
-                    kwargs[neighbour_key] = None
-
-            # Anchor guard (any kind): NULL a dangling anchor_layer_id so the
-            # INSERT doesn't FK-violate. The cap still renders via band-end
-            # fallback; only the deterministic anchor is lost.
-            anchor_key = f"extent_{side}_anchor_layer_id"
-            anchor_id = _uuid(kwargs.get(anchor_key))
-            if anchor_id is not None and anchor_id not in valid_layer_ids:
-                logger.warning(
-                    f"[{i}/{total}] body {lens_id}: {anchor_key} {anchor_id} "
-                    f"not in this project's litho layers — NULLing anchor"
-                )
-                kwargs[anchor_key] = None
-
+        # Strip legacy extent_* keys before mapping to ORM kwargs.  The
+        # extent system is retired; the columns still exist in this step but
+        # must not be written so the next migration step can drop them cleanly.
+        # A future bundle (post-column-drop) that omits these keys is handled
+        # automatically by _apply_json_to_kwargs's "unknown key → skip" rule.
+        stripped_payload = {k: v for k, v in lens_payload.items() if k not in _BODY_EXTENT_COLUMNS}
+        kwargs = _apply_json_to_kwargs(BodyOrm, stripped_payload)
         kwargs["app_project_id"] = project_id
         session.add(BodyOrm(**kwargs))
         existing.add(lens_id)

@@ -43,6 +43,32 @@ from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHI
 # on restore — see the parent module docstring.
 _SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"})
 
+# Extent columns dropped from the body (BodyOrm) serialise + restore path.
+# The extent system (to_target / pinch_out_halfway / extrapolated / open) is
+# retired in favour of the partition-fill model — these columns will be
+# dropped from the ORM in the next step.  A legacy .strix that still carries
+# extent_* keys restores without error because _apply_json_to_kwargs silently
+# drops keys that have no matching ORM column (and once the columns are gone
+# that is automatic).  During the transition window (columns still present but
+# bundle write/read retired) we explicitly exclude them from both directions.
+_BODY_EXTENT_COLUMNS = frozenset(
+    {
+        "extent_left_kind",
+        "extent_left_target_contact_id",
+        "extent_left_neighbour_inv_id",
+        "extent_left_anchor_layer_id",
+        "extent_left_provenance",
+        "extent_right_kind",
+        "extent_right_target_contact_id",
+        "extent_right_neighbour_inv_id",
+        "extent_right_anchor_layer_id",
+        "extent_right_provenance",
+    }
+)
+
+# Combined skip set for BodyOrm serialisation.
+_BODY_SKIP_COLUMNS = _SKIP_COLUMNS | _BODY_EXTENT_COLUMNS
+
 # Restore-boundary caps for FormationSurface TIN blobs (debt #19). The
 # .strix bundle's ``vertices`` / ``triangles`` JSONB arrays are deserialised
 # straight into PostgreSQL with no inherent bound — a malicious or
