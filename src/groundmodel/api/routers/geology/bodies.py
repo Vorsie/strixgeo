@@ -2,30 +2,19 @@
 
 Mounted under the shared ``/projects/{project_id}/geology`` prefix.
 
-Endpoints (per spec §6)
------------------------
-POST /models/{mid}/bodies/detect
-    DetectBodies — explicit bilateral-closure detection + reconcile.
-
-POST /models/{mid}/bodies/suggest-pinch-outs
-    SuggestBodyPinchOuts — ephemeral candidate generator (no DB writes).
-
+Endpoints
+---------
 GET  /models/{mid}/bodies
     List all ``BodyOrm`` rows for the model.
 
-POST /models/{mid}/bodies
-    Claim — calls ``ClaimBodyExtent`` (body must already exist — the
-    resolver owns body creation; addressed by ``body_id``).
-
 PATCH /models/{mid}/bodies/{bid}
-    Update name — calls ``NameBody`` identified by body_id (fetches
-    formation_id + body_ordinal from the existing row, then delegates).
+    Update name — calls ``NameBody`` identified by body_id.
 
 DELETE /models/{mid}/bodies/{bid}
     Hard-delete a body row (``DeleteBody``).
 
-DELETE /models/{mid}/bodies/{bid}/extents/{side}
-    Clear one lateral extent (``ClearBodyExtent``).
+DELETE /models/{mid}/bodies
+    Bulk-delete purely-detected bodies (``DeleteDetectedBodies``).
 
 GET  /models/{mid}/bodies/{bid}/boundary
     Fetch boundary shape + control nodes (``GetBodyBoundary``).
@@ -34,8 +23,10 @@ PUT  /models/{mid}/bodies/{bid}/boundary
     Full-replace boundary shape + nodes (``SaveBodyBoundary``).
 
 POST /models/{mid}/bodies/{bid}/perpendicular-companion
-    Auto-create a perpendicular companion section
-    (``CreatePerpendicularCompanion``).
+    Auto-create a perpendicular companion section.
+
+POST /models/{mid}/bodies/merge-enclosed-lenses
+    Merge host halves of an enclosed lens into one body.
 
 Plus the absence endpoints (kept from lenses.py; body-scoped but mounted
 under the shared geology prefix for historical reasons):
@@ -44,14 +35,6 @@ GET  /formations/{formation_id}/absences
 POST /formations/{formation_id}/absences
 POST /models/{mid}/formations/{formation_id}/absences/recompute
 POST /models/{mid}/recompute-all-absences
-
-Route ordering note
--------------------
-``/models/{model_id}/bodies/detect`` and
-``/models/{model_id}/bodies/suggest-pinch-outs`` MUST appear BEFORE
-``/models/{model_id}/bodies/{body_id}``; FastAPI matches routes in
-declaration order and would otherwise capture ``"detect"`` /
-``"suggest-pinch-outs"`` as the ``body_id`` path parameter.
 """
 
 from __future__ import annotations
@@ -70,14 +53,10 @@ from groundmodel.api.schemas.project.body import (
     BodyBoundaryResponse,
     BodyBoundaryWriteRequest,
     BodyListItem,
-    ClaimBodyExtentRequest,
     ClearDetectedBodiesResponse,
-    DetectBodiesResponse,
     MergeEnclosedLensResponse,
     NameBodyRequest,
     NameBodyResponse,
-    PinchOutCandidateItem,
-    SuggestPinchOutsResponse,
 )
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.litho_lens import (
@@ -92,20 +71,15 @@ from groundmodel.application.body_boundary import (
     GetBodyBoundary,
     SaveBodyBoundary,
 )
-from groundmodel.application.claim_body_extent import ClaimBodyExtent, ProvenanceViolationError
-from groundmodel.application.clear_body_extent import ClearBodyExtent
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.delete_detected_bodies import DeleteDetectedBodies
-from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
 )
-from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
-from groundmodel.application.suggest_body_pinch_outs import SuggestBodyPinchOuts
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
 from groundmodel.domain.services.body_geo_label import majority_geo_formation
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
@@ -282,98 +256,6 @@ async def list_bodies(
     return [_to_list_item(b, labels.get(b.id, (None, None))) for b in bodies]
 
 
-# ---------------------------------------------------------------------------
-# Detect bodies — explicit verb (MUST come before /{body_id} routes)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/bodies/detect",
-    response_model=DetectBodiesResponse,
-)
-async def detect_bodies(
-    project_id: UUID,
-    model_id: UUID,
-    section_id: UUID | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> DetectBodiesResponse:
-    """Run the explicit "Detect bodies" pass on a lithostratigraphic model.
-
-    Materialises ``BodyOrm`` rows for bilateral-closure topologies in the
-    user-approved contact-edge graph and removes rows whose body no longer
-    matches.  Idempotent.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        Must be a lithostratigraphic model in this project.
-    section_id : UUID | None
-        The active cross-section.  Body extents are section-scoped (2D): when
-        given, each body closes to the NEAREST target on each side along this
-        section's column order, and the reconcile only touches bodies whose
-        source is on this section.  Omit for the section-less fallback (UUID
-        ordering, model-wide reconcile) used by non-interactive callers.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    DetectBodiesResponse
-        Counts of created, removed, and ordinal-skipped body rows.
-
-    Raises
-    ------
-    HTTPException(404)
-        Model not found in the project.
-    HTTPException(422)
-        Model is not lithostratigraphic.
-    """
-    model = await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-    if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Model {model_id} is of kind {model.kind!r}; "
-                "body detection only runs on lithostratigraphic models."
-            ),
-        )
-    # Run the resolver FIRST, then detect — mirroring the canonical reconcile
-    # pattern in the startup sweep (api/main.py) and the bundle restore
-    # (api/routers/project.py).  ``ResolveLithoInstances`` is the SOLE authority
-    # that creates ``body`` rows (one per connected component) and stamps
-    # ``litho_layer.body_id``; ``DetectBodies`` is a pure extent manager that
-    # can only write onto resolver-owned bodies.  Without this, a "Detect" click
-    # after the user clears all bodies finds ``body_id IS NULL`` on every framed
-    # layer (the FK is ``ondelete=SET NULL``) and silently creates nothing — the
-    # bodies, still implied by the intact correlation graph, only reappear on an
-    # app restart.  Running the resolver here makes Detect self-healing.
-    await ResolveLithoInstances(session).execute(model_id=model_id, commit=False)
-    result = await DetectBodies(session).execute(
-        project_id=project_id,
-        model_id=model_id,
-        prefer_section_id=section_id,
-    )
-    # Both use cases flush but do NOT commit (designed to compose inside larger
-    # transactions).  This explicit endpoint owns the commit boundary.
-    await session.commit()
-    logger.success(
-        f"detect_bodies: project={project_id} model={model_id} "
-        f"created={result.bodies_created} removed={result.bodies_removed} "
-        f"skipped_unresolved_ordinal={result.bodies_skipped_unresolved_ordinal}"
-    )
-    return DetectBodiesResponse(
-        bodies_created=result.bodies_created,
-        bodies_removed=result.bodies_removed,
-        bodies_skipped_unresolved_ordinal=result.bodies_skipped_unresolved_ordinal,
-    )
-
-
 @router.post(
     "/models/{model_id}/bodies/merge-enclosed-lenses",
     response_model=MergeEnclosedLensResponse,
@@ -440,188 +322,6 @@ async def merge_enclosed_lenses(
         edges_created=result.edges_created,
         edges_skipped_existing=result.edges_skipped_existing,
     )
-
-
-# ---------------------------------------------------------------------------
-# Suggest pinch-outs — ephemeral (MUST come before /{body_id} routes)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/bodies/suggest-pinch-outs",
-    response_model=SuggestPinchOutsResponse,
-)
-async def suggest_body_pinch_outs(
-    project_id: UUID,
-    model_id: UUID,
-    section_id: UUID | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> SuggestPinchOutsResponse:
-    """Run SuggestBodyPinchOuts — returns ephemeral candidates, no DB writes.
-
-    Scans bodies whose source pair has zero approved correlations in some
-    direction and emits one ``PinchOutCandidateItem`` per adjacent
-    neighbour in that direction.  The frontend renders them as ghost
-    wedges; click-to-commit fires ``POST .../bodies`` (ClaimBodyExtent).
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        Must be a lithostratigraphic model in this project.
-    section_id : UUID | None
-        Active cross-section. When given, adjacency follows the section's
-        along-axis column order (so suggestions target the neighbouring
-        column, not a UUID-random one). Omit for the section-agnostic
-        fallback.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    SuggestPinchOutsResponse
-        Zero or more pinch-out candidates.
-
-    Raises
-    ------
-    HTTPException(404)
-        When the model does not exist or belongs to a different project.
-    """
-    # Router-level scope guard: must return 404 (not 422) for a cross-project
-    # model id — consistent with every other model-scoped endpoint in this
-    # router.  Without this guard the use case's internal load_scoped_or_raise
-    # would raise ValueError, which the except block below maps to 422.
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-    try:
-        candidates = await SuggestBodyPinchOuts(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            section_id=section_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "suggest_pinch_outs_error", "message": str(exc)},
-        ) from exc
-
-    logger.debug(
-        f"suggest_body_pinch_outs: project={project_id} model={model_id} "
-        f"→ {len(candidates)} candidate(s)"
-    )
-    return SuggestPinchOutsResponse(
-        candidates=[
-            PinchOutCandidateItem(
-                body_id=c.body_id,
-                source_investigation_id=c.source_investigation_id,
-                above_contact_id=c.above_contact_id,
-                below_contact_id=c.below_contact_id,
-                below_depth_m=c.below_depth_m,
-                side=c.side,
-                kind=c.kind,
-                suggested_neighbour_investigation_id=c.suggested_neighbour_investigation_id,
-            )
-            for c in candidates
-        ]
-    )
-
-
-# ---------------------------------------------------------------------------
-# Claim a body extent (body must already exist — resolver owns creation)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/bodies",
-    response_model=BodyListItem,
-    status_code=status.HTTP_201_CREATED,
-)
-async def claim_body_extent(
-    project_id: UUID,
-    model_id: UUID,
-    request: ClaimBodyExtentRequest,
-    session: AsyncSession = Depends(get_session),
-) -> BodyListItem:
-    """Claim a lateral extent on an existing body.
-
-    Sets one side (left or right) of the body identified by ``body_id`` to
-    the requested kind.  The body must already exist — the resolver
-    (``ResolveLithoInstances``) owns body creation, so every accepted
-    instance carries a body before any claim gesture is possible.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        Must be a lithostratigraphic model in this project.
-    request : ClaimBodyExtentRequest
-        body_id, side, kind, optional source_investigation_id, optional
-        neighbour_inv_id, optional primary_section_id.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    BodyListItem
-        The updated body row.
-
-    Raises
-    ------
-    HTTPException(404)
-        When the model does not belong to the project.
-    HTTPException(409)
-        When a detector-set ``to_target`` extent would be overwritten
-        (provenance violation — user must call ClearBodyExtent first).
-    HTTPException(422)
-        On other validation failure (invalid side/kind, missing neighbour,
-        unknown body id, scope guard failures for investigation ids).
-    """
-    # Router-level model scope guard: must return 404 (not 422) for a
-    # cross-project model id.  Without this, the use case's internal
-    # load_scoped_or_raise would raise ValueError → 422.
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-    try:
-        body = await ClaimBodyExtent(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            body_id=request.body_id,
-            source_investigation_id=request.source_investigation_id,
-            side=request.side,
-            kind=request.kind,
-            neighbour_inv_id=request.neighbour_inv_id,
-            primary_section_id=request.primary_section_id,
-            anchor_layer_id=request.anchor_layer_id,
-        )
-    except ProvenanceViolationError as exc:
-        # Provenance rule §5.2: detector-set extent cannot be overwritten
-        # without an explicit ClearBodyExtent call.  409 signals a conflict
-        # state the user must explicitly resolve (distinct from 422 which
-        # signals a plain validation error the client sent bad data for).
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "provenance_violation", "message": str(exc)},
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "claim_body_extent_error", "message": str(exc)},
-        ) from exc
-
-    logger.success(
-        f"claim_body_extent: project={project_id} model={model_id} "
-        f"body={body.id} side={request.side} kind={request.kind}"
-    )
-    labels = await _geo_labels_by_body(session, model_id, [body.id])
-    return _to_list_item(body, labels.get(body.id, (None, None)))
 
 
 # ---------------------------------------------------------------------------
@@ -813,73 +513,6 @@ async def delete_body_endpoint(
         model_id=model_id,
         body_id=body_id,
     )
-
-
-# ---------------------------------------------------------------------------
-# Clear one lateral extent
-# ---------------------------------------------------------------------------
-
-
-@router.delete(
-    "/models/{model_id}/bodies/{body_id}/extents/{side}",
-    response_model=BodyListItem | None,
-)
-async def clear_body_extent(
-    project_id: UUID,
-    model_id: UUID,
-    body_id: UUID,
-    side: str,
-    session: AsyncSession = Depends(get_session),
-) -> BodyOrm | None:
-    """Clear one lateral extent back to NULL.
-
-    Reaps the body row when both extents are NULL and the name is empty.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        Model scope guard (validated via model 404 check).
-    body_id : UUID
-        The body whose extent is to be cleared.
-    side : str
-        ``"left"`` or ``"right"``.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    BodyListItem | None
-        The updated body row, or ``null`` when the body was reaped.
-
-    Raises
-    ------
-    HTTPException(404)
-        Model or body not found in scope.
-    HTTPException(422)
-        Invalid ``side`` value.
-    """
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-
-    try:
-        body = await ClearBodyExtent(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            body_id=body_id,
-            side=side,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "clear_body_extent_error", "message": str(exc)},
-        ) from exc
-
-    return body
 
 
 # ---------------------------------------------------------------------------

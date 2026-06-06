@@ -7,14 +7,8 @@ from groundmodel.api.schemas.project.body.body_boundary import (
     BodyRenderStyle,
 )
 from groundmodel.api.schemas.project.body.body_list_item import BodyListItem
-from groundmodel.api.schemas.project.body.claim_body_extent_request import (
-    ClaimBodyExtentRequest,
-)
 from groundmodel.api.schemas.project.body.clear_detected_bodies_response import (
     ClearDetectedBodiesResponse,
-)
-from groundmodel.api.schemas.project.body.detect_bodies_response import (
-    DetectBodiesResponse,
 )
 from groundmodel.api.schemas.project.body.merge_enclosed_lens_response import (
     MergeEnclosedLensResponse,
@@ -23,10 +17,6 @@ from groundmodel.api.schemas.project.body.name_body_request import (
     NameBodyRequest,
     NameBodyResponse,
 )
-from groundmodel.api.schemas.project.body.suggest_pinch_outs_response import (
-    PinchOutCandidateItem,
-    SuggestPinchOutsResponse,
-)
 
 __all__ = [
     "BodyBoundaryNodeItem",
@@ -34,12 +24,8 @@ __all__ = [
     "BodyBoundaryWriteRequest",
     "BodyListItem",
     "BodyRenderStyle",
-    "ClaimBodyExtentRequest",
     "ClearDetectedBodiesResponse",
-    "DetectBodiesResponse",
     "MergeEnclosedLensResponse",
     "NameBodyRequest",
     "NameBodyResponse",
-    "PinchOutCandidateItem",
-    "SuggestPinchOutsResponse",
 ]
