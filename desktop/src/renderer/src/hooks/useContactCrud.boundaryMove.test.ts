@@ -221,6 +221,10 @@ describe('useContactCrud — accepted shared-boundary move', () => {
     const depth = call[2].new_depth_m as number
     expect(depth).toBeGreaterThan(0) // > upper.top
     expect(depth).toBeLessThan(5) // < lower.base
+    // Pin the exact clamp arithmetic: lower.base (5) minus the EPS guard, so
+    // a future EPS change that risks the backend's strict 422 guard is caught
+    // here numerically.
+    expect(depth).toBeCloseTo(5 - 1e-6, 9)
   })
 
   it('B4: undo replays moveLayerBoundary back to the pre-drag boundary depth', async () => {
@@ -245,5 +249,26 @@ describe('useContactCrud — accepted shared-boundary move', () => {
       lower_layer_id: 'L-lower',
       new_depth_m: 2,
     })
+  })
+
+  it('B5: field=base (drag the upper layer base) also routes to moveLayerBoundary', async () => {
+    // Same two accepted layers, but the drag grabs the UPPER layer's BASE
+    // (field='base') — the partner is then the lower layer whose TOP meets it.
+    // Pins the symmetric branch the other tests (all field='top') don't cover.
+    const { layers, contacts } = twoAcceptedLayers()
+    const h = renderHarness(layers, contacts)
+
+    await act(async () => {
+      // Drag the upper layer's BASE down to 3 m.
+      await h.result.current.handleUpdateContactDepth('L-upper', 3, false, 'base')
+    })
+
+    expect(api.geology.moveLayerBoundary).toHaveBeenCalledTimes(1)
+    expect(api.geology.moveLayerBoundary).toHaveBeenCalledWith('P1', MODEL_ID, {
+      upper_layer_id: 'L-upper',
+      lower_layer_id: 'L-lower',
+      new_depth_m: 3,
+    })
+    expect(api.geology.updateLayer).not.toHaveBeenCalled()
   })
 })

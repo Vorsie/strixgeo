@@ -264,11 +264,6 @@ export function useContactCrud({
               // litho path below).
               markMutated()
               refetchLithoContacts()
-              log.success(
-                'geology',
-                `updateContactDepth boundary-move ok upper=${upper.id} ` +
-                  `lower=${lower.id} depth=${clampedM.toFixed(3)}m — refetching`,
-              )
               // Undo/redo replay the atomic move both ways (symmetric).
               const projectId = project.id
               const upperId = upper.id
@@ -292,6 +287,14 @@ export function useContactCrud({
                   refetchLithoContacts()
                 },
               })
+              // Logged after the undo command is registered so the "ok"
+              // trace only appears once the operation is fully committed
+              // from the app's perspective (undo on the stack).
+              log.success(
+                'geology',
+                `updateContactDepth boundary-move ok upper=${upper.id} ` +
+                  `lower=${lower.id} depth=${clampedM.toFixed(3)}m — refetching`,
+              )
               return
             }
           }
