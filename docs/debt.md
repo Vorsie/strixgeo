@@ -5140,8 +5140,18 @@ Zero caller import-path changes; tsc + 1,619 vitest tests green. Move 3
 portalled menu subcomponent) extracted; `ContactsLayer.tsx` 4,249 → 3,812 lines
 (−493 total across both commits). `computeSlabsAndPolylines` re-exported from
 `ContactsLayer.tsx` so all existing callers and test imports are unchanged.
-tsc + 1,619/1,620 vitest (1 pre-existing skip) green. Moves 4–5
-(SectionPanel, useGeologicalModel) remain — post-dogfeed, medium-high risk.
+tsc + 1,619/1,620 vitest (1 pre-existing skip) green. Move 4
+(`SectionPanel.tsx`) **RESOLVED 2026-06-06:** three render-only / native-event
+extractions out of the 3,709-line orchestrator — `CanvasHints.tsx` (57 lines,
+gesture cheat pill), `useSectionCanvasGestures.ts` (418 lines, the
+`useSectionWheelZoom` cursor-anchored wheel zoom + `useSectionKeyboardShortcuts`
+Esc peel cascade — `{ passive: false }` attach + spacing-warp anchor reads
+preserved verbatim), `SectionGrid.tsx` (110 lines, gridlines + axis ticks).
+The stateful drag/overlay core stays in `SectionPanel.tsx` per the plan's
+mutable-drag-state guard. `SectionPanel.tsx` 3,709 → 3,455 lines. TDZ verified
+(both hook calls sit below every binding they consume, above the lone return);
+tsc + 1,619 vitest green; senior-code-reviewer pass clean (no blockers). Move 5
+(useGeologicalModel) remains — post-dogfeed, high risk.
 
 ## (end)
 
