@@ -56,6 +56,7 @@ import type {
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
+import { computeScrubBounds } from '../utils/scrubBounds'
 import { extremeMemberLayerId, neighbourInvBeyondExtreme } from '../utils/bodyAnchor'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
@@ -1499,28 +1500,29 @@ export default function SectionPanel({
     contacts,
   ])
 
-  // Scrub-bar outer bounds: leftmost-test / rightmost-test
-  // along-section position (world m). The scrub-bar track represents
-  // this range — NOT 0..sectionLength — so the engineer scrubs over
-  // where the data actually sits, not the empty section tail. Falls
-  // back to [0, lengthM] when no columns are placed yet (fresh section
-  // before projection lands), so the bar stays grab-able. Recomputes
-  // on every change to placedColumns (zoom-driven layout changes,
-  // spacing slider, new investigation imported — all of which
-  // re-rerun the placedColumns memo).
+  // Scrub-bar outer bounds: the WARP-EFFECTIVE leftmost / rightmost
+  // along-section position (world m). The track represents the RENDERED
+  // extent of the columns — NOT 0..sectionLength, and NOT the raw
+  // ``proj.along`` span. At low ``column_spacing`` the columns pack left
+  // (``nudgedX`` lands left of ``xToScreen(rawAlong)``); bounding the
+  // scrub to the raw along would let the handle scroll the viewport far
+  // past the packed columns into empty space (dogfeed 2026-06-06).
+  // ``computeScrubBounds`` maps each column's rendered ``nudgedX`` back
+  // through ``screenXToAlong`` to its effective along and takes the
+  // extremes — pan-independent (``nudgedX`` embeds ``viewport.xMin``,
+  // which ``screenXToAlong`` adds back, so they cancel). Falls back to
+  // [0, lengthM] when no columns are placed yet (fresh section before
+  // projection lands), so the bar stays grab-able. Recomputes on every
+  // change to placedColumns (zoom-driven layout changes, spacing slider,
+  // new investigation imported) or the viewport transform
+  // (``screenXToAlong``).
   const { scrubDataMinM, scrubDataMaxM } = useMemo(() => {
-    if (placedColumns.length === 0) {
-      return { scrubDataMinM: 0, scrubDataMaxM: lengthM }
-    }
-    let lo = Infinity
-    let hi = -Infinity
-    for (const col of placedColumns) {
-      const a = col.proj.along
-      if (a < lo) lo = a
-      if (a > hi) hi = a
-    }
-    return { scrubDataMinM: lo, scrubDataMaxM: hi }
-  }, [placedColumns, lengthM])
+    const { min, max } = computeScrubBounds(placedColumns, screenXToAlong, {
+      min: 0,
+      max: lengthM,
+    })
+    return { scrubDataMinM: min, scrubDataMaxM: max }
+  }, [placedColumns, lengthM, screenXToAlong])
 
   // Feed the latest data bounds into the ref that ``scrubTo``
   // (declared above ``placedColumns``) consumes. The ref dodges the
