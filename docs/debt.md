@@ -66,7 +66,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -1437,36 +1437,6 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
-## 95. Lithology gesture cheatsheet + drag-and-drop discoverability (Tier D)
-
-**What.**  Dogfeed 2026-05-21: "How do I drag-and-drop lithology?
-shift click is select alt click and normal click just pan?"  The
-section editor's bottom strip lists four gestures (drag = pan,
-scroll = zoom, right-click = focus column, double-click = open) but
-misses the rest of the surface — Shift+click marquee selection,
-Alt-drag MOVE vs plain-drag COPY, the drag-resize handles on contact
-rows in the inspector, and the row-reorder drag on the formation list.
-None of these are discoverable except by reading docs/ux.md.
-
-The fix has two layers:
-
-1. **Per-stage gesture pill** (bottom-left corner) — always-on, lists
-   the 5–6 gestures relevant to the current stage with a 3-letter key
-   abbreviation (e.g. "Shift = marquee").  Same place as the section
-   editor's current footer hint; just always-present and richer.
-2. **Help → Cheatsheet** menu item that opens a full grid of every
-   gesture across every stage.  Searchable, copy-pastable.
-
-**Why deferred.**  Discoverability work is in-scope for the v1.0 polish
-pass alongside debt #93 (first-use tutorial).  Both deliverables share
-the "engineer reads tooltips when stuck" failure mode and benefit
-from being authored together.  Content authoring (the actual gesture
-list per stage) is the load-bearing piece, not the code.
-
-**When to revisit.**  Same trigger as #93 — pre-coworker-binary.  The
-first dogfeed user's "how do I X" questions become the cheatsheet's
-top entries.
-
 ## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding)
 
 **What.** No onboarding exists today. A new engineer opening Strix
@@ -2420,11 +2390,21 @@ All three gaps closed:
   10 000 via `Annotated[list[…], Field(max_length=…)]` (S3 folded in).
 - `export_section_pdf` `title` / `author` / `notes` query params capped
   at 256 / 256 / 4096 chars via `Query(max_length=…)`.
-- The `_validate_tin_payload` structural check (malformed tuples crash
-  the TIN code) was deferred — the existing size cap on `vertices` /
-  `triangles` is sufficient for the pre-coworker-binary threat model;
-  the structural check can land in a future hardening pass.
-20 unit tests pin all three surfaces in `test_security_hardening.py`.
+- The `_validate_tin_payload` structural check shipped 2026-06-06
+  (commit `a9ff0736`): the restore path now rejects malformed surface
+  TIN payloads (wrong-arity tuples, non-finite / non-numeric coords,
+  non-int or out-of-range triangle indices, a present non-list array)
+  by blanking the geometry + forcing `is_stale`, mirroring the
+  size-cap branch. The size cap and the structural check now both
+  guard the restore, so a malformed triple no longer survives restore
+  to crash the downstream TIN slice/export with an opaque
+  IndexError/TypeError. Helper lives in
+  `project_bundle/bundle_row_builders.py`, wired into the surface loop
+  in `bundle_restore_litho.py`.
+32 unit tests pin all surfaces in `test_security_hardening.py` (20
+original + 12 for the structural check); one integration test
+(`test_restore_drops_structurally_malformed_surface_tin`) mirrors the
+proven oversized-blob sibling.
 
 ## 113. Security pattern-risk cleanup — RESOLVED 2026-06-01
 
@@ -5164,6 +5144,50 @@ refs passed as `MutableRefObject` params; B-1 ghost-clear useEffect co-located w
 site after `bulkGhostsByAnchor` useMemo). All bodies moved verbatim; TDZ verified
 per call site; tsc + 1,624 vitest + senior-code-reviewer pass clean on all clusters.
 `useGeologicalModel.ts` 5,180 → 2,080 lines (−60%).
+
+## 202. Modal focus trap missing — Tab escapes any open dialog (Tier E — a11y, frontend, M)
+
+**What.** `components/ui/Modal.tsx` has no Tab focus trap. Tab /
+Shift+Tab can move focus out of an open modal card to the obscured
+app behind the scrim, violating WCAG 2.4.3 (Focus Order) and the ARIA
+dialog pattern (focus must cycle within the dialog while it is open).
+This is cross-cutting — it affects EVERY modal consumer (Settings,
+the new gesture CheatsheetDialog, the litho composition picker, the
+delete-confirm dialogs, the litho-geo snap dialog, …), not any single
+dialog. Surfaced 2026-06-06 by the Session C cheatsheet review
+(out of that session's disjoint-file scope, so filed here).
+
+**Why deferred.** The fix belongs in the shared `Modal` (trap
+Tab/Shift+Tab within the card, restore focus to the trigger on close)
+as its own commit, plus a sweep confirming every modal consumer still
+behaves. That is a focused a11y pass, not integration work — landing
+it during a multi-session merge would mix concerns and risk the focus
+restoration interacting with each dialog's own close path.
+
+**When to revisit.** Pre-coworker-binary a11y pass, or the first time
+a keyboard-only user reports losing focus behind a dialog. Fix in one
+commit on `Modal.tsx` (cycle focus on Tab at the card boundary, set
+initial focus on open, restore on close) + a regression test that
+Tab from the last focusable wraps to the first.
+
+## 203. F1 / cheatsheet discoverability — nothing in-canvas points to F1 (Tier D — onboarding, frontend, S)
+
+**What.** The Help → Gesture cheatsheet (debt #95, shipped 2026-06-06)
+is reachable via the menu and the F1 accelerator, but nothing on the
+canvas tells the user F1 exists. A one-line "Press F1 for the full
+gesture reference" in `components/sections/CanvasHints.tsx` (the
+always-on per-stage gesture pill) would close the discoverability
+loop. CanvasHints is a section file that was off-limits to Session C's
+disjoint-file scope, so the hint was filed here rather than bolted on
+during integration.
+
+**Why deferred.** Touching CanvasHints is a render change on a section
+component (geometry-check + vitest + tsc gate), and it pairs naturally
+with the #93 onboarding/hinting pass rather than a merge session.
+
+**When to revisit.** With #93 (first-use tutorial + per-stage hinting),
+or the first dogfeed "I didn't know there was a cheatsheet". Add the
+F1 hint line to the CanvasHints pill in the same pass.
 
 ## (end)
 
