@@ -199,6 +199,103 @@ export function useContactCrud({
           axis: isLitho ? 'litho' : 'geological',
           refetchPath: isLitho ? 'refetchLithoContacts' : 'refetchContacts',
         })
+        // Accepted shared-boundary move (litho axis only). When the
+        // dragged boundary is shared with an adjacent ACCEPTED layer, a
+        // single-layer depth PATCH would move only the dragged edge and
+        // overlap that unmoved neighbour — which the DB no-overlap
+        // exclusion constraint rejects with a 409 (dogfeed 2026-06-06).
+        // The atomic two-row endpoint (MoveLithoLayerBoundary) resizes
+        // BOTH layers in one transaction instead (lower grows / upper
+        // shrinks, or vice-versa) with no overlap. Outer edges — the top
+        // of the topmost layer or the base of the bottommost, where there
+        // is no accepted partner — fall through to the single-layer path
+        // below, which never 409s.
+        if (isLitho) {
+          const dragged = lithoLayers.find(l => l.id === contactId)
+          if (dragged && dragged.status === 'accepted') {
+            const sameAnchor = (l: LithoLayerResponse): boolean =>
+              l.borehole_id === dragged.borehole_id && l.cpt_id === dragged.cpt_id
+            // field='top' → the dragged layer's TOP is the moving
+            // boundary, so the partner above is the accepted layer whose
+            // BASE meets it. field='base' → the dragged BASE is the
+            // boundary, so the partner below is the accepted layer whose
+            // TOP meets it.
+            const upper =
+              field === 'top'
+                ? lithoLayers.find(
+                    l =>
+                      l.id !== dragged.id &&
+                      l.status === 'accepted' &&
+                      sameAnchor(l) &&
+                      Math.abs(l.depth_base_m - dragged.depth_top_m) < 1e-6,
+                  )
+                : dragged
+            const lower =
+              field === 'base'
+                ? lithoLayers.find(
+                    l =>
+                      l.id !== dragged.id &&
+                      l.status === 'accepted' &&
+                      sameAnchor(l) &&
+                      Math.abs(l.depth_top_m - dragged.depth_base_m) < 1e-6,
+                  )
+                : dragged
+            if (upper && lower && upper.id !== lower.id) {
+              // Clamp into the open interval (upper.top, lower.base) so
+              // neither layer inverts — the backend's strict depth-range
+              // guard (422) is never tripped. Clamping == "stop at the
+              // neighbour's edge" (owner: no absorb on accepted layers).
+              const EPS = 1e-6
+              const minDepthM = upper.depth_top_m + EPS
+              const maxDepthM = lower.depth_base_m - EPS
+              const clampedM = Math.min(Math.max(newDepthM, minDepthM), maxDepthM)
+              // The pre-drag boundary depth (for undo) is whichever edge
+              // of the dragged layer was the shared boundary.
+              const preDragBoundaryM =
+                field === 'top' ? dragged.depth_top_m : dragged.depth_base_m
+              await api.geology.moveLayerBoundary(project.id, modelId, {
+                upper_layer_id: upper.id,
+                lower_layer_id: lower.id,
+                new_depth_m: clampedM,
+              })
+              // Mutation of pre-existing rows — mark dirty (#160) and
+              // refetch so lithoLayers + the derived lithoContacts settle
+              // to DB truth (same post-commit shape as the single-layer
+              // litho path below).
+              markMutated()
+              refetchLithoContacts()
+              log.success(
+                'geology',
+                `updateContactDepth boundary-move ok upper=${upper.id} ` +
+                  `lower=${lower.id} depth=${clampedM.toFixed(3)}m — refetching`,
+              )
+              // Undo/redo replay the atomic move both ways (symmetric).
+              const projectId = project.id
+              const upperId = upper.id
+              const lowerId = lower.id
+              pushUndo({
+                description: 'Move boundary',
+                revert: async () => {
+                  await api.geology.moveLayerBoundary(projectId, modelId, {
+                    upper_layer_id: upperId,
+                    lower_layer_id: lowerId,
+                    new_depth_m: preDragBoundaryM,
+                  })
+                  refetchLithoContacts()
+                },
+                reapply: async () => {
+                  await api.geology.moveLayerBoundary(projectId, modelId, {
+                    upper_layer_id: upperId,
+                    lower_layer_id: lowerId,
+                    new_depth_m: clampedM,
+                  })
+                  refetchLithoContacts()
+                },
+              })
+              return
+            }
+          }
+        }
         // A4 slice 3 — litho writers target /layers; updateLayer hits
         // PATCH /layers/{lid} and the LL→FC trigger mirrors the depth
         // move into formation_contact. Litho cross-merge is disabled
