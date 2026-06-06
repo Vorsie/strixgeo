@@ -23,6 +23,7 @@ import AppBootError from './components/AppBootError'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
+import CheatsheetDialog from './components/ui/CheatsheetDialog'
 import {
   buildLithoSegmenterPatch,
   readLithoSegmenterPrefs,
@@ -86,6 +87,7 @@ declare global {
       onMenuEditUndo: (cb: () => void) => () => void
       onMenuEditRedo: (cb: () => void) => () => void
       onMenuOpenSettings: (cb: () => void) => () => void
+      onMenuOpenCheatsheet: (cb: () => void) => () => void
     }
   }
 }
@@ -206,6 +208,15 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   useEffect(() => {
     const off = window.electron.onMenuOpenSettings(() => setSettingsOpen(true))
+    return off
+  }, [])
+
+  // Help → Gesture cheatsheet… (F1). Opens the renderer-side
+  // CheatsheetDialog. Reachable from both the welcome screen and a loaded
+  // project — the gesture reference has no project dependency.
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
+  useEffect(() => {
+    const off = window.electron.onMenuOpenCheatsheet(() => setCheatsheetOpen(true))
     return off
   }, [])
 
@@ -1007,6 +1018,8 @@ export default function App() {
           onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
           onSetThemeChoice={setThemeChoice}
         />
+        {/* Help → Gesture cheatsheet — also reachable from the welcome screen. */}
+        <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
       </>
     )
   }
@@ -1064,6 +1077,8 @@ export default function App() {
         onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
         onSetThemeChoice={setThemeChoice}
       />
+      {/* Help → Gesture cheatsheet (F1). App-level overlay above the shell. */}
+      <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
     </>
   )
 }
