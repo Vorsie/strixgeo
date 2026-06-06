@@ -65,6 +65,7 @@ When a guide actively hurts UX or conflicts with domain need:
 | `Ctrl/Cmd + Click` on contact line | Toggle this contact in/out of selection (no drag) | Section editor |
 | `Shift + Click` on contact line | Range-select shallow→deep within the source anchor's contacts | Section editor |
 | `Drag` plain on section (background or column) | **Pan the viewport** (existing behaviour preserved) | Section editor |
+| `Wheel` (no modifier) on section canvas | **Zoom** the section view, cursor-anchored (the column under the cursor stays put). Operates on the rendered, `column_spacing`-warped X — not the raw along-section position. Unlike the map / borelog, the section canvas zooms on a bare wheel, no `Ctrl`. | Section editor |
 | `Click` plain on section background (no drag) | Clear contact selection | Section editor |
 | `Shift + drag` ANYWHERE on the section (background OR column) | Marquee (box) select. Always **additive** — preserves existing selection. To replace, click bg to clear first, then Shift+drag. Marquee dispatch lives on the SVG root so Shift takes priority over the column's contact-pick handler. | Section editor |
 | `Drag` cross-column on a contact (no Alt) | **COPY** — creates new contact(s) at the target anchor; originals stay where they were. The "stamp interpretation onto a nearby test" workflow. | Section editor |
