@@ -220,6 +220,37 @@ async def test_boundary_move_422_on_non_adjacent(
     assert resp.status_code == 422
 
 
+async def test_boundary_move_degenerate_thickness_is_422_not_500(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """A move that would leave a near-zero-thickness layer must be rejected
+    cleanly with 422 — never crash the write path with a 500.
+
+    Regression for the dogfeed/e2e 2026-06-06 finding: the FE boundary clamp
+    used a 1e-6 epsilon, so an over-drag into a neighbour minted a ~1µm layer
+    that the accepted-layer write path could not persist (500). Both layers are
+    promoted to accepted here because the degenerate write only bites accepted
+    rows (the no-overlap exclusion + FC mirror are accepted-only).
+    """
+    project, model, _, _, layers = project_with_two_layers
+    upper, lower = layers  # upper [0, 2], lower [2, 4]
+    upper.status = "accepted"
+    lower.status = "accepted"
+    await db_session.commit()
+    # 1 micron above upper's top (0.0) → upper layer would collapse to ~0 thick.
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/boundary-move",
+        json={
+            "upper_layer_id": str(upper.id),
+            "lower_layer_id": str(lower.id),
+            "new_depth_m": 0.000001,
+        },
+    )
+    assert resp.status_code == 422, resp.text
+
+
 # ---------------------------------------------------------------------------
 # POST /layers/batch-status
 # ---------------------------------------------------------------------------

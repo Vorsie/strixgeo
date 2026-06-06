@@ -18,9 +18,12 @@ Validation
   current ``depth_base_m`` must equal the lower's current
   ``depth_top_m``. Non-adjacency means the caller picked the wrong
   pair; reject with a 422.
-* ``new_depth_m`` must keep the depth ordering intact for BOTH
-  layers: upper.depth_top_m < new_depth_m < lower.depth_base_m.
-  Outside that range = a layer would invert; reject with a 422.
+* ``new_depth_m`` must leave BOTH layers at least
+  ``_MIN_LAYER_THICKNESS_M`` thick (a strict ordering check is not
+  enough: a near-zero-thickness result rounds to a degenerate range
+  and trips the no-overlap exclusion constraint as an unhandled 500).
+  Out of range = reject with a 422. As defence-in-depth, an
+  ``IntegrityError`` at commit is also caught and re-raised as a 422.
 
 Idempotent in the trivial sense: passing ``new_depth_m`` equal to the
 current shared boundary is a no-op that still returns 200 with the
@@ -32,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
@@ -39,6 +43,15 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Minimum resulting layer thickness for a boundary move. The no-overlap
+# exclusion constraint rounds depths to the millimetre (round(.,3)); a move
+# that leaves a layer thinner than this collapses to an empty/degenerate range
+# at the DB and trips ``litho_layer_accepted_no_overlap`` (dogfeed/e2e
+# 2026-06-06: a 1µm layer surfaced as an unhandled 500). Reject such moves
+# cleanly instead — the FE drag clamp keeps a larger gap, so a normal drag
+# never reaches this floor.
+_MIN_LAYER_THICKNESS_M = 0.001
 
 
 class BoundaryMoveError(ValueError):
@@ -103,11 +116,18 @@ class MoveLithoLayerBoundary(GroundModelLogger):
                 f"(got upper.base={upper.depth_base_m}, lower.top={lower.depth_top_m})"
             )
 
-        # Depth-range guard: the new boundary must sit strictly between
-        # the two outer edges so neither layer inverts.
-        if not (upper.depth_top_m < new_depth_m < lower.depth_base_m):
+        # Depth-range guard: the new boundary must leave BOTH layers at least
+        # ``_MIN_LAYER_THICKNESS_M`` thick. Stricter than a bare ordering check
+        # (``upper.top < new < lower.base``) so a near-zero-thickness result —
+        # which the no-overlap exclusion constraint rejects at commit — is
+        # turned into a clean 422 rather than an unhandled 500.
+        if (
+            new_depth_m - upper.depth_top_m < _MIN_LAYER_THICKNESS_M
+            or lower.depth_base_m - new_depth_m < _MIN_LAYER_THICKNESS_M
+        ):
             raise BoundaryMoveError(
-                "Boundary move: new_depth_m must lie strictly between "
+                f"Boundary move: new_depth_m ({new_depth_m}) must leave both "
+                f"layers >= {_MIN_LAYER_THICKNESS_M} m thick between "
                 f"upper.depth_top_m ({upper.depth_top_m}) and "
                 f"lower.depth_base_m ({lower.depth_base_m})"
             )
@@ -115,8 +135,17 @@ class MoveLithoLayerBoundary(GroundModelLogger):
         # Apply the atomic update — same session, single flush + commit.
         upper.depth_base_m = new_depth_m
         lower.depth_top_m = new_depth_m
-        await self._session.flush()
-        await self._session.commit()
+        try:
+            await self._session.flush()
+            await self._session.commit()
+        except IntegrityError as err:
+            # Defence-in-depth: any residual no-overlap / constraint violation
+            # the range guard above didn't pre-empt becomes a clean 422, never
+            # a 500. Roll back so the session is reusable.
+            await self._session.rollback()
+            raise BoundaryMoveError(
+                "Boundary move rejected: it would overlap or collapse a layer"
+            ) from err
         # See UpdateLithoLayer: refresh so Pydantic doesn't lazy-load
         # the server-side onupdate `updated_at` outside the greenlet.
         await self._session.refresh(upper)
