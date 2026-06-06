@@ -221,10 +221,11 @@ describe('useContactCrud — accepted shared-boundary move', () => {
     const depth = call[2].new_depth_m as number
     expect(depth).toBeGreaterThan(0) // > upper.top
     expect(depth).toBeLessThan(5) // < lower.base
-    // Pin the exact clamp arithmetic: lower.base (5) minus the EPS guard, so
-    // a future EPS change that risks the backend's strict 422 guard is caught
-    // here numerically.
-    expect(depth).toBeCloseTo(5 - 1e-6, 9)
+    // Pin the exact clamp arithmetic: lower.base (5) minus the min-boundary-gap
+    // (0.01 m), so the move always leaves a non-degenerate layer the backend
+    // can persist (a 1µm gap collapsed to a degenerate range → 500; debt note
+    // 2026-06-06). A future change to the gap is caught here numerically.
+    expect(depth).toBeCloseTo(5 - 0.01, 6)
   })
 
   it('B4: undo replays moveLayerBoundary back to the pre-drag boundary depth', async () => {

@@ -241,14 +241,23 @@ export function useContactCrud({
                   )
                 : dragged
             if (upper && lower && upper.id !== lower.id) {
-              // Clamp into the open interval (upper.top, lower.base) so
-              // neither layer inverts — the backend's strict depth-range
-              // guard (422) is never tripped. Clamping == "stop at the
-              // neighbour's edge" (owner: no absorb on accepted layers).
-              const EPS = 1e-6
-              const minDepthM = upper.depth_top_m + EPS
-              const maxDepthM = lower.depth_base_m - EPS
-              const clampedM = Math.min(Math.max(newDepthM, minDepthM), maxDepthM)
+              // Clamp so the move leaves BOTH layers at least
+              // MIN_BOUNDARY_GAP_M thick — "stop a hair short of the
+              // neighbour's edge" (owner: no absorb on accepted layers). A
+              // 1µm gap would collapse to a degenerate range at the DB (depths
+              // round to the mm) and trip the no-overlap constraint as a 500;
+              // a real gap keeps the atomic move valid. The value sits above
+              // the backend's 0.001 m min-thickness floor so a clamped drag
+              // always commits cleanly rather than round-tripping a 422.
+              const MIN_BOUNDARY_GAP_M = 0.01
+              const minDepthM = upper.depth_top_m + MIN_BOUNDARY_GAP_M
+              const maxDepthM = lower.depth_base_m - MIN_BOUNDARY_GAP_M
+              // Guard the pathological case where the pair is thinner than two
+              // gaps (min > max): fall back to the midpoint so we never invert.
+              const clampedM =
+                minDepthM <= maxDepthM
+                  ? Math.min(Math.max(newDepthM, minDepthM), maxDepthM)
+                  : (upper.depth_top_m + lower.depth_base_m) / 2
               // The pre-drag boundary depth (for undo) is whichever edge
               // of the dragged layer was the shared boundary.
               const preDragBoundaryM =
