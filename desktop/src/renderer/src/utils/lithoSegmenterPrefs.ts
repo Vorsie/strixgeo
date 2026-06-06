@@ -67,13 +67,6 @@ export interface LithoSegmenterPrefs {
    *  ``AutoCorrelateContactParams.base_depth_threshold_m`` (default
    *  0.5 m).  Range: 0.05 – 5.0 m. */
   autoCorrelateDepthWindowM: number
-  /** Lens degeneracy guard (dogfeed 2026-05-29): the maximum thickness
-   *  (metres) of a detected lens body.  A candidate thicker than this is
-   *  rejected as a spurious detection — a near-whole-column "lens" born from
-   *  a loose correlation, not a real thin enclosed body.  Set to 0 to turn
-   *  the guard OFF.  Maps to the backend ``max_lens_thickness_m`` read by
-   *  DetectLithoLenses (0/absent handled there).  Default 5 m; range 0–20 m. */
-  maxLensThicknessM: number
   /** Fixed length (metres, along-section) that an ``open`` body extent
    *  draws past the source test's column, instead of running to the
    *  section endpoint / DEM edge (owner dogfeed 2026-06-02). Applies to
@@ -90,7 +83,6 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   useNormalisedQc: true,
   lithoSnapToleranceM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
-  maxLensThicknessM: 5.0,
   openExtentLengthM: 3.0,
 }
 
@@ -100,8 +92,6 @@ export const LITHO_SEGMENTER_BOUNDS = {
   drCompressionFactor: { min: 0.1, max: 2.0 },
   lithoSnapToleranceM: { min: 0.01, max: 5.0 },
   autoCorrelateDepthWindowM: { min: 0.05, max: 5.0 },
-  // min 0 so 0 is a VALID value meaning "guard off" (not clamped to a default).
-  maxLensThicknessM: { min: 0, max: 20.0 },
   openExtentLengthM: { min: 0.5, max: 50.0 },
 } as const
 
@@ -174,11 +164,6 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM,
       LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
     ),
-    maxLensThicknessM: readBoundedNumber(
-      dict.max_lens_thickness_m,
-      LITHO_SEGMENTER_BOUNDS.maxLensThicknessM,
-      LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
-    ),
     openExtentLengthM: readBoundedNumber(
       dict.open_extent_length_m,
       LITHO_SEGMENTER_BOUNDS.openExtentLengthM,
@@ -205,7 +190,6 @@ export function buildLithoSegmenterPatch(
       use_normalised_qc: prefs.useNormalisedQc,
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
-      max_lens_thickness_m: prefs.maxLensThicknessM,
       open_extent_length_m: prefs.openExtentLengthM,
     },
   }

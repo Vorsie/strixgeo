@@ -38,7 +38,6 @@ describe('readLithoSegmenterPrefs', () => {
       useNormalisedQc: LITHO_SEGMENTER_DEFAULTS.useNormalisedQc,
       lithoSnapToleranceM: 0.30,
       autoCorrelateDepthWindowM: 1.2,
-      maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     })
   })
@@ -62,7 +61,6 @@ describe('readLithoSegmenterPrefs', () => {
       useNormalisedQc: true,
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
-      maxLensThicknessM: LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     })
   })
@@ -118,7 +116,6 @@ describe('buildLithoSegmenterPatch', () => {
         useNormalisedQc: false,
         lithoSnapToleranceM: 0.25,
         autoCorrelateDepthWindowM: 0.8,
-        maxLensThicknessM: 6.0,
         openExtentLengthM: 5.0,
       }),
     ).toEqual({
@@ -130,7 +127,6 @@ describe('buildLithoSegmenterPatch', () => {
         use_normalised_qc: false,
         litho_snap_tolerance_m: 0.25,
         auto_correlate_depth_window_m: 0.8,
-        max_lens_thickness_m: 6.0,
         open_extent_length_m: 5.0,
       },
     })
@@ -275,29 +271,6 @@ describe('readLithoSegmenterPrefs — useNormalisedQc field', () => {
       useNormalisedQc: false,
     }
     expect(readLithoSegmenterPrefs(buildLithoSegmenterPatch(prefs)).useNormalisedQc).toBe(false)
-  })
-})
-
-describe('readLithoSegmenterPrefs — maxLensThicknessM field', () => {
-  it('defaults to 5 m when the max_lens_thickness_m key is absent', () => {
-    expect(readLithoSegmenterPrefs({ litho_segmenter: {} }).maxLensThicknessM).toBe(
-      LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM,
-    )
-  })
-
-  it('accepts 0 as a valid value (guard off — min bound is 0)', () => {
-    expect(
-      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: 0 } }).maxLensThicknessM,
-    ).toBe(0)
-  })
-
-  it('falls back to default on out-of-range (negative or above 20 m)', () => {
-    expect(
-      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: -1 } }).maxLensThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM)
-    expect(
-      readLithoSegmenterPrefs({ litho_segmenter: { max_lens_thickness_m: 999 } }).maxLensThicknessM,
-    ).toBe(LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM)
   })
 })
 

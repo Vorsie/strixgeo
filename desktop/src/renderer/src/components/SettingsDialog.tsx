@@ -197,7 +197,6 @@ function LithoSection({
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
   const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
-  const lensBounds = LITHO_SEGMENTER_BOUNDS.maxLensThicknessM
   const openLenBounds = LITHO_SEGMENTER_BOUNDS.openExtentLengthM
 
   const thicknessValid =
@@ -220,10 +219,6 @@ function LithoSection({
     Number.isFinite(draft.autoCorrelateDepthWindowM) &&
     draft.autoCorrelateDepthWindowM >= autoCorrBounds.min &&
     draft.autoCorrelateDepthWindowM <= autoCorrBounds.max
-  const lensValid =
-    Number.isFinite(draft.maxLensThicknessM) &&
-    draft.maxLensThicknessM >= lensBounds.min &&
-    draft.maxLensThicknessM <= lensBounds.max
   const openLenValid =
     Number.isFinite(draft.openExtentLengthM) &&
     draft.openExtentLengthM >= openLenBounds.min &&
@@ -234,7 +229,6 @@ function LithoSection({
     drValid &&
     snapValid &&
     autoCorrValid &&
-    lensValid &&
     openLenValid
 
   const dirty =
@@ -245,7 +239,6 @@ function LithoSection({
     draft.useNormalisedQc !== initial.useNormalisedQc ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
-    draft.maxLensThicknessM !== initial.maxLensThicknessM ||
     draft.openExtentLengthM !== initial.openExtentLengthM
 
   return (
@@ -337,20 +330,6 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!autoCorrValid}
-      />
-      <NumberRow
-        id="settings-max-lens-thickness"
-        label="Lens max thickness (m)"
-        hint={`Degeneracy guard for lens detection. A detected lens thicker than this is rejected as spurious — a near-whole-column "lens" born from a loose correlation, not a real thin enclosed body. Set to 0 to turn the guard OFF. Range ${lensBounds.min}–${lensBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.maxLensThicknessM} m.`}
-        value={draft.maxLensThicknessM}
-        onChange={v => setDraft({ ...draft, maxLensThicknessM: v })}
-        bounds={lensBounds}
-        sliderMin={lensBounds.min}
-        sliderMax={lensBounds.max}
-        step={0.5}
-        unit="m"
-        disabled={!hasProject}
-        invalid={!lensValid}
       />
       <NumberRow
         id="settings-open-extent-length"
