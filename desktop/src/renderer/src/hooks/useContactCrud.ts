@@ -8,6 +8,13 @@
  * The shared state (contacts list + setter, litho contacts/layers, the refetch
  * helpers, the undo stack, the dirty/manifest signals) lives in the composer
  * and is passed in; this hook owns only the create/update/delete callbacks.
+ *
+ * Dep-array convention (carried verbatim from the composer): ``setContacts``
+ * (a ``useState`` setter) and ``toast`` (a ref-only plain function from
+ * ``useToasts`` that never goes stale) are intentionally omitted from the
+ * ``useCallback`` dep arrays — both are stable-by-construction references, so
+ * listing them would only churn callback identities. Varying values
+ * (``project``, ``contacts``, ``lithoContacts``, ``lithoLayers``) ARE listed.
  */
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 
