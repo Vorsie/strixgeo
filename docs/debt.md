@@ -5112,20 +5112,24 @@ actual base URL (`win.webContents.getURL()` after `loadFile`).
 phase helpers + `computeSlabsAndPolylines`). The remaining problem is *file
 size + mixed concerns in one module*: `useGeologicalModel.ts` (5,180 lines,
 47 handlers / 23 `useState`), `ContactsLayer.tsx` (4,249),
-`SectionPanel.tsx` (3,709), `api/client.ts` (3,201),
-`project_bundle.py` (2,682). (Surfaced 2026-06-04 by owner question.)
+`SectionPanel.tsx` (3,709), `api/client.ts` (3,201). ~~`project_bundle.py`
+(2,682)~~ — **RESOLVED 2026-06-06 (Move 1):** split into a
+`infrastructure/db/repositories/project_bundle/` package (6 files,
+~400–900 lines each: `bundle_serialization.py`, `bundle_row_builders.py`,
+`bundle_build.py`, `bundle_restore_litho.py`, `bundle_restore_core.py`,
+`__init__.py` facade). All import paths unchanged; 1167 unit + 47 integration
+tests green; ruff + pre-commit hook clean.
+(Surfaced 2026-06-04 by owner question.)
 
 **Why deferred.** The React splits carry TDZ / hook-ordering / dep-array
 regression risk (own memory documents the bite classes) and must not land
-under a live dogfeed. The backend + client splits are low-risk and bankable
-first.
+under a live dogfeed. The client split is low-risk and bankable next.
 
 **When to revisit.** After the current dogfeed pass. A full lowest-risk →
 highest-risk decomposition plan (5 ordered moves, per-move verification bar,
 constraints) lives at
-`docs/superpowers/plans/2026-06-04-god-component-decomposition.md`. Start with
-Move 1 (`project_bundle.py` module split) and Move 2 (`client.ts` per-domain
-split) — both near-zero risk.
+`docs/superpowers/plans/2026-06-04-god-component-decomposition.md`. Move 1
+(backend) done. Move 2 (`client.ts` per-domain split) is next.
 
 ## (end)
 
