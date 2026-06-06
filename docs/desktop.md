@@ -8,7 +8,20 @@ desktop/src/
 ├── preload/           Context bridge: openFile, readFile, waitForApi, menu events
 └── renderer/src/
     ├── api/
-    │   └── client.ts  Typed fetch wrappers; DuplicateCptError class for 409 handling
+    │   ├── client.ts      Barrel re-export — all types, error classes, setBaseUrl, and the
+    │   │                  ``api`` object re-exported from per-domain sub-modules. Zero caller
+    │   │                  changes required; import from ``api/client`` as before.
+    │   └── clients/       Per-domain API modules (Move 2 of god-component decomposition):
+    │       ├── shared.ts     HTTP primitives: _base, setBaseUrl, get/del/patch/put/post helpers
+    │       ├── borehole.ts   BoreholeListItem, BoreholeDetailResponse, sample/lab types, boreholeClient
+    │       ├── codelist.ts   G3Dv3, FormalStratigraphy, VirtueleBoringPredictions, codelistClient,
+    │       │                 virtueleboringClient
+    │       ├── cpt.ts        CptListItem, CptPlotResponse, DuplicateCptError, cptClient
+    │       ├── geology.ts    All geological/litho/body types, DuplicateContactError,
+    │       │                 ProvenanceViolationError, geologyClient, geotechnicalUnitClient
+    │       ├── project.ts    ProjectResponse, ProjectBundleResponse, review types,
+    │       │                 projectClient, reviewClient
+    │       └── section.ts    CrossSectionResponse, DemSampleLineResponse, demClient, sectionClient
     ├── components/
     │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
     │   ├── BboxDrawer.tsx       Inside MapContainer; crosshair draw mode for DOV bbox selection

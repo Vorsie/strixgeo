@@ -5129,7 +5129,13 @@ under a live dogfeed. The client split is low-risk and bankable next.
 highest-risk decomposition plan (5 ordered moves, per-move verification bar,
 constraints) lives at
 `docs/superpowers/plans/2026-06-04-god-component-decomposition.md`. Move 1
-(backend) done. Move 2 (`client.ts` per-domain split) is next.
+(backend) done. Move 2 (`client.ts` per-domain split) **RESOLVED 2026-06-06:**
+`api/client.ts` (was 3,201 lines) replaced by a 211-line barrel re-exporting
+from 7 `api/clients/` domain modules (shared.ts, borehole.ts, codelist.ts,
+cpt.ts, geology.ts, project.ts, section.ts — 189/315/143/190/1886/215/267 lines).
+Zero caller import-path changes; tsc + 1,619 vitest tests green. Moves 3–5
+(ContactsLayer geometry, SectionPanel, useGeologicalModel) remain — post-dogfeed,
+medium-high risk.
 
 ## (end)
 
