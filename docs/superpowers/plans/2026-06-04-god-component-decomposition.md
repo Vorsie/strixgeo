@@ -1,24 +1,19 @@
 # God-component decomposition plan (debt #114, extended)
 
-**Status:** Moves 1–4 DONE. Move 1 (`project_bundle.py` → package),
-Move 2 (`api/client.ts` → per-domain barrel), Move 3 (`ContactsLayer` pure-geometry
-+ `ContactContextMenu` extraction; drag core deliberately left in place) landed
-2026-06-06. **Move 4 (`SectionPanel.tsx`) DONE 2026-06-06** — `CanvasHints.tsx`,
-`useSectionCanvasGestures.ts` (wheel zoom + Esc cascade hooks), `SectionGrid.tsx`
-extracted; 3,709 → 3,455 lines; the stateful drag/overlay core left in place;
-TDZ verified; tsc + 1,619 Vitest green; senior-code-reviewer pass clean.
+**Status:** Moves 1–5 DONE. All five moves completed 2026-06-06.
+Move 1 (`project_bundle.py` → package), Move 2 (`api/client.ts` → per-domain barrel),
+Move 3 (`ContactsLayer` pure-geometry + `ContactContextMenu` extraction; drag core
+deliberately left in place), Move 4 (`SectionPanel.tsx` → `CanvasHints.tsx`,
+`useSectionCanvasGestures.ts`, `SectionGrid.tsx`; 3,709 → 3,455 lines).
+**Move 5 (`useGeologicalModel.ts`) DONE 2026-06-06** — all 5 clusters landed:
+`useFormationCrud`, `useContactCrud`, `useGeologicalModelOps`, `useLithoModelOps`,
+`useLithoSuggestions`; 5,180 → 2,080 lines (−60%); TDZ forward-ref gotchas resolved
+(model-ops call site after lithoStaleTinSessionCount useState; litho-model-ops after
+ghost-overlay useState; litho-suggestions after derived selectors); B-1 useEffect
+co-located with clearLithoSuggestions in the sub-hook; senior-code-reviewer pass clean
+on all 3 new clusters; tsc + 1,624 Vitest green throughout.
 Each move verified green (mypy + pytest unit + bundle round-trip for BE; tsc +
-full Vitest for FE). **Move 5 (useGeologicalModel) IN PROGRESS 2026-06-06 — 2 of
-5 clusters landed:** `useFormationCrud` + `useContactCrud` (the two LEAF
-clusters), composer pattern established + senior-code-reviewer-approved;
-5,180 → ~4,180 lines; tsc + 1,619 Vitest green. **3 clusters remain
-(useGeologicalModelOps, useLithoModelOps, useLithoSuggestions)** — the
-highest-risk part (TDZ forward-refs, non-contiguous handlers, dense
-cross-handler calls in litho-suggestions). Deferred to a fresh focused session
-with the reviewer in the loop, NOT under a live dogfeed. See the per-cluster
-notes + gotchas under debt #201 in `docs/debt.md` (esp. the
-`handleRebuildSurfaces → setLithoStaleTinSessionCount` forward-reference that
-dictates the model-ops call-site placement).
+full Vitest for FE).
 
 **Why now-as-a-plan:** five files dominate the codebase by size. None is a
 single unreadable mega-function; the problem is *file size + mixed concerns in

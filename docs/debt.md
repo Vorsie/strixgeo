@@ -5151,33 +5151,19 @@ The stateful drag/overlay core stays in `SectionPanel.tsx` per the plan's
 mutable-drag-state guard. `SectionPanel.tsx` 3,709 → 3,455 lines. TDZ verified
 (both hook calls sit below every binding they consume, above the lone return);
 tsc + 1,619 vitest green; senior-code-reviewer pass clean (no blockers). Move 5
-(`useGeologicalModel.ts`, 5,180 lines → composer + sub-hooks) **IN PROGRESS
-2026-06-06 — 2 of 5 clusters done:** `useFormationCrud.ts` (4 formation
-create/update/delete callbacks) and `useContactCrud.ts` (7 contact
-create/update/delete callbacks + the pure `formationContactBatchToLayerItem`
-helper). Both are LEAF clusters (no handler outside them is called by another
-cluster; the only intra-cluster call is `handleCreateContact →
-handleUpdateContactDepth`, both inside `useContactCrud`). The composer keeps all
-23 shared `useState` and passes state/setters/refetch-helpers down; handler
-bodies moved verbatim; TDZ verified per call site; tsc + 1,619 vitest +
-senior-code-reviewer pass clean. `useGeologicalModel.ts` 5,180 → ~4,180 lines.
-**3 clusters remain — deferred to a fresh focused session (highest-risk, gated
-behind the dogfeed):**
-- `useGeologicalModelOps` (handleAutoPopulateFromStratigraphy, handleSeedLithoFromParent,
-  handleDedupeContacts, handleRebuildSurfaces, handleExportModelPlaxis3d,
-  handleToggleBoreholeInModel, handleDeleteModel). Leaf-clean BUT **two
-  gotchas:** (a) `handleRebuildSurfaces` forward-references `setLithoStaleTinSessionCount`
-  (declared ~24 lines *below* it) — the extracted hook call must be placed AFTER
-  that `useState`, not at the cluster's current top position, or the param passes
-  a TDZ binding → render crash; (b) `handleDeleteModel` is non-contiguous (sits
-  after the litho-ops + lumping handlers), so the extraction slices two ranges.
-- `useLithoModelOps` (handleCreate/Activate/Delete LithoModel,
-  handleRebuildLithoSurfaces, handleClearLithoModel).
-- `useLithoSuggestions` (~1,500 lines, the largest + riskiest: dense
-  cross-handler calls — handleAcceptLithoSuggestion → pushAcceptLithoUndo /
-  clearLithoSuggestions; bulk handlers call each other — so extraction order +
-  intra-hook ordering both matter; covered by the 47 KB
-  `useGeologicalModel.suggestion.test.ts`).
+(`useGeologicalModel.ts`, 5,180 lines → composer + sub-hooks) **RESOLVED
+2026-06-06 — all 5 clusters done:** `useFormationCrud.ts`, `useContactCrud.ts`,
+`useGeologicalModelOps.ts` (7 model-level ops; call site placed after
+`lithoStaleTinSessionCount` useState to resolve the handleRebuildSurfaces TDZ
+forward-ref; handleDeleteModel extracted from its non-contiguous position),
+`useLithoModelOps.ts` (5 litho-model ops; call site after ghost-overlay useState;
+refs passed as `MutableRefObject` params; B-1 ghost-clear useEffect co-located with
+`clearLithoSuggestions` inside the sub-hook), `useLithoSuggestions.ts` (26 handlers
++ B-1 effect; `_updateGhostEntry` internal; `lithoSuggestionAnchorKind` typed as
+`'cpt' | 'borehole' | null`; type-only circular import for `BulkAnchorGhost`; call
+site after `bulkGhostsByAnchor` useMemo). All bodies moved verbatim; TDZ verified
+per call site; tsc + 1,624 vitest + senior-code-reviewer pass clean on all clusters.
+`useGeologicalModel.ts` 5,180 → 2,080 lines (−60%).
 
 ## (end)
 
