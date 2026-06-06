@@ -132,55 +132,6 @@ async def test_body_ordinal_negative_rejected(
         await db_session.flush()
 
 
-async def test_body_extent_left_kind_invalid_rejected(
-    db_session: AsyncSession,
-    project: ProjectOrm,
-    geo_model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-) -> None:
-    """``extent_left_kind='bogus'`` violates ``ck_body_extent_left_kind_valid``."""
-    with pytest.raises(IntegrityError, match="ck_body_extent_left_kind_valid"):
-        await db_session.execute(
-            text(
-                "INSERT INTO body (id, app_project_id, model_id, formation_id,"
-                " body_ordinal, source_investigation_id, extent_left_kind)"
-                " VALUES (:id, :pid, :mid, :fid, 0, :inv, 'bogus')"
-            ),
-            {
-                "id": uuid7(),
-                "pid": project.id,
-                "mid": geo_model.id,
-                "fid": formation.id,
-                "inv": uuid7(),
-            },
-        )
-        await db_session.flush()
-
-
-async def test_body_extent_kinds_null_accepted(
-    db_session: AsyncSession,
-    project: ProjectOrm,
-    geo_model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-) -> None:
-    """``extent_left_kind = extent_right_kind = NULL`` is the default and must pass."""
-    await db_session.execute(
-        text(
-            "INSERT INTO body (id, app_project_id, model_id, formation_id,"
-            " body_ordinal, source_investigation_id)"
-            " VALUES (:id, :pid, :mid, :fid, 0, :inv)"
-        ),
-        {
-            "id": uuid7(),
-            "pid": project.id,
-            "mid": geo_model.id,
-            "fid": formation.id,
-            "inv": uuid7(),
-        },
-    )
-    await db_session.flush()
-
-
 # ---------------------------------------------------------------------------
 # Migration b2d3e4f5a6b7 — kind / parent_geological_model_id NULL invariant
 # ---------------------------------------------------------------------------

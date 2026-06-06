@@ -1,10 +1,9 @@
 """ORM model for Body — replaces LithoLensOrm (#body-with-extent 2026-05-31).
 
-A body is identified by ``(model_id, formation_id, body_ordinal)``. Each
-body has 0-2 extent markers (left + right) describing how the body
-terminates on each side of its source investigation. See the spec at
-``docs/superpowers/specs/2026-05-31-body-with-extent-design.md`` for
-the full semantics.
+A body is identified by ``(model_id, formation_id, body_ordinal)``. The
+partition-fill model (member-layer chains keyed on ``litho_layer.body_id``
+plus ``body_boundary_shape``) owns the body's lateral shape; the per-side
+``extent_*`` markers were retired 2026-06-06.
 """
 
 from __future__ import annotations
@@ -20,12 +19,13 @@ from groundmodel.infrastructure.db.base import Base
 
 
 class BodyOrm(Base):
-    """Persisted body — identity + per-side extent markers.
+    """Persisted body — identity row for one correlated single-lithology unit.
 
     Replaces LithoLensOrm. Pre-ship backwards-compat is suspended, so the
-    rename is clean (no alias kept). All extent_*_kind / target /
-    neighbour columns default NULL = "no claim on that side"; the
-    renderer shows nothing for unclaimed sides.
+    rename is clean (no alias kept). The body's lateral shape is owned by
+    the partition-fill model (member-layer chains keyed on
+    ``litho_layer.body_id`` + ``body_boundary_shape``); the per-side
+    ``extent_*`` markers were retired 2026-06-06.
 
     Body identity
     -------------
@@ -41,7 +41,6 @@ class BodyOrm(Base):
     * ``model_id`` → CASCADE
     * ``formation_id`` → CASCADE
     * ``primary_section_id`` → SET NULL (body survives section delete)
-    * ``extent_<side>_target_contact_id`` → CASCADE
 
     ``source_investigation_id`` is polymorphic UUID (refs cpt.id OR
     borehole.id); NO FK constraint, mirroring the existing
@@ -110,61 +109,6 @@ class BodyOrm(Base):
         PG_UUID(as_uuid=True),
         ForeignKey("cross_section.id", ondelete="SET NULL"),
         nullable=True,
-    )
-
-    # Left-side extent marker. NULL = no claim on this side.
-    # 'kind' is a varchar token (e.g. 'pinch_out', 'truncation').
-    extent_left_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    extent_left_target_contact_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("formation_contact.id", ondelete="CASCADE"),
-        nullable=True,
-    )
-    # Polymorphic UUID — refs the neighbouring investigation. NO FK constraint.
-    extent_left_neighbour_inv_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=True
-    )
-    # The litho_layer the user (or detector) anchored this cap to — the
-    # SPATIAL source of truth for where the left cap renders (its column +
-    # depth interval). NULL = legacy / unanchored extent → the renderer falls
-    # back to the body's leftmost on-section member.  SET NULL on layer delete
-    # so the body row survives; the resolver carry-forward re-attaches the cap
-    # to whichever body now contains this layer, which is what makes a
-    # user-claimed open survive an instance renumber (debt #195).
-    extent_left_anchor_layer_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("litho_layer.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    # Provenance of the left extent: 'auto' (set + freely recomputed by
-    # DetectBodies — to_target closures AND auto-completed pinch/open defaults)
-    # vs 'user' (an explicit ClaimBodyExtent the auto pass never overwrites).
-    # Distinct from the KIND because an auto-pinch and a user-pinch share a kind
-    # but must be treated differently — only 'user' sides are protected.
-    extent_left_provenance: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default="auto"
-    )
-
-    # Right-side extent marker. NULL = no claim on this side.
-    extent_right_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    extent_right_target_contact_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("formation_contact.id", ondelete="CASCADE"),
-        nullable=True,
-    )
-    # Polymorphic UUID — refs the neighbouring investigation. NO FK constraint.
-    extent_right_neighbour_inv_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=True
-    )
-    # The litho_layer the right cap is anchored to. See the left-side note.
-    extent_right_anchor_layer_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("litho_layer.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    # Provenance of the right extent. See ``extent_left_provenance``.
-    extent_right_provenance: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default="auto"
     )
 
     created_at: Mapped[datetime] = mapped_column(

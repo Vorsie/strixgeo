@@ -11,10 +11,10 @@ from pydantic import BaseModel, ConfigDict
 class BodyListItem(BaseModel):
     """One row returned by ``GET /projects/{pid}/geology/models/{mid}/lenses``.
 
-    Carries the body-with-extent metadata introduced in the slice-1 schema
-    pivot.  The ``source_investigation_id`` and ``extent_*`` columns replace
-    the old ``content_key`` — the body is now anchored to its defining
-    investigation and its lateral reach is tracked explicitly.
+    Carries the body identity metadata.  The ``source_investigation_id``
+    anchors the body to its defining investigation; the body's lateral shape
+    is owned by the partition-fill model (the per-side ``extent_*`` markers
+    were retired 2026-06-06).
 
     Attributes
     ----------
@@ -36,29 +36,6 @@ class BodyListItem(BaseModel):
         named this body.
     primary_section_id : UUID | None
         The cross-section from which the naming gesture was invoked.
-
-    extent_left_kind : str | None
-        Lateral extent kind on the left side
-        (``'pinch_out_halfway'``, ``'extrapolated'``, ``'open'``, or ``None``
-        when the side has not been claimed yet).
-    extent_left_target_contact_id : UUID | None
-        The formation contact that marks the left terminus (when applicable).
-    extent_left_neighbour_inv_id : UUID | None
-        The neighbouring investigation used to compute the halfway point or
-        extrapolation anchor on the left.
-    extent_left_anchor_layer_id : UUID | None
-        The litho_layer the left cap is anchored to — the column + depth
-        interval the renderer frames it from.  ``None`` for legacy / detector
-        caps (renderer falls back to the leftmost on-section member).
-
-    extent_right_kind : str | None
-        Same as ``extent_left_kind`` but for the right lateral extent.
-    extent_right_target_contact_id : UUID | None
-        Same as ``extent_left_target_contact_id`` but for the right side.
-    extent_right_neighbour_inv_id : UUID | None
-        Same as ``extent_left_neighbour_inv_id`` but for the right side.
-    extent_right_anchor_layer_id : UUID | None
-        Same as ``extent_left_anchor_layer_id`` but for the right side.
 
     geo_formation_id : UUID | None
         A2-derived geological-formation label: the geological formation owning
@@ -85,16 +62,6 @@ class BodyListItem(BaseModel):
     source_investigation_id: UUID
     name: str | None
     primary_section_id: UUID | None
-
-    extent_left_kind: str | None
-    extent_left_target_contact_id: UUID | None
-    extent_left_neighbour_inv_id: UUID | None
-    extent_left_anchor_layer_id: UUID | None
-
-    extent_right_kind: str | None
-    extent_right_target_contact_id: UUID | None
-    extent_right_neighbour_inv_id: UUID | None
-    extent_right_anchor_layer_id: UUID | None
 
     # A2: derived (not stored) geological-formation label — the geological
     # formation owning the majority of this body's member-layer thickness,

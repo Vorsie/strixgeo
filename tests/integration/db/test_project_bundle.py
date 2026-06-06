@@ -2167,11 +2167,13 @@ async def test_restore_ignores_legacy_extent_fields(db_session: AsyncSession) ->
     assert restored_body.id == body_id
     assert restored_body.formation_id == formation.id
     assert restored_body.body_ordinal == 0
-    # Extent columns must be NULL — the legacy keys were not written.
-    assert restored_body.extent_left_kind is None
-    assert restored_body.extent_right_kind is None
-    assert restored_body.extent_left_target_contact_id is None
-    assert restored_body.extent_right_anchor_layer_id is None
+    # The extent columns are retired — the ORM no longer maps them, so a legacy
+    # bundle's stale extent_* keys have nowhere to land (silently dropped by
+    # _apply_json_to_kwargs's unknown-key filter).
+    assert not hasattr(restored_body, "extent_left_kind")
+    assert not hasattr(restored_body, "extent_right_kind")
+    assert not hasattr(restored_body, "extent_left_target_contact_id")
+    assert not hasattr(restored_body, "extent_right_anchor_layer_id")
 
     # Boundary shape + node also round-tripped correctly.
     restored_node = (

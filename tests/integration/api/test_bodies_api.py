@@ -26,9 +26,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from groundmodel.shared.constants.extent_kind import (
-    EXTENT_KIND_TO_TARGET,
-)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -191,8 +188,6 @@ async def idor_fixture(
         formation_id=formation_a.id,
         body_ordinal=0,
         source_investigation_id=bh_a.id,
-        extent_left_kind=EXTENT_KIND_TO_TARGET,
-        extent_left_neighbour_inv_id=bh_a_neighbour.id,
     )
     db_session.add(body_a)
 

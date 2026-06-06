@@ -814,16 +814,6 @@ export interface BodyListItem {
   source_investigation_id: string
   name: string | null
   primary_section_id: string | null
-  extent_left_kind: string | null
-  extent_left_target_contact_id: string | null
-  extent_left_neighbour_inv_id: string | null
-  /** The litho_layer the left cap is anchored to. */
-  extent_left_anchor_layer_id?: string | null
-  extent_right_kind: string | null
-  extent_right_target_contact_id: string | null
-  extent_right_neighbour_inv_id: string | null
-  /** The litho_layer the right cap is anchored to. */
-  extent_right_anchor_layer_id?: string | null
   /** A2-derived geological-formation label (thickness-weighted majority). */
   geo_formation_id?: string | null
   geo_formation_name?: string | null

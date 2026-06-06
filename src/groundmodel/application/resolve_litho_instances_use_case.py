@@ -209,33 +209,6 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
         (b.formation_id, b.body_ordinal): b for b in existing_bodies
     }
 
-    # Snapshot user-claimed (ANCHORED) extents BEFORE reconciliation so they
-    # can be carried forward by their anchor layer (debt #195).  A user open /
-    # pinch claim lives on a body, but an instance renumber orphan-deletes that
-    # body and creates a fresh one — without carry-forward the claim vanishes
-    # (the dogfeed "succeed toast but nothing renders" for a deep unit).  Each
-    # tuple is (anchor_layer_id, side, kind, target_contact_id, neighbour_inv_id);
-    # only sides that carry an anchor are snapshotted — detector / legacy
-    # extents without one stay on their body if it survives (status quo).
-    extent_snapshots: list[tuple[UUID, str, str, UUID | None, UUID | None]] = []
-    for b in existing_bodies:
-        for side in ("left", "right"):
-            anchor = getattr(b, f"extent_{side}_anchor_layer_id")
-            kind = getattr(b, f"extent_{side}_kind")
-            if anchor is None or kind is None:
-                continue
-            extent_snapshots.append(
-                (
-                    anchor,
-                    side,
-                    kind,
-                    getattr(b, f"extent_{side}_target_contact_id"),
-                    getattr(b, f"extent_{side}_neighbour_inv_id"),
-                )
-            )
-    # Deterministic re-apply order (first-wins per body+side on a conflict).
-    extent_snapshots.sort(key=lambda s: (str(s[0]), s[1]))
-
     wanted_keys: set[tuple[UUID, int]] = set()
     layer_to_body_id: dict[UUID, UUID] = {}
     changed: list[_BodyChange] = []
@@ -282,58 +255,7 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
             )
             n_stamped += 1
 
-    # 6. Carry anchored extents forward by anchor layer (debt #195).
-    # A user open / pinch claim lives on a body, but an instance renumber
-    # orphan-deletes that body and creates a fresh one — without carry-forward
-    # the claim vanishes.  Re-derive the DESIRED anchored-extent state from the
-    # snapshot: each claim re-attaches to the body that NOW owns its anchor
-    # layer.  Then diff against the live bodies and write ONLY the differences,
-    # so a stable re-resolve (the common case) makes zero writes.  An anchor
-    # whose layer is no longer accepted (unit deleted) is silently dropped.
-    live_bodies = [b for key, b in body_by_key.items() if key in wanted_keys or b.name]
-    desired: dict[tuple[UUID, str], tuple[str, UUID | None, UUID | None, UUID]] = {}
-    for anchor, side, kind, target, neighbour in extent_snapshots:
-        new_body_id = layer_to_body_id.get(anchor)
-        if new_body_id is None:
-            continue  # anchor layer no longer accepted → drop the claim
-        body_side_key = (new_body_id, side)
-        if body_side_key in desired:
-            continue  # first-wins on a conflict (deterministic snapshot order)
-        desired[body_side_key] = (kind, target, neighbour, anchor)
-
-    n_carried = 0
-    for b in live_bodies:
-        for side in ("left", "right"):
-            cur_anchor = getattr(b, f"extent_{side}_anchor_layer_id")
-            want = desired.get((b.id, side))
-            if want is None:
-                # No claim belongs here now — clear ONLY if this side currently
-                # holds an anchored extent (it moved to another body).
-                if cur_anchor is not None:
-                    setattr(b, f"extent_{side}_kind", None)
-                    setattr(b, f"extent_{side}_target_contact_id", None)
-                    setattr(b, f"extent_{side}_neighbour_inv_id", None)
-                    setattr(b, f"extent_{side}_anchor_layer_id", None)
-                    n_carried += 1
-                continue
-            current = (
-                getattr(b, f"extent_{side}_kind"),
-                getattr(b, f"extent_{side}_target_contact_id"),
-                getattr(b, f"extent_{side}_neighbour_inv_id"),
-                cur_anchor,
-            )
-            if current == want:
-                continue  # already correct → no write
-            kind, target, neighbour, anchor = want
-            setattr(b, f"extent_{side}_kind", kind)
-            setattr(b, f"extent_{side}_target_contact_id", target)
-            setattr(b, f"extent_{side}_neighbour_inv_id", neighbour)
-            setattr(b, f"extent_{side}_anchor_layer_id", anchor)
-            n_carried += 1
-    if n_carried:
-        logger.info(f"_run_resolver: carried {n_carried} anchored extent(s) forward")
-
-    if changed or n_stamped or n_carried:
+    if changed or n_stamped:
         await session.flush()
         pairs = [(model_id, UUID(c["formation_id"])) for c in changed]
         if pairs:
