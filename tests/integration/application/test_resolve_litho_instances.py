@@ -16,6 +16,12 @@ Coverage here:
 3. Reconcile preserve-named-orphan: a named body whose (formation,
    ordinal) instance disappears survives, while an equivalent UNNAMED
    orphan body is deleted.
+
+Note: the test for anchor-carry-forward across ordinal renumber
+(test_anchored_extent_carries_forward_across_ordinal_renumber) was
+removed alongside the ClaimBodyExtent use case it depended on.
+The carry-forward logic is exercised by the unit-level tests for
+the domain service.
 """
 
 from __future__ import annotations
@@ -29,7 +35,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.claim_body_extent import ClaimBodyExtent
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -367,63 +372,3 @@ async def test_named_orphan_body_is_preserved_while_unnamed_orphan_is_deleted(
     assert unnamed_body_id not in surviving_ids
     assert len(surviving) == 1
     assert surviving[0].name == "Kept"
-
-
-@pytest.mark.asyncio
-async def test_anchored_extent_carries_forward_across_ordinal_renumber(
-    db_session: AsyncSession,
-    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
-) -> None:
-    """A user-claimed open survives an instance renumber via its anchor (#195).
-
-    Two stacked SAND instances resolve to bodies ordinal 0 (shallow=layer_a)
-    and 1 (deep=layer_b). The deep body gets an ``open`` cap anchored to its
-    own layer. Rejecting the shallow layer collapses the model to a single
-    instance, so the deep layer renumbers 1 -> 0: the old (formation, 1) body
-    is orphan-deleted and the (formation, 0) body is reused for the deep layer.
-    Without carry-forward the open would vanish; the carry-forward re-attaches
-    it to the body that now owns the anchor layer.
-    """
-    ctx = litho_model_with_two_uncorrelated_sand_layers
-    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
-
-    # Claim open-left on the DEEP body (ordinal 1), anchored to layer_b.
-    deep_body = (
-        await db_session.execute(
-            select(BodyOrm).where(
-                BodyOrm.model_id == ctx.model_id,
-                BodyOrm.body_ordinal == 1,
-            )
-        )
-    ).scalar_one()
-    await ClaimBodyExtent(db_session).execute(
-        project_id=ctx.project_id,
-        model_id=ctx.model_id,
-        body_id=deep_body.id,
-        side="left",
-        kind="open",
-        anchor_layer_id=ctx.layer_b_id,
-    )
-
-    # Collapse to a single instance: reject the shallow layer so only the deep
-    # one remains accepted → it renumbers to ordinal 0.
-    shallow = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
-    assert shallow is not None
-    shallow.status = "rejected"
-    await db_session.commit()
-
-    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
-
-    # Exactly one body remains, it owns the deep layer, and it carries the open
-    # anchored to layer_b — the claim followed its anchor across the renumber.
-    bodies = (
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == ctx.model_id)))
-        .scalars()
-        .all()
-    )
-    assert len(bodies) == 1
-    survivor = bodies[0]
-    deep_layer = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
-    assert deep_layer is not None and deep_layer.body_id == survivor.id
-    assert survivor.extent_left_kind == "open"
-    assert survivor.extent_left_anchor_layer_id == ctx.layer_b_id

@@ -1,15 +1,13 @@
 """HTTP-level tests for the body extent endpoints.
 
 Coverage:
-  C1  POST /models/{mid}/bodies with a detector-set 'to_target' extent on the
-      target side returns 409 + ``{"code": "provenance_violation"}``, not 422.
-
   S4  Cross-project IDOR regression tests — every body endpoint returns 404
       (not 200 or 403) when the URL's project_id / model_id belongs to a
       different project than the body / model being addressed.
 
-These tests assert routing + error-mapping only.  Use-case semantics (the
-provenance rule itself) are pinned by ``test_claim_body_extent.py``.
+  A2  GET /bodies derives each body's geological label by thickness majority.
+
+These tests assert routing + error-mapping only.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.correlate_litho_contacts import CorrelateLithoContacts
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -30,7 +27,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.constants.extent_kind import (
-    EXTENT_KIND_PINCH_OUT_HALFWAY,
     EXTENT_KIND_TO_TARGET,
 )
 
@@ -103,97 +99,6 @@ async def bodies_api_fixture(
 
 
 # ---------------------------------------------------------------------------
-# C1: a user claim OVERRIDES a detector-set to_target → 201 (owner directive
-# 2026-06-04 — the user always wins over a detector guess; no 409 dance).
-# ---------------------------------------------------------------------------
-
-
-import pytest  # noqa: E402  (after fixture import so ruff is happy)
-
-
-@pytest.mark.asyncio
-async def test_claim_body_extent_provenance_violation_returns_409(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    bodies_api_fixture: tuple,
-) -> None:
-    """C1 (revised 2026-06-04): POST /models/{mid}/bodies when the requested
-    side already carries a detector-set ``to_target`` extent now SUCCEEDS (201)
-    and overwrites it — the engineer's explicit claim wins over a detector
-    guess.  This unblocks the manual interpretation workflow (the old 409 +
-    ClearBodyExtent dance forced a clear-first on every claim, dogfeed
-    2026-06-04).
-    """
-    project, litho, formation, bh_source, bh_neighbour = bodies_api_fixture
-
-    # Pre-seed a body row with the left side already detector-claimed as
-    # 'to_target' — simulates what DetectBodies produces.
-    body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        model_id=litho.id,
-        formation_id=formation.id,
-        body_ordinal=0,
-        source_investigation_id=bh_source.id,
-        extent_left_kind=EXTENT_KIND_TO_TARGET,
-        extent_left_neighbour_inv_id=bh_neighbour.id,
-    )
-    db_session.add(body)
-    await db_session.commit()
-
-    # Claim the left side as 'pinch_out_halfway' — overrides the detector guess.
-    resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{litho.id}/bodies",
-        json={
-            "body_id": str(body.id),
-            "side": "left",
-            "kind": EXTENT_KIND_PINCH_OUT_HALFWAY,
-            "neighbour_inv_id": str(bh_neighbour.id),
-        },
-    )
-
-    assert resp.status_code == 201, (
-        f"Expected 201 (user claim overrides detector to_target), got "
-        f"{resp.status_code}: {resp.text}"
-    )
-    body_json = resp.json()
-    assert body_json["extent_left_kind"] == EXTENT_KIND_PINCH_OUT_HALFWAY
-
-
-@pytest.mark.asyncio
-async def test_claim_body_extent_other_validation_errors_still_return_422(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    bodies_api_fixture: tuple,
-) -> None:
-    """Plain validation errors (invalid side, missing neighbour, etc.) must still
-    return 422 — 409 is reserved for the provenance-violation path only.
-    """
-    project, litho, formation, bh_source, bh_neighbour = bodies_api_fixture
-
-    # Invalid 'side' → must be a 422 validation error, not 409.
-    # Note: 'side' is validated by Pydantic at the schema level (it's a
-    # Literal['left','right'] field), so the 422 detail shape is FastAPI's
-    # standard list-of-errors, not our {"code": ...} dict.  We assert the
-    # status code only; the key requirement is that it is NOT 409.
-    resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{litho.id}/bodies",
-        json={
-            "body_id": str(uuid7()),  # any UUID — side fails Pydantic first
-            "side": "centre",  # invalid — neither 'left' nor 'right'
-            "kind": EXTENT_KIND_PINCH_OUT_HALFWAY,
-            "neighbour_inv_id": str(bh_neighbour.id),
-        },
-    )
-
-    assert resp.status_code == 422, (
-        f"Expected 422 for invalid-side error, got {resp.status_code}: {resp.text}"
-    )
-    # Confirm we are NOT getting a 409 provenance-violation response.
-    assert resp.status_code != 409
-
-
-# ---------------------------------------------------------------------------
 # S4: Cross-project IDOR regression tests
 # ---------------------------------------------------------------------------
 # Pattern: project A owns a model + body; requests use project B's id in
@@ -201,6 +106,9 @@ async def test_claim_body_extent_other_validation_errors_still_return_422(
 # 404 is the correct response (the existing pattern — avoids leaking
 # existence information to the caller).
 # ---------------------------------------------------------------------------
+
+
+import pytest  # noqa: E402  (after fixture import so ruff is happy)
 
 
 @pytest_asyncio.fixture
@@ -320,41 +228,6 @@ async def idor_fixture(
 
 
 @pytest.mark.asyncio
-async def test_idor_detect_bodies_wrong_project_404(
-    async_client: AsyncClient,
-    idor_fixture: dict,
-) -> None:
-    """S4: POST /projects/{B}/geology/models/{A-model}/bodies/detect → 404.
-
-    model_a belongs to project_a; using project_b's id in the URL must
-    be rejected by the model scope guard.
-    """
-    f = idor_fixture
-    resp = await async_client.post(
-        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/detect"
-    )
-    assert resp.status_code == 404, (
-        f"IDOR guard failure on detect: expected 404, got {resp.status_code}: {resp.text}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_idor_suggest_pinch_outs_wrong_project_404(
-    async_client: AsyncClient,
-    idor_fixture: dict,
-) -> None:
-    """S4: POST /projects/{B}/geology/models/{A-model}/bodies/suggest-pinch-outs → 404."""
-    f = idor_fixture
-    resp = await async_client.post(
-        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies/suggest-pinch-outs"
-    )
-    assert resp.status_code == 404, (
-        f"IDOR guard failure on suggest-pinch-outs: expected 404, "
-        f"got {resp.status_code}: {resp.text}"
-    )
-
-
-@pytest.mark.asyncio
 async def test_idor_list_bodies_wrong_project_404(
     async_client: AsyncClient,
     idor_fixture: dict,
@@ -366,26 +239,6 @@ async def test_idor_list_bodies_wrong_project_404(
     )
     assert resp.status_code == 404, (
         f"IDOR guard failure on list bodies: expected 404, got {resp.status_code}: {resp.text}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_idor_claim_body_extent_wrong_project_404(
-    async_client: AsyncClient,
-    idor_fixture: dict,
-) -> None:
-    """S4: POST /projects/{B}/geology/models/{A-model}/bodies (claim) → 404."""
-    f = idor_fixture
-    resp = await async_client.post(
-        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}/bodies",
-        json={
-            "body_id": str(f["body_a"].id),
-            "side": "right",
-            "kind": "open",
-        },
-    )
-    assert resp.status_code == 404, (
-        f"IDOR guard failure on claim: expected 404, got {resp.status_code}: {resp.text}"
     )
 
 
@@ -429,22 +282,6 @@ async def test_idor_delete_body_wrong_project_404(
 
 
 @pytest.mark.asyncio
-async def test_idor_clear_body_extent_wrong_project_404(
-    async_client: AsyncClient,
-    idor_fixture: dict,
-) -> None:
-    """S4: DELETE /projects/{B}/geology/models/{A-model}/bodies/{A-body}/extents/left → 404."""
-    f = idor_fixture
-    resp = await async_client.delete(
-        f"/projects/{f['project_b'].id}/geology/models/{f['model_a'].id}"
-        f"/bodies/{f['body_a'].id}/extents/left"
-    )
-    assert resp.status_code == 404, (
-        f"IDOR guard failure on clear extent: expected 404, got {resp.status_code}: {resp.text}"
-    )
-
-
-@pytest.mark.asyncio
 async def test_idor_get_body_boundary_wrong_project_404(
     async_client: AsyncClient,
     idor_fixture: dict,
@@ -475,161 +312,6 @@ async def test_idor_put_body_boundary_wrong_project_404(
     assert resp.status_code == 404, (
         f"IDOR guard failure on PUT boundary: expected 404, got {resp.status_code}: {resp.text}"
     )
-
-
-# ---------------------------------------------------------------------------
-# DSH: "Detect" self-heals after the user clears all bodies
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_detect_rematerialises_bodies_after_clear_all(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    bodies_api_fixture: tuple,
-) -> None:
-    """DSH1: clearing every body then clicking "Detect" must rebuild the bodies.
-
-    Reproduces the dogfeed bug: bodies are derived from the user-approved
-    correlation graph and OWNED by the resolver, which is the only authority
-    that creates ``body`` rows and stamps ``litho_layer.body_id``.  When the
-    user clears all bodies ("Delete all detected" + dissolves), the
-    ``ondelete=SET NULL`` FK wipes every layer's ``body_id`` stamp.
-
-    The body's defining correlation edges are still intact, so the body is
-    still IMPLIED by the graph — clicking "Detect" must re-materialise it.
-    Before the fix the detect endpoint ran ``DetectBodies`` alone (a pure
-    extent manager that cannot create bodies), so it found ``body_id IS NULL``
-    on every framed layer, skipped every closure, and silently created
-    nothing — leaving "Materialise companions" with no body to act on.
-
-    Topology mirrors ``test_detect_bodies.py`` Test 1: a bilateral #135
-    closure from one source borehole to two distinct neighbours.
-    """
-    project, litho, formation, bh_source, bh_neighbour = bodies_api_fixture
-
-    # A second neighbour so the closure is bilateral (≥2 distinct targets) —
-    # the detector requires bilateral closure to materialise a body.
-    bh_neighbour_2 = BoreholeOrm(
-        id=uuid7(),
-        name="BH-NBR2",
-        app_project_id=project.id,
-        project_id="API",
-        test_id="BH-NBR2-API",
-        location_x=149700.0,
-        location_y=200000.0,
-        epsg=31370,
-        total_depth_m=20.0,
-    )
-    # Three formations on the source column (cap / body / cap) + one shared
-    # neighbour formation, all children of the geological parent formation.
-    f_top = GeologicalFormationOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="ZAND top cap DSH",
-        color="#aabbcc",
-        display_order=0,
-        parent_formation_id=formation.id,
-        litho_main_soil_code="ZAND",
-    )
-    f_body = GeologicalFormationOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="KLEI body DSH",
-        color="#aabbcc",
-        display_order=0,
-        parent_formation_id=formation.id,
-        litho_main_soil_code="KLEI",
-    )
-    f_base = GeologicalFormationOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="ZAND base cap DSH",
-        color="#aabbcc",
-        display_order=0,
-        parent_formation_id=formation.id,
-        litho_main_soil_code="ZAND",
-    )
-    f_nbr = GeologicalFormationOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        name="ZAND nbr DSH",
-        color="#aabbcc",
-        display_order=0,
-        parent_formation_id=formation.id,
-        litho_main_soil_code="ZAND",
-    )
-    db_session.add_all([bh_neighbour_2, f_top, f_body, f_base, f_nbr])
-    await db_session.flush()
-
-    def _c(form: GeologicalFormationOrm, bh: BoreholeOrm, depth: float) -> FormationContactOrm:
-        return FormationContactOrm(
-            id=uuid7(),
-            model_id=litho.id,
-            formation_id=form.id,
-            borehole_id=bh.id,
-            depth_top_m=depth,
-            source="borehole_observation",
-            confidence="medium",
-        )
-
-    c_top = _c(f_top, bh_source, 2.0)
-    c_body = _c(f_body, bh_source, 4.0)
-    c_base = _c(f_base, bh_source, 6.0)
-    c_nbr_1 = _c(f_nbr, bh_neighbour, 3.0)
-    c_nbr_2 = _c(f_nbr, bh_neighbour_2, 3.0)
-    db_session.add_all([c_top, c_body, c_base, c_nbr_1, c_nbr_2])
-    await db_session.commit()
-
-    # Four correlate gestures form the bilateral #135 closure.  Each runs the
-    # resolver, so bodies + body_id stamps exist after this block.
-    for ca, cb in (
-        (c_body, c_nbr_1),
-        (c_base, c_nbr_1),
-        (c_body, c_nbr_2),
-        (c_base, c_nbr_2),
-    ):
-        await CorrelateLithoContacts(db_session).execute(
-            project_id=project.id,
-            model_id=litho.id,
-            contact_a_id=ca.id,
-            contact_b_id=cb.id,
-        )
-
-    base_url = f"/projects/{project.id}/geology/models/{litho.id}"
-
-    # First Detect — sets to_target extents on the resolver-owned body.
-    first = await async_client.post(f"{base_url}/bodies/detect")
-    assert first.status_code == 200, first.text
-    assert first.json()["bodies_created"] >= 1, (
-        f"Setup precondition: first detect should set extents, got {first.json()}"
-    )
-
-    # Clear EVERY body — the user's "Delete all detected" gesture.  The
-    # ondelete=SET NULL FK now wipes the body_id stamp on all layers.
-    cleared = await async_client.delete(f"{base_url}/bodies")
-    assert cleared.status_code == 200, cleared.text
-    assert cleared.json()["bodies_deleted"] >= 1
-
-    list_after_clear = await async_client.get(f"{base_url}/bodies")
-    assert list_after_clear.json() == [], "Clear-all must leave zero bodies"
-
-    # Second Detect — the bug: with no resolver run, this found body_id IS NULL
-    # on every framed layer and created nothing.  The fix makes Detect run the
-    # resolver first, so the body re-materialises from the still-intact
-    # correlation graph.  bodies_created >= 1 is only reachable when the layers
-    # were re-stamped, since DetectBodies can only set an extent on a
-    # resolver-owned body_id — this transitively proves the re-stamp.
-    healed = await async_client.post(f"{base_url}/bodies/detect")
-    assert healed.status_code == 200, healed.text
-    assert healed.json()["bodies_created"] >= 1, (
-        "Detect must re-materialise the body after a clear-all; "
-        f"got {healed.json()} (resolver did not run before DetectBodies)"
-    )
-
-    # A body row exists again.
-    list_after_heal = await async_client.get(f"{base_url}/bodies")
-    assert len(list_after_heal.json()) >= 1, "Detect must rebuild at least one body row"
 
 
 # ---------------------------------------------------------------------------

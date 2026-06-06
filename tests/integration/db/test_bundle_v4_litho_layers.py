@@ -711,8 +711,12 @@ async def test_body_round_trips_in_bundle(
 
     Checks:
     * build emits a ``bodies`` key (not the old ``litho_lenses``)
-    * the body payload includes source_investigation_id + all extent columns
-    * restore re-creates the row with all columns intact
+    * the body payload includes id, source_investigation_id, name, ordinal
+    * restore re-creates the row with core identity columns intact
+
+    Extent columns (extent_left_kind, extent_right_kind, etc.) are NOT
+    serialised in the bundle since the bundle-extent retirement — those
+    columns are managed in-session only and reset to NULL on restore.
     """
     p = project_with_litho
     body = BodyOrm(
@@ -723,8 +727,6 @@ async def test_body_round_trips_in_bundle(
         body_ordinal=0,
         source_investigation_id=p["bh"].id,
         name="Test body",
-        extent_left_kind=None,
-        extent_right_kind="open",
     )
     db_session.add(body)
     await db_session.commit()
@@ -738,7 +740,6 @@ async def test_body_round_trips_in_bundle(
     row = bundle["bodies"][0]
     assert str(row["id"]) == str(body.id)
     assert str(row["source_investigation_id"]) == str(p["bh"].id)
-    assert row["extent_right_kind"] == "open"
     assert "content_key" not in row, "content_key must not appear in the payload"
 
     # Wipe and restore — the body must come back.
@@ -756,269 +757,7 @@ async def test_body_round_trips_in_bundle(
     ).scalar_one_or_none()
     assert restored is not None, "body must be restored"
     assert str(restored.source_investigation_id) == str(p["bh"].id)
-    assert restored.extent_right_kind == "open"
-
-
-async def test_body_with_to_target_extent_round_trips(
-    db_session: AsyncSession, project_with_litho: dict
-) -> None:
-    """A body with extent_left_kind='to_target' survives build → restore.
-
-    The target_contact_id must resolve; the body must come back intact.
-    """
-    p = project_with_litho
-    contact = FormationContactOrm(
-        id=uuid7(),
-        model_id=p["litho_model"].id,
-        formation_id=p["sand"].id,
-        borehole_id=p["bh"].id,
-        depth_top_m=3.0,
-        source="manual_pick",
-        confidence="medium",
-    )
-    db_session.add(contact)
-    await db_session.flush()
-
-    body = BodyOrm(
-        id=uuid7(),
-        app_project_id=p["project"].id,
-        model_id=p["litho_model"].id,
-        formation_id=p["sand"].id,
-        body_ordinal=0,
-        source_investigation_id=p["bh"].id,
-        extent_left_kind="to_target",
-        extent_left_target_contact_id=contact.id,
-    )
-    db_session.add(body)
-    await db_session.commit()
-
-    bundle = await build_project_bundle(db_session, p["project"])
-    body_row = bundle["bodies"][0]
-    assert body_row["extent_left_kind"] == "to_target"
-    assert str(body_row["extent_left_target_contact_id"]) == str(contact.id)
-
-    # replace=True wipes and re-inserts everything — the contact comes back
-    # from the model payload (nested under contacts[]) and is present in the
-    # valid_contact_ids_for_bodies set before the body loop runs.
-    db_session.expunge_all()
-    await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
-
-    restored = (
-        await db_session.execute(select(BodyOrm).where(BodyOrm.id == body.id))
-    ).scalar_one_or_none()
-    assert restored is not None
-    assert restored.extent_left_kind == "to_target"
-    assert str(restored.extent_left_target_contact_id) == str(contact.id)
-
-
-async def test_body_extent_to_target_dangling_contact_stripped(
-    db_session: AsyncSession, project_with_litho: dict
-) -> None:
-    """extent_left_kind='to_target' with a ghost target_contact_id is stripped,
-    but the body row itself is kept (extent stripped, not body dropped).
-    """
-    p = project_with_litho
-    ghost_contact_id = str(uuid7())  # not in the bundle, not in the DB
-
-    bundle = {
-        "format_version": 4,
-        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
-        "cpts": [],
-        "boreholes": [
-            {
-                "id": str(p["bh"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "BH-1",
-                "project_id": "T",
-                "test_id": "T",
-                "location_x": 0.0,
-                "location_y": 0.0,
-                "epsg": 31370,
-                "total_depth_m": 10.0,
-            }
-        ],
-        "geological_formations": [
-            {
-                "id": str(p["sand"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "SAND",
-                "color": "#fdcb6e",
-                "display_order": 0,
-            }
-        ],
-        "geological_models": [
-            {
-                "id": str(p["litho_model"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "L",
-                "kind": "lithostratigraphic",
-                "contacts": [],
-                "litho_layers": [],
-            }
-        ],
-        "bodies": [
-            {
-                "id": str(uuid7()),
-                "model_id": str(p["litho_model"].id),
-                "formation_id": str(p["sand"].id),
-                "body_ordinal": 0,
-                "source_investigation_id": str(p["bh"].id),
-                "name": None,
-                "primary_section_id": None,
-                "extent_left_kind": "to_target",
-                "extent_left_target_contact_id": ghost_contact_id,
-                "extent_left_neighbour_inv_id": None,
-                "extent_right_kind": None,
-                "extent_right_target_contact_id": None,
-                "extent_right_neighbour_inv_id": None,
-            }
-        ],
-    }
-
-    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
-
-    restored_bodies = list(
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.app_project_id == p["project"].id)))
-        .scalars()
-        .all()
-    )
-    # The body must survive even though its extent was invalid.
-    assert len(restored_bodies) == 1, "body must be restored despite stripped extent"
-    b = restored_bodies[0]
-    # The unresolvable extent is stripped to NULL.
-    assert b.extent_left_kind is None, "dangling to_target extent must be stripped"
-    assert b.extent_left_target_contact_id is None
-
-
-async def test_body_anchor_layer_round_trips(
-    db_session: AsyncSession, project_with_litho: dict
-) -> None:
-    """A body's open cap anchored to a litho layer survives build → restore.
-
-    The anchor_layer_id is the spatial source of truth for where the cap
-    renders; it must come back intact so the open stays where the user put it.
-    """
-    p = project_with_litho
-    layer = LithoLayerOrm(
-        id=uuid7(),
-        model_id=p["litho_model"].id,
-        formation_id=p["sand"].id,
-        borehole_id=p["bh"].id,
-        depth_top_m=3.0,
-        depth_base_m=6.0,
-        status="accepted",
-        source="manual",
-        confidence="medium",
-    )
-    db_session.add(layer)
-    await db_session.flush()
-
-    body = BodyOrm(
-        id=uuid7(),
-        app_project_id=p["project"].id,
-        model_id=p["litho_model"].id,
-        formation_id=p["sand"].id,
-        body_ordinal=0,
-        source_investigation_id=p["bh"].id,
-        extent_left_kind="open",
-        extent_left_anchor_layer_id=layer.id,
-    )
-    db_session.add(body)
-    await db_session.commit()
-
-    bundle = await build_project_bundle(db_session, p["project"])
-    body_row = bundle["bodies"][0]
-    assert str(body_row["extent_left_anchor_layer_id"]) == str(layer.id)
-
-    db_session.expunge_all()
-    await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
-
-    restored = (
-        await db_session.execute(select(BodyOrm).where(BodyOrm.id == body.id))
-    ).scalar_one_or_none()
-    assert restored is not None
-    assert restored.extent_left_kind == "open"
-    assert str(restored.extent_left_anchor_layer_id) == str(layer.id)
-
-
-async def test_body_anchor_dangling_layer_nulled(
-    db_session: AsyncSession, project_with_litho: dict
-) -> None:
-    """A ghost anchor_layer_id is NULLed on restore; body + open kind survive.
-
-    Open needs no FK, so the cap kind is kept (it renders via band-end
-    fallback); only the unresolvable anchor is dropped.
-    """
-    p = project_with_litho
-    ghost_layer_id = str(uuid7())  # not in the bundle, not in the DB
-    bundle = {
-        "format_version": 4,
-        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
-        "cpts": [],
-        "boreholes": [
-            {
-                "id": str(p["bh"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "BH-1",
-                "project_id": "T",
-                "test_id": "T",
-                "location_x": 0.0,
-                "location_y": 0.0,
-                "epsg": 31370,
-                "total_depth_m": 10.0,
-            }
-        ],
-        "geological_formations": [
-            {
-                "id": str(p["sand"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "SAND",
-                "color": "#fdcb6e",
-                "display_order": 0,
-            }
-        ],
-        "geological_models": [
-            {
-                "id": str(p["litho_model"].id),
-                "app_project_id": str(p["project"].id),
-                "name": "L",
-                "kind": "lithostratigraphic",
-                "contacts": [],
-                "litho_layers": [],
-            }
-        ],
-        "bodies": [
-            {
-                "id": str(uuid7()),
-                "model_id": str(p["litho_model"].id),
-                "formation_id": str(p["sand"].id),
-                "body_ordinal": 0,
-                "source_investigation_id": str(p["bh"].id),
-                "name": None,
-                "primary_section_id": None,
-                "extent_left_kind": "open",
-                "extent_left_target_contact_id": None,
-                "extent_left_neighbour_inv_id": None,
-                "extent_left_anchor_layer_id": ghost_layer_id,
-                "extent_right_kind": None,
-                "extent_right_target_contact_id": None,
-                "extent_right_neighbour_inv_id": None,
-                "extent_right_anchor_layer_id": None,
-            }
-        ],
-    }
-
-    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
-
-    restored_bodies = list(
-        (await db_session.execute(select(BodyOrm).where(BodyOrm.app_project_id == p["project"].id)))
-        .scalars()
-        .all()
-    )
-    assert len(restored_bodies) == 1, "body must be restored despite the ghost anchor"
-    b = restored_bodies[0]
-    assert b.extent_left_kind == "open", "open kind needs no FK — must survive"
-    assert b.extent_left_anchor_layer_id is None, "dangling anchor must be NULLed"
+    assert restored.name == "Test body"
 
 
 async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
@@ -1036,12 +775,16 @@ async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
     1. Seed an ACCEPTED litho layer (via a FormationContact so the
        FC→LL trigger materialises it as accepted), then run the resolver
        so a body exists and the layer is stamped.
-    2. Give the body a NAME and a USER-CLAIMED extent (``open``).
+    2. Give the body a NAME so it can be identified after restore.
     3. Export → wipe → restore → re-run the resolver (the endpoint's
        post-restore reconcile pass).
     4. Assert: the accepted layer's ``body_id`` is non-null and points
        at a body that exists in the restored model; the named body
-       survived (name preserved); the user-claimed extent survived.
+       survived (name preserved).
+
+    Note: extent fields (extent_left_kind, etc.) are NOT serialised in
+    the bundle since the bundle-extent retirement, so they are not
+    asserted here.
     """
     from groundmodel.application.resolve_litho_instances_use_case import (
         ResolveLithoInstances,
@@ -1068,9 +811,8 @@ async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
     body_before = (
         await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == p["litho_model"].id))
     ).scalar_one()
-    # 2. Name the body + claim an extent (user-owned provenance).
+    # 2. Name the body so we can identify it across the round-trip.
     body_before.name = "Sand lens A"
-    body_before.extent_left_kind = "open"
     await db_session.commit()
 
     layer_before = await db_session.get(LithoLayerOrm, layer_id)
@@ -1104,9 +846,8 @@ async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
     body_after = await db_session.get(BodyOrm, layer_after.body_id)
     assert body_after is not None, "the stamped body_id must point at a real body row"
     assert body_after.model_id == p["litho_model"].id
-    # Named body + user-claimed extent survived the round-trip.
+    # Named body survived the round-trip.
     assert body_after.name == "Sand lens A", "named body must survive the round-trip"
-    assert body_after.extent_left_kind == "open", "user-claimed extent kind must survive"
 
 
 async def test_body_with_dangling_source_investigation_is_dropped(

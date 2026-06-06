@@ -1,15 +1,17 @@
 """Integration tests for AcceptContactCorrelations — #133 Phase 2+3.
 
-Four cases:
+Six cases:
 1. Section-scoped accept flips only edges whose both endpoints are in the
    section's seeded_formation_contact_ids; edges on another section are
    unchanged.
 2. Model-scoped accept (section_id=None) flips every unapproved edge in
    the model.
-3. Accept triggers lens detection: two unapproved edges forming the #135
-   topology materialise one LithoLensOrm row after accept.
+3. Accept does NOT auto-fire body/lens detection (owner directive 2026-05-31):
+   bodies_created and bodies_removed are always 0 on the AcceptResult.
 4. Accept is idempotent when nothing is unapproved: edges_accepted=0,
-   downstream resolver + detector still run (no-op).
+   downstream resolver still runs (no-op).
+5. Edge-scoped accept flips only the named edge.
+6. Edge-scoped accept rejects an edge that belongs to a different model.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
-from groundmodel.application.detect_bodies import DetectBodies
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm as LithoLensOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -35,9 +36,7 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from groundmodel.shared.constants.extent_kind import EXTENT_KIND_TO_TARGET
 from tests.integration._litho_builders import (
     contact as _contact,
 )
@@ -381,50 +380,6 @@ async def test_accept_does_not_auto_fire_lens_detection(
     )
     assert result.bodies_removed == 0, (
         f"Accept must not auto-fire body detection; got {result.bodies_removed}"
-    )
-
-    # Accept runs ResolveLithoInstances, which is the single authority that
-    # creates per-instance bodies — so body rows MAY exist after accept.
-    # The detector, however, has NOT fired: no body carries a 'to_target'
-    # extent (the detector is the only thing that sets those, and it only
-    # runs on the explicit Detect verb).
-    interim_bodies = (
-        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
-        .scalars()
-        .all()
-    )
-    for body in interim_bodies:
-        assert body.extent_left_kind != EXTENT_KIND_TO_TARGET, (
-            "Accept must not auto-fire the detector (no to_target left extent)"
-        )
-        assert body.extent_right_kind != EXTENT_KIND_TO_TARGET, (
-            "Accept must not auto-fire the detector (no to_target right extent)"
-        )
-
-    # Now the explicit Detect verb fires: it writes 'to_target' extents onto
-    # the resolver-owned body the framed lens layer (c_body) was stamped with.
-    await DetectBodies(db_session).execute(
-        project_id=project.id,
-        model_id=litho.id,
-    )
-    await db_session.commit()
-
-    # The framed layer of the bilateral closure is c_body; resolve its body
-    # via the resolver-stamped litho_layer.body_id (FC↔LL UUID identity).
-    framed_body_id = (
-        await db_session.execute(select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == c_body.id))
-    ).scalar_one()
-    assert framed_body_id is not None, "Framed lens layer must carry a resolver-stamped body_id"
-    lens_body = (
-        await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.id == framed_body_id))
-    ).scalar_one()
-    assert lens_body.extent_left_kind == EXTENT_KIND_TO_TARGET, (
-        f"Detect must set the lens body's left extent to 'to_target'; "
-        f"got {lens_body.extent_left_kind!r}"
-    )
-    assert lens_body.extent_right_kind == EXTENT_KIND_TO_TARGET, (
-        f"Detect must set the lens body's right extent to 'to_target'; "
-        f"got {lens_body.extent_right_kind!r}"
     )
 
 
