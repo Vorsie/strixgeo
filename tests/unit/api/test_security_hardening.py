@@ -313,3 +313,130 @@ class TestCqlNoSingleQuoteAssertion:
                 f"DOV param {param!r} contains a single-quote — "
                 "_build_cql_filter would produce broken CQL (debt #113)"
             )
+
+
+# ===========================================================================
+# Debt #112 — TIN payload structural validation (restore hardening)
+# ===========================================================================
+
+
+class TestTinPayloadStructuralValidation:
+    """A surface restored from an untrusted .strix carries ``vertices``
+    (``[x, y, z]`` float triples) and ``triangles`` (``[i, j, k]`` int
+    index triples).  Size is capped elsewhere; this guards the *shape* —
+    a malformed triple (wrong arity, non-numeric coordinate, or an index
+    pointing outside the vertex array) must be rejected so the restore
+    can blank the geometry instead of letting the downstream TIN code
+    crash with an opaque ``IndexError`` / ``TypeError``.
+    """
+
+    def test_empty_arrays_are_valid(self) -> None:
+        """A surface with no geometry yet (both arrays empty) is legitimate."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload([], []) is True
+
+    def test_none_arrays_are_valid(self) -> None:
+        """``None`` means "no geometry provided" — a not-yet-built surface
+        that must survive restore unblanked, distinct from a malformed value.
+        """
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload(None, []) is True
+        assert _validate_tin_payload([], None) is True
+        assert _validate_tin_payload(None, None) is True
+
+    def test_well_formed_tin_is_valid(self) -> None:
+        """Three vertices + one in-range triangle pass the structural check."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        verts = [[0.0, 0.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]
+        tris = [[0, 1, 2]]
+        assert _validate_tin_payload(verts, tris) is True
+
+    def test_vertex_wrong_arity_is_rejected(self) -> None:
+        """A vertex that is not exactly 3 coordinates must be rejected."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload([[0.0, 0.0]], []) is False
+        assert _validate_tin_payload([[0.0, 0.0, 1.0, 2.0]], []) is False
+
+    def test_vertex_non_numeric_coordinate_is_rejected(self) -> None:
+        """A coordinate that is not int/float must be rejected."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload([["a", "b", "c"]], []) is False
+        assert _validate_tin_payload([[0.0, None, 1.0]], []) is False
+
+    def test_non_list_arrays_are_rejected(self) -> None:
+        """``vertices`` / ``triangles`` that are not lists must be rejected."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload("nope", []) is False
+        assert _validate_tin_payload([], {"not": "a list"}) is False
+
+    def test_triangle_wrong_arity_is_rejected(self) -> None:
+        """A triangle that is not exactly 3 indices must be rejected."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        verts = [[0.0, 0.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]
+        assert _validate_tin_payload(verts, [[0, 1]]) is False
+
+    def test_triangle_float_index_is_rejected(self) -> None:
+        """A float triangle index would crash list indexing — reject it."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        verts = [[0.0, 0.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]
+        assert _validate_tin_payload(verts, [[0, 1, 2.0]]) is False
+
+    def test_triangle_index_out_of_range_is_rejected(self) -> None:
+        """A triangle index >= len(vertices) would IndexError — reject it."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        verts = [[0.0, 0.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]
+        assert _validate_tin_payload(verts, [[0, 1, 3]]) is False
+
+    def test_triangle_negative_index_is_rejected(self) -> None:
+        """A negative triangle index would wrap around silently — reject it."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        verts = [[0.0, 0.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]
+        assert _validate_tin_payload(verts, [[0, 1, -1]]) is False
+
+    def test_bool_coordinate_is_rejected(self) -> None:
+        """``bool`` is an ``int`` subclass — a True/False coordinate is malformed."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload([[True, 0.0, 1.0]], []) is False
+
+    def test_non_finite_coordinate_is_rejected(self) -> None:
+        """NaN / ±inf are valid floats but yield silent garbage geometry — reject."""
+        from groundmodel.infrastructure.db.repositories.project_bundle import (
+            _validate_tin_payload,
+        )
+
+        assert _validate_tin_payload([[float("nan"), 0.0, 1.0]], []) is False
+        assert _validate_tin_payload([[0.0, float("inf"), 1.0]], []) is False
+        assert _validate_tin_payload([[0.0, 1.0, float("-inf")]], []) is False

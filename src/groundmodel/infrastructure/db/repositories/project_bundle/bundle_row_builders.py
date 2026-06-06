@@ -22,6 +22,7 @@ Helpers:
 
 from __future__ import annotations
 
+import math
 from typing import Any
 from uuid import UUID
 
@@ -117,6 +118,82 @@ def _series_row_count(cpt_data: dict[str, Any]) -> int | None:
     if depths is None:
         return None
     return len(depths)
+
+
+def _validate_tin_payload(vertices: object, triangles: object) -> bool:
+    """Return ``True`` when a restored TIN blob is structurally sound.
+
+    A ``FormationSurfaceOrm`` restored from an untrusted ``.strix`` bundle
+    carries ``vertices`` (a list of ``[x, y, z]`` float triples) and
+    ``triangles`` (a list of ``[i, j, k]`` integer index triples).  The
+    *size* of each array is capped elsewhere (``_MAX_TIN_ARRAY_LEN``,
+    debt #112); this helper guards the *shape*.  A malformed triple — wrong
+    arity, a non-numeric coordinate, a non-integer triangle index, or an
+    index pointing outside the vertex array — would otherwise reach the
+    downstream TIN slice / export code and crash it with an opaque
+    ``IndexError`` / ``TypeError`` long after the restore committed.
+
+    The check is conservative: any malformation rejects the *whole* surface
+    so the caller can blank the geometry and force a rebuild, mirroring the
+    size-cap handling in ``_restore_geological_models``.  ``None`` and empty
+    arrays are valid — a surface with no geometry is a legitimate
+    not-yet-built state — but any *present* value that is not a well-formed
+    list is rejected.
+
+    Parameters
+    ----------
+    vertices : object
+        Candidate vertex array from the bundle. Expected to be ``None`` (not
+        yet built) or a list of 3-element ``[x, y, z]`` numeric sequences,
+        but typed ``object`` because the value is untrusted and may be any
+        JSON shape.
+    triangles : object
+        Candidate triangle array from the bundle. Expected to be ``None`` or
+        a list of 3-element ``[i, j, k]`` integer index sequences
+        referencing ``vertices``.
+
+    Returns
+    -------
+    bool
+        ``True`` when both arrays are well-formed (``None`` / empty count as
+        well-formed); ``False`` on the first structural defect found.
+    """
+    # ``None`` is "no geometry provided" — a legitimate not-yet-built
+    # surface, distinct from a present-but-malformed value. Treat as empty.
+    if vertices is None:
+        vertices = []
+    if triangles is None:
+        triangles = []
+    if not isinstance(vertices, list) or not isinstance(triangles, list):
+        return False
+
+    for vertex in vertices:
+        if not isinstance(vertex, (list, tuple)) or len(vertex) != 3:
+            return False
+        for coord in vertex:
+            # ``bool`` is an ``int`` subclass — exclude it so True/False
+            # coordinates do not slip through the numeric check.
+            if isinstance(coord, bool) or not isinstance(coord, (int, float)):
+                return False
+            # NaN / ±inf are valid floats that pass the type check but yield
+            # silent garbage geometry downstream — reject so the surface is
+            # blanked + rebuilt from contacts instead.
+            if not math.isfinite(coord):
+                return False
+
+    vertex_count = len(vertices)
+    for triangle in triangles:
+        if not isinstance(triangle, (list, tuple)) or len(triangle) != 3:
+            return False
+        for index in triangle:
+            # Must be a real int (a float index crashes list indexing) and
+            # must address an existing vertex (negatives wrap silently).
+            if isinstance(index, bool) or not isinstance(index, int):
+                return False
+            if index < 0 or index >= vertex_count:
+                return False
+
+    return True
 
 
 def _cap(

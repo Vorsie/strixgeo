@@ -50,7 +50,7 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOLOGICAL, MODEL_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-from .bundle_row_builders import _uuid
+from .bundle_row_builders import _uuid, _validate_tin_payload
 from .bundle_serialization import (
     _MAX_SURFACE_SOURCE_CONTACTS,
     _MAX_TIN_ARRAY_LEN,
@@ -61,6 +61,25 @@ from .bundle_serialization import (
 # still use the old names internally — renamed in slice 4).
 LithoLensShapeOrm = BodyBoundaryShapeOrm
 LithoLensBoundaryNodeOrm = BodyBoundaryNodeOrm
+
+
+def _blank_surface_geometry(kwargs: dict[str, Any]) -> None:
+    """Drop a restored surface's TIN geometry and force a rebuild.
+
+    Mutates ``kwargs`` in place — empties ``vertices`` / ``triangles`` and
+    sets ``is_stale=True``.  Shared by the size-cap and structural-validation
+    guards in ``_restore_geological_models`` so a rejected surface row is
+    still inserted (the formation keeps its surface metadata) but carries no
+    untrusted geometry until the user rebuilds it.
+
+    Parameters
+    ----------
+    kwargs : dict[str, Any]
+        The ORM keyword dict for a ``FormationSurfaceOrm`` about to be built.
+    """
+    kwargs["vertices"] = []
+    kwargs["triangles"] = []
+    kwargs["is_stale"] = True
 
 
 async def _restore_geological_models(
@@ -158,6 +177,7 @@ async def _restore_geological_models(
         valid_surfaces: list[FormationSurfaceOrm] = []
         forced_stale = 0
         oversized_surfaces = 0
+        malformed_surfaces = 0
         for s in surfaces_payload:
             fid = _uuid(s.get("formation_id"))
             if fid is None or fid not in valid_formation_ids:
@@ -166,23 +186,43 @@ async def _restore_geological_models(
             # Debt #19: cap untrusted TIN blobs — blank geometry + force
             # is_stale rather than letting an unbounded JSONB array OOM
             # the asyncio process.
-            verts = kwargs.get("vertices") or []
-            tris = kwargs.get("triangles") or []
+            raw_verts = kwargs.get("vertices")
+            raw_tris = kwargs.get("triangles")
+            # A non-list (incl. None / a malformed scalar) has no meaningful
+            # length — treat as 0 for the size-cap check so ``len`` cannot
+            # raise; the structural check below rejects any *present* non-list.
+            n_verts = len(raw_verts) if isinstance(raw_verts, list) else 0
+            n_tris = len(raw_tris) if isinstance(raw_tris, list) else 0
             claimed_count = kwargs.get("source_contact_count")
             if (
                 (claimed_count is not None and claimed_count > _MAX_SURFACE_SOURCE_CONTACTS)
-                or len(verts) > _MAX_TIN_ARRAY_LEN
-                or len(tris) > _MAX_TIN_ARRAY_LEN
+                or n_verts > _MAX_TIN_ARRAY_LEN
+                or n_tris > _MAX_TIN_ARRAY_LEN
             ):
                 logger.warning(
                     f"restore_project_bundle({project_id}): surface for formation {fid} "
-                    f"exceeds size caps (claimed={claimed_count}, verts={len(verts)}, "
-                    f"tris={len(tris)}) — geometry dropped, is_stale forced"
+                    f"exceeds size caps (claimed={claimed_count}, verts={n_verts}, "
+                    f"tris={n_tris}) — geometry dropped, is_stale forced"
                 )
-                kwargs["vertices"] = []
-                kwargs["triangles"] = []
-                kwargs["is_stale"] = True
+                _blank_surface_geometry(kwargs)
                 oversized_surfaces += 1
+                valid_surfaces.append(FormationSurfaceOrm(**kwargs))
+                continue
+            # Debt #112: structural validation — a malformed TIN triple
+            # (wrong arity, non-finite / non-numeric coord, non-int or
+            # out-of-range index, or a present-but-non-list array) would
+            # crash the downstream slice/export code with an opaque error
+            # long after the restore committed. Pass the RAW values so a
+            # present non-list is caught (``None`` = not-yet-built = valid).
+            # Blank + force-stale, same as the size-cap path above.
+            if not _validate_tin_payload(raw_verts, raw_tris):
+                logger.warning(
+                    f"restore_project_bundle({project_id}): surface for formation {fid} "
+                    f"has malformed TIN geometry (structural check failed) — "
+                    f"geometry dropped, is_stale forced"
+                )
+                _blank_surface_geometry(kwargs)
+                malformed_surfaces += 1
                 valid_surfaces.append(FormationSurfaceOrm(**kwargs))
                 continue
             # Force is_stale when the restored contact count disagrees
@@ -202,6 +242,11 @@ async def _restore_geological_models(
             logger.warning(
                 f"restore_project_bundle({project_id}): dropped geometry on "
                 f"{oversized_surfaces} surface(s) exceeding TIN size caps (debt #19) — rebuild required"  # noqa: E501
+            )
+        if malformed_surfaces:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropped geometry on "
+                f"{malformed_surfaces} surface(s) with malformed TIN structure (debt #112) — rebuild required"  # noqa: E501
             )
         model.surfaces = valid_surfaces
 

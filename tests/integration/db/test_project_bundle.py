@@ -1231,6 +1231,129 @@ async def test_restore_caps_oversized_surface_tin_blobs(
     assert ok.is_stale is False
 
 
+async def test_restore_drops_structurally_malformed_surface_tin(
+    db_session: AsyncSession,
+) -> None:
+    """Debt #112: a structurally malformed TIN (an out-of-range triangle
+    index here) has its geometry dropped + ``is_stale`` forced on restore;
+    a well-formed surface in the same bundle restores intact.
+
+    NOTE (Session B, parallel run): this integration test was authored
+    alongside the structural-validation fix but NOT executed in the parallel
+    session — running ``tests/integration`` truncates the shared
+    ``groundmodel_integration`` DB and would break Session A's concurrent
+    e2e. It mirrors ``test_restore_caps_oversized_surface_tin_blobs`` exactly
+    (same build→restore round-trip, same blank+force-stale assertions),
+    changing only the malformation. Verify it green in the serial
+    integration pass after the branches merge.
+    """
+    from groundmodel.infrastructure.db.models.formation_surface_orm import (
+        FormationSurfaceOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    f_bad = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="BadSurf",
+        code="BD",
+        color="#111111",
+        display_order=0,
+    )
+    f_ok = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="OkSurf",
+        code="OK",
+        color="#222222",
+        display_order=1,
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="M",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    db_session.add_all([f_bad, f_ok, model])
+    await db_session.flush()
+
+    bad_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f_bad.id,
+        method="tin",
+        # One vertex but a triangle that references indices 1 and 2 — out of
+        # range. Within all size caps, so only the structural check can catch
+        # it. Indexing this downstream would IndexError.
+        vertices=[[1.0, 2.0, 3.0]],
+        triangles=[[0, 1, 2]],
+        source_contact_count=0,
+        source_contact_checksum=b"",
+        is_stale=False,
+    )
+    ok_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f_ok.id,
+        method="tin",
+        vertices=[[4.0, 5.0, 6.0]],
+        triangles=[[0, 0, 0]],
+        source_contact_count=0,
+        source_contact_checksum=b"",
+        is_stale=False,
+    )
+    db_session.add_all([bad_surface, ok_surface])
+    await db_session.commit()
+    bad_id, ok_id = bad_surface.id, ok_surface.id
+
+    bundle = await build_project_bundle(db_session, source)
+
+    # Wipe end-to-end (simulate restoring onto a fresh DB).
+    await db_session.execute(
+        delete(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+    )
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    bad = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.id == bad_id)
+        )
+    ).scalar_one()
+    ok = (
+        await db_session.execute(select(FormationSurfaceOrm).where(FormationSurfaceOrm.id == ok_id))
+    ).scalar_one()
+
+    # Malformed surface: geometry dropped, forced stale, row survives.
+    assert bad.vertices == []
+    assert bad.triangles == []
+    assert bad.is_stale is True
+    # Well-formed control surface in the same bundle: untouched.
+    assert ok.vertices == [[4.0, 5.0, 6.0]]
+    assert ok.is_stale is False
+
+
 # ---------------------------------------------------------------------------
 # Should-fix 3 — formation_absences round-trip (#101 fix-up 2)
 # ---------------------------------------------------------------------------

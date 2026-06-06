@@ -31,7 +31,8 @@ directly):
 
 * ``_to_json``, ``_from_json`` — value-level encode/decode.
 * ``_column_to_json``, ``_apply_json_to_kwargs`` — row-level helpers.
-* ``_cap``, ``_uuid``, ``_series_row_count`` — restore utility helpers.
+* ``_cap``, ``_uuid``, ``_series_row_count``, ``_validate_tin_payload``
+  — restore utility helpers.
 * ``_MAX_CPT_SERIES_ROWS``, ``_MAX_SURFACE_SOURCE_CONTACTS`` — caps.
 * All other ``_*`` helpers from the sub-modules.
 
@@ -90,6 +91,7 @@ from .bundle_row_builders import (
     _make_location,
     _series_row_count,
     _uuid,
+    _validate_tin_payload,
 )
 
 # Re-export all internal helpers so existing callers keep working
@@ -143,6 +145,7 @@ __all__ = [
     "_build_layer",
     "_build_sample",
     "_series_row_count",
+    "_validate_tin_payload",
     "_cap",
     "_uuid",
     # Constants
