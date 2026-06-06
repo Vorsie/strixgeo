@@ -49,7 +49,10 @@ def main() -> int:
 
     flagged = False
     for f in files:
-        if not f.exists() or f.name.endswith(".test.ts"):
+        # Exclude test/spec files — they're .tsx as often as .ts (section tests
+        # are .test.tsx), and matching only ".test.ts" let .test.tsx through to
+        # false-flag xToScreen( used in mocks/assertions.
+        if not f.exists() or ".test." in f.name or ".spec." in f.name:
             continue
         for ln, txt in _scan(f):
             flagged = True

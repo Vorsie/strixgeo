@@ -32,6 +32,17 @@ For each flagged line, decide whether that coordinate is genuinely spacing-indep
 (rare — e.g. a fixed gutter) or should be `warpedXToScreen`. Everything else is the
 script's call.
 
+**Known false positive — prop-receiver subcomponents.** A subcomponent often takes
+the transform as a prop literally named `xToScreen`, and the *parent* wires that prop
+to `warpedXToScreen` (e.g. `DemSurfaceLine` receives `xToScreen={warpedXToScreen}`
+from `SectionPanel`). Inside such a file a bare `xToScreen(...)` call IS the warped
+transform — not a bug. When a hit is in a subcomponent that destructures `xToScreen`
+from its props, check the parent's `<Sub xToScreen=...>`: if it passes
+`warpedXToScreen`, the hit is fine. The scanner can't see across the prop boundary, so
+this stays an eyeball call. (Test/spec files are excluded; the orchestrator
+`SectionPanel.tsx` lives in `components/`, not `components/sections/`, so it is out of
+the default scan scope — pass it explicitly if you changed its transform wiring.)
+
 ## Self-check
 
 If you ran this, committed, and the user still reports a "renders in the wrong place"
