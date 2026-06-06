@@ -1392,7 +1392,7 @@ export function useGeologicalModel({
     setFormations,
   })
 
-  // Contact create / update / delete � extracted to useContactCrud
+  // Contact create / update / delete — extracted to useContactCrud
   // (debt #201 Move 5). A leaf cluster (the only intra-cluster call is
   // handleCreateContact -> handleUpdateContactDepth, both now inside the
   // sub-hook); shared state stays here and is passed down. Call site sits
