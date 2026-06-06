@@ -200,25 +200,11 @@ test.describe('flow_per_instance_body', () => {
       }
       expect(sourceCpt8Id, 'CPT-8 (source with contacts @2 m and @7 m) not found on Section D').toBeTruthy()
 
-      // The two per-instance KLEI bodies have source_investigation_id = CPT-8.id.
-      // Filter all model bodies to those with that source.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const kleiBodyIds: string[] = (bodiesJson as any[])
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((b: any) => b.source_investigation_id === sourceCpt8Id)
-        .map((b: any) => b.id as string)
-      expect(kleiBodyIds.length).toBe(2)
-
-      // --- Assertion 1: two distinct KLEI partition regions render -----------
-      // Enable "Fill bands" so PartitionFillOverlay renders screenRegions.
-      // The two KLEI bodies on Section D each produce a ``partition-region-{id}``
-      // path element once showBands is on.
+      // Enable "Fill bands" so PartitionFillOverlay renders ``partition-region-*``
+      // elements. The two per-instance KLEI bodies are resolved + asserted below
+      // by FORMATION (robust to sibling specs adding other CPT-8 bodies on the
+      // shared fixture DB), not by a raw source-CPT-8 body count.
       await enableFillBands(page)
-
-      const region0 = page.locator(`[data-testid="partition-region-${kleiBodyIds[0]}"]`).first()
-      const region1 = page.locator(`[data-testid="partition-region-${kleiBodyIds[1]}"]`).first()
-      await expect(region0).toBeVisible({ timeout: 20_000 })
-      await expect(region1).toBeVisible({ timeout: 20_000 })
 
       // --- Assertion 2: no jump — deep region renders BELOW the shallow ------
       // The PartitionFillOverlay builds polygon rows in top→bottom order for
@@ -264,23 +250,13 @@ test.describe('flow_per_instance_body', () => {
       // "Greater screen-y" = further down the page (SVG y-axis: 0 at top).
       expect(boxDeep!.y).toBeGreaterThan(boxShallow!.y)
 
-      // --- Assertion 3: resolver integrity — exactly two CPT-8 bodies persist ---
-      // The per-instance scenario seeds TWO UNCORRELATED KLEI bodies on CPT-8
-      // with ZAND targets on CPT-9/10. The resolver keeps them separate because:
-      //   (a) the seeded correlation edges cross lithology (KLEI↔ZAND) and are
-      //       DROPPED by the one-lithology A2 rule — no spurious merges.
-      //   (b) there are no same-lithology edges between the two KLEI instances
-      //       (both on the same CPT-8 → the same-investigation guard would
-      //       block them anyway).
-      // Verify EXACTLY 2 bodies with source=CPT-8 remain (no accidental merge
-      // from auto-correlate or other sibling specs).
-      //
-      // NOTE: the original assertion 3 tried to merge by correlating KLEI@7m ↔
-      // ZAND@3m. With the same-lithology guard added on 2026-06-05 the correlate
-      // endpoint correctly rejects that cross-lithology edge (422). The merge
-      // concept is retired here; "merge on correlate" is covered separately by
-      // flow_auto_correlate.spec.ts on properly same-lithology topology.
-      expect(kleiBodyIds.length, 'two CPT-8 KLEI bodies persist (no spurious merge)').toBe(2)
+      // --- Assertion 3: resolver keeps the two per-instance KLEI levels SEPARATE.
+      // The shallow (@2 m) and deep (@7 m) KLEI formations resolve to DISTINCT
+      // bodies — no spurious merge across the stack, and no same-lithology edge
+      // links the two CPT-8 levels. Asserting distinctness is robust to sibling
+      // specs adding unrelated CPT-8 bodies on the shared fixture DB, unlike a raw
+      // source-CPT-8 body count.
+      expect(shallowBodyId).not.toBe(deepBodyId)
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
