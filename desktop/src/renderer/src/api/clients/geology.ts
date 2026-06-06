@@ -1560,20 +1560,6 @@ export const geologyClient = {
     }
   },
 
-  // Bulk-delete every purely-detected body of a litho model.
-  clearDetectedBodies: async (
-    projectId: string,
-    modelId: string,
-  ): Promise<{ bodies_deleted: number; bodies_preserved: number }> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies`
-    const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-    }
-    return res.json() as Promise<{ bodies_deleted: number; bodies_preserved: number }>
-  },
-
   // Backwards-compat alias.
   deleteLens: async (projectId: string, modelId: string, lensId: string): Promise<void> => {
     const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}`

@@ -7,9 +7,6 @@ from groundmodel.api.schemas.project.body.body_boundary import (
     BodyRenderStyle,
 )
 from groundmodel.api.schemas.project.body.body_list_item import BodyListItem
-from groundmodel.api.schemas.project.body.clear_detected_bodies_response import (
-    ClearDetectedBodiesResponse,
-)
 from groundmodel.api.schemas.project.body.merge_enclosed_lens_response import (
     MergeEnclosedLensResponse,
 )
@@ -24,7 +21,6 @@ __all__ = [
     "BodyBoundaryWriteRequest",
     "BodyListItem",
     "BodyRenderStyle",
-    "ClearDetectedBodiesResponse",
     "MergeEnclosedLensResponse",
     "NameBodyRequest",
     "NameBodyResponse",

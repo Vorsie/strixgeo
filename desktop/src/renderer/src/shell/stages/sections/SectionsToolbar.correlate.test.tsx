@@ -78,10 +78,6 @@ vi.mock('../../../api/client', async () => {
           skipped_unfinished_section: 0,
           errored: 0,
         }),
-        clearDetectedBodies: vi.fn().mockResolvedValue({
-          bodies_deleted: 0,
-          bodies_preserved: 0,
-        }),
         claimBodyExtent: vi.fn().mockResolvedValue({}),
       },
       virtueleBoring: {
@@ -1066,74 +1062,6 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// Tests — Delete all detected lenses (dogfeed 2026-06-01)
-// ---------------------------------------------------------------------------
-
-describe('SectionsToolbar Delete all detected lenses', () => {
-  beforeEach(() => vi.clearAllMocks())
-  afterEach(() => cleanup())
-
-  const openBodies = (): void => {
-    fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
-  }
-
-  it('DDB-1: confirming the modal calls clearDetectedBodies + clears ghosts + toasts', async () => {
-    vi.mocked(api.geology.clearDetectedBodies).mockResolvedValueOnce({
-      bodies_deleted: 4,
-      bodies_preserved: 2,
-    })
-    const toast = vi.fn()
-
-    renderWith(
-      makeCtx({
-        sectionModelAxis: 'lithostratigraphic',
-        activeLithoModel: makeLithoModel(),
-        selectedSectionId: 'sec-1',
-        toast,
-      }),
-    )
-
-    openBodies()
-    // Open the confirm modal from the dropdown item.
-    fireEvent.click(screen.getByTestId('litho-delete-detected-bodies'))
-    // Confirm in the modal (the danger button is labelled with the action).
-    await act(async () => {
-      fireEvent.click(screen.getByText('Delete detected lenses'))
-    })
-
-    expect(api.geology.clearDetectedBodies).toHaveBeenCalledWith('proj-1', 'model-litho-1')
-    expect(toast).toHaveBeenCalledTimes(1)
-    const [level, message] = toast.mock.calls[0] as [string, string]
-    expect(level).toBe('success')
-    expect(message).toContain('4')
-    expect(message).toContain('2') // preserved count surfaced
-  })
-
-  it('DDB-2: API error toasts an error', async () => {
-    vi.mocked(api.geology.clearDetectedBodies).mockRejectedValueOnce(new Error('boom'))
-    const toast = vi.fn()
-
-    renderWith(
-      makeCtx({
-        sectionModelAxis: 'lithostratigraphic',
-        activeLithoModel: makeLithoModel(),
-        selectedSectionId: 'sec-1',
-        toast,
-      }),
-    )
-
-    openBodies()
-    fireEvent.click(screen.getByTestId('litho-delete-detected-bodies'))
-    await act(async () => {
-      fireEvent.click(screen.getByText('Delete detected lenses'))
-    })
-
-    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Delete all detected lenses failed'))
-  })
-})
-
-
 describe('SectionsToolbar Accept all pinch-outs', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
@@ -1142,10 +1070,10 @@ describe('SectionsToolbar Accept all pinch-outs', () => {
     fireEvent.click(screen.getByTestId('litho-bodies-dropdown'))
   }
 
-  it('AP1: Detect / Suggest / Accept body verbs are absent (retired with body-extent system)', () => {
+  it('AP1: Detect / Suggest / Accept / Delete-detected body verbs are absent (retired with body-extent system)', () => {
     // Retired 2026-06-06: the partition fill renders bodies in pure geometry;
     // the manual DB-entity verbs are no longer wired. Fill bands + Materialise
-    // + Delete remain.
+    // are the keeper verbs.
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -1157,6 +1085,7 @@ describe('SectionsToolbar Accept all pinch-outs', () => {
     expect(screen.queryByTestId('litho-detect-lenses')).toBeNull()
     expect(screen.queryByTestId('body-suggest-pinch-outs')).toBeNull()
     expect(screen.queryByTestId('body-accept-all-pinch-outs')).toBeNull()
+    expect(screen.queryByTestId('litho-delete-detected-bodies')).toBeNull()
     // The keeper verb is still present.
     expect(screen.getByTestId('litho-fill-bands')).toBeTruthy()
   })

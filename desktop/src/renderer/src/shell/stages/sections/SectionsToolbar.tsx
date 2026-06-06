@@ -114,9 +114,6 @@ export default function SectionsToolbar(): JSX.Element {
   // gate on "all contacts in its primary section have ≥1 approved edge" and
   // create a perpendicular companion section.
   const [materialisingCompanions, setMaterialisingCompanions] = useState(false)
-  // Delete all detected bodies — busy flag + irreversible-confirm modal state.
-  const [deletingDetectedBodies, setDeletingDetectedBodies] = useState(false)
-  const [deleteBodiesConfirmOpen, setDeleteBodiesConfirmOpen] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -327,47 +324,6 @@ export default function SectionsToolbar(): JSX.Element {
   }, [
     activeLithoModel,
     materialisingCompanions,
-    project.id,
-    requestCorrelationEdgesRefetch,
-    toast,
-  ])
-
-  // Delete all detected bodies (dogfeed 2026-06-01): bulk-clear every
-  // purely-detected body wedge in one gesture. The backend preserves
-  // user-named + user-claimed ("accepted") bodies (provenance rule), so the
-  // engineer's committed interpretation survives. Also clears the ephemeral
-  // pinch-out ghost candidates and bumps the refetch nonce so the overlay
-  // updates immediately. Gated behind a confirmation modal (irreversible).
-  const handleDeleteDetectedBodies = useCallback(async (): Promise<void> => {
-    if (!activeLithoModel || deletingDetectedBodies) return
-    log.info('sections', `deleteDetectedBodies: model=${activeLithoModel.id}`)
-    setDeletingDetectedBodies(true)
-    try {
-      const result = await api.geology.clearDetectedBodies(project.id, activeLithoModel.id)
-      log.success(
-        'sections',
-        `deleteDetectedBodies: deleted=${result.bodies_deleted} ` +
-          `preserved=${result.bodies_preserved}`,
-      )
-      // Force the canvas to re-list bodies so the wedges disappear at once.
-      requestCorrelationEdgesRefetch?.()
-      toast(
-        'success',
-        result.bodies_preserved > 0
-          ? `Deleted ${result.bodies_deleted} detected ${result.bodies_deleted === 1 ? 'lens' : 'lenses'}; ` +
-              `kept ${result.bodies_preserved} accepted.`
-          : `Deleted ${result.bodies_deleted} detected ${result.bodies_deleted === 1 ? 'lens' : 'lenses'}.`,
-      )
-    } catch (err) {
-      log.error('sections', 'deleteDetectedBodies: failed', err)
-      toast('error', 'Delete all detected lenses failed — try again.')
-    } finally {
-      setDeletingDetectedBodies(false)
-      setDeleteBodiesConfirmOpen(false)
-    }
-  }, [
-    activeLithoModel,
-    deletingDetectedBodies,
     project.id,
     requestCorrelationEdgesRefetch,
     toast,
@@ -992,17 +948,6 @@ export default function SectionsToolbar(): JSX.Element {
                   : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated',
               },
               {
-                label: deletingDetectedBodies
-                  ? 'Deleting…'
-                  : 'Delete all detected lenses',
-                icon: <Trash2 size={12} />,
-                onClick: () => setDeleteBodiesConfirmOpen(true),
-                disabled: deletingDetectedBodies,
-                testid: 'litho-delete-detected-bodies',
-                title:
-                  'Hard-delete every machine-detected lens wedge in this model. Bodies you named or claimed (accepted) are preserved.',
-              },
-              {
                 // Explicit, finish-then-click verb — colour every body's closed
                 // loop with its lithology. Do this AFTER correlating + pinch-outs;
                 // it never auto-draws (owner directive 2026-06-03). Toggles on/off.
@@ -1251,55 +1196,6 @@ export default function SectionsToolbar(): JSX.Element {
               disabled={deleting}
             >
               {deleting ? 'Deleting…' : 'Delete cross-section'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delete-all-detected-bodies confirmation (dogfeed 2026-06-01).
-          Irreversible (hard-deletes DB rows) → Modal with default-focus on
-          Cancel and an action-named danger button. Named / claimed bodies
-          are preserved by the backend; the copy says so. */}
-      <Modal
-        open={deleteBodiesConfirmOpen}
-        onCancel={() => setDeleteBodiesConfirmOpen(false)}
-        labelledBy="delete-bodies-title"
-        busy={deletingDetectedBodies}
-        cardClassName="w-80"
-      >
-        <div className="p-5">
-          <h2
-            id="delete-bodies-title"
-            className="text-sm font-semibold text-text-primary mb-1"
-          >
-            Delete all detected lenses?
-          </h2>
-          <p className="text-xs text-text-muted mb-4">
-            Every machine-detected lens wedge in this model will be permanently
-            deleted. Lenses you named or claimed (accepted) are kept. This
-            cannot be undone.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="md"
-              // reason: autoFocus on Cancel is the safe default for a
-              // destructive-confirm modal (docs/ux.md) — the user must
-              // actively choose the destructive action.
-              // eslint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-              onClick={() => setDeleteBodiesConfirmOpen(false)}
-              disabled={deletingDetectedBodies}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              onClick={() => void handleDeleteDetectedBodies()}
-              disabled={deletingDetectedBodies}
-            >
-              {deletingDetectedBodies ? 'Deleting…' : 'Delete detected lenses'}
             </Button>
           </div>
         </div>
