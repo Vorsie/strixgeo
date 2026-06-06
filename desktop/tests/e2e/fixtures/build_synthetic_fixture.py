@@ -639,7 +639,10 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     from sqlalchemy import select
     from uuid6 import uuid7
 
-    from groundmodel.application.detect_bodies import DetectBodies
+    # Register every ORM table in the metadata so FK targets (project,
+    # geological_model, …) resolve in this direct-session path. Previously these
+    # were pulled in transitively via the now-deleted DetectBodies import.
+    import groundmodel.infrastructure.db.models  # noqa: F401
     from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
     from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
     from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -649,6 +652,10 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
         LithoContactCorrelationEdgeOrm,
     )
+
+    # ``project`` is the one body-FK target not re-exported by the models package
+    # __init__; import it explicitly so the metadata can resolve body.app_project_id.
+    from groundmodel.infrastructure.db.models.project_orm import ProjectOrm  # noqa: F401
     from groundmodel.infrastructure.db.session import AsyncSessionFactory
 
     pid = UUID(project_id)
@@ -721,20 +728,26 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         # connected component {KLEI@2, ZAND@4, ZAND@3-L, ZAND@3-R} resolves to a
         # KLEI representative sourced at CPT-4 — exactly the body the action specs
         # right-click on Section B.
+        # Partition model: the resolver makes ONE body per connected component of
+        # SAME-lithology correlated layers (it DROPS cross-litho edges). A KLEI
+        # body spanning Section B = a KLEI unit on CPT-3/4/5 with the KLEI tops
+        # correlated KLEI↔KLEI (ZAND bases likewise). PartitionFillOverlay renders
+        # it as the ``partition-region-*`` the body-action specs right-click.
         f_body = form("KLEI body (action seed)", "KLEI", 30, "#c2a0d8")
         f_base = form("ZAND base cap (action seed)", "ZAND", 31, "#f5c842")
-        f_tgt = form("ZAND target (action seed)", "ZAND", 32, "#f5c842")
         await s.flush()
-        c_body = contact(f_body, cpt4, 2.0)
-        c_base = contact(f_base, cpt4, 4.0)
-        c_left = contact(f_tgt, cpt3, 3.0)
-        c_right = contact(f_tgt, cpt5, 3.0)
+        bk3 = contact(f_body, cpt3, 2.0)
+        bk4 = contact(f_body, cpt4, 2.0)
+        bk5 = contact(f_body, cpt5, 2.0)
+        bz3 = contact(f_base, cpt3, 5.0)
+        bz4 = contact(f_base, cpt4, 5.0)
+        bz5 = contact(f_base, cpt5, 5.0)
         await s.flush()
-        edge(c_body, c_left)
-        edge(c_base, c_left)
-        edge(c_body, c_right)
-        edge(c_base, c_right)
-        body_contact_ids = [c_body.id, c_base.id, c_left.id, c_right.id]
+        edge(bk3, bk4)
+        edge(bk4, bk5)
+        edge(bz3, bz4)
+        edge(bz4, bz5)
+        body_contact_ids = [bk3.id, bk4.id, bk5.id, bz3.id, bz4.id, bz5.id]
 
         # --- Crossing scenario (Section C) — no edges; auto-lens creates them ---
         f_zand = form("ZAND crossing (action seed)", "ZAND", 40, "#f5c842")
@@ -747,60 +760,36 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         crossing_contact_ids = [x1.id, x2.id, x3.id, x4.id]
         await s.flush()
 
-        # --- Per-instance scenario (Section D) -------------------------------
-        # Two UNCORRELATED same-lithology (KLEI) units on the SAME centre/source
-        # column (CPT-8) at DIFFERENT depths, each closing BILATERALLY to a left
-        # (CPT-9) AND a right (CPT-10) target. The resolver makes one body per
-        # connected component; both share the (Quaternary, KLEI) naming group, so
-        # they get depth-ranked labels QC1 (shallow) + QC2 (deep). They are
-        # framed from their OWN member layer — the deep body must NOT jump up to
-        # the shallow occurrence (Bug C "body jump").
-        #
-        # The detector requires BILATERAL closure (≥2 distinct target
-        # investigations) — see ``detect_body_extents`` — so each unit needs a
-        # target on BOTH sides, exactly like the Section B body (which closes to
-        # CPT-3 + CPT-5). Topology (framing uses the unit's top contact + its
-        # next-deeper contact):
-        #   CPT-8 (source): KLEI@2 / ZAND@4 / KLEI@7 / ZAND@9
-        #   CPT-9  (left targets):  ZAND@3 (shallow), ZAND@8 (deep)
-        #   CPT-10 (right targets): ZAND@3 (shallow), ZAND@8 (deep)
-        #   shallow body (KLEI@2, ZAND@4) → both correlate to L@3 AND R@3
-        #   deep    body (KLEI@7, ZAND@9) → both correlate to L@8 AND R@8
-        # All ZAND targets share one formation row so they never spawn their own
-        # KLEI-group bodies (and being singletons on their columns, no body at
-        # all).
+        # --- Per-instance scenario (Section D) — partition model -------------
+        # Two KLEI units (shallow + deep) on CPT-8/9/10, each correlated SAME-
+        # lithology ACROSS the three columns. The resolver makes one body per
+        # connected component: the shallow KLEI tops form one (QC1), the deep KLEI
+        # tops a separate one (QC2) — no edge links shallow↔deep, so the resolver
+        # keeps them distinct. CPT-8's KLEI contacts are SHALLOWER than the
+        # neighbours' (2 m / 7 m vs 3 m / 8 m) so each body's source_investigation_id
+        # resolves to CPT-8 — and there are NO ZAND separators, which would spawn
+        # extra source-CPT-8 singleton bodies. The deep body is framed from its OWN
+        # member layer — it must NOT jump up to the shallow occurrence (Bug C).
         pi_klei_top = form("KLEI inst top (per-instance)", "KLEI", 50, "#c2a0d8")
-        pi_zand_mid = form("ZAND inst sep (per-instance)", "ZAND", 51, "#f5c842")
         pi_klei_deep = form("KLEI inst deep (per-instance)", "KLEI", 52, "#c2a0d8")
-        pi_zand_base = form("ZAND inst base (per-instance)", "ZAND", 53, "#f5c842")
-        pi_tgt = form("ZAND inst target (per-instance)", "ZAND", 54, "#f5c842")
         await s.flush()
-        # Source column (CPT-8) — two KLEI units separated by ZAND.
+        # CPT-8 (source) carries the two KLEI levels shallower than the neighbours;
+        # CPT-9 / CPT-10 carry the matching levels one metre deeper.
         d_klei_shallow = contact(pi_klei_top, cpt8, 2.0)
-        d_zand_shallow_base = contact(pi_zand_mid, cpt8, 4.0)
         d_klei_deep = contact(pi_klei_deep, cpt8, 7.0)
-        d_zand_deep_base = contact(pi_zand_base, cpt8, 9.0)
-        # Targets — left (CPT-9) + right (CPT-10), one shallow + one deep each.
-        d_left_shallow = contact(pi_tgt, cpt9, 3.0)
-        d_left_deep = contact(pi_tgt, cpt9, 8.0)
-        d_right_shallow = contact(pi_tgt, cpt10, 3.0)
-        d_right_deep = contact(pi_tgt, cpt10, 8.0)
+        d_left_shallow = contact(pi_klei_top, cpt9, 3.0)
+        d_left_deep = contact(pi_klei_deep, cpt9, 8.0)
+        d_right_shallow = contact(pi_klei_top, cpt10, 3.0)
+        d_right_deep = contact(pi_klei_deep, cpt10, 8.0)
         await s.flush()
-        # Bilateral closure: each unit's top + base correlate to BOTH a left and
-        # a right target at the matching depth.
+        # Same-litho correlation of each KLEI level across the three columns.
         edge(d_klei_shallow, d_left_shallow)
-        edge(d_zand_shallow_base, d_left_shallow)
         edge(d_klei_shallow, d_right_shallow)
-        edge(d_zand_shallow_base, d_right_shallow)
         edge(d_klei_deep, d_left_deep)
-        edge(d_zand_deep_base, d_left_deep)
         edge(d_klei_deep, d_right_deep)
-        edge(d_zand_deep_base, d_right_deep)
         per_instance_contact_ids = [
             d_klei_shallow.id,
-            d_zand_shallow_base.id,
             d_klei_deep.id,
-            d_zand_deep_base.id,
             d_left_shallow.id,
             d_left_deep.id,
             d_right_shallow.id,
@@ -829,15 +818,15 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         )
         await s.commit()
 
-        # Resolve instance ordinals (DetectBodies needs them), then detect the
-        # bilateral body. The crossing has no edges → no body forms there.
+        # Resolve instance ordinals + connected-component bodies. The partition
+        # fill renders body shape from membership — there is no separate detector.
+        # The crossing (Section C) has no edges → no body forms there.
         await ResolveLithoInstances(s).execute(model_id=mid)
         await s.commit()
-        res = await DetectBodies(s).execute(project_id=pid, model_id=mid, prefer_section_id=sec_b)
-        await s.commit()
         print(
-            f"[fixture] action scenarios seeded — bodies_created={res.bodies_created} "
-            f"(body on Section B, crossing on Section C, two-instance on Section D)",
+            "[fixture] action scenarios seeded — resolver bodies on Section B "
+            "(KLEI across CPT-3/4/5) + Section D (per-instance QC1/QC2); "
+            "crossing on Section C",
             file=sys.stderr,
         )
 

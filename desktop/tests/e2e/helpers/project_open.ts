@@ -211,22 +211,12 @@ export async function detectBodiesForFixture(
   page: Page,
   fixtureProjectId: string,
 ): Promise<void> {
-  // The renderer must be loaded for ``fetch`` (same-origin to the backend) to
-  // work. Safe to call before openFixtureProject (page is at the Welcome screen)
-  // or after — either way we only need the JS context, not any particular view.
-  await page.waitForLoadState('domcontentloaded')
-  await page.evaluate(async ([base, pid]) => {
-    const modelsResp = await fetch(`${base}/projects/${pid}/geology/models`)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const models: any[] = await modelsResp.json()
-    const litho = models.find((m: { kind: string }) => m.kind === 'lithostratigraphic')
-    if (!litho) return
-    await fetch(`${base}/projects/${pid}/geology/models/${litho.id}/bodies/detect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    })
-  }, [API_BASE, fixtureProjectId] as const)
+  // No-op since the body-extent retirement (2026-06-06): bodies are now seeded
+  // directly by build_synthetic_fixture.py via ResolveLithoInstances (same-litho
+  // correlation components), and the POST .../bodies/detect endpoint was removed.
+  // Kept as a no-op so the caller specs need no change; drop in an e2e cleanup pass.
+  void page
+  void fixtureProjectId
 }
 
 /**
