@@ -95,26 +95,16 @@ import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
-import BodyExtentOverlay from './sections/BodyExtentOverlay'
 import PartitionFillOverlay from './sections/PartitionFillOverlay'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import BodyContextMenu, { type ClaimableKind } from './sections/BodyContextMenu'
-import GhostContextMenu from './sections/GhostContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
-/** Stable empty map so the BodyExtentOverlay prop identity doesn't churn. */
+/** Stable empty map so the PartitionFillOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
-
-/**
- * The morph fill superseded BodyExtentOverlay as the litho lens system (it now
- * renders the pinch wedges + draggable apexes in both bands-on and bands-off
- * views). Flip to ``true`` to restore the legacy wedge/ghost overlay if the
- * deprecated suggest/claim flow is ever needed again (dogfeed 2026-06-05).
- */
-const SHOW_LEGACY_BODY_EXTENT = false
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -1968,18 +1958,6 @@ export default function SectionPanel({
   } | null>(null)
   const dismissBodyCtxMenu = useCallback(() => setBodyCtxMenu(null), [])
 
-  // Ghost context menu state — opened by right-clicking a ghost candidate
-  // wedge in BodyExtentOverlay.  Offers Accept + Dismiss without a dialog.
-  const [ghostCtxMenu, setGhostCtxMenu] = useState<{
-    candidate: PinchOutCandidate
-    svgX: number
-    svgY: number
-  } | null>(null)
-  const dismissGhostCtxMenu = useCallback(() => setGhostCtxMenu(null), [])
-
-  // Left-click a ghost candidate → confirm before claiming.
-  const [pendingClaimGhost, setPendingClaimGhost] = useState<PinchOutCandidate | null>(null)
-
   const handleBodyContextMenu = useCallback(
     (body: BodyListItem, svgX: number, svgY: number): void => {
       setBodyCtxMenu({ body, svgX, svgY })
@@ -2025,11 +2003,9 @@ export default function SectionPanel({
   // focus states are passed as booleans so the hook stays decoupled
   // from the menu shapes.
   useSectionKeyboardShortcuts({
-    ghostMenuOpen: ghostCtxMenu !== null,
     bodyMenuOpen: bodyCtxMenu !== null,
     columnMenuOpen: contextMenu !== null,
     columnFocused: focusedColumn !== null,
-    dismissGhostCtxMenu,
     dismissBodyCtxMenu,
     dismissContextMenu,
     exitFocus,
@@ -2998,51 +2974,6 @@ export default function SectionPanel({
                 BENEATH the wedge/extent overlay so the caps + interaction paint
                 on top. Litho axis only, and ONLY when the user has clicked
                 "Fill bands" (never auto-drawn). */}
-            {/* Body extent wedges (#163f Slice 6) — SUPERSEDED by the morph fill,
-                which now renders the pinch wedges + draggable apexes in BOTH the
-                bands-on and bands-off views (dogfeed 2026-06-05). Render-gated off
-                so the two never double-draw the same pinch (the cyan-node
-                interception that blocked the apex drag). Kept for the deprecated
-                suggest/ghost flow if it ever needs restoring. */}
-            {SHOW_LEGACY_BODY_EXTENT && axisMode === 'lithostratigraphic' && lenses !== undefined && (
-              <BodyExtentOverlay
-                bodies={lenses}
-                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
-                contacts={correlateContacts}
-                lithoLayers={lithoLayers}
-                formationLabelById={formationLabelById}
-                formationColorById={formationColorById}
-                placedColumns={visibleColumns}
-                contactEdges={contactEdges ?? []}
-                // Use the SAME warped forward + inverse the columns and
-                // every other section overlay use (dogfeed 2026-05-31 —
-                // raw ``xToScreen`` left the lens shape detached from
-                // the columns at any spacing != 100%).
-                alongToScreenX={warpedXToScreen}
-                levelToScreen={levelToScreen}
-                screenXToAlong={warpedScreenXToAlongCb}
-                screenToLevel={screenToLevel}
-                plotTop={MARGIN.top}
-                plotBottom={MARGIN.top + plotHeight}
-                openExtentLengthM={openExtentLengthM ?? LITHO_SEGMENTER_DEFAULTS.openExtentLengthM}
-                onSaveLensShape={onSaveLensShape}
-                onDeleteLens={onDeleteLens}
-                onBodyContextMenu={
-                  onClaimBodyExtent ?? onClearBodyExtent ?? onNameBody ?? onDissolveBody
-                    ? handleBodyContextMenu
-                    : undefined
-                }
-                ghostCandidates={ghostCandidates}
-                onRequestClaimGhostCandidate={
-                  axisMode === 'lithostratigraphic' ? c => setPendingClaimGhost(c) : undefined
-                }
-                onGhostContextMenu={
-                  axisMode === 'lithostratigraphic'
-                    ? (c, svgX, svgY) => setGhostCtxMenu({ candidate: c, svgX, svgY })
-                    : undefined
-                }
-              />
-            )}
             {/* Partition fill — every point belongs to exactly one body, no
                 overlaps + no gaps (owner directive 2026-06-05; the 2D section
                 defines the 3D model). Renders the tiled partition + labels +
@@ -3131,8 +3062,8 @@ export default function SectionPanel({
             </text>
 
             {/* Body context menu — portal="svg" renders inside the SVG
-                via foreignObject.  Opened by right-clicking a body wedge
-                in BodyExtentOverlay (onBodyContextMenu handler above). */}
+                via foreignObject.  Opened by right-clicking a body band
+                in PartitionFillOverlay (onBodyContextMenu handler above). */}
             {bodyCtxMenu !== null && (
               <BodyContextMenu
                 x={bodyCtxMenu.svgX}
@@ -3183,53 +3114,8 @@ export default function SectionPanel({
                 onClose={dismissBodyCtxMenu}
               />
             )}
-            {/* Ghost context menu — portal="svg" renders inside the SVG via
-                foreignObject.  Opened by right-clicking a ghost candidate wedge
-                in BodyExtentOverlay (onGhostContextMenu handler above).  Offers
-                Accept (claims immediately, no dialog) and Dismiss (UI-only). */}
-            {ghostCtxMenu !== null && (
-              <GhostContextMenu
-                x={ghostCtxMenu.svgX}
-                y={ghostCtxMenu.svgY}
-                candidate={ghostCtxMenu.candidate}
-                onAccept={c => {
-                  onClaimGhostCandidate?.(c)
-                  dismissGhostCtxMenu()
-                }}
-                onDismiss={c => {
-                  onDismissGhostCandidate?.(c)
-                  dismissGhostCtxMenu()
-                }}
-                onClose={dismissGhostCtxMenu}
-              />
-            )}
           </svg>
         )}
-        {/* Left-click confirm dialog — gating the ghost claim from accidental
-            clicks.  Lives outside the SVG so Modal can escape the SVG stacking
-            context via its Portal. */}
-        <ConfirmDialog
-          open={pendingClaimGhost !== null}
-          labelledBy="accept-pinch-out-title"
-          titleTestid="accept-pinch-out-title"
-          title={
-            pendingClaimGhost?.kind === 'open'
-              ? 'Accept this open end?'
-              : 'Accept this pinch-out?'
-          }
-          body="This commits a lateral extent. You can remove it later by right-clicking the band."
-          confirm={{
-            label: 'Accept',
-            variant: 'primary',
-            testid: 'accept-pinch-out-confirm',
-            onClick: () => {
-              if (pendingClaimGhost) onClaimGhostCandidate?.(pendingClaimGhost)
-              setPendingClaimGhost(null)
-            },
-          }}
-          cancelTestid="accept-pinch-out-cancel"
-          onCancel={() => setPendingClaimGhost(null)}
-        />
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
             Sizing canvas…

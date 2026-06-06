@@ -46,7 +46,6 @@ import NameBodyDialog from '../../../components/sections/NameBodyDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import type { ClaimableKind } from '../../../components/sections/BodyContextMenu'
-import ProvenanceConflictDialog from '../../../components/sections/ProvenanceConflictDialog'
 import { ProvenanceViolationError } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
@@ -213,15 +212,6 @@ export default function SectionsCanvas(): JSX.Element {
     lensId: string
     lensName: string | null
     modelId: string
-  } | null>(null)
-
-  // Provenance-conflict dialog — opened when claimBodyExtent returns 409
-  // (detector already claimed the requested side). The user picks between
-  // "Apply my claim" (overwrite) or "Keep current" (keep detector claim).
-  const [provenanceConflict, setProvenanceConflict] = useState<{
-    bodyId: string
-    side: 'left' | 'right'
-    kind: ClaimableKind
   } | null>(null)
 
   // Name-body dialog state (dogfeed 2026-06-01) — replaces the dead-end
@@ -805,11 +795,11 @@ export default function SectionsCanvas(): JSX.Element {
         await _doClaimExtent(bodyId, side, kind, anchorLayerId, neighbourInvId)
       } catch (err: unknown) {
         if (err instanceof ProvenanceViolationError) {
-          // HTTP 409: the detector already claimed this side with 'to_target'.
-          // Surface the conflict dialog so the user can choose to overwrite
-          // after explicitly clearing the detector's claim.
+          // HTTP 409: the detector already claimed this side.  Dialog removed
+          // (ProvenanceConflictDialog retired in body-extent retirement).
+          // The detector itself is retired in Task 5; this branch is dead code.
           log.info('section', `claim-body-extent: 409 provenance conflict for body=${bodyId} side=${side}`)
-          setProvenanceConflict({ bodyId, side, kind })
+          toast('error', 'Extent already claimed — try again.')
         } else {
           toast('error', 'Failed to claim extent.')
           log.warn('section', 'handleClaimBodyExtent: failed', err)
@@ -2540,44 +2530,6 @@ export default function SectionsCanvas(): JSX.Element {
           onCancel={handleSnapDialogCancel}
           busy={lithoGeoSnapBusy}
         />
-        {/* Provenance-conflict dialog — opened when claimBodyExtent returns
-            409 (the detector already claimed the requested side). */}
-        {provenanceConflict !== null && (
-          <ProvenanceConflictDialog
-            open={provenanceConflict !== null}
-            bodyId={provenanceConflict.bodyId}
-            side={provenanceConflict.side}
-            kind={provenanceConflict.kind}
-            onApply={() => {
-              // Clear the existing detector claim then retry via _doClaimExtent
-              // (NOT handleClaimBodyExtent) so a second 409 — caused by a
-              // concurrent DetectBodies sweep racing between clear and re-claim
-              // — does NOT reopen the dialog.  Instead it shows a toast.
-              const { bodyId, side, kind } = provenanceConflict
-              setProvenanceConflict(null)
-              void (async () => {
-                if (!activeLithoModel) return
-                try {
-                  await api.geology.clearBodyExtent(project.id, activeLithoModel.id, bodyId, side)
-                  await _doClaimExtent(bodyId, side, kind)
-                } catch (err) {
-                  if (err instanceof ProvenanceViolationError) {
-                    // Rare race: a DetectBodies sweep re-claimed the side
-                    // between our clear and re-claim.  Don't reopen the dialog.
-                    toast('error', "Couldn't claim extent — try again.")
-                    log.warn('section', 'provenance-conflict apply: re-claimed by detector', err)
-                  } else {
-                    toast('error', 'Failed to apply claim after conflict resolution.')
-                    log.warn('section', 'provenance-conflict apply: failed', err)
-                  }
-                }
-              })()
-            }}
-            onKeepCurrent={() => setProvenanceConflict(null)}
-            onClose={() => setProvenanceConflict(null)}
-          />
-        )}
-
         {/* Name / rename a lens (body). Replaces the dead-end window.prompt —
             Electron disables prompt() in the renderer. */}
         <NameBodyDialog

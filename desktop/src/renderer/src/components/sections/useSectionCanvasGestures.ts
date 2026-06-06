@@ -325,16 +325,12 @@ export function useSectionWheelZoom({
 
 /** Inputs for {@link useSectionKeyboardShortcuts}. */
 interface SectionKeyboardShortcutsParams {
-  /** Whether the ghost-candidate context menu is open. */
-  ghostMenuOpen: boolean
   /** Whether the body-wedge context menu is open. */
   bodyMenuOpen: boolean
   /** Whether the column context menu is open. */
   columnMenuOpen: boolean
   /** Whether a column is currently focused. */
   columnFocused: boolean
-  /** Close the ghost-candidate context menu. */
-  dismissGhostCtxMenu: () => void
   /** Close the body-wedge context menu. */
   dismissBodyCtxMenu: () => void
   /** Close the column context menu. */
@@ -350,8 +346,8 @@ interface SectionKeyboardShortcutsParams {
  *
  * One ``keydown`` listener on ``document`` that, on Escape (and only when the
  * user is NOT typing into an input), peels the most recently opened surface in
- * priority order: ghost menu → body menu → column menu → focus → close the
- * section. Mirrors the Data-stage Esc-to-map peel (debt #43).
+ * priority order: body menu → column menu → focus → close the section.
+ * Mirrors the Data-stage Esc-to-map peel (debt #43).
  *
  * The open/focus states are passed as booleans rather than the underlying
  * menu objects: the handler only branches on open-vs-closed, so booleans keep
@@ -364,11 +360,9 @@ interface SectionKeyboardShortcutsParams {
  *     See {@link SectionKeyboardShortcutsParams}.
  */
 export function useSectionKeyboardShortcuts({
-  ghostMenuOpen,
   bodyMenuOpen,
   columnMenuOpen,
   columnFocused,
-  dismissGhostCtxMenu,
   dismissBodyCtxMenu,
   dismissContextMenu,
   exitFocus,
@@ -389,9 +383,7 @@ export function useSectionKeyboardShortcuts({
       ) {
         return
       }
-      if (ghostMenuOpen) {
-        dismissGhostCtxMenu()
-      } else if (bodyMenuOpen) {
+      if (bodyMenuOpen) {
         dismissBodyCtxMenu()
       } else if (columnMenuOpen) {
         dismissContextMenu()
@@ -408,8 +400,6 @@ export function useSectionKeyboardShortcuts({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [
-    ghostMenuOpen,
-    dismissGhostCtxMenu,
     bodyMenuOpen,
     columnMenuOpen,
     columnFocused,
