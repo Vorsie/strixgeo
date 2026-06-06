@@ -106,4 +106,8 @@ contextBridge.exposeInMainWorld('electron', {
   // App-level Settings dialog (File → Settings…). Same one-way fire as
   // every other menu signal — the renderer owns the dialog state.
   onMenuOpenSettings: (cb: () => void) => onMenuEvent('menu:open-settings', cb),
+
+  // Help → Gesture cheatsheet… (F1). Same one-way fire — the renderer
+  // owns the CheatsheetDialog open state.
+  onMenuOpenCheatsheet: (cb: () => void) => onMenuEvent('menu:open-cheatsheet', cb),
 })
