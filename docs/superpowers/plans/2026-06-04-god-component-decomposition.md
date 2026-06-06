@@ -8,9 +8,17 @@ Move 2 (`api/client.ts` → per-domain barrel), Move 3 (`ContactsLayer` pure-geo
 extracted; 3,709 → 3,455 lines; the stateful drag/overlay core left in place;
 TDZ verified; tsc + 1,619 Vitest green; senior-code-reviewer pass clean.
 Each move verified green (mypy + pytest unit + bundle round-trip for BE; tsc +
-full Vitest for FE). **Move 5 remains (useGeologicalModel)** — the highest-risk
-React split (TDZ / hook-ordering / dep-array). It MUST land with a
-`senior-code-reviewer` pass on each cluster diff, NOT under a live dogfeed.
+full Vitest for FE). **Move 5 (useGeologicalModel) IN PROGRESS 2026-06-06 — 2 of
+5 clusters landed:** `useFormationCrud` + `useContactCrud` (the two LEAF
+clusters), composer pattern established + senior-code-reviewer-approved;
+5,180 → ~4,180 lines; tsc + 1,619 Vitest green. **3 clusters remain
+(useGeologicalModelOps, useLithoModelOps, useLithoSuggestions)** — the
+highest-risk part (TDZ forward-refs, non-contiguous handlers, dense
+cross-handler calls in litho-suggestions). Deferred to a fresh focused session
+with the reviewer in the loop, NOT under a live dogfeed. See the per-cluster
+notes + gotchas under debt #201 in `docs/debt.md` (esp. the
+`handleRebuildSurfaces → setLithoStaleTinSessionCount` forward-reference that
+dictates the model-ops call-site placement).
 
 **Why now-as-a-plan:** five files dominate the codebase by size. None is a
 single unreadable mega-function; the problem is *file size + mixed concerns in
