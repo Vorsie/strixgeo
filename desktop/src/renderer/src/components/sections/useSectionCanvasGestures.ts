@@ -305,6 +305,9 @@ export function useSectionWheelZoom({
         levelMax: worldLevel + (1 - levelFraction) * newLevelRange,
       })
     },
+    // setViewport is a stable useState setter — intentionally omitted.
+    // The refs (warpAnchorsRef / columnSpacingRef / layoutStateRef) are
+    // mutable containers read at call time, so they're omitted too.
     [viewport, scaleH, scaleV, effLevelMax, plotWidth, plotHeight],
   )
 
