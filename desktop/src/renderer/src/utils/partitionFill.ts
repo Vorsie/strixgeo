@@ -99,6 +99,15 @@ const EPS = 1e-9
 export const LENS_PINCH_FRACTION = 0.45
 
 /**
+ * Fraction of the gap at which a lone interior pinch tapers to its tip
+ * (owner directive 2026-06-07). 0.5 = halfway on the interface dip — the unit
+ * thins to a point mid-gap and the enclosing matrix closes up beyond it,
+ * instead of running to the neighbour (the "drooping" pinch). Reshaped
+ * afterward via the freedraw apex handle.
+ */
+export const INTERIOR_PINCH_FRACTION = 0.5
+
+/**
  * A user override for a lens's pinch apex (shaping, dogfeed 2026-06-05).
  *
  * ``fraction`` is the apex's horizontal position 0 (left column) → 1 (right
@@ -503,6 +512,79 @@ function buildRightLensPolygon(
   ]
 }
 
+/**
+ * Emit a lone interior pinch as three apex-sharing triangles (Slice 1).
+ *
+ * The interval (bounded by ``topIface`` above and ``baseIface`` below) converges
+ * on the column OPPOSITE ``pinch.side`` because the unit is absent there. An apex
+ * is placed at fraction ``f`` (measured from the pinch side) at the interval's
+ * mid-elevation, and the interval is split into the unit triangle + the
+ * above-matrix and below-matrix extension triangles, all sharing the apex. Three
+ * triangles sharing one interior apex partition the interval exactly — so the
+ * pinch tips mid-gap (no droop to the neighbour) while the fill stays hole-free.
+ *
+ * Parameters
+ * ----------
+ * pinch : PinchUnit
+ *     The single unmatched unit (its ``side`` is the column it lives on).
+ * topIface, baseIface : Interface
+ *     The interval's enclosing interfaces (prev quad base / next quad top).
+ * aboveFormationId, aboveBodyId : the matrix quad ABOVE the interval.
+ * belowFormationId, belowBodyId : the matrix quad BELOW the interval.
+ * leftSurface, rightSurface : column surface elevations (mTAW).
+ * f : tip fraction measured from the pinch side (``INTERIOR_PINCH_FRACTION``).
+ *
+ * Returns
+ * -------
+ * PartitionRegion[]
+ *     ``[unit pinch, above-matrix extension, below-matrix extension]``.
+ */
+function emitLoneInteriorPinch(
+  pinch: PinchUnit,
+  topIface: Interface,
+  baseIface: Interface,
+  aboveFormationId: string,
+  aboveBodyId: string | null,
+  belowFormationId: string,
+  belowBodyId: string | null,
+  leftSurface: number,
+  rightSurface: number,
+  f: number,
+): PartitionRegion[] {
+  const apexFraction = pinch.side === 'left' ? f : 1 - f
+  const apexElev =
+    (ifaceElev(topIface, apexFraction, leftSurface, rightSurface) +
+      ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)) /
+    2
+  const apex: PartitionPoint = { fraction: apexFraction, elevation: apexElev }
+
+  if (pinch.side === 'left') {
+    const topLeft: PartitionPoint = { fraction: 0, elevation: leftSurface - topIface.leftDepth }
+    const baseLeft: PartitionPoint = { fraction: 0, elevation: leftSurface - baseIface.leftDepth }
+    // Convergence point on the right (interfaces meet — unit absent there).
+    const conv: PartitionPoint = {
+      fraction: 1,
+      elevation: rightSurface - (topIface.rightDepth + baseIface.rightDepth) / 2,
+    }
+    return [
+      { formationId: pinch.formationId, bodyId: pinch.bodyId, kind: 'pinch', polygon: [topLeft, apex, baseLeft] },
+      { formationId: aboveFormationId, bodyId: aboveBodyId, kind: 'quad', polygon: [topLeft, conv, apex] },
+      { formationId: belowFormationId, bodyId: belowBodyId, kind: 'quad', polygon: [baseLeft, apex, conv] },
+    ]
+  }
+  const topRight: PartitionPoint = { fraction: 1, elevation: rightSurface - topIface.rightDepth }
+  const baseRight: PartitionPoint = { fraction: 1, elevation: rightSurface - baseIface.rightDepth }
+  const conv: PartitionPoint = {
+    fraction: 0,
+    elevation: leftSurface - (topIface.leftDepth + baseIface.leftDepth) / 2,
+  }
+  return [
+    { formationId: pinch.formationId, bodyId: pinch.bodyId, kind: 'pinch', polygon: [topRight, apex, baseRight] },
+    { formationId: aboveFormationId, bodyId: aboveBodyId, kind: 'quad', polygon: [topRight, conv, apex] },
+    { formationId: belowFormationId, bodyId: belowBodyId, kind: 'quad', polygon: [baseRight, apex, conv] },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Interval emission
 // ---------------------------------------------------------------------------
@@ -715,6 +797,11 @@ export function computePartitionFill(
   // prevQuadBase: the base interface of the most recently emitted quad (or the
   // surface interface before any quads).
   let prevQuadBase: Interface = surfaceIface
+  // Identity of the most recently emitted quad (the matrix ABOVE the next
+  // interval) — fed to emitLoneInteriorPinch so the above-matrix extension is
+  // coloured correctly (Slice 1).
+  let prevQuadFormationId: string | null = null
+  let prevQuadBodyId: string | null = null
 
   // Also track the left and right unit cursors so we can collect unmatched units.
   // For each inter-quad gap, unmatched left units are those between the previous
@@ -765,10 +852,32 @@ export function computePartitionFill(
       )
     }
 
-    // Emit the pinch regions for this interval.
+    // Emit the pinch regions for this interval. A lone pinch in an INTERIOR
+    // interval (matched matrix both above and below) tips at 50% on the dip and
+    // the matrix closes beyond it (Slice 1) instead of drooping to the
+    // neighbour; everything else tiles via emitInterval.
     const intervalTop = prevQuadBase
-    const intervalRegions = emitInterval(pinches, intervalTop, intervalBase, leftSurface, rightSurface)
-    regions.push(...intervalRegions)
+    const isInterior = prevMatchLi >= 0 && !isFloor && prevQuadFormationId !== null
+    if (isInterior && pinches.length === 1) {
+      const [mli] = matchedPairs[pairIdx]
+      const below = leftUnits[mli]
+      regions.push(
+        ...emitLoneInteriorPinch(
+          pinches[0],
+          intervalTop,
+          intervalBase,
+          prevQuadFormationId!,
+          prevQuadBodyId,
+          below.formationId,
+          below.bodyId,
+          leftSurface,
+          rightSurface,
+          INTERIOR_PINCH_FRACTION,
+        ),
+      )
+    } else {
+      regions.push(...emitInterval(pinches, intervalTop, intervalBase, leftSurface, rightSurface))
+    }
 
     // Emit the quad (if not the floor sentinel).
     if (!isFloor) {
@@ -793,6 +902,8 @@ export function computePartitionFill(
           polygon: buildQuadPolygon(quadTop, quadBase, leftSurface, rightSurface),
         })
         prevQuadBase = quadBase
+        prevQuadFormationId = lu.formationId
+        prevQuadBodyId = lu.bodyId
       } else {
         prevQuadBase = quadTop
       }
