@@ -858,7 +858,37 @@ export function computePartitionFill(
     // neighbour; everything else tiles via emitInterval.
     const intervalTop = prevQuadBase
     const isInterior = prevMatchLi >= 0 && !isFloor && prevQuadFormationId !== null
-    if (isInterior && pinches.length === 1) {
+    if (isFloor) {
+      // Too-shallow carry-through (Slice 2): a unit whose TOP is at/below the
+      // shallower column's deepest data lies entirely in "no-neighbour-data"
+      // depth — render it as a full-gap-width flat band (the deep data governs
+      // the whole gap below the shallow test) instead of pinching to the
+      // shallow neighbour. A data gap is not a pinch-out.
+      const shallowFloor = Math.min(leftFloor, rightFloor)
+      const carry: PinchUnit[] = []
+      const stillPinch: PinchUnit[] = []
+      for (const p of pinches) {
+        if (p.ownTopDepth >= shallowFloor - EPS) carry.push(p)
+        else stillPinch.push(p)
+      }
+      for (const p of carry) {
+        const surface = p.side === 'left' ? leftSurface : rightSurface
+        const top = surface - p.ownTopDepth
+        const base = surface - p.ownBaseDepth
+        regions.push({
+          formationId: p.formationId,
+          bodyId: p.bodyId,
+          kind: 'quad',
+          polygon: [
+            { fraction: 0, elevation: top },
+            { fraction: 1, elevation: top },
+            { fraction: 1, elevation: base },
+            { fraction: 0, elevation: base },
+          ],
+        })
+      }
+      regions.push(...emitInterval(stillPinch, intervalTop, intervalBase, leftSurface, rightSurface))
+    } else if (isInterior && pinches.length === 1) {
       const [mli] = matchedPairs[pairIdx]
       const below = leftUnits[mli]
       regions.push(
