@@ -1178,7 +1178,10 @@ export default function PartitionFillOverlay({
       {sharedBoundaries.map((sb) => {
         const [ne0, ne1] = sb.naturalEdge
         return (
-          <g key={`pf-bnd-${sb.upperBodyId}-${sb.lowerBodyId}`}>
+          // Key by per-gap-unique region indices, NOT the body-pair: the same
+          // (upper, lower) body-pair boundary recurs in every gap the bodies
+          // span, so a `${upper}-${lower}` key collides across gaps (debt #2).
+          <g key={`pf-bnd-${sb.upperIdx}-${sb.lowerIdx}`}>
             {/* Add-strip: transparent line along the boundary edge.
                 Hover shows a preview dot at the cursor (owner directive
                 2026-06-05 litho declutter, Task 2). */}
@@ -1298,7 +1301,10 @@ export default function PartitionFillOverlay({
         const lowerStripStart = n >= 2 ? pts[n - 2] : pts[n - 1]
 
         return (
-          <g key={`pf-lens-${sl.bodyId}`}>
+          // Key by the per-gap-unique region index, NOT the bodyId: an enclosed
+          // lens on a middle column is extracted into BOTH flanking gaps, so a
+          // `${bodyId}` key collides across gaps (debt #2).
+          <g key={`pf-lens-${sl.regionIdx}`}>
             {/* Upper-edge add-strip. Hover shows a preview dot at the cursor
                 (owner directive 2026-06-05 litho declutter, Task 2). */}
             <line
