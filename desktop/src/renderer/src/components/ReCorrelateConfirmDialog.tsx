@@ -51,9 +51,9 @@ export default function ReCorrelateConfirmDialog({
           <p className="mb-1">
             There {isOne ? 'is already' : 'are already'}{' '}
             <span className="font-semibold">{existingAutoEdgeCount}</span>{' '}
-            auto-correlation{isOne ? ' edge' : ' edges'} in this model. What would you like to do?
+            auto-correlation{isOne ? ' edge' : ' edges'} on this section. What would you like to do?
           </p>
-          <p>Manual edges are preserved either way.</p>
+          <p>Manual edges — and other sections&rsquo; suggestions — are preserved either way.</p>
         </>
       }
       secondary={{
