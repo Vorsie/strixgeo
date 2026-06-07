@@ -224,16 +224,18 @@ async def test_self_loop_is_422(
     assert r.status_code == 422, r.text
 
 
-async def test_cross_lithology_correlation_is_422(
+async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
     async_client: AsyncClient,
     project: ProjectOrm,
     db_session: AsyncSession,
     two_contacts_in_litho_model: tuple[str, str, str],
 ) -> None:
-    """A correlation between two DIFFERENT lithologies is rejected (422).
+    """A correlation between two DIFFERENT lithologies is now allowed (201).
 
-    A cross-lithology edge groups nothing (the resolver drops it) yet still
-    renders as a stray ribbon — the "black diagonal" (dogfeed 2026-06-05).
+    It is a *surface tie* (the boundary is one continuous surface even though
+    the material differs). The resolver still drops cross-lithology edges from
+    body formation (covered by test_resolve_litho_instances), so this never
+    creates a mixed-lithology body — it is a pure surface correlation.
     """
     from uuid import UUID
 
@@ -260,7 +262,12 @@ async def test_cross_lithology_correlation_is_422(
 
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
     r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
-    assert r.status_code == 422, r.text
+    assert r.status_code == 201, r.text
+
+    # The tie persists and is listed like any other edge.
+    listed = await async_client.get(base)
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 1
 
 
 async def test_cross_project_model_is_404(
