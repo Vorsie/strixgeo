@@ -194,6 +194,57 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
+  // CT1 — a unit below a too-shallow neighbour's floor carries THROUGH at full
+  // width (fraction 0→1), not a pinch to the neighbour.
+  it('CT1: deep unit below a shallow neighbour carries through full-width', () => {
+    // left reaches 23 m; right (a shallow borehole) stops at 17 m.
+    // left:  Clay 0-10 | Sand 10-17 | Silt 17-23
+    // right: Clay 0-10 | Sand 10-17           (no data below 17)
+    const left = col('L', 10, [
+      { top: 0, base: 10, f: 'clay', b: 'clay' },
+      { top: 10, base: 17, f: 'sand', b: 'sand' },
+      { top: 17, base: 23, f: 'silt', b: 'silt' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 10, f: 'clay', b: 'clay' },
+      { top: 10, base: 17, f: 'sand', b: 'sand' },
+    ])
+    const regions = computePartitionFill(left, right)
+
+    const silt = regions.filter((r) => r.formationId === 'silt')
+    expect(silt).toHaveLength(1)
+    // A full-width flat BAND reaches the unit's full depth on BOTH sides — i.e.
+    // it has all four corners, crucially (1, −13). A pinch to the shallow
+    // neighbour only reaches (1, −7) (it tapers), so the bottom-RIGHT corner is
+    // the discriminating fact: present for a carry-through, absent for a pinch.
+    const hasCorner = (frac: number, elev: number): boolean =>
+      silt[0].polygon.some(
+        (p) => Math.abs(p.fraction - frac) < 1e-6 && Math.abs(p.elevation - elev) < 1e-6,
+      )
+    expect(hasCorner(0, -7)).toBe(true)
+    expect(hasCorner(1, -7)).toBe(true)
+    expect(hasCorner(1, -13)).toBe(true) // ← fails for a pinch triangle
+    expect(hasCorner(0, -13)).toBe(true)
+  })
+
+  // CT2 — a same-depth extra bed (NOT below the neighbour's floor) still pinches
+  // (a genuine thinning-out, not a data gap).
+  it('CT2: an unmatched bed within both columns depth still pinches', () => {
+    const left = col('L', 10, [
+      { top: 0, base: 9, f: 'clay', b: 'clay' },
+      { top: 9, base: 14, f: 'silt', b: 'silt' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 14, f: 'clay', b: 'clay' }])
+    const regions = computePartitionFill(left, right)
+    const silt = regions.filter((r) => r.formationId === 'silt')
+    expect(silt).toHaveLength(1)
+    expect(silt[0].kind).toBe('pinch')
+    // It is a tapering triangle, NOT a flat full-width band.
+    const elevs = silt[0].polygon.map((p) => p.elevation)
+    const isFlat = Math.abs(Math.max(...elevs) - Math.min(...elevs)) < 1e-6
+    expect(isFlat).toBe(false)
+  })
+
   // -----------------------------------------------------------------------
   // PF2 — A left-only body (lens) tiles with its surrounding quads
   // -----------------------------------------------------------------------
