@@ -15,12 +15,18 @@ integration tests).
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------
@@ -469,3 +475,107 @@ async def test_clear_suggestions_404_on_unknown_model(
         f"/projects/{project.id}/geology/models/{uuid7()}/contact-correlations/auto"
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Section-scoped list + clear-suggestions (debt #3 — confusing model-wide
+# count + cross-section data loss).  ``?section_id=`` restricts BOTH the list
+# and the auto-delete to edges whose BOTH endpoints sit on the section's
+# in-corridor columns, so re-correlating one section never reports or wipes
+# another section's auto edges.
+# ---------------------------------------------------------------------------
+
+
+async def test_section_scoped_list_and_clear_preserves_off_section_edges(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
+) -> None:
+    """``?section_id=`` scopes list + delete to fully-on-section auto edges.
+
+    bh1 + bh2 lie on the section (perp 0); bh3 is 200 m off it (perp 200,
+    outside the 5 m buffer).  Two auto edges exist: (c1,c2) fully on-section
+    and (c2,c3) reaching the off-section column.  The section-scoped list shows
+    only the on-section edge, and the section-scoped delete removes only it —
+    the (c2,c3) edge survives, proving re-correlating one section cannot wipe a
+    neighbouring section's suggestions.
+    """
+    project, bh1, bh2 = project_with_two_boreholes
+    pid = str(project.id)
+    f = await _create_formation(async_client, pid)
+    mid = (await _create_model(async_client, pid))["id"]
+
+    # Third borehole 200 m off the section line (perp 200 >> 5 m buffer).
+    bh3 = BoreholeOrm(
+        id=uuid7(),
+        name="BH-3",
+        app_project_id=project.id,
+        project_id="TEST",
+        test_id="BH-003",
+        location_x=150025.0,
+        location_y=200200.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(bh3)
+    await db_session.commit()
+
+    c1 = await _create_contact(async_client, pid, mid, f["id"], bh1.id, depth=3.0)
+    c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=3.0)
+    c3 = await _create_contact(async_client, pid, mid, f["id"], bh3.id, depth=3.0)
+
+    # Insert two AUTO (unapproved) edges directly, canonical-ordered.
+    def _edge(a: str, b: str) -> LithoContactCorrelationEdgeOrm:
+        lo, hi = sorted((UUID(a), UUID(b)))
+        return LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=UUID(mid),
+            contact_a_id=lo,
+            contact_b_id=hi,
+            source="auto",
+            user_approved=False,
+        )
+
+    db_session.add_all([_edge(c1["id"], c2["id"]), _edge(c2["id"], c3["id"])])
+    await db_session.commit()
+
+    # Section line y=200000, x 149990→150110, 5 m buffer → bh1 + bh2 in, bh3 out.
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec A",
+        start_x=149990.0,
+        start_y=200000.0,
+        end_x=150110.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=5.0,
+    )
+    db_session.add(section)
+    await db_session.commit()
+    sid = str(section.id)
+
+    # List: model-wide = 2, section-scoped = 1 (only the fully-on-section edge).
+    all_edges = (
+        await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
+    ).json()
+    assert len(all_edges) == 2
+    sec_edges = (
+        await async_client.get(
+            f"/projects/{pid}/geology/models/{mid}/contact-correlations?section_id={sid}"
+        )
+    ).json()
+    assert len(sec_edges) == 1, "only the (c1,c2) edge has both endpoints on the section"
+
+    # Section-scoped delete removes only the on-section edge.
+    cleared = await async_client.delete(
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto?section_id={sid}"
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["deleted"] == 1
+
+    # The (c2,c3) edge reaching the off-section column survives.
+    remaining = (
+        await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
+    ).json()
+    assert len(remaining) == 1, "the edge to the off-section column must survive"
