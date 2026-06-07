@@ -185,8 +185,14 @@ export default function SectionsToolbar(): JSX.Element {
     setAutoCorrelating(true)
     let openedDialog = false
     try {
-      // TODO Task 19: migrate to listContactCorrelations (contact-level).
-      const edges = await api.geology.listContactCorrelations(project.id, activeLithoModel.id)
+      // Section-scoped (debt #3): count only THIS section's auto edges, not the
+      // whole model's — so re-correlating section A doesn't report section B's
+      // suggestions (the confusing "57 edges but I didn't correlate here" bug).
+      const edges = await api.geology.listContactCorrelations(
+        project.id,
+        activeLithoModel.id,
+        selectedSectionId,
+      )
       const autoCount = edges.filter((e: { source: string }) => e.source === 'auto').length
       if (autoCount === 0) {
         // No existing auto edges — fire immediately (no dialog for first-time users).
@@ -229,7 +235,13 @@ export default function SectionsToolbar(): JSX.Element {
       `reCorrelate: deleting ${reCorrelateAutoEdgeCount} auto edge(s) then re-running`,
     )
     try {
-      const del = await api.geology.deleteAutoCorrelations(project.id, activeLithoModel.id)
+      // Section-scoped delete (debt #3): clear only THIS section's auto edges,
+      // never a neighbouring section's (the cross-section data-loss bug).
+      const del = await api.geology.deleteAutoCorrelations(
+        project.id,
+        activeLithoModel.id,
+        selectedSectionId,
+      )
       toast(
         'success',
         `Cleared ${del.deleted} auto edge${del.deleted === 1 ? '' : 's'}; re-running…`,
