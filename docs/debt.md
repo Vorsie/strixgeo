@@ -5189,5 +5189,31 @@ with the #93 onboarding/hinting pass rather than a merge session.
 or the first dogfeed "I didn't know there was a cheatsheet". Add the
 F1 hint line to the CanvasHints pill in the same pass.
 
+## 204. Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle (Tier E — backend, S)
+
+**What.** The `litho_lens*` tables and the lens-companion columns were
+dropped from the schema during the body-with-extent / partition-fill
+retirement, but the bundle response schema (Pydantic) still *declares*
+`is_lens_companion` and `companion_lens_id`, so they serialize as inert
+`false` / `null` defaults on the objects that still carry them (observed
+on 3 objects in a re-exported `.strix`, all empty). No data, no
+behaviour — just dead fields riding the wire and the on-disk bundle.
+Found 2026-06-07 while scrubbing a dogfeed `test.strix` of retired
+pinch-out/lens artifacts (DB delete + re-export through the v4
+serializer, which already strips the real lens/extent data — these two
+schema-declared fields are all that survive).
+
+**Why deferred.** Pure cosmetic schema cleanup with a backwards-compat
+wrinkle: removing the fields from the response model + restore path is a
+one-liner each, but the restore's unknown-key filter must keep tolerating
+them so legacy bundles that still carry real values open cleanly. Worth
+doing in the same pass as any other bundle-schema tidy, not as a one-off.
+
+**When to revisit.** Next time the `.strix` bundle schema is touched
+(e.g. a `format_version` bump at the backwards-compat re-arm, or the
+#201/#178 god-component/client split that already moves bundle types).
+Drop both fields from the response model, leave the restore filter
+permissive.
+
 ## (end)
 
