@@ -533,4 +533,44 @@ describe('PartitionFillOverlay', () => {
     fireEvent.mouseLeave(getByTestId('partition-lens-addstrip-silt-upper'))
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
   })
+
+  // --------------------------------------------------------------------------
+  // KEY1: unique React keys across gaps (debt #2 — duplicate-key flood)
+  //
+  // The same (upper, lower) body-pair boundary recurs in every gap a body
+  // spans, and an enclosed lens on a middle column is extracted into BOTH its
+  // flanking gaps. Keying boundary groups by `${upper}-${lower}` and lens
+  // groups by `${bodyId}` therefore collides across gaps → React's
+  // "Encountered two children with the same key" warning floods the console.
+  // Keys must be per-gap unique.
+  // --------------------------------------------------------------------------
+  it('KEY1 — a recurring body-pair boundary + enclosed lens across 3 columns render with no duplicate-key warning', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // L: sand/clay.  M: sand/silt-lens/sand/clay.  R: sand/clay.
+    // Both gaps (L,M) and (M,R) carry the (sand,clay) boundary, and M's silt
+    // lens is enclosed in sand (present on L and R) so it is extracted into
+    // BOTH flanking gaps — the exact collision the old keying produced.
+    const threeCol = [
+      layer('l1', 'L', 'sand', 'fSand', 0, 5),
+      layer('l2', 'L', 'clay', 'fClay', 5, 10),
+      layer('m1', 'M', 'sand', 'fSand', 0, 2),
+      layer('m2', 'M', 'silt', 'fSilt', 2, 3),
+      layer('m3', 'M', 'sand', 'fSand', 3, 5),
+      layer('m4', 'M', 'clay', 'fClay', 5, 10),
+      layer('r1', 'R', 'sand', 'fSand', 0, 5),
+      layer('r2', 'R', 'clay', 'fClay', 5, 10),
+    ]
+    renderOverlay({
+      lithoLayers: threeCol,
+      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      plotRight: 300,
+    })
+    const dupKeyWarning = errSpy.mock.calls.some(
+      (args) => typeof args[0] === 'string' && args[0].includes('same key'),
+    )
+    errSpy.mockRestore()
+    expect(dupKeyWarning).toBe(false)
+  })
 })
