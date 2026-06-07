@@ -23,9 +23,6 @@ from uuid6 import uuid7
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import (
-    GeologicalFormationOrm,
-)
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -68,16 +65,6 @@ class CorrelateLithoContacts(GroundModelLogger):
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
         self._session = session
-
-    async def _litho_code(self, formation_id: UUID) -> str | None:
-        """Return a formation's ``litho_main_soil_code`` (None if unset/missing)."""
-        return (
-            await self._session.execute(
-                select(GeologicalFormationOrm.litho_main_soil_code).where(
-                    GeologicalFormationOrm.id == formation_id
-                )
-            )
-        ).scalar_one_or_none()
 
     async def execute(
         self,
@@ -169,19 +156,14 @@ class CorrelateLithoContacts(GroundModelLogger):
             )
 
         # ------------------------------------------------------------------ #
-        # 4b. Same-lithology guard. Correlations group same-lithology units    #
-        #     into one body and the resolver DROPS any cross-lithology edge —  #
-        #     so a silt↔clay edge groups nothing yet still renders as a stray  #
-        #     ribbon (the "black diagonal", dogfeed 2026-06-05). Reject it at   #
-        #     creation so it can never land.                                    #
+        # A cross-lithology edge is allowed — it is a SURFACE TIE (the         #
+        # boundary is one continuous surface even where the material differs,  #
+        # e.g. a sand top tied to a clay top across a facies change). The      #
+        # resolver still DROPS cross-lithology edges from body formation       #
+        # (resolve_litho_instances), so a tie never creates a mixed body; the  #
+        # renderer draws it as a line, not a body ribbon. There is therefore   #
+        # no same-lithology guard at creation (thread B, 2026-06-07).          #
         # ------------------------------------------------------------------ #
-        soil_a = await self._litho_code(ca.formation_id)
-        soil_b = await self._litho_code(cb.formation_id)
-        if soil_a is not None and soil_b is not None and soil_a != soil_b:
-            raise ValueError(
-                f"Cannot correlate across lithologies ({soil_a} ↔ {soil_b}) — "
-                "a correlation joins same-lithology units into one body"
-            )
 
         # ------------------------------------------------------------------ #
         # 5. Canonical ordering: (min, max).                                   #
