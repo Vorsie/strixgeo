@@ -513,76 +513,106 @@ function buildRightLensPolygon(
 }
 
 /**
- * Emit a lone interior pinch as three apex-sharing triangles (Slice 1).
+ * Emit a ONE-SIDED pinch interval as apex-sharing triangles (Thread A).
  *
- * The interval (bounded by ``topIface`` above and ``baseIface`` below) converges
- * on the column OPPOSITE ``pinch.side`` because the unit is absent there. An apex
- * is placed at fraction ``f`` (measured from the pinch side) at the interval's
- * mid-elevation, and the interval is split into the unit triangle + the
- * above-matrix and below-matrix extension triangles, all sharing the apex. Three
- * triangles sharing one interior apex partition the interval exactly — so the
- * pinch tips mid-gap (no droop to the neighbour) while the fill stays hole-free.
+ * Every pinch unit lives on ``side`` (the unit is absent on the opposite column,
+ * so the interval converges there). One shared apex is placed at fraction ``f``
+ * from the pinch side; each stacked pinch becomes a sub-triangle to the apex, and
+ * the enclosing matrix (where present) closes the interval beyond the apex via
+ * the merged contact apex→conv. This handles every one-sided case uniformly:
+ *
+ *   - interior (matrix above AND below) → apex at mid-elevation, 2 extensions;
+ *   - surface (no matrix above)         → apex on the surface, 1 extension below;
+ *   - floor   (no matrix below)         → apex on the floor, 1 extension above.
+ *
+ * The result tiles exactly (N pinch sub-triangles + up to 2 matrix triangles all
+ * share the apex), so the pinch tips mid-gap (no droop to the neighbour) while
+ * the fill stays hole-free. Two-sided (interfingering) intervals are NOT handled
+ * here — the caller routes those to ``emitInterval``.
  *
  * Parameters
  * ----------
- * pinch : PinchUnit
- *     The single unmatched unit (its ``side`` is the column it lives on).
+ * pinches : PinchUnit[]
+ *     The unmatched units, all on ``side`` (sorted internally top→bottom).
+ * side : 'left' | 'right'
+ *     The column the pinches live on.
  * topIface, baseIface : Interface
- *     The interval's enclosing interfaces (prev quad base / next quad top).
- * aboveFormationId, aboveBodyId : the matrix quad ABOVE the interval.
- * belowFormationId, belowBodyId : the matrix quad BELOW the interval.
+ *     The interval's enclosing interfaces.
+ * above, below : the matrix quad ABOVE / BELOW the interval, or ``null`` at the
+ *     surface / floor respectively.
  * leftSurface, rightSurface : column surface elevations (mTAW).
  * f : tip fraction measured from the pinch side (``INTERIOR_PINCH_FRACTION``).
  *
  * Returns
  * -------
  * PartitionRegion[]
- *     ``[unit pinch, above-matrix extension, below-matrix extension]``.
+ *     ``[...pinch sub-triangles, above extension?, below extension?]``.
  */
-function emitLoneInteriorPinch(
-  pinch: PinchUnit,
+function emitOneSidedPinch(
+  pinches: PinchUnit[],
+  side: 'left' | 'right',
   topIface: Interface,
   baseIface: Interface,
-  aboveFormationId: string,
-  aboveBodyId: string | null,
-  belowFormationId: string,
-  belowBodyId: string | null,
+  above: { formationId: string; bodyId: string | null } | null,
+  below: { formationId: string; bodyId: string | null } | null,
   leftSurface: number,
   rightSurface: number,
   f: number,
 ): PartitionRegion[] {
-  const apexFraction = pinch.side === 'left' ? f : 1 - f
-  const apexElev =
-    (ifaceElev(topIface, apexFraction, leftSurface, rightSurface) +
-      ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)) /
-    2
+  const apexFraction = side === 'left' ? f : 1 - f
+  // Apex elevation: mid of the interval when matrix exists on BOTH sides
+  // (interior); ON the top interface when there is no matrix above (a surface
+  // unit pinches by its base rising to the surface); ON the base interface when
+  // there is no matrix below (a floor unit pinches by its top descending).
+  let apexElev: number
+  if (above && below) {
+    apexElev =
+      (ifaceElev(topIface, apexFraction, leftSurface, rightSurface) +
+        ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)) /
+      2
+  } else if (!above) {
+    apexElev = ifaceElev(topIface, apexFraction, leftSurface, rightSurface)
+  } else {
+    apexElev = ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)
+  }
   const apex: PartitionPoint = { fraction: apexFraction, elevation: apexElev }
 
-  if (pinch.side === 'left') {
-    const topLeft: PartitionPoint = { fraction: 0, elevation: leftSurface - topIface.leftDepth }
-    const baseLeft: PartitionPoint = { fraction: 0, elevation: leftSurface - baseIface.leftDepth }
-    // Convergence point on the right (interfaces meet — unit absent there).
-    const conv: PartitionPoint = {
-      fraction: 1,
-      elevation: rightSurface - (topIface.rightDepth + baseIface.rightDepth) / 2,
-    }
-    return [
-      { formationId: pinch.formationId, bodyId: pinch.bodyId, kind: 'pinch', polygon: [topLeft, apex, baseLeft] },
-      { formationId: aboveFormationId, bodyId: aboveBodyId, kind: 'quad', polygon: [topLeft, conv, apex] },
-      { formationId: belowFormationId, bodyId: belowBodyId, kind: 'quad', polygon: [baseLeft, apex, conv] },
-    ]
-  }
-  const topRight: PartitionPoint = { fraction: 1, elevation: rightSurface - topIface.rightDepth }
-  const baseRight: PartitionPoint = { fraction: 1, elevation: rightSurface - baseIface.rightDepth }
+  const pinchFrac = side === 'left' ? 0 : 1
+  const oppFrac = side === 'left' ? 1 : 0
+  const pinchSurface = side === 'left' ? leftSurface : rightSurface
+  const oppSurface = side === 'left' ? rightSurface : leftSurface
+  const topOppDepth = side === 'left' ? topIface.rightDepth : topIface.leftDepth
+  const baseOppDepth = side === 'left' ? baseIface.rightDepth : baseIface.leftDepth
+  const topPinchDepth = side === 'left' ? topIface.leftDepth : topIface.rightDepth
+  const basePinchDepth = side === 'left' ? baseIface.leftDepth : baseIface.rightDepth
+  // The interval has zero thickness on the OPPOSITE column (the unit is absent
+  // there) — the two interfaces meet at this convergence point.
   const conv: PartitionPoint = {
-    fraction: 0,
-    elevation: leftSurface - (topIface.leftDepth + baseIface.leftDepth) / 2,
+    fraction: oppFrac,
+    elevation: oppSurface - (topOppDepth + baseOppDepth) / 2,
   }
-  return [
-    { formationId: pinch.formationId, bodyId: pinch.bodyId, kind: 'pinch', polygon: [topRight, apex, baseRight] },
-    { formationId: aboveFormationId, bodyId: aboveBodyId, kind: 'quad', polygon: [topRight, conv, apex] },
-    { formationId: belowFormationId, bodyId: belowBodyId, kind: 'quad', polygon: [baseRight, apex, conv] },
-  ]
+
+  const out: PartitionRegion[] = []
+  // Each stacked pinch → a sub-triangle from its own depth span on the pinch
+  // edge to the SHARED apex (one apex for the whole stack), so N stacked units
+  // tile the pinch block exactly.
+  const sorted = [...pinches].sort((a, b) => a.ownTopDepth - b.ownTopDepth)
+  for (const p of sorted) {
+    const top: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - p.ownTopDepth }
+    const base: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - p.ownBaseDepth }
+    out.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'pinch', polygon: [top, apex, base] })
+  }
+  // Matrix extensions close the interval beyond the apex (the merged contact
+  // runs apex→conv). Present only on the side(s) that have a matrix quad.
+  if (above) {
+    const topCorner: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - topPinchDepth }
+    out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
+  }
+  if (below) {
+    const baseCorner: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - basePinchDepth }
+    out.push({ formationId: below.formationId, bodyId: below.bodyId, kind: 'quad', polygon: [baseCorner, apex, conv] })
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -852,12 +882,25 @@ export function computePartitionFill(
       )
     }
 
-    // Emit the pinch regions for this interval. A lone pinch in an INTERIOR
-    // interval (matched matrix both above and below) tips at 50% on the dip and
-    // the matrix closes beyond it (Slice 1) instead of drooping to the
-    // neighbour; everything else tiles via emitInterval.
+    // Emit the pinch regions for this interval. A ONE-SIDED pinch interval (all
+    // pinches on the same column) tips each unit at 50% with the matrix closing
+    // beyond it (Thread A) — interior (apex mid), surface (apex on the surface),
+    // or floor (apex on the floor). Two-sided (interfingering) intervals fall
+    // back to emitInterval. In the floor interval, units below the shallower
+    // column's floor first carry through full-width (Slice 2).
     const intervalTop = prevQuadBase
-    const isInterior = prevMatchLi >= 0 && !isFloor && prevQuadFormationId !== null
+    const hasAbove = prevMatchLi >= 0 && prevQuadFormationId !== null
+    const aboveMatrix = hasAbove
+      ? { formationId: prevQuadFormationId!, bodyId: prevQuadBodyId }
+      : null
+    let belowMatrix: { formationId: string; bodyId: string | null } | null = null
+    if (!isFloor) {
+      const [mli] = matchedPairs[pairIdx]
+      const u = leftUnits[mli]
+      belowMatrix = { formationId: u.formationId, bodyId: u.bodyId }
+    }
+
+    let pinchPool = pinches
     if (isFloor) {
       // Too-shallow carry-through (Slice 2): a unit whose TOP is at/below the
       // shallower column's deepest data lies entirely in "no-neighbour-data"
@@ -866,10 +909,10 @@ export function computePartitionFill(
       // shallow neighbour. A data gap is not a pinch-out.
       const shallowFloor = Math.min(leftFloor, rightFloor)
       const carry: PinchUnit[] = []
-      const stillPinch: PinchUnit[] = []
+      const rest: PinchUnit[] = []
       for (const p of pinches) {
         if (p.ownTopDepth >= shallowFloor - EPS) carry.push(p)
-        else stillPinch.push(p)
+        else rest.push(p)
       }
       for (const p of carry) {
         const surface = p.side === 'left' ? leftSurface : rightSurface
@@ -887,26 +930,29 @@ export function computePartitionFill(
           ],
         })
       }
-      regions.push(...emitInterval(stillPinch, intervalTop, intervalBase, leftSurface, rightSurface))
-    } else if (isInterior && pinches.length === 1) {
-      const [mli] = matchedPairs[pairIdx]
-      const below = leftUnits[mli]
+      pinchPool = rest
+    }
+
+    // "One-sided" when every remaining pinch is on the same column — only then
+    // can the matrix close cleanly to a single apex.
+    const pinchSides = new Set(pinchPool.map((p) => p.side))
+    const oneSide = pinchSides.size === 1 ? pinchPool[0].side : null
+    if (pinchPool.length > 0 && oneSide !== null && (aboveMatrix || belowMatrix)) {
       regions.push(
-        ...emitLoneInteriorPinch(
-          pinches[0],
+        ...emitOneSidedPinch(
+          pinchPool,
+          oneSide,
           intervalTop,
           intervalBase,
-          prevQuadFormationId!,
-          prevQuadBodyId,
-          below.formationId,
-          below.bodyId,
+          aboveMatrix,
+          belowMatrix,
           leftSurface,
           rightSurface,
           INTERIOR_PINCH_FRACTION,
         ),
       )
     } else {
-      regions.push(...emitInterval(pinches, intervalTop, intervalBase, leftSurface, rightSurface))
+      regions.push(...emitInterval(pinchPool, intervalTop, intervalBase, leftSurface, rightSurface))
     }
 
     // Emit the quad (if not the floor sentinel).
