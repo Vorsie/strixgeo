@@ -32,7 +32,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -67,10 +67,14 @@ from groundmodel.application.correlate_litho_contacts import (
     UncorrelateLithoContacts,
 )
 from groundmodel.application.materialise_body_companions import MaterialiseBodyCompanions
+from groundmodel.application.project_investigations_onto_section import (
+    project_investigations_onto_section,
+)
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
 )
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -85,6 +89,57 @@ router = APIRouter()
 
 # Module-level logger — routers are stateless functions, not classes.
 logger = LoggerFactory.get_logger(__name__)
+
+
+async def _contact_ids_on_section(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    model_id: UUID,
+    section_id: UUID,
+) -> set[UUID]:
+    """Ids of every contact in ``model_id`` anchored to an on-section column.
+
+    Section-scopes the list + clear-suggestions endpoints (debt #3): an edge
+    "belongs to" a section iff BOTH its endpoint contacts sit on a column the
+    section projects into its corridor.  Reuses
+    ``project_investigations_onto_section`` so "on the section" matches the
+    auto-correlate adjacency gate exactly — re-correlating one section can then
+    never count or wipe a neighbouring section's auto edges.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active DB session.
+    project_id : UUID
+        Owning project (scope guard for the projection helper).
+    model_id : UUID
+        The litho model whose contacts are considered.
+    section_id : UUID
+        The cross-section whose corridor defines "on the section".
+
+    Returns
+    -------
+    set[UUID]
+        Contact ids on the section's in-corridor columns.  Empty when the
+        section has no projected columns.
+    """
+    along = await project_investigations_onto_section(
+        session, project_id=project_id, section_id=section_id
+    )
+    inv_ids = list(along.keys())
+    if not inv_ids:
+        return set()
+    rows = await session.execute(
+        select(FormationContactOrm.id).where(
+            FormationContactOrm.model_id == model_id,
+            or_(
+                FormationContactOrm.cpt_id.in_(inv_ids),
+                FormationContactOrm.borehole_id.in_(inv_ids),
+            ),
+        )
+    )
+    return {r[0] for r in rows.all()}
 
 
 @router.post(
@@ -232,9 +287,10 @@ async def delete_contact_correlation(
 async def list_contact_correlations(
     project_id: UUID,
     model_id: UUID,
+    section_id: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[LithoContactCorrelationEdgeOrm]:
-    """Return every contact-level correlation edge in the model.
+    """Return contact-level correlation edges in the model.
 
     Consumed by the section canvas renderer to draw point-to-point
     boundary lines between correlated contacts (#133 Phase 1).
@@ -245,11 +301,16 @@ async def list_contact_correlations(
         Owning project (path param).
     model_id : UUID
         The model whose contact edges are listed.
+    section_id : UUID | None
+        Optional section scope (query param, debt #3).  When given, only edges
+        whose BOTH endpoints sit on the section's in-corridor columns are
+        returned — so the auto-correlate pre-check counts this section's
+        suggestions, not the whole model's.  Omitted ``→`` model-wide.
 
     Returns
     -------
     list[ContactCorrelationEdgeListItem]
-        All contact edges for the model, ordered by creation time.
+        Edges for the model (optionally section-scoped), ordered by creation time.
 
     Raises
     ------
@@ -262,11 +323,20 @@ async def list_contact_correlations(
         project_id,
         detail="Geological model not found",
     )
-    stmt = (
-        select(LithoContactCorrelationEdgeOrm)
-        .where(LithoContactCorrelationEdgeOrm.model_id == model_id)
-        .order_by(LithoContactCorrelationEdgeOrm.created_at)
+    stmt = select(LithoContactCorrelationEdgeOrm).where(
+        LithoContactCorrelationEdgeOrm.model_id == model_id
     )
+    if section_id is not None:
+        contact_ids = await _contact_ids_on_section(
+            session, project_id=project_id, model_id=model_id, section_id=section_id
+        )
+        if not contact_ids:
+            return []
+        stmt = stmt.where(
+            LithoContactCorrelationEdgeOrm.contact_a_id.in_(contact_ids),
+            LithoContactCorrelationEdgeOrm.contact_b_id.in_(contact_ids),
+        )
+    stmt = stmt.order_by(LithoContactCorrelationEdgeOrm.created_at)
     rows = list((await session.execute(stmt)).scalars().all())
     return rows
 
@@ -360,9 +430,10 @@ async def auto_correlate_contact(
 async def delete_auto_contact_correlations(
     project_id: UUID,
     model_id: UUID,
+    section_id: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> DeleteAutoCorrelationsResponse:
-    """Remove every unapproved (suggestion) contact-correlation edge for a model.
+    """Remove unapproved (suggestion) contact-correlation edges for a model.
 
     The "Clear suggestions" action (#179). Deletes only
     ``user_approved=False`` edges — approved manual correlations are left
@@ -374,6 +445,11 @@ async def delete_auto_contact_correlations(
         Owning project (path param, scope guard).
     model_id : UUID
         The lithostratigraphic model (path param).
+    section_id : UUID | None
+        Optional section scope (query param, debt #3).  When given, only
+        suggestion edges whose BOTH endpoints sit on the section's in-corridor
+        columns are cleared — so re-correlating one section cannot wipe a
+        neighbouring section's auto edges.  Omitted ``→`` model-wide clear.
     session : AsyncSession
         DB session.
 
@@ -393,17 +469,27 @@ async def delete_auto_contact_correlations(
         project_id,
         detail="Geological model not found",
     )
-    result = await session.execute(
-        delete(LithoContactCorrelationEdgeOrm).where(
-            LithoContactCorrelationEdgeOrm.model_id == model_id,
-            LithoContactCorrelationEdgeOrm.user_approved.is_(False),
-        )
+    stmt = delete(LithoContactCorrelationEdgeOrm).where(
+        LithoContactCorrelationEdgeOrm.model_id == model_id,
+        LithoContactCorrelationEdgeOrm.user_approved.is_(False),
     )
+    if section_id is not None:
+        contact_ids = await _contact_ids_on_section(
+            session, project_id=project_id, model_id=model_id, section_id=section_id
+        )
+        if not contact_ids:
+            # Section projects no columns → nothing on it to clear.
+            return DeleteAutoCorrelationsResponse(deleted=0)
+        stmt = stmt.where(
+            LithoContactCorrelationEdgeOrm.contact_a_id.in_(contact_ids),
+            LithoContactCorrelationEdgeOrm.contact_b_id.in_(contact_ids),
+        )
+    result = await session.execute(stmt)
     deleted = result.rowcount or 0
     await session.commit()
     logger.info(
         f"delete_auto_contact_correlations: project={project_id} model={model_id} "
-        f"cleared {deleted} suggestion edge(s)"
+        f"section={section_id} cleared {deleted} suggestion edge(s)"
     )
     return DeleteAutoCorrelationsResponse(deleted=deleted)
 
