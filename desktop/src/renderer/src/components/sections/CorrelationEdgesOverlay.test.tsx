@@ -457,6 +457,62 @@ describe('CorrelationEdgesOverlay', () => {
     expect(screen.queryByTestId('ribbon-seam-e2')).toBeNull()
   })
 
+  // TIE1/TIE2: cross-lithology edge → surface-tie LINE (no ribbon); same-
+  // lithology edge → ribbon (no tie line). Surface ties are the "top is the
+  // same as next test, across lithologies" gesture (thread B, 2026-06-07).
+  it('TIE1: cross-lithology edge renders a tie line and no ribbon', () => {
+    const fSand = {
+      ...makeFormation('f-sand', 'Zand', 1),
+      litho_main_soil_code: 'ZAND',
+      color: '#fbbf24',
+    }
+    const fClay = {
+      ...makeFormation('f-clay', 'Klei', 2),
+      litho_main_soil_code: 'KLEI',
+      color: '#6b7280',
+    }
+    const contacts = [
+      makeContact('ca', 'f-sand', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-clay', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fSand, fClay],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    expect(screen.getByTestId('tie-line-e1')).not.toBeNull()
+    expect(screen.queryByTestId('ribbon-e1')).toBeNull()
+  })
+
+  it('TIE2: same-lithology edge still renders a ribbon and no tie line', () => {
+    const fSand = {
+      ...makeFormation('f-sand', 'Zand', 1),
+      litho_main_soil_code: 'ZAND',
+      color: '#fbbf24',
+    }
+    const contacts = [
+      makeContact('ca', 'f-sand', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-sand', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts, formations: [fSand],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    expect(screen.getByTestId('ribbon-e2')).not.toBeNull()
+    expect(screen.queryByTestId('tie-line-e2')).toBeNull()
+  })
+
   // SR1: topmost-contact edge omits the above stripe (only below renders).
   it('SR1: topmost contacts omit the above stripe', () => {
     const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
