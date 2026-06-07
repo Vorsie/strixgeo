@@ -855,6 +855,18 @@ export default function CorrelationEdgesOverlay({
     [contacts, formationById],
   )
 
+  // Lithology per contact (thread B — cross-lithology surface ties): a
+  // contact's ``litho_main_soil_code`` via its formation. An edge whose two
+  // endpoints differ in lithology is a SURFACE TIE (drawn as a line, no body
+  // ribbon) rather than a body correlation. Derived — no schema, no new state.
+  const lithoByContactId = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const c of contacts) {
+      m.set(c.id, formationById.get(c.formation_id)?.litho_main_soil_code ?? null)
+    }
+    return m
+  }, [contacts, formationById])
+
   // Lens candidates (dogfeed 2026-05-29): a contact with NO correlation edge on
   // either neighbour, but ENCLOSED by correlated contacts above AND below on
   // its own column, is a stranded layer — a lens that pinches out, not a
@@ -1170,6 +1182,31 @@ export default function CorrelationEdgesOverlay({
             const ptB = contactScreenMap.get(ce.contact_b_id)
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
+
+            // Cross-lithology edge → SURFACE TIE: draw the clean connecting
+            // line only (no seam ribbon; a tie forms no body). The resolver
+            // drops cross-lithology edges from body formation, so this is a
+            // pure "same surface, different material" correlation (thread B).
+            const lithoA = lithoByContactId.get(ce.contact_a_id) ?? null
+            const lithoB = lithoByContactId.get(ce.contact_b_id) ?? null
+            if (lithoA !== null && lithoB !== null && lithoA !== lithoB) {
+              const tieColor = approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR
+              return (
+                <line
+                  key={`tie-${ce.id}`}
+                  data-testid={`tie-line-${ce.id}`}
+                  data-approved={approved ? 'true' : 'false'}
+                  x1={ptA.x}
+                  y1={ptA.topY}
+                  x2={ptB.x}
+                  y2={ptB.topY}
+                  stroke={tieColor}
+                  strokeWidth={CONTACT_EDGE_WIDTH}
+                  strokeDasharray={approved ? undefined : UNAPPROVED_EDGE_DASH}
+                />
+              )
+            }
+
             const H = RIBBON_HALF_HEIGHT_PX
             // Anchor the ribbon at each column's INNER edge (the edge facing
             // the other column) so it bridges only the gap between columns
