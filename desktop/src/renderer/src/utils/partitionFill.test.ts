@@ -245,6 +245,53 @@ describe('computePartitionFill', () => {
     expect(isFlat).toBe(false)
   })
 
+  // SP1 — a SURFACE-interval pinch (top unit absent on the neighbour) tips at
+  // 50% with its apex ON the surface, the below-matrix closing up beyond it.
+  it('SP1: surface pinch tips at 50% on the surface line', () => {
+    // left:  Veen 0-3 (surface, lone) | Klei 3-10
+    // right: Klei 0-10                 (Veen absent → surface pinch)
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: 'veen', b: 'veen' },
+      { top: 3, base: 10, f: 'klei', b: 'klei' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 10, f: 'klei', b: 'klei' }])
+    const regions = computePartitionFill(left, right)
+    const veen = regions.filter((r) => r.formationId === 'veen')
+    expect(veen).toHaveLength(1)
+    expect(veen[0].kind).toBe('pinch')
+    // Tips at 50%, not the neighbour.
+    expect(Math.max(...veen[0].polygon.map((p) => p.fraction))).toBeCloseTo(0.5, 6)
+    // Apex sits ON the surface (elevation 10), not mid-elevation.
+    const apex = veen[0].polygon.find((p) => Math.abs(p.fraction - 0.5) < 1e-6)!
+    expect(apex.elevation).toBeCloseTo(10, 6)
+    // The below-matrix (klei) closes beyond the apex → klei appears twice.
+    expect(regions.filter((r) => r.formationId === 'klei').length).toBeGreaterThanOrEqual(2)
+    assertTiles(regions, left, right)
+  })
+
+  // MP1 — TWO stacked interior pinches both tip at 50% (the SILT+ZAND case from
+  // the real Section-2 data).
+  it('MP1: two stacked interior pinches both tip at 50%', () => {
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'kA', b: 'kA' },
+      { top: 5, base: 7, f: 'silt', b: 'silt' },
+      { top: 7, base: 9, f: 'zand', b: 'zand' },
+      { top: 9, base: 14, f: 'kB', b: 'kB' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'kA', b: 'kA' },
+      { top: 5, base: 14, f: 'kB', b: 'kB' },
+    ])
+    const regions = computePartitionFill(left, right)
+    for (const fid of ['silt', 'zand']) {
+      const r = regions.filter((x) => x.formationId === fid)
+      expect(r).toHaveLength(1)
+      expect(r[0].kind).toBe('pinch')
+      expect(Math.max(...r[0].polygon.map((p) => p.fraction))).toBeCloseTo(0.5, 6)
+    }
+    assertTiles(regions, left, right)
+  })
+
   // -----------------------------------------------------------------------
   // PF2 — A left-only body (lens) tiles with its surrounding quads
   // -----------------------------------------------------------------------
