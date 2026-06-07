@@ -164,6 +164,36 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
+  // HP1 — a lone interior pinch tapers to an apex at fraction 0.5 (NOT to the
+  // neighbour at fraction 1), with the enclosing matrix closing beyond it.
+  it('HP1: lone interior pinch tips at 50%, matrix closes, tiles', () => {
+    // left:  Clay-A 0-5 | Sand 5-9 (lone) | Clay-B 9-14
+    // right: Clay-A 0-5 | Clay-B 5-14   (Sand absent → interfaces converge right)
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'clayA', b: 'cA' },
+      { top: 5, base: 9, f: 'sand', b: 'sand' },
+      { top: 9, base: 14, f: 'clayB', b: 'cB' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'clayA', b: 'cA' },
+      { top: 5, base: 14, f: 'clayB', b: 'cB' },
+    ])
+    const regions = computePartitionFill(left, right)
+
+    const sand = regions.filter((r) => r.formationId === 'sand')
+    expect(sand).toHaveLength(1)
+    expect(sand[0].kind).toBe('pinch')
+    // Apex is the deepest-into-the-gap vertex; it must sit at ~0.5, never 1.
+    const maxFraction = Math.max(...sand[0].polygon.map((p) => p.fraction))
+    expect(maxFraction).toBeCloseTo(0.5, 6)
+    // The enclosing matrix extends INTO the interval: clayA and clayB each
+    // appear in MORE THAN ONE region (the quad + the extension triangle).
+    expect(regions.filter((r) => r.formationId === 'clayA').length).toBeGreaterThanOrEqual(2)
+    expect(regions.filter((r) => r.formationId === 'clayB').length).toBeGreaterThanOrEqual(2)
+    // Still a true partition.
+    assertTiles(regions, left, right)
+  })
+
   // -----------------------------------------------------------------------
   // PF2 — A left-only body (lens) tiles with its surrounding quads
   // -----------------------------------------------------------------------
