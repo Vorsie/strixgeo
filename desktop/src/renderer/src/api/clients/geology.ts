@@ -1410,8 +1410,15 @@ export const geologyClient = {
   listContactCorrelations: (
     projectId: string,
     modelId: string,
+    // Optional section scope (debt #3): when given, only edges whose BOTH
+    // endpoints sit on the section's columns are returned — the auto-correlate
+    // pre-check counts this section's suggestions, not the whole model's.
+    sectionId?: string | null,
   ): Promise<LithoContactCorrelationEdge[]> =>
-    get(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`),
+    get(
+      `/projects/${projectId}/geology/models/${modelId}/contact-correlations` +
+        (sectionId ? `?section_id=${sectionId}` : ''),
+    ),
 
   createContactCorrelation: (
     projectId: string,
@@ -1751,12 +1758,17 @@ export const geologyClient = {
       {},
     ),
 
-  // Delete all source='auto' edges for the model.
+  // Delete source='auto' edges for the model. With sectionId (debt #3), only
+  // edges whose BOTH endpoints are on that section's columns are cleared, so
+  // re-correlating one section can't wipe a neighbouring section's suggestions.
   deleteAutoCorrelations: async (
     projectId: string,
     modelId: string,
+    sectionId?: string | null,
   ): Promise<DeleteAutoCorrelationsResult> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`
+    const path =
+      `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto` +
+      (sectionId ? `?section_id=${sectionId}` : '')
     const res = await fetch(`${_base}${path}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
