@@ -363,9 +363,11 @@ export default function SectionsCanvas(): JSX.Element {
 
   // #133 Phase 1 + Phase 2+3: contact-level correlation edges.
   //
-  // MODEL-level (no section_id) and fetched fresh after each mutation.
-  // The formation-level edge layer (Slice 4) was removed in Task 21 (#133
-  // Phase 2+3); these contact edges are the sole correlation surface now.
+  // SECTION-scoped (owner directive 2026-06-08): fetched scoped to
+  // selectedSectionId so only this section's ribbons render, and refetched on
+  // section switch + after each mutation. The formation-level edge layer
+  // (Slice 4) was removed in Task 21 (#133 Phase 2+3); these contact edges are
+  // the sole correlation surface now.
   const [contactCorrelationEdges, setContactCorrelationEdges] = useState<
     LithoContactCorrelationEdge[]
   >([])
