@@ -794,6 +794,41 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
   })
 
+  it('ACW1c: APPROVED auto edges (user_approved=true) do NOT trigger the dialog', async () => {
+    // Accepted auto-correlations are committed — re-correlate would not delete
+    // them — so they must not pop a spurious "overwrite?" dialog on a section
+    // the user already accepted / never suggested on (dogfeed 2026-06-08).
+    const acceptedAuto: LithoContactCorrelationEdge = {
+      id: 'edge-auto-approved-1',
+      contact_a_id: 'ca-1',
+      contact_b_id: 'cb-1',
+      model_id: 'm-1',
+      source: 'auto',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([acceptedAuto])
+    const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        handleAutoCorrelate,
+      }),
+    )
+
+    openCorrelateCaret()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-auto-correlate'))
+    })
+
+    // Only UNAPPROVED auto edges count → fires immediately, no dialog.
+    expect(handleAutoCorrelate).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
+  })
+
   it('ACW2: N>0 auto edges â†’ dialog opens, handleAutoCorrelate NOT yet called', async () => {
     // listCorrelations returns 3 auto edges â†’ autoCount = 3 â†’ dialog opens.
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([
