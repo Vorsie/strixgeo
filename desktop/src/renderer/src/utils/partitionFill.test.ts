@@ -315,6 +315,34 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
+  // LENS1 — a silt enclosed in the SAME clay formation above AND below pinches
+  // at its OWN elevation (a lens), not drooping to the lower clay's base
+  // (dogfeed 2026-06-08, S10: clay/silt/clay where both clays are formation bb43).
+  it('LENS1: silt enclosed in one clay formation pinches at its own level', () => {
+    // left:  clay(cA) 0-5 | silt 5-7 | clay(cB) 7-14   (cA, cB both formation 'clay')
+    // right: clay(cA) 0-6 | clay(cB) 6-14              (silt absent)
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'clay', b: 'cA' },
+      { top: 5, base: 7, f: 'silt', b: 'silt' },
+      { top: 7, base: 14, f: 'clay', b: 'cB' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 6, f: 'clay', b: 'cA' },
+      { top: 6, base: 14, f: 'clay', b: 'cB' },
+    ])
+    const regions = computePartitionFill(left, right)
+    const silt = regions.filter((r) => r.formationId === 'silt')
+    expect(silt).toHaveLength(1)
+    expect(silt[0].kind).toBe('pinch')
+    // Apex (the fraction-0.5 vertex) sits at the silt's OWN mid-elevation
+    // (depth (5+7)/2 = 6 → elev 10-6 = 4), NOT drooping to the lower clay base.
+    const apex = silt[0].polygon.find((p) => Math.abs(p.fraction - 0.5) < 1e-6)!
+    expect(apex.elevation).toBeCloseTo(4, 6)
+    // Clay fills around the lens from BOTH sides → appears in ≥3 regions.
+    expect(regions.filter((r) => r.formationId === 'clay').length).toBeGreaterThanOrEqual(3)
+    assertTiles(regions, left, right)
+  })
+
   // -----------------------------------------------------------------------
   // PF2 — A left-only body (lens) tiles with its surrounding quads
   // -----------------------------------------------------------------------
