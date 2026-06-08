@@ -1,9 +1,8 @@
 """Integration tests for AcceptContactCorrelations — #133 Phase 2+3.
 
-Six cases:
-1. Section-scoped accept flips only edges whose both endpoints are in the
-   section's seeded_formation_contact_ids; edges on another section are
-   unchanged.
+Seven cases:
+1. Section-scoped accept flips only edges stamped with the target section's
+   ``section_id``; edges authored on another section are unchanged.
 2. Model-scoped accept (section_id=None) flips every unapproved edge in
    the model.
 3. Accept does NOT auto-fire body/lens detection (owner directive 2026-05-31):
@@ -12,6 +11,9 @@ Six cases:
    downstream resolver still runs (no-op).
 5. Edge-scoped accept flips only the named edge.
 6. Edge-scoped accept rejects an edge that belongs to a different model.
+7. Section-scoped accept reads the ``section_id`` column, not the seeded set:
+   two sections seeding the same contact pair still resolve to their own edges
+   (the regression guard for the 2026-06-08 section-scoped directive).
 """
 
 from __future__ import annotations
