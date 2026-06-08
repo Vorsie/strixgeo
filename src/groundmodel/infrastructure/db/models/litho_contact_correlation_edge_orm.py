@@ -72,10 +72,14 @@ class LithoContactCorrelationEdgeOrm(Base):
             "contact_a_id != contact_b_id",
             name="ck_litho_contact_corr_no_self_loop",
         ),
-        # Only one edge per (model, contact-pair).  Canonical ordering makes
-        # this UNIQUE constraint cover the symmetric duplicate.
+        # Section-scoped (owner directive 2026-06-08): one edge per
+        # (model, section, contact-pair). The SAME pair may be correlated on
+        # two sections (e.g. parallel cuts through the same tests) — each gets
+        # its own row + ribbon. Canonical ordering still covers the symmetric
+        # duplicate within a section.
         UniqueConstraint(
             "model_id",
+            "section_id",
             "contact_a_id",
             "contact_b_id",
             name="uq_litho_contact_corr_triple",
@@ -94,6 +98,20 @@ class LithoContactCorrelationEdgeOrm(Base):
     model_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("geological_model.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # FK to cross_section — the section this correlation was AUTHORED on.
+    # Section-scoped rendering (owner directive 2026-06-08): a correlation is
+    # displayed only on its section, and the section Accept/Auto-correlate verbs
+    # scope by it. The model-level resolver still unions ALL sections' approved
+    # edges into one body (3D = transitive closure across cuts), so this column
+    # does NOT change body resolution. ON DELETE CASCADE: deleting a section
+    # drops the correlations authored on it.
+    section_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cross_section.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
