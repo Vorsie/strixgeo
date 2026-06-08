@@ -573,4 +573,25 @@ describe('PartitionFillOverlay', () => {
     errSpy.mockRestore()
     expect(dupKeyWarning).toBe(false)
   })
+
+  // FS1 — a mismatched-matrix interval (sand-left vs clay-right, bracketed by a
+  // correlated sand band above + clay band below) renders its seam as a wavy
+  // facies <path>, not a straight contact.
+  it('FS1 — a mismatched-matrix interval renders a wavy facies seam path', () => {
+    const mismatch = [
+      layer('la', 'L', 'top', 'fSand', 0, 2), // correlated top bracket
+      layer('lb', 'L', 'lsand', 'fSand', 2, 8), // left background sand (uncorrelated)
+      layer('lc', 'L', 'bot', 'fClay', 8, 10), // correlated base bracket
+      layer('ra', 'R', 'top', 'fSand', 0, 2),
+      layer('rb', 'R', 'rclay', 'fClay', 2, 8), // right background clay (mismatch)
+      layer('rc', 'R', 'bot', 'fClay', 8, 10),
+    ]
+    const { container } = renderOverlay({ lithoLayers: mismatch })
+    const seams = container.querySelectorAll('path[data-seam="facies"]')
+    expect(seams.length).toBeGreaterThanOrEqual(1)
+    // The seam is a multi-vertex wavy polyline, not a straight 2-point line.
+    const d = seams[0].getAttribute('d') ?? ''
+    const verts = (d.match(/[ML]/g) ?? []).length
+    expect(verts).toBeGreaterThan(3)
+  })
 })
