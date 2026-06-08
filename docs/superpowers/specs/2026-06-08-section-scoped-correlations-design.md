@@ -65,6 +65,14 @@ resolver, partition fill, body bands, `body_id`, and 3D path need **no change**.
   correlations authored on it; `body_id` re-resolves (the union shrinks) on the
   next resolver run.
 - Index `section_id` (the render fetch filters on it).
+- **Change the UNIQUE constraint** `uq_litho_contact_corr_triple` from
+  `(model_id, contact_a_id, contact_b_id)` to
+  `(model_id, section_id, contact_a_id, contact_b_id)` — the same contact pair
+  may be correlated once **per section** (two parallel sections through the same
+  tests each get their own ribbon). The idempotency "exists?" check in
+  `CorrelateLithoContacts` and the auto-correlate `ON CONFLICT DO NOTHING`
+  target both extend to include `section_id`. The two CHECK constraints
+  (canonical order, no self-loop, source) are unchanged.
 - **Clean slate (owner choice):** the migration `DELETE`s all existing edges
   before adding the NOT-NULL column (the 307 live edges have no section linkage
   to backfill and re-correlating per section is one click — Auto-correlate →
