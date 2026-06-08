@@ -56,20 +56,33 @@ test.describe('flow_auto_correlate', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      // 2. Snapshot edge count before auto-correlate.
+      // 2. Fetch a section id — POST /contact-correlations/auto now requires a
+      //    section_id (section-scoped unique constraint).  Any valid section works.
+      const sectionsJson = await page.evaluate(
+        async ([base, pid]) => {
+          const r = await fetch(`${base}/projects/${pid}/sections`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID],
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sid: string = (sectionsJson as any[])[0]?.id
+      expect(sid).toBeTruthy()
+
+      // 3. Snapshot edge count before auto-correlate.
       const totalBefore = await countCorrelationEdges(FIXTURE_PROJECT_ID)
       const autoBefore = await countAutoCorrelationEdges(FIXTURE_PROJECT_ID)
 
-      // 3. First auto-correlate call.
+      // 4. First auto-correlate call.
       const firstResult = await page.evaluate(
-        async ([base, pid, mid]) => {
+        async ([base, pid, mid, sectionId]) => {
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section_id: sectionId }) },
           )
           return { status: r.status, json: await r.json() }
         },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sid],
       )
 
       expect(firstResult.status).toBe(200)
@@ -91,16 +104,17 @@ test.describe('flow_auto_correlate', () => {
       // Total edge count must be >= auto edge count (manual edges may also exist).
       expect(totalAfterFirst).toBeGreaterThanOrEqual(totalBefore)
 
-      // 5. Idempotency: second auto-correlate call must create 0 new edges.
+      // 5. Idempotency: second auto-correlate call on the same section must
+      //    create 0 new edges (the unique section-scoped index prevents dupes).
       const secondResult = await page.evaluate(
-        async ([base, pid, mid]) => {
+        async ([base, pid, mid, sectionId]) => {
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section_id: sectionId }) },
           )
           return { status: r.status, json: await r.json() }
         },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sid],
       )
 
       expect(secondResult.status).toBe(200)
@@ -124,16 +138,21 @@ test.describe('flow_auto_correlate', () => {
     try {
       await page.waitForLoadState('domcontentloaded')
 
-      // Resolve geological model id.
-      const modelsJson = await page.evaluate(
+      // Resolve models + a section id (section_id is now required on /auto).
+      const [modelsJson, sectionsJson] = await page.evaluate(
         async ([base, pid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/models`)
-          return r.json()
+          const [models, sections] = await Promise.all([
+            fetch(`${base}/projects/${pid}/geology/models`).then(r => r.json()),
+            fetch(`${base}/projects/${pid}/sections`).then(r => r.json()),
+          ])
+          return [models, sections]
         },
         [API_BASE, FIXTURE_PROJECT_ID],
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const geoModel = (modelsJson as any[]).find((m: any) => m.kind === 'geological')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const geoSid: string = (sectionsJson as any[])[0]?.id
 
       if (!geoModel) {
         // No geological model in the fixture — skip this sub-test.
@@ -142,14 +161,14 @@ test.describe('flow_auto_correlate', () => {
       }
 
       const result = await page.evaluate(
-        async ([base, pid, mid]) => {
+        async ([base, pid, mid, sectionId]) => {
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section_id: sectionId }) },
           )
           return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
         },
-        [API_BASE, FIXTURE_PROJECT_ID, geoModel.id],
+        [API_BASE, FIXTURE_PROJECT_ID, geoModel.id, geoSid],
       )
 
       // The endpoint only operates on lithostratigraphic models.
@@ -170,29 +189,36 @@ test.describe('flow_auto_correlate', () => {
     try {
       await page.waitForLoadState('domcontentloaded')
 
-      // Resolve litho model.
-      const modelsJson = await page.evaluate(
+      // Resolve litho model + a section id (section_id is now required on
+      // /auto and request_section_id on the manual correlate endpoint).
+      const [acModelsJson, acSectionsJson] = await page.evaluate(
         async ([base, pid]) => {
-          const r = await fetch(`${base}/projects/${pid}/geology/models`)
-          return r.json()
+          const [models, sections] = await Promise.all([
+            fetch(`${base}/projects/${pid}/geology/models`).then(r => r.json()),
+            fetch(`${base}/projects/${pid}/sections`).then(r => r.json()),
+          ])
+          return [models, sections]
         },
         [API_BASE, FIXTURE_PROJECT_ID],
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lithoModel = (modelsJson as any[]).find((m: any) => m.kind === 'lithostratigraphic')
+      const lithoModel = (acModelsJson as any[]).find((m: any) => m.kind === 'lithostratigraphic')
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const acSid: string = (acSectionsJson as any[])[0]?.id
+      expect(acSid).toBeTruthy()
 
       // 1. Run auto-correlate (creates auto edges).
       const firstAcResult = await page.evaluate(
-        async ([base, pid, mid]) => {
+        async ([base, pid, mid, sectionId]) => {
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section_id: sectionId }) },
           )
           return r.json()
         },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, acSid],
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const autoCountAfterFirst = (firstAcResult as any).edges_created as number
@@ -226,18 +252,18 @@ test.describe('flow_auto_correlate', () => {
         test.info().annotations.push({ type: 'note', description: 'No two contacts on distinct investigations — manual edge step skipped' })
       } else {
         const manualEdgeResult = await page.evaluate(
-          async ([base, pid, mid, ca, cb]) => {
+          async ([base, pid, mid, ca, cb, sectionId]) => {
             const r = await fetch(
               `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: ca, contact_b_id: cb, source: 'manual' }),
+                body: JSON.stringify({ contact_a_id: ca, contact_b_id: cb, source: 'manual', request_section_id: sectionId }),
               },
             )
             return { status: r.status }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, edgeContacts.a, edgeContacts.b],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, edgeContacts.a, edgeContacts.b, acSid],
         )
         // 201 (new) or 200 (already existed) are both acceptable.
         expect([200, 201]).toContain(manualEdgeResult.status)
@@ -262,15 +288,15 @@ test.describe('flow_auto_correlate', () => {
       const autoAfterDelete = await countAutoCorrelationEdges(FIXTURE_PROJECT_ID)
       expect(autoAfterDelete).toBe(0)
 
-      // 4. Re-run auto-correlate → edges recreated.
+      // 4. Re-run auto-correlate on the same section → edges recreated.
       await page.evaluate(
-        async ([base, pid, mid]) => {
+        async ([base, pid, mid, sectionId]) => {
           await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/contact-correlations/auto`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section_id: sectionId }) },
           )
         },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
+        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, acSid],
       )
       const autoAfterReCorrelate = await countAutoCorrelationEdges(FIXTURE_PROJECT_ID)
       // Edge count must equal the original — DELETE+re-correlate is idempotent in shape.
