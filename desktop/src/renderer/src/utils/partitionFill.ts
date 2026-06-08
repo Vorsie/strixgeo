@@ -292,41 +292,71 @@ function extractEnclosedLenses(
   return lenses
 }
 
+/** A minority unit pulled from an interval, classified by its pinch-out kind. */
+interface ExtractedMinority {
+  unit: PinchUnit
+  /**
+   * ``lens``  — enclosed by the matrix above AND below (0 correlated contacts);
+   *             horizontal apex at its own elevation.
+   * ``onlap`` — touches exactly ONE bracket tie-line (1 correlated contact);
+   *             laps against that bracket, tip on the bracket interface.
+   */
+  kind: 'lens' | 'onlap'
+  /** For an onlap: which bracket it laps against (``top`` → laps up). */
+  edge?: 'top' | 'base'
+}
+
 /**
- * Extract minority lenses from ONE interval's left + right unit stacks.
+ * Extract minority units from ONE interval's left + right unit stacks,
+ * classifying each as a lens or an onlap, and reducing each column to its
+ * connecting matrix.
  *
  * Interval-scoped companion to ``extractEnclosedLenses`` (the global ``bodyId``
- * pre-pass). Within an interval bracketed by matched bands, a minority unit U
- * is a lens when, on its own column, the units immediately above AND below it
- * share the SAME lithology (``formationId``) M, M is not U's own lithology, and
- * M is present on the OTHER column's INTERVAL stack (geometric connectivity — M
- * is the real matrix wrapping U). The matrix neighbours are merged so the
- * matrix becomes one contiguous unit per column, which then connects across as
- * a band quad via ``emitInterval``'s same-formation single-unit-per-side case.
+ * pre-pass). Within an interval bracketed by matched bands, the "matrix" is the
+ * lithology present on BOTH columns' interval stacks. A minority unit is:
+ *
+ *   - a **lens** when, on its own column, the units immediately above AND below
+ *     it share the SAME lithology M, M ≠ the unit's own lithology, and M is the
+ *     matrix (present on the OTHER column's interval stack). 0 correlated
+ *     bounding contacts.
+ *   - an **onlap** when it is the TOP unit of the stack (its top is the top
+ *     bracket tie-line) and the unit BELOW it is the matrix M — or the mirror at
+ *     the bottom. 1 correlated bounding contact (the bracket it touches).
+ *
+ * Each extracted unit is removed and the matrix it was embedded in is grown to
+ * fill its place, so the matrix reduces to one contiguous unit per column and
+ * then connects across as a band via ``emitInterval``'s same-formation
+ * single-unit-per-side case.
  *
  * Keying the connectivity guard on the OTHER column's INTERVAL stack (not the
  * whole column) is what distinguishes a lens-in-matrix (silt inside sand →
- * extract) from a matrix-between-brackets (sand between two clay bands → the
- * enclosing clay is a bracket band, absent from the other column's interval, so
- * the sand is NOT extracted and stays the matrix). A global ``formationId``
- * pre-pass cannot make this call — it runs before the interval is known.
- *
- * Only interval-INTERNAL neighbours count: a unit at the top or bottom of the
- * stack (touching a bracket) is left for the onlap / boundary-pinch paths.
+ * extract) from a matrix-between-brackets (sand between two clay BANDS → the
+ * enclosing clay is a bracket, absent from the other column's interval, so the
+ * sand is NOT extracted and stays the matrix). The same guard makes onlap
+ * extraction fire only when the matrix actually connects across — a one-sided
+ * interval (empty other column) keeps its existing boundary-pinch behaviour.
  *
  * Parameters
  * ----------
  * leftStack, rightStack : PinchUnit[]
  *     The interval's unmatched units per column, sorted shallow→deep. Both are
- *     mutated in place (minorities removed, matrix neighbours merged).
+ *     mutated in place (minorities removed, matrix grown).
+ * aboveLith, belowLith : string | null
+ *     The top / base bracket lithology (matched band above / below the
+ *     interval), or ``null`` at the surface / floor (no bracket → no onlap).
  *
  * Returns
  * -------
- * ExtractedLens[]
- *     The extracted minority lenses, in removal order.
+ * ExtractedMinority[]
+ *     The extracted minorities, in removal order.
  */
-function extractIntervalLenses(leftStack: PinchUnit[], rightStack: PinchUnit[]): ExtractedLens[] {
-  const lenses: ExtractedLens[] = []
+function extractIntervalMinorities(
+  leftStack: PinchUnit[],
+  rightStack: PinchUnit[],
+  aboveLith: string | null,
+  belowLith: string | null,
+): ExtractedMinority[] {
+  const out: ExtractedMinority[] = []
   const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[]]> = [
     ['left', leftStack, rightStack],
     ['right', rightStack, leftStack],
@@ -336,40 +366,60 @@ function extractIntervalLenses(leftStack: PinchUnit[], rightStack: PinchUnit[]):
     while (changed) {
       changed = false
       const otherFormations = new Set(other.map((u) => u.formationId))
+
+      // (1) Interior lens — enclosed by the same matrix above AND below.
       for (let i = 1; i < stack.length - 1; i++) {
         const u = stack[i]
         const above = stack[i - 1]
         const below = stack[i + 1]
-        // Enclosed by the SAME lithology on its own column (interval-internal).
         if (above.formationId !== below.formationId) continue
         const m = above.formationId
         if (m === u.formationId) continue
-        // Geometric connectivity: the enclosing matrix M must be on the other
-        // column's interval stack (else M is a bracket band, not the matrix).
         if (!otherFormations.has(m)) continue
-
-        lenses.push({
-          bodyId: u.bodyId,
-          formationId: u.formationId,
-          side,
-          depthTopM: u.ownTopDepth,
-          depthBaseM: u.ownBaseDepth,
-        })
-        // Merge the two matrix neighbours into one contiguous unit.
-        const merged: PinchUnit = {
+        out.push({ unit: { ...u }, kind: 'lens' })
+        stack.splice(i - 1, 3, {
           bodyId: above.bodyId,
           formationId: m,
           side,
           ownTopDepth: above.ownTopDepth,
           ownBaseDepth: below.ownBaseDepth,
-        }
-        stack.splice(i - 1, 3, merged)
+        })
         changed = true
-        break // restart the scan after a merge
+        break // restart after a merge
+      }
+      if (changed) continue
+
+      // (2) Onlap-top — the topmost unit touches the top bracket, matrix below.
+      if (aboveLith !== null && stack.length >= 2) {
+        const u = stack[0]
+        const below = stack[1]
+        const m = below.formationId
+        if (m !== u.formationId && otherFormations.has(m)) {
+          out.push({ unit: { ...u }, kind: 'onlap', edge: 'top' })
+          below.ownTopDepth = u.ownTopDepth // matrix grows up to the bracket
+          stack.splice(0, 1)
+          changed = true
+          continue
+        }
+      }
+
+      // (3) Onlap-base — the bottommost unit touches the base bracket, matrix above.
+      if (belowLith !== null && stack.length >= 2) {
+        const last = stack.length - 1
+        const u = stack[last]
+        const above = stack[last - 1]
+        const m = above.formationId
+        if (m !== u.formationId && otherFormations.has(m)) {
+          out.push({ unit: { ...u }, kind: 'onlap', edge: 'base' })
+          above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
+          stack.splice(last, 1)
+          changed = true
+          continue
+        }
       }
     }
   }
-  return lenses
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +662,53 @@ function buildRightLensPolygon(
     { fraction: 1, elevation: topElev },
     { fraction: apexFraction, elevation: apexElev },
     { fraction: 1, elevation: baseElev },
+  ]
+}
+
+/**
+ * Build the triangle polygon for an ONLAP — a minority that laps against one
+ * bracket tie-line.
+ *
+ * The flat edge sits on the unit's source column (fraction 0 left / 1 right);
+ * the unit tapers to a tip at ``INTERIOR_PINCH_FRACTION`` whose elevation is
+ * taken from the BRACKET interface it laps against (``top`` → the top interface,
+ * so the base laps UP; ``base`` → the base interface, so the top laps DOWN).
+ * This is geometrically distinct from a lens (apex at the unit's OWN
+ * mid-elevation) — the onlap is anchored on its correlated bracket.
+ *
+ * The onlap overlays the connected matrix band, so its region is emitted as
+ * ``kind: 'lens'`` (excluded from the tiling invariant), like an enclosed lens.
+ *
+ * Parameters
+ * ----------
+ * unit : PinchUnit
+ *     The onlap unit (carries its column side + own depth span).
+ * edge : 'top' | 'base'
+ *     The bracket the onlap laps against.
+ * topIface, baseIface : Interface
+ *     The interval's enclosing interfaces (the brackets).
+ * leftSurface, rightSurface : number
+ *     Column surface elevations (mTAW).
+ */
+function buildOnlapPolygon(
+  unit: PinchUnit,
+  edge: 'top' | 'base',
+  topIface: Interface,
+  baseIface: Interface,
+  leftSurface: number,
+  rightSurface: number,
+): PartitionPoint[] {
+  const surface = unit.side === 'left' ? leftSurface : rightSurface
+  const colFrac = unit.side === 'left' ? 0 : 1
+  const tipFrac = unit.side === 'left' ? INTERIOR_PINCH_FRACTION : 1 - INTERIOR_PINCH_FRACTION
+  const topElev = surface - unit.ownTopDepth
+  const baseElev = surface - unit.ownBaseDepth
+  const anchor = edge === 'top' ? topIface : baseIface
+  const tipElev = ifaceElev(anchor, tipFrac, leftSurface, rightSurface)
+  return [
+    { fraction: colFrac, elevation: topElev },
+    { fraction: tipFrac, elevation: tipElev },
+    { fraction: colFrac, elevation: baseElev },
   ]
 }
 
@@ -969,6 +1066,16 @@ export function computePartitionFill(
 
   const regions: PartitionRegion[] = []
 
+  // Onlaps collected during the walk, emitted AFTER the main regions (they
+  // overlay the connected matrix band, like lenses). Each carries the interval
+  // interfaces it laps against, snapshotted because ``prevQuadBase`` is reused.
+  const intervalOnlaps: Array<{
+    unit: PinchUnit
+    edge: 'top' | 'base'
+    topIface: Interface
+    baseIface: Interface
+  }> = []
+
   // prevQuadBase: the base interface of the most recently emitted quad (or the
   // surface interface before any quads).
   let prevQuadBase: Interface = surfaceIface
@@ -1016,17 +1123,8 @@ export function computePartitionFill(
       })
     }
 
-    // Interval-scoped minority-lens extraction: pull the lenses enclosed by the
-    // interval matrix so the matrix reduces to one unit per column and connects
-    // across as a band (the reduced stacks feed emitInterval). The extracted
-    // lenses are appended after the main regions, like the global pre-pass.
-    for (const lens of extractIntervalLenses(leftStack, rightStack)) {
-      ;(lens.side === 'left' ? leftLenses : rightLenses).push(lens)
-    }
-
-    const pinches: PinchUnit[] = [...leftStack, ...rightStack]
-
-    // Determine the interval's base interface.
+    // Interval interfaces + bracket matrices — computed BEFORE extraction so an
+    // onlap can be anchored on the bracket interface it laps against.
     let intervalBase: Interface
     if (isFloor) {
       intervalBase = clampIface(floorIface, prevQuadBase)
@@ -1037,13 +1135,6 @@ export function computePartitionFill(
         prevQuadBase,
       )
     }
-
-    // Emit the pinch regions for this interval. A ONE-SIDED pinch interval (all
-    // pinches on the same column) tips each unit at 50% with the matrix closing
-    // beyond it (Thread A) — interior (apex mid), surface (apex on the surface),
-    // or floor (apex on the floor). Two-sided (interfingering) intervals fall
-    // back to emitInterval. In the floor interval, units below the shallower
-    // column's floor first carry through full-width (Slice 2).
     const intervalTop = prevQuadBase
     const hasAbove = prevMatchLi >= 0 && prevQuadFormationId !== null
     const aboveMatrix = hasAbove
@@ -1055,6 +1146,38 @@ export function computePartitionFill(
       const u = leftUnits[mli]
       belowMatrix = { formationId: u.formationId, bodyId: u.bodyId }
     }
+
+    // Interval-scoped minority extraction: pull lenses (enclosed by the matrix)
+    // and onlaps (touching one bracket) so the matrix reduces to one unit per
+    // column and connects across as a band (the reduced stacks feed
+    // emitInterval). Lenses append after the main regions (horizontal apex);
+    // onlaps are collected with their interfaces and emitted after the main
+    // regions too — both overlay the connected matrix band.
+    for (const min of extractIntervalMinorities(
+      leftStack,
+      rightStack,
+      aboveMatrix?.formationId ?? null,
+      belowMatrix?.formationId ?? null,
+    )) {
+      if (min.kind === 'lens') {
+        ;(min.unit.side === 'left' ? leftLenses : rightLenses).push({
+          bodyId: min.unit.bodyId,
+          formationId: min.unit.formationId,
+          side: min.unit.side,
+          depthTopM: min.unit.ownTopDepth,
+          depthBaseM: min.unit.ownBaseDepth,
+        })
+      } else {
+        intervalOnlaps.push({
+          unit: min.unit,
+          edge: min.edge!,
+          topIface: { ...intervalTop },
+          baseIface: { ...intervalBase },
+        })
+      }
+    }
+
+    const pinches: PinchUnit[] = [...leftStack, ...rightStack]
 
     let pinchPool = pinches
     if (isFloor) {
@@ -1142,6 +1265,30 @@ export function computePartitionFill(
       prevMatchLi = mli
       prevMatchRi = mri
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 3a: Append onlap regions.
+  //
+  // An onlap laps against ONE bracket tie-line — anchored flat on its source
+  // column, tapering to a tip on the bracket interface. It overlays the
+  // connected matrix band (emitted as kind:'lens', excluded from the tiling
+  // invariant), so it must come AFTER the main regions in array order.
+  // -------------------------------------------------------------------------
+  for (const onlap of intervalOnlaps) {
+    regions.push({
+      formationId: onlap.unit.formationId,
+      bodyId: onlap.unit.bodyId,
+      kind: 'lens',
+      polygon: buildOnlapPolygon(
+        onlap.unit,
+        onlap.edge,
+        onlap.topIface,
+        onlap.baseIface,
+        leftSurface,
+        rightSurface,
+      ),
+    })
   }
 
   // -------------------------------------------------------------------------
