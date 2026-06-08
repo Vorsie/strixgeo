@@ -104,15 +104,17 @@ def _raw_edge(
     *,
     user_approved: bool = False,
     source: str = "auto",
-    section_id: UUID | None = None,
+    section_id: UUID,
 ) -> LithoContactCorrelationEdgeOrm:
     """Return an unsaved LithoContactCorrelationEdgeOrm (canonical min/max ordering).
 
     Parameters
     ----------
-    section_id : UUID | None
+    section_id : UUID
         The section this edge was authored on (NOT NULL post Task 4).  A valid
-        ``CrossSectionOrm.id`` that belongs to the same project must be supplied.
+        ``CrossSectionOrm.id`` that belongs to the same project must be supplied
+        (required keyword-only — there is no None fallback against the NOT-NULL
+        column).
     """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
@@ -123,7 +125,7 @@ def _raw_edge(
         contact_b_id=b_id,
         source=source,
         user_approved=user_approved,
-        section_id=section_id,  # type: ignore[arg-type]  # not None in practice
+        section_id=section_id,
     )
 
 
