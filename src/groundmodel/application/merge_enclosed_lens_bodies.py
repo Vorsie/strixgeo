@@ -193,6 +193,10 @@ class MergeEnclosedLensBodies(GroundModelLogger):
                 {
                     "id": uuid7(),
                     "model_id": model_id,
+                    # section_id is NOT NULL — a merge is always triggered on a
+                    # specific section (Fill bands is a section verb).  Omitting
+                    # this caused IntegrityError whenever a merge edge was created.
+                    "section_id": section_id,
                     "contact_a_id": a,
                     "contact_b_id": b,
                     "source": _MERGE_SOURCE,
