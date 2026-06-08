@@ -483,6 +483,55 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
+  // MX2 — A minority lens INSIDE an uncorrelated same-lithology matrix.
+  //
+  // The interval-scoped case the global bodyId pre-pass cannot reach: the sand
+  // matrix is uncorrelated (different bodyId per column) AND its two pieces on
+  // the left carry DIFFERENT bodyIds (zL ≠ zL2 — uncorrelated sand split by the
+  // lens never gets one body), so the silt is NOT "enclosed by the same body"
+  // and the bodyId pre-pass leaves it. The naive formationId pre-pass got this
+  // WRONG the other way — it extracted the SAND itself as a "lens" because the
+  // sand sits between two KLEI brackets (same formation above+below).
+  //
+  // Correct: extraction must be INTERVAL-SCOPED. Within the clay-bracketed
+  // interval, the SILT is enclosed by SAND (the matrix, present on the other
+  // column's interval stack) → extract it as a lens. The sand is NOT enclosed by
+  // a matrix present in the other column's interval (its brackets are KLEI, which
+  // lives only in the matched bands, not the interval) → it stays as the matrix
+  // and connects across as ONE band (MX1's connect).
+  // -----------------------------------------------------------------------
+  it('MX2: a minority silt lens inside an uncorrelated sand matrix → matrix bands, silt pinches', () => {
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'KLEI', b: 'k-top' }, // correlated bracket
+      { top: 5, base: 8, f: 'ZAND', b: 'zL' }, // matrix sand — uncorrelated, upper piece
+      { top: 8, base: 9, f: 'SILT', b: 's-lens' }, // minority lens inside the sand
+      { top: 9, base: 12, f: 'ZAND', b: 'zL2' }, // matrix sand — uncorrelated, lower piece (≠ zL)
+      { top: 12, base: 18, f: 'KLEI', b: 'k-bot' }, // correlated bracket
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'KLEI', b: 'k-top' },
+      { top: 5, base: 12, f: 'ZAND', b: 'zR' }, // matrix sand — uncorrelated, whole interval
+      { top: 12, base: 18, f: 'KLEI', b: 'k-bot' },
+    ])
+    const regions = computePartitionFill(left, right)
+
+    // The sand matrix connects as ONE band quad spanning the whole gap.
+    const sand = regions.filter((r) => r.formationId === 'ZAND')
+    expect(sand).toHaveLength(1)
+    expect(sand[0].kind).toBe('quad')
+    const fr = sand[0].polygon.map((p) => p.fraction)
+    expect(Math.min(...fr)).toBeLessThan(0.01)
+    expect(Math.max(...fr)).toBeGreaterThan(0.99)
+
+    // The silt is a pinch-out lens floating in the sand, not a quad.
+    const silt = regions.filter((r) => r.formationId === 'SILT')
+    expect(silt).toHaveLength(1)
+    expect(silt[0].kind).toBe('lens')
+
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
   // PF5 — Empty left column
   // -----------------------------------------------------------------------
   it('PF5 — empty left column returns []', () => {
