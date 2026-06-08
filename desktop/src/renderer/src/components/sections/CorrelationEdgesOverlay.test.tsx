@@ -1107,6 +1107,26 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).toHaveBeenCalledWith('cb2')
   })
 
+  it('CE-HIT-DEEPEST-LOW: the deepest band’s lower zone is inert (no contact below)', () => {
+    // cb2 (inv-B, 5 m) is the DEEPEST contact on its column — its base is the
+    // column floor / where the test stopped, not a contact. Clicking its lower
+    // zone must do NOTHING, not wrongly arm cb2's own top (dogfeed 2026-06-08:
+    // "tried to connect the bottom of the deepest sand and it grabbed the top").
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cb2-low'))
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
   it('CE-HIT-MID: clicking a tall band’s inert middle arms nothing', () => {
     // ca is the only contact on inv-A, so its band spans most of the column →
     // tall enough to have an inert middle zone. A click there must NOT arm a
