@@ -14,6 +14,28 @@
 
 ---
 
+## ⚠ IMPLEMENTATION FINDINGS — 2026-06-08 (partial; RESUME HERE in a fresh session)
+
+**Branch:** `feat-partition-pinchout-matrix` (off `develop`). Working tree clean.
+
+**Committed so far — MX1 (`6e46535b`):** `emitInterval` now connects a one-left + one-right **same-`formationId`** pinch pair into a single band quad (the clean uncorrelated-matrix case, no interspersed minorities). 16/16 partition tests green, **zero regressions** (incl. `PF-REAL-S1`, `LENS1`). Keep this — it is the correct **geometric-connectivity primitive** (step 2 below) for the trivial case.
+
+**⚠ Two corrections to the tasks below — do NOT implement Task 2 as originally written:**
+
+**(1) ORDER (owner, 2026-06-08): lenses/onlaps FIRST, then geometric connectivity.** The original directive is: pinch out the uncorrelated minority lithos first (→ lenses/onlaps by correlated-edge count: 0 = lens, 1 = onlap), THEN infer the matrix bodies by geometric connectivity (the leftover same-lithology background connects). Task 2's "generalize the pre-pass" framing inverts this / muddles it. Build step 1 (extract pinch-outs) THEN step 2 (MX1 already does the connect). After step-1 extraction the matrix is the single-unit-per-side case MX1 consumes.
+
+**(2) The naive `extractEnclosedLenses` bodyId→formationId substitution is WRONG — proven, reverted.** It extracts the **matrix itself** as a "lens" whenever the matrix is bracketed by two same-`formationId` bands (MX1's sand sits between a KLEI band above + a KLEI band below → wrongly "enclosed by same formation" → extracted). 4 tests broke. The pre-pass runs *before* the LCS, so it cannot tell a **lens-in-matrix** (silt inside sand) from a **matrix-between-brackets** (sand between two clays).
+
+**Correct mechanism = interval-scoped classification (reorder the algorithm):**
+- Run the `bodyId` LCS first (matched/correlated bands — locked, unchanged). The existing `bodyId`-keyed pre-pass can STAY for the explicitly-correlated lens case.
+- THEN, **per interval** (the span between two consecutive matched bands): classify each unmatched unit. A lithology (`formationId`) present on **one** side, enclosed by the interval's matrix, is a **lens/onlap** → pinch out (lens if enclosed by matrix above+below; onlap if it abuts one matched bracket — direction by which bracket). A lithology present (as the background) on **both** sides connects across as the **matrix band** (MX1's connect). Lens-vs-matrix is decidable here because the interval + the other side's units are known; it is NOT decidable in the pre-pass.
+- "Non-overlapping same-litho → separate lenses" falls out (each is enclosed on its own side, not the shared matrix).
+- **Tests that will flip `pinch`→`lens` (correct per the taxonomy — re-derive their lens apex geometry):** `LENS1`, `PF2`. `PF-REAL-S1` should stay green (its sand shares `bodyId` `dc5b80` → correlated path). A reverted fuller-case fixture (`MX2`: a silt lens inside an uncorrelated sand matrix bracketed by correlated clay) is the right next RED — re-add it.
+
+Then Tasks 3 (onlap up/down), 4 (midpoint facies seam + `seamKind`), 5 (overlay wriggly), 6 (regression) proceed as written below.
+
+---
+
 ### Task 1: Test fixtures — column-stack builders + the S2↔S1 case
 
 **Files:**
