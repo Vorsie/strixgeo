@@ -32,7 +32,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -67,14 +67,10 @@ from groundmodel.application.correlate_litho_contacts import (
     UncorrelateLithoContacts,
 )
 from groundmodel.application.materialise_body_companions import MaterialiseBodyCompanions
-from groundmodel.application.project_investigations_onto_section import (
-    project_investigations_onto_section,
-)
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
 )
-from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -89,57 +85,6 @@ router = APIRouter()
 
 # Module-level logger — routers are stateless functions, not classes.
 logger = LoggerFactory.get_logger(__name__)
-
-
-async def _contact_ids_on_section(
-    session: AsyncSession,
-    *,
-    project_id: UUID,
-    model_id: UUID,
-    section_id: UUID,
-) -> set[UUID]:
-    """Ids of every contact in ``model_id`` anchored to an on-section column.
-
-    Section-scopes the list + clear-suggestions endpoints (debt #3): an edge
-    "belongs to" a section iff BOTH its endpoint contacts sit on a column the
-    section projects into its corridor.  Reuses
-    ``project_investigations_onto_section`` so "on the section" matches the
-    auto-correlate adjacency gate exactly — re-correlating one section can then
-    never count or wipe a neighbouring section's auto edges.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active DB session.
-    project_id : UUID
-        Owning project (scope guard for the projection helper).
-    model_id : UUID
-        The litho model whose contacts are considered.
-    section_id : UUID
-        The cross-section whose corridor defines "on the section".
-
-    Returns
-    -------
-    set[UUID]
-        Contact ids on the section's in-corridor columns.  Empty when the
-        section has no projected columns.
-    """
-    along = await project_investigations_onto_section(
-        session, project_id=project_id, section_id=section_id
-    )
-    inv_ids = list(along.keys())
-    if not inv_ids:
-        return set()
-    rows = await session.execute(
-        select(FormationContactOrm.id).where(
-            FormationContactOrm.model_id == model_id,
-            or_(
-                FormationContactOrm.cpt_id.in_(inv_ids),
-                FormationContactOrm.borehole_id.in_(inv_ids),
-            ),
-        )
-    )
-    return {r[0] for r in rows.all()}
 
 
 @router.post(
@@ -327,15 +272,10 @@ async def list_contact_correlations(
         LithoContactCorrelationEdgeOrm.model_id == model_id
     )
     if section_id is not None:
-        contact_ids = await _contact_ids_on_section(
-            session, project_id=project_id, model_id=model_id, section_id=section_id
-        )
-        if not contact_ids:
-            return []
-        stmt = stmt.where(
-            LithoContactCorrelationEdgeOrm.contact_a_id.in_(contact_ids),
-            LithoContactCorrelationEdgeOrm.contact_b_id.in_(contact_ids),
-        )
+        # Section-scoped render (owner directive 2026-06-08): an edge belongs to
+        # the section it was AUTHORED on, not "any section that projects both
+        # endpoints". Filter the section_id column directly.
+        stmt = stmt.where(LithoContactCorrelationEdgeOrm.section_id == section_id)
     stmt = stmt.order_by(LithoContactCorrelationEdgeOrm.created_at)
     rows = list((await session.execute(stmt)).scalars().all())
     return rows
@@ -474,16 +414,7 @@ async def delete_auto_contact_correlations(
         LithoContactCorrelationEdgeOrm.user_approved.is_(False),
     )
     if section_id is not None:
-        contact_ids = await _contact_ids_on_section(
-            session, project_id=project_id, model_id=model_id, section_id=section_id
-        )
-        if not contact_ids:
-            # Section projects no columns → nothing on it to clear.
-            return DeleteAutoCorrelationsResponse(deleted=0)
-        stmt = stmt.where(
-            LithoContactCorrelationEdgeOrm.contact_a_id.in_(contact_ids),
-            LithoContactCorrelationEdgeOrm.contact_b_id.in_(contact_ids),
-        )
+        stmt = stmt.where(LithoContactCorrelationEdgeOrm.section_id == section_id)
     result = await session.execute(stmt)
     deleted = result.rowcount or 0
     await session.commit()
