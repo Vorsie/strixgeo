@@ -544,29 +544,42 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
     db_session: AsyncSession,
     project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
 ) -> None:
-    """``?section_id=`` scopes list + delete to fully-on-section auto edges.
+    """``?section_id=`` scopes list + delete by the edge's OWN section_id column.
 
-    bh1 + bh2 lie on the section (perp 0); bh3 is 200 m off it (perp 200,
-    outside the 5 m buffer).  Two auto edges exist: (c1,c2) fully on-section
-    and (c2,c3) reaching the off-section column.  The section-scoped list shows
-    only the on-section edge, and the section-scoped delete removes only it —
-    the (c2,c3) edge survives, proving re-correlating one section cannot wipe a
-    neighbouring section's suggestions.
+    Owner directive 2026-06-08: an edge belongs to the section it was AUTHORED
+    on, not "any section that projects both endpoints".  Filtering is a direct
+    equality check on ``litho_contact_correlation_edge.section_id``.
+
+    Setup
+    -----
+    * Two sections S1 and S2.  bh1 and bh2 lie in BOTH corridors (they are
+      close enough that either section would project them — so the OLD
+      projection-based filter would return both edges for S2 too).
+    * Edge E1 (c1 ↔ c2) is authored on S1   → section_id = S1.
+    * Edge E2 (c2 ↔ c3) is authored on S2   → section_id = S2.
+
+    Assertions
+    ----------
+    * GET ?section_id=S1 returns E1 only (not E2).
+    * GET ?section_id=S2 returns E2 only (not E1).
+    * DELETE /auto?section_id=S1 removes E1 (count=1); E2 survives.
+    * Model-wide list after delete shows only E2.
     """
     project, bh1, bh2 = project_with_two_boreholes
     pid = str(project.id)
     f = await _create_formation(async_client, pid)
     mid = (await _create_model(async_client, pid))["id"]
 
-    # Third borehole 200 m off the section line (perp 200 >> 5 m buffer).
+    # Third borehole: same corridor as bh1/bh2 (y=200000) so projection-based
+    # logic would include it on BOTH sections.  Its edge is authored on S2.
     bh3 = BoreholeOrm(
         id=uuid7(),
         name="BH-3",
         app_project_id=project.id,
         project_id="TEST",
         test_id="BH-003",
-        location_x=150025.0,
-        location_y=200200.0,
+        location_x=150075.0,
+        location_y=200000.0,  # same y → in both section corridors
         epsg=31370,
         total_depth_m=10.0,
     )
@@ -577,27 +590,38 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
     c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=3.0)
     c3 = await _create_contact(async_client, pid, mid, f["id"], bh3.id, depth=3.0)
 
-    # Section line y=200000, x 149990→150110, 5 m buffer → bh1 + bh2 in, bh3 out.
-    # Created BEFORE the edges so edge.section_id FK can reference it.
-    section = CrossSectionOrm(
+    # Both sections run along y=200000 and include all three boreholes in their
+    # corridors — ensuring the OLD projection-based filter would return BOTH edges
+    # for either section (true RED against the pre-Task-5 code).
+    sec1 = CrossSectionOrm(
         id=uuid7(),
         app_project_id=project.id,
-        name="Sec A",
-        start_x=149990.0,
+        name="Sec S1",
+        start_x=149900.0,
         start_y=200000.0,
-        end_x=150110.0,
+        end_x=150200.0,
         end_y=200000.0,
         epsg=31370,
         projection_buffer_m=5.0,
     )
-    db_session.add(section)
+    sec2 = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec S2",
+        start_x=149900.0,
+        start_y=200000.0,
+        end_x=150200.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=5.0,
+    )
+    db_session.add_all([sec1, sec2])
     await db_session.flush()
-    sid = str(section.id)
+    sid1 = str(sec1.id)
+    sid2 = str(sec2.id)
 
-    # Insert two AUTO (unapproved) edges directly, canonical-ordered.
-    # Both are stamped with the same section_id; the corridor-geometry filter
-    # (contact_ids_on_section) decides which edge is "on-section", not section_id.
-    def _edge(a: str, b: str) -> LithoContactCorrelationEdgeOrm:
+    # E1 authored on S1; E2 authored on S2.  canonical-ordered.
+    def _edge(a: str, b: str, section: CrossSectionOrm) -> LithoContactCorrelationEdgeOrm:
         lo, hi = sorted((UUID(a), UUID(b)))
         return LithoContactCorrelationEdgeOrm(
             id=uuid7(),
@@ -609,30 +633,45 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
             section_id=section.id,
         )
 
-    db_session.add_all([_edge(c1["id"], c2["id"]), _edge(c2["id"], c3["id"])])
+    e1 = _edge(c1["id"], c2["id"], sec1)
+    e2 = _edge(c2["id"], c3["id"], sec2)
+    db_session.add_all([e1, e2])
     await db_session.commit()
+    e1_id = str(e1.id)
 
-    # List: model-wide = 2, section-scoped = 1 (only the fully-on-section edge).
+    # Model-wide: both edges present.
     all_edges = (
         await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
     ).json()
     assert len(all_edges) == 2
-    sec_edges = (
+
+    # Section-scoped list: S1 → only E1 (authored on S1).
+    s1_edges = (
         await async_client.get(
-            f"/projects/{pid}/geology/models/{mid}/contact-correlations?section_id={sid}"
+            f"/projects/{pid}/geology/models/{mid}/contact-correlations?section_id={sid1}"
         )
     ).json()
-    assert len(sec_edges) == 1, "only the (c1,c2) edge has both endpoints on the section"
+    assert len(s1_edges) == 1, "S1 list must contain only the edge authored on S1"
+    assert s1_edges[0]["id"] == e1_id, "the returned edge must be E1 (authored on S1)"
 
-    # Section-scoped delete removes only the on-section edge.
+    # Section-scoped list: S2 → only E2 (authored on S2), NOT E1.
+    s2_edges = (
+        await async_client.get(
+            f"/projects/{pid}/geology/models/{mid}/contact-correlations?section_id={sid2}"
+        )
+    ).json()
+    assert len(s2_edges) == 1, "S2 list must contain only the edge authored on S2"
+    assert s2_edges[0]["id"] != e1_id, "E1 must NOT appear in the S2-scoped list"
+
+    # Section-scoped delete on S1 removes E1 only (count=1); E2 survives.
     cleared = await async_client.delete(
-        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto?section_id={sid}"
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto?section_id={sid1}"
     )
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["deleted"] == 1
 
-    # The (c2,c3) edge reaching the off-section column survives.
     remaining = (
         await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
     ).json()
-    assert len(remaining) == 1, "the edge to the off-section column must survive"
+    assert len(remaining) == 1, "E2 (authored on S2) must survive the S1-scoped clear"
+    assert remaining[0]["id"] != e1_id, "the surviving edge must be E2, not E1"
