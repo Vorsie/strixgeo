@@ -11,6 +11,7 @@ Three cases:
 
 from __future__ import annotations
 
+import types
 from uuid import UUID
 
 import pytest
@@ -22,7 +23,9 @@ from uuid6 import uuid7
 from groundmodel.application.auto_correlate_contact_edges import (
     AutoCorrelateContactEdges,
 )
+from groundmodel.application.correlate_litho_contacts import CorrelateLithoContacts
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -415,3 +418,123 @@ async def test_rejects_non_litho_model(
             project_id=project.id,
             model_id=geo.id,
         )
+
+
+# ---------------------------------------------------------------------------
+# Fixture: two sections sharing the same contact pair
+# ---------------------------------------------------------------------------
+
+
+def _cross_section(project_id: UUID, *, name: str, x0: float, x1: float) -> CrossSectionOrm:
+    """Return an unsaved ``CrossSectionOrm`` spanning [x0, x1] along the Y=200000 axis."""
+    return CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name=name,
+        start_x=x0,
+        start_y=200000.0,
+        end_x=x1,
+        end_y=200000.0,
+        epsg=31370,
+        # Wide buffer so both boreholes fall inside the corridor.
+        projection_buffer_m=500.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+        seeded_formation_contact_ids=[],
+        vertical_exaggeration=1.0,
+        display_order=0,
+    )
+
+
+@pytest_asyncio.fixture
+async def two_section_pair(db_session: AsyncSession, project: ProjectOrm) -> types.SimpleNamespace:
+    """A litho model with one correlatable contact pair, plus two sections.
+
+    Returns a ``SimpleNamespace`` with:
+      project_id, model_id, section1_id, section2_id, layer_a_id, layer_b_id
+    where ``layer_a_id`` and ``layer_b_id`` are the two ``FormationContactOrm``
+    (litho_layer) ids that can be correlated.
+    """
+    geo = _geo_model(project, name="Geo TSP")
+    litho = _litho_model(project, geo, name="Litho TSP")
+    geo_parent = _geo_formation(project, name="Quaternary TSP")
+    f_zand_a = _litho_formation(
+        project, geo_parent, name="ZAND A TSP", soil_code="ZAND", display_order=1
+    )
+    f_zand_b = _litho_formation(
+        project, geo_parent, name="ZAND B TSP", soil_code="ZAND", display_order=2
+    )
+    bh_a = _borehole(project.id, suffix="TSP-A", x=150000.0)
+    bh_b = _borehole(project.id, suffix="TSP-B", x=150200.0)
+
+    db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, bh_a, bh_b])
+    await db_session.flush()
+
+    ca = _contact(litho, f_zand_a, bh_a, depth=2.0)
+    cb = _contact(litho, f_zand_b, bh_b, depth=2.1)
+    db_session.add_all([ca, cb])
+    await db_session.flush()
+
+    # Two independent sections that both span the corridor containing bh_a + bh_b.
+    sec1 = _cross_section(project.id, name="Section 1 TSP", x0=149900.0, x1=150300.0)
+    sec2 = _cross_section(project.id, name="Section 2 TSP", x0=149900.0, x1=150300.0)
+    db_session.add_all([sec1, sec2])
+    await db_session.commit()
+
+    return types.SimpleNamespace(
+        project_id=project.id,
+        model_id=litho.id,
+        section1_id=sec1.id,
+        section2_id=sec2.id,
+        layer_a_id=ca.id,
+        layer_b_id=cb.id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6: same contact pair on two sections → two distinct edges, each stamped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_same_pair_correlates_once_per_section(
+    db_session: AsyncSession,
+    two_section_pair: types.SimpleNamespace,
+) -> None:
+    """Section-scoped: correlating the same contact pair on two sections yields
+    two edges (one per section), each stamped with its section_id.
+
+    Before the section_id column landed, the second call would return the first
+    edge (idempotent on the 3-col unique).  After section-scoping, the unique
+    constraint is (model_id, section_id, contact_a_id, contact_b_id), so the
+    same pair on a different section is a distinct edge.
+    """
+    ctx = two_section_pair
+    uc = CorrelateLithoContacts(db_session)
+    r1 = await uc.execute(
+        project_id=ctx.project_id,
+        model_id=ctx.model_id,
+        contact_a_id=ctx.layer_a_id,
+        contact_b_id=ctx.layer_b_id,
+        source="manual",
+        request_section_id=ctx.section1_id,
+    )
+    r2 = await uc.execute(
+        project_id=ctx.project_id,
+        model_id=ctx.model_id,
+        contact_a_id=ctx.layer_a_id,
+        contact_b_id=ctx.layer_b_id,
+        source="manual",
+        request_section_id=ctx.section2_id,
+    )
+    assert r1.was_created, "First correlation on section 1 must create a new edge"
+    assert r2.was_created, (
+        "Second correlation on section 2 must ALSO create a new edge (different section)"
+    )
+    assert r1.edge.id != r2.edge.id, "Each section yields its own edge row"
+    assert r1.edge.section_id == ctx.section1_id, (
+        f"Edge from section 1 must carry section1_id; got {r1.edge.section_id}"
+    )
+    assert r2.edge.section_id == ctx.section2_id, (
+        f"Edge from section 2 must carry section2_id; got {r2.edge.section_id}"
+    )

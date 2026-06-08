@@ -120,6 +120,11 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             Algorithm tunables.  ``None`` uses the defaults from the
             constants module (``MAX_COLUMN_DISTANCE_M``,
             ``BASE_DEPTH_THRESHOLD_M``, ``DISTANCE_FACTOR``).
+        section_id : UUID | None
+            The section on which auto-correlate is run (required — section-
+            scoped, owner directive 2026-06-08).  Drives the along-order
+            adjacency gate AND is stamped on every inserted edge.  Passing
+            ``None`` raises ``ValueError``; the router maps that to HTTP 422.
 
         Returns
         -------
@@ -130,12 +135,22 @@ class AutoCorrelateContactEdges(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the model does not belong to ``project_id``, or when the
-            model is not of kind ``'lithostratigraphic'`` (auto-correlate
-            groups contacts by their formation's ``litho_main_soil_code``,
-            which only litho models carry).
+            When ``section_id`` is ``None`` (section-scoped invariant), when
+            the model does not belong to ``project_id``, or when the model is
+            not of kind ``'lithostratigraphic'`` (auto-correlate groups
+            contacts by their formation's ``litho_main_soil_code``, which
+            only litho models carry).
         """
         self.info(f"AutoCorrelateContactEdges.execute: model={model_id} project={project_id}")
+
+        # 0. Section-scoped guard (owner directive 2026-06-08).
+        #    Auto-correlate is always invoked from a section — the section drives
+        #    the along-order adjacency gate AND the section_id stamp on each edge.
+        if section_id is None:
+            raise ValueError(
+                "AutoCorrelateContactEdges requires section_id (section-scoped "
+                "correlations, owner directive 2026-06-08)."
+            )
 
         # 1. Scope guard + litho-only precondition. Auto-correlate is a
         #    lithostratigraphic operation (it groups by litho soil code); a
@@ -321,6 +336,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             {
                 "id": uuid7(),
                 "model_id": model_id,
+                "section_id": section_id,
                 "contact_a_id": c.contact_a_id,
                 "contact_b_id": c.contact_b_id,
                 "source": AUTO_SOURCE,
