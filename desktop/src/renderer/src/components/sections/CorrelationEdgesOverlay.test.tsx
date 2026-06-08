@@ -419,6 +419,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -442,6 +443,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -477,6 +479,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -501,6 +504,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -522,6 +526,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e3', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -548,6 +553,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e4', contact_a_id: 'ka', contact_b_id: 'sb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     const { container } = renderOverlay({
@@ -578,6 +584,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'e5', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     // Columns: centres 100 / 200, width 40 → inner edges at 120 (A right)
@@ -607,6 +614,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'em', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     // Centres 100 / 145, width 40 → inner edges 120 / 125 → a 5 px gap. The
@@ -638,6 +646,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'eg', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -668,6 +677,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'ed', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -695,6 +705,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'eok', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -721,6 +732,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'epending', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -749,6 +761,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'eapproved', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -775,6 +788,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'eronly', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -800,6 +814,7 @@ describe('CorrelationEdgesOverlay', () => {
     ]
     const edge = {
       id: 'ez', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
       source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -1319,6 +1334,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contact_a_id: 'ca',
       contact_b_id: 'cb1',
       model_id: 'm1',
+      section_id: 's1',
       source: 'auto',
       user_approved: false,
       created_at: '2026-01-01T00:00:00Z',
@@ -1346,6 +1362,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contact_a_id: 'ca',
       contact_b_id: 'cb1',
       model_id: 'm1',
+      section_id: 's1',
       source: 'auto',
       user_approved: false,
       created_at: '2026-01-01T00:00:00Z',
@@ -1393,6 +1410,7 @@ describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)'
     contact_a_id: a,
     contact_b_id: b,
     model_id: 'm1',
+    section_id: 's1',
     source: 'manual',
     user_approved: true,
     created_at: '2026-01-01T00:00:00Z',
