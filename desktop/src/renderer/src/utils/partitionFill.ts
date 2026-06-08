@@ -153,6 +153,15 @@ export interface PartitionRegion {
   kind: 'quad' | 'pinch' | 'lens'
   /** Closed polygon ring, no repeated last point. */
   polygon: PartitionPoint[]
+  /**
+   * Set to ``'facies'`` when this region's shared seam is a MISMATCHED-MATRIX
+   * boundary (the interval background lithology differs across the two columns,
+   * no matrix connects). The seam is placed at the midpoint (fraction 0.5 —
+   * transition position unknown) and the overlay draws it wriggly to read as a
+   * lateral facies change rather than a sharp correlated contact. Absent on
+   * every other region.
+   */
+  seamKind?: 'facies'
 }
 
 // ---------------------------------------------------------------------------
@@ -864,6 +873,7 @@ function emitInterval(
   baseIface: Interface,
   leftSurface: number,
   rightSurface: number,
+  bracketed = false,
 ): PartitionRegion[] {
   if (pinches.length === 0) return []
 
@@ -901,8 +911,24 @@ function emitInterval(
     return s + Math.max(0, (rightSurface - p.ownTopDepth) - (rightSurface - p.ownBaseDepth))
   }, 0)
 
+  // Mismatched matrix (owner directive 2026-06-08): inside an interval bracketed
+  // by correlated bands ABOVE and BELOW, exactly one left + one right unit of
+  // DIFFERENT lithology fill it — no matrix connects across. The transition
+  // position is unknown, so split at the MIDPOINT (0.5, not the thickness-
+  // weighted fraction) and flag the seam so the overlay draws it wriggly (a
+  // lateral facies change, not a sharp correlated contact). The ``bracketed``
+  // gate keeps surface/floor opposing pinches (PF3) on the weighted fraction —
+  // those are genuine thinning-out pinches, not a background facies change.
+  const facies =
+    bracketed &&
+    leftPinches.length === 1 &&
+    rightPinches.length === 1 &&
+    leftPinches[0].formationId !== rightPinches[0].formationId
+
   let meetFraction: number
-  if (leftPinches.length > 0 && rightPinches.length > 0) {
+  if (facies) {
+    meetFraction = 0.5
+  } else if (leftPinches.length > 0 && rightPinches.length > 0) {
     meetFraction = sumLeft + sumRight > EPS ? sumLeft / (sumLeft + sumRight) : 0.5
   } else if (leftPinches.length > 0) {
     meetFraction = 1 // lone left-only: full triangle to right column
@@ -960,6 +986,10 @@ function emitInterval(
       regions.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'pinch', polygon })
     }
   }
+
+  // Flag both halves of a mismatched-matrix interval so the overlay draws the
+  // shared seam wriggly.
+  if (facies) for (const r of regions) r.seamKind = 'facies'
 
   return regions
 }
@@ -1231,7 +1261,12 @@ export function computePartitionFill(
         ),
       )
     } else {
-      regions.push(...emitInterval(pinchPool, intervalTop, intervalBase, leftSurface, rightSurface))
+      // ``bracketed`` (correlated bands above AND below) enables the
+      // mismatched-matrix facies seam; surface/floor intervals stay weighted.
+      const bracketed = aboveMatrix !== null && belowMatrix !== null
+      regions.push(
+        ...emitInterval(pinchPool, intervalTop, intervalBase, leftSurface, rightSurface, bracketed),
+      )
     }
 
     // Emit the quad (if not the floor sentinel).
