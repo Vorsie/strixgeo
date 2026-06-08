@@ -525,16 +525,15 @@ export default function SectionsCanvas(): JSX.Element {
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
-        // Lens-aware gesture (debt #135): keep ``armedContactId`` set after
-        // a successful correlation and record the target's investigation in
-        // ``lastTargetTestId``.  A subsequent click on another contact in
-        // the same investigation fires a second edge from the same source —
-        // the lens-pinch-out topology.  The click handler in
-        // CorrelationEdgesOverlay reads ``lastTargetTestId`` to decide.
+        // Deselect BOTH contacts after a successful two-click correlate (owner
+        // directive 2026-06-08). This retires the #135 sticky lens-pinch-out
+        // gesture (the source staying armed for a second target) in favour of a
+        // clean two-click correlate — re-arm the source to draw another edge.
         const contactA = lithoContacts.find(c => c.id === contactAId)
         const targetContact = lithoContacts.find(c => c.id === contactBId)
         const targetTestId = targetContact?.cpt_id ?? targetContact?.borehole_id ?? null
-        setLastTargetTestId(targetTestId)
+        setArmedContactId(null)
+        setLastTargetTestId(null)
         // Amber pulse on both correlated bands — the immediate "your gesture
         // worked" cue before formations refetch (dogfeed 2026-05-23 #100).
         if (contactA?.formation_id && targetContact?.formation_id) {
