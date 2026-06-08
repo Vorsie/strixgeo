@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   computePartitionFill,
+  INTERIOR_PINCH_FRACTION,
   LENS_PINCH_FRACTION,
   type PartitionColumn,
   type PartitionRegion,
@@ -528,6 +529,81 @@ describe('computePartitionFill', () => {
     expect(silt).toHaveLength(1)
     expect(silt[0].kind).toBe('lens')
 
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
+  // ONLAP-TOP — a minority whose TOP touches the bracket tie-line laps UP.
+  //
+  // A SILT on the left sits just below the correlated SAND-top band (its top IS
+  // the top tie-line); its base floats inside the uncorrelated SAND matrix. With
+  // exactly ONE correlated bounding contact it is an ONLAP: anchored flat on the
+  // top bracket, base laps up to a tip mid-gap ON THE TOP INTERFACE — distinct
+  // from a lens (tip at the unit's OWN mid-elevation). The sand matrix connects
+  // across as a band underneath.
+  // -----------------------------------------------------------------------
+  it('ONLAP-TOP: minority touching the top bracket laps up to a tip on the top interface', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'b-sand' }, // correlated top bracket
+      { top: 4, base: 6, f: 'SILT', b: 'l-silt' }, // onlap — top on the bracket, base floats
+      { top: 6, base: 10, f: 'SAND', b: 'l-sand' }, // uncorrelated matrix (l-sand)
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' }, // correlated base bracket
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'b-sand' },
+      { top: 4, base: 10, f: 'SAND', b: 'r-sand' }, // matrix, uncorrelated (r-sand)
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' },
+    ])
+    const regions = computePartitionFill(left, right)
+    // The sand matrix connects as a band spanning the interval (fraction 0 → 1).
+    const sandSpans = regions.some(
+      (r) =>
+        r.formationId === 'SAND' &&
+        r.kind === 'quad' &&
+        Math.min(...r.polygon.map((p) => p.fraction)) < 0.01 &&
+        Math.max(...r.polygon.map((p) => p.fraction)) > 0.99,
+    )
+    expect(sandSpans).toBe(true)
+    // SILT onlap: tip at INTERIOR_PINCH_FRACTION, ON the top bracket (elev −4),
+    // NOT the silt's own mid-elevation (−5).
+    const silt = regions.filter((r) => r.formationId === 'SILT')
+    expect(silt).toHaveLength(1)
+    const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
+    expect(tip.fraction).toBeCloseTo(INTERIOR_PINCH_FRACTION, 6)
+    expect(tip.elevation).toBeCloseTo(-4, 6)
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
+  // ONLAP-BASE — a minority whose BASE touches the bracket tie-line laps DOWN.
+  // Mirror of ONLAP-TOP: tip lands on the BASE interface (the CLAY top, −10).
+  // -----------------------------------------------------------------------
+  it('ONLAP-BASE: minority touching the base bracket laps down to a tip on the base interface', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'b-sand' }, // correlated top bracket
+      { top: 4, base: 8, f: 'SAND', b: 'l-sand' }, // uncorrelated matrix
+      { top: 8, base: 10, f: 'SILT', b: 'l-silt' }, // onlap — base on the bracket, top floats
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' }, // correlated base bracket
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'b-sand' },
+      { top: 4, base: 10, f: 'SAND', b: 'r-sand' },
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' },
+    ])
+    const regions = computePartitionFill(left, right)
+    const sandSpans = regions.some(
+      (r) =>
+        r.formationId === 'SAND' &&
+        r.kind === 'quad' &&
+        Math.min(...r.polygon.map((p) => p.fraction)) < 0.01 &&
+        Math.max(...r.polygon.map((p) => p.fraction)) > 0.99,
+    )
+    expect(sandSpans).toBe(true)
+    const silt = regions.filter((r) => r.formationId === 'SILT')
+    expect(silt).toHaveLength(1)
+    const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
+    expect(tip.fraction).toBeCloseTo(INTERIOR_PINCH_FRACTION, 6)
+    expect(tip.elevation).toBeCloseTo(-10, 6) // base bracket = CLAY top at depth 10
     assertTiles(regions, left, right)
   })
 
