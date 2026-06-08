@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -118,8 +119,15 @@ def _contact_edge(
     cb: FormationContactOrm,
     *,
     user_approved: bool = True,
+    section_id,  # noqa: ANN001
 ) -> LithoContactCorrelationEdgeOrm:
-    """Contact-level correlation edge between two contacts (canonical order)."""
+    """Contact-level correlation edge between two contacts (canonical order).
+
+    Parameters
+    ----------
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
+    """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
     return LithoContactCorrelationEdgeOrm(
@@ -129,6 +137,7 @@ def _contact_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=user_approved,
+        section_id=section_id,
     )
 
 
@@ -192,7 +201,22 @@ async def test_pa2_two_correlated_formations(
     cb = _contact(litho_model, fb, bh_b, depth=4.0)
     db_session.add_all([ca, cb])
     await db_session.flush()
-    edge = _contact_edge(litho_model, ca, cb, user_approved=True)
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec-PA2",
+        start_x=149900.0,
+        start_y=200000.0,
+        end_x=150400.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(sec)
+    await db_session.flush()
+    edge = _contact_edge(litho_model, ca, cb, user_approved=True, section_id=sec.id)
     db_session.add(edge)
     await db_session.commit()
 

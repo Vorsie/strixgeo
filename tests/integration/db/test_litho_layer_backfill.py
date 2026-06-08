@@ -33,6 +33,7 @@ from groundmodel.infrastructure.db.migrations.versions.n8h9i0j1k2l3_backfill_lit
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -210,6 +211,19 @@ async def test_correlation_edge_still_resolves_after_backfill(
         source="manual_pick",
         confidence="medium",
     )
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=p.id,
+        name="Sec-BF",
+        start_x=149990.0,
+        start_y=200000.0,
+        end_x=150020.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
     # Edge requires canonical ordering: contact_a_id < contact_b_id.
     a_id, b_id = sorted([bh_top.id, cpt_top.id])
     edge = LithoContactCorrelationEdgeOrm(
@@ -219,8 +233,9 @@ async def test_correlation_edge_still_resolves_after_backfill(
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        section_id=section.id,
     )
-    db_session.add_all([bh_top, cpt_top, edge])
+    db_session.add_all([bh_top, cpt_top, section, edge])
     await db_session.commit()
 
     await db_session.execute(text(_BACKFILL_SQL))

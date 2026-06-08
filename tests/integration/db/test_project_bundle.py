@@ -1508,6 +1508,7 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     outside the project is silently dropped (bundle-injection guard).
     """
     from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
     from groundmodel.infrastructure.db.models.geological_formation_orm import (
         GeologicalFormationOrm,
     )
@@ -1568,6 +1569,22 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     db_session.add_all([contact_a, contact_b])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Sec-Bundle",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=165000.0,
+        end_y=215000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(section)
+    await db_session.flush()
+
     # Canonical ordering: a_id < b_id (CHECK constraint).
     a_id, b_id = sorted([contact_a.id, contact_b.id])
     edge = LithoContactCorrelationEdgeOrm(
@@ -1577,6 +1594,7 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        section_id=section.id,
     )
     db_session.add(edge)
     await db_session.commit()

@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -96,6 +97,23 @@ async def setup(db_session: AsyncSession) -> dict:
     )
     db_session.add_all([bh1, bh2, geo_model, litho_model, sand])
     await db_session.flush()
+
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec-FK",
+        start_x=0.0,
+        start_y=0.0,
+        end_x=100.0,
+        end_y=0.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(section)
+    await db_session.flush()
+
     # Two accepted contacts → triggers materialise matching LL rows.
     fc1 = FormationContactOrm(
         id=uuid7(),
@@ -126,6 +144,7 @@ async def setup(db_session: AsyncSession) -> dict:
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        section_id=section.id,
     )
     db_session.add(edge)
     await db_session.commit()
@@ -138,6 +157,7 @@ async def setup(db_session: AsyncSession) -> dict:
         "fc1": fc1,
         "fc2": fc2,
         "edge": edge,
+        "section": section,
     }
 
 
@@ -205,6 +225,9 @@ async def test_edge_insert_requires_layer_to_exist(db_session: AsyncSession, set
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        # Reuse the section created by the setup fixture — the IntegrityError
+        # we expect is from the FK on contact_b_id, not from section_id.
+        section_id=setup["section"].id,
     )
     db_session.add(bad_edge)
     with pytest.raises(IntegrityError):
