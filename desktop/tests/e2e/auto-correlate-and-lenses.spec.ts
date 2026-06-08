@@ -255,18 +255,19 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       )
 
       const autoRes = await page.evaluate(
-        async ([base, pid, m]) => {
+        async ([base, pid, m, sid]) => {
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${m}/contact-correlations/auto`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: '{}',
+              // section_id is required (section-scoped unique constraint).
+              body: JSON.stringify({ section_id: sid }),
             },
           )
           return { status: r.status, json: await r.json() }
         },
-        [API_BASE, FIXTURE_PROJECT_ID, mid],
+        [API_BASE, FIXTURE_PROJECT_ID, mid, primarySectionId],
       )
       expect(autoRes.status).toBe(200)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
