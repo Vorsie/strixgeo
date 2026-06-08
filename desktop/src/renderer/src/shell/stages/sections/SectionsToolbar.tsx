@@ -17,6 +17,7 @@ import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { investigationsOnSection } from '../../../utils/sectionProjection'
+import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { log } from '../../../utils/log'
 import { toggleBandFill, useBandFillVisible } from '../../../utils/bandFillStore'
@@ -125,15 +126,15 @@ export default function SectionsToolbar(): JSX.Element {
   // section to have anything clickable.  CorrelationEdgesOverlay paints no
   // hit-rects when ``contacts`` is empty, so entering the mode on a freshly-
   // drawn section silently does nothing.  Block entry at the toolbar and let
-  // the section-canvas hint pill explain why.  The check intersects the
-  // active litho model's contacts with the section's seeded ids — matching
-  // the same explicit-content filter SectionsCanvas applies at render-time.
+  // the section-canvas hint pill explain why.  Classification follows the
+  // test (owner directive 2026-06-08): a litho contact is "on this section"
+  // iff its anchor projects into the corridor — the same in-corridor gate
+  // SectionsCanvas now applies at render-time (not the seeded set).
   const sectionHasLithoContacts = useMemo(() => {
     if (!selectedSection) return false
-    const seeded = new Set(selectedSection.seeded_formation_contact_ids ?? [])
-    if (seeded.size === 0) return false
-    return lithoContacts.some(c => seeded.has(c.id))
-  }, [selectedSection, lithoContacts])
+    const invIds = inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
+    return lithoContacts.some(c => invIds.has(c.cpt_id ?? c.borehole_id ?? ''))
+  }, [selectedSection, lithoContacts, visibleCpts, visibleBoreholes])
 
   // Sections need a projected METRIC horizontal CRS — along-distance is
   // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
