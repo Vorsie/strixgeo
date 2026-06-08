@@ -247,10 +247,12 @@ async def list_contact_correlations(
     model_id : UUID
         The model whose contact edges are listed.
     section_id : UUID | None
-        Optional section scope (query param, debt #3).  When given, only edges
-        whose BOTH endpoints sit on the section's in-corridor columns are
-        returned — so the auto-correlate pre-check counts this section's
-        suggestions, not the whole model's.  Omitted ``→`` model-wide.
+        Optional section scope (query param).  When given, only edges AUTHORED
+        on this section (``edge.section_id == section_id``) are returned — so
+        the section view renders only its own ribbons and the auto-correlate
+        pre-check counts this section's suggestions, not the whole model's
+        (section-scoped correlations, owner directive 2026-06-08).  Omitted
+        ``→`` model-wide.
 
     Returns
     -------
@@ -386,10 +388,11 @@ async def delete_auto_contact_correlations(
     model_id : UUID
         The lithostratigraphic model (path param).
     section_id : UUID | None
-        Optional section scope (query param, debt #3).  When given, only
-        suggestion edges whose BOTH endpoints sit on the section's in-corridor
-        columns are cleared — so re-correlating one section cannot wipe a
-        neighbouring section's auto edges.  Omitted ``→`` model-wide clear.
+        Optional section scope (query param).  When given, only suggestion
+        edges AUTHORED on this section (``edge.section_id == section_id``) are
+        cleared — so re-correlating one section cannot wipe a neighbouring
+        section's auto edges (section-scoped correlations, owner directive
+        2026-06-08).  Omitted ``→`` model-wide clear.
     session : AsyncSession
         DB session.
 
