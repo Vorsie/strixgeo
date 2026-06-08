@@ -208,13 +208,13 @@ async def test_delete_then_idempotent(
     )
 
     r_del = await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb}
+        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
     )
     assert r_del.status_code == 204, r_del.text
 
-    # Second delete with nothing left — still 204.
+    # Second delete with nothing left — still 204 (section-scoped no-op).
     r_del2 = await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb}
+        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
     )
     assert r_del2.status_code == 204, r_del2.text
 
@@ -234,7 +234,9 @@ async def test_recreate_after_delete(
     assert r1.status_code == 201, r1.text
     edge_id_first = r1.json()["edge_id"]
 
-    await async_client.request("DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.request(
+        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
 
     r2 = await async_client.post(
         base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
@@ -341,7 +343,9 @@ async def test_source_validation(
     assert ok.status_code == 201, ok.text
 
     # Delete so we can test the bad-source path fresh.
-    await async_client.request("DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.request(
+        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
 
     bad = await async_client.post(
         base, json={"contact_a_id": ca, "contact_b_id": cb, "source": "g3dv3_seed"}
@@ -401,7 +405,9 @@ async def test_list_empty_after_delete(
     await async_client.post(
         base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
     )
-    await async_client.request("DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.request(
+        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
 
     r = await async_client.get(base)
     assert r.status_code == 200, r.text
