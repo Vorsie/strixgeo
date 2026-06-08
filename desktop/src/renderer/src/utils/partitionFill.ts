@@ -177,7 +177,8 @@ interface PinchUnit {
 
 /** A lens extracted during the pre-pass, with its column-side and depths. */
 interface ExtractedLens {
-  bodyId: string
+  /** ``null`` for an interval-scoped lens whose minority body was never correlated. */
+  bodyId: string | null
   formationId: string
   side: 'left' | 'right'
   depthTopM: number
@@ -288,6 +289,86 @@ function extractEnclosedLenses(
     }
   }
 
+  return lenses
+}
+
+/**
+ * Extract minority lenses from ONE interval's left + right unit stacks.
+ *
+ * Interval-scoped companion to ``extractEnclosedLenses`` (the global ``bodyId``
+ * pre-pass). Within an interval bracketed by matched bands, a minority unit U
+ * is a lens when, on its own column, the units immediately above AND below it
+ * share the SAME lithology (``formationId``) M, M is not U's own lithology, and
+ * M is present on the OTHER column's INTERVAL stack (geometric connectivity — M
+ * is the real matrix wrapping U). The matrix neighbours are merged so the
+ * matrix becomes one contiguous unit per column, which then connects across as
+ * a band quad via ``emitInterval``'s same-formation single-unit-per-side case.
+ *
+ * Keying the connectivity guard on the OTHER column's INTERVAL stack (not the
+ * whole column) is what distinguishes a lens-in-matrix (silt inside sand →
+ * extract) from a matrix-between-brackets (sand between two clay bands → the
+ * enclosing clay is a bracket band, absent from the other column's interval, so
+ * the sand is NOT extracted and stays the matrix). A global ``formationId``
+ * pre-pass cannot make this call — it runs before the interval is known.
+ *
+ * Only interval-INTERNAL neighbours count: a unit at the top or bottom of the
+ * stack (touching a bracket) is left for the onlap / boundary-pinch paths.
+ *
+ * Parameters
+ * ----------
+ * leftStack, rightStack : PinchUnit[]
+ *     The interval's unmatched units per column, sorted shallow→deep. Both are
+ *     mutated in place (minorities removed, matrix neighbours merged).
+ *
+ * Returns
+ * -------
+ * ExtractedLens[]
+ *     The extracted minority lenses, in removal order.
+ */
+function extractIntervalLenses(leftStack: PinchUnit[], rightStack: PinchUnit[]): ExtractedLens[] {
+  const lenses: ExtractedLens[] = []
+  const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[]]> = [
+    ['left', leftStack, rightStack],
+    ['right', rightStack, leftStack],
+  ]
+  for (const [side, stack, other] of sides) {
+    let changed = true
+    while (changed) {
+      changed = false
+      const otherFormations = new Set(other.map((u) => u.formationId))
+      for (let i = 1; i < stack.length - 1; i++) {
+        const u = stack[i]
+        const above = stack[i - 1]
+        const below = stack[i + 1]
+        // Enclosed by the SAME lithology on its own column (interval-internal).
+        if (above.formationId !== below.formationId) continue
+        const m = above.formationId
+        if (m === u.formationId) continue
+        // Geometric connectivity: the enclosing matrix M must be on the other
+        // column's interval stack (else M is a bracket band, not the matrix).
+        if (!otherFormations.has(m)) continue
+
+        lenses.push({
+          bodyId: u.bodyId,
+          formationId: u.formationId,
+          side,
+          depthTopM: u.ownTopDepth,
+          depthBaseM: u.ownBaseDepth,
+        })
+        // Merge the two matrix neighbours into one contiguous unit.
+        const merged: PinchUnit = {
+          bodyId: above.bodyId,
+          formationId: m,
+          side,
+          ownTopDepth: above.ownTopDepth,
+          ownBaseDepth: below.ownBaseDepth,
+        }
+        stack.splice(i - 1, 3, merged)
+        changed = true
+        break // restart the scan after a merge
+      }
+    }
+  }
   return lenses
 }
 
@@ -909,12 +990,12 @@ export function computePartitionFill(
     const nextMatchLi = isFloor ? leftUnits.length : matchedPairs[pairIdx][0]
     const nextMatchRi = isFloor ? rightUnits.length : matchedPairs[pairIdx][1]
 
-    // Collect unmatched units in this interval.
-    const pinches: PinchUnit[] = []
+    // Collect unmatched units in this interval, per column.
+    const leftStack: PinchUnit[] = []
     for (let li = prevMatchLi + 1; li < nextMatchLi; li++) {
       if (leftMatched.has(li)) continue
       const lu = leftUnits[li]
-      pinches.push({
+      leftStack.push({
         bodyId: lu.bodyId,
         formationId: lu.formationId,
         side: 'left',
@@ -922,10 +1003,11 @@ export function computePartitionFill(
         ownBaseDepth: lu.baseDepthM,
       })
     }
+    const rightStack: PinchUnit[] = []
     for (let ri = prevMatchRi + 1; ri < nextMatchRi; ri++) {
       if (rightMatched.has(ri)) continue
       const ru = rightUnits[ri]
-      pinches.push({
+      rightStack.push({
         bodyId: ru.bodyId,
         formationId: ru.formationId,
         side: 'right',
@@ -933,6 +1015,16 @@ export function computePartitionFill(
         ownBaseDepth: ru.baseDepthM,
       })
     }
+
+    // Interval-scoped minority-lens extraction: pull the lenses enclosed by the
+    // interval matrix so the matrix reduces to one unit per column and connects
+    // across as a band (the reduced stacks feed emitInterval). The extracted
+    // lenses are appended after the main regions, like the global pre-pass.
+    for (const lens of extractIntervalLenses(leftStack, rightStack)) {
+      ;(lens.side === 'left' ? leftLenses : rightLenses).push(lens)
+    }
+
+    const pinches: PinchUnit[] = [...leftStack, ...rightStack]
 
     // Determine the interval's base interface.
     let intervalBase: Interface
