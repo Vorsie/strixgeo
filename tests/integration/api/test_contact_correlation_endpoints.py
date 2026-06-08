@@ -133,13 +133,50 @@ async def _create_edge(
     model_id: str,
     contact_a_id: str,
     contact_b_id: str,
+    *,
+    request_section_id: str,
 ) -> dict:
+    """POST a manual contact-correlation edge.
+
+    Parameters
+    ----------
+    request_section_id : str
+        The section this edge is authored on.  ``CorrelateLithoContacts``
+        requires a non-null section_id (section-scoped invariant,
+        owner directive 2026-06-08).
+    """
     resp = await client.post(
         f"/projects/{project_id}/geology/models/{model_id}/contact-correlations",
-        json={"contact_a_id": contact_a_id, "contact_b_id": contact_b_id},
+        json={
+            "contact_a_id": contact_a_id,
+            "contact_b_id": contact_b_id,
+            "request_section_id": request_section_id,
+        },
     )
     assert resp.status_code in (200, 201), resp.text
     return resp.json()
+
+
+async def _create_section(client: AsyncClient, project_id) -> str:  # noqa: ANN001
+    """Create a minimal section via the API and return its id as a string.
+
+    Used to satisfy the ``request_section_id`` NOT NULL invariant added in
+    Task 3 of the section-scoped correlations feature (owner directive
+    2026-06-08).
+    """
+    resp = await client.post(
+        f"/projects/{project_id}/sections",
+        json={
+            "name": "Sec-test",
+            "start_x": 149900.0,
+            "start_y": 200000.0,
+            "end_x": 150500.0,
+            "end_y": 200000.0,
+            "epsg": 31370,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +195,10 @@ async def test_list_contact_correlations_includes_user_approved(
     model = await _create_model(async_client, pid)
     mid = model["id"]
 
+    sid = await _create_section(async_client, pid)
     c1 = await _create_contact(async_client, pid, mid, formation["id"], bh1.id, depth=2.0)
     c2 = await _create_contact(async_client, pid, mid, formation["id"], bh2.id, depth=2.0)
-    await _create_edge(async_client, pid, mid, c1["id"], c2["id"])
+    await _create_edge(async_client, pid, mid, c1["id"], c2["id"], request_section_id=sid)
 
     resp = await async_client.get(f"/projects/{pid}/geology/models/{mid}/contact-correlations")
     assert resp.status_code == 200
@@ -180,27 +218,28 @@ async def test_create_contact_correlation_with_request_section_id(
     async_client: AsyncClient,
     project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
 ) -> None:
-    """POST with request_section_id in body succeeds; the field is forwarded silently."""
+    """POST with request_section_id in body succeeds when the section exists."""
     project, bh1, bh2 = project_with_two_boreholes
     pid = str(project.id)
     formation = await _create_formation(async_client, pid)
     model = await _create_model(async_client, pid)
     mid = model["id"]
 
+    # section_id must now be a real section (NOT NULL FK, section-scoped invariant
+    # owner directive 2026-06-08). Create one via the API.
+    real_section_id = await _create_section(async_client, pid)
+
     c1 = await _create_contact(async_client, pid, mid, formation["id"], bh1.id, depth=3.0)
     c2 = await _create_contact(async_client, pid, mid, formation["id"], bh2.id, depth=3.0)
 
-    fake_section_id = str(uuid7())
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{mid}/contact-correlations",
         json={
             "contact_a_id": c1["id"],
             "contact_b_id": c2["id"],
-            "request_section_id": fake_section_id,
+            "request_section_id": real_section_id,
         },
     )
-    # 201 on create — the section_id is forwarded to the use case but the use
-    # case only uses it as a hint; a missing section is not a hard error.
     assert resp.status_code == 201, resp.text
     assert resp.json()["was_created"] is True
 
@@ -221,11 +260,13 @@ async def test_delete_contact_correlation_with_request_section_id(
     model = await _create_model(async_client, pid)
     mid = model["id"]
 
+    sid = await _create_section(async_client, pid)
     c1 = await _create_contact(async_client, pid, mid, formation["id"], bh1.id, depth=4.0)
     c2 = await _create_contact(async_client, pid, mid, formation["id"], bh2.id, depth=4.0)
-    await _create_edge(async_client, pid, mid, c1["id"], c2["id"])
+    await _create_edge(async_client, pid, mid, c1["id"], c2["id"], request_section_id=sid)
 
-    fake_section_id = str(uuid7())
+    # DELETE with a section_id in the body is allowed (request_section_id is
+    # optional on delete and does not affect which row is removed).
     # httpx.AsyncClient.delete() does not accept a JSON body directly —
     # use the generic request() method which does.
     resp = await async_client.request(
@@ -234,7 +275,7 @@ async def test_delete_contact_correlation_with_request_section_id(
         json={
             "contact_a_id": c1["id"],
             "contact_b_id": c2["id"],
-            "request_section_id": fake_section_id,
+            "request_section_id": sid,
         },
     )
     assert resp.status_code == 204
@@ -255,8 +296,12 @@ async def test_auto_correlate_returns_200_with_count_shape(
     model = await _create_model(async_client, pid)
     mid = model["id"]
 
+    # section_id is required (section-scoped invariant, owner directive 2026-06-08).
+    sid = await _create_section(async_client, pid)
+
     resp = await async_client.post(
-        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto",
+        json={"section_id": sid},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -421,8 +466,12 @@ async def test_clear_suggestions_removes_unapproved_and_can_re_run(
     c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=3.0)
     assert c1 and c2
 
+    # section_id is required for auto-correlate (section-scoped invariant, 2026-06-08).
+    sid = await _create_section(async_client, pid)
+
     auto = await async_client.post(
-        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto",
+        json={"section_id": sid},
     )
     n = auto.json()["edges_created"]
     assert n >= 1, "setup: auto-correlate should have created a suggestion"
@@ -437,7 +486,8 @@ async def test_clear_suggestions_removes_unapproved_and_can_re_run(
     assert listed.json() == [], "all edges were unapproved → none remain"
 
     auto2 = await async_client.post(
-        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
+        f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto",
+        json={"section_id": sid},
     )
     assert auto2.json()["edges_created"] == n, "cleared edges regenerate on re-run"
 
@@ -453,7 +503,10 @@ async def test_clear_suggestions_keeps_approved_manual_edge(
     f = await _create_formation(async_client, pid)
     c1 = await _create_contact(async_client, pid, mid, f["id"], bh1.id, depth=4.0)
     c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=4.0)
-    await _create_edge(async_client, pid, mid, c1["id"], c2["id"])  # manual → approved
+    sid = await _create_section(async_client, pid)
+    await _create_edge(
+        async_client, pid, mid, c1["id"], c2["id"], request_section_id=sid
+    )  # manual → approved
 
     cleared = await async_client.delete(
         f"/projects/{pid}/geology/models/{mid}/contact-correlations/auto"
@@ -524,22 +577,8 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
     c2 = await _create_contact(async_client, pid, mid, f["id"], bh2.id, depth=3.0)
     c3 = await _create_contact(async_client, pid, mid, f["id"], bh3.id, depth=3.0)
 
-    # Insert two AUTO (unapproved) edges directly, canonical-ordered.
-    def _edge(a: str, b: str) -> LithoContactCorrelationEdgeOrm:
-        lo, hi = sorted((UUID(a), UUID(b)))
-        return LithoContactCorrelationEdgeOrm(
-            id=uuid7(),
-            model_id=UUID(mid),
-            contact_a_id=lo,
-            contact_b_id=hi,
-            source="auto",
-            user_approved=False,
-        )
-
-    db_session.add_all([_edge(c1["id"], c2["id"]), _edge(c2["id"], c3["id"])])
-    await db_session.commit()
-
     # Section line y=200000, x 149990→150110, 5 m buffer → bh1 + bh2 in, bh3 out.
+    # Created BEFORE the edges so edge.section_id FK can reference it.
     section = CrossSectionOrm(
         id=uuid7(),
         app_project_id=project.id,
@@ -552,8 +591,26 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
         projection_buffer_m=5.0,
     )
     db_session.add(section)
-    await db_session.commit()
+    await db_session.flush()
     sid = str(section.id)
+
+    # Insert two AUTO (unapproved) edges directly, canonical-ordered.
+    # Both are stamped with the same section_id; the corridor-geometry filter
+    # (contact_ids_on_section) decides which edge is "on-section", not section_id.
+    def _edge(a: str, b: str) -> LithoContactCorrelationEdgeOrm:
+        lo, hi = sorted((UUID(a), UUID(b)))
+        return LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=UUID(mid),
+            contact_a_id=lo,
+            contact_b_id=hi,
+            source="auto",
+            user_approved=False,
+            section_id=section.id,
+        )
+
+    db_session.add_all([_edge(c1["id"], c2["id"]), _edge(c2["id"], c3["id"])])
+    await db_session.commit()
 
     # List: model-wide = 2, section-scoped = 1 (only the fully-on-section edge).
     all_edges = (

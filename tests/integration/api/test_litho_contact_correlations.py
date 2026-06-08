@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -47,12 +48,18 @@ async def two_contacts_in_litho_model(
     async_client: AsyncClient,
     db_session: AsyncSession,
     project: ProjectOrm,
-) -> tuple[str, str, str]:
-    """Create a litho model + two boreholes + two contacts; return (model_id, ca_id, cb_id).
+) -> tuple[str, str, str, str]:
+    """Create a litho model + two boreholes + two contacts + a section.
+
+    Returns ``(model_id, ca_id, cb_id, section_id)``.
 
     Contacts are anchored to different boreholes so the same-investigation
     guard does not fire.  The formations are kept minimal (no litho_main_soil_code)
     because contact-level edges do not enforce same-naming-group.
+
+    ``section_id`` must be passed as ``request_section_id`` in every POST
+    body — ``CorrelateLithoContacts`` raises ``ValueError`` when it is ``None``
+    (section-scoped invariant, owner directive 2026-06-08).
     """
     # Geological model.
     geo_resp = await async_client.post(
@@ -133,9 +140,26 @@ async def two_contacts_in_litho_model(
         confidence="medium",
     )
     db_session.add_all([ca, cb])
+    await db_session.flush()
+
+    # A section spanning both boreholes — required so POST /contact-correlations
+    # can satisfy the section-scoped invariant (request_section_id must be non-null).
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec-CC",
+        start_x=150050.0,
+        start_y=200000.0,
+        end_x=150350.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=500.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(section)
     await db_session.commit()
 
-    return litho_id, str(ca.id), str(cb.id)
+    return litho_id, str(ca.id), str(cb.id), str(section.id)
 
 
 # ---------------------------------------------------------------------------
@@ -146,20 +170,24 @@ async def two_contacts_in_litho_model(
 async def test_create_then_idempotent(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """First POST -> 201; identical re-POST -> 200 (same edge, idempotent)."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    r1 = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    r1 = await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
     assert r1.status_code == 201, r1.text
     body1 = r1.json()
     assert body1["was_created"] is True
     assert "edge_id" in body1
 
     # Re-POST with endpoints swapped — canonical ordering makes it the same edge.
-    r2 = await async_client.post(base, json={"contact_a_id": cb, "contact_b_id": ca})
+    r2 = await async_client.post(
+        base, json={"contact_a_id": cb, "contact_b_id": ca, "request_section_id": sid}
+    )
     assert r2.status_code == 200, r2.text
     body2 = r2.json()
     assert body2["was_created"] is False
@@ -169,13 +197,15 @@ async def test_create_then_idempotent(
 async def test_delete_then_idempotent(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """First DELETE after create -> 204; second DELETE (no edge) -> 204 (idempotent)."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
 
     r_del = await async_client.request(
         "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb}
@@ -192,19 +222,23 @@ async def test_delete_then_idempotent(
 async def test_recreate_after_delete(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """POST after DELETE creates a fresh edge (new id)."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    r1 = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    r1 = await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
     assert r1.status_code == 201, r1.text
     edge_id_first = r1.json()["edge_id"]
 
     await async_client.request("DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb})
 
-    r2 = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    r2 = await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
     assert r2.status_code == 201, r2.text
     assert r2.json()["was_created"] is True
     # New row → new id (uuid7 is monotone).
@@ -214,10 +248,10 @@ async def test_recreate_after_delete(
 async def test_self_loop_is_422(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """contact_a == contact_b -> 422 at the API boundary."""
-    litho_id, ca, _cb = two_contacts_in_litho_model
+    litho_id, ca, _cb, _sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": ca})
@@ -228,7 +262,7 @@ async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
     async_client: AsyncClient,
     project: ProjectOrm,
     db_session: AsyncSession,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """A correlation between two DIFFERENT lithologies is now allowed (201).
 
@@ -239,7 +273,7 @@ async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
     """
     from uuid import UUID
 
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     # Give the two endpoints distinct lithologies: ca → ZAND, cb → KLEI.
     ca_contact = await db_session.get(FormationContactOrm, UUID(ca))
     assert ca_contact is not None
@@ -261,7 +295,9 @@ async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
     await db_session.commit()
 
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
-    r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    r = await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
     assert r.status_code == 201, r.text
 
     # The tie persists and is listed like any other edge.
@@ -273,11 +309,11 @@ async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
 async def test_cross_project_model_is_404(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """Model from a different project -> 404 (IDOR guard)."""
     other_proj_id = uuid7()
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, _sid = two_contacts_in_litho_model
     base = f"/projects/{other_proj_id}/geology/models/{litho_id}/contact-correlations"
 
     r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
@@ -287,14 +323,20 @@ async def test_cross_project_model_is_404(
 async def test_source_validation(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """source='manual' -> 201; any other token -> 422."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     ok = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "source": "manual"}
+        base,
+        json={
+            "contact_a_id": ca,
+            "contact_b_id": cb,
+            "source": "manual",
+            "request_section_id": sid,
+        },
     )
     assert ok.status_code == 201, ok.text
 
@@ -310,10 +352,10 @@ async def test_source_validation(
 async def test_list_returns_empty_for_fresh_model(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """GET on a fresh model -> 200 empty list."""
-    litho_id, _ca, _cb = two_contacts_in_litho_model
+    litho_id, _ca, _cb, _sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     r = await async_client.get(base)
@@ -324,13 +366,15 @@ async def test_list_returns_empty_for_fresh_model(
 async def test_list_returns_created_edges(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """GET returns created edges with correct fields."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
 
     r = await async_client.get(base)
     assert r.status_code == 200, r.text
@@ -348,13 +392,15 @@ async def test_list_returns_created_edges(
 async def test_list_empty_after_delete(
     async_client: AsyncClient,
     project: ProjectOrm,
-    two_contacts_in_litho_model: tuple[str, str, str],
+    two_contacts_in_litho_model: tuple[str, str, str, str],
 ) -> None:
     """GET returns empty list after the edge is deleted."""
-    litho_id, ca, cb = two_contacts_in_litho_model
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    await async_client.post(
+        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+    )
     await async_client.request("DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb})
 
     r = await async_client.get(base)
