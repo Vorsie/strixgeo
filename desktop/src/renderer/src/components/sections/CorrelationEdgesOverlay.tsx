@@ -1197,19 +1197,45 @@ export default function CorrelationEdgesOverlay({
               const aLeft = ptA.x <= ptB.x
               const tieX1 = aLeft ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
               const tieX2 = aLeft ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
+              const openTieMenu = (e: React.MouseEvent<SVGElement>): void => {
+                if (!onRequestDeleteEdge) return
+                e.preventDefault()
+                e.stopPropagation()
+                const r = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                setEdgeContextMenu({
+                  x: r ? e.clientX - r.left : (tieX1 + tieX2) / 2,
+                  y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
+                  edge: ce,
+                })
+              }
               return (
-                <line
-                  key={`tie-${ce.id}`}
-                  data-testid={`tie-line-${ce.id}`}
-                  data-approved={approved ? 'true' : 'false'}
-                  x1={tieX1}
-                  y1={ptA.topY}
-                  x2={tieX2}
-                  y2={ptB.topY}
-                  stroke={tieColor}
-                  strokeWidth={CONTACT_EDGE_WIDTH}
-                  strokeDasharray={approved ? undefined : UNAPPROVED_EDGE_DASH}
-                />
+                <g key={`tie-${ce.id}`}>
+                  {/* Transparent wide hit-line so the thin tie is right-clickable
+                      to delete, like the ribbon's seam (dogfeed 2026-06-08). */}
+                  <line
+                    data-testid={`tie-hit-${ce.id}`}
+                    x1={tieX1}
+                    y1={ptA.topY}
+                    x2={tieX2}
+                    y2={ptB.topY}
+                    stroke="transparent"
+                    strokeWidth={EDGE_DRAG_HIT_WIDTH}
+                    style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
+                    onContextMenu={openTieMenu}
+                  />
+                  <line
+                    data-testid={`tie-line-${ce.id}`}
+                    data-approved={approved ? 'true' : 'false'}
+                    x1={tieX1}
+                    y1={ptA.topY}
+                    x2={tieX2}
+                    y2={ptB.topY}
+                    stroke={tieColor}
+                    strokeWidth={CONTACT_EDGE_WIDTH}
+                    strokeDasharray={approved ? undefined : UNAPPROVED_EDGE_DASH}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                </g>
               )
             }
 
