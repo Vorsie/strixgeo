@@ -93,9 +93,9 @@ class CorrelateLithoContacts(GroundModelLogger):
         source : str
             Provenance token.  Defaults to ``'manual'``.
         request_section_id : UUID | None
-            Retained for API symmetry with the auto-detect era; no longer
-            consumed here.  Lens detection now runs only on the explicit
-            ``POST .../lenses/detect`` verb (owner directive 2026-05-31).
+            The section on which this correlation is authored (required —
+            section-scoped, owner directive 2026-06-08).  Passing ``None``
+            raises ``ValueError``; the router maps that to HTTP 422.
 
         Returns
         -------
@@ -105,15 +105,30 @@ class CorrelateLithoContacts(GroundModelLogger):
         Raises
         ------
         ValueError
-            When either contact does not belong to ``model_id`` /
-            ``project_id``, when both contacts share the same id (self-loop),
-            or when the contacts are anchored to the same investigation column
-            (a boundary cannot be correlated with itself at the same column).
+            When ``request_section_id`` is ``None`` (section-scoped invariant),
+            when either contact does not belong to ``model_id`` / ``project_id``,
+            when both contacts share the same id (self-loop), or when the
+            contacts are anchored to the same investigation column (a boundary
+            cannot be correlated with itself at the same column).
         """
         self.info(
             f"CorrelateLithoContacts: model={model_id} "
             f"a={contact_a_id} b={contact_b_id} source={source!r}"
         )
+
+        # ------------------------------------------------------------------ #
+        # 0. Section-scoped guard (owner directive 2026-06-08).               #
+        #    Every correlation is authored on a section — the section drives  #
+        #    rendering and the section-scoped unique constraint.  A None here #
+        #    would produce a NOT-NULL IntegrityError downstream; surface it   #
+        #    as a clear ValueError so the router maps it to HTTP 422.         #
+        # ------------------------------------------------------------------ #
+        if request_section_id is None:
+            raise ValueError(
+                "CorrelateLithoContacts requires request_section_id — a "
+                "correlation is always authored on a section (section-scoped, "
+                "owner directive 2026-06-08)."
+            )
 
         # ------------------------------------------------------------------ #
         # 1. Self-loop guard.                                                  #
@@ -176,6 +191,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         existing_stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
+            LithoContactCorrelationEdgeOrm.section_id == request_section_id,
             LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
             LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
         )
@@ -195,6 +211,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         edge = LithoContactCorrelationEdgeOrm(
             id=uuid7(),
             model_id=model_id,
+            section_id=request_section_id,
             contact_a_id=a_id,
             contact_b_id=b_id,
             source=source,
