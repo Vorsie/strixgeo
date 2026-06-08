@@ -137,13 +137,20 @@ function makeCtx(overrides: {
   sectionModelAxis?: 'geological' | 'lithostratigraphic'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic') => void
   selectedSectionId?: string | null
-  /** Section row's seeded_formation_contact_ids. Defaults to ['c-1'] when
-   *  ``selectedSectionId`` is set so existing CT4/CT5 stay enabled with
-   *  the new debt-#139 gate (button needs â‰¥1 litho contact on section). */
+  /** Section row's seeded_formation_contact_ids. No longer gates the Correlate
+   *  button (classification follows the test, 2026-06-08) — kept for the few
+   *  call sites that still pass it; the gate now reads the in-corridor set. */
   sectionSeededContactIds?: string[]
-  /** Active litho model contacts. Defaults to ``[{ id: 'c-1', ... }]`` so the
-   *  default intersection with sectionSeededContactIds yields one hit. */
+  /** Active litho model contacts. Defaults to ``[{ id: 'c-1', anchor bh-1 }]``
+   *  so the default in-corridor borehole (bh-1) puts one litho contact on the
+   *  section and CT4/CT5 stay enabled. */
   lithoContacts?: FormationContactResponse[]
+  /** Visible CPTs/boreholes — the section's corridor is computed from these.
+   *  ``visibleBoreholes`` defaults to one in-corridor bh-1 (matching the
+   *  default litho contact's anchor). Pass ``[]`` to model "no investigation
+   *  on this section" (the new "nothing to correlate" state). */
+  visibleCpts?: ShellContextValue['visibleCpts']
+  visibleBoreholes?: ShellContextValue['visibleBoreholes']
   correlateMode?: boolean
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
@@ -156,6 +163,13 @@ function makeCtx(overrides: {
   const exitCorrelateMode = overrides.exitCorrelateMode ?? vi.fn()
   const toastFn = overrides.toast ?? vi.fn()
   const sectionSeededContactIds = overrides.sectionSeededContactIds ?? ['c-1']
+  // The section corridor is (0,0)→(100,0) with a 50 m buffer (see the section
+  // stub below). The default borehole sits on the line so the default litho
+  // contact (anchor bh-1) projects in-corridor → sectionHasLithoContacts true.
+  const visibleCpts = overrides.visibleCpts ?? []
+  const visibleBoreholes =
+    overrides.visibleBoreholes ??
+    ([{ id: 'bh-1', name: 'BH-1', location_x: 50, location_y: 0 }] as unknown as ShellContextValue['visibleBoreholes'])
   const lithoContacts =
     overrides.lithoContacts ??
     ([
@@ -243,8 +257,8 @@ function makeCtx(overrides: {
       handleBboxDrawn: noopAsync,
       pendingCptPins: [],
     },
-    visibleCpts: [],
-    visibleBoreholes: [],
+    visibleCpts,
+    visibleBoreholes,
     geoModel: {
       activeGeologicalModel: {
         id: 'model-geo-1',
@@ -339,7 +353,16 @@ function makeCtx(overrides: {
               id: overrides.selectedSectionId,
               name: 'S1',
               seeded_formation_contact_ids: sectionSeededContactIds,
-            } as CrossSectionResponse,
+              // Geometry so inCorridorInvestigationIds can project the visible
+              // boreholes/CPTs: a 100 m line with a 50 m lateral buffer.
+              start_x: 0,
+              start_y: 0,
+              end_x: 100,
+              end_y: 0,
+              projection_buffer_m: 50,
+              excluded_cpt_ids: [],
+              excluded_borehole_ids: [],
+            } as unknown as CrossSectionResponse,
           ]
         : [],
       selectedSectionId: overrides.selectedSectionId ?? null,
@@ -587,16 +610,18 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
   })
 
   it('CT7b: Correlate primary does NOT enter mode when model has contacts but NONE on this section', () => {
-    // Litho model has a contact, but the section did not seed it â€” the
-    // explicit-content invariant hides it from this view, so correlate
-    // mode would still find nothing clickable.
+    // Litho model has a contact (default anchor bh-1), but no investigation
+    // projects into this section's corridor (visibleBoreholes = []), so the
+    // contact is not on the section and correlate mode finds nothing clickable.
     const enterCorrelateMode = vi.fn()
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
-        sectionSeededContactIds: [],
+        // No in-corridor investigation → the default litho contact's anchor
+        // (bh-1) is off-section, so the gate reads "nothing to correlate".
+        visibleBoreholes: [],
         enterCorrelateMode,
       }),
     )
