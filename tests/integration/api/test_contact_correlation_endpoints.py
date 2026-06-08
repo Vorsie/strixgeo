@@ -531,11 +531,11 @@ async def test_clear_suggestions_404_on_unknown_model(
 
 
 # ---------------------------------------------------------------------------
-# Section-scoped list + clear-suggestions (debt #3 — confusing model-wide
-# count + cross-section data loss).  ``?section_id=`` restricts BOTH the list
-# and the auto-delete to edges whose BOTH endpoints sit on the section's
-# in-corridor columns, so re-correlating one section never reports or wipes
-# another section's auto edges.
+# Section-scoped list + clear-suggestions.  ``?section_id=`` restricts BOTH the
+# list and the auto-delete to edges AUTHORED on that section
+# (``edge.section_id == section_id``), so re-correlating one section never
+# reports or wipes another section's auto edges (section-scoped correlations,
+# owner directive 2026-06-08).
 # ---------------------------------------------------------------------------
 
 
@@ -638,6 +638,7 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
     db_session.add_all([e1, e2])
     await db_session.commit()
     e1_id = str(e1.id)
+    e2_id = str(e2.id)
 
     # Model-wide: both edges present.
     all_edges = (
@@ -661,6 +662,7 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
         )
     ).json()
     assert len(s2_edges) == 1, "S2 list must contain only the edge authored on S2"
+    assert s2_edges[0]["id"] == e2_id, "S2 list must contain exactly E2 (authored on S2)"
     assert s2_edges[0]["id"] != e1_id, "E1 must NOT appear in the S2-scoped list"
 
     # Section-scoped delete on S1 removes E1 only (count=1); E2 survives.
