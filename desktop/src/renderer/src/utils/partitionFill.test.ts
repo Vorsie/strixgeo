@@ -186,10 +186,13 @@ describe('computePartitionFill', () => {
     // Apex is the deepest-into-the-gap vertex; it must sit at ~0.5, never 1.
     const maxFraction = Math.max(...sand[0].polygon.map((p) => p.fraction))
     expect(maxFraction).toBeCloseTo(0.5, 6)
-    // The enclosing matrix extends INTO the interval: clayA and clayB each
-    // appear in MORE THAN ONE region (the quad + the extension triangle).
+    // The ABOVE matrix (clayA) descends to fill the wedge beyond the apex, so it
+    // appears in MORE THAN ONE region (its quad + the fill extension). The unit
+    // BELOW (clayB) keeps its flat correlated top — it stays a single region
+    // (owner directive 2026-06-08: the correlated layer stays flat, the layer
+    // above fills the pinch-out wedge).
     expect(regions.filter((r) => r.formationId === 'clayA').length).toBeGreaterThanOrEqual(2)
-    expect(regions.filter((r) => r.formationId === 'clayB').length).toBeGreaterThanOrEqual(2)
+    expect(regions.filter((r) => r.formationId === 'clayB').length).toBe(1)
     // Still a true partition.
     assertTiles(regions, left, right)
   })
