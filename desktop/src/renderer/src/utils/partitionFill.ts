@@ -184,6 +184,28 @@ interface ExtractedLens {
   depthBaseM: number
 }
 
+/**
+ * Snap each unit's base to the next unit's top, in place, so the column is
+ * gap-free and overlap-free before tiling.
+ *
+ * The accepted litho layers feeding a column can carry a depth GAP (a
+ * rejected/collapsed segment whose ``depth_base`` no longer meets the next
+ * unit's ``depth_top``). The litho bands hide this by rendering
+ * contact→next-contact; the partition fill must do the same or it shows a HOLE
+ * (dogfeed 2026-06-08). Units must already be sorted by ``topDepthM``.
+ *
+ * Parameters
+ * ----------
+ * units : PartitionUnit[]
+ *     The column's units, sorted shallow→deep. Mutated in place (the deepest
+ *     unit keeps its own base — the column floor).
+ */
+function closeColumnGaps(units: PartitionUnit[]): void {
+  for (let i = 0; i < units.length - 1; i++) {
+    units[i].baseDepthM = units[i + 1].topDepthM
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Enclosed-lens pre-pass
 // ---------------------------------------------------------------------------
@@ -784,6 +806,14 @@ export function computePartitionFill(
   // -------------------------------------------------------------------------
   const leftUnits: PartitionUnit[] = left.units.map((u) => ({ ...u }))
   const rightUnits: PartitionUnit[] = right.units.map((u) => ({ ...u }))
+
+  // Close any depth gaps/overlaps in each column so the fill can never show a
+  // HOLE: a unit's base is snapped to the next unit's top, matching how the
+  // litho bands render (contact→next-contact). Accepted litho layers can carry
+  // a gap — a rejected/collapsed segment — which would otherwise leave the
+  // partition unfilled there (dogfeed 2026-06-08, section 1).
+  closeColumnGaps(leftUnits)
+  closeColumnGaps(rightUnits)
 
   const rightIdSet = new Set(rightUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
   const leftIdSet = new Set(leftUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
