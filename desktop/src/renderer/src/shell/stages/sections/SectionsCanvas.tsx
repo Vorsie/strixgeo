@@ -50,6 +50,7 @@ import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { log } from '../../../utils/log'
 
 /**
@@ -1275,29 +1276,33 @@ export default function SectionsCanvas(): JSX.Element {
 
   // P2-F — explicit-content filter (owner directive 2026-05-17).
   //
-  // WHY filter at this data-boundary:
-  //   The contacts list is loaded model-wide (all contacts in the active
-  //   geological/litho model), which is correct for the Build/TIN path
-  //   (Delaunay needs ALL anchors across the model). The section render
-  //   and export path must only show contacts the user explicitly placed on
-  //   THIS section via Seed or manual draw — stored in
-  //   seeded_formation_contact_ids. Without this filter every contact in
-  //   the model renders on every section, violating the owner directive:
-  //   "nothing on a section without the user clicking a button on that section".
+  // Classification follows the test (owner directive 2026-06-08, supersedes the
+  // 2026-05-17 explicit-content filter for classification): a section shows the
+  // contacts/litho of EVERY test in its corridor, not only the ids it was seeded
+  // with — so a test is classified once and appears on every section through it.
+  // Correlations stay relational (unchanged). The seeded set rides the bundle for
+  // compat but no longer gates rendering.
   //
-  // Stale-id tolerance mirrors Option (b) from the snapshot rule: a contact
-  // deleted from the model after being seeded is simply absent from axisContacts
-  // — filtering by id-membership naturally skips it, no crash.
-  const sectionContactIds = useMemo(
-    () => new Set(selectedSection?.seeded_formation_contact_ids ?? []),
-    [selectedSection],
+  // The contacts list is loaded model-wide (correct for the Build/TIN path — the
+  // Delaunay needs ALL anchors). The render/export gate is now "the contact's
+  // anchor investigation is in this section's corridor", which the section
+  // already projects. Stale-id tolerance is inherent: a contact whose anchor is
+  // out of corridor (or whose anchor was removed) is simply filtered out.
+  const sectionInvestigationIds = useMemo(
+    () =>
+      selectedSection !== null
+        ? inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
+        : new Set<string>(),
+    [selectedSection, visibleCpts, visibleBoreholes],
   )
   const sectionContacts = useMemo(
     () =>
-      selectedSection !== null && sectionContactIds.size > 0
-        ? axisContacts.filter(c => sectionContactIds.has(c.id))
+      selectedSection !== null
+        ? axisContacts.filter(c =>
+            sectionInvestigationIds.has(c.cpt_id ?? c.borehole_id ?? ''),
+          )
         : [],
-    [selectedSection, sectionContactIds, axisContacts],
+    [selectedSection, sectionInvestigationIds, axisContacts],
   )
 
   // P2-H — section-aware contact draw.
@@ -1814,9 +1819,8 @@ export default function SectionsCanvas(): JSX.Element {
         }
 
         // Refresh formations + litho contacts so the new contacts
-        // land in local state — without this the
-        // ``sectionContacts = axisContacts.filter(c => seeded.has(c.id))``
-        // intersection in SectionsCanvas still has the OLD
+        // land in local state — without this the in-corridor
+        // ``sectionContacts`` filter in SectionsCanvas still has the OLD
         // ``lithoContacts`` and renders nothing for the new contact
         // (owner dogfeed 2026-05-27: "dialog box, select a unit but
         // nothing is being rendered").
