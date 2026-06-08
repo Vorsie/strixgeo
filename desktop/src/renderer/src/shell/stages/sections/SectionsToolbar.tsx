@@ -193,9 +193,17 @@ export default function SectionsToolbar(): JSX.Element {
         activeLithoModel.id,
         selectedSectionId,
       )
-      const autoCount = edges.filter((e: { source: string }) => e.source === 'auto').length
+      // Count only UNAPPROVED auto suggestions — the edges re-correlate would
+      // actually delete. Accepted auto-correlations (source='auto' but
+      // user_approved=true) are committed and survive a re-run, so warning about
+      // them pops a spurious "overwrite?" dialog on a section the user already
+      // accepted / never suggested on (dogfeed 2026-06-08).
+      const autoCount = edges.filter(
+        (e: { source: string; user_approved?: boolean }) =>
+          e.source === 'auto' && !e.user_approved,
+      ).length
       if (autoCount === 0) {
-        // No existing auto edges — fire immediately (no dialog for first-time users).
+        // No pending auto suggestions — fire immediately (no dialog).
         // Pass the section so adjacency follows its column order, not map-plane RNG.
         await handleAutoCorrelate(selectedSectionId)
       } else {
