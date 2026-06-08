@@ -5,8 +5,8 @@ Covers:
   POST   .../contact-correlations/accept     → 200 + count shape
   POST   .../lens-companions/materialise     → 200 + count shape
   GET    .../contact-correlations            → user_approved in each item
-  POST   .../contact-correlations            → request_section_id forwarded (no error)
-  DELETE .../contact-correlations            → request_section_id forwarded (no error)
+  POST   .../contact-correlations            → requires a valid request_section_id (section-scoped)
+  DELETE .../contact-correlations            → request_section_id accepted (not enforced on delete)
 
 These tests assert routing, JSON shape, and scope guards; they do NOT re-pin
 the underlying use-case semantics (those are covered by the application-layer
