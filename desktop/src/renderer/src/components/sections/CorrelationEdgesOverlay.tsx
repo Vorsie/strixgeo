@@ -1191,14 +1191,20 @@ export default function CorrelationEdgesOverlay({
             const lithoB = lithoByContactId.get(ce.contact_b_id) ?? null
             if (lithoA !== null && lithoB !== null && lithoA !== lithoB) {
               const tieColor = approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR
+              // Anchor at each column's INNER (facing) edge — same as the
+              // ribbon — so the tie spans only the gap, not centre-to-centre
+              // across the columns (dogfeed 2026-06-08).
+              const aLeft = ptA.x <= ptB.x
+              const tieX1 = aLeft ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
+              const tieX2 = aLeft ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
               return (
                 <line
                   key={`tie-${ce.id}`}
                   data-testid={`tie-line-${ce.id}`}
                   data-approved={approved ? 'true' : 'false'}
-                  x1={ptA.x}
+                  x1={tieX1}
                   y1={ptA.topY}
-                  x2={ptB.x}
+                  x2={tieX2}
                   y2={ptB.topY}
                   stroke={tieColor}
                   strokeWidth={CONTACT_EDGE_WIDTH}
@@ -1455,8 +1461,12 @@ export default function CorrelationEdgesOverlay({
             const bot = band ? band.botY : pt.topY + CONTACT_HIT_HEIGHT / 2
             const mid = (top + bot) / 2
             // Lower-zone target: the next-deeper contact's top (the boundary
-            // below).  Deepest band (no next) → this contact (its only edge).
-            const lowerId = nextDeeperContactId.get(c.id) ?? c.id
+            // below).  The DEEPEST band has no contact below it (its base is the
+            // column floor / where the test stopped), so ``lowerId`` is
+            // undefined and its lower zone is INERT — clicking there must not
+            // silently arm the band's own TOP (dogfeed 2026-06-08: "tried to
+            // connect the bottom of the deepest sand and it grabbed the top").
+            const lowerId = nextDeeperContactId.get(c.id)
             // Near-boundary zones (dogfeed 2026-05-29): a click within
             // CONTACT_SELECT_NEAR_PX of a boundary arms it; the MIDDLE of a band
             // taller than 2×NEAR is inert, so a mid-band click never arms a far
@@ -1511,21 +1521,28 @@ export default function CorrelationEdgesOverlay({
                     onClick={e => e.stopPropagation()}
                   />
                 )}
-                {/* Lower zone (near the BOTTOM boundary) → arms the next-deeper. */}
+                {/* Lower zone (near the BOTTOM boundary) → arms the next-deeper
+                    contact. INERT for the deepest band (no contact below it):
+                    clicking there does nothing rather than wrongly arming the
+                    band's own top. */}
                 <rect
                   data-testid={`contact-hit-${c.id}-low`}
-                  data-contact-id={lowerId}
+                  data-contact-id={lowerId ?? ''}
                   x={pt.x - hw}
                   y={botStart}
                   width={hw * 2}
                   height={Math.max(0, bot - botStart)}
                   fill="transparent"
-                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
-                  onContextMenu={e => {
-                    e.preventDefault()
-                    onRequestDeleteContact?.(lowerId)
-                  }}
-                  onClick={() => handleCorrelateClick(lowerId, invId)}
+                  style={{ cursor: lowerId ? 'crosshair' : 'default', pointerEvents: 'all' }}
+                  onContextMenu={
+                    lowerId
+                      ? e => {
+                          e.preventDefault()
+                          onRequestDeleteContact?.(lowerId)
+                        }
+                      : undefined
+                  }
+                  onClick={lowerId ? () => handleCorrelateClick(lowerId, invId) : e => e.stopPropagation()}
                 />
               </g>
             )
