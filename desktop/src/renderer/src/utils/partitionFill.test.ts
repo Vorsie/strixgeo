@@ -74,7 +74,13 @@ function assertTiles(
   const leftSurface = left.surfaceElevM - leftTopDepth
   const rightSurface = right.surfaceElevM - rightTopDepth
 
-  const SAMPLE_COUNT = 25
+  // EVEN count so the midpoint fraction 0.5 is never sampled exactly. A
+  // mismatched-matrix facies seam (and onlap tips) land on 0.5; at that exact
+  // line the two half-trapezoids each report the full interval height (they
+  // share the seam line — a true partition with measure-zero contact), which a
+  // sample landing on 0.5 would mis-read as an overlap. Sampling between 0.479
+  // and 0.521 checks coverage just as densely without the seam-line artifact.
+  const SAMPLE_COUNT = 24
   const EPS = 1e-6
 
   for (let s = 0; s < SAMPLE_COUNT; s++) {
@@ -604,6 +610,49 @@ describe('computePartitionFill', () => {
     const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
     expect(tip.fraction).toBeCloseTo(INTERIOR_PINCH_FRACTION, 6)
     expect(tip.elevation).toBeCloseTo(-10, 6) // base bracket = CLAY top at depth 10
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
+  // MISMATCH — no shared matrix: sand-left vs clay-right.
+  //
+  // The interval background is a DIFFERENT lithology on each column (no matrix
+  // connects). Honest representation: a vertical MIDPOINT seam (50/50 — the
+  // transition position is unknown), flagged ``seamKind:'facies'`` so the
+  // overlay can draw it wriggly (a lateral facies change, not a sharp contact).
+  // The two halves TILE (no overlay) — they partition the interval.
+  // -----------------------------------------------------------------------
+  it('MISMATCH: sand-left vs clay-right splits at a midpoint facies seam (flagged)', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'top' }, // correlated top bracket
+      { top: 2, base: 10, f: 'SAND', b: 'l-sand' }, // left background
+      { top: 10, base: 12, f: 'CLAY', b: 'bot' }, // correlated base bracket
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'top' },
+      { top: 2, base: 10, f: 'CLAY', b: 'r-clay' }, // right background (mismatch)
+      { top: 10, base: 12, f: 'CLAY', b: 'bot' },
+    ])
+    const regions = computePartitionFill(left, right)
+    // The interval splits SAND (left half, has a 0.5 vertex but no fraction-1
+    // vertex) | CLAY (right half, has both a 0.5 and a fraction-1 vertex).
+    const sand = regions.find(
+      (r) => r.formationId === 'SAND' && r.polygon.some((p) => p.fraction > 0.4 && p.fraction < 0.6),
+    )
+    const clay = regions.find(
+      (r) =>
+        r.formationId === 'CLAY' &&
+        r.polygon.some((p) => p.fraction > 0.4 && p.fraction < 0.6) &&
+        r.polygon.some((p) => p.fraction > 0.99),
+    )
+    expect(sand).toBeDefined()
+    expect(clay).toBeDefined()
+    // Both meet at fraction 0.5 (midpoint).
+    expect(sand!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
+    expect(clay!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
+    // Flagged so the overlay draws the seam wriggly.
+    expect(sand!.seamKind).toBe('facies')
+    expect(clay!.seamKind).toBe('facies')
     assertTiles(regions, left, right)
   })
 
