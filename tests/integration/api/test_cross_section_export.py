@@ -217,14 +217,13 @@ async def seeded_section(db_session: AsyncSession) -> dict:
     for c in contacts:
         db_session.add(c)
 
-    # Explicit-content invariant (commit 8606efea / owner directive
-    # 2026-05-17): BuildSectionSnapshot and the section-scoped exporters
-    # (DXF, Plaxis-2D) only render contacts whose id is in the section's
-    # seeded set. The production flow seeds these via
-    # CrossSectionRepository.union_seeded_contact_ids; this fixture
-    # mirrors that by registering every created contact id on the
-    # section directly. Without this the snapshot yields zero formation
-    # content and the export carries no formation polylines.
+    # Seed every contact id on the section. As of the 2026-06-08
+    # "classification follows the test" directive this no longer GATES the
+    # export (BuildSectionSnapshot now renders every in-corridor contact
+    # regardless), but the production flows still maintain the seeded set for
+    # bundle compat, so the fixture keeps it populated to mirror a real
+    # post-seed section. test_export_includes_in_corridor_contacts_without_seeding
+    # proves the gate is gone by clearing this set.
     section.seeded_formation_contact_ids = [c.id for c in contacts]
 
     await db_session.commit()
@@ -284,6 +283,38 @@ async def test_dxf_export_happy_path(async_client: AsyncClient, seeded_section: 
     # already asserts this; double-check by name absence in labels.
     labels = [e.dxf.text for e in msp.query("TEXT[layer=='Investigations']")]
     assert "CPT-far" not in labels
+
+
+async def test_export_includes_in_corridor_contacts_without_seeding(
+    async_client: AsyncClient, seeded_section: dict, db_session: AsyncSession
+) -> None:
+    """Classification follows the test (owner directive 2026-06-08): clearing
+    the section's seeded set must NOT strip formation content from the export.
+
+    Every contact whose anchor projects into the corridor still renders — the
+    seeded set no longer gates the section-scoped export. This is the explicit
+    end-to-end proof that the 2026-05-17 explicit-content gate was lifted for
+    classification.
+    """
+    # Wipe the seeded set entirely, then export.
+    section = await db_session.get(CrossSectionOrm, seeded_section["section_id"])
+    assert section is not None
+    section.seeded_formation_contact_ids = []
+    await db_session.commit()
+
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/dxf",
+        params={"model_id": str(seeded_section["model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    msp = doc.modelspace()
+    # Same content as the seeded happy path — both formation polylines and all
+    # three in-corridor investigation columns, despite zero seeded ids.
+    assert len(list(msp.query("LWPOLYLINE"))) == 2
+    assert len(list(msp.query("LINE[layer=='Investigations']"))) == 3
 
 
 async def test_pdf_export_happy_path(async_client: AsyncClient, seeded_section: dict) -> None:
