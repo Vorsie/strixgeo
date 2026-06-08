@@ -696,7 +696,8 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
             s.add(c)
             return c
 
-        def edge(ca: FormationContactOrm, cb: FormationContactOrm) -> None:
+        def edge(ca: FormationContactOrm, cb: FormationContactOrm, *, section_id: UUID) -> None:
+            """Insert an approved correlation edge stamped to the given section."""
             a, b = (ca.id, cb.id) if ca.id < cb.id else (cb.id, ca.id)
             s.add(
                 LithoContactCorrelationEdgeOrm(
@@ -706,6 +707,7 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
                     contact_b_id=b,
                     source="manual",
                     user_approved=True,
+                    section_id=section_id,
                 )
             )
 
@@ -743,10 +745,10 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         bz4 = contact(f_base, cpt4, 5.0)
         bz5 = contact(f_base, cpt5, 5.0)
         await s.flush()
-        edge(bk3, bk4)
-        edge(bk4, bk5)
-        edge(bz3, bz4)
-        edge(bz4, bz5)
+        edge(bk3, bk4, section_id=sec_b)
+        edge(bk4, bk5, section_id=sec_b)
+        edge(bz3, bz4, section_id=sec_b)
+        edge(bz4, bz5, section_id=sec_b)
         body_contact_ids = [bk3.id, bk4.id, bk5.id, bz3.id, bz4.id, bz5.id]
 
         # --- Crossing scenario (Section C) — no edges; auto-lens creates them ---
@@ -783,10 +785,10 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         d_right_deep = contact(pi_klei_deep, cpt10, 8.0)
         await s.flush()
         # Same-litho correlation of each KLEI level across the three columns.
-        edge(d_klei_shallow, d_left_shallow)
-        edge(d_klei_shallow, d_right_shallow)
-        edge(d_klei_deep, d_left_deep)
-        edge(d_klei_deep, d_right_deep)
+        edge(d_klei_shallow, d_left_shallow, section_id=sec_d)
+        edge(d_klei_shallow, d_right_shallow, section_id=sec_d)
+        edge(d_klei_deep, d_left_deep, section_id=sec_d)
+        edge(d_klei_deep, d_right_deep, section_id=sec_d)
         per_instance_contact_ids = [
             d_klei_shallow.id,
             d_klei_deep.id,
