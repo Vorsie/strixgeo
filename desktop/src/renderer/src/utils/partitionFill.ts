@@ -692,6 +692,29 @@ function emitInterval(
   const leftPinches = pinches.filter((p) => p.side === 'left')
   const rightPinches = pinches.filter((p) => p.side === 'right')
 
+  // Geometric-connectivity inference (owner directive 2026-06-08): when the
+  // interval reduces to exactly one left unit and one right unit of the SAME
+  // lithology (formationId), they are the same matrix body bridging the gap even
+  // though they were never explicitly correlated (different bodyId). Connect
+  // them as one band quad spanning the interval, inheriting the bracketing
+  // interfaces — instead of tiling them as opposing pinches meeting at a seam
+  // (the "droop"). Minority lithologies are extracted as lenses by the pre-pass,
+  // so after extraction the matrix is this single-unit-per-side case.
+  if (
+    leftPinches.length === 1 &&
+    rightPinches.length === 1 &&
+    leftPinches[0].formationId === rightPinches[0].formationId
+  ) {
+    const p = leftPinches[0]
+    const polygon: PartitionPoint[] = [
+      { fraction: 0, elevation: leftSurface - topIface.leftDepth },
+      { fraction: 1, elevation: rightSurface - topIface.rightDepth },
+      { fraction: 1, elevation: rightSurface - baseIface.rightDepth },
+      { fraction: 0, elevation: leftSurface - baseIface.leftDepth },
+    ]
+    return [{ formationId: p.formationId, bodyId: p.bodyId, kind: 'quad', polygon }]
+  }
+
   // Compute total elevation thickness on each side for the meeting-fraction weight.
   const sumLeft = leftPinches.reduce((s, p) => {
     return s + Math.max(0, (leftSurface - p.ownTopDepth) - (leftSurface - p.ownBaseDepth))

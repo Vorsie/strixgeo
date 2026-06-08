@@ -449,6 +449,40 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
+  // MX1 — UNCORRELATED same-lithology matrix connects by formationId.
+  //
+  // The live-dogfeed gap (2026-06-08): a sand matrix bracketed by two
+  // correlated clay bands, but the sand itself is NOT correlated across (it
+  // carries a different bodyId per column). The bodyId pre-pass + LCS can't see
+  // it's one body, so today it tiles as opposing pinches at a meeting seam (the
+  // "droop"). It must instead connect as ONE quad band spanning fraction 0→1
+  // (geometric connectivity by formationId — distinct from PF-REAL-S1 where the
+  // sand shares a bodyId).
+  // -----------------------------------------------------------------------
+  it('MX1: uncorrelated same-formation matrix connects as one band (not a droop seam)', () => {
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'KLEI', b: 'k-top' }, // correlated bracket
+      { top: 5, base: 12, f: 'ZAND', b: 'zL' }, // matrix sand — uncorrelated (zL)
+      { top: 12, base: 18, f: 'KLEI', b: 'k-bot' }, // correlated bracket
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'KLEI', b: 'k-top' },
+      { top: 5, base: 12, f: 'ZAND', b: 'zR' }, // matrix sand — uncorrelated (zR), SAME formation
+      { top: 12, base: 18, f: 'KLEI', b: 'k-bot' },
+    ])
+    const regions = computePartitionFill(left, right)
+    const sand = regions.filter((r) => r.formationId === 'ZAND')
+    // One connected band, not two opposing pinches.
+    expect(sand).toHaveLength(1)
+    expect(sand[0].kind).toBe('quad')
+    // It spans the whole gap (reaches both columns).
+    const fr = sand[0].polygon.map((p) => p.fraction)
+    expect(Math.min(...fr)).toBeLessThan(0.01)
+    expect(Math.max(...fr)).toBeGreaterThan(0.99)
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
   // PF5 — Empty left column
   // -----------------------------------------------------------------------
   it('PF5 — empty left column returns []', () => {
