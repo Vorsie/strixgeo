@@ -58,7 +58,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Revert to the model-level unique (data loss on section_id is accepted —
-    pre-ship, backwards-compat suspended)."""
+    pre-ship, backwards-compat suspended).
+
+    Clean-slate the table first: post-upgrade two rows may share
+    ``(model_id, contact_a_id, contact_b_id)`` while differing only by
+    ``section_id`` (valid under the 4-col unique). Re-creating the 3-col unique
+    on such data would raise a uniqueness violation, so drop all rows before
+    narrowing the constraint.
+    """
+    op.execute("DELETE FROM litho_contact_correlation_edge")
     op.drop_constraint(
         "uq_litho_contact_corr_triple",
         "litho_contact_correlation_edge",
