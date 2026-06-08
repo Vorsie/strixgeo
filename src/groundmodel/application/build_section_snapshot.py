@@ -138,16 +138,15 @@ class BuildSectionSnapshot(GroundModelLogger):
         excluded_borehole_ids = set(section.excluded_borehole_ids or [])
         buffer_m = section.projection_buffer_m
 
-        # Explicit-content invariant (owner directive 2026-05-17):
-        # only contacts whose id is in the section's seeded set are
-        # shown — even if their anchor is within the section corridor.
-        # An empty seeded set means "nothing seeded yet" → zero formation
-        # content (investigations still render as marker columns).
-        # Build / Delaunay consumes ALL model contacts regardless — TIN
-        # is a model-level surface.  Only the section view and the
-        # section-scoped exporters (DXF, Plaxis-2D) apply this filter.
-        seeded_contact_ids = frozenset(section.seeded_formation_contact_ids or [])
-
+        # Classification follows the test (owner directive 2026-06-08,
+        # supersedes the 2026-05-17 explicit-content gate for classification):
+        # a section shows the contacts of EVERY investigation that projects
+        # into its corridor — there is no per-section seeded gate.  A test is
+        # classified once and appears on every section through it.  The
+        # in-corridor filter below (anchor must be a projected investigation)
+        # is the only render gate; ``seeded_formation_contact_ids`` rides the
+        # bundle for compat but no longer filters here.  The explicit-content
+        # invariant now applies to correlations only.
         investigations: list[SectionInvestigationProjection] = []
         for cpt in cpts:
             if cpt.id in excluded_cpt_ids:
@@ -195,24 +194,15 @@ class BuildSectionSnapshot(GroundModelLogger):
         # filter is O(K) per contact rather than O(N).
         projected_by_id = {i.investigation_id: i for i in investigations}
 
-        # Contacts — keep only those whose anchor is on the section AND
-        # whose id is in the section's seeded set (explicit-content
-        # invariant, owner directive 2026-05-17).
-        #
-        # Stale-id tolerance (architect Option b): a contact id that is
-        # in the seeded set but no longer resolves to a live contact
-        # (deleted from the model) is silently skipped.  The section
-        # simply shows nothing for that id.  We do NOT cascade-delete
-        # ids from section arrays on contact delete — that is deferred
-        # debt (Dedupe post-seeded-set; see debt item added in CLAUDE.md).
+        # Contacts — keep only those whose anchor projects onto the section
+        # (within the buffer, not excluded).  This is the in-corridor gate:
+        # a contact belongs to the section iff its anchor investigation is a
+        # projected column.  Stale-anchor tolerance is inherent — a contact
+        # whose anchor didn't project (out of corridor, excluded, or absent)
+        # resolves to ``inv is None`` below and is silently skipped.
         contacts: list[SectionFormationContact] = []
         formation_ids_in_use: set[UUID] = set()
         for c in contacts_orm:
-            # Explicit-content gate: the contact must be in this section's
-            # seeded set.  If seeded_contact_ids is empty, no contact
-            # passes — investigations render as bare columns only.
-            if c.id not in seeded_contact_ids:
-                continue
             anchor_id = c.borehole_id if c.borehole_id is not None else c.cpt_id
             if anchor_id is None:
                 continue
