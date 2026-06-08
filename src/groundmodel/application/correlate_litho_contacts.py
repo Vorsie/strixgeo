@@ -275,9 +275,12 @@ class UncorrelateLithoContacts(GroundModelLogger):
         contact_b_id : UUID
             The other endpoint.
         request_section_id : UUID | None
-            Retained for API symmetry; no longer consumed.  Lens detection
-            now runs only on the explicit ``POST .../lenses/detect`` verb
-            (owner directive 2026-05-31).
+            The section the edge was authored on.  Required — a correlation is
+            always authored on a section (section-scoped invariant, owner
+            directive 2026-06-08).  The delete is scoped to this section
+            because the same contact pair may exist as edges on multiple
+            sections (each section's edge is an independent row).  Passing
+            ``None`` raises ``ValueError``; the router maps that to HTTP 422.
 
         Returns
         -------
@@ -287,9 +290,24 @@ class UncorrelateLithoContacts(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the model does not belong to ``project_id``.
+            When ``request_section_id`` is ``None`` (section-scoped invariant)
+            or when the model does not belong to ``project_id``.
         """
         self.info(f"UncorrelateLithoContacts: model={model_id} a={contact_a_id} b={contact_b_id}")
+
+        # ------------------------------------------------------------------ #
+        # 0. Section-scoped guard (owner directive 2026-06-08).               #
+        #    Every correlation is authored on a section — the section drives  #
+        #    rendering and the section-scoped unique constraint.  Without this #
+        #    guard, querying (model_id, a_id, b_id) could match two rows      #
+        #    (same pair on two sections) → MultipleResultsFound (500).        #
+        # ------------------------------------------------------------------ #
+        if request_section_id is None:
+            raise ValueError(
+                "UncorrelateLithoContacts requires request_section_id — a "
+                "correlation is always authored on a section (section-scoped, "
+                "owner directive 2026-06-08)."
+            )
 
         # Scope guard — mirrors the create path.
         await load_scoped_or_raise(
@@ -302,6 +320,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
 
         stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
+            LithoContactCorrelationEdgeOrm.section_id == request_section_id,
             LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
             LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
         )
