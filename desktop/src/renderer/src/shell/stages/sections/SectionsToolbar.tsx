@@ -288,6 +288,12 @@ export default function SectionsToolbar(): JSX.Element {
         'sections',
         `acceptCorrelations: ${result.edges_accepted} accepted`,
       )
+      // The edges flipped to approved server-side; force the canvas to re-GET
+      // them so they render as solid ribbons instead of stale dashed
+      // suggestions (the canvas's edge state is otherwise only refreshed on a
+      // section reselect or auto-correlate). Without this the user sees the
+      // suggestion unchanged even though the accept succeeded.
+      requestCorrelationEdgesRefetch?.()
       toast(
         'success',
         `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}.`,
@@ -298,7 +304,14 @@ export default function SectionsToolbar(): JSX.Element {
     } finally {
       setAcceptingCorrelations(false)
     }
-  }, [activeLithoModel, selectedSectionId, acceptingCorrelations, project.id, toast])
+  }, [
+    activeLithoModel,
+    selectedSectionId,
+    acceptingCorrelations,
+    project.id,
+    toast,
+    requestCorrelationEdgesRefetch,
+  ])
 
   // Materialise lens companions (#133 Task 20): for every LithoLens without
   // a companion section, gate on all contacts in its primary section having

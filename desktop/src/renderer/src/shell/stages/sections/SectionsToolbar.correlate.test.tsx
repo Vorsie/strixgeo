@@ -157,6 +157,7 @@ function makeCtx(overrides: {
   exitCorrelateMode?: () => void
   handleAutoCorrelate?: () => Promise<void>
   handleClearSuggestions?: () => Promise<void>
+  requestCorrelationEdgesRefetch?: () => void
   toast?: () => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
@@ -346,6 +347,7 @@ function makeCtx(overrides: {
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
       handleClearSuggestions: overrides.handleClearSuggestions ?? noopAsync,
+      requestCorrelationEdgesRefetch: overrides.requestCorrelationEdgesRefetch ?? vi.fn(),
     },
     sections: {
       sections: overrides.selectedSectionId
@@ -973,7 +975,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
     expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
   })
 
-  it('S5-4: clicking Accept calls acceptContactCorrelations(projectId, modelId, sectionId) and toasts success', async () => {
+  it('S5-4: clicking Accept calls acceptContactCorrelations(projectId, modelId, sectionId), toasts success, and refetches edges', async () => {
     vi.mocked(api.geology.acceptContactCorrelations).mockResolvedValueOnce({
       edges_accepted: 3,
       lenses_created: 1,
@@ -981,6 +983,10 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
       ordinals_changed: 2,
     })
     const toast = vi.fn()
+    // Pin the dogfeed-2026-06-08 fix: the accepted edges flip to approved
+    // server-side, so the handler must force the canvas to re-GET them, else
+    // they render as stale dashed suggestions even though the accept succeeded.
+    const requestCorrelationEdgesRefetch = vi.fn()
 
     renderWith(
       makeCtx({
@@ -988,6 +994,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
         activeLithoModel: makeLithoModel(),
         selectedSectionId: 'sec-1',
         toast,
+        requestCorrelationEdgesRefetch,
       }),
     )
 
@@ -997,6 +1004,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
 
     expect(api.geology.acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'model-litho-1', 'sec-1')
     expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('3'))
+    expect(requestCorrelationEdgesRefetch).toHaveBeenCalledTimes(1)
   })
 
   it('S5-5: API error â†’ toasts error, item re-enables after flight', async () => {
