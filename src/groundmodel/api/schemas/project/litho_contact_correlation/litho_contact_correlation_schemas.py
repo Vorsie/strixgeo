@@ -5,7 +5,10 @@ Endpoints served:
   DELETE /projects/{pid}/geology/models/{mid}/contact-correlations
   GET    /projects/{pid}/geology/models/{mid}/contact-correlations
 
-All are MODEL-level — no section_id, no seeded_formation_contact_ids.
+Section-scoped authoring (owner directive 2026-06-08): an edge carries a
+``section_id`` (the section it was authored on).  POST and DELETE both require
+``request_section_id`` (the use cases raise → HTTP 422 on null); GET returns the
+edge's ``section_id`` and accepts an optional ``?section_id=`` filter.
 """
 
 from __future__ import annotations
@@ -32,11 +35,13 @@ class ContactCorrelationRequest(BaseModel):
         Provenance token.  Only 'manual' is accepted in Phase 1; 'auto'
         is reserved for Phase 2 auto-correlate.
     request_section_id : UUID | None
-        The section the user was viewing when they drew (or removed) the
-        edge.  Forwarded to the lens detector as ``prefer_section_id`` so
-        the ``LithoLensOrm.primary_section_id`` is set to the user's
-        active view.  ``None`` is safe — the detector falls back to the
-        lowest-id section containing both anchor investigations.
+        The section the edge is authored on (section-scoped correlations,
+        owner directive 2026-06-08).  Stamped onto the edge's ``section_id``
+        on POST and used to scope the lookup on DELETE.  Required in practice:
+        both ``CorrelateLithoContacts`` and ``UncorrelateLithoContacts`` raise
+        ``ValueError`` (→ HTTP 422) when it is ``None``.  Declared optional
+        here only so the validation error is raised by the use case with a
+        clear message rather than by request parsing.
     """
 
     contact_a_id: UUID
@@ -93,6 +98,9 @@ class ContactCorrelationEdgeListItem(BaseModel):
         Canonical greater endpoint.
     model_id : UUID
         The lithostratigraphic model.
+    section_id : UUID
+        The section this edge was authored on (section-scoped correlations,
+        owner directive 2026-06-08).  The frontend filters/renders edges by it.
     source : str
         Provenance token.
     user_approved : bool
@@ -109,6 +117,7 @@ class ContactCorrelationEdgeListItem(BaseModel):
     contact_a_id: UUID
     contact_b_id: UUID
     model_id: UUID
+    section_id: UUID
     source: str
     user_approved: bool
     created_at: datetime

@@ -207,6 +207,15 @@ async def test_list_contact_correlations_includes_user_approved(
     assert "user_approved" in items[0], "user_approved must be present in list items"
     # Manual edge → implicitly approved
     assert items[0]["user_approved"] is True
+    # I1: section_id must be present and equal to the section the edge was authored on.
+    assert "section_id" in items[0], (
+        "section_id must be present in list items (I1 — TS type LithoContactCorrelationEdge "
+        "declares section_id: string; the API must return it)"
+    )
+    assert items[0]["section_id"] == sid, (
+        f"section_id must equal the authored section; got {items[0]['section_id']!r}, "
+        f"expected {sid!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
