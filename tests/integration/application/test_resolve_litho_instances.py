@@ -38,6 +38,7 @@ from uuid6 import uuid7
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -219,7 +220,7 @@ async def test_two_uncorrelated_same_formation_layers_yield_two_bodies(
 
 
 def _canonical_edge(
-    *, model_id: UUID, layer_x: UUID, layer_y: UUID
+    *, model_id: UUID, layer_x: UUID, layer_y: UUID, section_id: UUID
 ) -> LithoContactCorrelationEdgeOrm:
     """Build a user-approved correlation edge with canonical endpoint order.
 
@@ -233,6 +234,8 @@ def _canonical_edge(
         The lithostratigraphic model the edge belongs to.
     layer_x, layer_y : UUID
         The two litho_layer endpoints (order does not matter — sorted here).
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
 
     Returns
     -------
@@ -247,6 +250,7 @@ def _canonical_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        section_id=section_id,
     )
 
 
@@ -264,8 +268,29 @@ async def test_deleting_edge_creates_a_second_body_on_split(
     """
     ctx = litho_model_with_two_uncorrelated_sand_layers
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=ctx.project_id,
+        name="Sec-RBI",
+        start_x=100000.0,
+        start_y=200000.0,
+        end_x=200000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add(sec)
+    await db_session.flush()
+
     # One user-approved edge: the two layers form a single component.
-    edge = _canonical_edge(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    edge = _canonical_edge(
+        model_id=ctx.model_id,
+        layer_x=ctx.layer_a_id,
+        layer_y=ctx.layer_b_id,
+        section_id=sec.id,
+    )
     db_session.add(edge)
     await db_session.commit()
 

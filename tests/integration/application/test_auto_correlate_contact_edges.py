@@ -148,6 +148,11 @@ async def test_inserts_auto_edges_with_user_approved_false(
     db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, f_klei_a, f_klei_b, bh_a, bh_b])
     await db_session.flush()
 
+    # Section spanning both boreholes (section-scoped auto-correlate requires one).
+    sec = _cross_section(project.id, name="Section AC1", x0=149900.0, x1=150300.0)
+    db_session.add(sec)
+    await db_session.flush()
+
     # Column A: ZAND at 0 m, KLEI at 3.0 m
     ca_zand = _contact(litho, f_zand_a, bh_a, depth=0.0)
     ca_klei = _contact(litho, f_klei_a, bh_a, depth=3.0)
@@ -161,6 +166,7 @@ async def test_inserts_auto_edges_with_user_approved_false(
     result = await AutoCorrelateContactEdges(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=sec.id,
     )
 
     assert result.edges_created >= 1, (
@@ -222,6 +228,10 @@ async def test_rerun_is_idempotent(
     db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, f_klei_a, f_klei_b, bh_a, bh_b])
     await db_session.flush()
 
+    sec = _cross_section(project.id, name="Section AC2", x0=149900.0, x1=150300.0)
+    db_session.add(sec)
+    await db_session.flush()
+
     ca_zand = _contact(litho, f_zand_a, bh_a, depth=0.0)
     ca_klei = _contact(litho, f_klei_a, bh_a, depth=3.0)
     cb_zand = _contact(litho, f_zand_b, bh_b, depth=0.0)
@@ -233,12 +243,14 @@ async def test_rerun_is_idempotent(
     first = await AutoCorrelateContactEdges(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=sec.id,
     )
     assert first.edges_created >= 1, f"First run must create ≥1 edge; got {first.edges_created}"
 
     second = await AutoCorrelateContactEdges(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=sec.id,
     )
     assert second.edges_created == 0, f"Second run must create 0 edges; got {second.edges_created}"
     assert second.edges_skipped_existing == first.edges_created, (
@@ -281,6 +293,10 @@ async def test_resolver_not_triggered_by_auto_run(
     db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, bh_a, bh_b])
     await db_session.flush()
 
+    sec = _cross_section(project.id, name="Section AC3", x0=149900.0, x1=150300.0)
+    db_session.add(sec)
+    await db_session.flush()
+
     ca = _contact(litho, f_zand_a, bh_a, depth=2.0)
     cb = _contact(litho, f_zand_b, bh_b, depth=2.1)
 
@@ -290,6 +306,7 @@ async def test_resolver_not_triggered_by_auto_run(
     await AutoCorrelateContactEdges(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=sec.id,
     )
 
     # Reload from DB to verify no side-effect on ordinals.
@@ -345,6 +362,10 @@ async def test_crossing_edges_dropped_and_surfaced_as_pinch_out(
     db_session.add_all([geo, litho, geo_parent, f_zand_a, f_zand_b, f_klei_a, f_klei_b, bh_a, bh_b])
     await db_session.flush()
 
+    sec = _cross_section(project.id, name="Section AC4", x0=149900.0, x1=150300.0)
+    db_session.add(sec)
+    await db_session.flush()
+
     # A: ZAND@1 over KLEI@5.  B: ZAND@5 over KLEI@1 (interfingered → crossing).
     ca_zand = _contact(litho, f_zand_a, bh_a, depth=1.0)
     ca_klei = _contact(litho, f_klei_a, bh_a, depth=5.0)
@@ -356,6 +377,7 @@ async def test_crossing_edges_dropped_and_surfaced_as_pinch_out(
     result = await AutoCorrelateContactEdges(db_session).execute(
         project_id=project.id,
         model_id=litho.id,
+        section_id=sec.id,
     )
 
     # Both crossing edges withheld; one pinch-out surfaced; nothing persisted.
@@ -411,12 +433,18 @@ async def test_rejects_non_litho_model(
     """
     geo = _geo_model(project)
     db_session.add(geo)
+    await db_session.flush()
+
+    # A section is required so the section-guard passes and the litho-kind guard fires.
+    sec = _cross_section(project.id, name="Section AC5", x0=100000.0, x1=200000.0)
+    db_session.add(sec)
     await db_session.commit()
 
     with pytest.raises(ValueError, match="lithostratigraphic"):
         await AutoCorrelateContactEdges(db_session).execute(
             project_id=project.id,
             model_id=geo.id,
+            section_id=sec.id,
         )
 
 

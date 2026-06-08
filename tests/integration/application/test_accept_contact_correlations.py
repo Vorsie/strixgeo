@@ -104,8 +104,16 @@ def _raw_edge(
     *,
     user_approved: bool = False,
     source: str = "auto",
+    section_id: UUID | None = None,
 ) -> LithoContactCorrelationEdgeOrm:
-    """Return an unsaved LithoContactCorrelationEdgeOrm (canonical min/max ordering)."""
+    """Return an unsaved LithoContactCorrelationEdgeOrm (canonical min/max ordering).
+
+    Parameters
+    ----------
+    section_id : UUID | None
+        The section this edge was authored on (NOT NULL post Task 4).  A valid
+        ``CrossSectionOrm.id`` that belongs to the same project must be supplied.
+    """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
     return LithoContactCorrelationEdgeOrm(
@@ -115,6 +123,7 @@ def _raw_edge(
         contact_b_id=b_id,
         source=source,
         user_approved=user_approved,
+        section_id=section_id,  # type: ignore[arg-type]  # not None in practice
     )
 
 
@@ -196,7 +205,7 @@ async def test_section_scoped_accept_flips_only_in_scope_edges(
     await db_session.flush()
 
     # Four unapproved edges: 2 on A, 2 on B (cross-pair so they're canonical).
-    edge_a1 = _raw_edge(litho, ca1, ca2, user_approved=False)
+    edge_a1 = _raw_edge(litho, ca1, ca2, user_approved=False, section_id=sec_a.id)
     # Add a second edge touching only section-A contacts to give us 2 on A.
     # We re-use ca1 as the pivot and create a "self-cross" via different formations.
     ca3 = _contact(litho, f2, bh_a, depth=5.0)
@@ -205,15 +214,15 @@ async def test_section_scoped_accept_flips_only_in_scope_edges(
     # Extend section A's seeded ids to include ca3.
     sec_a.seeded_formation_contact_ids = [ca1.id, ca2.id, ca3.id]
     await db_session.flush()
-    edge_a2 = _raw_edge(litho, ca2, ca3, user_approved=False)
-    edge_b1 = _raw_edge(litho, cb1, cb2, user_approved=False)
+    edge_a2 = _raw_edge(litho, ca2, ca3, user_approved=False, section_id=sec_a.id)
+    edge_b1 = _raw_edge(litho, cb1, cb2, user_approved=False, section_id=sec_b.id)
     # Second edge on section B — need another contact on bh_c or bh_d.
     cb3 = _contact(litho, f1, bh_c, depth=6.0)
     db_session.add(cb3)
     await db_session.flush()
     sec_b.seeded_formation_contact_ids = [cb1.id, cb2.id, cb3.id]
     await db_session.flush()
-    edge_b2 = _raw_edge(litho, cb2, cb3, user_approved=False)
+    edge_b2 = _raw_edge(litho, cb2, cb3, user_approved=False, section_id=sec_b.id)
 
     db_session.add_all([edge_a1, edge_a2, edge_b1, edge_b2])
     await db_session.commit()
@@ -267,6 +276,11 @@ async def test_model_scoped_accept_flips_everything(
     db_session.add_all([geo, litho, parent, f1, bh_a, bh_b, bh_c, bh_d])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = _section(project, name="Section T2")
+    db_session.add(sec)
+    await db_session.flush()
+
     c1 = _contact(litho, f1, bh_a, depth=3.0)
     c2 = _contact(litho, f1, bh_b, depth=3.0)
     c3 = _contact(litho, f1, bh_c, depth=3.0)
@@ -275,10 +289,10 @@ async def test_model_scoped_accept_flips_everything(
     db_session.add_all([c1, c2, c3, c4])
     await db_session.flush()
 
-    edge1 = _raw_edge(litho, c1, c2, user_approved=False)
-    edge2 = _raw_edge(litho, c2, c3, user_approved=False)
-    edge3 = _raw_edge(litho, c3, c4, user_approved=False)
-    edge4 = _raw_edge(litho, c1, c4, user_approved=False)
+    edge1 = _raw_edge(litho, c1, c2, user_approved=False, section_id=sec.id)
+    edge2 = _raw_edge(litho, c2, c3, user_approved=False, section_id=sec.id)
+    edge3 = _raw_edge(litho, c3, c4, user_approved=False, section_id=sec.id)
+    edge4 = _raw_edge(litho, c1, c4, user_approved=False, section_id=sec.id)
 
     db_session.add_all([edge1, edge2, edge3, edge4])
     await db_session.commit()
@@ -339,6 +353,11 @@ async def test_accept_does_not_auto_fire_lens_detection(
     db_session.add_all([geo, litho, parent, f_cap, f_lens, f_base, f_b, bh_a, bh_b, bh_c])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = _section(project, name="Section T3")
+    db_session.add(sec)
+    await db_session.flush()
+
     c_top = _contact(litho, f_cap, bh_a, depth=2.0)
     c_body = _contact(litho, f_lens, bh_a, depth=4.0)
     c_base = _contact(litho, f_base, bh_a, depth=6.0)
@@ -350,10 +369,18 @@ async def test_accept_does_not_auto_fire_lens_detection(
 
     # Four unapproved edges forming the BILATERAL lens topology —
     # bypass use case to keep them unapproved.
-    edge1 = _raw_edge(litho, c_body, c_single_b, user_approved=False, source="auto")
-    edge2 = _raw_edge(litho, c_base, c_single_b, user_approved=False, source="auto")
-    edge3 = _raw_edge(litho, c_body, c_single_c, user_approved=False, source="auto")
-    edge4 = _raw_edge(litho, c_base, c_single_c, user_approved=False, source="auto")
+    edge1 = _raw_edge(
+        litho, c_body, c_single_b, user_approved=False, source="auto", section_id=sec.id
+    )
+    edge2 = _raw_edge(
+        litho, c_base, c_single_b, user_approved=False, source="auto", section_id=sec.id
+    )
+    edge3 = _raw_edge(
+        litho, c_body, c_single_c, user_approved=False, source="auto", section_id=sec.id
+    )
+    edge4 = _raw_edge(
+        litho, c_base, c_single_c, user_approved=False, source="auto", section_id=sec.id
+    )
     db_session.add_all([edge1, edge2, edge3, edge4])
     await db_session.commit()
 
@@ -406,13 +433,18 @@ async def test_accept_is_idempotent_when_nothing_unapproved(
     db_session.add_all([geo, litho, parent, f1, bh_a, bh_b])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = _section(project, name="Section T4")
+    db_session.add(sec)
+    await db_session.flush()
+
     c1 = _contact(litho, f1, bh_a, depth=3.0)
     c2 = _contact(litho, f1, bh_b, depth=3.0)
     db_session.add_all([c1, c2])
     await db_session.flush()
 
     # Edge already approved.
-    edge = _raw_edge(litho, c1, c2, user_approved=True, source="manual")
+    edge = _raw_edge(litho, c1, c2, user_approved=True, source="manual", section_id=sec.id)
     db_session.add(edge)
     await db_session.commit()
 
@@ -461,14 +493,19 @@ async def test_edge_scoped_accept_flips_only_named_edge(
     db_session.add_all([geo, litho, parent, f1, bh_a, bh_b, bh_c])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = _section(project, name="Section T5")
+    db_session.add(sec)
+    await db_session.flush()
+
     c1 = _contact(litho, f1, bh_a, depth=3.0)
     c2 = _contact(litho, f1, bh_b, depth=3.0)
     c3 = _contact(litho, f1, bh_c, depth=3.0)
     db_session.add_all([c1, c2, c3])
     await db_session.flush()
 
-    target_edge = _raw_edge(litho, c1, c2, user_approved=False)
-    sibling_edge = _raw_edge(litho, c2, c3, user_approved=False)
+    target_edge = _raw_edge(litho, c1, c2, user_approved=False, section_id=sec.id)
+    sibling_edge = _raw_edge(litho, c2, c3, user_approved=False, section_id=sec.id)
     db_session.add_all([target_edge, sibling_edge])
     await db_session.commit()
 
@@ -519,12 +556,17 @@ async def test_edge_scoped_accept_rejects_cross_model_edge(
     db_session.add_all([geo, litho_a, litho_b, parent, f1, bh_a, bh_b])
     await db_session.flush()
 
+    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+    sec = _section(project, name="Section T6")
+    db_session.add(sec)
+    await db_session.flush()
+
     # Both contacts belong to litho_b; the edge therefore belongs to litho_b.
     c1 = _contact(litho_b, f1, bh_a, depth=3.0)
     c2 = _contact(litho_b, f1, bh_b, depth=3.0)
     db_session.add_all([c1, c2])
     await db_session.flush()
-    edge = _raw_edge(litho_b, c1, c2, user_approved=False)
+    edge = _raw_edge(litho_b, c1, c2, user_approved=False, section_id=sec.id)
     db_session.add(edge)
     await db_session.commit()
 

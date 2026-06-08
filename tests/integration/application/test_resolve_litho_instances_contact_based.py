@@ -28,6 +28,7 @@ from uuid6 import uuid7
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -130,17 +131,39 @@ def _layer(
     )
 
 
+def _minimal_section(project: ProjectOrm, *, name: str) -> CrossSectionOrm:
+    """Return an unsaved minimal CrossSectionOrm (just needs to exist for the FK)."""
+    return CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name=name,
+        start_x=100000.0,
+        start_y=200000.0,
+        end_x=200000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+
+
 def _layer_edge(
     model: GeologicalModelOrm,
     la: LithoLayerOrm,
     lb: LithoLayerOrm,
     *,
     user_approved: bool = True,
+    section_id: UUID,
 ) -> LithoContactCorrelationEdgeOrm:
     """Return an unsaved layer-level correlation edge between two layers.
 
     Endpoints FK ``litho_layer.id`` (post-A4). Canonically orders the
     two layer ids to satisfy the DB CHECK constraint.
+
+    Parameters
+    ----------
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
     """
     a_id = min(la.id, lb.id)
     b_id = max(la.id, lb.id)
@@ -151,6 +174,7 @@ def _layer_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=user_approved,
+        section_id=section_id,
     )
 
 
@@ -199,7 +223,11 @@ async def test_approved_edge_forms_one_component_one_body(
     db_session.add_all([la, lb])
     await db_session.flush()
 
-    edge = _layer_edge(litho, la, lb, user_approved=True)
+    sec = _minimal_section(project, name="Sec-RLIC-A")
+    db_session.add(sec)
+    await db_session.flush()
+
+    edge = _layer_edge(litho, la, lb, user_approved=True, section_id=sec.id)
     db_session.add(edge)
     await db_session.commit()
 
@@ -255,8 +283,12 @@ async def test_unapproved_edge_does_not_merge_components(
     db_session.add_all([la, lb])
     await db_session.flush()
 
+    sec = _minimal_section(project, name="Sec-RLIC-B")
+    db_session.add(sec)
+    await db_session.flush()
+
     # user_approved=False — this edge must be invisible to the resolver.
-    unapproved_edge = _layer_edge(litho, la, lb, user_approved=False)
+    unapproved_edge = _layer_edge(litho, la, lb, user_approved=False, section_id=sec.id)
     db_session.add(unapproved_edge)
     await db_session.commit()
 

@@ -22,6 +22,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -110,16 +111,38 @@ def _formation(
     )
 
 
+def _minimal_section(project: ProjectOrm, *, name: str) -> CrossSectionOrm:
+    """Return an unsaved minimal CrossSectionOrm (just needs to exist for the FK)."""
+    return CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name=name,
+        start_x=100000.0,
+        start_y=200000.0,
+        end_x=200000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+
+
 def _contact_edge(
     model: GeologicalModelOrm,
     ca: FormationContactOrm,
     cb: FormationContactOrm,
     *,
     user_approved: bool = True,
+    section_id: UUID,
 ) -> LithoContactCorrelationEdgeOrm:
     """Return an unsaved contact-correlation edge, canonically ordered by id.
 
     The DB CHECK constraint requires ``contact_a_id < contact_b_id``.
+
+    Parameters
+    ----------
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
     """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
@@ -130,6 +153,7 @@ def _contact_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=user_approved,
+        section_id=section_id,
     )
 
 
@@ -179,7 +203,11 @@ async def test_approved_contact_edge_propagates_admixtures(
     db_session.add_all([ca, cb])
     await db_session.flush()
 
-    edge = _contact_edge(litho, ca, cb, user_approved=True)
+    sec = _minimal_section(project, name="Sec-PLAB-T1")
+    db_session.add(sec)
+    await db_session.flush()
+
+    edge = _contact_edge(litho, ca, cb, user_approved=True, section_id=sec.id)
     db_session.add(edge)
     await db_session.commit()
 
@@ -237,8 +265,12 @@ async def test_unapproved_contact_edge_does_not_propagate_admixtures(
     db_session.add_all([ca, cb])
     await db_session.flush()
 
+    sec = _minimal_section(project, name="Sec-PLAB-T2")
+    db_session.add(sec)
+    await db_session.flush()
+
     # user_approved=False — must be invisible to the propagation graph.
-    unapproved_edge = _contact_edge(litho, ca, cb, user_approved=False)
+    unapproved_edge = _contact_edge(litho, ca, cb, user_approved=False, section_id=sec.id)
     db_session.add(unapproved_edge)
     await db_session.commit()
 
@@ -309,8 +341,12 @@ async def test_chain_of_approved_edges_propagates_to_all_formations(
     db_session.add(c2b)
     await db_session.flush()
 
-    edge_12 = _contact_edge(litho, c1, c2, user_approved=True)
-    edge_23 = _contact_edge(litho, c2b, c3, user_approved=True)
+    sec = _minimal_section(project, name="Sec-PLAB-T3")
+    db_session.add(sec)
+    await db_session.flush()
+
+    edge_12 = _contact_edge(litho, c1, c2, user_approved=True, section_id=sec.id)
+    edge_23 = _contact_edge(litho, c2b, c3, user_approved=True, section_id=sec.id)
     db_session.add_all([edge_12, edge_23])
     await db_session.commit()
 

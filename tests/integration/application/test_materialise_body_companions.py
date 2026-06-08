@@ -124,8 +124,16 @@ def _approved_edge(
     model: GeologicalModelOrm,
     ca: FormationContactOrm,
     cb: FormationContactOrm,
+    *,
+    section_id: UUID,
 ) -> LithoContactCorrelationEdgeOrm:
-    """Return an unsaved approved LithoContactCorrelationEdgeOrm."""
+    """Return an unsaved approved LithoContactCorrelationEdgeOrm.
+
+    Parameters
+    ----------
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
+    """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
     return LithoContactCorrelationEdgeOrm(
@@ -135,6 +143,7 @@ def _approved_edge(
         contact_b_id=b_id,
         source="manual",
         user_approved=True,
+        section_id=section_id,
     )
 
 
@@ -142,8 +151,16 @@ def _unapproved_edge(
     model: GeologicalModelOrm,
     ca: FormationContactOrm,
     cb: FormationContactOrm,
+    *,
+    section_id: UUID,
 ) -> LithoContactCorrelationEdgeOrm:
-    """Return an unsaved unapproved LithoContactCorrelationEdgeOrm."""
+    """Return an unsaved unapproved LithoContactCorrelationEdgeOrm.
+
+    Parameters
+    ----------
+    section_id : UUID
+        The section this edge was authored on (NOT NULL post Task 4).
+    """
     a_id = min(ca.id, cb.id)
     b_id = max(ca.id, cb.id)
     return LithoContactCorrelationEdgeOrm(
@@ -153,6 +170,7 @@ def _unapproved_edge(
         contact_b_id=b_id,
         source="auto",
         user_approved=False,
+        section_id=section_id,
     )
 
 
@@ -239,17 +257,17 @@ async def test_gate_pass_creates_companion(
     db_session.add_all([c_a1, c_a2, c_b])
     await db_session.flush()
 
-    # Both contacts on bh_a have an approved edge back to bh_b.
-    e1 = _approved_edge(litho, c_a1, c_b)
-    e2 = _approved_edge(litho, c_a2, c_b)
-    db_session.add_all([e1, e2])
-    await db_session.flush()
-
-    # Primary section seeds all three contacts.
+    # Create the primary section first so edges can reference its id.
     sec = _section(
         project, seeded_contact_ids=[c_a1.id, c_a2.id, c_b.id], name="Sec-MC1", x_offset=0.0
     )
     db_session.add(sec)
+    await db_session.flush()
+
+    # Both contacts on bh_a have an approved edge back to bh_b.
+    e1 = _approved_edge(litho, c_a1, c_b, section_id=sec.id)
+    e2 = _approved_edge(litho, c_a2, c_b, section_id=sec.id)
+    db_session.add_all([e1, e2])
     await db_session.flush()
 
     # Lens points at this section; body_ordinal=0 (resolver not needed here).
@@ -317,12 +335,7 @@ async def test_gate_fail_skips_companion(
     db_session.add_all([c_a, c_orphan, c_b])
     await db_session.flush()
 
-    # Only c_a ↔ c_b is approved; c_orphan is uncorrelated.
-    e1 = _approved_edge(litho, c_a, c_b)
-    db_session.add(e1)
-    await db_session.flush()
-
-    # Primary section seeds all three — c_orphan will fail the gate.
+    # Create the primary section first so edges can reference its id.
     sec = _section(
         project,
         seeded_contact_ids=[c_a.id, c_orphan.id, c_b.id],
@@ -330,6 +343,11 @@ async def test_gate_fail_skips_companion(
         x_offset=1000.0,
     )
     db_session.add(sec)
+    await db_session.flush()
+
+    # Only c_a ↔ c_b is approved; c_orphan is uncorrelated.
+    e1 = _approved_edge(litho, c_a, c_b, section_id=sec.id)
+    db_session.add(e1)
     await db_session.flush()
 
     the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=sec.id)
@@ -434,10 +452,7 @@ async def test_idempotent(
     db_session.add_all([c_a, c_b])
     await db_session.flush()
 
-    edge = _approved_edge(litho, c_a, c_b)
-    db_session.add(edge)
-    await db_session.flush()
-
+    # Create the primary section first so the edge can reference its id.
     sec = _section(
         project,
         seeded_contact_ids=[c_a.id, c_b.id],
@@ -445,6 +460,10 @@ async def test_idempotent(
         x_offset=2000.0,
     )
     db_session.add(sec)
+    await db_session.flush()
+
+    edge = _approved_edge(litho, c_a, c_b, section_id=sec.id)
+    db_session.add(edge)
     await db_session.flush()
 
     the_lens = _lens(project, litho, f_lens, bh_a, body_ordinal=0, primary_section_id=sec.id)
