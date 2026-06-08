@@ -753,13 +753,22 @@ async def _restore_contact_edges(
             dropped += 1
             continue
         # Section guard (owner directive 2026-06-08): edges are section-scoped.
-        # A missing or unknown section_id means this is a legacy bundle saved
-        # before the NOT-NULL column existed — drop cleanly rather than raising.
+        # A missing section_id = legacy bundle saved before the NOT-NULL column
+        # existed (expected, clean-slate drop). An unknown section_id = a section
+        # not in this project (suspicious — a bundle-injection guard, matching
+        # the model/contact guards above). Both drop cleanly rather than raising.
         ce_section_id = _uuid(ce_payload.get("section_id"))
-        if ce_section_id is None or ce_section_id not in valid_section_ids:
+        if ce_section_id is None:
             logger.warning(
-                f"[{i}/{total}] litho contact edge {ce_id}: missing or unknown "
-                f"section_id {ce_section_id} — dropped (section-scoped, clean slate)"
+                f"[{i}/{total}] litho contact edge {ce_id}: no section_id "
+                f"(legacy bundle, pre-NOT-NULL) — dropped (section-scoped clean slate)"
+            )
+            dropped += 1
+            continue
+        if ce_section_id not in valid_section_ids:
+            logger.warning(
+                f"[{i}/{total}] litho contact edge {ce_id}: section_id "
+                f"{ce_section_id} not in this project — dropped (bundle-injection guard)"
             )
             dropped += 1
             continue
@@ -770,7 +779,8 @@ async def _restore_contact_edges(
     if dropped:
         logger.warning(
             f"restore_project_bundle({project_id}): dropped {dropped} "
-            f"litho contact correlation edge(s) (model/contact not in project or missing FK)"
+            f"litho contact correlation edge(s) (model/contact/section not in project, "
+            f"missing FK, or legacy section-less edge)"
         )
     return new_edges, skipped, dropped
 
