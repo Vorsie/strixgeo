@@ -45,7 +45,21 @@ test.describe('flow_correlate', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      // 2. List this model's contacts. Each carries cpt_id / borehole_id — the
+      // 2. Fetch a section id — POST /contact-correlations now requires a
+      //    request_section_id (section-scoped unique constraint).  Any valid
+      //    section in the project will do; the use case only stamps the FK.
+      const sectionsJson = await page.evaluate(
+        async ([base, pid]) => {
+          const r = await fetch(`${base}/projects/${pid}/sections`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID],
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sid: string = (sectionsJson as any[])[0]?.id
+      expect(sid).toBeTruthy()
+
+      // 3. List this model's contacts. Each carries cpt_id / borehole_id — the
       //    anchor investigation. We need two contacts on DIFFERENT anchors for
       //    the happy path and two on the SAME anchor for the rejection path.
       const contactsJson = await page.evaluate(
@@ -94,21 +108,21 @@ test.describe('flow_correlate', () => {
 
       const edgesBefore = await countCorrelationEdges(FIXTURE_PROJECT_ID)
 
-      // 3. Happy path: correlate two contacts on different investigations.
+      // 4. Happy path: correlate two contacts on different investigations.
       if (diffInvPair) {
         const correlateRes = await page.evaluate(
-          async ([base, pid, mid, aId, bId]) => {
+          async ([base, pid, mid, aId, bId, sectionId]) => {
             const r = await fetch(
               `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId }),
+                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId, request_section_id: sectionId }),
               },
             )
             return { status: r.status }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, diffInvPair[0], diffInvPair[1]],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, diffInvPair[0], diffInvPair[1], sid],
         )
         // 201 on new edge, 200 if already exists (idempotent) — both are success.
         expect(correlateRes.status).toBeGreaterThanOrEqual(200)
@@ -124,21 +138,23 @@ test.describe('flow_correlate', () => {
         })
       }
 
-      // 4. Rejection path: two contacts on the SAME investigation return 422.
+      // 5. Rejection path: two contacts on the SAME investigation return 422.
+      //    request_section_id is provided so the section guard passes; the
+      //    same-investigation guard fires immediately after.
       if (sameInvPair) {
         const rejectRes = await page.evaluate(
-          async ([base, pid, mid, aId, bId]) => {
+          async ([base, pid, mid, aId, bId, sectionId]) => {
             const r = await fetch(
               `${base}/projects/${pid}/geology/models/${mid}/contact-correlations`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId }),
+                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId, request_section_id: sectionId }),
               },
             )
             return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sameInvPair[0], sameInvPair[1]],
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sameInvPair[0], sameInvPair[1], sid],
         )
         // The same-investigation guard rejects a self-column correlation.
         expect(rejectRes.status).toBe(422)
