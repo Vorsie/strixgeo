@@ -584,3 +584,84 @@ async def test_edge_scoped_accept_rejects_cross_model_edge(
     row = await db_session.get(LithoContactCorrelationEdgeOrm, edge.id)
     assert row is not None
     assert row.user_approved is False
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Section-scoped accept reads section_id column, not seeded-set
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_accept_scoped_to_section(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Owner directive 2026-06-08: section-scoped accept approves only edges
+    stamped with the target section_id, NOT edges whose both endpoints happen
+    to appear in the section's seeded_formation_contact_ids.
+
+    Setup: one pair of contacts (c1, c2) is seeded on BOTH sections S1 and S2.
+    Edge stamped section_id=S1 is unapproved.
+    Edge stamped section_id=S2 is unapproved.
+    Call execute(section_id=S1) → only the S1 edge flips; S2 edge stays False.
+
+    With the OLD seeded-set code, the contacts appear in S1's seeded list
+    so both edges pass the `contact_a_id.in_(seeded) AND contact_b_id.in_(seeded)`
+    filter regardless of their section_id stamp → the old code would approve
+    both edges (wrong).  The new section_id column filter approves only the
+    one edge with section_id=S1 (correct).
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    parent = _geo_parent(project, name="Quat-t7")
+    f1 = _formation(project, parent, name="ZAND-t7", soil_code="ZAND")
+    bh_a = _borehole(project.id, suffix="T7A", x=190000.0)
+    bh_b = _borehole(project.id, suffix="T7B", x=190500.0)
+
+    db_session.add_all([geo, litho, parent, f1, bh_a, bh_b])
+    await db_session.flush()
+
+    c1 = _contact(litho, f1, bh_a, depth=3.0)
+    c2 = _contact(litho, f1, bh_b, depth=3.0)
+    db_session.add_all([c1, c2])
+    await db_session.flush()
+
+    # Both sections seed the SAME contact pair — so the old seeded-set
+    # intersection admits both edges when scoping to S1.
+    sec_s1 = _section(project, seeded_contact_ids=[c1.id, c2.id], name="Section S1 t7")
+    sec_s2 = _section(project, seeded_contact_ids=[c1.id, c2.id], name="Section S2 t7")
+    db_session.add_all([sec_s1, sec_s2])
+    await db_session.flush()
+
+    # Two edges for the same contact pair, each stamped on a different section.
+    # This represents two independent correlations drawn on different sections.
+    edge_s1 = _raw_edge(litho, c1, c2, user_approved=False, section_id=sec_s1.id)
+    edge_s2 = _raw_edge(litho, c1, c2, user_approved=False, section_id=sec_s2.id)
+    db_session.add_all([edge_s1, edge_s2])
+    await db_session.commit()
+
+    # Accept section S1 only.
+    result = await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        section_id=sec_s1.id,
+    )
+
+    assert result.edges_accepted == 1, (
+        f"Section-scoped accept must approve only the 1 edge stamped "
+        f"section_id=S1; got {result.edges_accepted}"
+    )
+
+    # S1 edge must be approved.
+    row_s1 = await db_session.get(LithoContactCorrelationEdgeOrm, edge_s1.id)
+    assert row_s1 is not None
+    assert row_s1.user_approved is True, "Edge stamped section_id=S1 must be approved"
+
+    # S2 edge must remain unapproved — the key assertion that the new
+    # section_id column filter is in place, not the old seeded-set logic.
+    row_s2 = await db_session.get(LithoContactCorrelationEdgeOrm, edge_s2.id)
+    assert row_s2 is not None
+    assert row_s2.user_approved is False, (
+        "Edge stamped section_id=S2 must stay unapproved when accepting S1 "
+        "(section_id column filter, not seeded-set intersection)"
+    )

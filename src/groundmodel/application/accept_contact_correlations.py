@@ -10,8 +10,9 @@ Scope rules
   is ignored when ``edge_id`` is set.  Surfaced via the right-click menu
   on a single correlation edge (dogfeed 2026-05-31).
 * **Section-scoped** (``section_id`` supplied, ``edge_id=None``): edges
-  where BOTH ``contact_a_id`` and ``contact_b_id`` are in the section's
-  ``seeded_formation_contact_ids`` list AND ``user_approved=False``.
+  whose ``section_id`` column matches the supplied value AND
+  ``user_approved=False``.  The section is scope-checked (404/403 guard)
+  before the query runs.
 * **Model-scoped** (both ``None``): all edges in the model with
   ``user_approved=False``.
 
@@ -75,8 +76,8 @@ class AcceptResult:
 class AcceptContactCorrelations(GroundModelLogger):
     """Approve unapproved contact-correlation edges in scope.
 
-    Scope is section-local when ``section_id`` is supplied (both endpoints
-    must be in the section's ``seeded_formation_contact_ids``); model-wide
+    Scope is section-local when ``section_id`` is supplied (edges whose
+    ``section_id`` column matches the supplied value are approved); model-wide
     otherwise.
 
     After flipping approval, runs ``ResolveLithoInstances`` (to refresh
@@ -107,8 +108,8 @@ class AcceptContactCorrelations(GroundModelLogger):
             The lithostratigraphic model whose edges are being accepted.
         section_id : UUID | None
             When supplied (and ``edge_id`` is ``None``), limits acceptance
-            to edges whose both endpoints are in the section's
-            ``seeded_formation_contact_ids``.
+            to edges whose ``section_id`` column matches this value (i.e.,
+            edges that were authored on this section).
         edge_id : UUID | None
             When supplied, accepts just that one edge (provided it belongs
             to the model and is unapproved). Takes precedence over
@@ -169,19 +170,19 @@ class AcceptContactCorrelations(GroundModelLogger):
                 LithoContactCorrelationEdgeOrm.user_approved.is_(False),
             )
         elif section_id is not None:
-            sec = await load_scoped_or_raise(
+            # Validate the section belongs to the project (404/403 guard).
+            await load_scoped_or_raise(
                 self._session, CrossSectionOrm, section_id, project_id, label="Cross-section"
             )
-            section_contact_ids: set[UUID] = set(sec.seeded_formation_contact_ids or [])
-            self.debug(
-                f"AcceptContactCorrelations: section {section_id} has "
-                f"{len(section_contact_ids)} seeded contact(s)"
-            )
+            # Section-scoped accept (owner directive 2026-06-08): approve only the
+            # unapproved edges AUTHORED on this section. Replaces the old
+            # seeded-set intersection, which broke once classification stopped
+            # populating the seeded set per section — the render gate and the
+            # accept gate now read the SAME section scope.
             in_scope_stmt = select(LithoContactCorrelationEdgeOrm.id).where(
                 LithoContactCorrelationEdgeOrm.model_id == model_id,
                 LithoContactCorrelationEdgeOrm.user_approved.is_(False),
-                LithoContactCorrelationEdgeOrm.contact_a_id.in_(section_contact_ids),
-                LithoContactCorrelationEdgeOrm.contact_b_id.in_(section_contact_ids),
+                LithoContactCorrelationEdgeOrm.section_id == section_id,
             )
         else:
             self.debug("AcceptContactCorrelations: model-scoped accept (no section filter)")
