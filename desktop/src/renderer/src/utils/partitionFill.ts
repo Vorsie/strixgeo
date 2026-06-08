@@ -518,14 +518,15 @@ function buildRightLensPolygon(
  * Every pinch unit lives on ``side`` (the unit is absent on the opposite column,
  * so the interval converges there). One shared apex is placed at fraction ``f``
  * from the pinch side; each stacked pinch becomes a sub-triangle to the apex, and
- * the enclosing matrix (where present) closes the interval beyond the apex via
- * the merged contact apex→conv. This handles every one-sided case uniformly:
+ * a SINGLE matrix extension closes the wedge beyond the apex:
  *
- *   - interior (matrix above AND below) → apex at mid-elevation, 2 extensions;
- *   - surface (no matrix above)         → apex on the surface, 1 extension below;
- *   - floor   (no matrix below)         → apex on the floor, 1 extension above.
+ *   - matrix above present → apex on the BASE interface; the above matrix
+ *     descends to fill the wedge while the unit BELOW keeps its flat correlated
+ *     top (no extension for it);
+ *   - no matrix above (surface) → apex on the TOP interface (surface); the
+ *     below matrix rises to fill.
  *
- * The result tiles exactly (N pinch sub-triangles + up to 2 matrix triangles all
+ * The result tiles exactly (N pinch sub-triangles + one matrix triangle all
  * share the apex), so the pinch tips mid-gap (no droop to the neighbour) while
  * the fill stays hole-free. Two-sided (interfingering) intervals are NOT handled
  * here — the caller routes those to ``emitInterval``.
@@ -560,21 +561,16 @@ function emitOneSidedPinch(
   f: number,
 ): PartitionRegion[] {
   const apexFraction = side === 'left' ? f : 1 - f
-  // Apex elevation: mid of the interval when matrix exists on BOTH sides
-  // (interior); ON the top interface when there is no matrix above (a surface
-  // unit pinches by its base rising to the surface); ON the base interface when
-  // there is no matrix below (a floor unit pinches by its top descending).
-  let apexElev: number
-  if (above && below) {
-    apexElev =
-      (ifaceElev(topIface, apexFraction, leftSurface, rightSurface) +
-        ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)) /
-      2
-  } else if (!above) {
-    apexElev = ifaceElev(topIface, apexFraction, leftSurface, rightSurface)
-  } else {
-    apexElev = ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)
-  }
+  // The vacated wedge beyond the pinch is filled by ONE matrix: the ABOVE
+  // matrix if it exists (it descends; the unit BELOW keeps its flat correlated
+  // top), otherwise the BELOW matrix (it rises to the surface). The apex sits on
+  // the interface of the FLAT side — the base interface when a matrix fills from
+  // above, the top interface (surface) when it fills from below (owner directive
+  // 2026-06-08: "the correlated layer stays flat, the layer above fills the
+  // pinch-out wedge — no green above the arrow").
+  const apexElev = above
+    ? ifaceElev(baseIface, apexFraction, leftSurface, rightSurface)
+    : ifaceElev(topIface, apexFraction, leftSurface, rightSurface)
   const apex: PartitionPoint = { fraction: apexFraction, elevation: apexElev }
 
   const pinchFrac = side === 'left' ? 0 : 1
@@ -602,13 +598,14 @@ function emitOneSidedPinch(
     const base: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - p.ownBaseDepth }
     out.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'pinch', polygon: [top, apex, base] })
   }
-  // Matrix extensions close the interval beyond the apex (the merged contact
-  // runs apex→conv). Present only on the side(s) that have a matrix quad.
+  // One matrix extension closes the wedge beyond the apex (merged contact
+  // apex→conv). The ABOVE matrix descends to fill (so the unit below keeps its
+  // flat correlated top — no extension for it); only at the surface, where there
+  // is no matrix above, does the BELOW matrix rise to fill.
   if (above) {
     const topCorner: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - topPinchDepth }
     out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
-  }
-  if (below) {
+  } else if (below) {
     const baseCorner: PartitionPoint = { fraction: pinchFrac, elevation: pinchSurface - basePinchDepth }
     out.push({ formationId: below.formationId, bodyId: below.bodyId, kind: 'quad', polygon: [baseCorner, apex, conv] })
   }
