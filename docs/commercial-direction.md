@@ -102,19 +102,39 @@ Pick a slice through the project, see the investigations projected
 on it, draw/edit formation tops between them — the edits commit to
 the geological model, not to the section. The section is a view.
 
-**Explicit-content invariant (owner directive 2026-05-17): nothing
-appears on a section without the user clicking a button on that
-section.** A freshly-drawn section shows investigations only — zero
-formation contacts. Formation content appears only where the user
-has explicitly seeded or drawn it; the ids of those contacts are
-stored in ``cross_section.seeded_formation_contact_ids`` (PostgreSQL
-UUID array, empty on create). ``SectionsCanvas`` filters
-``axisContacts`` to ``seeded_formation_contact_ids`` at the prop
-boundary before passing to ``SectionPanel`` — the Build/TIN path is
-unaffected (it still consumes all model contacts for Delaunay). The
-filtering is stale-id-tolerant: a contact deleted from the model
-after being seeded is simply absent from ``axisContacts`` — filter
-by id-membership skips it silently.
+**Classification follows the test (owner directive 2026-06-08 —
+supersedes the 2026-05-17 explicit-content directive FOR
+CLASSIFICATION).** A test's classification — its geological
+formation contacts and its accepted litho layers — is a property of
+the borehole/CPT in the ground model, not of any cross-section.
+Every section whose corridor contains a test shows that test's full
+classification **automatically**, with no per-section seeding step.
+So a test is classified **once** and that classification renders on
+every section through it. ``SectionsCanvas`` filters ``axisContacts``
+to the section's **in-corridor investigation set** (the CPTs +
+boreholes the section projects within ``projection_buffer_m``, minus
+its exclusion lists — ``inCorridorInvestigationIds`` in
+``utils/sectionClassification.ts``) at the prop boundary; the backend
+``build_section_snapshot`` applies the same in-corridor filter for
+DXF/PDF export. The filter is stale-anchor-tolerant: a contact whose
+anchor isn't projected (out of corridor, excluded, or deleted) is
+skipped silently. The Build/TIN path is unaffected (it still consumes
+all model contacts for Delaunay).
+
+The reversal closes a data-integrity hole: a blank fresh section
+tempted the user to re-classify, landing a second, slightly-different
+boundary set on the same test. Auto-showing the existing
+classification removes that temptation.
+
+``cross_section.seeded_formation_contact_ids`` (PostgreSQL UUID array,
+empty on create) is **kept** — it rides the ``.gmproj`` bundle for
+backwards-compat and the accept/seed/draw flows still maintain it —
+but it **no longer gates classification rendering**. The
+explicit-content invariant now applies to **correlations** only:
+correlations are relational and built per section, so they still
+appear only where the user creates them (correlation creation and the
+auto-correlate adjacency are unchanged). See
+``docs/superpowers/specs/2026-06-08-classification-follows-the-test-design.md``.
 
 **Stratigraphic order — `display_order` is the age axis.** Lower
 `display_order` = older formation (deeper in the stratigraphic
@@ -172,11 +192,13 @@ geological model has formations, (b) places formation CONTACTS only —
 for the formations the user has kept — at each in-corridor investigation,
 AND records each created contact id into ``cross_section.
 seeded_formation_contact_ids`` (union pattern — idempotent re-runs add
-only genuinely-new ids), (c) contacts NOT in that set are invisible on
-this section (the explicit-content invariant — see paragraph above),
-(d) renders them as the dashed connect-the-dots fallback, never solid TIN
-bands, (e) never creates formations and never triggers a Delaunay/TIN
-build. Surface build remains a separate explicit action ("Build model" /
+only genuinely-new ids; kept for bundle compat, no longer the render
+gate), (c) those contacts are placed at in-corridor investigations, so
+they render automatically under "classification follows the test" (see
+paragraph above) — the seed step now just creates the contacts; it is
+no longer what makes them visible, (d) renders them as the dashed
+connect-the-dots fallback, never solid TIN bands, (e) never creates
+formations and never triggers a Delaunay/TIN build. Surface build remains a separate explicit action ("Build model" /
 the Geology stage). This supersedes the earlier rule that listed
 "Auto-populate from boreholes" on the section as a build-shaped intent
 with retained auto-recompute. Dedupe's behaviour is unchanged.**
