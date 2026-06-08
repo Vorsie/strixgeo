@@ -1411,9 +1411,11 @@ export const geologyClient = {
   listContactCorrelations: (
     projectId: string,
     modelId: string,
-    // Optional section scope (debt #3): when given, only edges whose BOTH
-    // endpoints sit on the section's columns are returned — the auto-correlate
-    // pre-check counts this section's suggestions, not the whole model's.
+    // Optional section scope (owner directive 2026-06-08): when given, only
+    // edges AUTHORED on this section (edge.section_id === sectionId) are
+    // returned — so the section view renders only its own ribbons and the
+    // auto-correlate pre-check counts this section's suggestions, not the
+    // whole model's.
     sectionId?: string | null,
   ): Promise<LithoContactCorrelationEdge[]> =>
     get(
