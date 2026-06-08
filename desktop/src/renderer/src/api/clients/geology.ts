@@ -722,6 +722,7 @@ export interface LithoContactCorrelationEdge {
   contact_a_id: string
   contact_b_id: string
   model_id: string
+  section_id: string
   source: string
   user_approved: boolean
   created_at: string
