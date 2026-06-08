@@ -393,19 +393,23 @@ export default function SectionsCanvas(): JSX.Element {
     }
     log.debug(
       'section',
-      `listContactCorrelations: GET project=${project.id} model=${lithoModelId}`,
+      `listContactCorrelations: GET project=${project.id} model=${lithoModelId} section=${selectedSectionId}`,
     )
     try {
-      const edges = await api.geology.listContactCorrelations(project.id, lithoModelId)
+      const edges = await api.geology.listContactCorrelations(
+        project.id,
+        lithoModelId,
+        selectedSectionId,
+      )
       setContactCorrelationEdges(edges)
       log.debug(
         'section',
-        `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`,
+        `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
       log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
     }
-  }, [lithoModelId, project.id])
+  }, [lithoModelId, project.id, selectedSectionId])
 
   useEffect(() => {
     if (!isLitho) {
