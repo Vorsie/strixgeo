@@ -600,13 +600,22 @@ async def _restore_contact_edges(
 ) -> tuple[int, int, int]:
     """Insert litho contact correlation edge rows from the bundle.
 
-    Restored AFTER geological_models exist (model_id FK must resolve).
+    Restored AFTER geological_models exist (model_id FK must resolve) and
+    AFTER cross-sections are restored (Phase 6), so ``valid_section_ids``
+    built from the DB here always includes the sections the edges reference.
+
     Both endpoints (contact_a_id, contact_b_id) FK ``litho_layer.id`` post-A4,
     so they must resolve to a litho_layer (or its mirrored formation_contact)
     belonging to this project's models. A canonical v4 litho-native bundle
     emits ``contacts: []`` and carries the endpoints as ``litho_layers``, so
     the valid-endpoint set unions both id spaces (FC + LL, from DB + payload)
     rather than relying on the FC↔LL mirror trigger firing before validation.
+
+    Edges whose ``section_id`` is absent or not a section belonging to this
+    project are silently dropped (clean-slate owner directive 2026-06-08).
+    This makes legacy bundles saved before the section_id column was NOT NULL
+    safe to open — their cross-section-less edges are discarded rather than
+    causing a NOT-NULL violation.
 
     This restore block does NOT touch seeded_formation_contact_ids on any
     cross-section row — structural proof that the #57/applyUpdatedSection
@@ -633,6 +642,20 @@ async def _restore_contact_edges(
     tuple[int, int, int]
         ``(new_edges, skipped_edges, dropped_edges)``.
     """
+    # Cross-sections are restored in Phase 6 (before this Phase 10 call), so
+    # querying the DB here always returns the project's sections even on a
+    # cold restore.  No payload-side union is needed because sections carry
+    # their own restore phase and are committed before edges are validated.
+    valid_section_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     valid_contact_ids: set[UUID] = set(
         (
             await session.execute(
@@ -726,6 +749,17 @@ async def _restore_contact_edges(
             logger.warning(
                 f"[{i}/{total}] litho contact edge {ce_id}: contact "
                 f"endpoint(s) not present in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        # Section guard (owner directive 2026-06-08): edges are section-scoped.
+        # A missing or unknown section_id means this is a legacy bundle saved
+        # before the NOT-NULL column existed — drop cleanly rather than raising.
+        ce_section_id = _uuid(ce_payload.get("section_id"))
+        if ce_section_id is None or ce_section_id not in valid_section_ids:
+            logger.warning(
+                f"[{i}/{total}] litho contact edge {ce_id}: missing or unknown "
+                f"section_id {ce_section_id} — dropped (section-scoped, clean slate)"
             )
             dropped += 1
             continue

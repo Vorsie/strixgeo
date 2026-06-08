@@ -1726,6 +1726,335 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
 
 
 # ---------------------------------------------------------------------------
+# Section-scoped correlation edges round-trip (Task 7 — section_id column)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_roundtrips_edge_section_id(db_session: AsyncSession) -> None:
+    """build → wipe → restore preserves the section_id on a correlation edge.
+
+    A project with one litho model, two litho layers, one cross-section,
+    and one edge stamped with that section is bundled then restored onto a
+    clean DB.  The restored edge must carry the SAME section_id — NULL
+    here would mean the column was stripped somewhere in the round-trip and
+    the FK NOT-NULL constraint would blow up on next use.
+    """
+    from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH2
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    bh = (
+        await db_session.execute(select(_BH2).where(_BH2.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="SAND-section-id",
+        color="#aabbcc",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    geo_parent = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo parent SID",
+        kind="geological",
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho model SID",
+        kind="lithostratigraphic",
+        is_active=True,
+        excluded_borehole_ids=[],
+        parent_geological_model_id=geo_parent.id,
+    )
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Sec-SID",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=165000.0,
+        end_y=215000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add_all([formation, geo_parent, model, section])
+    await db_session.flush()
+
+    contact_a = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=1.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    contact_b = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=4.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    db_session.add_all([contact_a, contact_b])
+    await db_session.flush()
+
+    a_id, b_id = sorted([contact_a.id, contact_b.id])
+    edge = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=model.id,
+        section_id=section.id,
+        contact_a_id=a_id,
+        contact_b_id=b_id,
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(edge)
+    await db_session.commit()
+    original_section_id = section.id
+    original_edge_id = edge.id
+
+    # ---- Build: section_id is in the bundled edge dict ----------------------
+    bundle = await build_project_bundle(db_session, source)
+    bundled_edges = bundle["litho_contact_correlation_edges"]
+    assert len(bundled_edges) == 1
+    assert bundled_edges[0]["section_id"] == str(original_section_id), (
+        "bundle must carry section_id on the edge dict"
+    )
+
+    # ---- Wipe ----------------------------------------------------------------
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm as _FC2,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm as _E,
+    )
+
+    await db_session.execute(delete(_E).where(_E.model_id == model.id))
+    await db_session.execute(delete(_FC2).where(_FC2.model_id == model.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore -------------------------------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        cross_sections_payload=bundle["cross_sections"],
+        litho_contact_correlation_edges_payload=bundle["litho_contact_correlation_edges"],
+    )
+    await db_session.commit()
+
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm as _E2,
+    )
+
+    restored_edges = list(
+        (await db_session.execute(select(_E2).where(_E2.id == original_edge_id))).scalars().all()
+    )
+    assert len(restored_edges) == 1, "edge must be restored"
+    assert restored_edges[0].section_id == original_section_id, (
+        "section_id must survive the bundle JSON round-trip"
+    )
+
+
+async def test_restore_drops_edge_without_section_id(db_session: AsyncSession) -> None:
+    """A bundle edge dict missing section_id (legacy) is silently dropped.
+
+    Restore must not raise, and zero edge rows appear in the DB.
+    """
+    from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH3
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    bh = (
+        await db_session.execute(select(_BH3).where(_BH3.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="CLAY-no-section",
+        color="#334455",
+        display_order=0,
+        litho_main_soil_code="KL",
+    )
+    geo_parent = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo parent NS",
+        kind="geological",
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho model NS",
+        kind="lithostratigraphic",
+        is_active=True,
+        excluded_borehole_ids=[],
+        parent_geological_model_id=geo_parent.id,
+    )
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Sec-NS",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=165000.0,
+        end_y=215000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        seeded_formation_contact_ids=[],
+    )
+    db_session.add_all([formation, geo_parent, model, section])
+    await db_session.flush()
+
+    contact_a = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    contact_b = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=5.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    db_session.add_all([contact_a, contact_b])
+    await db_session.flush()
+
+    a_id, b_id = sorted([contact_a.id, contact_b.id])
+    edge = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=model.id,
+        section_id=section.id,
+        contact_a_id=a_id,
+        contact_b_id=b_id,
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(edge)
+    await db_session.commit()
+
+    bundle = await build_project_bundle(db_session, source)
+
+    # Simulate a legacy bundle by stripping section_id from the edge dict.
+    legacy_edge_payload = dict(bundle["litho_contact_correlation_edges"][0])
+    del legacy_edge_payload["section_id"]
+
+    # Also test with an unknown (alien) section_id — must also be dropped.
+    alien_edge_payload = dict(bundle["litho_contact_correlation_edges"][0])
+    alien_edge_payload["id"] = str(uuid7())
+    alien_edge_payload["section_id"] = str(uuid7())  # not in this project
+
+    # ---- Wipe ----------------------------------------------------------------
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm as _FC3,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm as _E3,
+    )
+
+    await db_session.execute(delete(_E3).where(_E3.model_id == model.id))
+    await db_session.execute(delete(_FC3).where(_FC3.model_id == model.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore with legacy (no section_id) and alien section_id edges -----
+    # Must not raise; both edges must be silently dropped.
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        cross_sections_payload=bundle["cross_sections"],
+        litho_contact_correlation_edges_payload=[legacy_edge_payload, alien_edge_payload],
+    )
+    await db_session.commit()
+
+    from groundmodel.infrastructure.db.models.geological_model_orm import (
+        GeologicalModelOrm as _GM,
+    )
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm as _E4,
+    )
+
+    # Find the restored model to scope the query.
+    restored_models = list(
+        (await db_session.execute(select(_GM).where(_GM.app_project_id == source.id)))
+        .scalars()
+        .all()
+    )
+    all_model_ids = {m.id for m in restored_models}
+
+    all_edges = list(
+        (await db_session.execute(select(_E4).where(_E4.model_id.in_(all_model_ids))))
+        .scalars()
+        .all()
+    )
+    assert len(all_edges) == 0, (
+        "edges with missing or unknown section_id must be dropped, not restored"
+    )
+
+
+# ---------------------------------------------------------------------------
 # parent_geo_contact_id round-trip (#162 Task 2)
 # ---------------------------------------------------------------------------
 
