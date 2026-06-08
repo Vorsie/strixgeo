@@ -295,6 +295,26 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
+  // GAP1 — a column whose accepted layers carry a DEPTH GAP must still tile
+  // with no hole: the gap is closed (unit base snapped to the next unit's top)
+  // before tiling, matching the litho-band rendering (dogfeed 2026-06-08, S13).
+  it('GAP1: a column with a depth gap is closed → no hole in the fill', () => {
+    // left has a GAP: silt ends at 7 but clay starts at 9 (a missing 7–9 m).
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'sand', b: 'sand' },
+      { top: 5, base: 7, f: 'silt', b: 'silt' },
+      { top: 9, base: 14, f: 'clay', b: 'clay' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'sand', b: 'sand' },
+      { top: 5, base: 14, f: 'clay', b: 'clay' },
+    ])
+    const regions = computePartitionFill(left, right)
+    // No hole: the regions cover the column contiguously (the 7–9 m gap is
+    // absorbed by the silt extending down to the clay top).
+    assertTiles(regions, left, right)
+  })
+
   // -----------------------------------------------------------------------
   // PF2 — A left-only body (lens) tiles with its surrounding quads
   // -----------------------------------------------------------------------
