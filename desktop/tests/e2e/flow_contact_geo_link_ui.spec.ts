@@ -96,22 +96,29 @@ test.describe('flow_contact_geo_link_ui', () => {
       )
       await expect(strip).toBeVisible({ timeout: 15_000 })
 
-      // Right-click the strip via a NATIVE mouse event at its centre. A
-      // dispatchEvent('contextmenu') works on the FIRST open, but once the link
-      // commits and the strip re-renders, React's onContextMenu no longer fires
-      // for a SYNTHETIC event on the replacement DOM node — only a trusted
-      // native event does. (The portalled menu ITEMS still take dispatchEvent —
-      // they aren't re-created between open and click.)
+      // Right-click the strip at the TOP EDGE of its bounding box (1 px below
+      // y=box.y). The classification-follows-the-test feature (2026-06-08)
+      // renders ALL in-corridor contacts per section — a Robertson-segmented
+      // strip created by an earlier spec at depth ~2.5 m (closer to the
+      // surface in TAW elevation) may overlap bk4's strip. The bk4 strip is
+      // the UPPER element (shallower depth → higher on the y-axis); clicking at
+      // box.y + 1 px (top edge) hits the non-overlapping zone.  A native mouse
+      // event is required because after the link commits and React re-renders
+      // the strip, dispatchEvent('contextmenu') no longer reaches the updated
+      // React fiber's onContextMenu handler (the replacement DOM node has a
+      // fresh fiber that the synthetic-event path misses).
       const rightClickStrip = async (): Promise<void> => {
         const box = await strip.boundingBox()
         if (!box) throw new Error('contact drag-strip has no bounding box')
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
+        await page.mouse.click(box.x + box.width / 2, box.y + 1, { button: 'right' })
       }
 
       // --- Link: right-click → "Link to geology" (uncoupled → coupled). ---
       await rightClickStrip()
       await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 5_000 })
-      await page.getByTestId('link-geo-menu-item').dispatchEvent('click')
+      // Use native .click() on the menu item — dispatchEvent('click') is a
+      // synthetic event that may not trigger React's event handler in Electron.
+      await page.getByTestId('link-geo-menu-item').click()
       await expect(page.getByTestId('contact-context-menu')).toBeHidden({ timeout: 5_000 })
 
       // --- Unlink: right-click again → "Unlink from geology" now appears. ---
@@ -127,7 +134,7 @@ test.describe('flow_contact_geo_link_ui', () => {
         // Coupled now → Unlink is offered (and Link is not).
         await expect(page.getByTestId('unlink-geo-menu-item')).toBeVisible({ timeout: 1_000 })
       }).toPass({ timeout: 20_000 })
-      await page.getByTestId('unlink-geo-menu-item').dispatchEvent('click')
+      await page.getByTestId('unlink-geo-menu-item').click()
       await expect(page.getByTestId('contact-context-menu')).toBeHidden({ timeout: 5_000 })
     } finally {
       await closeApp(app)
