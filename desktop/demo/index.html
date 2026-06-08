@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Partition fill — current vs target</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+        font: 14px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+        padding: 24px;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .sub { color: #94a3b8; margin: 0 0 20px; font-size: 13px; }
+      .fixture { margin-bottom: 28px; border-top: 1px solid #1e293b; padding-top: 16px; }
+      .fixture h2 { font-size: 15px; margin: 0 0 2px; }
+      .fixture .cap { color: #94a3b8; font-size: 12px; margin: 0 0 10px; }
+      .panels { display: flex; gap: 24px; flex-wrap: wrap; }
+      .panel { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 10px; }
+      .panel .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 6px; }
+      .panel.now .label { color: #f87171; }
+      .panel.target .label { color: #34d399; }
+      svg { display: block; background: #0b1220; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./partition-demo.ts"></script>
+  </body>
+</html>
