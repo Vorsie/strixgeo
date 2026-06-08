@@ -1,16 +1,25 @@
-// P2 explicit-content invariant tests.
+// Section contact-filtering tests — "classification follows the test".
 //
-// Owner directive 2026-05-17: nothing appears on a section without the user
-// clicking a button on that section. These tests verify:
+// Owner directive 2026-06-08 (supersedes the 2026-05-17 explicit-content
+// directive FOR CLASSIFICATION): a section shows the geological contacts +
+// accepted litho of EVERY test in its corridor, automatically, with no
+// per-section seeding. A test is classified once and that classification
+// renders on every section through it. The explicit-content invariant now
+// applies to correlations only (out of scope here, unchanged). These tests
+// verify the in-corridor render gate:
 //
-//   1. Never-seeded section (seeded_formation_contact_ids = []) â†’ SectionPanel
-//      receives zero formation contacts.
-//   2. Seeded section (seeded_formation_contact_ids = [c1]) â†’ SectionPanel
-//      receives only that contact, even though the model has more.
-//   3. applyUpdatedSection (P2-G/P2-H) replaces the section by id in local
-//      state so the seeded set is immediately current on the next render.
-//   4. Build/TIN path (axisContacts) is unaffected â€” the full model contact
-//      list remains available regardless of the section's seeded set.
+//   C1. In-corridor contacts render even with an EMPTY seeded set — the
+//       reversal: classification follows the test, not the seed step.
+//   C2. A contact whose anchor projects OUTSIDE the corridor (beyond the
+//       projection buffer) does NOT render — the surviving half of the
+//       filter (a section only shows what it actually projects).
+//   C3. A contact whose anchor is EXCLUDED on the section is dropped, and a
+//       contact whose anchor investigation is absent from the visible lists
+//       is silently skipped (no crash).
+//   T4/T4b. applyUpdatedSection still replaces the section by id (the seeded
+//       set rides the bundle for compat; the mechanism is unchanged).
+//   T5/T6/M1/M2. The seed/draw/manual-litho flows still thread the section id
+//       and refresh the row — harmless now, kept for compat.
 //
 // SectionPanel is mocked so the test captures the props it receives.
 // MapView is mocked because Leaflet requires a real DOM.
@@ -150,6 +159,33 @@ function makeContact(id: string): FormationContactResponse {
   }
 }
 
+// A minimal in-corridor borehole matching makeContact's default anchor
+// (``borehole_id: 'bh-1'``). The render gate only reads id/location_x/location_y;
+// the rest are filled to satisfy the BoreholeListItem type.
+function makeBorehole(
+  id = 'bh-1',
+  location_x = 50,
+  location_y = 0,
+): ShellContextValue['visibleBoreholes'][0] {
+  return {
+    id,
+    name: id,
+    test_id: id,
+    location_x,
+    location_y,
+    epsg: 31370,
+    elevation_m: null,
+    z_epsg: null,
+    elevation_source: 'none',
+    drill_method: null,
+    borehole_type: null,
+    total_depth_m: null,
+    start_date: null,
+    n_drill_segments: null,
+    n_field_log_intervals: null,
+  }
+}
+
 function makeSection(overrides?: Partial<ShellContextValue['sections']['sections'][0]>) {
   return {
     id: 'sec-1',
@@ -196,11 +232,15 @@ function makeStubContext(overrides?: {
   contacts?: FormationContactResponse[]
   lithoModel?: GeologicalModelResponse | null
   sectionModelAxis?: 'geological' | 'lithostratigraphic'
+  visibleCpts?: ShellContextValue['visibleCpts']
+  visibleBoreholes?: ShellContextValue['visibleBoreholes']
 }): ShellContextValue {
   const section = overrides?.section ?? makeSection()
   const contacts = overrides?.contacts ?? []
   const lithoModel = overrides?.lithoModel !== undefined ? overrides.lithoModel : null
   const sectionModelAxis = overrides?.sectionModelAxis ?? 'geological'
+  const visibleCpts = overrides?.visibleCpts ?? []
+  const visibleBoreholes = overrides?.visibleBoreholes ?? []
   const applyUpdatedSection = vi.fn()
 
   return {
@@ -273,8 +313,8 @@ function makeStubContext(overrides?: {
       handleBboxDrawn: noopAsync,
       pendingCptPins: [],
     },
-    visibleCpts: [],
-    visibleBoreholes: [],
+    visibleCpts,
+    visibleBoreholes,
     geoModel: {
       activeGeologicalModel: null,
       models: [],
@@ -496,64 +536,68 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('P2 explicit-content invariant â€” SectionsCanvas contact filtering', () => {
-  it('T1: never-seeded section passes zero contacts to SectionPanel', () => {
-    // The model has two contacts but the section's seeded set is empty.
-    // P2-F must filter axisContacts â†’ sectionContacts = [] before passing
-    // to SectionPanel, so a never-seeded section shows no formation content.
-    const c1 = makeContact('contact-aaa')
-    const c2 = makeContact('contact-bbb')
+describe('Section contact filtering â€” classification follows the test', () => {
+  it('C1: in-corridor contacts render even with an EMPTY seeded set', () => {
+    // The reversal: both contacts are anchored to bh-1, which projects into
+    // the section corridor. The seeded set is empty, yet both render â€” a test
+    // is classified once and appears on every section through it.
+    const c1 = makeContact('contact-aaa') // anchor bh-1
+    const c2 = makeContact('contact-bbb') // anchor bh-1
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
       contacts: [c1, c2],
+      visibleBoreholes: [makeBorehole('bh-1', 50, 0)], // in corridor
     })
     render(
       <ShellContext.Provider value={ctx}>
         <SectionsCanvas />
       </ShellContext.Provider>,
     )
-    // SectionPanel receives no contacts even though the model has two.
+    // Both contacts show despite zero seeded ids.
+    expect(capturedContacts).toHaveLength(2)
+    expect(new Set(capturedContacts?.map(c => c.id))).toEqual(
+      new Set(['contact-aaa', 'contact-bbb']),
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('C2: a contact whose anchor projects OUTSIDE the corridor does NOT render', () => {
+    // bh-1 sits 200 m off the line; the 50 m projection buffer excludes it,
+    // so its contact is not on this section even though the model holds it.
+    const c1 = makeContact('contact-aaa') // anchor bh-1
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      contacts: [c1],
+      visibleBoreholes: [makeBorehole('bh-1', 50, 200)], // offset 200 > 50 buffer
+    })
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
     expect(capturedContacts).toEqual([])
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('T2: section with one seeded id passes only that contact to SectionPanel', () => {
-    // seeded_formation_contact_ids = [c1.id] â†’ only c1 passes through P2-F.
-    // c2 exists in the model but is not on this section.
-    const c1 = makeContact('contact-aaa')
-    const c2 = makeContact('contact-bbb')
-    const ctx = makeStubContext({
-      section: makeSection({ seeded_formation_contact_ids: ['contact-aaa'] }),
-      contacts: [c1, c2],
-    })
-    render(
-      <ShellContext.Provider value={ctx}>
-        <SectionsCanvas />
-      </ShellContext.Provider>,
-    )
-    expect(capturedContacts).toHaveLength(1)
-    expect(capturedContacts?.[0].id).toBe('contact-aaa')
-    expect(consoleErrorSpy).not.toHaveBeenCalled()
-  })
-
-  it('T3: stale id in seeded set (contact deleted from model) is silently skipped', () => {
-    // seeded_formation_contact_ids includes a ghost id that no longer exists
-    // in axisContacts â€” the filter must not crash and must skip the ghost.
-    const c1 = makeContact('contact-aaa')
+  it('C3: an excluded or unknown anchor is silently skipped (no crash)', () => {
+    // c1's anchor bh-1 is explicitly excluded on the section; c2's anchor
+    // bh-missing has no matching visible borehole. Both drop out, no crash.
+    const c1 = makeContact('contact-aaa') // anchor bh-1 (excluded)
+    const c2 = { ...makeContact('contact-bbb'), borehole_id: 'bh-missing' }
     const ctx = makeStubContext({
       section: makeSection({
-        seeded_formation_contact_ids: ['contact-aaa', 'ghost-id-999'],
+        seeded_formation_contact_ids: ['contact-aaa'], // seeded, but excluded anchor wins
+        excluded_borehole_ids: ['bh-1'],
       }),
-      // model only has c1; ghost-id-999 is missing â†’ silently dropped
-      contacts: [c1],
+      contacts: [c1, c2],
+      visibleBoreholes: [makeBorehole('bh-1', 50, 0)], // in corridor but excluded
     })
     render(
       <ShellContext.Provider value={ctx}>
         <SectionsCanvas />
       </ShellContext.Provider>,
     )
-    expect(capturedContacts).toHaveLength(1)
-    expect(capturedContacts?.[0].id).toBe('contact-aaa')
+    expect(capturedContacts).toEqual([])
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
