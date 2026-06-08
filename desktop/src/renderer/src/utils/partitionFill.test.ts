@@ -657,6 +657,47 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
+  // NONOVERLAP — two same-lithology minorities at DIFFERENT depths stay as two
+  // separate lenses (NOT merged into one band). Each silt is enclosed by the
+  // sand matrix on its OWN column at its OWN level; they do not align, so they
+  // pinch out independently while the sand connects across as the band.
+  // -----------------------------------------------------------------------
+  it('NONOVERLAP: same-lithology minorities at different depths stay separate lenses', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 't' }, // correlated bracket
+      { top: 2, base: 4, f: 'SAND', b: 'lsa' }, // matrix
+      { top: 4, base: 5, f: 'SILT', b: 'l-silt' }, // enclosed lens (shallow)
+      { top: 5, base: 10, f: 'SAND', b: 'lsb' }, // matrix
+      { top: 10, base: 12, f: 'CLAY', b: 'b' }, // correlated bracket
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 't' },
+      { top: 2, base: 7, f: 'SAND', b: 'rsa' },
+      { top: 7, base: 8, f: 'SILT', b: 'r-silt' }, // enclosed lens (deeper)
+      { top: 8, base: 10, f: 'SAND', b: 'rsb' },
+      { top: 10, base: 12, f: 'CLAY', b: 'b' },
+    ])
+    const regions = computePartitionFill(left, right)
+    // Two separate silt lenses, not one spanning band.
+    const silts = regions.filter((r) => r.formationId === 'SILT')
+    expect(silts).toHaveLength(2)
+    expect(silts.every((r) => r.kind === 'lens')).toBe(true)
+    // Their apexes sit at distinct (own) elevations (−4.5 vs −7.5), so neither spans.
+    const apexElevs = silts.map((r) => r.polygon.find((p) => p.fraction > 0 && p.fraction < 1)!.elevation)
+    expect(Math.abs(apexElevs[0] - apexElevs[1])).toBeGreaterThan(1)
+    // The sand matrix connects across as a band.
+    const sandSpans = regions.some(
+      (r) =>
+        r.formationId === 'SAND' &&
+        r.kind === 'quad' &&
+        Math.min(...r.polygon.map((p) => p.fraction)) < 0.01 &&
+        Math.max(...r.polygon.map((p) => p.fraction)) > 0.99,
+    )
+    expect(sandSpans).toBe(true)
+    assertTiles(regions, left, right)
+  })
+
+  // -----------------------------------------------------------------------
   // PF5 — Empty left column
   // -----------------------------------------------------------------------
   it('PF5 — empty left column returns []', () => {
