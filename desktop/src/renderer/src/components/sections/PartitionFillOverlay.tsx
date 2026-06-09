@@ -396,9 +396,16 @@ export default function PartitionFillOverlay({
       const rawY = e.clientY - (rect?.top ?? 0)
       // 1 px margin on each bound avoids zero-height upper or lower body.
       const clampedY = Math.max(boundaryDrag.minY + 1, Math.min(boundaryDrag.maxY - 1, rawY))
+      // Clamp x to THIS gap (left-col right edge → right-col left edge), like the
+      // lens drag. Without it the node can be dragged UNDER a column strip (in
+      // neither gap), where the fraction clamp then pins it to fraction 1 in the
+      // left gap AND 0 in the right gap — so it renders on BOTH sides of the test
+      // column instead of staying on the side being dragged.
+      const rawX = e.clientX - (rect?.left ?? 0)
+      const clampedX = Math.max(boundaryDrag.leftX, Math.min(boundaryDrag.rightX, rawX))
       setBoundaryDrag({
         ...boundaryDrag,
-        x: e.clientX - (rect?.left ?? 0),
+        x: clampedX,
         y: clampedY,
       })
     }
