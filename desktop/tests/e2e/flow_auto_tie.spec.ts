@@ -84,7 +84,7 @@ test.describe('flow_auto_tie', () => {
         await goToStage(page, 'Sections')
 
         // --- 2. "Suggest tie-sections" must be enabled (fixture has 4 sections)
-        const suggestBtn = page.getByRole('button', { name: 'Suggest tie-sections' })
+        const suggestBtn = page.getByTestId('suggest-tie-sections')
         await expect(suggestBtn).toBeVisible({ timeout: 10_000 })
         await expect(suggestBtn).toBeEnabled({ timeout: 10_000 })
 
@@ -162,13 +162,14 @@ test.describe('flow_auto_tie', () => {
         await goToStage(page, 'Sections')
 
         // Suggest → ghosts appear on the Leaflet map.
-        const suggestBtn = page.getByRole('button', { name: 'Suggest tie-sections' })
+        const suggestBtn = page.getByTestId('suggest-tie-sections')
         await expect(suggestBtn).toBeEnabled({ timeout: 10_000 })
         await suggestBtn.click()
         const ghosts = page.locator('path[stroke="#22c55e"]')
         await expect(ghosts.first()).toBeVisible({ timeout: 15_000 })
 
-        // Accept all → one batch create.
+        // Accept all → open the SplitToolbarButton caret, then the item.
+        await page.getByTestId('suggest-tie-sections-caret').click()
         await page.getByTestId('tie-accept-all').click()
 
         // 1. Ghosts are cleared (suggestions consumed).
