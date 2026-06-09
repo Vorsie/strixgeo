@@ -829,8 +829,11 @@ export function useSections({
         // created section is reversible via the normal delete-section path.
         const created = await api.section.create(project.id, createPayload)
         setSections(prev => [...prev, created])
-        setSelectedSectionId(created.id)
         handleSectionCreated(created.id)
+        // Do NOT select the new section: selecting flips SectionsCanvas to its
+        // profile view, throwing the user off the map mid-triage. Stay on the
+        // map so they can keep accepting/rejecting the remaining ghosts; the new
+        // tie line just appears there. (Matches handleAcceptAllTies.)
         setSuggestedTies(prev => prev.filter((_, i) => i !== index))
         log.success('section', `accepted tie ${created.name}`)
       } catch (err) {
