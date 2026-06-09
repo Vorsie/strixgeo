@@ -1082,10 +1082,13 @@ export default function SectionsToolbar(): JSX.Element {
         }
       />
 
-      {/* Suggest tie-sections — proposes perpendicular connector sections
-          between all pairs of existing sections. Toggles between "Suggest"
-          and "Clear" so there is always a visible way to dismiss ghosts. */}
-      <ToolbarButton
+      {/* Tie-sections collapsed into one SplitToolbarButton (dogfeed
+          2026-06-10). Primary = Suggest ↔ Clear toggle (amber while ghosts
+          are pending so the user always sees there are suggestions to act
+          on, and always has a visible way to dismiss them). Caret =
+          Accept all ties. Three verbs → one toolbar slot, mirroring the
+          correlation triad. */}
+      <SplitToolbarButton
         icon={<Network size={13} />}
         label={suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'}
         onClick={() =>
@@ -1099,34 +1102,34 @@ export default function SectionsToolbar(): JSX.Element {
             ? 'Need at least 2 sections to tie together'
             : suggestedTies.length > 0
               ? 'Clear the current tie-section suggestions'
-              : 'Suggest perpendicular connector sections between all pairs of existing sections'
+              : 'Suggest perpendicular connector sections between existing sections (no crossings, no shared tests)'
         }
+        amber={suggestedTies.length > 0}
         testid="suggest-tie-sections"
+        items={[
+          {
+            icon: <Sparkles size={13} />,
+            label: acceptingAllTies ? 'Accepting…' : 'Accept all ties',
+            onClick: () =>
+              void (async () => {
+                setAcceptingAllTies(true)
+                try {
+                  await handleAcceptAllTies()
+                } finally {
+                  setAcceptingAllTies(false)
+                }
+              })(),
+            disabled: suggestedTies.length === 0 || acceptingAllTies,
+            title:
+              suggestedTies.length === 0
+                ? 'Run "Suggest tie-sections" first'
+                : acceptingAllTies
+                  ? 'Creating cross-sections for all proposed ties…'
+                  : 'Create a cross-section for every proposed tie',
+            testid: 'tie-accept-all',
+          },
+        ]}
       />
-      {suggestedTies.length > 0 && (
-        <ToolbarButton
-          icon={<Sparkles size={13} />}
-          label={acceptingAllTies ? 'Accepting…' : 'Accept all ties'}
-          onClick={() =>
-            void (async () => {
-              setAcceptingAllTies(true)
-              try {
-                await handleAcceptAllTies()
-              } finally {
-                setAcceptingAllTies(false)
-              }
-            })()
-          }
-          disabled={acceptingAllTies}
-          busy={acceptingAllTies}
-          testid="tie-accept-all"
-          title={
-            acceptingAllTies
-              ? 'Creating cross-sections for all proposed ties…'
-              : 'Create a cross-section for every proposed tie'
-          }
-        />
-      )}
 
       {/* Separator — visually groups the entry action from the
           section-scoped destructive verb */}
