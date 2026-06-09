@@ -91,6 +91,7 @@ export interface UseShellContextValueArgs {
   suggestedTies: ShellContextValue['sections']['suggestedTies']
   handleSuggestTies: ShellContextValue['sections']['handleSuggestTies']
   handleAcceptTie: ShellContextValue['sections']['handleAcceptTie']
+  handleAcceptAllTies: ShellContextValue['sections']['handleAcceptAllTies']
   handleRejectTie: ShellContextValue['sections']['handleRejectTie']
   handleClearTieSuggestions: ShellContextValue['sections']['handleClearTieSuggestions']
   demSource: ShellContextValue['overlays']['demSource']
@@ -189,7 +190,7 @@ export function useShellContextValue(
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
     correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
-    suggestedTies, handleSuggestTies, handleAcceptTie, handleRejectTie, handleClearTieSuggestions, demSource, demOverlay,
+    suggestedTies, handleSuggestTies, handleAcceptTie, handleAcceptAllTies, handleRejectTie, handleClearTieSuggestions, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
@@ -311,6 +312,7 @@ export function useShellContextValue(
       suggestedTies,
       handleSuggestTies,
       handleAcceptTie,
+      handleAcceptAllTies,
       handleRejectTie,
       handleClearTieSuggestions,
     },
