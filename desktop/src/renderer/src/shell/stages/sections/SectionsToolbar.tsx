@@ -58,6 +58,7 @@ export default function SectionsToolbar(): JSX.Element {
       exitCorrelateMode,
       suggestedTies,
       handleSuggestTies,
+      handleAcceptAllTies,
       handleClearTieSuggestions,
     },
     geoModel: {
@@ -108,6 +109,7 @@ export default function SectionsToolbar(): JSX.Element {
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
   const [exportingDxf, setExportingDxf] = useState(false)
   const [acceptingAll, setAcceptingAll] = useState(false)
+  const [acceptingAllTies, setAcceptingAllTies] = useState(false)
   // Bulk-suggest (debt #73 / Phase 3) — confirmation modal + accept-all state.
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
@@ -1101,6 +1103,30 @@ export default function SectionsToolbar(): JSX.Element {
         }
         data-testid="suggest-tie-sections"
       />
+      {suggestedTies.length > 0 && (
+        <ToolbarButton
+          icon={<CheckCheck size={13} />}
+          label={acceptingAllTies ? 'Accepting…' : 'Accept all ties'}
+          onClick={() =>
+            void (async () => {
+              setAcceptingAllTies(true)
+              try {
+                await handleAcceptAllTies()
+              } finally {
+                setAcceptingAllTies(false)
+              }
+            })()
+          }
+          disabled={acceptingAllTies}
+          busy={acceptingAllTies}
+          testid="tie-accept-all"
+          title={
+            acceptingAllTies
+              ? 'Creating cross-sections for all proposed ties…'
+              : 'Create a cross-section for every proposed tie'
+          }
+        />
+      )}
 
       {/* Separator — visually groups the entry action from the
           section-scoped destructive verb */}
