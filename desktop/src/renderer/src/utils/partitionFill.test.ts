@@ -12,6 +12,8 @@ import {
   computeSectionFill,
   LENS_PINCH_FRACTION,
   matchColumns,
+  type CorrelationEdge,
+  type Correlated,
   type MatchUnit,
   type PartitionColumn,
   type PartitionRegion,
@@ -21,7 +23,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Shorthand: build a PartitionColumn. */
+/** Shorthand: build a PartitionColumn. layerId is auto-assigned ``id#index``. */
 function col(
   id: string,
   surfaceElevM: number,
@@ -30,13 +32,50 @@ function col(
   return {
     investigationId: id,
     surfaceElevM,
-    units: units.map((u) => ({
+    units: units.map((u, i) => ({
       topDepthM: u.top,
       baseDepthM: u.base,
       formationId: u.f,
       bodyId: u.b,
+      layerId: `${id}#${i}`,
     })),
   }
+}
+
+/**
+ * Derive correlation edges from the test fixtures' shared ``bodyId`` — two
+ * cross-column units with the same bodyId are treated as explicitly correlated
+ * (an edge between their layerIds). This is the test convention for "these
+ * band": the fixtures express correlation via bodyId, and the edge model
+ * consumes it the same way the real overlay consumes drawn edges. A unit with a
+ * UNIQUE bodyId is uncorrelated.
+ */
+function edgesFromBodyId(...columns: PartitionColumn[]): CorrelationEdge[] {
+  const edges: CorrelationEdge[] = []
+  for (let ci = 0; ci < columns.length; ci += 1) {
+    for (let cj = ci + 1; cj < columns.length; cj += 1) {
+      for (const u of columns[ci].units) {
+        for (const v of columns[cj].units) {
+          if (u.bodyId && u.bodyId === v.bodyId) edges.push({ a: u.layerId, b: v.layerId })
+        }
+      }
+    }
+  }
+  return edges
+}
+
+/** computePartitionFill with edges auto-derived from the fixtures' bodyId. */
+function pf(
+  left: PartitionColumn,
+  right: PartitionColumn,
+  lensApexOverrides?: Parameters<typeof computePartitionFill>[3],
+): PartitionRegion[] {
+  return computePartitionFill(left, right, edgesFromBodyId(left, right), lensApexOverrides)
+}
+
+/** computeSectionFill with edges auto-derived from the fixtures' bodyId. */
+function sf(...columns: PartitionColumn[]): ReturnType<typeof computeSectionFill> {
+  return computeSectionFill(columns, edgesFromBodyId(...columns))
 }
 
 /**
@@ -155,51 +194,51 @@ function assertTiles(
 // ---------------------------------------------------------------------------
 
 describe('matchColumns', () => {
-  const mu = (formationId: string, bodyId: string | null, topElev: number, baseElev: number): MatchUnit => ({
+  const mu = (formationId: string, layerId: string, topElev: number, baseElev: number): MatchUnit => ({
     formationId,
-    bodyId,
+    layerId,
     topElev,
     baseElev,
   })
+  const key = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const corr = (...pairs: [string, string][]): Correlated => {
+    const s = new Set(pairs.map(([a, b]) => key(a, b)))
+    return (a, b) => s.has(key(a, b))
+  }
+  const none: Correlated = () => false
 
-  it('MC1 — matches identical (body, lithology) pairs in order', () => {
-    const L = [mu('SAND', 'x', 0, -5), mu('CLAY', 'y', -5, -10)]
-    const R = [mu('SAND', 'x', 0, -5), mu('CLAY', 'y', -5, -10)]
-    expect(matchColumns(L, R)).toEqual([
+  it('MC1 — edge-correlated pairs band, in order', () => {
+    const L = [mu('SAND', 'la', 0, -5), mu('CLAY', 'lb', -5, -10)]
+    const R = [mu('SAND', 'ra', 0, -5), mu('CLAY', 'rb', -5, -10)]
+    expect(matchColumns(L, R, corr(['la', 'ra'], ['lb', 'rb']))).toEqual([
       [0, 0],
       [1, 1],
     ])
   })
 
-  it('MC2 — connects same-lithology OVERLAPPING units across different body_ids', () => {
-    const L = [mu('ZAND', 'p', 0, -7)]
-    const R = [mu('ZAND', 'q', -1, -8)] // diff body, same litho, overlapping elevation
-    expect(matchColumns(L, R)).toEqual([[0, 0]])
+  it('MC2 — same-lithology OVERLAPPING units connect by geometry even with NO edge (matrix fill)', () => {
+    const L = [mu('ZAND', 'la', 0, -7)]
+    const R = [mu('ZAND', 'ra', -1, -8)] // overlap, no edge → geometric fallback
+    expect(matchColumns(L, R, none)).toEqual([[0, 0]])
   })
 
-  it('MC3 — does NOT connect same-lithology units at NON-overlapping depths', () => {
-    const L = [mu('KLEI', 'a', 10, 8)]
-    const R = [mu('KLEI', 'b', 2, 0)] // same litho, no elevation overlap, diff body
-    expect(matchColumns(L, R)).toEqual([])
+  it('MC3 — same-lithology NON-overlapping units with NO edge do NOT connect', () => {
+    const L = [mu('KLEI', 'la', 10, 8)]
+    const R = [mu('KLEI', 'ra', 2, 0)]
+    expect(matchColumns(L, R, none)).toEqual([])
   })
 
-  it('MC4 — never matches across lithology even on a shared (over-lumped) body_id', () => {
-    // body 857 lumps ZAND + KLEI; they must NOT pair to each other.
-    const L = [mu('ZAND', '857', 0, -5)]
-    const R = [mu('KLEI', '857', 0, -5)] // same body, different lithology
-    expect(matchColumns(L, R)).toEqual([])
+  it('MC4 — never matches across lithology even WITH an edge', () => {
+    const L = [mu('ZAND', 'la', 0, -5)]
+    const R = [mu('KLEI', 'ra', 0, -5)]
+    expect(matchColumns(L, R, corr(['la', 'ra']))).toEqual([])
   })
 
-  it('MC5 — the deep S1->B4 package: deep ZAND connects, deep KLEI connects, the high KLEI does not jump', () => {
-    // L deep = [KLEI(high), ZAND, KLEI(low)], R deep = [ZAND, KLEI(low)] (all body 857).
-    const L = [mu('KLEI', '857', 0.5, -1.5), mu('ZAND', '857', -1.5, -5), mu('KLEI', '857', -5, -11)]
-    const R = [mu('ZAND', '42e', 0, -6.5), mu('KLEI', '857', -6.5, -11.3)]
-    // ZAND(L1)<->ZAND(R0) via overlap; KLEI(L2,low)<->KLEI(R1,low) via body+overlap.
-    // KLEI(L0,high) stays unmatched (would need to jump past ZAND, breaking order/overlap).
-    expect(matchColumns(L, R)).toEqual([
-      [1, 0],
-      [2, 1],
-    ])
+  it('MC5 — an edge connects a DIPPING correlated bed with NO elevation overlap (the peat)', () => {
+    const L = [mu('VEEN', 'lv', 9.47, 8.68)]
+    const R = [mu('VEEN', 'rv', 8.27, 6.67)] // 0.41 m gap — no overlap, but correlated
+    expect(matchColumns(L, R, corr(['lv', 'rv']))).toEqual([[0, 0]])
+    expect(matchColumns(L, R, none)).toEqual([]) // without the edge: no overlap → no connect
   })
 })
 
@@ -220,7 +259,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 5, f: 'fSand', b: 'sand' },
       { top: 5, base: 10, f: 'fClay', b: 'clay' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     expect(regions.every((r) => r.kind === 'quad')).toBe(true)
     expect(regions).toHaveLength(2)
     assertTiles(regions, left, right)
@@ -240,7 +279,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 5, f: 'clayA', b: 'cA' },
       { top: 5, base: 14, f: 'clayB', b: 'cB' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
 
     const sand = regions.filter((r) => r.formationId === 'sand')
     expect(sand).toHaveLength(1)
@@ -274,7 +313,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 10, f: 'clay', b: 'clay' },
       { top: 10, base: 17, f: 'sand', b: 'sand' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
 
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
@@ -300,7 +339,7 @@ describe('computePartitionFill', () => {
       { top: 9, base: 14, f: 'silt', b: 'silt' },
     ])
     const right = col('R', 10, [{ top: 0, base: 14, f: 'clay', b: 'clay' }])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
     expect(silt[0].kind).toBe('pinch')
@@ -320,7 +359,7 @@ describe('computePartitionFill', () => {
       { top: 3, base: 10, f: 'klei', b: 'klei' },
     ])
     const right = col('R', 10, [{ top: 0, base: 10, f: 'klei', b: 'klei' }])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const veen = regions.filter((r) => r.formationId === 'veen')
     expect(veen).toHaveLength(1)
     expect(veen[0].kind).toBe('pinch')
@@ -347,7 +386,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 5, f: 'kA', b: 'kA' },
       { top: 5, base: 14, f: 'kB', b: 'kB' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     for (const fid of ['silt', 'zand']) {
       const r = regions.filter((x) => x.formationId === fid)
       expect(r).toHaveLength(1)
@@ -371,7 +410,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 5, f: 'sand', b: 'sand' },
       { top: 5, base: 14, f: 'clay', b: 'clay' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     // No hole: the regions cover the column contiguously (the 7–9 m gap is
     // absorbed by the silt extending down to the clay top).
     assertTiles(regions, left, right)
@@ -392,7 +431,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 6, f: 'clay', b: 'cA' },
       { top: 6, base: 14, f: 'clay', b: 'cB' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
     // Whole-section model: an enclosed minority absent on the neighbour is a
@@ -422,7 +461,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 4, f: 'fSand', b: 'sand' },
       { top: 4, base: 10, f: 'fSand', b: 'sand2' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     // The left-only silt is enclosed by the sand on both sides → a LENS; the
     // sand connects across as a band (whole-section model).
     const silt = regions.filter((r) => r.bodyId === 'silt')
@@ -445,7 +484,7 @@ describe('computePartitionFill', () => {
       { top: 0, base: 3, f: 'fK', b: 'Ktop' }, // right-only, 3 m thick
       { top: 3, base: 10, f: 'fSand', b: 'sand' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const pinches = regions.filter((r) => r.kind === 'pinch')
     expect(pinches).toHaveLength(2)
 
@@ -495,7 +534,7 @@ describe('computePartitionFill', () => {
       { top: 5, base: 8, f: 'fK', b: 'K' }, // K below Si — matches left K
       { top: 8, base: 10, f: 'fV', b: 'V' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
 
     // K must appear as EXACTLY two regions: one quad (matched) and one pinch.
     const kRegions = regions.filter((r) => r.bodyId === 'K')
@@ -535,7 +574,7 @@ describe('computePartitionFill', () => {
       { top: 5, base: 12, f: 'ZAND', b: 'zR' }, // matrix sand — uncorrelated (zR), SAME formation
       { top: 12, base: 18, f: 'KLEI', b: 'k-bot' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const sand = regions.filter((r) => r.formationId === 'ZAND')
     // One connected band, not two opposing pinches.
     expect(sand).toHaveLength(1)
@@ -578,7 +617,7 @@ describe('computePartitionFill', () => {
       { top: 5, base: 12, f: 'ZAND', b: 'zR' }, // matrix sand — uncorrelated, whole interval
       { top: 12, base: 18, f: 'KLEI', b: 'k-bot' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
 
     // The sand matrix connects as ONE band quad spanning the whole gap.
     const sand = regions.filter((r) => r.formationId === 'ZAND')
@@ -618,7 +657,7 @@ describe('computePartitionFill', () => {
       { top: 4, base: 10, f: 'SAND', b: 'r-sand' }, // matrix, uncorrelated (r-sand)
       { top: 10, base: 14, f: 'CLAY', b: 'b-clay' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     // The sand matrix connects as a band spanning the interval (fraction 0 → 1).
     const sandSpans = regions.some(
       (r) =>
@@ -660,7 +699,7 @@ describe('computePartitionFill', () => {
       { top: 4, base: 10, f: 'SAND', b: 'r-sand' },
       { top: 10, base: 14, f: 'CLAY', b: 'b-clay' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     const sandSpans = regions.some(
       (r) =>
         r.formationId === 'SAND' &&
@@ -700,7 +739,7 @@ describe('computePartitionFill', () => {
       { top: 2, base: 10, f: 'CLAY', b: 'r-clay' }, // right background (mismatch)
       { top: 10, base: 12, f: 'VEEN', b: 'bot' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     // The interval splits SAND (left half, has a 0.5 vertex but no fraction-1
     // vertex) | CLAY (right half, has both a 0.5 and a fraction-1 vertex).
     const sand = regions.find(
@@ -744,7 +783,7 @@ describe('computePartitionFill', () => {
       { top: 8, base: 10, f: 'SAND', b: 'rsb' },
       { top: 10, base: 12, f: 'CLAY', b: 'b' },
     ])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     // Two separate silt lenses, not one spanning band.
     const silts = regions.filter((r) => r.formationId === 'SILT')
     expect(silts).toHaveLength(2)
@@ -810,7 +849,10 @@ describe('computePartitionFill', () => {
       { top: 7.0, base: 18.35, f: 'ZAND', b: '42e' },
       { top: 18.35, base: 23.0, f: 'KLEI', b: '857' },
     ])
-    const regions = computePartitionFill(S1, B4)
+    // NO edges: the deep package is UNCORRELATED (the shared 857 body_id is the
+    // resolver's over-lump, not a real correlation) — so the matrix must connect
+    // by GEOMETRY alone, and the clay/silt interbeds pinch as lenses.
+    const regions = computePartitionFill(S1, B4, [])
     // Every ZAND region in the S1→B4 gap is a connected band (quad) — none tips
     // to a point mid-gap. (The deep ZAND package is the bug the user circled.)
     const zandDroops = regions.filter(
@@ -822,7 +864,7 @@ describe('computePartitionFill', () => {
     expect(zandDroops).toHaveLength(0)
     assertTiles(regions, S1, B4)
     // The two upstream gaps also tile cleanly (the matrix connects, lenses overlay).
-    assertTiles(computePartitionFill(S2, S1), S2, S1)
+    assertTiles(computePartitionFill(S2, S1, []), S2, S1)
   })
 
   // -----------------------------------------------------------------------
@@ -870,7 +912,7 @@ describe('computePartitionFill', () => {
       { top: 18.01, base: 18.66, f: 'SILT', b: 'ea8' },
       { top: 18.66, base: 23.17, f: 'KLEI', b: 'ea8' },
     ])
-    const regions = computeSectionFill([S5, S2, S6])
+    const regions = sf(S5, S2, S6)
     // VEEN is a connected band (quad) in BOTH gaps, never a lens.
     for (const g of [0, 1]) {
       const veen = regions.filter((r) => r.gapIndex === g && r.formationId === 'VEEN')
@@ -893,7 +935,7 @@ describe('computePartitionFill', () => {
   it('PF5 — empty left column returns []', () => {
     const left = col('L', 0, [])
     const right = col('R', 0, [{ top: 0, base: 5, f: 'fSand', b: 'sand' }])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
     expect(regions).toEqual([])
   })
 
@@ -929,7 +971,7 @@ describe('computePartitionFill', () => {
       { top: 18.01, base: 18.66, f: 'fSi', b: '54492a' },
       { top: 18.66, base: 23.17, f: 'fK', b: '0ca539' },
     ])
-    const regions = computePartitionFill(s2, s6)
+    const regions = pf(s2, s6)
     // Must produce at least one region.
     expect(regions.length).toBeGreaterThan(0)
     // The two silt lenses inside the sand on S2 (0a6dee, 2044d2) must be
@@ -965,7 +1007,7 @@ describe('computePartitionFill', () => {
       { top: 5, base: 10, f: 'fSand', b: 'sand' },
     ])
     const right = col('R', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
-    const regions = computePartitionFill(left, right)
+    const regions = pf(left, right)
 
     // Sand must appear as exactly ONE quad (no pinch — the pre-pass merged it).
     const sandRegions = regions.filter((r) => r.bodyId === 'sand')
@@ -1039,7 +1081,7 @@ describe('computePartitionFill', () => {
       { top: 15.54, base: 18.37, f: 'fZ', b: 'dc5b80' },
       { top: 18.37, base: 23.81, f: 'fK', b: '0ca539' },
     ])
-    const regions = computePartitionFill(s2, s1)
+    const regions = pf(s2, s1)
     expect(regions.length).toBeGreaterThan(0)
 
     // --- dc5b80 (continuous sand) must appear ONLY as quads (no pinch) ---
