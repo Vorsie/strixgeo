@@ -142,6 +142,16 @@ export interface LensApexOverride {
   elevation: number
 }
 
+/**
+ * Key a lens apex override by body AND gap. A lens body that pinches into two
+ * gaps has an INDEPENDENT apex in each, so the override map is keyed per
+ * ``(bodyId, gapIndex)`` — a bodyId-only key would let one gap's apex overwrite
+ * the other (last-write-wins), leaving one gap's matrix notch mismatched.
+ */
+export function lensApexOverrideKey(bodyId: string, gapIndex: number): string {
+  return `${bodyId}@${gapIndex}`
+}
+
 // ---------------------------------------------------------------------------
 // Output types
 // ---------------------------------------------------------------------------
@@ -1495,6 +1505,7 @@ function emitGap(
   rightLensesIn: readonly ExtractedLens[],
   correlated: Correlated,
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+  gapIndex = 0,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -1820,7 +1831,9 @@ function emitGap(
   for (const lens of leftLenses) {
     const topElev = leftSurface - lens.depthTopM
     const baseElev = leftSurface - lens.depthBaseM
-    const apex = lens.bodyId ? lensApexOverrides?.get(lens.bodyId) : undefined
+    const apex = lens.bodyId
+      ? lensApexOverrides?.get(lensApexOverrideKey(lens.bodyId, gapIndex))
+      : undefined
     regions.push({
       formationId: lens.formationId,
       bodyId: lens.bodyId,
@@ -1831,7 +1844,9 @@ function emitGap(
   for (const lens of rightLenses) {
     const topElev = rightSurface - lens.depthTopM
     const baseElev = rightSurface - lens.depthBaseM
-    const apex = lens.bodyId ? lensApexOverrides?.get(lens.bodyId) : undefined
+    const apex = lens.bodyId
+      ? lensApexOverrides?.get(lensApexOverrideKey(lens.bodyId, gapIndex))
+      : undefined
     regions.push({
       formationId: lens.formationId,
       bodyId: lens.bodyId,
@@ -1931,6 +1946,7 @@ export function computeSectionFill(
       lensesRight,
       correlated,
       lensApexOverrides,
+      i,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }
