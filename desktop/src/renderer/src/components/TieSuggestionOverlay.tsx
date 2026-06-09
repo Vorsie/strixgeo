@@ -13,7 +13,7 @@
  * @module components/TieSuggestionOverlay
  */
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Polyline, Tooltip } from 'react-leaflet'
 import type { LeafletMouseEvent } from 'leaflet'
@@ -162,33 +162,58 @@ export function TieSuggestionOverlay({
 
   return (
     <>
-      {ties.map((tie, i) => (
-        <Polyline
-          key={`tie-ghost-${i}`}
-          positions={tieToLatLngLine(tie, epsg)}
-          pane="section-overlays"
-          pathOptions={{ color: '#22c55e', weight: 3, opacity: 0.75, dashArray: '7 5' }}
-          eventHandlers={{
-            contextmenu: (e: LeafletMouseEvent) => {
-              // Prevent the browser/Leaflet default context menu and stop the
-              // event from bubbling to the map (which would pan or open its own
-              // menu).
-              e.originalEvent.preventDefault()
-              e.originalEvent.stopPropagation()
-              setMenu({
-                x: e.originalEvent.clientX,
-                y: e.originalEvent.clientY,
-                index: i,
-              })
-            },
-          }}
-        >
-          {/* Discoverability: right-click is the first right-clickable thing on
-              the map, so telegraph the gesture on hover (sticky = follows the
-              cursor along the line). */}
-          <Tooltip sticky>Proposed tie-section — right-click to Accept or Reject</Tooltip>
-        </Polyline>
-      ))}
+      {ties.map((tie, i) => {
+        const line = tieToLatLngLine(tie, epsg)
+        return (
+          <Fragment key={`tie-ghost-${i}`}>
+            {/* Visible ghost line — slim + non-interactive. The fat transparent
+                hit-band below owns the right-click + hover. */}
+            <Polyline
+              positions={line}
+              pane="section-overlays"
+              pathOptions={{
+                color: '#22c55e',
+                weight: 3,
+                opacity: 0.75,
+                dashArray: '7 5',
+                interactive: false,
+              }}
+            />
+            {/* Fat transparent hit-band: a 3 px dashed line is a tiny target
+                when zoomed out, so widen the clickable area to ~16 px without
+                fattening the visible line (dogfeed 2026-06-10). */}
+            <Polyline
+              positions={line}
+              pane="section-overlays"
+              // opacity 0.01, not 0: SVG ``pointer-events: visiblePainted`` (the
+              // default) only fires on a *painted* stroke, so a truly-zero
+              // opacity band would receive no clicks. 0.01 is invisible yet
+              // painted → clickable. (The e2e targets this band by its 16px
+              // stroke-width, the attribute Leaflet reliably emits.)
+              pathOptions={{ color: '#22c55e', weight: 16, opacity: 0.01 }}
+              eventHandlers={{
+                contextmenu: (e: LeafletMouseEvent) => {
+                  // Prevent the browser/Leaflet default context menu and stop
+                  // the event bubbling to the map (which would pan / open its
+                  // own menu).
+                  e.originalEvent.preventDefault()
+                  e.originalEvent.stopPropagation()
+                  setMenu({
+                    x: e.originalEvent.clientX,
+                    y: e.originalEvent.clientY,
+                    index: i,
+                  })
+                },
+              }}
+            >
+              {/* Discoverability: right-click is the first right-clickable thing
+                  on the map, so telegraph the gesture on hover (sticky = follows
+                  the cursor along the line). */}
+              <Tooltip sticky>Proposed tie-section — right-click to Accept or Reject</Tooltip>
+            </Polyline>
+          </Fragment>
+        )
+      })}
       {menu !== null &&
         createPortal(
           <TieContextMenu
