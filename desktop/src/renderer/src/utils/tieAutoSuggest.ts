@@ -1,12 +1,16 @@
 /**
- * Auto-propose non-crossing "tie-sections" across a set of (assumed
- * roughly parallel) cross-sections. Pure math — no React, no I/O.
+ * Auto-propose clean "tie-sections" across a set of (assumed roughly
+ * parallel) cross-sections. Pure math — no React, no I/O.
  *
- * The match is a monotonic strike-ordered sweep: pointers into each
- * wall's strike-sorted test list only ever advance, so the resulting
- * rungs are strike-ordered and the proposed ties can never cross one
- * another (a crossing would imply a geologically impossible lateral
- * swap). See spec §5.1.1.
+ * Two stages:
+ *   1. A monotonic strike-ordered sweep proposes candidate rungs (~1 test
+ *      per wall, members within a strike tolerance).
+ *   2. A conflict-free greedy selection (``selectNonConflictingTies``)
+ *      keeps a subset that is GUARANTEED to have no two ties crossing in
+ *      the map plane AND no two ties sharing a test (overlapping
+ *      corridors). The strike sweep alone does NOT guarantee this on real,
+ *      not-perfectly-parallel walls with scattered tests — the greedy
+ *      pass does, by construction. See spec §5.1.1.
  */
 import { projectPointOntoLine, sectionLength, type SectionEndpoints } from './sectionProjection'
 
@@ -55,6 +59,90 @@ function perpDistanceToLine(
   const len = Math.hypot(dx, dy)
   if (len < 1e-9) return Math.hypot(px - ax, py - ay)
   return Math.abs((px - ax) * dy - (py - ay) * dx) / len
+}
+
+/** A 2D point in the projected CRS. */
+interface Pt {
+  x: number
+  y: number
+}
+
+/**
+ * Do the open segments a1→a2 and b1→b2 properly cross? Uses the standard
+ * CCW-orientation test; collinear/touching-at-an-endpoint cases return
+ * false (a tie sharing an endpoint with another is not a "crossing").
+ */
+function segmentsCross(a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean {
+  const ccw = (a: Pt, b: Pt, c: Pt): number =>
+    (c.y - a.y) * (b.x - a.x) - (b.y - a.y) * (c.x - a.x)
+  const d1 = ccw(b1, b2, a1)
+  const d2 = ccw(b1, b2, a2)
+  const d3 = ccw(a1, a2, b1)
+  const d4 = ccw(a1, a2, b2)
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0
+}
+
+/**
+ * Is point (px,py) inside the rectangular corridor of half-width
+ * ``bufferM`` around the segment a→b? (A small ±5 % overhang past the
+ * endpoints mirrors the section's own projection behaviour.)
+ */
+function corridorContains(a: Pt, b: Pt, bufferM: number, px: number, py: number): boolean {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lenSq = dx * dx + dy * dy
+  if (lenSq < 1e-12) return Math.hypot(px - a.x, py - a.y) <= bufferM
+  const t = ((px - a.x) * dx + (py - a.y) * dy) / lenSq
+  if (t < -0.05 || t > 1.05) return false
+  return perpDistanceToLine(a.x, a.y, b.x, b.y, px, py) <= bufferM
+}
+
+/** A candidate tie plus the data the conflict-free selector needs. */
+export interface TieCandidate {
+  tie: SuggestedTie
+  /** Ids of every investigation inside this tie's corridor. */
+  corridorIds: Set<string>
+  /** Tie length in metres (tie-breaker after buffer). */
+  lengthM: number
+}
+
+/**
+ * Greedily keep a conflict-free subset of candidate ties.
+ *
+ * Candidates are taken thinnest-buffer-first (then shortest). A candidate
+ * is accepted only if it neither CROSSES an already-accepted tie in the
+ * map plane nor SHARES a test with one (its corridor contains an
+ * investigation already consumed by an accepted tie). The result is
+ * therefore guaranteed to have zero crossings and zero shared tests.
+ *
+ * @param candidates - The proposed ties + their corridor test-id sets.
+ * @returns The accepted ties, thinnest-first.
+ */
+export function selectNonConflictingTies(
+  candidates: readonly TieCandidate[],
+): SuggestedTie[] {
+  const ordered = [...candidates].sort(
+    (a, b) => a.tie.bufferM - b.tie.bufferM || a.lengthM - b.lengthM,
+  )
+  const accepted: TieCandidate[] = []
+  const consumed = new Set<string>()
+  for (const cand of ordered) {
+    let sharesTest = false
+    for (const id of cand.corridorIds) {
+      if (consumed.has(id)) {
+        sharesTest = true
+        break
+      }
+    }
+    if (sharesTest) continue
+    const crosses = accepted.some(acc =>
+      segmentsCross(cand.tie.start, cand.tie.end, acc.tie.start, acc.tie.end),
+    )
+    if (crosses) continue
+    accepted.push(cand)
+    for (const id of cand.corridorIds) consumed.add(id)
+  }
+  return accepted.map(c => c.tie)
 }
 
 /** Internal record: a test placed onto one wall during the sweep. */
@@ -118,7 +206,7 @@ export function suggestTieSections(
   for (const w of walls) w.sort((a, b) => a.s - b.s)
 
   const ptr = sections.map(() => 0)
-  const ties: SuggestedTie[] = []
+  const candidates: TieCandidate[] = []
   // reason: the frontier is rebuilt from pointers each iteration; the
   // termination check (all walls exhausted) must live inside the loop,
   // not as a pre-condition, so a constant `while (true)` is correct here.
@@ -153,13 +241,29 @@ export function suggestTieSections(
         5,
         ...members.map(m => perpDistanceToLine(first.x, first.y, last.x, last.y, m.x, m.y)),
       ) + 2 // +2 m breathing room beyond the widest-offset member.
-    ties.push({
+    const tie: SuggestedTie = {
       members,
       start: { x: first.x, y: first.y },
       end: { x: last.x, y: last.y },
       strikeSpread: Math.max(...ss) - Math.min(...ss),
       bufferM: buffer,
+    }
+    // Every investigation this tie's corridor would capture once created as
+    // a real section — the set the conflict-free pass uses to forbid two
+    // ties from sharing a test.
+    const corridorIds = new Set<string>()
+    for (const item of all) {
+      if (corridorContains(tie.start, tie.end, buffer, item.location_x, item.location_y)) {
+        corridorIds.add(item.id)
+      }
+    }
+    candidates.push({
+      tie,
+      corridorIds,
+      lengthM: Math.hypot(last.x - first.x, last.y - first.y),
     })
   }
-  return ties
+
+  // Keep only a non-crossing, test-disjoint subset (see selectNonConflictingTies).
+  return selectNonConflictingTies(candidates)
 }

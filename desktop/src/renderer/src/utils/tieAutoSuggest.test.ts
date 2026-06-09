@@ -1,6 +1,12 @@
 // desktop/src/renderer/src/utils/tieAutoSuggest.test.ts
 import { describe, expect, it } from 'vitest'
-import { suggestTieSections, type ParallelSection, type TieInvestigation } from './tieAutoSuggest'
+import {
+  selectNonConflictingTies,
+  suggestTieSections,
+  type ParallelSection,
+  type TieCandidate,
+  type TieInvestigation,
+} from './tieAutoSuggest'
 
 const wallA: ParallelSection = {
   id: 'A', start_x: 0, start_y: 0, end_x: 300, end_y: 0, projection_buffer_m: 35,
@@ -71,5 +77,46 @@ describe('suggestTieSections', () => {
     expect(ties).toHaveLength(2)
     expect(ties[0].members.map(m => m.investigationId).sort()).toEqual(['a1', 'b1'])
     expect(ties[1].members.map(m => m.investigationId).sort()).toEqual(['a2', 'b2'])
+  })
+})
+
+const cand = (
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  bufferM: number,
+  corridorIds: string[],
+): TieCandidate => ({
+  tie: { members: [], start, end, strikeSpread: 0, bufferM },
+  corridorIds: new Set(corridorIds),
+  lengthM: Math.hypot(end.x - start.x, end.y - start.y),
+})
+
+describe('selectNonConflictingTies', () => {
+  it('drops a candidate that would CROSS an accepted tie, keeping the thinner one', () => {
+    // The two segments cross at (5,5). c2 has the thinner buffer, so it is
+    // taken first; c1 then crosses it and is dropped.
+    const c1 = cand({ x: 0, y: 0 }, { x: 10, y: 10 }, 6, [])
+    const c2 = cand({ x: 0, y: 10 }, { x: 10, y: 0 }, 5, [])
+    const kept = selectNonConflictingTies([c1, c2])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].bufferM).toBe(5)
+  })
+
+  it('drops a candidate that SHARES a test with an accepted tie', () => {
+    // Parallel (never cross) but both corridors contain test "t2".
+    const c1 = cand({ x: 0, y: 0 }, { x: 10, y: 0 }, 5, ['t1', 't2'])
+    const c2 = cand({ x: 0, y: 30 }, { x: 10, y: 30 }, 5, ['t2', 't3'])
+    const kept = selectNonConflictingTies([c1, c2])
+    expect(kept).toHaveLength(1)
+  })
+
+  it('keeps candidates that neither cross nor share a test', () => {
+    const c1 = cand({ x: 0, y: 0 }, { x: 10, y: 0 }, 5, ['t1'])
+    const c2 = cand({ x: 0, y: 30 }, { x: 10, y: 30 }, 5, ['t2'])
+    expect(selectNonConflictingTies([c1, c2])).toHaveLength(2)
+  })
+
+  it('returns nothing for no candidates', () => {
+    expect(selectNonConflictingTies([])).toEqual([])
   })
 })
