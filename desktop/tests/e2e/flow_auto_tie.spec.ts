@@ -105,7 +105,14 @@ test.describe('flow_auto_tie', () => {
         // tie" items.  Accepting POSTs the tie as a real section (name =
         // ``Tie-section N``), removes it from the ghost list, and STAYS ON THE
         // MAP (no auto-select) so the user can keep triaging the other ghosts.
-        await ghosts.first().click({ button: 'right' })
+        // Right-click the fat transparent hit-band (the 16px-wide interactive
+        // line), not the slim visible 3px line (which is non-interactive — the
+        // hit-band owns events). Leaflet emits ``stroke-width`` as an attribute,
+        // so target the band by its width.
+        await page
+          .locator('path[stroke="#22c55e"][stroke-width="16"]')
+          .first()
+          .click({ button: 'right' })
         await page.getByTestId('tie-context-accept').click()
 
         // Stays on the map: the Leaflet container only renders on the map
