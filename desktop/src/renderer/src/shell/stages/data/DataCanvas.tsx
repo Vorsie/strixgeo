@@ -18,6 +18,7 @@ import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 import { buildContactOverlays } from '../../../utils/contactOverlays'
+import { TieSuggestionOverlay } from '../../../components/TieSuggestionOverlay'
 
 /**
  * Center canvas for the Data stage.
@@ -106,6 +107,10 @@ export default function DataCanvas(): JSX.Element {
       handleSectionLineDrawn,
       cancelSectionDraw,
       handleSelectSection,
+      effectiveHorizontalEpsg,
+      suggestedTies,
+      handleAcceptTie,
+      handleRejectTie,
     },
     geoModel: {
       contacts: geoContacts,
@@ -205,6 +210,10 @@ export default function DataCanvas(): JSX.Element {
             onMarqueeSelect={setMarqueeSelectedIds}
             hoveredTestId={hoveredTestId}
             pendingCptPins={pendingCptPins}
+            suggestedTies={suggestedTies}
+            tieEpsg={effectiveHorizontalEpsg}
+            onAcceptTie={handleAcceptTie}
+            onRejectTie={handleRejectTie}
           />
         ) : selectedBoreholeId ? (
           boreholeDetailMap.has(selectedBoreholeId) ? (
