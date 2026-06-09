@@ -10,6 +10,80 @@
 
 ---
 
+## 0. In plain words (read this first)
+
+**What you have today.** You draw the ground as a few flat cross-section "walls."
+Each wall shows the soil layers, where a layer thins to nothing (a *pinch-out*),
+and any isolated blobs (*lenses*). But the walls are flat and disconnected — there
+is no solid 3D model of the ground.
+
+**What we are building.** A solid 3D block of the ground you can rotate inside
+Strix. It is built automatically from the walls you draw, so it always matches
+your sections: layers that pinch out really taper to a point in 3D, and lenses
+become enclosed blobs floating inside the block.
+
+**The catch we found.** The three sections in test.strix are *parallel* — like
+three slices of bread standing up side by side — and nothing connects them. The
+software does not know that the sand on slice 1 is the same sand on slice 2. So
+before any 3D can be built, the slices have to be connected.
+
+**How we connect them.** You draw a few thin *tie-sections* running across the
+parallel slices (like a skewer through the bread). Where a tie-section crosses a
+slice it picks up a real test there, and you draw the soil correlations along it.
+That tells the software how the slices relate. The good news: drawing and
+correlating sections is something Strix *already does* — a tie-section is just a
+normal section drawn crosswise.
+
+**How the 3D is built.** Think of every soil boundary (say the line between sand
+and clay) as a stretched sheet. The software fits **one sheet through all the
+points where you marked that boundary**, across every section. A soil body is
+simply the volume trapped **between two sheets**. Where two sheets touch, the body
+pinches out. Where they wrap around each other, you get a lens. Because
+neighbouring bodies *share* the same sheet, the whole thing is airtight — no gaps,
+no overlaps — which is exactly what you need to export it later.
+
+**What you actually do in the app.** (1) Draw a few tie-sections and correlate
+across them. (2) Hit "build." (3) Rotate the 3D block and sanity-check it. Editing
+still happens on the 2D sections; the 3D just redraws itself.
+
+**Why this is achievable.** Strix already builds 3D surfaces for the *geological*
+model. We reuse that exact surface-fitting engine, just pointed at soil boundaries
+instead of geological formations. Most of the correlation plumbing exists too. The
+genuinely new piece is the "stretch the sheets into solid bodies" builder.
+
+### 0.1 Glossary (jargon → plain meaning)
+
+| Term | Plain meaning |
+|------|---------------|
+| Contact | The boundary between two soil layers (e.g. sand-on-clay). |
+| Body | One continuous lump of a single soil type traced through the ground. |
+| Correlation edge | Your hand-drawn link: "this layer here = that layer there." |
+| `body_id` | The software's internal name for one body, shared across every section it appears on. |
+| Tie-section | A thin section drawn *across* the parallel ones to connect them. |
+| Surface / TIN | A stretched triangular sheet fitted through scattered 3D points. |
+| Partition | A complete tiling of space with no gaps and no overlaps. |
+| Pinch-out | Where a layer thins to zero thickness and disappears sideways. |
+| Lens | An isolated blob of one soil fully enclosed by another. |
+| Watertight | Solids that fit together perfectly — required for clean export. |
+| Fence diagram | Sections shown as walls in 3D *without* filling the gaps between them. |
+| Freedraw nodes | The points you place when hand-drawing a body's exact shape. |
+
+### 0.2 Background: where this sits
+
+- This is **Phase 4** (the v1.0 commercial MVP gate). The litho model is the
+  central deliverable; a 3D view + export are part of "the product is sellable
+  here."
+- The **geological** model already has a working 3D viewer (formations →
+  surfaces → Cesium). The **litho** model has *no* 3D yet. This spec gives litho
+  its own 3D, but finer-grained (per-body, with pinch-outs and lenses) because
+  litho geology *interfingers* and cannot be drawn as simple stacked layers — the
+  codebase already encodes that fact (`rebuild_model_surfaces.py:222`).
+- Export to DXF / Plaxis 3D is the ultimate business reason for the 3D model, but
+  we build the **in-app viewer first** so you can debug the geometry by *looking*
+  at it rather than by re-importing into Plaxis.
+
+---
+
 ## 1. Core problem
 
 The litho model is authored as a set of **2D cross-sections**. Each section is a
