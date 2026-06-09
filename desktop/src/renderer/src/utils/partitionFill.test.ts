@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   computePartitionFill,
-  INTERIOR_PINCH_FRACTION,
   LENS_PINCH_FRACTION,
   matchColumns,
   type MatchUnit,
@@ -395,13 +394,14 @@ describe('computePartitionFill', () => {
     const regions = computePartitionFill(left, right)
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
-    expect(silt[0].kind).toBe('pinch')
-    // Apex (the fraction-0.5 vertex) sits at the silt's OWN mid-elevation
-    // (depth (5+7)/2 = 6 → elev 10-6 = 4), NOT drooping to the lower clay base.
-    const apex = silt[0].polygon.find((p) => Math.abs(p.fraction - 0.5) < 1e-6)!
+    // Whole-section model: an enclosed minority absent on the neighbour is a
+    // LENS (own-elevation apex), and the clay it was embedded in connects as ONE
+    // band across the gap (the silt lens overlays it).
+    expect(silt[0].kind).toBe('lens')
+    const apex = silt[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+    // own mid-elevation: depth (5+7)/2 = 6 → elev 10-6 = 4.
     expect(apex.elevation).toBeCloseTo(4, 6)
-    // Clay fills around the lens from BOTH sides → appears in ≥3 regions.
-    expect(regions.filter((r) => r.formationId === 'clay').length).toBeGreaterThanOrEqual(3)
+    expect(regions.some((r) => r.formationId === 'clay' && r.kind === 'quad')).toBe(true)
     assertTiles(regions, left, right)
   })
 
@@ -422,9 +422,11 @@ describe('computePartitionFill', () => {
       { top: 4, base: 10, f: 'fSand', b: 'sand2' },
     ])
     const regions = computePartitionFill(left, right)
-    const pinches = regions.filter((r) => r.kind === 'pinch')
-    expect(pinches).toHaveLength(1)
-    expect(pinches[0].bodyId).toBe('silt')
+    // The left-only silt is enclosed by the sand on both sides → a LENS; the
+    // sand connects across as a band (whole-section model).
+    const silt = regions.filter((r) => r.bodyId === 'silt')
+    expect(silt).toHaveLength(1)
+    expect(silt[0].kind).toBe('lens')
     assertTiles(regions, left, right)
   })
 
@@ -629,15 +631,21 @@ describe('computePartitionFill', () => {
     // NOT the silt's own mid-elevation (−5).
     const silt = regions.filter((r) => r.formationId === 'SILT')
     expect(silt).toHaveLength(1)
+    // Whole-section model: in a 2-column gap the silt connects to neither side →
+    // a LENS at its own mid-elevation (−5). A true onlap (lapping against a
+    // bracket from a connected far neighbour) is exercised by the multi-column
+    // section-3 regression. The sand connects across underneath.
+    expect(silt[0].kind).toBe('lens')
     const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
-    expect(tip.fraction).toBeCloseTo(INTERIOR_PINCH_FRACTION, 6)
-    expect(tip.elevation).toBeCloseTo(-4, 6)
+    expect(tip.elevation).toBeCloseTo(-5, 6)
     assertTiles(regions, left, right)
   })
 
   // -----------------------------------------------------------------------
   // ONLAP-BASE — a minority whose BASE touches the bracket tie-line laps DOWN.
-  // Mirror of ONLAP-TOP: tip lands on the BASE interface (the CLAY top, −10).
+  // Its top sits in the SAND matrix, its base on the correlated CLAY bracket →
+  // it is NOT enclosed by one matrix lithology, so the minority pre-pass leaves
+  // it and the onlap path renders it lapping to a tip on the base interface.
   // -----------------------------------------------------------------------
   it('ONLAP-BASE: minority touching the base bracket laps down to a tip on the base interface', () => {
     const left = col('L', 0, [
@@ -663,7 +671,7 @@ describe('computePartitionFill', () => {
     const silt = regions.filter((r) => r.formationId === 'SILT')
     expect(silt).toHaveLength(1)
     const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
-    expect(tip.fraction).toBeCloseTo(INTERIOR_PINCH_FRACTION, 6)
+    expect(tip.fraction).toBeCloseTo(0.5, 6) // INTERIOR_PINCH_FRACTION
     expect(tip.elevation).toBeCloseTo(-10, 6) // base bracket = CLAY top at depth 10
     assertTiles(regions, left, right)
   })
@@ -678,15 +686,18 @@ describe('computePartitionFill', () => {
   // The two halves TILE (no overlay) — they partition the interval.
   // -----------------------------------------------------------------------
   it('MISMATCH: sand-left vs clay-right splits at a midpoint facies seam (flagged)', () => {
+    // Brackets are a DIFFERENT lithology (KLEI / VEEN) than the mismatched
+    // matrix (SAND-left vs CLAY-right) so the matrix can't be merged away — a
+    // genuine facies transition with no shared background lithology.
     const left = col('L', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'top' }, // correlated top bracket
+      { top: 0, base: 2, f: 'KLEI', b: 'top' }, // correlated top bracket
       { top: 2, base: 10, f: 'SAND', b: 'l-sand' }, // left background
-      { top: 10, base: 12, f: 'CLAY', b: 'bot' }, // correlated base bracket
+      { top: 10, base: 12, f: 'VEEN', b: 'bot' }, // correlated base bracket
     ])
     const right = col('R', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'top' },
+      { top: 0, base: 2, f: 'KLEI', b: 'top' },
       { top: 2, base: 10, f: 'CLAY', b: 'r-clay' }, // right background (mismatch)
-      { top: 10, base: 12, f: 'CLAY', b: 'bot' },
+      { top: 10, base: 12, f: 'VEEN', b: 'bot' },
     ])
     const regions = computePartitionFill(left, right)
     // The interval splits SAND (left half, has a 0.5 vertex but no fraction-1
