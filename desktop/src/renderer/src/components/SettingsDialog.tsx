@@ -376,6 +376,7 @@ function SectionsSection({
 }): JSX.Element {
   const bufferBounds = SECTION_DEFAULTS_BOUNDS.bufferM
   const vexBounds = SECTION_DEFAULTS_BOUNDS.verticalExaggeration
+  const tieBounds = SECTION_DEFAULTS_BOUNDS.tieStrikeToleranceM
 
   const bufferValid =
     Number.isFinite(draft.bufferM) &&
@@ -385,10 +386,15 @@ function SectionsSection({
     Number.isFinite(draft.verticalExaggeration) &&
     draft.verticalExaggeration >= vexBounds.min &&
     draft.verticalExaggeration <= vexBounds.max
+  const tieValid =
+    Number.isFinite(draft.tieStrikeToleranceM) &&
+    draft.tieStrikeToleranceM >= tieBounds.min &&
+    draft.tieStrikeToleranceM <= tieBounds.max
 
   const dirty =
     draft.bufferM !== initial.bufferM ||
-    draft.verticalExaggeration !== initial.verticalExaggeration
+    draft.verticalExaggeration !== initial.verticalExaggeration ||
+    draft.tieStrikeToleranceM !== initial.tieStrikeToleranceM
 
   return (
     <SectionShell
@@ -424,11 +430,25 @@ function SectionsSection({
         disabled={!hasProject}
         invalid={!vexValid}
       />
+      <NumberRow
+        id="settings-section-tie-strike-tolerance"
+        label="Tie-section strike tolerance (m)"
+        hint="How far apart along-strike two tests may be and still join the same auto-proposed tie-section. Wider = more ties, but less clean."
+        value={draft.tieStrikeToleranceM}
+        onChange={v => setDraft({ ...draft, tieStrikeToleranceM: v })}
+        bounds={tieBounds}
+        sliderMin={tieBounds.min}
+        sliderMax={200}
+        step={1}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!tieValid}
+      />
 
       <SectionFooter
         hasProject={hasProject}
         dirty={dirty}
-        allValid={bufferValid && vexValid}
+        allValid={bufferValid && vexValid && tieValid}
         onReset={() => setDraft({ ...SECTION_DEFAULTS })}
         onSubmit={onSubmit}
       />
