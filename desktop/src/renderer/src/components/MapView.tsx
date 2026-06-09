@@ -33,6 +33,8 @@ import {
 import BboxDrawer from './BboxDrawer'
 import SectionLineDrawer from './SectionLineDrawer'
 import SectionOverlays from './SectionOverlays'
+import { TieSuggestionOverlay } from './TieSuggestionOverlay'
+import type { SuggestedTie } from '../utils/tieAutoSuggest'
 
 // CircleMarkers are used instead of Leaflet's default pin icons because at
 // high density (200+ markers in a small bbox) pins overlap into an unreadable
@@ -147,6 +149,22 @@ interface Props {
    * — the post-import ``GET /cpt/`` refresh repopulates the real markers.
    */
   pendingCptPins?: PendingPin[]
+  /**
+   * Auto-proposed tie-section ghosts from ``handleSuggestTies``.  When
+   * non-empty (and ``tieEpsg`` is set) the ghost lines render in the
+   * ``section-overlays`` pane.  Click a line to accept; click its red
+   * end-dot to reject.
+   */
+  suggestedTies?: readonly SuggestedTie[]
+  /**
+   * Horizontal EPSG code used to project tie coordinates to WGS84 for
+   * Leaflet.  Mirrors ``effectiveHorizontalEpsg`` from ``useSections``.
+   */
+  tieEpsg?: number | null
+  /** Accept handler for a tie ghost (creates the real section). */
+  onAcceptTie?: (index: number) => void
+  /** Reject handler for a tie ghost (drops the suggestion). */
+  onRejectTie?: (index: number) => void
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | 'basemap' | null
@@ -414,6 +432,10 @@ export default function MapView({
   onMarqueeSelect,
   hoveredTestId,
   pendingCptPins = [],
+  suggestedTies = [],
+  tieEpsg = null,
+  onAcceptTie,
+  onRejectTie,
 }: Props) {
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
@@ -682,6 +704,15 @@ export default function MapView({
             onSelect={onSelectSection}
             cpts={cpts}
             boreholes={boreholes}
+          />
+        )}
+
+        {suggestedTies.length > 0 && tieEpsg != null && onAcceptTie && onRejectTie && (
+          <TieSuggestionOverlay
+            ties={suggestedTies}
+            epsg={tieEpsg}
+            onAccept={onAcceptTie}
+            onReject={onRejectTie}
           />
         )}
 
