@@ -1,12 +1,14 @@
-// desktop/src/renderer/src/utils/tieAutoSuggest.ts
-//
-// Auto-propose non-crossing "tie-sections" across a set of (assumed
-// roughly parallel) cross-sections. The match is a monotonic
-// strike-ordered sweep: pointers into each wall's strike-sorted test
-// list only ever advance, so the resulting rungs are strike-ordered
-// and the proposed ties can never cross one another (a crossing would
-// imply a geologically impossible lateral swap). See spec §5.1.1.
-import { projectPointOntoLine, type SectionEndpoints } from './sectionProjection'
+/**
+ * Auto-propose non-crossing "tie-sections" across a set of (assumed
+ * roughly parallel) cross-sections. Pure math — no React, no I/O.
+ *
+ * The match is a monotonic strike-ordered sweep: pointers into each
+ * wall's strike-sorted test list only ever advance, so the resulting
+ * rungs are strike-ordered and the proposed ties can never cross one
+ * another (a crossing would imply a geologically impossible lateral
+ * swap). See spec §5.1.1.
+ */
+import { projectPointOntoLine, sectionLength, type SectionEndpoints } from './sectionProjection'
 
 /** An investigation (CPT or borehole) with its map-projected location. */
 export interface TieInvestigation {
@@ -55,6 +57,9 @@ function perpDistanceToLine(
   return Math.abs((px - ax) * dy - (py - ay) * dx) / len
 }
 
+/** Internal record: a test placed onto one wall during the sweep. */
+interface Placed { inv: TieInvestigation; wall: number; s: number }
+
 /**
  * Propose a non-crossing ladder of tie-sections.
  *
@@ -83,7 +88,6 @@ export function suggestTieSections(
   const strikeOf = (x: number, y: number): number =>
     (x - base.start_x) * ux + (y - base.start_y) * uy
 
-  interface Placed { inv: TieInvestigation; wall: number; s: number }
   const placed: Placed[] = []
   const all = [...cpts, ...boreholes]
   for (const item of all) {
@@ -96,7 +100,7 @@ export function suggestTieSections(
       if (excluded) return
       const proj = projectPointOntoLine(sec, item.location_x, item.location_y)
       if (!proj) return
-      const secLen = Math.hypot(sec.end_x - sec.start_x, sec.end_y - sec.start_y)
+      const secLen = sectionLength(sec)
       if (proj.along < 0 || proj.along > secLen) return
       const absOffset = Math.abs(proj.offset)
       if (absOffset <= sec.projection_buffer_m && absOffset < bestOffset) {
@@ -115,6 +119,9 @@ export function suggestTieSections(
 
   const ptr = sections.map(() => 0)
   const ties: SuggestedTie[] = []
+  // reason: the frontier is rebuilt from pointers each iteration; the
+  // termination check (all walls exhausted) must live inside the loop,
+  // not as a pre-condition, so a constant `while (true)` is correct here.
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const frontier = walls
@@ -141,9 +148,11 @@ export function suggestTieSections(
     const ss = rung.map(f => f.p.s)
     const buffer =
       Math.max(
+        // Floor: a corridor narrower than 5 m would miss real-world
+        // measurement scatter even for a dead-collinear tie.
         5,
         ...members.map(m => perpDistanceToLine(first.x, first.y, last.x, last.y, m.x, m.y)),
-      ) + 2
+      ) + 2 // +2 m breathing room beyond the widest-offset member.
     ties.push({
       members,
       start: { x: first.x, y: first.y },

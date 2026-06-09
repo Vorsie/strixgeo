@@ -61,4 +61,15 @@ describe('suggestTieSections', () => {
     expect(ties).toHaveLength(1)
     expect(ties[0].members).toHaveLength(3)
   })
+
+  it('prefers the strike-ordered pairing over a nearest-distance crossing', () => {
+    // a1 at strike 20, a2 at strike 80 on wall A; b1 at 25, b2 at 75 on wall B.
+    // A naive nearest-MAP-distance matcher could pair a1↔b2 / a2↔b1 → a cross.
+    // The monotonic sweep must produce a1↔b1 and a2↔b2 (strike order).
+    const cpts = [inv('a1', 20, 0), inv('a2', 80, 0), inv('b1', 25, 80), inv('b2', 75, 80)]
+    const ties = suggestTieSections([wallA, wallB], cpts, [], 30)
+    expect(ties).toHaveLength(2)
+    expect(ties[0].members.map(m => m.investigationId).sort()).toEqual(['a1', 'b1'])
+    expect(ties[1].members.map(m => m.investigationId).sort()).toEqual(['a2', 'b2'])
+  })
 })
