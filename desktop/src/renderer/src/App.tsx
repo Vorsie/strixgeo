@@ -580,6 +580,11 @@ export default function App() {
     exitCorrelateMode,
     armCorrelationSource,
     clearCorrelationSource,
+    suggestedTies,
+    handleSuggestTies,
+    handleAcceptTie,
+    handleRejectTie,
+    handleClearTieSuggestions,
   } = useSections({
     project,
     ready,
@@ -944,6 +949,7 @@ export default function App() {
     refreshSectionList, clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw,
     handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn,
     correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
+    suggestedTies, handleSuggestTies, handleAcceptTie, handleRejectTie, handleClearTieSuggestions,
     // overlays
     demSource, demOverlay, handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions,
     virtueleBoringLoading, virtueleBoringSkippedCount, virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection,
