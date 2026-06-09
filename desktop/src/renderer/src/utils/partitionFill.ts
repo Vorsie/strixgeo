@@ -302,51 +302,26 @@ interface NeighbourColumn {
  */
 function reduceColumn(
   units: PartitionUnit[],
-  surface: number,
-  neighbours: readonly NeighbourColumn[],
+  neighbourLayerIds: ReadonlySet<string>,
   correlated: Correlated,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
-  const edgeCorrelated = (u: PartitionUnit): boolean =>
-    neighbours.some((nb) => nb.units.some((v) => correlated(u.layerId, v.layerId)))
-  // Does u's lithology continue (overlap in elevation) on a neighbour? (geometry)
-  const connectsAcross = (u: PartitionUnit): boolean => {
-    const uTop = surface - u.topDepthM
-    const uBase = surface - u.baseDepthM
-    return neighbours.some((nb) =>
-      nb.units.some(
-        (v) =>
-          v.formationId === u.formationId &&
-          uTop > nb.surface - v.baseDepthM + EPS &&
-          nb.surface - v.topDepthM > uBase + EPS,
-      ),
-    )
-  }
   const thick = (x: PartitionUnit): number => x.baseDepthM - x.topDepthM
   let changed = true
   while (changed) {
     changed = false
     for (let i = 1; i < units.length - 1; i++) {
+      // An INTERIOR unit pinches out as a LENS toward this neighbour iff NEITHER
+      // of its two bounding contacts is correlated (the owner's 0-contact rule).
+      // Bands (2 contacts) and onlaps (1) are kept and shaped by emitGap. Pulling
+      // the lens lets the SAME-lithology matrix above + below it merge and connect
+      // continuously (a silt lens in sand → the sand stays one band via its OUTER
+      // correlated boundaries, the silt overlays). The matrix's INTERNAL boundary
+      // (the lens contact) is uncorrelated; its outer boundaries carry the band.
+      if (classifyTermination(units, i, neighbourLayerIds, correlated) !== 'lens') continue
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
-      if (edgeCorrelated(u)) continue // explicit correlation → band / onlap, keep
-      // Uncorrelated → a lens (pinch) when it is a MINORITY, in one of two ways:
-      //   (a) enclosed by the SAME matrix formation above+below AND its own
-      //       lithology does NOT continue on a neighbour — a true lens IN the
-      //       matrix (the deep clay/silt in sand). The matrix that DOES continue
-      //       (an uncorrelated sand bracketed by clay bands) is kept — it connects
-      //       by geometry. This is what tells the MX1 matrix from a SEC3 lens.
-      //   (b) a THIN interbed between two DIFFERENT bands (thinner than both) —
-      //       a minor bed the neighbours close over, even if its lithology happens
-      //       to overlap a neighbour's (an uncorrelated thin silt pinches, never
-      //       bands by mere overlap).
-      const enclosedSame =
-        above.formationId === below.formationId && above.formationId !== u.formationId
-      const lensA = enclosedSame && !connectsAcross(u)
-      const lensB =
-        above.formationId !== below.formationId && thick(u) < thick(above) && thick(u) < thick(below)
-      if (!lensA && !lensB) continue // the matrix → kept (geometry connects it)
       lenses.push({
         bodyId: u.bodyId,
         formationId: u.formationId,
@@ -354,11 +329,11 @@ function reduceColumn(
         depthBaseM: u.baseDepthM,
       })
       if (above.formationId === below.formationId) {
-        above.baseDepthM = below.baseDepthM // same matrix both sides → merge the two
+        above.baseDepthM = below.baseDepthM // same matrix both sides → merge so it connects continuously
         units.splice(i, 2) // remove u + below (below folded into above)
       } else {
-        // Between two different bands → the thicker neighbour floods over it
-        // (closes the gap); the thin bed pinches as a lens.
+        // Between two DIFFERENT bands → the thicker neighbour floods over the
+        // vacated space (closes the gap); the bed pinches out as a lens.
         if (thick(above) >= thick(below)) above.baseDepthM = u.baseDepthM
         else below.topDepthM = u.topDepthM
         units.splice(i, 1)
@@ -1078,22 +1053,22 @@ function emitInterval(
     return s + Math.max(0, (rightSurface - p.ownTopDepth) - (rightSurface - p.ownBaseDepth))
   }, 0)
 
-  // Mismatched matrix (owner directive 2026-06-08): inside an interval bracketed
-  // by correlated bands ABOVE and BELOW, exactly one left + one right unit of
-  // DIFFERENT lithology fill it — no matrix connects across. The transition
-  // position is unknown, so split at the MIDPOINT (0.5, not the thickness-
-  // weighted fraction) and flag the seam so the overlay draws it wriggly (a
-  // lateral facies change, not a sharp correlated contact). The ``bracketed``
-  // gate keeps surface/floor opposing pinches (PF3) on the weighted fraction —
-  // those are genuine thinning-out pinches, not a background facies change.
-  const facies =
+  // Mismatched matrix: inside an interval bracketed by correlated bands ABOVE
+  // and BELOW, exactly one left + one right unit of DIFFERENT lithology fill it
+  // — no matrix connects across. The transition position is unknown, so the two
+  // halves meet at the MIDPOINT (0.5, "halfway", not the thickness-weighted
+  // fraction). The seam is a straight contact: the owner's model (2026-06-09)
+  // has NO auto-facies wriggle — a lateral facies/disturbed contact is the
+  // engineer's call, not a geometric inference. The ``bracketed`` gate keeps
+  // surface/floor opposing pinches (PF3) on the weighted fraction.
+  const mismatchedMatrix =
     bracketed &&
     leftPinches.length === 1 &&
     rightPinches.length === 1 &&
     leftPinches[0].formationId !== rightPinches[0].formationId
 
   let meetFraction: number
-  if (facies) {
+  if (mismatchedMatrix) {
     meetFraction = 0.5
   } else if (leftPinches.length > 0 && rightPinches.length > 0) {
     meetFraction = sumLeft + sumRight > EPS ? sumLeft / (sumLeft + sumRight) : 0.5
@@ -1153,10 +1128,6 @@ function emitInterval(
       regions.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'pinch', polygon })
     }
   }
-
-  // Flag both halves of a mismatched-matrix interval so the overlay draws the
-  // shared seam wriggly.
-  if (facies) for (const r of regions) r.seamKind = 'facies'
 
   return regions
 }
@@ -1565,37 +1536,32 @@ export function computeSectionFill(
     .filter((c) => c.units.length > 0)
     .map((c) => ({ surface: c.surfaceElevM, units: c.units.map((u) => ({ ...u })) }))
   if (cols.length < 2) return []
-
-  // Close depth gaps, then SNAPSHOT each column (pre-reduction) so the
-  // present-check sees the original neighbour data regardless of reduce order.
   cols.forEach((c) => closeColumnGaps(c.units))
-  const snapshots: NeighbourColumn[] = cols.map((c) => ({
-    surface: c.surface,
-    units: c.units.map((u) => ({ ...u })),
-  }))
 
-  // Reduce each column ONCE against both neighbours, then collapse same-litho runs.
-  const lensesByCol = cols.map((c, i) => {
-    const neighbours = [snapshots[i - 1], snapshots[i + 1]].filter(
-      (n): n is NeighbourColumn => n !== undefined,
-    )
-    return reduceColumn(c.units, c.surface, neighbours, correlated)
-  })
-  cols.forEach((c) => collapseAdjacentSameFormation(c.units))
-
-  // Emit each gap from the shared reduced columns. A column's lenses render as
-  // LEFT overlays in the gap to its right and RIGHT overlays in the gap to its left.
+  // PER-GAP, PER-SIDE resolve (owner directive 2026-06-09): each gap is
+  // self-contained. A unit's shape toward its LEFT neighbour and toward its
+  // RIGHT neighbour are independent (it can band one way, pinch the other), so
+  // each gap reduces FRESH COPIES of its two columns against EACH OTHER — no
+  // shared per-column state carried between gaps. The reduce pulls only the
+  // lenses (units uncorrelated to the facing neighbour on both contacts) and
+  // merges the matrix around them; bands + onlaps are shaped by emitGap.
   const out: SectionRegion[] = []
   for (let i = 0; i < cols.length - 1; i++) {
-    const left = cols[i]
-    const right = cols[i + 1]
+    const left = { surface: cols[i].surface, units: cols[i].units.map((u) => ({ ...u })) }
+    const right = { surface: cols[i + 1].surface, units: cols[i + 1].units.map((u) => ({ ...u })) }
+    const leftIds = new Set(left.units.map((u) => u.layerId))
+    const rightIds = new Set(right.units.map((u) => u.layerId))
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated)
+    collapseAdjacentSameFormation(left.units)
+    collapseAdjacentSameFormation(right.units)
     const gapRegions = emitGap(
       left.units,
       left.surface,
       right.units,
       right.surface,
-      lensesByCol[i],
-      lensesByCol[i + 1],
+      lensesLeft,
+      lensesRight,
       correlated,
       lensApexOverrides,
     )
