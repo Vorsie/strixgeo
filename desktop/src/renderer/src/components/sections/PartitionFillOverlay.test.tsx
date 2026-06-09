@@ -578,13 +578,16 @@ describe('PartitionFillOverlay', () => {
   // correlated sand band above + clay band below) renders its seam as a wavy
   // facies <path>, not a straight contact.
   it('FS1 — a mismatched-matrix interval renders a wavy facies seam path', () => {
+    // Brackets are different lithologies (fVeen top / fSilt bot) than the
+    // mismatched matrix (fSand-left vs fClay-right) so the matrix is not merged
+    // away — a genuine facies transition.
     const mismatch = [
-      layer('la', 'L', 'top', 'fSand', 0, 2), // correlated top bracket
+      layer('la', 'L', 'top', 'fVeen', 0, 2), // correlated top bracket
       layer('lb', 'L', 'lsand', 'fSand', 2, 8), // left background sand (uncorrelated)
-      layer('lc', 'L', 'bot', 'fClay', 8, 10), // correlated base bracket
-      layer('ra', 'R', 'top', 'fSand', 0, 2),
+      layer('lc', 'L', 'bot', 'fSilt', 8, 10), // correlated base bracket
+      layer('ra', 'R', 'top', 'fVeen', 0, 2),
       layer('rb', 'R', 'rclay', 'fClay', 2, 8), // right background clay (mismatch)
-      layer('rc', 'R', 'bot', 'fClay', 8, 10),
+      layer('rc', 'R', 'bot', 'fSilt', 8, 10),
     ]
     const { container } = renderOverlay({ lithoLayers: mismatch })
     const seams = container.querySelectorAll('path[data-seam="facies"]')
