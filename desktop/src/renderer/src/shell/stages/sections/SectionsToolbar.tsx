@@ -56,6 +56,9 @@ export default function SectionsToolbar(): JSX.Element {
       correlateMode,
       enterCorrelateMode,
       exitCorrelateMode,
+      suggestedTies,
+      handleSuggestTies,
+      handleClearTieSuggestions,
     },
     geoModel: {
       activeGeologicalModel,
@@ -1075,6 +1078,28 @@ export default function SectionsToolbar(): JSX.Element {
               ? 'Creating…'
               : 'Create a new cross-section (placeholder endpoints)'
         }
+      />
+
+      {/* Suggest tie-sections — proposes perpendicular connector sections
+          between all pairs of existing sections. Toggles between "Suggest"
+          and "Clear" so there is always a visible way to dismiss ghosts. */}
+      <ToolbarButton
+        icon={<GitMerge size={13} />}
+        label={suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'}
+        onClick={() =>
+          suggestedTies.length > 0
+            ? handleClearTieSuggestions()
+            : handleSuggestTies(visibleCpts, visibleBoreholes)
+        }
+        disabled={sections.length < 2}
+        title={
+          sections.length < 2
+            ? 'Need at least 2 sections to tie together'
+            : suggestedTies.length > 0
+              ? 'Clear the current tie-section suggestions'
+              : 'Suggest perpendicular connector sections between all pairs of existing sections'
+        }
+        data-testid="suggest-tie-sections"
       />
 
       {/* Separator — visually groups the entry action from the
