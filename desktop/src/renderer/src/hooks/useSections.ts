@@ -410,6 +410,10 @@ export function useSections({
   useEffect(() => {
     // Clear immediately on every project transition (including A→B switches).
     setSections([])
+    // Ghost tie suggestions are ephemeral + geometry-specific to the project
+    // they were computed from; drop them so project A's ghosts never paint
+    // over project B's map.
+    setSuggestedTies([])
     if (!project) return
     if (ready) {
       void refreshSectionList()
