@@ -48,10 +48,12 @@ import type {
   BodyBoundaryNode,
   BodyBoundaryResponse,
   BodyListItem,
+  LithoContactCorrelationEdge,
   LithoLayerResponse,
 } from '../../api/client'
 import {
   computeSectionFill,
+  type CorrelationEdge,
   type LensApexOverride,
   type PartitionColumn,
   type PartitionUnit,
@@ -68,6 +70,13 @@ import type { PlacedColumn } from './utils'
 export interface Props {
   /** Accepted litho layers carrying ``body_id`` + the unit's depth interval. */
   lithoLayers: readonly LithoLayerResponse[]
+  /**
+   * Contact correlation edges (each links two ``litho_layer`` ids). The fill
+   * BANDS two units iff an APPROVED edge connects them — the trustworthy
+   * correlation signal, vs the resolver's over-lumped ``body_id``. Geometry only
+   * fills the uncorrelated remainder. Absent → no explicit bands (all geometry).
+   */
+  contactEdges?: readonly LithoContactCorrelationEdge[]
   /** Placed columns (carry ``proj.along`` + surface elevation + screen x/width). */
   placedColumns: readonly PlacedColumn[]
   /** formation_id → lithology colour for the fill. */
@@ -364,6 +373,7 @@ interface AddNodePreview {
 /** Render the partition fill (+ labels, open-end stubs, context menu). */
 export default function PartitionFillOverlay({
   lithoLayers,
+  contactEdges,
   placedColumns,
   formationColorById,
   formationLabelById,
@@ -536,6 +546,7 @@ export default function PartitionFillOverlay({
         baseDepthM: layer.depth_base_m,
         formationId: layer.formation_id,
         bodyId: layer.body_id ?? null,
+        layerId: layer.id, // what correlation edges reference (the band signal)
       }
       const bucket = unitsByInv.get(inv)
       if (bucket) bucket.push(unit)
@@ -630,10 +641,17 @@ export default function PartitionFillOverlay({
       for (const id of rightIds) if (!leftIds.has(id)) addApexOverride(id, 'right')
     }
 
+    // Bands come from the APPROVED correlation edges (layer-id pairs) — the
+    // trustworthy signal — NOT the over-lumped body_id. Geometry only fills the
+    // uncorrelated remainder.
+    const edges: CorrelationEdge[] = (contactEdges ?? [])
+      .filter((e) => e.user_approved)
+      .map((e) => ({ a: e.contact_a_id, b: e.contact_b_id }))
+
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    const sectionRegions = computeSectionFill(orderedColumns, apexOverrides)
+    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides)
 
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
       const leftX = gapLeftX(i)
@@ -840,6 +858,7 @@ export default function PartitionFillOverlay({
     orderedInvs,
     colByInv,
     screenByInv,
+    contactEdges,
     showBands,
     levelToScreen,
     plotTop,
