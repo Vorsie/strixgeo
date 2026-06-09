@@ -15,11 +15,18 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
+from groundmodel.api.schemas.project.batch_create_sections_request import (
+    BatchCreateSectionsRequest,
+)
+from groundmodel.api.schemas.project.batch_create_sections_response import (
+    BatchCreateSectionsResponse,
+)
 from groundmodel.api.schemas.project.cross_section import (
     CrossSectionCreateRequest,
     CrossSectionResponse,
     CrossSectionUpdateRequest,
 )
+from groundmodel.application.batch_create_sections import BatchCreateSections
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
 from groundmodel.application.section_snapshot import SectionSnapshot
 from groundmodel.infrastructure.codelists.horizontal_crs import (
@@ -197,6 +204,39 @@ async def create_section(
     await session.commit()
     await session.refresh(section)
     return section
+
+
+@router.post("/batch", response_model=BatchCreateSectionsResponse)
+async def batch_create_sections(
+    project_id: UUID,
+    request: BatchCreateSectionsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> BatchCreateSectionsResponse:
+    """Create several cross-sections in one transaction (Accept-all tie-sections).
+
+    Mirrors :func:`create_section` per-section but commits once for the whole
+    batch, matching the ``BatchAcceptLithoSuggestions`` pattern.  An empty
+    ``sections`` list is a valid no-op that returns an empty response.
+
+    Each section is validated (including the CRS check and distinct-endpoints
+    invariant) before any row is written.
+    """
+    for req in request.sections:
+        _require_supported_section_crs(req.epsg, context="batch-create cross-sections")
+
+    # Build plain dicts from each request, forwarding every kwarg accepted by
+    # CrossSectionRepository.create.  exclude_none keeps optional fields absent
+    # rather than passing None explicitly (the repo already defaults them).
+    specs = [
+        s.model_dump(exclude_none=True, exclude={"view_state"})
+        | ({"view_state": s.view_state} if s.view_state is not None else {})
+        for s in request.sections
+    ]
+
+    rows = await BatchCreateSections(session).execute(app_project_id=project_id, sections=specs)
+    return BatchCreateSectionsResponse(
+        sections=[CrossSectionResponse.model_validate(row) for row in rows]
+    )
 
 
 @router.get("", response_model=list[CrossSectionResponse])
