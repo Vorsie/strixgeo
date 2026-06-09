@@ -259,69 +259,41 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
   }
 }
 
-/** One neighbour column for the section-wide present-check. */
+/** One neighbour column for the section-wide reduction. */
 interface NeighbourColumn {
   units: readonly PartitionUnit[]
   surface: number
 }
 
 /**
- * Does unit ``u`` (on a column at ``surface``) CONNECT to the neighbour — i.e.
- * does the neighbour hold a unit it could match (``pairScore`` > 0)? An explicit
- * correlation edge counts at any elevation (a dipping correlated bed stays a
- * band, not a lens); geometric overlap also counts (the matrix).
- */
-function connectsToNeighbour(
-  u: PartitionUnit,
-  surface: number,
-  nb: NeighbourColumn,
-  correlated: Correlated,
-): boolean {
-  const um: MatchUnit = {
-    formationId: u.formationId,
-    layerId: u.layerId,
-    topElev: surface - u.topDepthM,
-    baseElev: surface - u.baseDepthM,
-  }
-  return nb.units.some(
-    (v) =>
-      pairScore(
-        um,
-        {
-          formationId: v.formationId,
-          layerId: v.layerId,
-          topElev: nb.surface - v.topDepthM,
-          baseElev: nb.surface - v.baseDepthM,
-        },
-        correlated,
-      ) > 0,
-  )
-}
-
-/**
- * Section-wide column reduction: pull interior lithology-minority units that
- * PINCH OUT (connect to NO neighbour), merging the matrix they were embedded in.
+ * Section-wide column reduction: pull interior UNcorrelated MINORITY units that
+ * PINCH OUT, leaving the correlated bands + the background matrix to connect.
  *
- * A unit is removed (→ lens) when it is (a) ABSENT on ALL neighbour columns — no
- * neighbour holds a unit it could match (same ``body_id``, OR same ``formationId``
- * overlapping in elevation; see ``connectsToNeighbour``) — AND (b) enclosed by
- * the SAME matrix formation immediately above AND below, so merging those
- * neighbours closes the gap. This runs ONCE per column (against BOTH its
- * neighbours), so the column has one consistent reduced form shared by both its
- * gaps — a body that runs through it stays continuous (no per-gap drift).
+ * Owner model — "correlations band; geometry only fills the matrix". A unit is
+ * KEPT when it is EDGE-correlated to a neighbour (it bands) OR it is the matrix
+ * (the background). A unit is pulled (→ lens) when it is uncorrelated AND a
+ * MINORITY:
+ *   - enclosed by the SAME matrix lithology above AND below (a classic lens), or
+ *   - a THIN interbed between two DIFFERENT bands (thinner than both neighbours)
+ *     — the thicker neighbour floods over it.
+ * Geometric overlap is NOT a reason to keep an uncorrelated minority (the bug
+ * that banded a thin uncorrelated silt just because it overlapped its neighbour);
+ * only the matrix connects by geometry, in ``matchColumns``.
  *
- * A unit that connects to ANY neighbour is KEPT (it is a band or an onlap); a
- * sole / facies matrix (not enclosed by one formation) is kept. Both flow on to
- * the matcher / facies emit.
+ * Runs ONCE per column (against BOTH neighbours), so the column has one
+ * consistent reduced form shared by its two gaps — a body that runs through it
+ * stays continuous (no per-gap drift).
  *
  * Parameters
  * ----------
  * units : PartitionUnit[]
  *     The column's units (mutated in place — minorities removed, matrix merged).
  * surface : number
- *     The column's surface elevation (mTAW).
+ *     The column's surface elevation (mTAW). (Unused now — kept for symmetry.)
  * neighbours : readonly NeighbourColumn[]
  *     The 1–2 adjacent columns (their ORIGINAL, pre-reduction units).
+ * correlated : Correlated
+ *     Edge lookup (approved correlation between two ``layerId``s).
  *
  * Returns
  * -------
@@ -335,8 +307,22 @@ function reduceColumn(
   correlated: Correlated,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
-  const connectsAnywhere = (u: PartitionUnit): boolean =>
-    neighbours.some((nb) => connectsToNeighbour(u, surface, nb, correlated))
+  const edgeCorrelated = (u: PartitionUnit): boolean =>
+    neighbours.some((nb) => nb.units.some((v) => correlated(u.layerId, v.layerId)))
+  // Does u's lithology continue (overlap in elevation) on a neighbour? (geometry)
+  const connectsAcross = (u: PartitionUnit): boolean => {
+    const uTop = surface - u.topDepthM
+    const uBase = surface - u.baseDepthM
+    return neighbours.some((nb) =>
+      nb.units.some(
+        (v) =>
+          v.formationId === u.formationId &&
+          uTop > nb.surface - v.baseDepthM + EPS &&
+          nb.surface - v.topDepthM > uBase + EPS,
+      ),
+    )
+  }
+  const thick = (x: PartitionUnit): number => x.baseDepthM - x.topDepthM
   let changed = true
   while (changed) {
     changed = false
@@ -344,16 +330,39 @@ function reduceColumn(
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
-      if (connectsAnywhere(u)) continue
-      if (above.formationId !== below.formationId || above.formationId === u.formationId) continue
+      if (edgeCorrelated(u)) continue // explicit correlation → band / onlap, keep
+      // Uncorrelated → a lens (pinch) when it is a MINORITY, in one of two ways:
+      //   (a) enclosed by the SAME matrix formation above+below AND its own
+      //       lithology does NOT continue on a neighbour — a true lens IN the
+      //       matrix (the deep clay/silt in sand). The matrix that DOES continue
+      //       (an uncorrelated sand bracketed by clay bands) is kept — it connects
+      //       by geometry. This is what tells the MX1 matrix from a SEC3 lens.
+      //   (b) a THIN interbed between two DIFFERENT bands (thinner than both) —
+      //       a minor bed the neighbours close over, even if its lithology happens
+      //       to overlap a neighbour's (an uncorrelated thin silt pinches, never
+      //       bands by mere overlap).
+      const enclosedSame =
+        above.formationId === below.formationId && above.formationId !== u.formationId
+      const lensA = enclosedSame && !connectsAcross(u)
+      const lensB =
+        above.formationId !== below.formationId && thick(u) < thick(above) && thick(u) < thick(below)
+      if (!lensA && !lensB) continue // the matrix → kept (geometry connects it)
       lenses.push({
         bodyId: u.bodyId,
         formationId: u.formationId,
         depthTopM: u.topDepthM,
         depthBaseM: u.baseDepthM,
       })
-      above.baseDepthM = below.baseDepthM // merge the matrix neighbours
-      units.splice(i, 2) // remove u + below (below folded into above)
+      if (above.formationId === below.formationId) {
+        above.baseDepthM = below.baseDepthM // same matrix both sides → merge the two
+        units.splice(i, 2) // remove u + below (below folded into above)
+      } else {
+        // Between two different bands → the thicker neighbour floods over it
+        // (closes the gap); the thin bed pinches as a lens.
+        if (thick(above) >= thick(below)) above.baseDepthM = u.baseDepthM
+        else below.topDepthM = u.topDepthM
+        units.splice(i, 1)
+      }
       changed = true
       break // restart after a merge
     }
