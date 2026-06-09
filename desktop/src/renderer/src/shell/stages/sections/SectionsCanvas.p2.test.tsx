@@ -431,6 +431,7 @@ function makeStubContext(overrides?: {
       suggestedTies: [],
       handleSuggestTies: vi.fn(),
       handleAcceptTie: vi.fn(),
+      handleAcceptAllTies: vi.fn(),
       handleRejectTie: vi.fn(),
       handleClearTieSuggestions: vi.fn(),
     },
