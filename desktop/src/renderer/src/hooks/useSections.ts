@@ -164,6 +164,8 @@ export interface UseSectionsResult {
   handleSuggestTies: (cpts: TieInvestigation[], boreholes: TieInvestigation[]) => void
   /** Accept one proposed tie: POST it as a real section, remove from the ghost list. */
   handleAcceptTie: (index: number) => Promise<void>
+  /** Accept all proposed ties in a single batch POST; clears the ghost list on success. */
+  handleAcceptAllTies: () => Promise<void>
   /** Dismiss one proposed tie without creating a section. */
   handleRejectTie: (index: number) => void
   /** Dismiss all proposed ties. */
@@ -839,6 +841,37 @@ export function useSections({
     [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated],
   )
 
+  const handleAcceptAllTies = useCallback(async () => {
+    if (!project) return
+    const epsg = effectiveHorizontalEpsg
+    if (epsg == null) return
+    const ties = suggestedTies
+    if (ties.length === 0) return
+    const vexag = readSectionDefaults(project.view_state ?? null).verticalExaggeration
+    const baseOrdinal = visibleSections.length
+    const payloads = ties.map((tie, i) => ({
+      name: `Tie-section ${baseOrdinal + i + 1}`,
+      epsg,
+      start_x: tie.start.x,
+      start_y: tie.start.y,
+      end_x: tie.end.x,
+      end_y: tie.end.y,
+      projection_buffer_m: tie.bufferM,
+      vertical_exaggeration: vexag,
+    }))
+    try {
+      const { sections: created } = await api.section.createBatch(project.id, { sections: payloads })
+      setSections(prev => [...prev, ...created])
+      created.forEach(s => handleSectionCreated(s.id))
+      if (created.length > 0) setSelectedSectionId(created[created.length - 1].id)
+      setSuggestedTies([])
+      log.success('section', `accepted all ${created.length} tie-section(s)`)
+    } catch (err) {
+      log.error('section', 'accept-all-ties failed', err)
+      toast('error', 'Could not create the tie-sections.')
+    }
+  }, [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated])
+
   // P2-G / P2-H: apply a server-returned updated section to local state
   // without a round-trip GET.  Replaces the matching entry in the sections
   // list by id.  Used by the Seed handler (updated_section from the auto-
@@ -883,6 +916,7 @@ export function useSections({
     suggestedTies,
     handleSuggestTies,
     handleAcceptTie,
+    handleAcceptAllTies,
     handleRejectTie,
     handleClearTieSuggestions,
   }
