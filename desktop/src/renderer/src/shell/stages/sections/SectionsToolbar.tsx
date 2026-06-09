@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -1084,7 +1084,7 @@ export default function SectionsToolbar(): JSX.Element {
           between all pairs of existing sections. Toggles between "Suggest"
           and "Clear" so there is always a visible way to dismiss ghosts. */}
       <ToolbarButton
-        icon={<GitMerge size={13} />}
+        icon={<Network size={13} />}
         label={suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'}
         onClick={() =>
           suggestedTies.length > 0
