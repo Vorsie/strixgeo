@@ -154,6 +154,9 @@ export default function SectionsCanvas(): JSX.Element {
       exitCorrelateMode,
       armCorrelationSource,
       clearCorrelationSource,
+      suggestedTies,
+      handleAcceptTie,
+      handleRejectTie,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -2404,6 +2407,10 @@ export default function SectionsCanvas(): JSX.Element {
         initialCenter={mapCameraRef.current?.center}
         initialZoom={mapCameraRef.current?.zoom}
         onCameraChange={handleMapCameraChange}
+        suggestedTies={suggestedTies}
+        tieEpsg={effectiveHorizontalEpsg}
+        onAcceptTie={handleAcceptTie}
+        onRejectTie={handleRejectTie}
       />
 
       {/* Empty-state CTA — pointer-events-none on the wrapper keeps
