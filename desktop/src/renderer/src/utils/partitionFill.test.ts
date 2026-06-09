@@ -372,11 +372,11 @@ describe('computePartitionFill', () => {
     const left = col('L', 10, [
       { top: 0, base: 5, f: 'clayA', b: 'cA' },
       { top: 5, base: 9, f: 'sand', b: 'sand' },
-      { top: 9, base: 14, f: 'clayB', b: 'cB' },
+      { top: 9, base: 14, f: 'clayB', b: 'cB-L' },
     ])
     const right = col('R', 10, [
       { top: 0, base: 5, f: 'clayA', b: 'cA' },
-      { top: 5, base: 14, f: 'clayB', b: 'cB' },
+      { top: 5, base: 14, f: 'clayB', b: 'cB-R' },
     ])
     const regions = pf(left, right)
 
@@ -475,18 +475,23 @@ describe('computePartitionFill', () => {
       { top: 0, base: 5, f: 'kA', b: 'kA' },
       { top: 5, base: 7, f: 'silt', b: 'silt' },
       { top: 7, base: 9, f: 'zand', b: 'zand' },
-      { top: 9, base: 14, f: 'kB', b: 'kB' },
+      { top: 9, base: 14, f: 'kB', b: 'kB-L' },
     ])
     const right = col('R', 10, [
       { top: 0, base: 5, f: 'kA', b: 'kA' },
-      { top: 5, base: 14, f: 'kB', b: 'kB' },
+      { top: 5, base: 14, f: 'kB', b: 'kB-R' },
     ])
     const regions = pf(left, right)
-    for (const fid of ['silt', 'zand']) {
+    // Both beds are uncorrelated on BOTH contacts → 0-corr LENSES (own-elevation
+    // apex at the lens fraction); kA floods down + kB bands around them.
+    const apexElev = { silt: 4, zand: 2 } // own mid-elevations (depths 6, 8 → 10-d)
+    for (const fid of ['silt', 'zand'] as const) {
       const r = regions.filter((x) => x.formationId === fid)
       expect(r).toHaveLength(1)
-      expect(r[0].kind).toBe('pinch')
-      expect(Math.max(...r[0].polygon.map((p) => p.fraction))).toBeCloseTo(0.5, 6)
+      expect(r[0].kind).toBe('lens')
+      const apex = r[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+      expect(apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+      expect(apex.elevation).toBeCloseTo(apexElev[fid], 6)
     }
     assertTiles(regions, left, right)
   })
@@ -520,11 +525,11 @@ describe('computePartitionFill', () => {
     const left = col('L', 10, [
       { top: 0, base: 5, f: 'clay', b: 'cA' },
       { top: 5, base: 7, f: 'silt', b: 'silt' },
-      { top: 7, base: 14, f: 'clay', b: 'cB' },
+      { top: 7, base: 14, f: 'clay', b: 'cB-L' },
     ])
     const right = col('R', 10, [
       { top: 0, base: 6, f: 'clay', b: 'cA' },
-      { top: 6, base: 14, f: 'clay', b: 'cB' },
+      { top: 6, base: 14, f: 'clay', b: 'cB-R' },
     ])
     const regions = pf(left, right)
     const silt = regions.filter((r) => r.formationId === 'silt')
@@ -550,11 +555,11 @@ describe('computePartitionFill', () => {
     const left = col('L', 0, [
       { top: 0, base: 3, f: 'fSand', b: 'sand' },
       { top: 3, base: 5, f: 'fSilt', b: 'silt' }, // left-only lens
-      { top: 5, base: 10, f: 'fSand', b: 'sand2' },
+      { top: 5, base: 10, f: 'fSand', b: 'sand2L' },
     ])
     const right = col('R', 0, [
       { top: 0, base: 4, f: 'fSand', b: 'sand' },
-      { top: 4, base: 10, f: 'fSand', b: 'sand2' },
+      { top: 4, base: 10, f: 'fSand', b: 'sand2R' },
     ])
     const regions = pf(left, right)
     // The left-only silt is enclosed by the sand on both sides → a LENS; the
@@ -702,14 +707,14 @@ describe('computePartitionFill', () => {
   it('MX2: a minority silt lens inside an uncorrelated sand matrix → matrix bands, silt pinches', () => {
     const left = col('L', 10, [
       { top: 0, base: 5, f: 'KLEI', b: 'k-top' }, // correlated bracket
-      { top: 5, base: 8, f: 'ZAND', b: 'zL' }, // matrix sand — uncorrelated, upper piece
+      { top: 5, base: 8, f: 'ZAND', b: 'zand' }, // matrix sand — OUTER contact correlated (bands)
       { top: 8, base: 9, f: 'SILT', b: 's-lens' }, // minority lens inside the sand
-      { top: 9, base: 12, f: 'ZAND', b: 'zL2' }, // matrix sand — uncorrelated, lower piece (≠ zL)
+      { top: 9, base: 12, f: 'ZAND', b: 'zL2-uniq' }, // matrix sand — uncorrelated, lower piece (≠ zL)
       { top: 12, base: 18, f: 'KLEI', b: 'k-bot' }, // correlated bracket
     ])
     const right = col('R', 10, [
       { top: 0, base: 5, f: 'KLEI', b: 'k-top' },
-      { top: 5, base: 12, f: 'ZAND', b: 'zR' }, // matrix sand — uncorrelated, whole interval
+      { top: 5, base: 12, f: 'ZAND', b: 'zand' }, // matrix sand — correlated partner of zL
       { top: 12, base: 18, f: 'KLEI', b: 'k-bot' },
     ])
     const regions = pf(left, right)
@@ -786,12 +791,12 @@ describe('computePartitionFill', () => {
       { top: 0, base: 4, f: 'SAND', b: 'b-sand' }, // correlated band
       { top: 4, base: 8, f: 'SAND', b: 'l-sand' }, // matrix (collapses into the sand band)
       { top: 8, base: 10, f: 'SILT', b: 'l-silt' }, // thin uncorrelated minority
-      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' }, // correlated band
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay-L' }, // bands by overlap (internal contact uncorrelated)
     ])
     const right = col('R', 0, [
       { top: 0, base: 4, f: 'SAND', b: 'b-sand' },
       { top: 4, base: 10, f: 'SAND', b: 'r-sand' },
-      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' },
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay-R' },
     ])
     const regions = pf(left, right)
     const sandSpans = regions.some(
@@ -815,11 +820,11 @@ describe('computePartitionFill', () => {
   //
   // The interval background is a DIFFERENT lithology on each column (no matrix
   // connects). Honest representation: a vertical MIDPOINT seam (50/50 — the
-  // transition position is unknown), flagged ``seamKind:'facies'`` so the
-  // overlay can draw it wriggly (a lateral facies change, not a sharp contact).
-  // The two halves TILE (no overlay) — they partition the interval.
+  // transition position is unknown) with a STRAIGHT contact. The owner's model
+  // (2026-06-09) has NO auto-facies wriggle — a facies/disturbed contact is the
+  // engineer's call, not a geometric inference. The two halves TILE (partition).
   // -----------------------------------------------------------------------
-  it('MISMATCH: sand-left vs clay-right splits at a midpoint facies seam (flagged)', () => {
+  it('MISMATCH: sand-left vs clay-right splits at a midpoint seam (no auto-facies)', () => {
     // Brackets are a DIFFERENT lithology (KLEI / VEEN) than the mismatched
     // matrix (SAND-left vs CLAY-right) so the matrix can't be merged away — a
     // genuine facies transition with no shared background lithology.
@@ -850,9 +855,9 @@ describe('computePartitionFill', () => {
     // Both meet at fraction 0.5 (midpoint).
     expect(sand!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
     expect(clay!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
-    // Flagged so the overlay draws the seam wriggly.
-    expect(sand!.seamKind).toBe('facies')
-    expect(clay!.seamKind).toBe('facies')
+    // No auto-facies flag — the seam is a straight contact (owner's model).
+    expect(sand!.seamKind).toBeUndefined()
+    expect(clay!.seamKind).toBeUndefined()
     assertTiles(regions, left, right)
   })
 
@@ -1089,9 +1094,9 @@ describe('computePartitionFill', () => {
       { top: 4.73, base: 6.55, f: 'fSi', b: '2ad749' },
       { top: 6.55, base: 9.49, f: 'fZ', b: 'dc5b80' },
       { top: 9.49, base: 10.89, f: 'fSi', b: '0a6dee' },
-      { top: 10.89, base: 16.42, f: 'fZ', b: 'dc5b80' },
+      { top: 10.89, base: 16.42, f: 'fZ', b: 'dc5b80-2' },
       { top: 16.42, base: 16.98, f: 'fSi', b: '2044d2' },
-      { top: 16.98, base: 19.37, f: 'fZ', b: 'dc5b80' },
+      { top: 16.98, base: 19.37, f: 'fZ', b: 'dc5b80-3' },
       { top: 19.37, base: 24.83, f: 'fK', b: '0ca539' },
     ])
     const s6 = col('S6', 12.68, [
@@ -1138,7 +1143,7 @@ describe('computePartitionFill', () => {
     const left = col('L', 0, [
       { top: 0, base: 4, f: 'fSand', b: 'sand' },
       { top: 4, base: 5, f: 'fSilt', b: 'silt' },
-      { top: 5, base: 10, f: 'fSand', b: 'sand' },
+      { top: 5, base: 10, f: 'fSand', b: 'sand-lo' },
     ])
     const right = col('R', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
     const regions = pf(left, right)
@@ -1197,7 +1202,7 @@ describe('computePartitionFill', () => {
       { top: 4.25, base: 7.50, f: 'fSi', b: '2ad749' },
       { top: 7.50, base: 12.04, f: 'fZ', b: 'dc5b80' },
       { top: 12.04, base: 12.39, f: 'fSi', b: 'a89669' },
-      { top: 12.39, base: 16.97, f: 'fZ', b: 'dc5b80' },
+      { top: 12.39, base: 16.97, f: 'fZ', b: 'dc5b80-s2b' },
       { top: 16.97, base: 29.42, f: 'fK', b: '0ca539' },
     ])
     // S1: surface 13.13
@@ -1210,9 +1215,9 @@ describe('computePartitionFill', () => {
       { top: 4.95, base: 5.50, f: 'fSi', b: '2ad749' },
       { top: 5.50, base: 12.78, f: 'fZ', b: 'dc5b80' },
       { top: 12.78, base: 14.47, f: 'fK', b: '9d4278' },
-      { top: 14.47, base: 14.98, f: 'fZ', b: 'dc5b80' },
+      { top: 14.47, base: 14.98, f: 'fZ', b: 'dc5b80-s1b' },
       { top: 14.98, base: 15.54, f: 'fK', b: '67cd19' },
-      { top: 15.54, base: 18.37, f: 'fZ', b: 'dc5b80' },
+      { top: 15.54, base: 18.37, f: 'fZ', b: 'dc5b80-s1c' },
       { top: 18.37, base: 23.81, f: 'fK', b: '0ca539' },
     ])
     const regions = pf(s2, s1)
