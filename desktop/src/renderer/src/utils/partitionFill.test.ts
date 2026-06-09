@@ -265,11 +265,12 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
-  // HP1 — a lone interior pinch tapers to an apex at fraction 0.5 (NOT to the
-  // neighbour at fraction 1), with the enclosing matrix closing beyond it.
-  it('HP1: lone interior pinch tips at 50%, matrix closes, tiles', () => {
-    // left:  Clay-A 0-5 | Sand 5-9 (lone) | Clay-B 9-14
-    // right: Clay-A 0-5 | Clay-B 5-14   (Sand absent → interfaces converge right)
+  // HP1 — a lone uncorrelated thin bed between two different clay bands pinches
+  // out as a LENS at its own elevation (NOT a tip-at-50% boundary pinch); the
+  // thicker neighbouring band closes over it.
+  it('HP1: lone interior thin bed pinches as a lens at its own level, tiles', () => {
+    // left:  Clay-A 0-5 | Sand 5-9 (lone, thin, uncorrelated) | Clay-B 9-14
+    // right: Clay-A 0-5 | Clay-B 5-14   (Sand absent)
     const left = col('L', 10, [
       { top: 0, base: 5, f: 'clayA', b: 'cA' },
       { top: 5, base: 9, f: 'sand', b: 'sand' },
@@ -283,18 +284,14 @@ describe('computePartitionFill', () => {
 
     const sand = regions.filter((r) => r.formationId === 'sand')
     expect(sand).toHaveLength(1)
-    expect(sand[0].kind).toBe('pinch')
-    // Apex is the deepest-into-the-gap vertex; it must sit at ~0.5, never 1.
-    const maxFraction = Math.max(...sand[0].polygon.map((p) => p.fraction))
-    expect(maxFraction).toBeCloseTo(0.5, 6)
-    // The ABOVE matrix (clayA) descends to fill the wedge beyond the apex, so it
-    // appears in MORE THAN ONE region (its quad + the fill extension). The unit
-    // BELOW (clayB) keeps its flat correlated top — it stays a single region
-    // (owner directive 2026-06-08: the correlated layer stays flat, the layer
-    // above fills the pinch-out wedge).
-    expect(regions.filter((r) => r.formationId === 'clayA').length).toBeGreaterThanOrEqual(2)
-    expect(regions.filter((r) => r.formationId === 'clayB').length).toBe(1)
-    // Still a true partition.
+    expect(sand[0].kind).toBe('lens')
+    // Apex at the lens fraction, at the sand's OWN mid-elevation (depth 7 → 3).
+    const apex = sand[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+    expect(apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    expect(apex.elevation).toBeCloseTo(3, 6)
+    // The clay bands connect across (the lens overlays them); partition holds.
+    expect(regions.some((r) => r.formationId === 'clayA' && r.kind === 'quad')).toBe(true)
+    expect(regions.some((r) => r.formationId === 'clayB' && r.kind === 'quad')).toBe(true)
     assertTiles(regions, left, right)
   })
 
@@ -682,17 +679,16 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
-  // ONLAP-BASE — a minority whose BASE touches the bracket tie-line laps DOWN.
-  // Its top sits in the SAND matrix, its base on the correlated CLAY bracket →
-  // it is NOT enclosed by one matrix lithology, so the minority pre-pass leaves
-  // it and the onlap path renders it lapping to a tip on the base interface.
+  // LENS-DEEP — a thin UNcorrelated silt sitting in the sand just above the CLAY
+  // band (between two DIFFERENT bands) pinches out as a LENS at its own
+  // elevation; the sand matrix bands and the clay bands.
   // -----------------------------------------------------------------------
-  it('ONLAP-BASE: minority touching the base bracket laps down to a tip on the base interface', () => {
+  it('LENS-DEEP: a thin uncorrelated bed between different bands pinches as a lens', () => {
     const left = col('L', 0, [
-      { top: 0, base: 4, f: 'SAND', b: 'b-sand' }, // correlated top bracket
-      { top: 4, base: 8, f: 'SAND', b: 'l-sand' }, // uncorrelated matrix
-      { top: 8, base: 10, f: 'SILT', b: 'l-silt' }, // onlap — base on the bracket, top floats
-      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' }, // correlated base bracket
+      { top: 0, base: 4, f: 'SAND', b: 'b-sand' }, // correlated band
+      { top: 4, base: 8, f: 'SAND', b: 'l-sand' }, // matrix (collapses into the sand band)
+      { top: 8, base: 10, f: 'SILT', b: 'l-silt' }, // thin uncorrelated minority
+      { top: 10, base: 14, f: 'CLAY', b: 'b-clay' }, // correlated band
     ])
     const right = col('R', 0, [
       { top: 0, base: 4, f: 'SAND', b: 'b-sand' },
@@ -710,9 +706,9 @@ describe('computePartitionFill', () => {
     expect(sandSpans).toBe(true)
     const silt = regions.filter((r) => r.formationId === 'SILT')
     expect(silt).toHaveLength(1)
-    const tip = silt[0].polygon.reduce((a, b) => (a.fraction > b.fraction ? a : b))
-    expect(tip.fraction).toBeCloseTo(0.5, 6) // INTERIOR_PINCH_FRACTION
-    expect(tip.elevation).toBeCloseTo(-10, 6) // base bracket = CLAY top at depth 10
+    expect(silt[0].kind).toBe('lens')
+    const apex = silt[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+    expect(apex.elevation).toBeCloseTo(-9, 6) // own mid-elevation (depth (8+10)/2 = 9)
     assertTiles(regions, left, right)
   })
 
@@ -927,6 +923,46 @@ describe('computePartitionFill', () => {
         .flatMap((v) => v.polygon.filter((p) => Math.abs(p.fraction - frac) < 0.01).map((p) => p.elevation))
         .sort((a, b) => a - b)
     expect(s2Edge(0, 1)).toEqual(s2Edge(1, 0))
+  })
+
+  // -----------------------------------------------------------------------
+  // MINORITY — geometry fills only the MATRIX; a thin UNcorrelated interbed
+  // pinches out even when it overlaps a same-lithology bed on the neighbour.
+  //
+  // The KLEI/CLAY brackets are correlated (→ band). The SILT is thin + has NO
+  // edge (unique body) and overlaps the neighbour's silt — under "geometry only
+  // fills the matrix" it must PINCH (lens), not band. The thick ZAND matrix has
+  // no edge either but is the background → connects by geometry.
+  // -----------------------------------------------------------------------
+  it('MINORITY: a thin uncorrelated interbed pinches (lens) though it overlaps; the matrix bands', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 2, f: 'KLEI', b: 'ktop' }, // correlated band
+      { top: 2, base: 2.5, f: 'SILT', b: 'lsilt' }, // thin, uncorrelated minority
+      { top: 2.5, base: 9, f: 'ZAND', b: 'lsand' }, // thick uncorrelated matrix
+      { top: 9, base: 12, f: 'CLAY', b: 'kbot' }, // correlated band
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 2, f: 'KLEI', b: 'ktop' },
+      { top: 2, base: 2.6, f: 'SILT', b: 'rsilt' }, // overlaps L's silt, no edge
+      { top: 2.6, base: 9, f: 'ZAND', b: 'rsand' }, // thick matrix
+      { top: 9, base: 12, f: 'CLAY', b: 'kbot' },
+    ])
+    const regions = pf(left, right)
+    // The silt is two separate lenses (one per column), NOT one band.
+    const silt = regions.filter((r) => r.formationId === 'SILT')
+    expect(silt).toHaveLength(2)
+    expect(silt.every((r) => r.kind === 'lens')).toBe(true)
+    // The sand matrix connects across as a band (geometry fallback).
+    expect(
+      regions.some(
+        (r) =>
+          r.formationId === 'ZAND' &&
+          r.kind === 'quad' &&
+          Math.min(...r.polygon.map((p) => p.fraction)) < 0.01 &&
+          Math.max(...r.polygon.map((p) => p.fraction)) > 0.99,
+      ),
+    ).toBe(true)
+    assertTiles(regions, left, right)
   })
 
   // -----------------------------------------------------------------------
