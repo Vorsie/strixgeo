@@ -51,7 +51,7 @@ import type {
   LithoLayerResponse,
 } from '../../api/client'
 import {
-  computePartitionFill,
+  computeSectionFill,
   type LensApexOverride,
   type PartitionColumn,
   type PartitionUnit,
@@ -591,45 +591,33 @@ export default function PartitionFillOverlay({
   const screenRegions = useMemo(() => {
     if (!showBands) return [] as ScreenRegion[]
     const out: ScreenRegion[] = []
-    for (let i = 0; i < orderedInvs.length - 1; i += 1) {
-      const leftId = orderedInvs[i]
-      const rightId = orderedInvs[i + 1]
-      const left = colByInv.get(leftId)
-      const right = colByInv.get(rightId)
-      const lScreen = screenByInv.get(leftId)
-      const rScreen = screenByInv.get(rightId)
-      if (!left || !right || !lScreen || !rScreen) continue
-      const leftX = lScreen.rightX
-      const rightX = rScreen.leftX
-      if (rightX <= leftX) continue
 
-      // Lens apex overrides for this gap: still fed to computePartitionFill so
-      // its lens polygon is built in fraction space.  The freedraw node arrays
-      // (upper_nodes / lower_nodes) are consumed HERE in the overlay for the
-      // freedraw polygon reconstruction — we do NOT need computePartitionFill
-      // to know about the multi-node shape because the lens polygon built there
-      // is immediately REPLACED by the freedraw polygon in the post-lens pass
-      // below.  The override here provides the legacy single-apex path so
-      // computePartitionFill still emits the right kind:'lens' region.
+    // Valid columns in along-section order (have both unit data + screen edges).
+    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
+    if (orderedColumns.length < 2) return out
+    const gapLeftX = (i: number): number => (screenByInv.get(valid[i]) as ColumnScreen).rightX
+    const gapRightX = (i: number): number => (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX
+
+    // Lens apex overrides (legacy single-node freedraw), keyed by bodyId. Built
+    // per gap (the override fraction is gap-local) and merged into ONE map fed to
+    // the WHOLE-SECTION resolve. The multi-node freedraw shape is rebuilt in the
+    // post-lens pass below, so this only needs the legacy single-apex path.
+    const apexOverrides = new Map<string, LensApexOverride>()
+    for (let i = 0; i < orderedColumns.length - 1; i += 1) {
+      const leftX = gapLeftX(i)
+      const rightX = gapRightX(i)
+      if (rightX <= leftX) continue
+      const left = orderedColumns[i]
+      const right = orderedColumns[i + 1]
       const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
       const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
-      const apexOverrides = new Map<string, LensApexOverride>()
       const addApexOverride = (bodyId: string, side: 'left' | 'right'): void => {
-        // For the legacy apex path: if no freedraw nodes are stored, use the
-        // first upper_node (left) or lower_node (right) as a single-apex
-        // override so old stored shapes still render.
-        if (lensDrag && lensDrag.bodyId === bodyId) {
-          // Live drag — not applied at this level; polygon is rebuilt post-pass.
-          return
-        }
+        if (lensDrag && lensDrag.bodyId === bodyId) return // live drag rebuilt post-pass
         const b = boundariesByBodyId?.get(bodyId)
-        // Prefer the new multi-node path (handled in the post-lens pass).
-        // Only supply a single apex override when there is exactly one node on
-        // the relevant edge AND no node on the other edge (legacy shape).
         const upperN = b?.upper_nodes ?? []
         const lowerN = b?.lower_nodes ?? []
-        const hasMultiNode = upperN.length + lowerN.length > 1
-        if (hasMultiNode) return // multi-node: rebuilt in post-lens pass
+        if (upperN.length + lowerN.length > 1) return // multi-node rebuilt post-pass
         const node = side === 'left' ? upperN[0] : lowerN[0]
         if (node && alongToScreenX) {
           apexOverrides.set(bodyId, {
@@ -640,8 +628,19 @@ export default function PartitionFillOverlay({
       }
       for (const id of leftIds) if (!rightIds.has(id)) addApexOverride(id, 'left')
       for (const id of rightIds) if (!leftIds.has(id)) addApexOverride(id, 'right')
+    }
 
-      for (const region of computePartitionFill(left, right, apexOverrides)) {
+    // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
+    // (not per gap, which drifts and breaks a body's continuity through a shared
+    // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
+    const sectionRegions = computeSectionFill(orderedColumns, apexOverrides)
+
+    for (let i = 0; i < orderedColumns.length - 1; i += 1) {
+      const leftX = gapLeftX(i)
+      const rightX = gapRightX(i)
+      if (rightX <= leftX) continue
+
+      for (const region of sectionRegions.filter((r) => r.gapIndex === i)) {
         let minX = Infinity
         let maxX = -Infinity
         let minY = Infinity
