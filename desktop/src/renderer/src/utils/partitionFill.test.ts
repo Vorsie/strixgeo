@@ -852,12 +852,10 @@ describe('computePartitionFill', () => {
     )
     expect(sand).toBeDefined()
     expect(clay).toBeDefined()
-    // Both meet at fraction 0.5 (midpoint).
+    // Both meet at fraction 0.5 (midpoint) with a STRAIGHT contact — the owner's
+    // model has no auto-facies wriggle (the seamKind field was removed).
     expect(sand!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
     expect(clay!.polygon.some((p) => Math.abs(p.fraction - 0.5) < 1e-6)).toBe(true)
-    // No auto-facies flag — the seam is a straight contact (owner's model).
-    expect(sand!.seamKind).toBeUndefined()
-    expect(clay!.seamKind).toBeUndefined()
     assertTiles(regions, left, right)
   })
 
