@@ -1321,23 +1321,59 @@ function emitGap(
         if (p.ownTopDepth >= shallowFloor - EPS) carry.push(p)
         else rest.push(p)
       }
-      for (const p of carry) {
-        const surface = p.side === 'left' ? leftSurface : rightSurface
-        const top = surface - p.ownTopDepth
-        const base = surface - p.ownBaseDepth
-        regions.push({
-          formationId: p.formationId,
-          bodyId: p.bodyId,
-          kind: 'quad',
-          polygon: [
-            { fraction: 0, elevation: top },
-            { fraction: 1, elevation: top },
-            { fraction: 1, elevation: base },
-            { fraction: 0, elevation: base },
-          ],
-        })
-      }
+      // The carry units all sit on the DEEPER column (they're below the shallow
+      // floor); the shallow column has no data there. The carried band must span
+      // from the SHALLOW column's floor (its data ends) down — its top SLOPES from
+      // the shallow floor (shallow side) to the carry unit's own top (deep side).
+      // A flat full-width top (the old behaviour) left a wedge between the shallow
+      // floor and a deeper carry top either uncovered (gap) or, with the deepest-
+      // floor interval base, filled by a rest-pinch dipping in (overlap — CS1
+      // gap-11). When the carry top equals the shallow floor (CT1) the slope is
+      // flat, so CT1 is unchanged.
+      carry.sort((a, b) => a.ownTopDepth - b.ownTopDepth) // shallowest carry first
+      const shallowIsLeft = leftFloor <= rightFloor
+      const shallowSurface = shallowIsLeft ? leftSurface : rightSurface
+      const shallowFloorElev = shallowSurface - shallowFloor
+      carry.forEach((p, ci) => {
+        const deepSurface = p.side === 'left' ? leftSurface : rightSurface
+        const deepTopElev = deepSurface - p.ownTopDepth
+        const deepBaseElev = deepSurface - p.ownBaseDepth
+        // Only the SHALLOWEST carry unit's top reaches the shallow floor; deeper
+        // carry units stack flat below it (a fine approximation for the rare
+        // multi-carry stack).
+        const shallowTopElev = ci === 0 ? shallowFloorElev : deepTopElev
+        // Fraction 0 = left column edge, 1 = right. Build the quad so the DEEP
+        // side carries the unit's own elevations and the SHALLOW side its top
+        // reaches the shallow floor (sloped top), with a flat full-width base.
+        const polygon: PartitionPoint[] =
+          p.side === 'left'
+            ? [
+                { fraction: 0, elevation: deepTopElev },
+                { fraction: 1, elevation: shallowTopElev },
+                { fraction: 1, elevation: deepBaseElev },
+                { fraction: 0, elevation: deepBaseElev },
+              ]
+            : [
+                { fraction: 0, elevation: shallowTopElev },
+                { fraction: 1, elevation: deepTopElev },
+                { fraction: 1, elevation: deepBaseElev },
+                { fraction: 0, elevation: deepBaseElev },
+              ]
+        regions.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'quad', polygon })
+      })
       pinchPool = rest
+      // The remaining pinches tile ONLY above the carried bands — clamp their
+      // interval base to the carried band's (sloped) top so they meet it instead
+      // of filling down into it.
+      if (carry.length > 0 && rest.length > 0) {
+        const carryTop0 = carry[0]
+        intervalBase = clampIface(
+          shallowIsLeft
+            ? { leftDepth: shallowFloor, rightDepth: carryTop0.ownTopDepth }
+            : { leftDepth: carryTop0.ownTopDepth, rightDepth: shallowFloor },
+          intervalTop,
+        )
+      }
     }
 
     // "One-sided" when every remaining pinch is on the same column — only then
