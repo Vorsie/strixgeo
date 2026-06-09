@@ -119,6 +119,16 @@ export interface CrossSectionCreatePayload {
   display_order?: number
 }
 
+/** Request body for ``POST /projects/{pid}/sections/batch``. */
+export interface BatchCreateSectionsPayload {
+  sections: CrossSectionCreatePayload[]
+}
+
+/** Response from ``POST /projects/{pid}/sections/batch`` — the created sections. */
+export interface BatchCreateSectionsResult {
+  sections: CrossSectionResponse[]
+}
+
 /** Request body for ``PATCH /projects/{pid}/sections/{sid}``. */
 export interface CrossSectionUpdatePayload {
   name?: string | null
@@ -186,6 +196,12 @@ export const sectionClient = {
     body: CrossSectionCreatePayload,
   ): Promise<CrossSectionResponse> =>
     post(`/projects/${projectId}/sections`, body),
+
+  createBatch: (
+    projectId: string,
+    body: BatchCreateSectionsPayload,
+  ): Promise<BatchCreateSectionsResult> =>
+    post(`/projects/${projectId}/sections/batch`, body),
 
   update: (
     projectId: string,
