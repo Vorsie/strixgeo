@@ -495,6 +495,92 @@ function lcsAlignment(
 }
 
 // ---------------------------------------------------------------------------
+// Section-wide lithology-aware matcher
+// ---------------------------------------------------------------------------
+
+/** A unit prepared for cross-column matching, elevations precomputed (mTAW). */
+export interface MatchUnit {
+  formationId: string
+  bodyId: string | null
+  /** Higher elevation — the unit's top. */
+  topElev: number
+  /** Lower elevation — the unit's base. */
+  baseElev: number
+}
+
+/**
+ * Score a candidate cross-column pairing.
+ *
+ * Lithology must agree: the resolver's ``body_id`` can over-lump several
+ * lithologies into one body (the deep ``857`` package in the dogfeed lumps
+ * KLEI + ZAND + SILT), so a pairing ACROSS lithology is never allowed. Explicit
+ * correlation (same ``body_id``) and elevation overlap each add confidence so
+ * the weighted alignment prefers the geologically-aligned pairing:
+ *
+ *   same litho + same body + overlap → 3
+ *   same litho + same body           → 2  (respect an explicit correlation even if depths shifted)
+ *   same litho + overlap             → 1  (geometric connectivity — the uncorrelated matrix)
+ *   otherwise                        → 0  (no match)
+ */
+function pairScore(l: MatchUnit, r: MatchUnit): number {
+  if (l.formationId !== r.formationId) return 0
+  const overlap = l.topElev > r.baseElev + EPS && r.topElev > l.baseElev + EPS
+  const body = l.bodyId !== null && l.bodyId === r.bodyId
+  if (body && overlap) return 3
+  if (body) return 2
+  if (overlap) return 1
+  return 0
+}
+
+/**
+ * Monotonic (order-preserving) cross-column matching by lithology, with
+ * ``body_id`` + elevation overlap as confidence. A weighted
+ * longest-common-subsequence over ``pairScore`` — it maximises total confidence,
+ * so a same-lithology body connects across the gap even when its ``body_id``
+ * differs per column (the uncorrelated matrix), and never pairs across lithology.
+ *
+ * Parameters
+ * ----------
+ * left, right : MatchUnit[]
+ *     The two columns' units, sorted shallow→deep.
+ *
+ * Returns
+ * -------
+ * Array<[number, number]>
+ *     Matched (leftIndex, rightIndex) pairs in ascending order.
+ */
+export function matchColumns(left: MatchUnit[], right: MatchUnit[]): Array<[number, number]> {
+  const n = left.length
+  const m = right.length
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const s = pairScore(left[i - 1], right[j - 1])
+      let best = Math.max(dp[i - 1][j], dp[i][j - 1])
+      if (s > 0) best = Math.max(best, dp[i - 1][j - 1] + s)
+      dp[i][j] = best
+    }
+  }
+  const pairs: Array<[number, number]> = []
+  let i = n
+  let j = m
+  while (i > 0 && j > 0) {
+    const s = pairScore(left[i - 1], right[j - 1])
+    if (s > 0 && dp[i][j] === dp[i - 1][j - 1] + s) {
+      pairs.push([i - 1, j - 1])
+      i--
+      j--
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--
+    } else {
+      j--
+    }
+  }
+  pairs.reverse()
+  return pairs
+}
+
+// ---------------------------------------------------------------------------
 // Interface helpers
 // ---------------------------------------------------------------------------
 
