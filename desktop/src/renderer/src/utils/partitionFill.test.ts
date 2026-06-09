@@ -11,6 +11,8 @@ import {
   computePartitionFill,
   INTERIOR_PINCH_FRACTION,
   LENS_PINCH_FRACTION,
+  matchColumns,
+  type MatchUnit,
   type PartitionColumn,
   type PartitionRegion,
 } from './partitionFill'
@@ -147,6 +149,59 @@ function assertTiles(
     expect(lowestBottom).toBeLessThanOrEqual(colFloorElev + EPS)
   }
 }
+
+// ---------------------------------------------------------------------------
+// matchColumns — section-wide lithology-aware cross-column matcher
+// ---------------------------------------------------------------------------
+
+describe('matchColumns', () => {
+  const mu = (formationId: string, bodyId: string | null, topElev: number, baseElev: number): MatchUnit => ({
+    formationId,
+    bodyId,
+    topElev,
+    baseElev,
+  })
+
+  it('MC1 — matches identical (body, lithology) pairs in order', () => {
+    const L = [mu('SAND', 'x', 0, -5), mu('CLAY', 'y', -5, -10)]
+    const R = [mu('SAND', 'x', 0, -5), mu('CLAY', 'y', -5, -10)]
+    expect(matchColumns(L, R)).toEqual([
+      [0, 0],
+      [1, 1],
+    ])
+  })
+
+  it('MC2 — connects same-lithology OVERLAPPING units across different body_ids', () => {
+    const L = [mu('ZAND', 'p', 0, -7)]
+    const R = [mu('ZAND', 'q', -1, -8)] // diff body, same litho, overlapping elevation
+    expect(matchColumns(L, R)).toEqual([[0, 0]])
+  })
+
+  it('MC3 — does NOT connect same-lithology units at NON-overlapping depths', () => {
+    const L = [mu('KLEI', 'a', 10, 8)]
+    const R = [mu('KLEI', 'b', 2, 0)] // same litho, no elevation overlap, diff body
+    expect(matchColumns(L, R)).toEqual([])
+  })
+
+  it('MC4 — never matches across lithology even on a shared (over-lumped) body_id', () => {
+    // body 857 lumps ZAND + KLEI; they must NOT pair to each other.
+    const L = [mu('ZAND', '857', 0, -5)]
+    const R = [mu('KLEI', '857', 0, -5)] // same body, different lithology
+    expect(matchColumns(L, R)).toEqual([])
+  })
+
+  it('MC5 — the deep S1->B4 package: deep ZAND connects, deep KLEI connects, the high KLEI does not jump', () => {
+    // L deep = [KLEI(high), ZAND, KLEI(low)], R deep = [ZAND, KLEI(low)] (all body 857).
+    const L = [mu('KLEI', '857', 0.5, -1.5), mu('ZAND', '857', -1.5, -5), mu('KLEI', '857', -5, -11)]
+    const R = [mu('ZAND', '42e', 0, -6.5), mu('KLEI', '857', -6.5, -11.3)]
+    // ZAND(L1)<->ZAND(R0) via overlap; KLEI(L2,low)<->KLEI(R1,low) via body+overlap.
+    // KLEI(L0,high) stays unmatched (would need to jump past ZAND, breaking order/overlap).
+    expect(matchColumns(L, R)).toEqual([
+      [1, 0],
+      [2, 1],
+    ])
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Tests — written BEFORE implementation (TDD: watch them fail, then pass)
