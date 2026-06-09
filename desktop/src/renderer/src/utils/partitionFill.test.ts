@@ -12,6 +12,7 @@ import {
   computePartitionFill,
   computeSectionFill,
   LENS_PINCH_FRACTION,
+  lensApexOverrideKey,
   matchColumns,
   type ContactTermination,
   type CorrelationEdge,
@@ -1486,6 +1487,59 @@ describe('carveOverlays — lens carved out of matrix → true partition', () =>
     expect(sand.polygon.some((p) => Math.abs(p.fraction - (1 - LENS_PINCH_FRACTION)) < 1e-6)).toBe(
       true,
     )
+    assertTiles(regions, left, right, ALL)
+  })
+
+  // -----------------------------------------------------------------------
+  // CARVE-FD — a MULTI-NODE freedraw lens shape is built + clipped in the
+  // DOMAIN: a straddle lens whose freedraw lower edge dips below the sloping
+  // matrix seam is clipped to rest ON the seam (it never enters the neighbour),
+  // and the whole column still tiles. (The overlay used to rebuild the freedraw
+  // lens UNCLIPPED, which let it cross the seam.)
+  // -----------------------------------------------------------------------
+  it('CARVE-FD — a freedraw straddle lens is clipped to its matrix seam in the domain', () => {
+    // MP1 straddle: zand pinches under the sloping kA/kB seam (elev 1 L → 5 R).
+    const left = col('L', 10, [
+      { top: 0, base: 5, f: 'kA', b: 'kA' },
+      { top: 5, base: 7, f: 'silt', b: 'silt' },
+      { top: 7, base: 9, f: 'zand', b: 'zand' },
+      { top: 9, base: 14, f: 'kB', b: 'kB-L' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: 'kA', b: 'kA' },
+      { top: 5, base: 14, f: 'kB', b: 'kB-R' },
+    ])
+    const seamElev = (f: number): number => 1 + 4 * f // kA/kB contact
+    // A freedraw shape for zand whose LOWER node sits BELOW the seam at f=0.3
+    // (seam there = 2.2; node elevation 1.0) — i.e. it would cross into kB.
+    const override = new Map([
+      [
+        lensApexOverrideKey('zand', 0),
+        {
+          fraction: 0.3,
+          elevation: 2,
+          upper: [{ fraction: 0.3, elevation: 2.8 }],
+          lower: [{ fraction: 0.3, elevation: 1.0 }],
+        },
+      ],
+    ])
+    const regions = pf(left, right, override)
+
+    const zand = regions.find((r) => r.formationId === 'zand')!
+    expect(zand.kind).toBe('lens')
+    // The multi-node shape WAS built: the upper freedraw node (0.3, 2.8) sits
+    // above the seam → inside the matrix → survives clipping as a real vertex.
+    // (The single-apex path would ignore the chain, so this vertex is the proof.)
+    expect(
+      zand.polygon.some(
+        (p) => Math.abs(p.fraction - 0.3) < 1e-6 && Math.abs(p.elevation - 2.8) < 1e-6,
+      ),
+    ).toBe(true)
+    // Clipped: NO vertex of the lens lies below the seam (it rests on the clay).
+    for (const p of zand.polygon) {
+      expect(p.elevation).toBeGreaterThanOrEqual(seamElev(p.fraction) - 1e-6)
+    }
+    // And the partition still tiles with the lens included.
     assertTiles(regions, left, right, ALL)
   })
 })
