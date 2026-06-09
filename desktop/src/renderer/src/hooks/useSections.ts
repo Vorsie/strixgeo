@@ -804,6 +804,8 @@ export function useSections({
       if (epsg == null) return
       const tie = suggestedTies[index]
       if (!tie) return
+      // WHY visibleSections, not sections: same reason as handleSectionLineDrawn —
+      // the manifest-gated count reflects what the user sees, not raw DB rows.
       const ordinal = visibleSections.length + 1
       const createPayload = {
         name: `Tie-section ${ordinal}`,
@@ -816,6 +818,9 @@ export function useSections({
         vertical_exaggeration: readSectionDefaults(project.view_state ?? null).verticalExaggeration,
       }
       try {
+        // No undo push (unlike handleSectionLineDrawn): an accepted tie is removed
+        // from the ghost list on success; re-running Suggest re-proposes it, and the
+        // created section is reversible via the normal delete-section path.
         const created = await api.section.create(project.id, createPayload)
         setSections(prev => [...prev, created])
         setSelectedSectionId(created.id)
@@ -827,7 +832,7 @@ export function useSections({
         toast('error', 'Could not create the tie-section.')
       }
     },
-    [project, effectiveHorizontalEpsg, suggestedTies, visibleSections, handleSectionCreated],
+    [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated],
   )
 
   // P2-G / P2-H: apply a server-returned updated section to local state
