@@ -9,6 +9,9 @@
  *      tie" calls ``handleAcceptTie`` → POSTs a new section named
  *      ``Tie-section N``.  The accepted section appears in the inspector list
  *      (``section-row-*`` text contains "Tie-section").
+ *   3. "Accept all ties" batch-creates a section for every ghost in one call,
+ *      clears the ghosts, and STAYS ON THE MAP (does not flip to a single
+ *      section's profile view — the ``.leaflet-container`` remains visible).
  *
  * Prerequisites: the fixture already has FOUR parallel E-W sections (A/B/C/D)
  * spaced 300 m apart with CPTs at matching x-columns — the suggestTieSections
@@ -38,18 +41,29 @@ test.describe('flow_auto_tie', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
-  /** Id of the tie-section created during the test — deleted in afterAll. */
+  /** Id of the tie-section created during the single-accept test (kept for
+   *  parity / debugging; the afterAll name-sweep is the real cleanup). */
   let createdTieSectionId: string | null = null
 
   test.afterAll(async () => {
-    if (createdTieSectionId) {
-      await fetch(
-        `${API_BASE}/projects/${FIXTURE_PROJECT_ID}/sections/${createdTieSectionId}`,
-        { method: 'DELETE' },
-      ).catch(() => {
-        // Swallow — either the section was already deleted or the backend is
-        // down; the fixture stays clean enough either way.
-      })
+    // Both tests create ``Tie-section *`` rows in the shared fixture DB. Sweep
+    // every one by name so the fixture stays clean regardless of how many were
+    // created (single-accept = 1, accept-all = N). Swallow per-row failures.
+    if (!FIXTURE_PROJECT_ID) return
+    try {
+      const r = await fetch(`${API_BASE}/projects/${FIXTURE_PROJECT_ID}/sections`)
+      const sections = (await r.json()) as Array<{ id: string; name: string }>
+      await Promise.all(
+        sections
+          .filter(s => s.name.startsWith('Tie-section'))
+          .map(s =>
+            fetch(`${API_BASE}/projects/${FIXTURE_PROJECT_ID}/sections/${s.id}`, {
+              method: 'DELETE',
+            }).catch(() => {}),
+          ),
+      )
+    } catch {
+      // Backend down / already clean — nothing to do.
     }
   })
 
@@ -120,6 +134,47 @@ test.describe('flow_auto_tie', () => {
           (s.name as string).startsWith('Tie-section'),
         )
         if (tieSec) createdTieSectionId = tieSec.id as string
+      } finally {
+        await closeApp(app)
+        cleanupFixtureFile(tmpPath)
+      }
+    },
+  )
+
+  test(
+    'auto-tie: "Accept all ties" creates every tie and STAYS ON THE MAP',
+    async () => {
+      test.slow()
+      const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
+      let tmpPath = ''
+      try {
+        tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
+        await goToStage(page, 'Sections')
+
+        // Suggest → ghosts appear on the Leaflet map.
+        const suggestBtn = page.getByRole('button', { name: 'Suggest tie-sections' })
+        await expect(suggestBtn).toBeEnabled({ timeout: 10_000 })
+        await suggestBtn.click()
+        const ghosts = page.locator('path[stroke="#22c55e"]')
+        await expect(ghosts.first()).toBeVisible({ timeout: 15_000 })
+
+        // Accept all → one batch create.
+        await page.getByTestId('tie-accept-all').click()
+
+        // 1. Ghosts are cleared (suggestions consumed).
+        await expect(ghosts).toHaveCount(0, { timeout: 15_000 })
+
+        // 2. THE REGRESSION: we must STILL be on the map, not flipped into a
+        //    single section's profile view. The Leaflet container only renders
+        //    on the map surface; a section profile has no ``.leaflet-container``.
+        await expect(page.locator('.leaflet-container')).toBeVisible()
+
+        // 3. The created tie-sections exist in the inspector list.
+        const tieRows = page
+          .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+          .filter({ hasText: 'Tie-section' })
+        await expect(tieRows.first()).toBeVisible({ timeout: 15_000 })
+        expect(await tieRows.count()).toBeGreaterThanOrEqual(2)
       } finally {
         await closeApp(app)
         cleanupFixtureFile(tmpPath)
