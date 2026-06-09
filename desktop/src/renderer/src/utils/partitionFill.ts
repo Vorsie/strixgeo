@@ -140,6 +140,15 @@ export const INTERIOR_PINCH_FRACTION = 0.5
 export interface LensApexOverride {
   fraction: number
   elevation: number
+  /**
+   * Optional multi-node freedraw shape: ordered (gap-local fraction, elevation)
+   * points on the lens's upper and lower edges. When present the lens is built
+   * from these instead of the single apex, so a freedraw lens is clipped to its
+   * matrix (rides the seam) and gets a matching notch in the DOMAIN — the overlay
+   * no longer rebuilds it un-clipped (which let a straddle lens cross the seam).
+   */
+  upper?: { fraction: number; elevation: number }[]
+  lower?: { fraction: number; elevation: number }[]
 }
 
 /**
@@ -778,11 +787,37 @@ function buildRightPinchPolygon(
  * baseElev : number
  *     Base elevation of the lens (mTAW) = leftSurface − depthBaseM.
  */
+/**
+ * Build a multi-node freedraw lens outline anchored on column edge ``cornerFrac``
+ * (0 = left, 1 = right): the upper edge runs from the top corner out along the
+ * ``upper`` points (fraction-ascending), the lower edge returns along ``lower``
+ * (fraction-descending) to the base corner. Same vertex order as the overlay's
+ * legacy ``buildLensPolygon`` so a freedraw lens renders identically — but now in
+ * the domain, where ``carveOverlays`` clips it to the matrix + cuts the notch.
+ */
+function buildFreedrawLensOutline(
+  cornerFrac: 0 | 1,
+  topElev: number,
+  baseElev: number,
+  upper: { fraction: number; elevation: number }[],
+  lower: { fraction: number; elevation: number }[],
+): PartitionPoint[] {
+  return [
+    { fraction: cornerFrac, elevation: topElev },
+    ...[...upper].sort((a, b) => a.fraction - b.fraction),
+    ...[...lower].sort((a, b) => b.fraction - a.fraction),
+    { fraction: cornerFrac, elevation: baseElev },
+  ]
+}
+
 function buildLeftLensPolygon(
   topElev: number,
   baseElev: number,
   apex?: LensApexOverride,
 ): PartitionPoint[] {
+  if (apex?.upper?.length || apex?.lower?.length) {
+    return buildFreedrawLensOutline(0, topElev, baseElev, apex.upper ?? [], apex.lower ?? [])
+  }
   const apexFraction = apex?.fraction ?? LENS_PINCH_FRACTION
   const apexElev = apex?.elevation ?? (topElev + baseElev) / 2
   return [
@@ -805,6 +840,9 @@ function buildRightLensPolygon(
   baseElev: number,
   apex?: LensApexOverride,
 ): PartitionPoint[] {
+  if (apex?.upper?.length || apex?.lower?.length) {
+    return buildFreedrawLensOutline(1, topElev, baseElev, apex.upper ?? [], apex.lower ?? [])
+  }
   const apexFraction = apex?.fraction ?? 1 - LENS_PINCH_FRACTION
   const apexElev = apex?.elevation ?? (topElev + baseElev) / 2
   return [
