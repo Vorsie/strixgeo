@@ -851,6 +851,331 @@ function buildOnlapPolygon(
   ]
 }
 
+// ---------------------------------------------------------------------------
+// Overlay carve — turn lens/onlap overlays into a TRUE partition
+// ---------------------------------------------------------------------------
+
+/** Fraction tolerance for "this vertex sits on column edge 0 or 1". */
+const FRAC_EPS = 1e-6
+/** Elevation tolerance when testing whether a matrix edge-span contains an overlay. */
+const SPAN_EPS = 1e-6
+
+/**
+ * A notch to cut into a matrix's column edge. ``ob``/``ot`` are the lower/upper
+ * elevations where the notch meets the column edge; ``chain`` is the overlay's
+ * interior boundary between them (ordered low → high), which is a single apex for
+ * a fully-enclosed lens or a seam-riding chain for a straddle lens (owner's
+ * "rest on the clay" rule — the lens base follows the sloping body beneath it
+ * rather than crossing into it).
+ */
+interface OverlayNotch {
+  /** Lower elevation (mTAW) where the notch meets the column edge. */
+  ob: number
+  /** Upper elevation (mTAW) where the notch meets the column edge. */
+  ot: number
+  /** Interior boundary points between ``ob`` and ``ot`` (ordered low → high). */
+  chain: PartitionPoint[]
+}
+
+/** Elevations of a polygon's vertices that sit on column edge ``side`` (0 or 1). */
+function edgeElevations(poly: PartitionPoint[], side: 0 | 1): number[] {
+  return poly
+    .filter((p) => Math.abs(p.fraction - side) < FRAC_EPS)
+    .map((p) => p.elevation)
+}
+
+/** Signed area × 2 of a ring in (fraction, elevation) space (> 0 = CCW). */
+function signedArea2(poly: PartitionPoint[]): number {
+  let s = 0
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    s += a.fraction * b.elevation - b.fraction * a.elevation
+  }
+  return s
+}
+
+/**
+ * Clip a subject polygon to a CONVEX clip polygon (Sutherland-Hodgman) in
+ * (fraction, elevation) space.
+ *
+ * Used to make an overlay (lens/onlap) "rest on" its enclosing matrix: the part
+ * of the overlay that would stick out past a matrix edge is folded onto that
+ * edge, so the overlay never crosses into a neighbouring body (owner's Solution
+ * 2). A fully-enclosed overlay (every vertex already inside the matrix) is
+ * returned unchanged.
+ *
+ * Parameters
+ * ----------
+ * subject : PartitionPoint[]
+ *     The overlay ring to clip.
+ * clip : PartitionPoint[]
+ *     The convex matrix ring to clip against.
+ *
+ * Returns
+ * -------
+ * PartitionPoint[]
+ *     The clipped ring (possibly empty if subject and clip are disjoint).
+ */
+function clipToConvex(subject: PartitionPoint[], clip: PartitionPoint[]): PartitionPoint[] {
+  const orient = signedArea2(clip) >= 0 ? 1 : -1
+  const m = clip.length
+  let output = subject.slice()
+  for (let e = 0; e < m && output.length > 0; e++) {
+    const c1 = clip[e]
+    const c2 = clip[(e + 1) % m]
+    const dx = c2.fraction - c1.fraction
+    const dy = c2.elevation - c1.elevation
+    // Left-test L(p) = (c2−c1) × (p−c1): > 0 = left of the directed edge. The
+    // interior is left for a CCW ring, right for CW, so inside ⇔ orient·L ≥ 0.
+    const L = (p: PartitionPoint): number =>
+      dx * (p.elevation - c1.elevation) - dy * (p.fraction - c1.fraction)
+    const intersect = (a: PartitionPoint, b: PartitionPoint): PartitionPoint => {
+      const la = L(a)
+      const lb = L(b)
+      const t = Math.abs(la - lb) < 1e-12 ? 0 : la / (la - lb)
+      return {
+        fraction: a.fraction + t * (b.fraction - a.fraction),
+        elevation: a.elevation + t * (b.elevation - a.elevation),
+      }
+    }
+    const input = output
+    output = []
+    for (let i = 0; i < input.length; i++) {
+      const a = input[i]
+      const b = input[(i + 1) % input.length]
+      const aIn = orient * L(a) >= -SPAN_EPS
+      const bIn = orient * L(b) >= -SPAN_EPS
+      if (aIn) {
+        output.push(a)
+        if (!bIn) output.push(intersect(a, b))
+      } else if (bIn) {
+        output.push(intersect(a, b))
+      }
+    }
+  }
+  // Drop consecutive duplicate vertices (clipping along an existing edge emits
+  // coincident points) so downstream edge-vertex counting stays exact.
+  return dedupeRing(output)
+}
+
+/** Remove consecutive (and wrap-around) near-duplicate vertices from a ring. */
+function dedupeRing(poly: PartitionPoint[]): PartitionPoint[] {
+  const out: PartitionPoint[] = []
+  for (const p of poly) {
+    const last = out[out.length - 1]
+    if (
+      last &&
+      Math.abs(last.fraction - p.fraction) < FRAC_EPS &&
+      Math.abs(last.elevation - p.elevation) < SPAN_EPS
+    ) {
+      continue
+    }
+    out.push(p)
+  }
+  if (
+    out.length > 1 &&
+    Math.abs(out[0].fraction - out[out.length - 1].fraction) < FRAC_EPS &&
+    Math.abs(out[0].elevation - out[out.length - 1].elevation) < SPAN_EPS
+  ) {
+    out.pop()
+  }
+  return out
+}
+
+/**
+ * Extract the column-edge notch of a clipped overlay: where it meets edge
+ * ``side`` (``ob``/``ot``) and the interior chain between (ordered low → high).
+ *
+ * The clipped overlay has exactly two vertices on the column edge (its base) and
+ * one or more interior vertices (apex, or seam-riding chain). Returns ``null`` if
+ * the shape is degenerate (fewer than two edge vertices) so the caller can skip.
+ */
+function notchFromClipped(clipped: PartitionPoint[], side: 0 | 1): OverlayNotch | null {
+  const n = clipped.length
+  const onEdge = (p: PartitionPoint): boolean => Math.abs(p.fraction - side) < FRAC_EPS
+  const edgeIdx: number[] = []
+  for (let i = 0; i < n; i++) if (onEdge(clipped[i])) edgeIdx.push(i)
+  if (edgeIdx.length !== 2) return null
+  const [i, j] = edgeIdx
+  const ob = Math.min(clipped[i].elevation, clipped[j].elevation)
+  const ot = Math.max(clipped[i].elevation, clipped[j].elevation)
+  // The two ring arcs between the edge vertices: one runs along the column edge
+  // (no interior vertices), the other carries the interior boundary.
+  const arc = (from: number, to: number): PartitionPoint[] => {
+    const r: PartitionPoint[] = []
+    for (let k = (from + 1) % n; k !== to; k = (k + 1) % n) r.push(clipped[k])
+    return r
+  }
+  const arcA = arc(i, j) // i → j
+  const arcB = arc(j, i) // j → i
+  const hasInterior = (a: PartitionPoint[]): boolean => a.some((p) => !onEdge(p))
+  let chain: PartitionPoint[]
+  let fromIdx: number
+  if (hasInterior(arcA) || arcB.length === 0) {
+    chain = arcA
+    fromIdx = i
+  } else {
+    chain = arcB
+    fromIdx = j
+  }
+  // Normalise to low → high: reverse if the chain starts at the upper edge vertex.
+  if (clipped[fromIdx].elevation > (ob + ot) / 2) chain = chain.slice().reverse()
+  return { ob, ot, chain }
+}
+
+/**
+ * Insert notches into a polygon ring along the single edge whose BOTH endpoints
+ * sit on column edge ``side``.
+ *
+ * Each overlay shares its base with the matrix on column edge ``side``; its
+ * (clipped) interior boundary becomes a notch on that edge — one concave ring,
+ * never a hole or a split (a LEFT overlay lives in the left half, a RIGHT one in
+ * the right half, so an overlay only ever sits in a matrix it shares a column
+ * edge with). No general polygon-boolean is needed.
+ *
+ * Walking the ring, when we traverse the edge ``a → b`` with both endpoints at
+ * ``side``, we cut each notch as ``near → chain → far`` where near/far follow the
+ * traversal direction (up the edge → near = the lower elevation, chain low→high).
+ * Stacked notches (multiple overlays on one edge) are inserted in elevation order
+ * so they don't cross; overlays never overlap each other (LL1), so the cuts are
+ * disjoint.
+ *
+ * Parameters
+ * ----------
+ * poly : PartitionPoint[]
+ *     The matrix polygon ring (closed, no repeated last point).
+ * side : 0 | 1
+ *     The column edge to notch (0 = left, 1 = right).
+ * notches : OverlayNotch[]
+ *     The notches to cut into that edge.
+ *
+ * Returns
+ * -------
+ * PartitionPoint[]
+ *     A new ring with the notches cut in (concave).
+ */
+function insertNotches(
+  poly: PartitionPoint[],
+  side: 0 | 1,
+  notches: OverlayNotch[],
+): PartitionPoint[] {
+  if (notches.length === 0) return poly
+  const out: PartitionPoint[] = []
+  const n = poly.length
+  let cut = false // only the first qualifying edge is notched (a simple ring touches `side` once)
+  for (let i = 0; i < n; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % n]
+    out.push(a)
+    const aOn = Math.abs(a.fraction - side) < FRAC_EPS
+    const bOn = Math.abs(b.fraction - side) < FRAC_EPS
+    if (!cut && aOn && bOn) {
+      cut = true
+      const dir = b.elevation - a.elevation // > 0 → traversing up the edge
+      const ordered = [...notches].sort((p, q) => (dir >= 0 ? p.ob - q.ob : q.ot - p.ot))
+      for (const nt of ordered) {
+        const near = dir >= 0 ? nt.ob : nt.ot
+        const far = dir >= 0 ? nt.ot : nt.ob
+        const chain = dir >= 0 ? nt.chain : [...nt.chain].reverse()
+        out.push(
+          { fraction: side, elevation: near },
+          ...chain.map((p) => ({ fraction: p.fraction, elevation: p.elevation })),
+          { fraction: side, elevation: far },
+        )
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Subtract every lens/onlap overlay from the matrix region it sits in, in place,
+ * so the gap's regions become a TRUE partition: each point belongs to exactly
+ * one region.
+ *
+ * Owner's Solution 2 ("rest on the clay"): each overlay is first CLIPPED to its
+ * enclosing matrix (so a straddle lens's base follows the sloping seam of the
+ * body beneath it rather than crossing into it), then that clipped shape is
+ * carved out of the matrix as a notch. A fully-enclosed lens clips to itself
+ * unchanged, so the simple apex notch is the special case.
+ *
+ * Run as a post-pass at the end of ``emitGap`` — after all mains + overlays are
+ * emitted. Only the matrix polygons gain notches; each overlay's polygon is
+ * replaced by its clipped (seam-riding) shape so it exactly fills its notch.
+ *
+ * Parameters
+ * ----------
+ * regions : PartitionRegion[]
+ *     One gap's regions (mutated in place: overlay + matrix ``polygon``s change).
+ */
+function carveOverlays(regions: PartitionRegion[]): void {
+  const mains = regions.filter((r) => r.kind === 'quad' || r.kind === 'pinch')
+  const overlays = regions.filter((r) => r.kind === 'lens')
+  if (overlays.length === 0 || mains.length === 0) return
+
+  // Group notches per matrix region, per side. Matrices are clipped against
+  // before any are mutated, so every clip sees the original (convex) polygon.
+  const byMatrix = new Map<PartitionRegion, { 0: OverlayNotch[]; 1: OverlayNotch[] }>()
+  for (const ov of overlays) {
+    const onLeft = edgeElevations(ov.polygon, 0)
+    const onRight = edgeElevations(ov.polygon, 1)
+    let side: 0 | 1
+    let edgeElevs: number[]
+    if (onLeft.length >= 2) {
+      side = 0
+      edgeElevs = onLeft
+    } else if (onRight.length >= 2) {
+      side = 1
+      edgeElevs = onRight
+    } else {
+      continue // defensive: overlay not anchored on a column edge
+    }
+    const ob = Math.min(...edgeElevs)
+    const ot = Math.max(...edgeElevs)
+
+    // The matrix this overlay sits in: a main with >= 2 verts on `side` whose
+    // edge-span contains [ob, ot]. After LL1 (overlays never overlap each other)
+    // and main×main = 0, exactly one main contains a given elevation band, so the
+    // match is unambiguous; pick the tightest span defensively.
+    let best: PartitionRegion | null = null
+    let bestSpan = Infinity
+    for (const m of mains) {
+      const me = edgeElevations(m.polygon, side)
+      if (me.length < 2) continue
+      const lo = Math.min(...me)
+      const hi = Math.max(...me)
+      if (lo <= ob + SPAN_EPS && hi >= ot - SPAN_EPS) {
+        const span = hi - lo
+        if (span < bestSpan) {
+          best = m
+          bestSpan = span
+        }
+      }
+    }
+    if (!best) continue // defensive: no enclosing matrix (e.g. lens at the column floor)
+
+    // Clip the overlay to the matrix so it rides the seam, then derive its notch.
+    const clipped = clipToConvex(ov.polygon, best.polygon)
+    if (clipped.length < 3) continue // degenerate after clipping — leave overlay as-is
+    const notch = notchFromClipped(clipped, side)
+    if (!notch) continue
+    ov.polygon = clipped // the overlay now exactly fills its notch (seam-riding)
+
+    let g = byMatrix.get(best)
+    if (!g) {
+      g = { 0: [], 1: [] }
+      byMatrix.set(best, g)
+    }
+    g[side].push(notch)
+  }
+
+  for (const [m, g] of byMatrix) {
+    if (g[0].length > 0) m.polygon = insertNotches(m.polygon, 0, g[0])
+    if (g[1].length > 0) m.polygon = insertNotches(m.polygon, 1, g[1])
+  }
+}
+
 /**
  * Emit a ONE-SIDED pinch interval as apex-sharing triangles (Thread A).
  *
@@ -1501,6 +1826,11 @@ function emitGap(
       polygon: buildRightLensPolygon(topElev, baseElev, apex),
     })
   }
+
+  // Subtract each lens/onlap overlay out of the matrix it sits in, so the gap is
+  // a TRUE volumetric partition (every point in exactly one region) — required by
+  // the 3D extraction, which assigns each CPT point to exactly one body.
+  carveOverlays(regions)
 
   return regions
 }
