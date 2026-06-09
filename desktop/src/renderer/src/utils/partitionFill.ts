@@ -175,15 +175,6 @@ export interface PartitionRegion {
   kind: 'quad' | 'pinch' | 'lens'
   /** Closed polygon ring, no repeated last point. */
   polygon: PartitionPoint[]
-  /**
-   * Set to ``'facies'`` when this region's shared seam is a MISMATCHED-MATRIX
-   * boundary (the interval background lithology differs across the two columns,
-   * no matrix connects). The seam is placed at the midpoint (fraction 0.5 —
-   * transition position unknown) and the overlay draws it wriggly to read as a
-   * lateral facies change rather than a sharp correlated contact. Absent on
-   * every other region.
-   */
-  seamKind?: 'facies'
 }
 
 // ---------------------------------------------------------------------------
@@ -259,46 +250,35 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
   }
 }
 
-/** One neighbour column for the section-wide reduction. */
-interface NeighbourColumn {
-  units: readonly PartitionUnit[]
-  surface: number
-}
-
 /**
- * Section-wide column reduction: pull interior UNcorrelated MINORITY units that
- * PINCH OUT, leaving the correlated bands + the background matrix to connect.
+ * Per-gap column reduction: pull the LENS units (those with 0 correlated
+ * bounding contacts toward the facing neighbour — see ``classifyTermination``),
+ * leaving the bands + onlaps for ``emitGap`` to shape.
  *
- * Owner model — "correlations band; geometry only fills the matrix". A unit is
- * KEPT when it is EDGE-correlated to a neighbour (it bands) OR it is the matrix
- * (the background). A unit is pulled (→ lens) when it is uncorrelated AND a
- * MINORITY:
- *   - enclosed by the SAME matrix lithology above AND below (a classic lens), or
- *   - a THIN interbed between two DIFFERENT bands (thinner than both neighbours)
- *     — the thicker neighbour floods over it.
- * Geometric overlap is NOT a reason to keep an uncorrelated minority (the bug
- * that banded a thin uncorrelated silt just because it overlapped its neighbour);
- * only the matrix connects by geometry, in ``matchColumns``.
+ * Owner model (2026-06-09) — a unit's shape toward a neighbour is set purely by
+ * how many of its two bounding contacts are correlated to it (2 band / 1 onlap /
+ * 0 lens). Only the 0-contact lenses are removed here: pulling a lens lets the
+ * SAME-lithology matrix above + below it merge so it connects continuously
+ * across the gap via its OUTER correlated boundaries (the lens overlays it). The
+ * matrix's INTERNAL boundary (the lens contact) is uncorrelated by construction;
+ * its outer boundaries carry the band.
  *
- * Runs ONCE per column (against BOTH neighbours), so the column has one
- * consistent reduced form shared by its two gaps — a body that runs through it
- * stays continuous (no per-gap drift).
+ * Called PER GAP against the SINGLE facing neighbour (its layer ids), so a unit
+ * can be a lens toward one neighbour and a band/onlap toward the other.
  *
  * Parameters
  * ----------
  * units : PartitionUnit[]
- *     The column's units (mutated in place — minorities removed, matrix merged).
- * surface : number
- *     The column's surface elevation (mTAW). (Unused now — kept for symmetry.)
- * neighbours : readonly NeighbourColumn[]
- *     The 1–2 adjacent columns (their ORIGINAL, pre-reduction units).
+ *     The column's units (mutated in place — lenses removed, matrix merged).
+ * neighbourLayerIds : ReadonlySet<string>
+ *     Every ``layerId`` on the facing neighbour column (for the contact-correlation count).
  * correlated : Correlated
  *     Edge lookup (approved correlation between two ``layerId``s).
  *
  * Returns
  * -------
  * ExtractedLens[]
- *     The pinched-out minorities, in removal order.
+ *     The pinched-out lenses, in removal order.
  */
 function reduceColumn(
   units: PartitionUnit[],
