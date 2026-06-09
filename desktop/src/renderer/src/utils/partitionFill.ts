@@ -1073,7 +1073,20 @@ function insertNotches(
     if (!cut && aOn && bOn) {
       cut = true
       const dir = b.elevation - a.elevation // > 0 → traversing up the edge
-      const ordered = [...notches].sort((p, q) => (dir >= 0 ? p.ob - q.ob : q.ot - p.ot))
+      // Drop any notch whose [ob, ot] overlaps an earlier one. Overlays never
+      // overlap each other today (LL1), so this is a defensive guard for the
+      // future nested-lens case (a lens inside a lens) — overlapping notches
+      // would self-intersect the matrix ring; the skipped overlay stays a
+      // harmless overlay instead.
+      const byElev = [...notches].sort((p, q) => p.ob - q.ob)
+      const safe: OverlayNotch[] = []
+      let lastOt = -Infinity
+      for (const nt of byElev) {
+        if (nt.ob < lastOt - SPAN_EPS) continue
+        safe.push(nt)
+        lastOt = nt.ot
+      }
+      const ordered = dir >= 0 ? safe : [...safe].reverse()
       for (const nt of ordered) {
         const near = dir >= 0 ? nt.ob : nt.ot
         const far = dir >= 0 ? nt.ot : nt.ob
