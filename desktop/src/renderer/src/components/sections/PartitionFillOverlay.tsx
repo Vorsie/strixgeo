@@ -617,48 +617,68 @@ export default function PartitionFillOverlay({
     const gapLeftX = (i: number): number => (screenByInv.get(valid[i]) as ColumnScreen).rightX
     const gapRightX = (i: number): number => (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX
 
-    // Lens apex overrides (single-node freedraw), keyed PER (body, gap). A lens
-    // body that pinches into two gaps has an INDEPENDENT apex in each, so each
-    // gap reads only the node OWNED by it (its along-position falls inside the
-    // gap) and writes a per-gap key — a bodyId-only key let one gap's apex
-    // overwrite the other's, mismatching that gap's matrix notch. The multi-node
-    // freedraw shape is rebuilt in the post-lens pass below; this is the legacy
-    // single-apex path.
+    // Lens shape overrides, keyed PER (body, gap). Each gap reads only the
+    // boundary nodes it OWNS (their along-position falls inside the gap) and
+    // feeds the full freedraw shape (upper + lower edge chains, gap-local
+    // fraction/elevation, with the live drag applied to the dragged node) to the
+    // DOMAIN. The domain builds AND clips the lens (rides the matrix seam) + cuts
+    // a matching notch, so the overlay no longer rebuilds it un-clipped (which let
+    // a straddle lens cross into the neighbour). Per-gap keys keep a two-gap
+    // lens's apexes independent.
     const apexOverrides = new Map<string, LensApexOverride>()
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
       const leftX = gapLeftX(i)
       const rightX = gapRightX(i)
-      if (rightX <= leftX) continue
+      if (rightX <= leftX || !alongToScreenX) continue
+      const gapW = rightX - leftX
       const left = orderedColumns[i]
       const right = orderedColumns[i + 1]
       const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
       const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
-      // Nodes whose along-position falls inside THIS gap (so a node belonging to
-      // the neighbouring gap is ignored, not clamped in).
-      const ownedInGap = (nodes: readonly BodyBoundaryNode[]): BodyBoundaryNode[] =>
-        alongToScreenX
-          ? nodes.filter((n) => {
-              const x = alongToScreenX!(n.along_m)
-              return x >= leftX - NODE_OWN_EPS && x <= rightX + NODE_OWN_EPS
+      // Owned nodes → gap-local (fraction, elevation); the node being dragged
+      // takes the live cursor position so the domain rebuilds the lens in real time.
+      const chain = (
+        nodes: readonly BodyBoundaryNode[],
+        bodyId: string,
+        edge: 'upper' | 'lower',
+      ): { fraction: number; elevation: number }[] => {
+        const out: { fraction: number; elevation: number }[] = []
+        nodes.forEach((n, ni) => {
+          const x = alongToScreenX!(n.along_m)
+          if (x < leftX - NODE_OWN_EPS || x > rightX + NODE_OWN_EPS) return // neighbour gap's node
+          const dragging =
+            !!lensDrag &&
+            lensDrag.bodyId === bodyId &&
+            Math.abs(lensDrag.leftX - leftX) < 0.5 &&
+            lensDrag.edge === edge &&
+            lensDrag.nodeIndex === ni
+          if (dragging) {
+            out.push({
+              fraction: clamp01((lensDrag.x - leftX) / gapW),
+              elevation: screenToLevel ? screenToLevel(lensDrag.y) : n.elevation_m,
             })
-          : []
-      const addApexOverride = (bodyId: string, side: 'left' | 'right'): void => {
-        // Live drag of this body IN THIS gap: the post-pass rebuilds the lens to
-        // the cursor; the notch resyncs on release. Other gaps keep their override.
-        if (lensDrag && lensDrag.bodyId === bodyId && Math.abs(lensDrag.leftX - leftX) < 0.5) return
+          } else {
+            out.push({ fraction: clamp01((x - leftX) / gapW), elevation: n.elevation_m })
+          }
+        })
+        return out
+      }
+      const setShape = (bodyId: string): void => {
         const b = boundariesByBodyId?.get(bodyId)
-        const arr = side === 'left' ? (b?.upper_nodes ?? []) : (b?.lower_nodes ?? [])
-        const owned = ownedInGap(arr)
-        if (owned.length !== 1) return // 0 → default apex; >1 → freedraw (post-pass rebuilds)
-        const node = owned[0]
-        if (!alongToScreenX) return
+        if (!b) return
+        const upper = chain(b.upper_nodes ?? [], bodyId, 'upper')
+        const lower = chain(b.lower_nodes ?? [], bodyId, 'lower')
+        if (upper.length + lower.length === 0) return // no owned node → domain default apex
+        const apex0 = upper[0] ?? lower[0]
         apexOverrides.set(lensApexOverrideKey(bodyId, i), {
-          fraction: clamp01((alongToScreenX(node.along_m) - leftX) / (rightX - leftX)),
-          elevation: node.elevation_m,
+          fraction: apex0.fraction,
+          elevation: apex0.elevation,
+          upper,
+          lower,
         })
       }
-      for (const id of leftIds) if (!rightIds.has(id)) addApexOverride(id, 'left')
-      for (const id of rightIds) if (!leftIds.has(id)) addApexOverride(id, 'right')
+      for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
+      for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
     }
 
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
@@ -812,6 +832,10 @@ export default function PartitionFillOverlay({
         if (sr.region.kind !== 'lens') continue
         const bodyId = sr.region.bodyId
         if (!bodyId || !onSaveBoundary) continue // only when saving is wired
+        // The domain now owns the freedraw shape (built + clipped + notched) when
+        // an override carries this body's chains for this gap — skip the legacy
+        // un-clipped rebuild so a straddle lens can't cross the seam.
+        if (apexOverrides.has(lensApexOverrideKey(bodyId, i))) continue
 
         const b = boundariesByBodyId?.get(bodyId)
         const upperStored = b?.upper_nodes ?? []
