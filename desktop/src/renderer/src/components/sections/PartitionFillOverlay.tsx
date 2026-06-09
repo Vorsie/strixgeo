@@ -143,42 +143,8 @@ const LENS_HIT_R = 11
 const LENS_COLOR = '#f59e0b' // amber-400
 // Width (px) of the transparent add-strip polyline hit area along each boundary.
 const ADDSTRIP_HIT_W = 14
-// Mismatched-matrix facies seam (a lateral facies change, not a sharp contact):
-// drawn as a small-amplitude wavy stroke. Light so it reads on both the sand
-// half and the clay half it divides.
-const FACIES_SEAM_COLOR = '#e2e8f0'
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
-
-/**
- * Build a small-amplitude vertical sine polyline from ``(x, yTop)`` to
- * ``(x, yBottom)`` — the wriggle drawn along a mismatched-matrix facies seam.
- *
- * Parameters
- * ----------
- * x : number
- *     Screen x of the seam (the midpoint fraction mapped to the gap).
- * yTop, yBottom : number
- *     Screen y of the seam's top and bottom (yTop < yBottom).
- * amplitude : number
- *     Horizontal wiggle amplitude in px.
- * wavelength : number
- *     Approximate vertical px per wave.
- */
-function wavyPath(x: number, yTop: number, yBottom: number, amplitude = 3, wavelength = 9): string {
-  const h = yBottom - yTop
-  if (h <= 0.5) return `M ${x.toFixed(1)},${yTop.toFixed(1)} L ${x.toFixed(1)},${yBottom.toFixed(1)}`
-  const waves = Math.max(1, h / wavelength)
-  const steps = Math.max(4, Math.round(h / 3))
-  let d = `M ${x.toFixed(1)},${yTop.toFixed(1)}`
-  for (let i = 1; i <= steps; i += 1) {
-    const t = i / steps
-    const y = yTop + t * h
-    const dx = Math.sin(t * Math.PI * 2 * waves) * amplitude
-    d += ` L ${(x + dx).toFixed(1)},${y.toFixed(1)}`
-  }
-  return d
-}
 
 interface ColumnScreen {
   rightX: number
@@ -871,31 +837,6 @@ export default function PartitionFillOverlay({
     screenToLevel,
   ])
 
-  // Mismatched-matrix facies seams: each ``seamKind:'facies'`` region contributes
-  // its midpoint seam edge (the polygon vertices strictly between fraction 0 and
-  // 1). Both halves share the same seam, so dedupe by rounded (x, yTop, yBottom).
-  // Read fractions from the pristine ``region.polygon`` (NOT ``sr.points``, which
-  // the post-bend pass may have mutated) and map with the same gap-local
-  // leftX/rightX the fill uses — already spacing-aware (nudged column edges).
-  const faciesSeams = useMemo(() => {
-    const segs: { x: number; yTop: number; yBottom: number; key: string }[] = []
-    const seen = new Set<string>()
-    for (const sr of screenRegions) {
-      if (sr.region.seamKind !== 'facies') continue
-      const seamPts = sr.region.polygon.filter((p) => p.fraction > 0.001 && p.fraction < 0.999)
-      if (seamPts.length < 2) continue
-      const x = sr.leftX + seamPts[0].fraction * (sr.rightX - sr.leftX)
-      const ys = seamPts.map((p) => Math.max(plotTop, Math.min(plotBottom, levelToScreen(p.elevation))))
-      const yTop = Math.min(...ys)
-      const yBottom = Math.max(...ys)
-      const key = `${Math.round(x)}:${Math.round(yTop)}:${Math.round(yBottom)}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      segs.push({ x, yTop, yBottom, key })
-    }
-    return segs
-  }, [screenRegions, levelToScreen, plotTop, plotBottom])
-
   // One label per BODY at its tallest visible region, clamped to the viewport so
   // it survives a zoom onto a single test (dogfeed 2026-06-05).
   const labels = useMemo(() => {
@@ -1219,21 +1160,6 @@ export default function PartitionFillOverlay({
           />
         )
       })}
-
-      {/* Mismatched-matrix facies seams — wavy stroke along the midpoint seam,
-          drawn over the fill (a lateral facies change, not a sharp contact). */}
-      {faciesSeams.map((s) => (
-        <path
-          key={`pf-facies-${s.key}`}
-          data-seam="facies"
-          d={wavyPath(s.x, s.yTop, s.yBottom)}
-          fill="none"
-          stroke={FACIES_SEAM_COLOR}
-          strokeWidth={1.5}
-          strokeOpacity={0.9}
-          style={{ pointerEvents: 'none' }}
-        />
-      ))}
 
       {labels.map((l) => (
         <text
