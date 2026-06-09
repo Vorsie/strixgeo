@@ -106,10 +106,6 @@ export default function DataCanvas(): JSX.Element {
       handleSectionLineDrawn,
       cancelSectionDraw,
       handleSelectSection,
-      effectiveHorizontalEpsg,
-      suggestedTies,
-      handleAcceptTie,
-      handleRejectTie,
     },
     geoModel: {
       contacts: geoContacts,
@@ -209,10 +205,6 @@ export default function DataCanvas(): JSX.Element {
             onMarqueeSelect={setMarqueeSelectedIds}
             hoveredTestId={hoveredTestId}
             pendingCptPins={pendingCptPins}
-            suggestedTies={suggestedTies}
-            tieEpsg={effectiveHorizontalEpsg}
-            onAcceptTie={handleAcceptTie}
-            onRejectTie={handleRejectTie}
           />
         ) : selectedBoreholeId ? (
           boreholeDetailMap.has(selectedBoreholeId) ? (
