@@ -141,6 +141,11 @@ const BOUNDARY_COLOR = '#38bdf8' // sky-400 (slate/blue)
 const LENS_R = 5
 const LENS_HIT_R = 11
 const LENS_COLOR = '#f59e0b' // amber-400
+// Zoom reference: at/above this horizontal scale (px per along-metre) the
+// handle is FULL size (its zoomed-in size); zooming OUT (fewer px/m) shrinks it
+// toward HANDLE_MIN_SCALE so the markers don't crowd a compressed section.
+const HANDLE_REF_PX_PER_M = 2.5
+const HANDLE_MIN_SCALE = 0.5
 // Width (px) of the transparent add-strip polyline hit area along each boundary.
 const ADDSTRIP_HIT_W = 14
 
@@ -562,6 +567,18 @@ export default function PartitionFillOverlay({
   const openEndPx = alongToScreenX
     ? Math.max(8, OPEN_END_M * Math.abs(alongToScreenX(1) - alongToScreenX(0)))
     : EDGE_STUB_PX
+
+  // Ghost-node handle size shrinks as you zoom OUT (fewer px per metre) so the
+  // markers don't crowd a compressed section; at/above the reference scale they
+  // stay their full zoomed-in size. Clamped so they never vanish.
+  const handleScale = alongToScreenX
+    ? Math.max(
+        HANDLE_MIN_SCALE,
+        Math.min(1, Math.abs(alongToScreenX(1) - alongToScreenX(0)) / HANDLE_REF_PX_PER_M),
+      )
+    : 1
+  const lensR = LENS_R * handleScale
+  const lensHitR = LENS_HIT_R * handleScale
 
   // ---- Compute every gap's partition once, mapped to screen polygons. ------
   // (fraction 0..1 → x between the two columns' facing edges; elevation → y.)
@@ -1416,7 +1433,7 @@ export default function PartitionFillOverlay({
                   data-testid={`partition-lens-hit-${sl.bodyId}-upper-${ni}`}
                   cx={x}
                   cy={y}
-                  r={LENS_HIT_R}
+                  r={lensHitR}
                   fill="transparent"
                   style={{ pointerEvents: 'auto', cursor: 'grab' }}
                   onMouseDown={(e) => {
@@ -1446,7 +1463,7 @@ export default function PartitionFillOverlay({
                   data-testid={`partition-lens-handle-${sl.bodyId}-upper-${ni}`}
                   cx={x}
                   cy={y}
-                  r={LENS_R}
+                  r={lensR}
                   fill={LENS_COLOR}
                   stroke="#0f172a"
                   strokeWidth={1}
@@ -1461,7 +1478,7 @@ export default function PartitionFillOverlay({
                   data-testid={`partition-lens-hit-${sl.bodyId}-lower-${ni}`}
                   cx={x}
                   cy={y}
-                  r={LENS_HIT_R}
+                  r={lensHitR}
                   fill="transparent"
                   style={{ pointerEvents: 'auto', cursor: 'grab' }}
                   onMouseDown={(e) => {
@@ -1491,7 +1508,7 @@ export default function PartitionFillOverlay({
                   data-testid={`partition-lens-handle-${sl.bodyId}-lower-${ni}`}
                   cx={x}
                   cy={y}
-                  r={LENS_R}
+                  r={lensR}
                   fill={LENS_COLOR}
                   stroke="#0f172a"
                   strokeWidth={1}
