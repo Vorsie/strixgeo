@@ -1,7 +1,10 @@
 /**
  * Renders each project cross-section on the map as a polyline + its
- * projection-buffer polygon. Click on either layer selects the
- * section (the App routes the selection to the SectionPanel view).
+ * projection-buffer polygon. The buffer polygon is a non-interactive
+ * visual corridor; selection + hover live on a fat transparent hit-band
+ * along the section LINE (so the big fill never swallows clicks meant for
+ * overlays crossing it, e.g. tie-section ghosts). The App routes the
+ * selection to the SectionPanel view.
  *
  * Visual:
  *
@@ -143,23 +146,13 @@ export default function SectionOverlays({
                 dashArray: selected ? undefined : '6 4',
                 fillColor: selected ? '#1e3a8a' : '#1e40af',
                 fillOpacity: selected ? 0.22 : 0.13,
+                // Non-interactive: the corridor is a visual affordance only.
+                // Selection + hover live on the section LINE's hit-band below,
+                // so the big fill never swallows clicks meant for tie ghosts or
+                // other overlays crossing it when zoomed out (dogfeed 2026-06-10).
+                interactive: false,
               }}
-              eventHandlers={{ click: () => onSelect(item.id) }}
-            >
-              {/* pane: Leaflet's default tooltipPane sits under the
-                  Geopunt GRB overlay in this app — same fix as the
-                  marker tooltips. marker-tooltips pane = z 660. */}
-              <Tooltip
-                pane="marker-tooltips"
-                sticky
-                direction="top"
-                opacity={0.95}
-              >
-                <strong>{item.name}</strong>
-                <br />
-                {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
-              </Tooltip>
-            </Polygon>
+            />
             {/* Dark-blue interior stroke rendered as a second polygon.
                 Leaflet does not support multi-stroke in a single pathOptions,
                 so we layer two polygons: white casing first, navy accent
@@ -197,9 +190,28 @@ export default function SectionOverlays({
                 color: selected ? '#2563eb' : '#1e3a8a',
                 weight: selected ? 3.5 : 2.5,
                 opacity: 0.98,
+                interactive: false,
               }}
-              eventHandlers={{ click: () => onSelect(item.id) }}
             />
+            {/* Fat transparent hit-band on the section LINE: keeps selecting +
+                hovering a section an easy target when zoomed out (the visible
+                lines stay slim), now that the buffer fill is non-interactive.
+                The tooltip + click handler live here, not on the corridor. */}
+            <Polyline
+              pane={SECTION_PANE}
+              positions={item.lineLatLngs}
+              // opacity 0.01, not 0: SVG ``pointer-events: visiblePainted`` only
+              // fires on a painted stroke, so a zero-opacity band would not be
+              // clickable. 0.01 is invisible yet painted → selection works.
+              pathOptions={{ color: '#ffffff', weight: 14, opacity: 0.01 }}
+              eventHandlers={{ click: () => onSelect(item.id) }}
+            >
+              <Tooltip pane="marker-tooltips" sticky direction="top" opacity={0.95}>
+                <strong>{item.name}</strong>
+                <br />
+                {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
+              </Tooltip>
+            </Polyline>
           </Fragment>
         )
       })}
