@@ -194,6 +194,12 @@ interface BoundaryDrag {
  */
 interface LensDrag {
   bodyId: string
+  /**
+   * Index of the grabbed lens region in ``screenRegions``. A lens body that
+   * pinches into TWO gaps renders two regions with the SAME ``bodyId``; this
+   * discriminates which copy is being dragged so the other stays put.
+   */
+  regionIdx: number
   side: 'left' | 'right'
   edge: 'upper' | 'lower'
   nodeIndex: number
@@ -797,6 +803,7 @@ export default function PartitionFillOverlay({
           return nodes.map((n, ni) => {
             if (
               lensDrag &&
+              lensDrag.regionIdx === k &&
               lensDrag.bodyId === bodyId &&
               lensDrag.edge === edge &&
               lensDrag.nodeIndex === ni
@@ -993,7 +1000,13 @@ export default function PartitionFillOverlay({
       ): { x: number; y: number }[] => {
         if (!alongToScreenX || !levelToScreen) return []
         return nodes.map((n, ni) => {
-          if (lensDrag && lensDrag.bodyId === bodyId && lensDrag.edge === edge && lensDrag.nodeIndex === ni) {
+          if (
+            lensDrag &&
+            lensDrag.regionIdx === ri &&
+            lensDrag.bodyId === bodyId &&
+            lensDrag.edge === edge &&
+            lensDrag.nodeIndex === ni
+          ) {
             return { x: lensDrag.x, y: lensDrag.y }
           }
           return {
@@ -1411,6 +1424,7 @@ export default function PartitionFillOverlay({
                     e.stopPropagation()
                     setLensDrag({
                       bodyId: sl.bodyId,
+                      regionIdx: sl.regionIdx,
                       side: sl.side,
                       edge: 'upper',
                       nodeIndex: ni,
@@ -1455,6 +1469,7 @@ export default function PartitionFillOverlay({
                     e.stopPropagation()
                     setLensDrag({
                       bodyId: sl.bodyId,
+                      regionIdx: sl.regionIdx,
                       side: sl.side,
                       edge: 'lower',
                       nodeIndex: ni,
