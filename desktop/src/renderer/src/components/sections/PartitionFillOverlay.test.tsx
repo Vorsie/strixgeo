@@ -248,6 +248,57 @@ describe('PartitionFillOverlay', () => {
     expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
   })
 
+  // LB-GAP — a lens body on the MIDDLE column pinches into BOTH gaps, so it
+  // renders TWO lens regions that share the same bodyId. Grabbing the node of
+  // ONE gap-copy must NOT drag the same-index node of the OTHER copy (the two
+  // copies are distinct drag targets, discriminated by their gap/region).
+  it('LB-GAP — grabbing one gap-copy node leaves the other copy untouched', () => {
+    const onSaveBoundary = vi.fn()
+    const threeCol: Partial<Props> = {
+      // L sand, M sand/silt/sand (enclosed lens), R sand → silt pinches BOTH ways.
+      lithoLayers: [
+        layer('L1', 'L', 'sandL', 'fSand', 0, 10),
+        layer('M1', 'M', 'sandM', 'fSand', 0, 4),
+        layer('M2', 'M', 'silt', 'fSilt', 4, 5),
+        layer('M3', 'M', 'sandMlo', 'fSand', 5, 10),
+        layer('R1', 'R', 'sandR', 'fSand', 0, 10),
+      ],
+      // L@0, M@100, R@200 (width 40) → gap0 [20,80], gap1 [120,180].
+      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            upper_nodes: [{ along_m: 60, elevation_m: 5 }],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    }
+    const { getAllByTestId } = renderOverlay(threeCol)
+
+    // Precondition: the two-gap lens renders two same-id hit handles.
+    const hits = getAllByTestId('partition-lens-hit-silt-upper-0')
+    expect(hits).toHaveLength(2)
+    const otherBefore = Number(
+      getAllByTestId('partition-lens-handle-silt-upper-0')[1].getAttribute('cx'),
+    )
+
+    // Grab the FIRST copy's node and drag it far left.
+    fireEvent.mouseDown(hits[0])
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 60 }))
+    })
+
+    // The OTHER copy's node must be exactly where it was.
+    const otherAfter = Number(
+      getAllByTestId('partition-lens-handle-silt-upper-0')[1].getAttribute('cx'),
+    )
+    expect(otherAfter).toBeCloseTo(otherBefore, 0)
+  })
+
   // --------------------------------------------------------------------------
   // MB1-MB4: Matched-boundary drag (updated for N-node model)
   // --------------------------------------------------------------------------
