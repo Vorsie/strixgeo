@@ -346,6 +346,44 @@ describe('PartitionFillOverlay', () => {
     expect(getByTestId('partition-lens-addstrip-silt-lower')).toBeTruthy()
   })
 
+  it('MB5 — dragging a boundary node past a column clamps it to the gap, not under the column', () => {
+    // Gap is x∈[20,80]; the R column strip is [80,120]. Dragging the node to
+    // x=120 (under/past the R column) must clamp to the gap edge (80) — otherwise
+    // the node lands under the column strip (in neither gap) and the fraction
+    // clamp pins it to BOTH sides of the column (the dogfeed "clamps at both
+    // sides of test" bug).
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map([
+        [
+          'sand',
+          {
+            upper_nodes: [],
+            lower_nodes: [{ along_m: 60, elevation_m: 4.0 }],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    fireEvent.mouseDown(getByTestId('partition-boundary-hit-sand-clay-0'))
+    // Two acts: the move's setState must flush (re-rendering the mouseup closure
+    // with the updated drag x) before mouseup reads it — else mouseup fires on
+    // the stale closure with the original x.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 120, clientY: 60 }))
+    })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    const savedLower = onSaveBoundary.mock.calls[0][2]
+    expect(savedLower).toHaveLength(1)
+    // Clamped to the gap's right edge (x=80 → along 80, identity transform),
+    // NOT 120 (under the R column strip).
+    expect(savedLower[0].along_m).toBeCloseTo(80, 5)
+  })
+
   // --------------------------------------------------------------------------
   // FD1: Two stored nodes → two handles, both polygons gain two vertices
   // --------------------------------------------------------------------------
