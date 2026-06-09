@@ -103,11 +103,14 @@ test.describe('flow_auto_tie', () => {
         // The green dashed Polyline now has no left-click action; right-click
         // opens TieContextMenu (portal="fixed") with "Accept tie" / "Reject
         // tie" items.  Accepting POSTs the tie as a real section (name =
-        // ``Tie-section N``), removes it from the ghost list, and selects the
-        // new section — which switches the canvas from the map to the section
-        // profile view.
+        // ``Tie-section N``), removes it from the ghost list, and STAYS ON THE
+        // MAP (no auto-select) so the user can keep triaging the other ghosts.
         await ghosts.first().click({ button: 'right' })
         await page.getByTestId('tie-context-accept').click()
+
+        // Stays on the map: the Leaflet container only renders on the map
+        // surface, never in a section profile view.
+        await expect(page.locator('.leaflet-container')).toBeVisible()
 
         // --- 6. A "Tie-section" row appears in the inspector list -------------
         // SectionsInspector renders each visible section as
