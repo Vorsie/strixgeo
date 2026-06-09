@@ -574,27 +574,9 @@ describe('PartitionFillOverlay', () => {
     expect(dupKeyWarning).toBe(false)
   })
 
-  // FS1 — a mismatched-matrix interval (sand-left vs clay-right, bracketed by a
-  // correlated sand band above + clay band below) renders its seam as a wavy
-  // facies <path>, not a straight contact.
-  it('FS1 — a mismatched-matrix interval renders a wavy facies seam path', () => {
-    // Brackets are different lithologies (fVeen top / fSilt bot) than the
-    // mismatched matrix (fSand-left vs fClay-right) so the matrix is not merged
-    // away — a genuine facies transition.
-    const mismatch = [
-      layer('la', 'L', 'top', 'fVeen', 0, 2), // correlated top bracket
-      layer('lb', 'L', 'lsand', 'fSand', 2, 8), // left background sand (uncorrelated)
-      layer('lc', 'L', 'bot', 'fSilt', 8, 10), // correlated base bracket
-      layer('ra', 'R', 'top', 'fVeen', 0, 2),
-      layer('rb', 'R', 'rclay', 'fClay', 2, 8), // right background clay (mismatch)
-      layer('rc', 'R', 'bot', 'fSilt', 8, 10),
-    ]
-    const { container } = renderOverlay({ lithoLayers: mismatch })
-    const seams = container.querySelectorAll('path[data-seam="facies"]')
-    expect(seams.length).toBeGreaterThanOrEqual(1)
-    // The seam is a multi-vertex wavy polyline, not a straight 2-point line.
-    const d = seams[0].getAttribute('d') ?? ''
-    const verts = (d.match(/[ML]/g) ?? []).length
-    expect(verts).toBeGreaterThan(3)
-  })
+  // FS1 (mismatched-matrix wavy facies seam) was removed 2026-06-09: the owner's
+  // contact-correlation model has NO auto-facies wriggle — a facies/disturbed
+  // contact is an explicit engineer call, not a geometric inference. A
+  // mismatched matrix now renders a straight midpoint seam (see partitionFill
+  // MISMATCH test). The dead wavyPath render path is removed in the cleanup pass.
 })
