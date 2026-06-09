@@ -764,6 +764,67 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
+  // SEC3 — the dogfeed regression: test.strix cross-section 3 (S2·S1·B4·S4·S3).
+  //
+  // The deep ``857`` package lumps a heterogeneous, varying-count stack per
+  // column (S1 has 5 units, B4 has 1). body_id-only matching left the deep sand
+  // unmatched → it drooped. With lithology matching (reduceMinorities +
+  // matchColumns) every deep ZAND that has a same-lithology neighbour at
+  // overlapping depth must CONNECT as a band, not tip to a point mid-gap.
+  // (formationId == lithology in this litho model — one formation per soil code.)
+  // -----------------------------------------------------------------------
+  it('SEC3: the dogfeed S1→B4 deep package connects (no sand drooping to a point)', () => {
+    const S2 = col('S2', 12.95, [
+      { top: 0.05, base: 2.1, f: 'KLEI', b: '170' },
+      { top: 2.1, base: 2.4, f: 'SILT', b: '3e1' },
+      { top: 2.4, base: 3.81, f: 'VEEN', b: '170' },
+      { top: 3.81, base: 4.25, f: 'KLEI', b: '857' },
+      { top: 4.25, base: 7.5, f: 'SILT', b: '42e' },
+      { top: 7.5, base: 12.04, f: 'ZAND', b: '42e' },
+      { top: 12.04, base: 12.39, f: 'SILT', b: '857' },
+      { top: 12.39, base: 16.97, f: 'ZAND', b: '857' },
+      { top: 16.97, base: 29.42, f: 'KLEI', b: '857' },
+    ])
+    const S1 = col('S1', 13.13, [
+      { top: 0.05, base: 1.73, f: 'ZAND', b: '170' },
+      { top: 1.73, base: 2.36, f: 'KLEI', b: '170' },
+      { top: 2.36, base: 2.8, f: 'SILT', b: '3e1' },
+      { top: 2.8, base: 3.88, f: 'VEEN', b: '170' },
+      { top: 3.88, base: 4.95, f: 'KLEI', b: '857' },
+      { top: 4.95, base: 5.5, f: 'SILT', b: '42e' },
+      { top: 5.5, base: 12.78, f: 'ZAND', b: '42e' },
+      { top: 12.78, base: 14.47, f: 'KLEI', b: '857' },
+      { top: 14.47, base: 14.98, f: 'ZAND', b: '857' },
+      { top: 14.98, base: 15.54, f: 'SILT', b: '857' },
+      { top: 15.54, base: 18.37, f: 'ZAND', b: '857' },
+      { top: 18.37, base: 23.81, f: 'KLEI', b: '857' },
+    ])
+    const B4 = col('B4', 11.7, [
+      { top: 0, base: 0.48, f: 'ZAND', b: '170' },
+      { top: 0.48, base: 1.53, f: 'KLEI', b: '170' },
+      { top: 1.53, base: 1.87, f: 'SILT', b: '3e1' },
+      { top: 1.87, base: 3.75, f: 'VEEN', b: '170' },
+      { top: 3.75, base: 4.0, f: 'KLEI', b: '857' },
+      { top: 4.0, base: 7.0, f: 'SILT', b: '42e' },
+      { top: 7.0, base: 18.35, f: 'ZAND', b: '42e' },
+      { top: 18.35, base: 23.0, f: 'KLEI', b: '857' },
+    ])
+    const regions = computePartitionFill(S1, B4)
+    // Every ZAND region in the S1→B4 gap is a connected band (quad) — none tips
+    // to a point mid-gap. (The deep ZAND package is the bug the user circled.)
+    const zandDroops = regions.filter(
+      (r) =>
+        r.formationId === 'ZAND' &&
+        r.kind === 'pinch' &&
+        r.polygon.some((p) => p.fraction > 0.02 && p.fraction < 0.98),
+    )
+    expect(zandDroops).toHaveLength(0)
+    assertTiles(regions, S1, B4)
+    // The two upstream gaps also tile cleanly (the matrix connects, lenses overlay).
+    assertTiles(computePartitionFill(S2, S1), S2, S1)
+  })
+
+  // -----------------------------------------------------------------------
   // PF5 — Empty left column
   // -----------------------------------------------------------------------
   it('PF5 — empty left column returns []', () => {
