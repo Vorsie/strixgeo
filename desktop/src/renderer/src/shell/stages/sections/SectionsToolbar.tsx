@@ -1101,11 +1101,11 @@ export default function SectionsToolbar(): JSX.Element {
               ? 'Clear the current tie-section suggestions'
               : 'Suggest perpendicular connector sections between all pairs of existing sections'
         }
-        data-testid="suggest-tie-sections"
+        testid="suggest-tie-sections"
       />
       {suggestedTies.length > 0 && (
         <ToolbarButton
-          icon={<CheckCheck size={13} />}
+          icon={<Sparkles size={13} />}
           label={acceptingAllTies ? 'Accepting…' : 'Accept all ties'}
           onClick={() =>
             void (async () => {
