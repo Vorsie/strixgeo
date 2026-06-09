@@ -8,16 +8,25 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  classifyTermination,
   computePartitionFill,
   computeSectionFill,
   LENS_PINCH_FRACTION,
   matchColumns,
+  type ContactTermination,
   type CorrelationEdge,
   type Correlated,
   type MatchUnit,
   type PartitionColumn,
   type PartitionRegion,
 } from './partitionFill'
+
+/** Build the edge-lookup predicate the production code uses (order-independent). */
+function predicate(edges: CorrelationEdge[]): Correlated {
+  const key = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const set = new Set(edges.map((e) => key(e.a, e.b)))
+  return (a, b) => set.has(key(a, b))
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -188,6 +197,95 @@ function assertTiles(
     expect(lowestBottom).toBeLessThanOrEqual(colFloorElev + EPS)
   }
 }
+
+// ---------------------------------------------------------------------------
+// classifyTermination — per-side contact-correlation count → band/onlap/lens
+// ---------------------------------------------------------------------------
+//
+// Owner's model (2026-06-09): a unit's shape toward a neighbour is decided by how
+// many of its TWO bounding contacts are correlated to that neighbour:
+//   2 → band   1 → onlap   0 → lens.
+// top contact correlated  = an approved edge on THIS unit's layerId;
+// base contact correlated = an approved edge on the layerId of the unit BELOW.
+describe('classifyTermination', () => {
+  // L and R columns; bodyId shared ⇒ an edge between those layers (the test
+  // convention from `edgesFromBodyId`). Each unit's contact correlations to R
+  // are read from edges on its own / the below layer.
+  const neighbourIds = (c: PartitionColumn): ReadonlySet<string> =>
+    new Set(c.units.map((u) => u.layerId))
+
+  function classifyAt(
+    left: PartitionColumn,
+    right: PartitionColumn,
+    index: number,
+  ): ContactTermination {
+    const corr = predicate(edgesFromBodyId(left, right))
+    return classifyTermination(left.units, index, neighbourIds(right), corr)
+  }
+
+  it('BAND — both bounding contacts correlated to the neighbour', () => {
+    // SILT (index 1): its top (shared body "b") and its base = below CLAY's top
+    // (shared body "c") both correlate to R → 2 → band.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    expect(classifyAt(left, right, 1)).toBe('band')
+  })
+
+  it('ONLAP — exactly one bounding contact correlated', () => {
+    // SILT top correlated ("b" shared), but the CLAY below is uncorrelated
+    // (unique body) so SILT's base contact is not correlated → 1 → onlap.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c-left' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c-right' },
+    ])
+    expect(classifyAt(left, right, 1)).toBe('onlap')
+  })
+
+  it('LENS — neither bounding contact correlated', () => {
+    // SILT and the CLAY below are both uncorrelated (unique bodies) → 0 → lens.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b-left' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c-left' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b-right' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c-right' },
+    ])
+    expect(classifyAt(left, right, 1)).toBe('lens')
+  })
+
+  it('deepest unit — base contact (no unit below) counts as uncorrelated', () => {
+    // CLAY (index 2) has no unit below, so only its top can correlate → at most
+    // onlap. Here its top is correlated ("c" shared) → 1 → onlap.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    expect(classifyAt(left, right, 2)).toBe('onlap')
+  })
+})
 
 // ---------------------------------------------------------------------------
 // matchColumns — section-wide lithology-aware cross-column matcher
