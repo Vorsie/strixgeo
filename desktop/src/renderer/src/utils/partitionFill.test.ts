@@ -496,6 +496,33 @@ describe('computePartitionFill', () => {
     }
   })
 
+  // LL1 — two STACKED minority lenses on one column keep their OWN depths (the
+  // real CS1 lens×lens bug, traced 2026-06-09). When the upper SILT is pulled,
+  // the thicker ZAND below floods UP into its space (below.topDepthM = u.topDepthM);
+  // if ZAND is then pulled too, its lens must use its ORIGINAL top, else the two
+  // lens triangles overlap (a point in two minority bodies — bad for volumetric
+  // extraction).
+  it('LL1: stacked minority lenses keep their own depths (flood does not corrupt the lower lens)', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'st' }, // matched band
+      { top: 2, base: 4, f: 'SILT', b: 'si' }, // upper lens
+      { top: 4, base: 8, f: 'ZAND', b: 'z' }, // lower lens — thicker, floods up when SILT is pulled
+      { top: 8, base: 10, f: 'SAND', b: 'sb' }, // matrix below (uncorrelated → fuses)
+    ])
+    const right = col('R', 0, [{ top: 0, base: 10, f: 'SAND', b: 'st' }])
+    const regions = pf(left, right)
+    const silt = regions.find((r) => r.formationId === 'SILT' && r.kind === 'lens')
+    const zand = regions.find((r) => r.formationId === 'ZAND' && r.kind === 'lens')
+    expect(silt).toBeDefined()
+    expect(zand).toBeDefined()
+    // ZAND lens keeps its OWN top (elev −4), NOT the SILT's top (−2) it flooded into.
+    const zandTop = Math.max(...zand!.polygon.map((p) => p.elevation))
+    expect(zandTop).toBeCloseTo(-4, 6)
+    // The two lenses do NOT overlap — SILT [−4,−2], ZAND [−8,−4] share only the edge.
+    const siltBottom = Math.min(...silt!.polygon.map((p) => p.elevation))
+    expect(zandTop).toBeLessThanOrEqual(siltBottom + 1e-6)
+  })
+
   // SP1 — a SURFACE-interval pinch (top unit absent on the neighbour) tips at
   // 50% with its apex ON the surface, the below-matrix closing up beyond it.
   it('SP1: surface pinch tips at 50% on the surface line', () => {
