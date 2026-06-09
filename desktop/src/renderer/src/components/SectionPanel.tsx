@@ -2941,6 +2941,7 @@ export default function SectionPanel({
             {axisMode === 'lithostratigraphic' && lenses !== undefined && (
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
+                contactEdges={contactEdges}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
