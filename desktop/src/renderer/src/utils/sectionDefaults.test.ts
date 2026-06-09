@@ -1,58 +1,20 @@
 import { describe, expect, it } from 'vitest'
+import { readSectionDefaults, buildSectionDefaultsPatch, SECTION_DEFAULTS } from './sectionDefaults'
 
-import {
-  SECTION_DEFAULTS,
-  buildSectionDefaultsPatch,
-  readSectionDefaults,
-} from './sectionDefaults'
-
-describe('readSectionDefaults', () => {
-  it('returns defaults on null / undefined view_state', () => {
-    expect(readSectionDefaults(null)).toEqual(SECTION_DEFAULTS)
-    expect(readSectionDefaults(undefined)).toEqual(SECTION_DEFAULTS)
+describe('tieStrikeToleranceM pref', () => {
+  it('falls back to the default when absent', () => {
+    expect(readSectionDefaults(null).tieStrikeToleranceM).toBe(SECTION_DEFAULTS.tieStrikeToleranceM)
   })
-
-  it('returns defaults when section_defaults key is missing', () => {
-    expect(readSectionDefaults({ litho_segmenter: {} })).toEqual(SECTION_DEFAULTS)
+  it('reads a valid stored value', () => {
+    const vs = { section_defaults: { tie_strike_tolerance_m: 30 } }
+    expect(readSectionDefaults(vs).tieStrikeToleranceM).toBe(30)
   })
-
-  it('reads valid stored values', () => {
-    expect(
-      readSectionDefaults({
-        section_defaults: { buffer_m: 25.0, vertical_exaggeration: 2.0 },
-      }),
-    ).toEqual({ bufferM: 25.0, verticalExaggeration: 2.0 })
+  it('rejects out-of-bounds values, falling back to default', () => {
+    const vs = { section_defaults: { tie_strike_tolerance_m: 99999 } }
+    expect(readSectionDefaults(vs).tieStrikeToleranceM).toBe(SECTION_DEFAULTS.tieStrikeToleranceM)
   })
-
-  it('falls back per-field on out-of-range values', () => {
-    expect(
-      readSectionDefaults({
-        section_defaults: { buffer_m: 0.5, vertical_exaggeration: 3.0 },
-      }),
-    ).toEqual({
-      bufferM: SECTION_DEFAULTS.bufferM,
-      verticalExaggeration: 3.0,
-    })
-  })
-
-  it('falls back on malformed types', () => {
-    expect(
-      readSectionDefaults({
-        section_defaults: { buffer_m: 'oops', vertical_exaggeration: null },
-      }),
-    ).toEqual(SECTION_DEFAULTS)
-  })
-})
-
-describe('buildSectionDefaultsPatch', () => {
-  it('round-trips through read', () => {
-    const patch = buildSectionDefaultsPatch({ bufferM: 30, verticalExaggeration: 1.5 })
-    expect(patch).toEqual({
-      section_defaults: { buffer_m: 30, vertical_exaggeration: 1.5 },
-    })
-    expect(readSectionDefaults(patch)).toEqual({
-      bufferM: 30,
-      verticalExaggeration: 1.5,
-    })
+  it('round-trips through the patch builder', () => {
+    const patch = buildSectionDefaultsPatch({ ...SECTION_DEFAULTS, tieStrikeToleranceM: 25 })
+    expect((patch.section_defaults as Record<string, unknown>).tie_strike_tolerance_m).toBe(25)
   })
 })

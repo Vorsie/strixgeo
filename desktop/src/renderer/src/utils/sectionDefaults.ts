@@ -21,16 +21,21 @@ export interface SectionDefaults {
    *  geometrically honest; regional studies use 2-5x to make thin
    *  layers legible. */
   verticalExaggeration: number
+  /** Max along-strike spread (m) allowed within one auto-proposed
+   *  tie-section. Wider = more ties but less clean; default 45 m. */
+  tieStrikeToleranceM: number
 }
 
 export const SECTION_DEFAULTS: SectionDefaults = {
   bufferM: 50.0,
   verticalExaggeration: 1.0,
+  tieStrikeToleranceM: 45.0,
 }
 
 export const SECTION_DEFAULTS_BOUNDS = {
   bufferM: { min: 1.0, max: 1000.0 },
   verticalExaggeration: { min: 0.1, max: 50.0 },
+  tieStrikeToleranceM: { min: 1.0, max: 500.0 },
 } as const
 
 const VIEW_STATE_KEY = 'section_defaults'
@@ -72,6 +77,11 @@ export function readSectionDefaults(
       SECTION_DEFAULTS_BOUNDS.verticalExaggeration,
       SECTION_DEFAULTS.verticalExaggeration,
     ),
+    tieStrikeToleranceM: readBoundedNumber(
+      dict.tie_strike_tolerance_m,
+      SECTION_DEFAULTS_BOUNDS.tieStrikeToleranceM,
+      SECTION_DEFAULTS.tieStrikeToleranceM,
+    ),
   }
 }
 
@@ -86,6 +96,7 @@ export function buildSectionDefaultsPatch(
     [VIEW_STATE_KEY]: {
       buffer_m: defaults.bufferM,
       vertical_exaggeration: defaults.verticalExaggeration,
+      tie_strike_tolerance_m: defaults.tieStrikeToleranceM,
     },
   }
 }
