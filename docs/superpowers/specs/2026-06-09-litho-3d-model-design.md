@@ -34,6 +34,13 @@ That tells the software how the slices relate. The good news: drawing and
 correlating sections is something Strix *already does* — a tie-section is just a
 normal section drawn crosswise.
 
+**And Strix proposes the ties for you (owner-confirmed, in scope).** Rather than
+hand-drawing every skewer, the app auto-suggests a tidy *ladder* of tie-sections —
+each connecting **one test per wall** so correlating along it is unambiguous — and
+**the ties never cross each other** (a crossing would mean a geologically
+impossible swap). You accept or reject the ghost suggestions, then correlate. See
+§5.1.1; validated on test.strix in §2.1.
+
 **How the 3D is built.** Think of every soil boundary (say the line between sand
 and clay) as a stretched sheet. The software fits **one sheet through all the
 points where you marked that boundary**, across every section. A soil body is
@@ -134,6 +141,15 @@ pinch-outs and lenses — with watertight, individually-identifiable bodies.
 well-posed until that cross-direction link exists. This is the foundational gap
 the design must close first.
 
+### 2.1 Auto-tie validated on this data
+
+Running the proposed auto-tie matcher (§5.1.1) over the real test.strix
+coordinates produced **29 non-crossing tie-sections** (9 connecting all three
+walls, 20 connecting two), **0 order inversions** (zero crossings, verified),
+mean strike-spread 24 m / max 42 m, tying 28/36 CS1, 28/32 CS2, and all 11/11
+CS3 tests. CS3 (sparsest) caps full-triplet coverage, as expected. This is the
+empirical basis for putting auto-tie in scope rather than deferring it.
+
 ---
 
 ## 3. Key decisions (owner-confirmed in brainstorm)
@@ -145,8 +161,9 @@ the design must close first.
 | 3 | Built from | **The drawings** — full fidelity, honour drawn pinch/lens shapes (not just borehole dots) |
 | 4 | Section correlation | **Tie-sections** form a connected fence (option C, made real for parallel sections) |
 | 5 | Tie-section shape | Many **thin** tie-sections, ~1 real test per parallel-section crossing, minimal overlap; stitched via real shared tests + the existing resolver |
+| 5b | Tie-section generation | **Auto-proposed (in scope), not hand-drawn.** Non-crossing monotonic match, ~1 test per wall, presented as ghosts the user accepts/rejects. Correlation along the tie stays user-driven (§5.1.1) |
 | 6 | Build order | **Viewer first**, exporter second |
-| 7 | First spec scope | **Whole in-app 3D model** (tie-sections + builder + pinch-outs + lenses + full fidelity + viewer); export its own later spec |
+| 7 | First spec scope | **Whole in-app 3D model** (auto-tie workflow + builder + pinch-outs + lenses + full fidelity + viewer); export its own later spec |
 
 ---
 
@@ -164,6 +181,7 @@ surfaces.**
      projected from section `(along, elevation)` to world `(x, y, z)`.
    - Reuse the geology surface primitive (`compute_tin`, Delaunay +
      concave-hull) — applied **per contact-boundary**, not per formation.
+   - add the uncertainty on the model also, with a toggle button in the frontend
 2. **A body is the volume between its two bounding contact surfaces.** Because
    adjacent bodies *share* a boundary surface (the base of one is the top of the
    next — the litho column is gap-free, enforced by the FC↔LL triggers), the
@@ -191,7 +209,8 @@ Grey = exists, **bold** = new.
 ```
 EXISTING inputs: contacts · layers · correlation edges · body_boundary_nodes · DEM
         │                         ▲
-        │            Tie-sections │ (thin, perpendicular — mostly existing machinery)
+        │   **Auto-tie generator**│ (NEW) → ghost ties → user accepts → correlate
+        │   (non-crossing ladder) │  (reuses correlation + resolver)
         ▼                         │
 ResolveLithoInstances (EXISTING) — unions edges across ALL sections → body_id spans walls
         ▼
@@ -207,19 +226,45 @@ LithologyCanvas → reuse Geology3DViewer (Cesium) — the V1 win
 (DEFERRED) DXF / Plaxis 3D exporter reads litho_body_solid
 ```
 
-### 5.1 Tie-section workflow (mostly existing)
-- **What:** the user draws thin, perpendicular cross-sections that cross the
-  parallel ones, each catching ~1 real test per crossing, and correlates *along*
-  them. The resulting edges carry the tie's `section_id`; `ResolveLithoInstances`
-  already unions them into model-level `body_id`, so bodies span the parallel
-  walls. The 2D parallel sections do not show the perpendicular edges (they are
+### 5.1 Tie-section workflow
+- **What:** thin, perpendicular cross-sections cross the parallel ones, each
+  catching ~1 real test per crossing. Correlating *along* a tie produces ordinary
+  edges carrying the tie's `section_id`; `ResolveLithoInstances` already unions
+  them into model-level `body_id`, so bodies span the parallel walls. The 2D
+  parallel sections do not show the perpendicular edges (they are
   `section_id`-scoped to the tie) — by design.
-- **New code (small):** a "create tie-section" affordance + light guidance
-  (perpendicular hint, thin default buffer). The synthetic "auto-read crossing
-  column" (interpolate a parallel section's stack where no real test sits) is an
-  **optional fallback, deferred** unless dogfeeding shows real tests are too
-  sparse.
 - **Depends on:** existing section create, correlation, accept, resolver.
+- **Reused vs new:** correlation + resolver + section persistence are existing;
+  the auto-tie generator (§5.1.1) is the one new piece.
+
+#### 5.1.1 Auto-tie generator (NEW — the in-scope accelerator)
+- **What it does:** instead of the user hand-drawing every skewer, Strix proposes
+  a tidy *ladder* of tie-sections as **ghosts** the user accepts/rejects.
+- **Algorithm (non-crossing monotonic match):**
+  1. Project every in-corridor test onto the parallel-section direction → a
+     *strike* coordinate; group by which wall it belongs to; sort each wall by
+     strike.
+  2. Sweep a pointer up all walls together; at each step form a *rung* from the
+     frontier test(s) within a strike-spread tolerance of the current minimum,
+     then advance only those pointers. Because pointers only move forward, rungs
+     are strike-ordered → **ties can never cross** (a crossing would be a
+     geologically impossible lateral swap).
+  3. A rung touching ≥2 walls becomes a candidate tie (a straight line through its
+     ~1-test-per-wall members); tests too far out of line are left untied rather
+     than forced through a fat buffer.
+- **Invariants (must hold, tested):** every proposed tie has ≤1 test per wall;
+  the proposed set has **zero order inversions** (no crossings); a tie's buffer is
+  the minimum that catches its members.
+- **User control:** ghosts only — the user accepts/rejects, then correlates along
+  the accepted ties. Correlation stays user-driven (no auto-correlation).
+- **Tunable:** strike-spread tolerance (default ≈45 m); whether 2-wall pairs are
+  allowed alongside full triplets (default: yes).
+- **Depends on:** existing section create + the projection math
+  (`sectionProjection.ts` / its server analog); emits ghost section rows the user
+  commits.
+- **Deferred fallback:** the synthetic "auto-read crossing column" (interpolate a
+  parallel section's stack where no real test sits) stays out unless dogfeeding
+  shows real tests are too sparse.
 
 ### 5.2 LithoSolidBuilder (NEW — domain service, pure)
 - **What it does:** given the model's accepted layers, `body_id` membership,
@@ -267,12 +312,19 @@ control points alongside the contact picks. This keeps the builder consistent
 with the geology pipeline and makes it export-ready (the deferred exporter reads
 the same rows).
 
-**Known fidelity gap (open question Q1):** the *auto-derived* (non-freedraw)
-pinch positions that `partitionFill` computes client-side (e.g. meeting-fraction)
-are not stored. In 3D those pinches instead fall out of where the interpolated
-surfaces converge, which may not match the 2D auto-position pixel-for-pixel. Where
-the engineer cared, they freedrew (stored, honoured exactly). Acceptable for V1;
-revisit if 2D/3D pinch mismatch is visible and bothers the owner.
+**All user edits are stored as truth (owner directive — must build).** Anything
+the engineer touches — a freedraw boundary, a dragged pinch position, an accepted
+auto-tie, a correlation — is **persisted** and treated as ground truth by the
+builder; the 3D never silently re-derives over a user decision. This is the
+explicit-content invariant carried into 3D.
+
+Consequence for pinch positions: today `partitionFill` *derives* some pinch
+positions client-side (e.g. meeting-fraction) without storing them. To honour the
+directive we must **persist the pinch position whenever the user adjusts it** (so
+it round-trips into the 3D build). Where the user has *not* touched a pinch, the
+default falls out of where the interpolated surfaces converge — an automatic
+default, not a stored decision, and therefore free to differ slightly from the 2D
+auto-position. (Resolves former open question Q1.)
 
 ---
 
@@ -294,7 +346,10 @@ revisit if 2D/3D pinch mismatch is visible and bothers the owner.
 
 ## 8. Testing strategy
 
-- **Unit (`tests/unit`, no DB):** `LithoSolidBuilder` on synthetic fences —
+- **Unit (`tests/unit`, no DB) — auto-tie matcher:** non-crossing invariant
+  (zero order inversions on a randomised fence), ≤1 test per wall per tie,
+  monotonic rung order, spread-tolerance skip (out-of-line tests left untied).
+- **Unit (`tests/unit`, no DB) — `LithoSolidBuilder`** on synthetic fences:
   (a) two parallel sections, one through-going body → watertight slab;
   (b) a body that pinches out between sections → zero-thickness terminus;
   (c) an enclosed lens → closed blob carved from matrix, partition preserved;
@@ -304,22 +359,26 @@ revisit if 2D/3D pinch mismatch is visible and bothers the owner.
   first).
 - **Integration (`tests/integration`, real DB):** RecomputeLithoSolids end-to-end
   on a seeded connected fence; stale-on-edit cascade; API response shape +
-  eager-load chain.
-- **Frontend (Vitest + tsc):** LithologyCanvas fetch + feed; section-geometry
-  check for any new section-view overlay (tie-section affordance).
+  eager-load chain; user-edited pinch persists + round-trips into the build.
+- **Frontend (Vitest + tsc):** LithologyCanvas fetch + feed; ghost-tie
+  accept/reject; `strix-section-geometry-check` on any new section-view overlay
+  (ghost ties, tie affordance).
 - **Bench:** add `bench_litho_solid_builder.py` once the builder lands (per
   the "benchmark alongside CPU-bound code" rule); not before.
+- **e2e (Playwright):** auto-propose ties on the seeded fixture → accept → 3D
+  block renders; offline + deterministic per `run-e2e.ps1`.
 
 ---
 
 ## 9. Build order within this spec (for the plan)
 
-1. **Tie-section workflow** — confirm/enable thin perpendicular sections +
-   cross-direction correlation on test.strix (mostly existing; small UX).
+1. **Auto-tie workflow** — non-crossing monotonic matcher → ghost ties →
+   accept/reject → correlate; produces the connected fence on test.strix.
+   (In scope from the start, per decision 5b.)
 2. **Through-going bodies + pinch-outs** — builder + table + API + viewer →
    first rotatable 3D block of test.strix on screen (de-risks the whole pipe).
 3. **Lenses + full drawn-shape fidelity** — closed-blob builder + 3D carve +
-   freedraw control points.
+   freedraw/edited-pinch control points (user edits stored as truth, §6).
 4. **(Deferred, own spec)** DXF / Plaxis 3D export.
 
 Full fidelity (steps 1–3) is this spec's destination; step 2 simply lands first
@@ -329,12 +388,12 @@ so there is a visible, testable artifact early.
 
 ## 10. Open questions for owner review
 
-- **Q1 — auto-pinch fidelity:** is surface-convergence-derived pinch geometry
-  acceptable where the engineer did *not* freedraw, or must 3D match the 2D
-  auto-position exactly (would require a partial `partitionFill` port)? (§6)
-- **Q2 — tie-section ergonomics:** is "draw a thin perpendicular section through
-  real tests + correlate" enough for V1, or do you want the synthetic
-  "auto-read the crossing column" fallback in scope now? (§5.1)
+- ~~**Q1 — auto-pinch fidelity**~~ — **RESOLVED:** all user edits are stored as
+  truth; user-adjusted pinches persist + round-trip into the build; untouched
+  pinches use the surface-convergence default (§6).
+- ~~**Q2 — tie-section ergonomics**~~ — **RESOLVED:** auto-tie generation is in
+  scope (non-crossing monotonic match, ghost-propose, ~1 test/wall, §5.1.1). The
+  synthetic "auto-read crossing column" stays a deferred fallback.
 - **Q3 — disconnected bodies:** flag-and-slab (proposed) vs hide entirely vs
   block the rebuild until correlated? (§7)
 - **Q4 — colour / identity:** colour solids by lithology (proposed) and tag each
