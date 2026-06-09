@@ -216,66 +216,84 @@ function closeColumnGaps(units: PartitionUnit[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Enclosed-lens pre-pass
-// ---------------------------------------------------------------------------
+/**
+ * Merge runs of adjacent same-``formationId`` units into one (lithology is the
+ * fill primitive — a stack of same-lithology beds is one matrix band, regardless
+ * of how the resolver split it into bodies). Without this, when one column's
+ * matrix is one unit and the other's is split into N (different ``bodyId``s, or
+ * exposed by removing an interbedded lens), the matcher orphans the surplus
+ * pieces into spurious pinches. Keeps the shallowest unit's ``bodyId`` as the
+ * run's representative. Mutates in place.
+ */
+function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
+  for (let i = units.length - 2; i >= 0; i--) {
+    if (units[i].formationId === units[i + 1].formationId) {
+      units[i].baseDepthM = units[i + 1].baseDepthM
+      units.splice(i + 1, 1)
+    }
+  }
+}
 
 /**
- * Extract all enclosed lenses from a column's unit array, merging each lens's
- * enclosing matrix neighbours into one contiguous unit.
+ * Section-wide pre-pass: extract interior lithology-minority units that PINCH
+ * OUT against the other column, merging the matrix they were embedded in.
  *
- * A unit U at index i is an enclosed lens when:
- *   (a) U.bodyId does not appear anywhere in the OTHER column's units (one-test body).
- *   (b) The units immediately above (i-1) AND below (i+1) share the SAME bodyId
- *       (the enclosing matrix).
- *   (c) That matrix bodyId IS present in the OTHER column (it is a genuine matrix,
- *       not itself absent).
+ * A unit is removed when it is (a) ABSENT on the other column — no unit of the
+ * same ``formationId`` overlaps it in elevation, so it terminates in the gap —
+ * AND (b) enclosed by the SAME matrix formation immediately above AND below on
+ * its own column, so merging those neighbours closes the gap cleanly. Running
+ * this BEFORE ``matchColumns`` merges a split matrix (e.g. a sand interrupted by
+ * clay/silt lenses on one column vs one continuous sand on the other) into one
+ * contiguous unit, so it connects across the gap as a single band instead of
+ * leaving orphaned pieces that droop (the dogfeed cross-section-3 failure).
  *
- * The function iterates until no more lenses can be extracted (handles a matrix
- * that encloses several consecutive lenses — e.g. sand/silt/sand/clay/sand on
- * one column where silt and clay are both enclosed in sand).
+ * A connectable layer (present on the other column) is kept; a sole / facies
+ * matrix (not enclosed by one formation) is kept — both flow on to the matcher /
+ * facies emit.
  *
  * Parameters
  * ----------
  * units : PartitionUnit[]
- *     The mutable working copy of the column's units.
- * otherIds : Set<string>
- *     All bodyIds present in the OTHER column (non-null).
+ *     The column's units (mutated in place — minorities removed, matrix merged).
+ * surface, otherSurface : number
+ *     This column's / the other column's surface elevation (mTAW).
+ * other : readonly PartitionUnit[]
+ *     The other column's units.
+ * side : 'left' | 'right'
+ *     Which column these units belong to (for the extracted lens record).
  *
  * Returns
  * -------
  * ExtractedLens[]
- *     Each extracted lens in the order it was removed (top-to-bottom reading
- *     order within the column, because we always scan top-to-bottom and restart
- *     after each extraction).
+ *     The pinched-out minorities, in removal order.
  */
-function extractEnclosedLenses(
+function reduceMinorities(
   units: PartitionUnit[],
-  otherIds: Set<string>,
+  surface: number,
+  other: readonly PartitionUnit[],
+  otherSurface: number,
   side: 'left' | 'right',
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
-
-  // Iterative scan: restart after each extraction because merging two neighbours
-  // can create a new enclosed-lens opportunity (e.g. sand/silt/sand/clay/sand →
-  // after silt extracted: sand[merged]/clay/sand → clay is now enclosed).
+  const presentOnOther = (u: PartitionUnit): boolean => {
+    const uTop = surface - u.topDepthM
+    const uBase = surface - u.baseDepthM
+    return other.some((v) => {
+      if (v.formationId !== u.formationId) return false
+      const vTop = otherSurface - v.topDepthM
+      const vBase = otherSurface - v.baseDepthM
+      return uTop > vBase + EPS && vTop > uBase + EPS
+    })
+  }
   let changed = true
   while (changed) {
     changed = false
     for (let i = 1; i < units.length - 1; i++) {
       const u = units[i]
-      if (u.bodyId === null) continue
-      // (a) One-test body: bodyId not present on the other column.
-      if (otherIds.has(u.bodyId)) continue
-      // (b) Immediate neighbours share the same bodyId.
       const above = units[i - 1]
       const below = units[i + 1]
-      if (above.bodyId === null || below.bodyId === null) continue
-      if (above.bodyId !== below.bodyId) continue
-      // (c) The matrix bodyId IS present on the other column.
-      if (!otherIds.has(above.bodyId)) continue
-
-      // Extract this lens.
+      if (presentOnOther(u)) continue
+      if (above.formationId !== below.formationId || above.formationId === u.formationId) continue
       lenses.push({
         bodyId: u.bodyId,
         formationId: u.formationId,
@@ -283,21 +301,12 @@ function extractEnclosedLenses(
         depthTopM: u.topDepthM,
         depthBaseM: u.baseDepthM,
       })
-
-      // Merge: replace the three units (above, u, below) with one merged unit
-      // that spans above.topDepthM → below.baseDepthM.
-      const merged: PartitionUnit = {
-        topDepthM: above.topDepthM,
-        baseDepthM: below.baseDepthM,
-        formationId: above.formationId,
-        bodyId: above.bodyId,
-      }
-      units.splice(i - 1, 3, merged)
+      above.baseDepthM = below.baseDepthM // merge the matrix neighbours
+      units.splice(i, 2) // remove u + below (below folded into above)
       changed = true
-      break // restart from the top of the while loop
+      break // restart after a merge
     }
   }
-
   return lenses
 }
 
@@ -429,69 +438,6 @@ function extractIntervalMinorities(
     }
   }
   return out
-}
-
-// ---------------------------------------------------------------------------
-// LCS alignment
-// ---------------------------------------------------------------------------
-
-/**
- * Compute the longest order-preserving match between left and right unit
- * sequences on equal ``bodyId``.  Units with ``bodyId === null`` never match.
- *
- * Returns a list of (leftIndex, rightIndex) pairs in ascending order.
- *
- * Parameters
- * ----------
- * leftIds : (string | null)[]
- *     bodyId values for the left column's units.
- * rightIds : (string | null)[]
- *     bodyId values for the right column's units.
- *
- * Returns
- * -------
- * Array<[number, number]>
- *     Matched (leftIndex, rightIndex) pairs in ascending order.
- */
-function lcsAlignment(
-  leftIds: (string | null)[],
-  rightIds: (string | null)[],
-): Array<[number, number]> {
-  const n = leftIds.length
-  const m = rightIds.length
-
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
-
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= m; j++) {
-      const lid = leftIds[i - 1]
-      const rid = rightIds[j - 1]
-      if (lid !== null && rid !== null && lid === rid) {
-        dp[i][j] = dp[i - 1][j - 1] + 1
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
-      }
-    }
-  }
-
-  const pairs: Array<[number, number]> = []
-  let i = n
-  let j = m
-  while (i > 0 && j > 0) {
-    const lid = leftIds[i - 1]
-    const rid = rightIds[j - 1]
-    if (lid !== null && rid !== null && lid === rid && dp[i][j] === dp[i - 1][j - 1] + 1) {
-      pairs.push([i - 1, j - 1])
-      i--
-      j--
-    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-      i--
-    } else {
-      j--
-    }
-  }
-  pairs.reverse()
-  return pairs
 }
 
 // ---------------------------------------------------------------------------
@@ -1146,18 +1092,36 @@ export function computePartitionFill(
   closeColumnGaps(leftUnits)
   closeColumnGaps(rightUnits)
 
-  const rightIdSet = new Set(rightUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
-  const leftIdSet = new Set(leftUnits.map((u) => u.bodyId).filter((id): id is string => id !== null))
+  // Section-wide minority pre-pass: pull interbedded lithology-minorities (a
+  // sand split by clay/silt lenses) so the matrix merges and connects as one
+  // band. Lithology, not bodyId — bodyId can lump several lithologies into one
+  // over-correlated body (the dogfeed deep ``857`` package), which is exactly
+  // what made same-lithology sand fail to connect and droop.
+  const leftLenses = reduceMinorities(leftUnits, leftSurface, rightUnits, rightSurface, 'left')
+  const rightLenses = reduceMinorities(rightUnits, rightSurface, leftUnits, leftSurface, 'right')
 
-  const leftLenses = extractEnclosedLenses(leftUnits, rightIdSet, 'left')
-  const rightLenses = extractEnclosedLenses(rightUnits, leftIdSet, 'right')
+  // Collapse same-lithology runs so both columns present the same matrix bands
+  // (one clay band, not cA+cB) before matching — otherwise the surplus pieces
+  // orphan into spurious pinches.
+  collapseAdjacentSameFormation(leftUnits)
+  collapseAdjacentSameFormation(rightUnits)
 
   // -------------------------------------------------------------------------
-  // Step 1: Monotonic LCS alignment on bodyId (post-extraction units).
+  // Step 1: Lithology-aware monotonic alignment (post-reduction units). Same
+  // lithology + elevation overlap connects across the gap even on a different
+  // bodyId (the uncorrelated matrix); never matches across lithology.
   // -------------------------------------------------------------------------
-  const leftIds = leftUnits.map((u) => u.bodyId)
-  const rightIds = rightUnits.map((u) => u.bodyId)
-  const matchedPairs = lcsAlignment(leftIds, rightIds)
+  const toMatchUnits = (units: readonly PartitionUnit[], surface: number): MatchUnit[] =>
+    units.map((u) => ({
+      formationId: u.formationId,
+      bodyId: u.bodyId,
+      topElev: surface - u.topDepthM,
+      baseElev: surface - u.baseDepthM,
+    }))
+  const matchedPairs = matchColumns(
+    toMatchUnits(leftUnits, leftSurface),
+    toMatchUnits(rightUnits, rightSurface),
+  )
 
   const leftMatched = new Set(matchedPairs.map(([li]) => li))
   const rightMatched = new Set(matchedPairs.map(([, ri]) => ri))
