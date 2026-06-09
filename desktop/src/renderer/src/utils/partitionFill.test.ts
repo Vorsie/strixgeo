@@ -444,6 +444,58 @@ describe('computePartitionFill', () => {
     expect(isFlat).toBe(false)
   })
 
+  // CT3 — a rest-pinch ABOVE a too-shallow carry-through band must not overlap
+  // it (the real CS1 gap-11 bug, traced 2026-06-09). R is deeper than L; below
+  // the matched SILT band, L has a KLEI that stays a pinch while R's deeper KLEI
+  // carries through as a full-width band. The rest-pinch's interval base was the
+  // DEEPEST floor, so it filled down INTO the carried band's space → two KLEI
+  // regions overlapping. The fix clamps the rest's base to the carried band top.
+  it('CT3: a rest-pinch above a carry-through band does not overlap it (tiles)', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 8, f: 'SILT', b: 'sb' }, // matched band
+      { top: 8, base: 10, f: 'KLEI', b: 'kl' }, // L's deepest → a rest-pinch
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 12, f: 'SILT', b: 'sb' }, // matched band
+      { top: 12, base: 18, f: 'KLEI', b: 'kr' }, // below L's floor → carries through
+    ])
+    const regions = pf(left, right)
+    // Both KLEI regions present (the rest-pinch + the carry band).
+    expect(regions.filter((r) => r.formationId === 'KLEI').length).toBeGreaterThanOrEqual(2)
+    // No two MAIN (non-lens) regions overlap vertically at any fraction. (Not
+    // assertTiles: a carry-through fills full-width to the DEEP floor, so the
+    // interpolated-floor model assertTiles uses doesn't apply here — the bug we
+    // guard against is the rest-pinch dipping INTO the carried band, an overlap.)
+    const spanAt = (poly: { fraction: number; elevation: number }[], f: number): [number, number] | null => {
+      const es: number[] = []
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i]
+        const c = poly[(i + 1) % poly.length]
+        const lo = Math.min(a.fraction, c.fraction)
+        const hi = Math.max(a.fraction, c.fraction)
+        if (f < lo - 1e-9 || f > hi + 1e-9) continue
+        if (Math.abs(c.fraction - a.fraction) < 1e-12) {
+          es.push(a.elevation, c.elevation)
+          continue
+        }
+        const t = (f - a.fraction) / (c.fraction - a.fraction)
+        es.push(a.elevation + t * (c.elevation - a.elevation))
+      }
+      return es.length < 2 ? null : [Math.min(...es), Math.max(...es)]
+    }
+    const main = regions.filter((r) => r.kind !== 'lens')
+    for (let fi = 1; fi < 20; fi++) {
+      const f = fi / 20
+      const spans = main.map((r) => spanAt(r.polygon, f)).filter((s): s is [number, number] => s !== null)
+      for (let i = 0; i < spans.length; i++) {
+        for (let j = i + 1; j < spans.length; j++) {
+          const overlap = Math.min(spans[i][1], spans[j][1]) - Math.max(spans[i][0], spans[j][0])
+          expect(overlap, `main regions overlap ${overlap.toFixed(2)}m at f=${f}`).toBeLessThan(0.01)
+        }
+      }
+    }
+  })
+
   // SP1 — a SURFACE-interval pinch (top unit absent on the neighbour) tips at
   // 50% with its apex ON the surface, the below-matrix closing up beyond it.
   it('SP1: surface pinch tips at 50% on the surface line', () => {
