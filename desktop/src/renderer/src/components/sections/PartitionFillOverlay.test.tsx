@@ -248,55 +248,81 @@ describe('PartitionFillOverlay', () => {
     expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
   })
 
-  // LB-GAP — a lens body on the MIDDLE column pinches into BOTH gaps, so it
-  // renders TWO lens regions that share the same bodyId. Grabbing the node of
-  // ONE gap-copy must NOT drag the same-index node of the OTHER copy (the two
-  // copies are distinct drag targets, discriminated by their gap/region).
-  it('LB-GAP — grabbing one gap-copy node leaves the other copy untouched', () => {
+  // LB-GAP — a lens body on the MIDDLE column pinches into BOTH gaps. Its two
+  // apex nodes (one per gap, by along-position) are INDEPENDENT: each gap renders
+  // + edits only the node it owns, and dragging one apex preserves the other.
+  const threeColLens: Partial<Props> = {
+    // L sand, M sand/silt/sand (enclosed lens), R sand → silt pinches BOTH ways.
+    lithoLayers: [
+      layer('L1', 'L', 'sandL', 'fSand', 0, 10),
+      layer('M1', 'M', 'sandM', 'fSand', 0, 4),
+      layer('M2', 'M', 'silt', 'fSilt', 4, 5),
+      layer('M3', 'M', 'sandMlo', 'fSand', 5, 10),
+      layer('R1', 'R', 'sandR', 'fSand', 0, 10),
+    ],
+    // L@0, M@100, R@200 (width 40) → gap0 [20,80], gap1 [120,180].
+    placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+  }
+
+  it('LB-GAP — a two-gap lens renders each apex node only in its owning gap', () => {
+    const { queryAllByTestId } = renderOverlay({
+      ...threeColLens,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            // node 0 lives in the LEFT gap (along 60 ∈ [20,80]); node 1 in the
+            // RIGHT gap (along 140 ∈ [120,180]).
+            upper_nodes: [
+              { along_m: 60, elevation_m: 5 },
+              { along_m: 140, elevation_m: 5 },
+            ],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    // Each node renders exactly ONCE — in its owning gap only, not cloned + clamped
+    // into the neighbour gap (the old "other ball").
+    expect(queryAllByTestId('partition-lens-handle-silt-upper-0')).toHaveLength(1)
+    expect(queryAllByTestId('partition-lens-handle-silt-upper-1')).toHaveLength(1)
+  })
+
+  it('LB-GAP — dragging one gap apex preserves the other gap apex on release', () => {
     const onSaveBoundary = vi.fn()
-    const threeCol: Partial<Props> = {
-      // L sand, M sand/silt/sand (enclosed lens), R sand → silt pinches BOTH ways.
-      lithoLayers: [
-        layer('L1', 'L', 'sandL', 'fSand', 0, 10),
-        layer('M1', 'M', 'sandM', 'fSand', 0, 4),
-        layer('M2', 'M', 'silt', 'fSilt', 4, 5),
-        layer('M3', 'M', 'sandMlo', 'fSand', 5, 10),
-        layer('R1', 'R', 'sandR', 'fSand', 0, 10),
-      ],
-      // L@0, M@100, R@200 (width 40) → gap0 [20,80], gap1 [120,180].
-      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+    const { getByTestId } = renderOverlay({
+      ...threeColLens,
       ...transforms,
       onSaveBoundary,
       boundariesByBodyId: new Map([
         [
           'silt',
           {
-            upper_nodes: [{ along_m: 60, elevation_m: 5 }],
+            upper_nodes: [
+              { along_m: 60, elevation_m: 5 },
+              { along_m: 140, elevation_m: 5 },
+            ],
             lower_nodes: [],
           } as unknown as BodyBoundaryResponse,
         ],
       ]),
-    }
-    const { getAllByTestId } = renderOverlay(threeCol)
-
-    // Precondition: the two-gap lens renders two same-id hit handles.
-    const hits = getAllByTestId('partition-lens-hit-silt-upper-0')
-    expect(hits).toHaveLength(2)
-    const otherBefore = Number(
-      getAllByTestId('partition-lens-handle-silt-upper-0')[1].getAttribute('cx'),
-    )
-
-    // Grab the FIRST copy's node and drag it far left.
-    fireEvent.mouseDown(hits[0])
-    act(() => {
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 60 }))
     })
-
-    // The OTHER copy's node must be exactly where it was.
-    const otherAfter = Number(
-      getAllByTestId('partition-lens-handle-silt-upper-0')[1].getAttribute('cx'),
-    )
-    expect(otherAfter).toBeCloseTo(otherBefore, 0)
+    // Drag the LEFT-gap apex (node 0) within its gap and release.
+    fireEvent.mouseDown(getByTestId('partition-lens-hit-silt-upper-0'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 60 }))
+    })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    const savedUpper = onSaveBoundary.mock.calls[0][1] as { along_m: number }[]
+    // Node 0 moved; node 1 (the RIGHT apex) is preserved verbatim.
+    expect(savedUpper).toHaveLength(2)
+    expect(savedUpper[0].along_m).toBeCloseTo(40, 0)
+    expect(savedUpper[1].along_m).toBeCloseTo(140, 0)
   })
 
   // --------------------------------------------------------------------------
