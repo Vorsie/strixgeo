@@ -107,7 +107,7 @@ function assertTiles(
   regions: PartitionRegion[],
   left: PartitionColumn,
   right: PartitionColumn,
-  excludeKinds: Set<PartitionRegion['kind']> = new Set(['lens']),
+  excludeKinds: Set<PartitionRegion['kind']> = new Set(),
 ): void {
   const tilingRegions = regions.filter((r) => !excludeKinds.has(r.kind))
   if (tilingRegions.length === 0) return
@@ -167,10 +167,24 @@ function assertTiles(
         }
       }
       if (ys.length < 2) continue
-      const lo = Math.min(...ys)
-      const hi = Math.max(...ys)
-      if (hi - lo < EPS) continue // degenerate sliver at this fraction — skip
-      intervals.push([lo, hi])
+      // Pair crossings into solid spans (even-odd scanline). A CONVEX region
+      // crosses x=f exactly twice → one span [min,max] (identical to the old
+      // behaviour). A CONCAVE region (a matrix with a carved lens notch) crosses
+      // 4 times → two spans straddling the notch; min/max would wrongly fill the
+      // notch hole and read as a lens-over-matrix overlap. Odd counts (x=f grazes
+      // a vertex) fall back to the [min,max] span.
+      ys.sort((a, b) => a - b)
+      if (ys.length === 2 || ys.length % 2 === 1) {
+        const lo = ys[0]
+        const hi = ys[ys.length - 1]
+        if (hi - lo >= EPS) intervals.push([lo, hi])
+      } else {
+        for (let k = 0; k + 1 < ys.length; k += 2) {
+          const lo = ys[k]
+          const hi = ys[k + 1]
+          if (hi - lo >= EPS) intervals.push([lo, hi])
+        }
+      }
     }
 
     if (intervals.length === 0) continue
@@ -547,9 +561,16 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
-  // MP1 — TWO stacked interior pinches both tip at 50% (the SILT+ZAND case from
-  // the real Section-2 data).
-  it('MP1: two stacked interior pinches both tip at 50%', () => {
+  // MP1 — the SILT+ZAND straddle case from the real Section-2 data.
+  //
+  // Both beds pinch out as 0-corr lenses; kA floods DOWN over them, so the kA/kB
+  // contact slopes (elev 1 on the left → 5 on the right). The silt is genuinely
+  // enclosed in sand (it stays above that seam) → it keeps its horizontal
+  // pinch-out at its own elevation. The zand abuts the clay kB across the sloping
+  // seam: drawn flat it would dip BELOW the seam into kB. Owner's Solution 2 —
+  // the bed RESTS ON the clay: its base follows the seam, so no part of zand lies
+  // below it and the whole column is a true partition (lens included, no overlap).
+  it('MP1: enclosed silt keeps its horizontal apex; straddle zand rests on the kA/kB seam', () => {
     const left = col('L', 10, [
       { top: 0, base: 5, f: 'kA', b: 'kA' },
       { top: 5, base: 7, f: 'silt', b: 'silt' },
@@ -561,17 +582,26 @@ describe('computePartitionFill', () => {
       { top: 5, base: 14, f: 'kB', b: 'kB-R' },
     ])
     const regions = pf(left, right)
-    // Both beds are uncorrelated on BOTH contacts → 0-corr LENSES (own-elevation
-    // apex at the lens fraction); kA floods down + kB bands around them.
-    const apexElev = { silt: 4, zand: 2 } // own mid-elevations (depths 6, 8 → 10-d)
-    for (const fid of ['silt', 'zand'] as const) {
-      const r = regions.filter((x) => x.formationId === fid)
-      expect(r).toHaveLength(1)
-      expect(r[0].kind).toBe('lens')
-      const apex = r[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
-      expect(apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
-      expect(apex.elevation).toBeCloseTo(apexElev[fid], 6)
+
+    // silt is enclosed in sand (its apex sits above the seam) → unchanged
+    // horizontal pinch-out at its own mid-elevation (depth 6 → elev 4).
+    const silt = regions.filter((x) => x.formationId === 'silt')
+    expect(silt).toHaveLength(1)
+    expect(silt[0].kind).toBe('lens')
+    const siltApex = silt[0].polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+    expect(siltApex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    expect(siltApex.elevation).toBeCloseTo(4, 6)
+
+    // zand rests on the kA/kB seam: NO vertex dips below it (it never enters kB).
+    const seamElev = (f: number): number => 1 + 4 * f // kA/kB contact: (0,1)→(1,5)
+    const zand = regions.filter((x) => x.formationId === 'zand')
+    expect(zand).toHaveLength(1)
+    expect(zand[0].kind).toBe('lens')
+    for (const p of zand[0].polygon) {
+      expect(p.elevation).toBeGreaterThanOrEqual(seamElev(p.fraction) - 1e-6)
     }
+
+    // TRUE partition including lenses: zand fills its notch, kB stays whole.
     assertTiles(regions, left, right)
   })
 
@@ -1353,5 +1383,109 @@ describe('computePartitionFill', () => {
 
     // --- Main-region tiling invariant (lenses excluded) ---
     assertTiles(regions, s2, s1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// carveOverlays — a lens/onlap overlay is SUBTRACTED from the matrix it sits in,
+// so the fill becomes a TRUE volumetric partition: every point belongs to
+// exactly one region (no point is inside both a lens and its matrix).
+//
+// These assert with assertTiles called with NO kind exclusions — lenses are now
+// genuine tiles (the matrix carries a notch the lens fills).
+// ---------------------------------------------------------------------------
+describe('carveOverlays — lens carved out of matrix → true partition', () => {
+  const ALL: Set<PartitionRegion['kind']> = new Set()
+
+  // -----------------------------------------------------------------------
+  // CARVE1 — one left lens inside a sand quad. The sand matrix must carry a
+  // NOTCH (a vertex at the lens apex, fraction ≈ 0.45) so the lens triangle and
+  // the notched matrix tile cleanly with NO overlap.
+  // -----------------------------------------------------------------------
+  it('CARVE1 — left lens notches its sand quad; matrix+lens tile with no exclusions', () => {
+    // L: sand 0-4, silt 4-5, sand 5-10  → sand merges to one band, silt is a lens.
+    // R: sand 0-10.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'fSand', b: 'sand' },
+      { top: 4, base: 5, f: 'fSilt', b: 'silt' },
+      { top: 5, base: 10, f: 'fSand', b: 'sand-lo' },
+    ])
+    const right = col('R', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
+    const regions = pf(left, right)
+
+    // The silt lens is unchanged (still a kind:'lens' triangle).
+    const silt = regions.find((r) => r.bodyId === 'silt')!
+    expect(silt.kind).toBe('lens')
+
+    // The sand matrix now carries the notch: a vertex AT the lens apex
+    // (fraction ≈ LENS_PINCH_FRACTION, elevation = silt mid = -4.5).
+    const sand = regions.find((r) => r.bodyId === 'sand' && r.kind === 'quad')!
+    const notchApex = sand.polygon.find(
+      (p) => Math.abs(p.fraction - LENS_PINCH_FRACTION) < 1e-6,
+    )
+    expect(notchApex, 'sand quad must carry the lens apex as a notch vertex').toBeDefined()
+    expect(notchApex!.elevation).toBeCloseTo(-4.5, 9)
+
+    // TRUE partition: matrix-with-notch + lens tile cleanly, INCLUDING lenses.
+    assertTiles(regions, left, right, ALL)
+  })
+
+  // -----------------------------------------------------------------------
+  // CARVE2 — two enclosed lenses STACKED in one sand quad. Both notches must be
+  // cut (both apexes present), ordered, no overlap.
+  // -----------------------------------------------------------------------
+  it('CARVE2 — two stacked enclosed lenses cut two notches into one quad; tiles', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 3, f: 'fSand', b: 'sand' },
+      { top: 3, base: 4, f: 'fSiltA', b: 'siltA' },
+      { top: 4, base: 6, f: 'fSand', b: 'sand-m' },
+      { top: 6, base: 7, f: 'fSiltB', b: 'siltB' },
+      { top: 7, base: 10, f: 'fSand', b: 'sand-lo' },
+    ])
+    const right = col('R', 0, [{ top: 0, base: 10, f: 'fSand', b: 'sand' }])
+    const regions = pf(left, right)
+
+    expect(regions.filter((r) => r.kind === 'lens')).toHaveLength(2)
+    const sand = regions.find((r) => r.bodyId === 'sand' && r.kind === 'quad')!
+    // Both lens apexes appear as notch vertices on the sand quad (mid-elevs −3.5, −6.5).
+    const apexElevs = sand.polygon
+      .filter((p) => Math.abs(p.fraction - LENS_PINCH_FRACTION) < 1e-6)
+      .map((p) => p.elevation)
+      .sort((a, b) => a - b)
+    expect(apexElevs).toHaveLength(2)
+    expect(apexElevs[0]).toBeCloseTo(-6.5, 9)
+    expect(apexElevs[1]).toBeCloseTo(-3.5, 9)
+    assertTiles(regions, left, right, ALL)
+  })
+
+  // -----------------------------------------------------------------------
+  // CARVE3 — one lens on EACH column edge of the same sand quad. Both edges
+  // notched, true partition.
+  // -----------------------------------------------------------------------
+  it('CARVE3 — lenses on both column edges of one quad; both edges notched, tiles', () => {
+    // Left has an enclosed silt; right has an enclosed clay — both inside the
+    // single continuous sand band.
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'fSand', b: 'sand' },
+      { top: 4, base: 5, f: 'fSilt', b: 'silt' },
+      { top: 5, base: 10, f: 'fSand', b: 'sand-l' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 6, f: 'fSand', b: 'sand' },
+      { top: 6, base: 7, f: 'fClay', b: 'clay' },
+      { top: 7, base: 10, f: 'fSand', b: 'sand-r' },
+    ])
+    const regions = pf(left, right)
+
+    expect(regions.some((r) => r.formationId === 'fSilt' && r.kind === 'lens')).toBe(true)
+    expect(regions.some((r) => r.formationId === 'fClay' && r.kind === 'lens')).toBe(true)
+    const sand = regions.find((r) => r.bodyId === 'sand' && r.kind === 'quad')!
+    // The quad carries a notch vertex on BOTH the left (f≈0.45) and right
+    // (f≈0.55) interior fractions.
+    expect(sand.polygon.some((p) => Math.abs(p.fraction - LENS_PINCH_FRACTION) < 1e-6)).toBe(true)
+    expect(sand.polygon.some((p) => Math.abs(p.fraction - (1 - LENS_PINCH_FRACTION)) < 1e-6)).toBe(
+      true,
+    )
+    assertTiles(regions, left, right, ALL)
   })
 })
