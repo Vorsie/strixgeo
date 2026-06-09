@@ -5,9 +5,10 @@
  *   1. With the Sections stage open and the MAP visible (no section selected),
  *      clicking "Suggest tie-sections" fires the pure-TS algorithm and renders
  *      green dashed ghost lines on the Leaflet map (SVG ``<path stroke="#22c55e">``).
- *   2. Clicking a ghost line calls ``handleAcceptTie`` → POSTs a new section
- *      named ``Tie-section N``.  The accepted section appears in the inspector
- *      list (``section-row-*`` text contains "Tie-section").
+ *   2. Right-clicking a ghost line opens the TieContextMenu; clicking "Accept
+ *      tie" calls ``handleAcceptTie`` → POSTs a new section named
+ *      ``Tie-section N``.  The accepted section appears in the inspector list
+ *      (``section-row-*`` text contains "Tie-section").
  *
  * Prerequisites: the fixture already has FOUR parallel E-W sections (A/B/C/D)
  * spaced 300 m apart with CPTs at matching x-columns — the suggestTieSections
@@ -84,12 +85,15 @@ test.describe('flow_auto_tie', () => {
         const ghosts = page.locator('path[stroke="#22c55e"]')
         await expect(ghosts.first()).toBeVisible({ timeout: 15_000 })
 
-        // --- 5. Click a ghost to accept it ------------------------------------
-        // ``handleAcceptTie`` POSTs the tie as a real section (name =
+        // --- 5. Right-click a ghost to open the context menu, then accept ----
+        // The green dashed Polyline now has no left-click action; right-click
+        // opens TieContextMenu (portal="fixed") with "Accept tie" / "Reject
+        // tie" items.  Accepting POSTs the tie as a real section (name =
         // ``Tie-section N``), removes it from the ghost list, and selects the
         // new section — which switches the canvas from the map to the section
         // profile view.
-        await ghosts.first().click()
+        await ghosts.first().click({ button: 'right' })
+        await page.getByTestId('tie-context-accept').click()
 
         // --- 6. A "Tie-section" row appears in the inspector list -------------
         // SectionsInspector renders each visible section as
