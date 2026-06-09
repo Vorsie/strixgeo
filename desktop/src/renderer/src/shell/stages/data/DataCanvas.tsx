@@ -18,7 +18,6 @@ import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 import { buildContactOverlays } from '../../../utils/contactOverlays'
-import { TieSuggestionOverlay } from '../../../components/TieSuggestionOverlay'
 
 /**
  * Center canvas for the Data stage.
