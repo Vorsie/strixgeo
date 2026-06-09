@@ -59,6 +59,7 @@ import {
   type PartitionUnit,
   type PartitionRegion,
   LENS_PINCH_FRACTION,
+  lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import type { PlacedColumn } from './utils'
@@ -146,6 +147,10 @@ const LENS_COLOR = '#f59e0b' // amber-400
 // toward HANDLE_MIN_SCALE so the markers don't crowd a compressed section.
 const HANDLE_REF_PX_PER_M = 2.5
 const HANDLE_MIN_SCALE = 0.5
+// Px tolerance for "this lens node belongs to this gap" (its along-x falls
+// within the gap's screen extent). A two-gap lens's apexes live in different
+// gaps, so each gap renders + edits only its own node.
+const NODE_OWN_EPS = 0.5
 // Width (px) of the transparent add-strip polyline hit area along each boundary.
 const ADDSTRIP_HIT_W = 14
 
@@ -267,10 +272,15 @@ interface ScreenLens {
   regionIdx: number
   bodyId: string
   side: 'left' | 'right'
-  /** Top-edge polyline nodes (upper_nodes on left lens; same for right). */
-  upperNodes: { x: number; y: number }[]
-  /** Base-edge polyline nodes (lower_nodes). */
-  lowerNodes: { x: number; y: number }[]
+  /**
+   * Top-edge polyline nodes OWNED by this gap (upper_nodes on left lens; same
+   * for right). ``nodeIndex`` is the index in the body's stored ``upper_nodes``
+   * array (preserved through the per-gap ownership filter) so a drag persists to
+   * the right slot.
+   */
+  upperNodes: { x: number; y: number; nodeIndex: number }[]
+  /** Base-edge polyline nodes (lower_nodes) owned by this gap. */
+  lowerNodes: { x: number; y: number; nodeIndex: number }[]
   /** Source column corner in screen coords (fraction 0 or 1 = column edge). */
   sourceTopPt: { x: number; y: number }
   sourceBasePt: { x: number; y: number }
@@ -607,10 +617,13 @@ export default function PartitionFillOverlay({
     const gapLeftX = (i: number): number => (screenByInv.get(valid[i]) as ColumnScreen).rightX
     const gapRightX = (i: number): number => (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX
 
-    // Lens apex overrides (legacy single-node freedraw), keyed by bodyId. Built
-    // per gap (the override fraction is gap-local) and merged into ONE map fed to
-    // the WHOLE-SECTION resolve. The multi-node freedraw shape is rebuilt in the
-    // post-lens pass below, so this only needs the legacy single-apex path.
+    // Lens apex overrides (single-node freedraw), keyed PER (body, gap). A lens
+    // body that pinches into two gaps has an INDEPENDENT apex in each, so each
+    // gap reads only the node OWNED by it (its along-position falls inside the
+    // gap) and writes a per-gap key — a bodyId-only key let one gap's apex
+    // overwrite the other's, mismatching that gap's matrix notch. The multi-node
+    // freedraw shape is rebuilt in the post-lens pass below; this is the legacy
+    // single-apex path.
     const apexOverrides = new Map<string, LensApexOverride>()
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
       const leftX = gapLeftX(i)
@@ -620,19 +633,29 @@ export default function PartitionFillOverlay({
       const right = orderedColumns[i + 1]
       const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
       const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+      // Nodes whose along-position falls inside THIS gap (so a node belonging to
+      // the neighbouring gap is ignored, not clamped in).
+      const ownedInGap = (nodes: readonly BodyBoundaryNode[]): BodyBoundaryNode[] =>
+        alongToScreenX
+          ? nodes.filter((n) => {
+              const x = alongToScreenX!(n.along_m)
+              return x >= leftX - NODE_OWN_EPS && x <= rightX + NODE_OWN_EPS
+            })
+          : []
       const addApexOverride = (bodyId: string, side: 'left' | 'right'): void => {
-        if (lensDrag && lensDrag.bodyId === bodyId) return // live drag rebuilt post-pass
+        // Live drag of this body IN THIS gap: the post-pass rebuilds the lens to
+        // the cursor; the notch resyncs on release. Other gaps keep their override.
+        if (lensDrag && lensDrag.bodyId === bodyId && Math.abs(lensDrag.leftX - leftX) < 0.5) return
         const b = boundariesByBodyId?.get(bodyId)
-        const upperN = b?.upper_nodes ?? []
-        const lowerN = b?.lower_nodes ?? []
-        if (upperN.length + lowerN.length > 1) return // multi-node rebuilt post-pass
-        const node = side === 'left' ? upperN[0] : lowerN[0]
-        if (node && alongToScreenX) {
-          apexOverrides.set(bodyId, {
-            fraction: clamp01((alongToScreenX(node.along_m) - leftX) / (rightX - leftX)),
-            elevation: node.elevation_m,
-          })
-        }
+        const arr = side === 'left' ? (b?.upper_nodes ?? []) : (b?.lower_nodes ?? [])
+        const owned = ownedInGap(arr)
+        if (owned.length !== 1) return // 0 → default apex; >1 → freedraw (post-pass rebuilds)
+        const node = owned[0]
+        if (!alongToScreenX) return
+        apexOverrides.set(lensApexOverrideKey(bodyId, i), {
+          fraction: clamp01((alongToScreenX(node.along_m) - leftX) / (rightX - leftX)),
+          elevation: node.elevation_m,
+        })
       }
       for (const id of leftIds) if (!rightIds.has(id)) addApexOverride(id, 'left')
       for (const id of rightIds) if (!leftIds.has(id)) addApexOverride(id, 'right')
@@ -793,7 +816,17 @@ export default function PartitionFillOverlay({
         const b = boundariesByBodyId?.get(bodyId)
         const upperStored = b?.upper_nodes ?? []
         const lowerStored = b?.lower_nodes ?? []
-        if (upperStored.length + lowerStored.length === 0) continue
+        // Only the nodes this gap OWNS (along-x inside the gap) shape its lens — a
+        // two-gap lens's other apex lives in the neighbour gap. With no owned
+        // node, keep the domain (default-apex) polygon so it matches the notch.
+        const ownsNode = (n: BodyBoundaryNode): boolean => {
+          if (!alongToScreenX) return false
+          const x = alongToScreenX(n.along_m)
+          return x >= leftX - NODE_OWN_EPS && x <= rightX + NODE_OWN_EPS
+        }
+        if (upperStored.filter(ownsNode).length + lowerStored.filter(ownsNode).length === 0) {
+          continue
+        }
 
         // Determine lens side from the polygon's first corner fraction.
         const side: 'left' | 'right' = sr.region.polygon[0].fraction === 0 ? 'left' : 'right'
@@ -817,7 +850,9 @@ export default function PartitionFillOverlay({
           edge: 'upper' | 'lower',
         ): { x: number; y: number }[] => {
           if (!alongToScreenX || !levelToScreen) return []
-          return nodes.map((n, ni) => {
+          const pts: { x: number; y: number }[] = []
+          nodes.forEach((n, ni) => {
+            if (!ownsNode(n)) return // node belongs to the neighbour gap
             if (
               lensDrag &&
               lensDrag.regionIdx === k &&
@@ -825,13 +860,15 @@ export default function PartitionFillOverlay({
               lensDrag.edge === edge &&
               lensDrag.nodeIndex === ni
             ) {
-              return { x: lensDrag.x, y: lensDrag.y }
+              pts.push({ x: lensDrag.x, y: lensDrag.y })
+              return
             }
-            return {
-              x: Math.max(leftX, Math.min(rightX, alongToScreenX(n.along_m))),
-              y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(n.elevation_m))),
-            }
+            pts.push({
+              x: Math.max(leftX, Math.min(rightX, alongToScreenX!(n.along_m))),
+              y: Math.max(plotTop, Math.min(plotBottom, levelToScreen!(n.elevation_m))),
+            })
           })
+          return pts
         }
 
         const upperPts = toScreen(upperStored, 'upper')
@@ -1014,9 +1051,14 @@ export default function PartitionFillOverlay({
       const toHandles = (
         nodes: readonly BodyBoundaryNode[],
         edge: 'upper' | 'lower',
-      ): { x: number; y: number }[] => {
+      ): { x: number; y: number; nodeIndex: number }[] => {
         if (!alongToScreenX || !levelToScreen) return []
-        return nodes.map((n, ni) => {
+        const out: { x: number; y: number; nodeIndex: number }[] = []
+        nodes.forEach((n, ni) => {
+          // Render only the nodes this gap OWNS (their along-x is inside the gap),
+          // so a two-gap lens's other apex is not cloned + clamped in here.
+          const ux = alongToScreenX!(n.along_m)
+          if (ux < sr.leftX - NODE_OWN_EPS || ux > sr.rightX + NODE_OWN_EPS) return
           if (
             lensDrag &&
             lensDrag.regionIdx === ri &&
@@ -1024,13 +1066,16 @@ export default function PartitionFillOverlay({
             lensDrag.edge === edge &&
             lensDrag.nodeIndex === ni
           ) {
-            return { x: lensDrag.x, y: lensDrag.y }
+            out.push({ x: lensDrag.x, y: lensDrag.y, nodeIndex: ni })
+            return
           }
-          return {
-            x: Math.max(sr.leftX, Math.min(sr.rightX, alongToScreenX(n.along_m))),
-            y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(n.elevation_m))),
-          }
+          out.push({
+            x: Math.max(sr.leftX, Math.min(sr.rightX, ux)),
+            y: Math.max(plotTop, Math.min(plotBottom, levelToScreen!(n.elevation_m))),
+            nodeIndex: ni,
+          })
         })
+        return out
       }
 
       out.push({
@@ -1427,10 +1472,10 @@ export default function PartitionFillOverlay({
               }}
             />
             {/* Upper-edge node handles */}
-            {sl.upperNodes.map(({ x, y }, ni) => (
-              <g key={`pf-lens-node-upper-${sl.bodyId}-${ni}`}>
+            {sl.upperNodes.map(({ x, y, nodeIndex }) => (
+              <g key={`pf-lens-node-upper-${sl.bodyId}-${nodeIndex}`}>
                 <circle
-                  data-testid={`partition-lens-hit-${sl.bodyId}-upper-${ni}`}
+                  data-testid={`partition-lens-hit-${sl.bodyId}-upper-${nodeIndex}`}
                   cx={x}
                   cy={y}
                   r={lensHitR}
@@ -1444,7 +1489,7 @@ export default function PartitionFillOverlay({
                       regionIdx: sl.regionIdx,
                       side: sl.side,
                       edge: 'upper',
-                      nodeIndex: ni,
+                      nodeIndex,
                       x,
                       y,
                       leftX: sl.leftX,
@@ -1456,11 +1501,11 @@ export default function PartitionFillOverlay({
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    handleLensRemoveNode(sl.bodyId, 'upper', ni)
+                    handleLensRemoveNode(sl.bodyId, 'upper', nodeIndex)
                   }}
                 />
                 <circle
-                  data-testid={`partition-lens-handle-${sl.bodyId}-upper-${ni}`}
+                  data-testid={`partition-lens-handle-${sl.bodyId}-upper-${nodeIndex}`}
                   cx={x}
                   cy={y}
                   r={lensR}
@@ -1472,10 +1517,10 @@ export default function PartitionFillOverlay({
               </g>
             ))}
             {/* Lower-edge node handles */}
-            {sl.lowerNodes.map(({ x, y }, ni) => (
-              <g key={`pf-lens-node-lower-${sl.bodyId}-${ni}`}>
+            {sl.lowerNodes.map(({ x, y, nodeIndex }) => (
+              <g key={`pf-lens-node-lower-${sl.bodyId}-${nodeIndex}`}>
                 <circle
-                  data-testid={`partition-lens-hit-${sl.bodyId}-lower-${ni}`}
+                  data-testid={`partition-lens-hit-${sl.bodyId}-lower-${nodeIndex}`}
                   cx={x}
                   cy={y}
                   r={lensHitR}
@@ -1489,7 +1534,7 @@ export default function PartitionFillOverlay({
                       regionIdx: sl.regionIdx,
                       side: sl.side,
                       edge: 'lower',
-                      nodeIndex: ni,
+                      nodeIndex,
                       x,
                       y,
                       leftX: sl.leftX,
@@ -1501,11 +1546,11 @@ export default function PartitionFillOverlay({
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    handleLensRemoveNode(sl.bodyId, 'lower', ni)
+                    handleLensRemoveNode(sl.bodyId, 'lower', nodeIndex)
                   }}
                 />
                 <circle
-                  data-testid={`partition-lens-handle-${sl.bodyId}-lower-${ni}`}
+                  data-testid={`partition-lens-handle-${sl.bodyId}-lower-${nodeIndex}`}
                   cx={x}
                   cy={y}
                   r={lensR}
