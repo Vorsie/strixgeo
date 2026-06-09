@@ -184,12 +184,15 @@ interface PinchUnit {
   ownBaseDepth: number
 }
 
-/** A lens extracted during the pre-pass, with its column-side and depths. */
+/**
+ * A lens pinched out of a column. Which gap-side it renders on is decided at
+ * emit time (a column's lens is a LEFT lens in the gap to its right and a RIGHT
+ * lens in the gap to its left), so no ``side`` is stored here.
+ */
 interface ExtractedLens {
-  /** ``null`` for an interval-scoped lens whose minority body was never correlated. */
+  /** ``null`` for a lens whose minority body was never correlated. */
   bodyId: string | null
   formationId: string
-  side: 'left' | 'right'
   depthTopM: number
   depthBaseM: number
 }
@@ -234,57 +237,75 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
   }
 }
 
+/** One neighbour column for the section-wide present-check. */
+interface NeighbourColumn {
+  units: readonly PartitionUnit[]
+  surface: number
+}
+
 /**
- * Section-wide pre-pass: extract interior lithology-minority units that PINCH
- * OUT against the other column, merging the matrix they were embedded in.
+ * Does unit ``u`` (on a column at ``surface``) CONNECT to the neighbour — i.e.
+ * does the neighbour hold a unit it could match? Uses ``pairScore`` so an
+ * explicit correlation (shared ``body_id``) counts EVEN WHEN the elevations do
+ * not overlap (a correlated bed that dips between columns) — the bug that made
+ * the correlated peat get pulled out as a lens instead of staying a band.
+ */
+function connectsToNeighbour(u: PartitionUnit, surface: number, nb: NeighbourColumn): boolean {
+  const um: MatchUnit = {
+    formationId: u.formationId,
+    bodyId: u.bodyId,
+    topElev: surface - u.topDepthM,
+    baseElev: surface - u.baseDepthM,
+  }
+  return nb.units.some(
+    (v) =>
+      pairScore(um, {
+        formationId: v.formationId,
+        bodyId: v.bodyId,
+        topElev: nb.surface - v.topDepthM,
+        baseElev: nb.surface - v.baseDepthM,
+      }) > 0,
+  )
+}
+
+/**
+ * Section-wide column reduction: pull interior lithology-minority units that
+ * PINCH OUT (connect to NO neighbour), merging the matrix they were embedded in.
  *
- * A unit is removed when it is (a) ABSENT on the other column — no unit of the
- * same ``formationId`` overlaps it in elevation, so it terminates in the gap —
- * AND (b) enclosed by the SAME matrix formation immediately above AND below on
- * its own column, so merging those neighbours closes the gap cleanly. Running
- * this BEFORE ``matchColumns`` merges a split matrix (e.g. a sand interrupted by
- * clay/silt lenses on one column vs one continuous sand on the other) into one
- * contiguous unit, so it connects across the gap as a single band instead of
- * leaving orphaned pieces that droop (the dogfeed cross-section-3 failure).
+ * A unit is removed (→ lens) when it is (a) ABSENT on ALL neighbour columns — no
+ * neighbour holds a unit it could match (same ``body_id``, OR same ``formationId``
+ * overlapping in elevation; see ``connectsToNeighbour``) — AND (b) enclosed by
+ * the SAME matrix formation immediately above AND below, so merging those
+ * neighbours closes the gap. This runs ONCE per column (against BOTH its
+ * neighbours), so the column has one consistent reduced form shared by both its
+ * gaps — a body that runs through it stays continuous (no per-gap drift).
  *
- * A connectable layer (present on the other column) is kept; a sole / facies
- * matrix (not enclosed by one formation) is kept — both flow on to the matcher /
- * facies emit.
+ * A unit that connects to ANY neighbour is KEPT (it is a band or an onlap); a
+ * sole / facies matrix (not enclosed by one formation) is kept. Both flow on to
+ * the matcher / facies emit.
  *
  * Parameters
  * ----------
  * units : PartitionUnit[]
  *     The column's units (mutated in place — minorities removed, matrix merged).
- * surface, otherSurface : number
- *     This column's / the other column's surface elevation (mTAW).
- * other : readonly PartitionUnit[]
- *     The other column's units.
- * side : 'left' | 'right'
- *     Which column these units belong to (for the extracted lens record).
+ * surface : number
+ *     The column's surface elevation (mTAW).
+ * neighbours : readonly NeighbourColumn[]
+ *     The 1–2 adjacent columns (their ORIGINAL, pre-reduction units).
  *
  * Returns
  * -------
  * ExtractedLens[]
  *     The pinched-out minorities, in removal order.
  */
-function reduceMinorities(
+function reduceColumn(
   units: PartitionUnit[],
   surface: number,
-  other: readonly PartitionUnit[],
-  otherSurface: number,
-  side: 'left' | 'right',
+  neighbours: readonly NeighbourColumn[],
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
-  const presentOnOther = (u: PartitionUnit): boolean => {
-    const uTop = surface - u.topDepthM
-    const uBase = surface - u.baseDepthM
-    return other.some((v) => {
-      if (v.formationId !== u.formationId) return false
-      const vTop = otherSurface - v.topDepthM
-      const vBase = otherSurface - v.baseDepthM
-      return uTop > vBase + EPS && vTop > uBase + EPS
-    })
-  }
+  const connectsAnywhere = (u: PartitionUnit): boolean =>
+    neighbours.some((nb) => connectsToNeighbour(u, surface, nb))
   let changed = true
   while (changed) {
     changed = false
@@ -292,12 +313,11 @@ function reduceMinorities(
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
-      if (presentOnOther(u)) continue
+      if (connectsAnywhere(u)) continue
       if (above.formationId !== below.formationId || above.formationId === u.formationId) continue
       lenses.push({
         bodyId: u.bodyId,
         formationId: u.formationId,
-        side,
         depthTopM: u.topDepthM,
         depthBaseM: u.baseDepthM,
       })
@@ -463,17 +483,31 @@ export interface MatchUnit {
  * correlation (same ``body_id``) and elevation overlap each add confidence so
  * the weighted alignment prefers the geologically-aligned pairing:
  *
- *   same litho + same body + overlap → 3
- *   same litho + same body           → 2  (respect an explicit correlation even if depths shifted)
- *   same litho + overlap             → 1  (geometric connectivity — the uncorrelated matrix)
- *   otherwise                        → 0  (no match)
+ *   same litho + same body + overlap         → 3
+ *   same litho + same body + within a bed     → 2  (a correlated bed that DIPS — its
+ *                                                    elevations need not overlap, but must be
+ *                                                    within a bed-thickness, so a dipping peat
+ *                                                    stays one band)
+ *   same litho + overlap                       → 1  (geometric connectivity — uncorrelated matrix)
+ *   otherwise                                  → 0  (no match)
+ *
+ * The bed-thickness gate on the body-without-overlap case is load-bearing: an
+ * over-lumped body (the ``857`` package puts S1's upper KLEI and B4's deep KLEI
+ * ~8 m apart on one body_id) must NOT connect across that gulf — only a genuine
+ * dip (gap ≤ the thicker bed) does.
  */
 function pairScore(l: MatchUnit, r: MatchUnit): number {
   if (l.formationId !== r.formationId) return 0
   const overlap = l.topElev > r.baseElev + EPS && r.topElev > l.baseElev + EPS
   const body = l.bodyId !== null && l.bodyId === r.bodyId
   if (body && overlap) return 3
-  if (body) return 2
+  if (body) {
+    // No elevation overlap: connect only if the beds are within a bed-thickness
+    // (a real dip), not an over-lumped body spanning very different depths.
+    const gap = Math.max(l.baseElev - r.topElev, r.baseElev - l.topElev)
+    const maxThickness = Math.max(l.topElev - l.baseElev, r.topElev - r.baseElev)
+    return gap <= maxThickness + EPS ? 2 : 0
+  }
   if (overlap) return 1
   return 0
 }
@@ -1031,80 +1065,41 @@ function emitInterval(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the partition fill for one adjacent column gap.
+ * Emit the partition regions for ONE adjacent-column gap, given the already
+ * reduced + collapsed unit stacks and each column's pinched-out lenses.
  *
- * Every point in the gap between ``left`` and ``right`` belongs to exactly one
- * MAIN region — no overlaps, no empty spaces.  Enclosed lenses are APPENDED
- * after the main regions as ``kind: 'lens'`` regions that overlay their
- * enclosing matrix quad.
- *
- * The main regions are ordered top→bottom.  The lens regions follow in
- * extraction order (top-to-bottom within each side).
+ * Matching (``matchColumns``), the interval walk, onlap + facies handling, and
+ * the lens/onlap overlays live here. The section-wide reduction (done ONCE per
+ * column, against BOTH neighbours, so a shared column is identical in both its
+ * gaps) happens upstream in ``computeSectionFill`` — never per gap.
  *
  * Parameters
  * ----------
- * left : PartitionColumn
- *     The left column.  ``units`` must be gap-free, sorted by ``topDepthM``.
- * right : PartitionColumn
- *     The right column, same constraints.
+ * leftUnits, rightUnits : PartitionUnit[]
+ *     The two columns' reduced + collapsed units (gap-free, sorted, non-empty).
+ * leftSurface, rightSurface : number
+ *     Column surface elevations (mTAW).
+ * leftLensesIn, rightLensesIn : readonly ExtractedLens[]
+ *     The lenses pinched out of each column, rendered as LEFT / RIGHT overlays.
+ * lensApexOverrides : optional per-body apex shaping.
  *
  * Returns
  * -------
  * PartitionRegion[]
- *     Top-to-bottom ordered MAIN regions that tile the gap, followed by lens
- *     overlay regions.  Empty when the left column has no units.
+ *     Top-to-bottom MAIN regions that tile the gap, followed by lens/onlap overlays.
  */
-export function computePartitionFill(
-  left: PartitionColumn,
-  right: PartitionColumn,
+function emitGap(
+  leftUnits: PartitionUnit[],
+  leftSurface: number,
+  rightUnits: PartitionUnit[],
+  rightSurface: number,
+  leftLensesIn: readonly ExtractedLens[],
+  rightLensesIn: readonly ExtractedLens[],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): PartitionRegion[] {
-  if (left.units.length === 0) return []
-
-  const leftSurface = left.surfaceElevM
-  const rightSurface = right.surfaceElevM
-
-  // -------------------------------------------------------------------------
-  // Step 0: Enclosed-lens pre-pass.
-  //
-  // Build mutable copies of each column's unit arrays.  Extract any unit U
-  // where (a) U.bodyId is absent on the other column, (b) both immediate
-  // neighbours on the SAME column share the same bodyId (the matrix), AND
-  // (c) that matrix bodyId IS present on the other column.  Each extracted
-  // lens has the two surrounding matrix units merged into one.
-  //
-  // WHY do this before LCS: without pre-extraction the sand that brackets a
-  // silt lens appears as THREE separate entries (sand, silt, sand) in the left
-  // column.  The LCS matches the FIRST sand to the right-column sand and the
-  // THIRD sand to a different part of the right column (or not at all), so the
-  // LCS treats the three-piece sand as an interrupted body, producing a spurious
-  // pinch for the outer sand piece.  After extraction the two sand pieces are
-  // merged into ONE entry that matches the right-column sand cleanly as a quad.
-  // -------------------------------------------------------------------------
-  const leftUnits: PartitionUnit[] = left.units.map((u) => ({ ...u }))
-  const rightUnits: PartitionUnit[] = right.units.map((u) => ({ ...u }))
-
-  // Close any depth gaps/overlaps in each column so the fill can never show a
-  // HOLE: a unit's base is snapped to the next unit's top, matching how the
-  // litho bands render (contact→next-contact). Accepted litho layers can carry
-  // a gap — a rejected/collapsed segment — which would otherwise leave the
-  // partition unfilled there (dogfeed 2026-06-08, section 1).
-  closeColumnGaps(leftUnits)
-  closeColumnGaps(rightUnits)
-
-  // Section-wide minority pre-pass: pull interbedded lithology-minorities (a
-  // sand split by clay/silt lenses) so the matrix merges and connects as one
-  // band. Lithology, not bodyId — bodyId can lump several lithologies into one
-  // over-correlated body (the dogfeed deep ``857`` package), which is exactly
-  // what made same-lithology sand fail to connect and droop.
-  const leftLenses = reduceMinorities(leftUnits, leftSurface, rightUnits, rightSurface, 'left')
-  const rightLenses = reduceMinorities(rightUnits, rightSurface, leftUnits, leftSurface, 'right')
-
-  // Collapse same-lithology runs so both columns present the same matrix bands
-  // (one clay band, not cA+cB) before matching — otherwise the surplus pieces
-  // orphan into spurious pinches.
-  collapseAdjacentSameFormation(leftUnits)
-  collapseAdjacentSameFormation(rightUnits)
+  // Local copies — the interval walk appends interval-extracted lenses to these.
+  const leftLenses: ExtractedLens[] = [...leftLensesIn]
+  const rightLenses: ExtractedLens[] = [...rightLensesIn]
 
   // -------------------------------------------------------------------------
   // Step 1: Lithology-aware monotonic alignment (post-reduction units). Same
@@ -1243,7 +1238,6 @@ export function computePartitionFill(
         ;(min.unit.side === 'left' ? leftLenses : rightLenses).push({
           bodyId: min.unit.bodyId,
           formationId: min.unit.formationId,
-          side: min.unit.side,
           depthTopM: min.unit.ownTopDepth,
           depthBaseM: min.unit.ownBaseDepth,
         })
@@ -1411,4 +1405,111 @@ export function computePartitionFill(
   }
 
   return regions
+}
+
+// ---------------------------------------------------------------------------
+// Whole-section resolve
+// ---------------------------------------------------------------------------
+
+/** A partition region tagged with the gap (0-based, left-column index) it fills. */
+export interface SectionRegion extends PartitionRegion {
+  gapIndex: number
+}
+
+/**
+ * Resolve the WHOLE section at once: reduce each column ONCE against BOTH its
+ * neighbours, then emit each gap from the shared reduced columns.
+ *
+ * Reducing per column (not per gap) is what keeps a body continuous through a
+ * shared column: the column has ONE reduced form, so the band anchored on it is
+ * identical in both its gaps (no per-gap drift — the dogfeed peat-discontinuity
+ * bug). A unit is pinched out as a lens only when it connects to NO neighbour
+ * (``reduceColumn``); a unit connecting to one neighbour is kept and EMERGES as
+ * an onlap (band in the connected gap, pinch in the other). ``body_id``
+ * correlations are honoured even across non-overlapping elevations (a dipping
+ * correlated bed stays one band — see ``connectsToNeighbour``).
+ *
+ * Rendering stays per-gap (the column strips interrupt the fill); each region is
+ * tagged with its ``gapIndex`` so the overlay maps it with that gap's column edges.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly PartitionColumn[]
+ *     The section's columns, left→right (along-section order). Empty columns are
+ *     skipped. Each column's ``units`` must be sorted by ``topDepthM``.
+ * lensApexOverrides : optional per-body apex shaping (keyed by bodyId).
+ *
+ * Returns
+ * -------
+ * SectionRegion[]
+ *     All gaps' regions, each tagged with ``gapIndex``.
+ */
+export function computeSectionFill(
+  columns: readonly PartitionColumn[],
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+): SectionRegion[] {
+  // Drop empty columns; a gap is between two consecutive non-empty columns.
+  const cols = columns
+    .filter((c) => c.units.length > 0)
+    .map((c) => ({ surface: c.surfaceElevM, units: c.units.map((u) => ({ ...u })) }))
+  if (cols.length < 2) return []
+
+  // Close depth gaps, then SNAPSHOT each column (pre-reduction) so the
+  // present-check sees the original neighbour data regardless of reduce order.
+  cols.forEach((c) => closeColumnGaps(c.units))
+  const snapshots: NeighbourColumn[] = cols.map((c) => ({
+    surface: c.surface,
+    units: c.units.map((u) => ({ ...u })),
+  }))
+
+  // Reduce each column ONCE against both neighbours, then collapse same-litho runs.
+  const lensesByCol = cols.map((c, i) => {
+    const neighbours = [snapshots[i - 1], snapshots[i + 1]].filter(
+      (n): n is NeighbourColumn => n !== undefined,
+    )
+    return reduceColumn(c.units, c.surface, neighbours)
+  })
+  cols.forEach((c) => collapseAdjacentSameFormation(c.units))
+
+  // Emit each gap from the shared reduced columns. A column's lenses render as
+  // LEFT overlays in the gap to its right and RIGHT overlays in the gap to its left.
+  const out: SectionRegion[] = []
+  for (let i = 0; i < cols.length - 1; i++) {
+    const left = cols[i]
+    const right = cols[i + 1]
+    const gapRegions = emitGap(
+      left.units,
+      left.surface,
+      right.units,
+      right.surface,
+      lensesByCol[i],
+      lensesByCol[i + 1],
+      lensApexOverrides,
+    )
+    for (const r of gapRegions) out.push({ ...r, gapIndex: i })
+  }
+  return out
+}
+
+/**
+ * Compute the partition fill for ONE adjacent column gap.
+ *
+ * Thin two-column wrapper over ``computeSectionFill`` (the whole-section resolve)
+ * — kept for the pure-geometry unit tests and any single-gap caller. Empty left
+ * column → ``[]``.
+ *
+ * Parameters
+ * ----------
+ * left, right : PartitionColumn
+ *     The two columns (``units`` sorted by ``topDepthM``).
+ * lensApexOverrides : optional per-body apex shaping.
+ */
+export function computePartitionFill(
+  left: PartitionColumn,
+  right: PartitionColumn,
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+): PartitionRegion[] {
+  return computeSectionFill([left, right], lensApexOverrides).map(
+    ({ gapIndex: _gapIndex, ...r }) => r,
+  )
 }
