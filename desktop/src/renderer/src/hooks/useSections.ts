@@ -21,6 +21,7 @@ import { projectPointOntoLine } from '../utils/sectionProjection'
 import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
 import { readSectionDefaults } from '../utils/sectionDefaults'
+import { suggestTieSections, type SuggestedTie, type TieInvestigation } from '../utils/tieAutoSuggest'
 import type { UndoCommand } from './useUndoStack'
 import type { FocusTarget } from '../components/sections/useFocusColumn'
 import { useCorrelate } from '../components/sections/useCorrelate'
@@ -150,6 +151,23 @@ export interface UseSectionsResult {
   armCorrelationSource: (source: CorrelationSource) => void
   /** Clear armed source without exiting mode (Esc layer 1). */
   clearCorrelationSource: () => void
+
+  // ---------------------------------------------------------------------------
+  // Tie-section suggestion state + handlers (Task 4).
+  // Ghost-display candidates proposed by ``suggestTieSections``; accepted
+  // via ``handleAcceptTie`` which creates a real section by the same path
+  // as ``handleSectionLineDrawn``.
+  // ---------------------------------------------------------------------------
+  /** Auto-proposed tie-sections, shown as ghosts on the map. */
+  suggestedTies: SuggestedTie[]
+  /** Run the suggestion algorithm and populate ``suggestedTies``. */
+  handleSuggestTies: (cpts: TieInvestigation[], boreholes: TieInvestigation[]) => void
+  /** Accept one proposed tie: POST it as a real section, remove from the ghost list. */
+  handleAcceptTie: (index: number) => Promise<void>
+  /** Dismiss one proposed tie without creating a section. */
+  handleRejectTie: (index: number) => void
+  /** Dismiss all proposed ties. */
+  handleClearTieSuggestions: () => void
 
 }
 
@@ -328,6 +346,9 @@ export function useSections({
   // clicks on the crossings banner (debt #9). Cleared after 2.5 s.
   const [focusedContactIds, setFocusedContactIds] = useState<readonly string[]>([])
   const focusedContactsTimeoutRef = useRef<number | null>(null)
+  // Auto-proposed tie-sections shown as ghosts on the map (Task 4).
+  // Populated by handleSuggestTies; consumed by the map overlay.
+  const [suggestedTies, setSuggestedTies] = useState<SuggestedTie[]>([])
 
   // ---------------------------------------------------------------------------
   // Effective horizontal CRS for new sections.
@@ -738,6 +759,77 @@ export function useSections({
     setSelectedSectionId(null)
   }, [])
 
+  // ---------------------------------------------------------------------------
+  // Tie-section suggestion handlers (Task 4).
+  // Ghost-display candidates proposed by suggestTieSections; accepted via
+  // handleAcceptTie which creates a real section by the same POST path as
+  // handleSectionLineDrawn.
+  // ---------------------------------------------------------------------------
+
+  const handleSuggestTies = useCallback(
+    (cpts: TieInvestigation[], boreholes: TieInvestigation[]) => {
+      if (!project) return
+      const tol = readSectionDefaults(project.view_state ?? null).tieStrikeToleranceM
+      const parallels = visibleSections.map(s => ({
+        id: s.id,
+        start_x: s.start_x,
+        start_y: s.start_y,
+        end_x: s.end_x,
+        end_y: s.end_y,
+        projection_buffer_m: s.projection_buffer_m,
+        excluded_cpt_ids: s.excluded_cpt_ids ?? [],
+        excluded_borehole_ids: s.excluded_borehole_ids ?? [],
+      }))
+      const ties = suggestTieSections(parallels, cpts, boreholes, tol)
+      setSuggestedTies(ties)
+      if (ties.length === 0) {
+        toast('warning', 'No clean tie-sections found — try widening the tolerance in Settings.')
+      } else {
+        log.info('section', `proposed ${ties.length} tie-section(s)`)
+      }
+    },
+    [project, visibleSections],
+  )
+
+  const handleRejectTie = useCallback((index: number) => {
+    setSuggestedTies(prev => prev.filter((_, i) => i !== index))
+  }, [])
+
+  const handleClearTieSuggestions = useCallback(() => setSuggestedTies([]), [])
+
+  const handleAcceptTie = useCallback(
+    async (index: number) => {
+      if (!project) return
+      const epsg = effectiveHorizontalEpsg
+      if (epsg == null) return
+      const tie = suggestedTies[index]
+      if (!tie) return
+      const ordinal = visibleSections.length + 1
+      const createPayload = {
+        name: `Tie-section ${ordinal}`,
+        epsg,
+        start_x: tie.start.x,
+        start_y: tie.start.y,
+        end_x: tie.end.x,
+        end_y: tie.end.y,
+        projection_buffer_m: tie.bufferM,
+        vertical_exaggeration: readSectionDefaults(project.view_state ?? null).verticalExaggeration,
+      }
+      try {
+        const created = await api.section.create(project.id, createPayload)
+        setSections(prev => [...prev, created])
+        setSelectedSectionId(created.id)
+        handleSectionCreated(created.id)
+        setSuggestedTies(prev => prev.filter((_, i) => i !== index))
+        log.success('section', `accepted tie ${created.name}`)
+      } catch (err) {
+        log.error('section', 'accept-tie failed', err)
+        toast('error', 'Could not create the tie-section.')
+      }
+    },
+    [project, effectiveHorizontalEpsg, suggestedTies, visibleSections, handleSectionCreated],
+  )
+
   // P2-G / P2-H: apply a server-returned updated section to local state
   // without a round-trip GET.  Replaces the matching entry in the sections
   // list by id.  Used by the Seed handler (updated_section from the auto-
@@ -779,5 +871,10 @@ export function useSections({
     exitCorrelateMode,
     armCorrelationSource,
     clearCorrelationSource,
+    suggestedTies,
+    handleSuggestTies,
+    handleAcceptTie,
+    handleRejectTie,
+    handleClearTieSuggestions,
   }
 }
