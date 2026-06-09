@@ -60,6 +60,7 @@ import {
   type PartitionRegion,
   LENS_PINCH_FRACTION,
 } from '../../utils/partitionFill'
+import { nearerLensEdge } from '../../utils/lensEdgePick'
 import type { PlacedColumn } from './utils'
 
 /**
@@ -1417,12 +1418,18 @@ export default function PartitionFillOverlay({
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                handleLensAddNode(
-                  sl.bodyId,
-                  'upper',
-                  e.clientX - (rect?.left ?? 0),
-                  e.clientY - (rect?.top ?? 0),
+                const cx = e.clientX - (rect?.left ?? 0)
+                const cy = e.clientY - (rect?.top ?? 0)
+                // The two add-strips overlap on a thin wedge, so the click could be
+                // physically nearer the lower edge even though it landed on the upper
+                // strip. Route to the nearest edge instead of trusting which strip the
+                // click hit — that is what "grabs the pinchout at both sides" was.
+                const edge = nearerLensEdge(
+                  { x: cx, y: cy },
+                  [sl.sourceTopPt, upperStripEnd],
+                  [lowerStripStart, sl.sourceBasePt],
                 )
+                handleLensAddNode(sl.bodyId, edge, cx, cy)
               }}
             />
             {/* Lower-edge add-strip. Hover shows a preview dot at the cursor. */}
@@ -1444,12 +1451,16 @@ export default function PartitionFillOverlay({
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                handleLensAddNode(
-                  sl.bodyId,
-                  'lower',
-                  e.clientX - (rect?.left ?? 0),
-                  e.clientY - (rect?.top ?? 0),
+                const cx = e.clientX - (rect?.left ?? 0)
+                const cy = e.clientY - (rect?.top ?? 0)
+                // See the upper strip's note: route to the nearest edge so an overlap
+                // on a thin wedge doesn't force the node onto the lower edge by z-order.
+                const edge = nearerLensEdge(
+                  { x: cx, y: cy },
+                  [sl.sourceTopPt, upperStripEnd],
+                  [lowerStripStart, sl.sourceBasePt],
                 )
+                handleLensAddNode(sl.bodyId, edge, cx, cy)
               }}
             />
             {/* Upper-edge node handles */}
