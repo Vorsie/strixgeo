@@ -707,7 +707,7 @@ export default function MapView({
           />
         )}
 
-        {suggestedTies.length > 0 && tieEpsg != null && onAcceptTie && onRejectTie && (
+        {suggestedTies.length > 0 && sections.length > 0 && tieEpsg != null && onAcceptTie && onRejectTie && (
           <TieSuggestionOverlay
             ties={suggestedTies}
             epsg={tieEpsg}
