@@ -76,8 +76,19 @@ export interface PartitionUnit {
   baseDepthM: number
   /** Drives the fill colour (lithology). */
   formationId: string
-  /** Resolver-stamped body — members sharing a body merge into one envelope. */
+  /**
+   * Resolver-stamped body. Kept for region IDENTITY only (overlay freedraw /
+   * context-menu / labels) — NOT used for matching, because the resolver
+   * over-lumps body_id (one body spanning several lithologies/beds). Matching
+   * uses the explicit correlation edges instead (see ``layerId``).
+   */
   bodyId: string | null
+  /**
+   * The ``litho_layer.id`` — the stable identity a correlation edge references.
+   * Two units BAND iff an approved ``LithoContactCorrelationEdge`` connects their
+   * ``layerId``s (the trustworthy correlation signal, vs the over-lumped body_id).
+   */
+  layerId: string
 }
 
 /** One column's placement + its gap-free unit stack (sorted by ``topDepthM``). */
@@ -86,6 +97,17 @@ export interface PartitionColumn {
   /** Surface elevation (mTAW) — converts depth → absolute elevation. */
   surfaceElevM: number
   units: readonly PartitionUnit[]
+}
+
+/**
+ * An approved correlation edge — a pair of ``litho_layer`` ids that the user/auto
+ * explicitly correlated. Two units BAND across a gap iff such an edge connects
+ * their ``layerId``s. This is the trustworthy band signal (vs the resolver's
+ * over-lumped ``body_id``).
+ */
+export interface CorrelationEdge {
+  a: string
+  b: string
 }
 
 const EPS = 1e-9
@@ -245,26 +267,34 @@ interface NeighbourColumn {
 
 /**
  * Does unit ``u`` (on a column at ``surface``) CONNECT to the neighbour — i.e.
- * does the neighbour hold a unit it could match? Uses ``pairScore`` so an
- * explicit correlation (shared ``body_id``) counts EVEN WHEN the elevations do
- * not overlap (a correlated bed that dips between columns) — the bug that made
- * the correlated peat get pulled out as a lens instead of staying a band.
+ * does the neighbour hold a unit it could match (``pairScore`` > 0)? An explicit
+ * correlation edge counts at any elevation (a dipping correlated bed stays a
+ * band, not a lens); geometric overlap also counts (the matrix).
  */
-function connectsToNeighbour(u: PartitionUnit, surface: number, nb: NeighbourColumn): boolean {
+function connectsToNeighbour(
+  u: PartitionUnit,
+  surface: number,
+  nb: NeighbourColumn,
+  correlated: Correlated,
+): boolean {
   const um: MatchUnit = {
     formationId: u.formationId,
-    bodyId: u.bodyId,
+    layerId: u.layerId,
     topElev: surface - u.topDepthM,
     baseElev: surface - u.baseDepthM,
   }
   return nb.units.some(
     (v) =>
-      pairScore(um, {
-        formationId: v.formationId,
-        bodyId: v.bodyId,
-        topElev: nb.surface - v.topDepthM,
-        baseElev: nb.surface - v.baseDepthM,
-      }) > 0,
+      pairScore(
+        um,
+        {
+          formationId: v.formationId,
+          layerId: v.layerId,
+          topElev: nb.surface - v.topDepthM,
+          baseElev: nb.surface - v.baseDepthM,
+        },
+        correlated,
+      ) > 0,
   )
 }
 
@@ -302,10 +332,11 @@ function reduceColumn(
   units: PartitionUnit[],
   surface: number,
   neighbours: readonly NeighbourColumn[],
+  correlated: Correlated,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
   const connectsAnywhere = (u: PartitionUnit): boolean =>
-    neighbours.some((nb) => connectsToNeighbour(u, surface, nb))
+    neighbours.some((nb) => connectsToNeighbour(u, surface, nb, correlated))
   let changed = true
   while (changed) {
     changed = false
@@ -467,75 +498,74 @@ function extractIntervalMinorities(
 /** A unit prepared for cross-column matching, elevations precomputed (mTAW). */
 export interface MatchUnit {
   formationId: string
-  bodyId: string | null
+  /** ``litho_layer.id`` — what correlation edges reference (the band signal). */
+  layerId: string
   /** Higher elevation — the unit's top. */
   topElev: number
   /** Lower elevation — the unit's base. */
   baseElev: number
 }
 
+/** True iff an approved correlation edge directly connects layers ``a`` and ``b``. */
+export type Correlated = (a: string, b: string) => boolean
+
 /**
- * Score a candidate cross-column pairing.
+ * Score a candidate cross-column pairing — edges first, geometry as the fallback.
  *
- * Lithology must agree: the resolver's ``body_id`` can over-lump several
- * lithologies into one body (the deep ``857`` package in the dogfeed lumps
- * KLEI + ZAND + SILT), so a pairing ACROSS lithology is never allowed. Explicit
- * correlation (same ``body_id``) and elevation overlap each add confidence so
- * the weighted alignment prefers the geologically-aligned pairing:
+ * Lithology must agree (never pair across lithology). An explicit correlation
+ * edge between the two layers is the authoritative BAND signal — it connects them
+ * at ANY elevation (a correlated bed that dips between columns, e.g. the peat).
+ * Geometric overlap (no edge) is the LAST-resort fill tier for the matrix:
  *
- *   same litho + same body + overlap         → 3
- *   same litho + same body + within a bed     → 2  (a correlated bed that DIPS — its
- *                                                    elevations need not overlap, but must be
- *                                                    within a bed-thickness, so a dipping peat
- *                                                    stays one band)
- *   same litho + overlap                       → 1  (geometric connectivity — uncorrelated matrix)
- *   otherwise                                  → 0  (no match)
+ *   same litho + edge + overlap   → 4   (explicit correlation, aligned)
+ *   same litho + edge             → 3   (explicit correlation — a dipping correlated bed)
+ *   same litho + overlap (no edge) → 1  (geometry — matrix coverage fill only)
+ *   otherwise                     → 0   (no match → pinches out)
  *
- * The bed-thickness gate on the body-without-overlap case is load-bearing: an
- * over-lumped body (the ``857`` package puts S1's upper KLEI and B4's deep KLEI
- * ~8 m apart on one body_id) must NOT connect across that gulf — only a genuine
- * dip (gap ≤ the thicker bed) does.
+ * ``body_id`` is deliberately NOT used — it is the resolver's over-lumped
+ * transitive closure (one body spanning several lithologies/beds), which falsely
+ * banded uncorrelated beds. Only the direct edges are trusted.
  */
-function pairScore(l: MatchUnit, r: MatchUnit): number {
+function pairScore(l: MatchUnit, r: MatchUnit, correlated: Correlated): number {
   if (l.formationId !== r.formationId) return 0
   const overlap = l.topElev > r.baseElev + EPS && r.topElev > l.baseElev + EPS
-  const body = l.bodyId !== null && l.bodyId === r.bodyId
-  if (body && overlap) return 3
-  if (body) {
-    // No elevation overlap: connect only if the beds are within a bed-thickness
-    // (a real dip), not an over-lumped body spanning very different depths.
-    const gap = Math.max(l.baseElev - r.topElev, r.baseElev - l.topElev)
-    const maxThickness = Math.max(l.topElev - l.baseElev, r.topElev - r.baseElev)
-    return gap <= maxThickness + EPS ? 2 : 0
-  }
+  const edge = correlated(l.layerId, r.layerId)
+  if (edge && overlap) return 4
+  if (edge) return 3
   if (overlap) return 1
   return 0
 }
 
 /**
- * Monotonic (order-preserving) cross-column matching by lithology, with
- * ``body_id`` + elevation overlap as confidence. A weighted
- * longest-common-subsequence over ``pairScore`` — it maximises total confidence,
- * so a same-lithology body connects across the gap even when its ``body_id``
- * differs per column (the uncorrelated matrix), and never pairs across lithology.
+ * Monotonic (order-preserving) cross-column matching — edge-correlated pairs
+ * band, with geometric overlap as the fallback fill tier. A weighted
+ * longest-common-subsequence over ``pairScore`` that maximises total confidence,
+ * so explicit correlations win and the uncorrelated matrix still connects by
+ * overlap; never pairs across lithology.
  *
  * Parameters
  * ----------
  * left, right : MatchUnit[]
  *     The two columns' units, sorted shallow→deep.
+ * correlated : Correlated
+ *     Edge lookup (approved correlation between two ``layerId``s).
  *
  * Returns
  * -------
  * Array<[number, number]>
  *     Matched (leftIndex, rightIndex) pairs in ascending order.
  */
-export function matchColumns(left: MatchUnit[], right: MatchUnit[]): Array<[number, number]> {
+export function matchColumns(
+  left: MatchUnit[],
+  right: MatchUnit[],
+  correlated: Correlated,
+): Array<[number, number]> {
   const n = left.length
   const m = right.length
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const s = pairScore(left[i - 1], right[j - 1])
+      const s = pairScore(left[i - 1], right[j - 1], correlated)
       let best = Math.max(dp[i - 1][j], dp[i][j - 1])
       if (s > 0) best = Math.max(best, dp[i - 1][j - 1] + s)
       dp[i][j] = best
@@ -545,7 +575,7 @@ export function matchColumns(left: MatchUnit[], right: MatchUnit[]): Array<[numb
   let i = n
   let j = m
   while (i > 0 && j > 0) {
-    const s = pairScore(left[i - 1], right[j - 1])
+    const s = pairScore(left[i - 1], right[j - 1], correlated)
     if (s > 0 && dp[i][j] === dp[i - 1][j - 1] + s) {
       pairs.push([i - 1, j - 1])
       i--
@@ -1095,6 +1125,7 @@ function emitGap(
   rightSurface: number,
   leftLensesIn: readonly ExtractedLens[],
   rightLensesIn: readonly ExtractedLens[],
+  correlated: Correlated,
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
@@ -1102,20 +1133,21 @@ function emitGap(
   const rightLenses: ExtractedLens[] = [...rightLensesIn]
 
   // -------------------------------------------------------------------------
-  // Step 1: Lithology-aware monotonic alignment (post-reduction units). Same
-  // lithology + elevation overlap connects across the gap even on a different
-  // bodyId (the uncorrelated matrix); never matches across lithology.
+  // Step 1: Edge-driven monotonic alignment (post-reduction units). An explicit
+  // correlation edge bands a pair (at any elevation); geometric overlap is the
+  // fallback fill tier for the matrix; never matches across lithology.
   // -------------------------------------------------------------------------
   const toMatchUnits = (units: readonly PartitionUnit[], surface: number): MatchUnit[] =>
     units.map((u) => ({
       formationId: u.formationId,
-      bodyId: u.bodyId,
+      layerId: u.layerId,
       topElev: surface - u.topDepthM,
       baseElev: surface - u.baseDepthM,
     }))
   const matchedPairs = matchColumns(
     toMatchUnits(leftUnits, leftSurface),
     toMatchUnits(rightUnits, rightSurface),
+    correlated,
   )
 
   const leftMatched = new Set(matchedPairs.map(([li]) => li))
@@ -1437,6 +1469,9 @@ export interface SectionRegion extends PartitionRegion {
  * columns : readonly PartitionColumn[]
  *     The section's columns, left→right (along-section order). Empty columns are
  *     skipped. Each column's ``units`` must be sorted by ``topDepthM``.
+ * edges : readonly CorrelationEdge[]
+ *     The APPROVED correlation edges (layer-id pairs). Two units band iff an edge
+ *     connects their ``layerId``s; geometry only fills the uncorrelated remainder.
  * lensApexOverrides : optional per-body apex shaping (keyed by bodyId).
  *
  * Returns
@@ -1446,8 +1481,14 @@ export interface SectionRegion extends PartitionRegion {
  */
 export function computeSectionFill(
   columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): SectionRegion[] {
+  // Build the edge lookup once (order-independent layer-id pair key).
+  const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const edgeSet = new Set(edges.map((e) => edgeKey(e.a, e.b)))
+  const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
+
   // Drop empty columns; a gap is between two consecutive non-empty columns.
   const cols = columns
     .filter((c) => c.units.length > 0)
@@ -1467,7 +1508,7 @@ export function computeSectionFill(
     const neighbours = [snapshots[i - 1], snapshots[i + 1]].filter(
       (n): n is NeighbourColumn => n !== undefined,
     )
-    return reduceColumn(c.units, c.surface, neighbours)
+    return reduceColumn(c.units, c.surface, neighbours, correlated)
   })
   cols.forEach((c) => collapseAdjacentSameFormation(c.units))
 
@@ -1484,6 +1525,7 @@ export function computeSectionFill(
       right.surface,
       lensesByCol[i],
       lensesByCol[i + 1],
+      correlated,
       lensApexOverrides,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
@@ -1502,14 +1544,17 @@ export function computeSectionFill(
  * ----------
  * left, right : PartitionColumn
  *     The two columns (``units`` sorted by ``topDepthM``).
+ * edges : readonly CorrelationEdge[]
+ *     Approved correlation edges (layer-id pairs).
  * lensApexOverrides : optional per-body apex shaping.
  */
 export function computePartitionFill(
   left: PartitionColumn,
   right: PartitionColumn,
+  edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): PartitionRegion[] {
-  return computeSectionFill([left, right], lensApexOverrides).map(
+  return computeSectionFill([left, right], edges, lensApexOverrides).map(
     ({ gapIndex: _gapIndex, ...r }) => r,
   )
 }
