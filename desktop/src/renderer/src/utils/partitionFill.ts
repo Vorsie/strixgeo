@@ -286,6 +286,14 @@ function reduceColumn(
   correlated: Correlated,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
+  // A pulled lens records its ORIGINAL extent, not the live (possibly flood-
+  // mutated) depths: when a thin interbed is pulled, the thicker neighbour floods
+  // UP into its space (``below.topDepthM = u.topDepthM`` below); if THAT neighbour
+  // is later pulled as a lens too, its live top is the flooded value, so two lens
+  // triangles on the same column would overlap. Snapshot the entry depths by
+  // layerId and emit those.
+  const origTop = new Map(units.map((u) => [u.layerId, u.topDepthM]))
+  const origBase = new Map(units.map((u) => [u.layerId, u.baseDepthM]))
   const thick = (x: PartitionUnit): number => x.baseDepthM - x.topDepthM
   let changed = true
   while (changed) {
@@ -305,8 +313,8 @@ function reduceColumn(
       lenses.push({
         bodyId: u.bodyId,
         formationId: u.formationId,
-        depthTopM: u.topDepthM,
-        depthBaseM: u.baseDepthM,
+        depthTopM: origTop.get(u.layerId) ?? u.topDepthM,
+        depthBaseM: origBase.get(u.layerId) ?? u.baseDepthM,
       })
       if (above.formationId === below.formationId) {
         above.baseDepthM = below.baseDepthM // same matrix both sides → merge so it connects continuously
