@@ -663,6 +663,11 @@ function makeStubContext(overrides?: {
       exitCorrelateMode: vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
+      suggestedTies: [],
+      handleSuggestTies: vi.fn(),
+      handleAcceptTie: vi.fn(),
+      handleRejectTie: vi.fn(),
+      handleClearTieSuggestions: vi.fn(),
     },
     overlays: {
       demSource: null,
