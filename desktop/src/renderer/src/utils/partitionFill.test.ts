@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   computePartitionFill,
+  computeSectionFill,
   LENS_PINCH_FRACTION,
   matchColumns,
   type MatchUnit,
@@ -822,6 +823,68 @@ describe('computePartitionFill', () => {
     assertTiles(regions, S1, B4)
     // The two upstream gaps also tile cleanly (the matrix connects, lenses overlay).
     assertTiles(computePartitionFill(S2, S1), S2, S1)
+  })
+
+  // -----------------------------------------------------------------------
+  // SEC-PEAT — the dogfeed continuity bug: a dipping CORRELATED peat must stay
+  // one band THROUGH a shared column, not break into per-gap lenses.
+  //
+  // S5·S2·S6: the VEEN (peat, body ea1) dips, so its elevations on S2 do NOT
+  // overlap S5/S6 — but it is correlated. The whole-section resolve reduces S2
+  // ONCE (so it is identical in both its gaps) and the body-aware present-check
+  // keeps the correlated-but-dipping peat → it bands continuously through S2.
+  // -----------------------------------------------------------------------
+  it('SEC-PEAT: a dipping correlated peat stays one continuous band through a shared column', () => {
+    const S5 = col('S5', 12.47, [
+      { top: 0.05, base: 0.85, f: 'KLEI', b: 'ea1' },
+      { top: 0.85, base: 1.69, f: 'SILT', b: 'ea1' },
+      { top: 1.69, base: 4.2, f: 'KLEI', b: 'ea4' },
+      { top: 4.2, base: 5.8, f: 'VEEN', b: 'ea1' },
+      { top: 5.8, base: 6.23, f: 'KLEI', b: 'ea8' },
+      { top: 6.23, base: 7.06, f: 'SILT', b: 'ea4' },
+      { top: 7.06, base: 18.81, f: 'ZAND', b: 'ea4' },
+      { top: 18.81, base: 24.9, f: 'KLEI', b: 'ea8' },
+    ])
+    const S2 = col('S2', 13.04, [
+      { top: 0.05, base: 1.85, f: 'ZAND', b: 'ea3' },
+      { top: 1.85, base: 2.84, f: 'SILT', b: 'ea1' },
+      { top: 2.84, base: 3.57, f: 'KLEI', b: 'ea4' },
+      { top: 3.57, base: 4.36, f: 'VEEN', b: 'ea1' },
+      { top: 4.36, base: 4.73, f: 'KLEI', b: 'ea8' },
+      { top: 4.73, base: 6.55, f: 'SILT', b: 'ea4' },
+      { top: 6.55, base: 9.49, f: 'ZAND', b: 'ea4' },
+      { top: 9.49, base: 10.89, f: 'SILT', b: 'ea8' },
+      { top: 10.89, base: 16.42, f: 'ZAND', b: 'ea8' },
+      { top: 16.42, base: 16.98, f: 'SILT', b: 'ea8' },
+      { top: 16.98, base: 19.37, f: 'ZAND', b: 'ea8' },
+      { top: 19.37, base: 24.83, f: 'KLEI', b: 'ea8' },
+    ])
+    const S6 = col('S6', 12.68, [
+      { top: 0.05, base: 2.6, f: 'KLEI', b: 'ea3' },
+      { top: 2.6, base: 3.0, f: 'SILT', b: 'ea1' },
+      { top: 3.0, base: 5.03, f: 'KLEI', b: 'ea4' },
+      { top: 5.03, base: 7.1, f: 'VEEN', b: 'ea1' },
+      { top: 7.1, base: 8.0, f: 'KLEI', b: 'ea8' },
+      { top: 8.0, base: 8.94, f: 'SILT', b: 'ea4' },
+      { top: 8.94, base: 18.01, f: 'ZAND', b: 'ea4' },
+      { top: 18.01, base: 18.66, f: 'SILT', b: 'ea8' },
+      { top: 18.66, base: 23.17, f: 'KLEI', b: 'ea8' },
+    ])
+    const regions = computeSectionFill([S5, S2, S6])
+    // VEEN is a connected band (quad) in BOTH gaps, never a lens.
+    for (const g of [0, 1]) {
+      const veen = regions.filter((r) => r.gapIndex === g && r.formationId === 'VEEN')
+      expect(veen.length).toBeGreaterThanOrEqual(1)
+      expect(veen.every((v) => v.kind === 'quad')).toBe(true)
+    }
+    // Continuity: the VEEN's S2 edge is identical across the two gaps (S2 is the
+    // RIGHT column of gap 0 and the LEFT column of gap 1).
+    const s2Edge = (g: number, frac: number): number[] =>
+      regions
+        .filter((r) => r.gapIndex === g && r.formationId === 'VEEN')
+        .flatMap((v) => v.polygon.filter((p) => Math.abs(p.fraction - frac) < 0.01).map((p) => p.elevation))
+        .sort((a, b) => a - b)
+    expect(s2Edge(0, 1)).toEqual(s2Edge(1, 0))
   })
 
   // -----------------------------------------------------------------------
