@@ -297,8 +297,23 @@ LithologyCanvas → reuse Geology3DViewer (Cesium) — the V1 win
 
 ### 5.5 Viewer wiring (NEW glue)
 - `LithologyCanvas` fetches litho-solids and feeds them to the **reused**
-  `Geology3DViewer` (already generic over `(formation, geometry)` pairs). Colour
-  by lithology; render beneath the DEM lid; split-viewport support already there.
+  `Geology3DViewer` (already generic over `(formation, geometry)` pairs). Render
+  beneath the DEM lid; split-viewport support already there.
+- **Colour:** default = the body's lithology/soil colour. Each body's colour is
+  **adjustable in the 3D litho pane** (a per-body colour picker). Identity tag =
+  `body_id` + formation (for the future export).
+
+### 5.6 Per-body colour override (NEW)
+- **What:** a colour picker in the litho 3D pane sets an explicit colour for a
+  chosen body, overriding the lithology default; reset clears it back to default.
+- **Persistence:** stored as a nullable `display_color` on the body
+  (`null` ⇒ use lithology colour), so it **rides in the `.gmproj` bundle** and a
+  colleague opening the file sees the same colours. It is a per-project
+  engineering decision, not per-user chrome → not localStorage (see
+  `project_decisions_in_bundle`). Consistent with "all user edits stored as
+  truth" (§6).
+- **API:** additive `PATCH` on the body to set/clear `display_color`; the
+  litho-solids response carries the effective colour (override ?? lithology).
 
 ---
 
@@ -375,8 +390,9 @@ auto-position. (Resolves former open question Q1.)
 1. **Auto-tie workflow** — non-crossing monotonic matcher → ghost ties →
    accept/reject → correlate; produces the connected fence on test.strix.
    (In scope from the start, per decision 5b.)
-2. **Through-going bodies + pinch-outs** — builder + table + API + viewer →
-   first rotatable 3D block of test.strix on screen (de-risks the whole pipe).
+2. **Through-going bodies + pinch-outs** — builder + table + API + viewer
+   (incl. per-body colour picker, §5.6) → first rotatable 3D block of test.strix
+   on screen (de-risks the whole pipe).
 3. **Lenses + full drawn-shape fidelity** — closed-blob builder + 3D carve +
    freedraw/edited-pinch control points (user edits stored as truth, §6).
 4. **(Deferred, own spec)** DXF / Plaxis 3D export.
@@ -394,8 +410,10 @@ so there is a visible, testable artifact early.
 - ~~**Q2 — tie-section ergonomics**~~ — **RESOLVED:** auto-tie generation is in
   scope (non-crossing monotonic match, ghost-propose, ~1 test/wall, §5.1.1). The
   synthetic "auto-read crossing column" stays a deferred fallback.
-- **Q3 — disconnected bodies:** flag-and-slab (proposed) vs hide entirely vs
-  block the rebuild until correlated? (§7)
-- **Q4 — colour / identity:** colour solids by lithology (proposed) and tag each
-  with `body_id` + formation for the future export — any other identifier the
-  downstream tools need?
+- ~~**Q3 — disconnected bodies**~~ — **RESOLVED:** flag-and-show-as-slab
+  (extrude ±halfway to the nearest neighbour, flag as under-constrained). (§7)
+- ~~**Q4 — colour / identity**~~ — **RESOLVED:** default to soil/lithology
+  colour, **per-body colour adjustable in the 3D litho pane** and persisted in the
+  bundle; identity tag = `body_id` + formation. (§5.5–5.6)
+
+All open questions resolved — spec ready for planning.
