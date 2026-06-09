@@ -15,7 +15,7 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Polyline } from 'react-leaflet'
+import { Polyline, Tooltip } from 'react-leaflet'
 import type { LeafletMouseEvent } from 'leaflet'
 import ContextMenu from './ui/ContextMenu'
 import { tieToLatLngLine } from '../utils/tieToLatLngLine'
@@ -98,9 +98,12 @@ export function TieContextMenu({
           testid: 'tie-context-accept',
         },
         {
+          // Not danger-styled: rejecting only drops the ghost from the
+          // in-memory suggestion list (no API/DB write) and is fully reversible
+          // by clicking "Suggest tie-sections" again — unlike the correlation
+          // menu's genuinely-destructive "Delete correlation".
           label: 'Reject tie',
           onClick: () => onReject(index),
-          danger: true,
           testid: 'tie-context-reject',
         },
       ]}
@@ -179,7 +182,12 @@ export function TieSuggestionOverlay({
               })
             },
           }}
-        />
+        >
+          {/* Discoverability: right-click is the first right-clickable thing on
+              the map, so telegraph the gesture on hover (sticky = follows the
+              cursor along the line). */}
+          <Tooltip sticky>Proposed tie-section — right-click to Accept or Reject</Tooltip>
+        </Polyline>
       ))}
       {menu !== null &&
         createPortal(
