@@ -863,7 +863,10 @@ export function useSections({
       const { sections: created } = await api.section.createBatch(project.id, { sections: payloads })
       setSections(prev => [...prev, ...created])
       created.forEach(s => handleSectionCreated(s.id))
-      if (created.length > 0) setSelectedSectionId(created[created.length - 1].id)
+      // Do NOT select a created section: selecting flips SectionsCanvas from the
+      // map to a single section's profile view, yanking the user off the map
+      // where they just accepted the whole ladder. Stay on the map — the new
+      // tie-section lines simply appear there.
       setSuggestedTies([])
       log.success('section', `accepted all ${created.length} tie-section(s)`)
     } catch (err) {
