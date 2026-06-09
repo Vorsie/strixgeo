@@ -88,6 +88,11 @@ export interface UseShellContextValueArgs {
   exitCorrelateMode: ShellContextValue['sections']['exitCorrelateMode']
   armCorrelationSource: ShellContextValue['sections']['armCorrelationSource']
   clearCorrelationSource: ShellContextValue['sections']['clearCorrelationSource']
+  suggestedTies: ShellContextValue['sections']['suggestedTies']
+  handleSuggestTies: ShellContextValue['sections']['handleSuggestTies']
+  handleAcceptTie: ShellContextValue['sections']['handleAcceptTie']
+  handleRejectTie: ShellContextValue['sections']['handleRejectTie']
+  handleClearTieSuggestions: ShellContextValue['sections']['handleClearTieSuggestions']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -183,7 +188,8 @@ export function useShellContextValue(
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
-    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource, demSource, demOverlay,
+    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
+    suggestedTies, handleSuggestTies, handleAcceptTie, handleRejectTie, handleClearTieSuggestions, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
@@ -302,6 +308,11 @@ export function useShellContextValue(
       exitCorrelateMode,
       armCorrelationSource,
       clearCorrelationSource,
+      suggestedTies,
+      handleSuggestTies,
+      handleAcceptTie,
+      handleRejectTie,
+      handleClearTieSuggestions,
     },
     overlays: {
       demSource,
