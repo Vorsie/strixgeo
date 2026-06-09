@@ -519,6 +519,68 @@ export interface MatchUnit {
 export type Correlated = (a: string, b: string) => boolean
 
 /**
+ * How a unit terminates toward ONE neighbour, derived from its bounding-contact
+ * correlations (owner's model, 2026-06-09):
+ *
+ *   ``band``  — BOTH bounding contacts correlated → spans the gap as a quad.
+ *   ``onlap`` — exactly ONE contact correlated → laps against the correlated
+ *               tie-line, the other boundary pinching to meet it at the midpoint.
+ *   ``lens``  — NEITHER contact correlated → both boundaries converge to a point
+ *               at the midpoint (a pinch-out into the void).
+ */
+export type ContactTermination = 'band' | 'onlap' | 'lens'
+
+/**
+ * Classify a unit's termination toward a single neighbour column.
+ *
+ * A unit is bounded by a TOP contact and a BASE contact. A contact correlates to
+ * the neighbour iff an approved edge connects the relevant layer to any layer on
+ * that neighbour:
+ *
+ *   - **top** contact  ⟺ an edge on THIS unit's ``layerId`` (a layer's id keys
+ *     the contact at its top — see ``LithoContactCorrelationEdge``);
+ *   - **base** contact ⟺ an edge on the layer immediately BELOW (its top contact
+ *     IS this unit's base). The deepest unit has no unit below, so its base
+ *     cannot correlate (counts as uncorrelated).
+ *
+ * The count (0/1/2) maps directly to lens/onlap/band. This is per-SIDE: pass the
+ * facing neighbour's layer ids, so the same unit can band toward one neighbour
+ * and pinch toward the other.
+ *
+ * Parameters
+ * ----------
+ * units : readonly PartitionUnit[]
+ *     The unit's column, sorted shallow→deep.
+ * index : int
+ *     The unit's position in ``units``.
+ * neighbourLayerIds : ReadonlySet<string>
+ *     Every ``layerId`` on the facing neighbour column.
+ * correlated : Correlated
+ *     Approved-edge lookup between two ``layerId``s.
+ *
+ * Returns
+ * -------
+ * ContactTermination
+ *     ``band`` (2 contacts), ``onlap`` (1), or ``lens`` (0).
+ */
+export function classifyTermination(
+  units: readonly PartitionUnit[],
+  index: number,
+  neighbourLayerIds: ReadonlySet<string>,
+  correlated: Correlated,
+): ContactTermination {
+  const contactCorrelated = (layerId: string): boolean => {
+    for (const v of neighbourLayerIds) if (correlated(layerId, v)) return true
+    return false
+  }
+  const below = units[index + 1]
+  const topCorr = contactCorrelated(units[index].layerId)
+  const baseCorr = below !== undefined && contactCorrelated(below.layerId)
+  const count = (topCorr ? 1 : 0) + (baseCorr ? 1 : 0)
+  return count === 2 ? 'band' : count === 1 ? 'onlap' : 'lens'
+}
+
+/**
  * Score a candidate cross-column pairing — edges first, geometry as the fallback.
  *
  * Lithology must agree (never pair across lithology). An explicit correlation
