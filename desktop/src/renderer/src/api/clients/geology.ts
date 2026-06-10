@@ -646,6 +646,61 @@ export interface DeduplicateContactsResponse {
 // Surface / validation types
 // ---------------------------------------------------------------------------
 
+/**
+ * One cached watertight 3-D solid per (model, body).
+ *
+ * Analogous to ``FormationSurfaceResponse`` for the geological TIN cache;
+ * this schema carries a lithostratigraphic body solid built by the
+ * LithoSolidBuilder.  ``display_color`` comes from the BodyOrm row — it
+ * overrides the formation's lithology colour in the 3-D viewer.
+ */
+export interface LithoBodySolidResponse {
+  id: string
+  model_id: string
+  body_id: string
+  formation_id: string
+  method: string
+  /** ``[x_m, y_m, z_m]`` triples in the project CRS. Empty for flagged slabs. */
+  vertices: [number, number, number][]
+  /** Vertex-index triples (outward right-hand-rule). Empty for flagged slabs. */
+  triangles: [number, number, number][]
+  /** True when a contact mutation has invalidated the cached solid. */
+  is_stale?: boolean
+  /** True when the builder emitted a best-effort slab due to a structural anomaly. */
+  is_flagged?: boolean
+  /** Per-body colour override; null = fall back to the formation lithology colour. */
+  display_color?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+/**
+ * Result of ``POST .../litho-solids/rebuild``.
+ *
+ * Mirrors ``RebuildSurfacesResponse`` for the geological TIN pipeline,
+ * extended with the freshly rebuilt solid list so the 3-D viewer can
+ * update its cache in a single round-trip.
+ */
+export interface RebuildLithoSolidsResponse {
+  bodies_considered: number
+  bodies_built: number
+  bodies_skipped_checksum: number
+  bodies_flagged: number
+  orphans_deleted: number
+  /** Full solid list after the rebuild — equivalent to GET .../litho-solids. */
+  solids: LithoBodySolidResponse[]
+}
+
+/**
+ * Response from ``PATCH .../bodies/{body_id}/color``.
+ *
+ * Carries the persisted per-body display colour after the update.
+ */
+export interface UpdateBodyColorResponse {
+  body_id: string
+  display_color: string | null
+}
+
 /** Result of ``POST .../surfaces/rebuild``. */
 export interface RebuildSurfacesResponse {
   formations_considered: number
@@ -1356,6 +1411,56 @@ export const geologyClient = {
       `/projects/${projectId}/geology/models/${modelId}/surfaces/rebuild?method=${method}`,
       {},
     ),
+
+  // --- Litho body solids (3-D watertight solids per lithostratigraphic body) ---
+
+  /** GET .../litho-solids — list every cached solid for a litho model. */
+  listLithoSolids: (
+    projectId: string,
+    modelId: string,
+  ): Promise<LithoBodySolidResponse[]> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/litho-solids`),
+
+  /**
+   * POST .../litho-solids/rebuild — (re-)triangulate all body solids.
+   *
+   * Returns the full rebuild summary including the fresh solid list,
+   * mirroring the ``rebuildSurfaces`` idiom for the geological TIN cache.
+   */
+  rebuildLithoSolids: (
+    projectId: string,
+    modelId: string,
+  ): Promise<RebuildLithoSolidsResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/litho-solids/rebuild`,
+      {},
+    ),
+
+  /**
+   * PATCH .../bodies/{bodyId}/color — set or clear the per-body display colour.
+   *
+   * Pass ``color: null`` to reset to the formation's lithology colour in the
+   * 3-D viewer.  Uses the ``/color`` sub-route, not the generic PATCH body
+   * endpoint (which requires a non-empty ``name``).
+   */
+  setBodyColor: async (
+    projectId: string,
+    modelId: string,
+    bodyId: string,
+    color: string | null,
+  ): Promise<UpdateBodyColorResponse> => {
+    const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/color`
+    const res = await fetch(`${_base}${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_color: color }),
+    })
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}))
+      throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
+    }
+    return res.json()
+  },
 
   // --- Gap validator (per borehole) ------------------------------------
   validateBorehole: (
