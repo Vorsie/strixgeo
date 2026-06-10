@@ -36,6 +36,9 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -93,6 +96,10 @@ class DeleteFormationContact(GroundModelLogger):
         if ok and pre is not None:
             # On-click build pivot: mark stale rather than recompute.
             await self._repo.mark_surfaces_stale([(pre.model_id, pre.formation_id)])
+            # Mirror to the 3D solid cache — same no-op guarantee as
+            # CreateFormationContact: geological model ids never match
+            # litho_body_solid.model_id rows.
+            await LithoLayerRepository(self._session).mark_litho_solids_stale(pre.model_id)
 
         # Litho-only cascade: the FK delete above removes any
         # LithoContactCorrelationEdge rows that referenced this contact.

@@ -28,6 +28,9 @@ from groundmodel.domain.value_objects.formation_contact_result import (
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -119,6 +122,9 @@ class UpdateFormationContactsBatch(GroundModelLogger):
         # surface stale rather than recompute. Single bulk UPDATE
         # regardless of N contacts touched — cheap.
         await self._repo.mark_surfaces_stale(affected)
+        # Mirror to the 3D solid cache — geological model ids never match
+        # litho_body_solid.model_id rows, so this is a safe unconditional call.
+        await LithoLayerRepository(self._session).mark_litho_solids_stale(model_id)
 
         await self._session.commit()
         for contact in by_id.values():
