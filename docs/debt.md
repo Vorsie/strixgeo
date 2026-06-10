@@ -5215,5 +5215,30 @@ doing in the same pass as any other bundle-schema tidy, not as a one-off.
 Drop both fields from the response model, leave the restore filter
 permissive.
 
+## 205. Advanced litho-3D uncertainty visualisation (Tier D — Phase 5, frontend, M)
+
+**What.** The litho 3D model (part b, spec `2026-06-09-litho-3d-model-design.md`
+§11.2) ships with **distance-to-data shading reused from the geological model**
+(`tinConfidence.ts` — per-vertex confidence from TIN edge-length / hull-edge
+proxy → alpha fade, toggled by `showConfidenceFade`). The owner asked for richer
+uncertainty views *later*: (a) a true **surface ± envelope** (a high/low "could be
+anywhere in here" shell around each body surface, toggleable), and (b)
+distance-to-nearest-**control-point** (the real depth-pick / freedraw node)
+rather than the edge-length geometric proxy. These are more faithful uncertainty
+metrics than the reused geology shading.
+
+**Why deferred.** Underspecified and not needed for the MVP 3D view — the reused
+distance-to-data shading is an honest "this is extrapolated" cue and costs
+nothing (already built). The envelope needs a defined uncertainty source (fit
+residual? a depth tolerance? per-investigation confidence?) and its own
+brainstorm + render design; the control-point distance needs the builder to carry
+control points into the response. Owner directive 2026-06-10: "we can add more
+advanced toggles later, maybe add that to phase 5 debt."
+
+**When to revisit.** Phase 5, once the litho 3D solids (Plan B2) are in the
+owner's hands and there's a concrete need to communicate model confidence to
+coworkers/clients — pair with the design-ready-parameter work, which has its own
+statistical uncertainty story.
+
 ## (end)
 
