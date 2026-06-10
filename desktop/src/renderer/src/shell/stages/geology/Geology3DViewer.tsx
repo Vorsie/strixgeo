@@ -657,10 +657,11 @@ function buildTinPrimitive(
  * Build a double-sided Cesium ``Primitive`` for a vertical fence-diagram wall.
  *
  * This mirrors ``buildTinPrimitive`` but disables back-face culling so the
- * wall is visible from both sides (the camera may orbit behind a panel).
- * The clip parameter is intentionally omitted: fence panels are always
- * rendered in full — the split-plane geometry is section-derived and does
- * not need halving the way a formation TIN does.
+ * wall is visible from both sides (the camera may orbit behind a panel). Like
+ * ``buildTinPrimitive`` it honours the split ``clip``: when a half-space plane is
+ * supplied the panel is clipped to that half (emitting a triangle soup) so a
+ * split view shows each pane only the walls on its side — without the clip the
+ * fence walls floated whole over both panes (dogfeed 2026-06-10).
  *
  * Parameters
  * ----------
@@ -672,16 +673,20 @@ function buildTinPrimitive(
  *     ``Cesium.Color`` (including alpha) for the primitive.
  * projectEpsg
  *     Horizontal CRS EPSG code for the coordinate transform.
+ * clip
+ *     Optional half-space plane + side; when set, only the kept half is built.
  *
  * Returns
  * -------
- * ``Cesium.Primitive`` or ``null`` when ``triangles`` is empty.
+ * ``Cesium.Primitive`` or ``null`` when ``triangles`` is empty or the clip
+ * removes the whole panel.
  */
 function buildFencePrimitive(
   vertices: [number, number, number][],
   triangles: [number, number, number][],
   color: Cesium.Color,
   projectEpsg: number,
+  clip?: { plane: Cesium.Plane; keepPositive: boolean },
 ): Cesium.Primitive | null {
   if (triangles.length === 0) return null
 
@@ -690,20 +695,48 @@ function buildFencePrimitive(
     return Cesium.Cartesian3.fromDegrees(lng, lat, z)
   })
 
-  const positionValues = new Float64Array(ecef.length * 3)
-  let i = 0
-  for (const v of ecef) {
-    positionValues[i++] = v.x
-    positionValues[i++] = v.y
-    positionValues[i++] = v.z
-  }
+  let positionValues: Float64Array
+  let indices: Uint32Array
 
-  const indices = new Uint32Array(triangles.length * 3)
-  let j = 0
-  for (const [i0, i1, i2] of triangles) {
-    indices[j++] = i0
-    indices[j++] = i1
-    indices[j++] = i2
+  if (!clip) {
+    // No split — compact indexed geometry (the shared-vertex fast path).
+    positionValues = new Float64Array(ecef.length * 3)
+    let i = 0
+    for (const v of ecef) {
+      positionValues[i++] = v.x
+      positionValues[i++] = v.y
+      positionValues[i++] = v.z
+    }
+    indices = new Uint32Array(triangles.length * 3)
+    let j = 0
+    for (const [i0, i1, i2] of triangles) {
+      indices[j++] = i0
+      indices[j++] = i1
+      indices[j++] = i2
+    }
+  } else {
+    // Split active — clip the wall to the half-space and emit a triangle soup
+    // (clipped triangles don't share vertices), exactly like buildTinPrimitive.
+    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
+      ecef[a],
+      ecef[b],
+      ecef[c],
+    ])
+    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    if (clipped.length === 0) return null
+    positionValues = new Float64Array(clipped.length * 9)
+    indices = new Uint32Array(clipped.length * 3)
+    let pi = 0
+    let ii = 0
+    for (const t of clipped) {
+      for (const v of t) {
+        positionValues[pi++] = v.x
+        positionValues[pi++] = v.y
+        positionValues[pi++] = v.z
+        indices[ii] = ii
+        ii++
+      }
+    }
   }
 
   const geometry = new Cesium.Geometry({
@@ -969,6 +1002,7 @@ function rebuildSurfacePrimitives(
   splitLine?: SplitLine | null,
   showConfidenceFade: boolean = true,
   fencePanels?: FencePanel[],
+  groundSurfaceVisible: boolean = true,
 ): void {
   scene.primitives.removeAll()
 
@@ -1095,8 +1129,10 @@ function rebuildSurfacePrimitives(
 
   // Ground-surface TIN — rendered first (painter's algorithm: drawn below
   // formation surfaces). Uses a warm-grey earth tone at 45 % alpha so
-  // formation bands remain legible above it.
-  if (groundSurface && groundSurface.triangles.length > 0) {
+  // formation bands remain legible above it. Gated by the "Ground surface"
+  // legend toggle (the flat DEM plane read as a "basemap backdrop" the user
+  // couldn't switch off — dogfeed 2026-06-10).
+  if (groundSurfaceVisible && groundSurface && groundSurface.triangles.length > 0) {
     const terrainPrimitive = buildTinPrimitive(
       groundSurface.vertices,
       groundSurface.triangles,
@@ -1132,7 +1168,15 @@ function rebuildSurfacePrimitives(
       // Fence walls render at ALPHA_FRESH so they match formation-surface
       // opacity and don't appear heavier than the surrounding geology.
       const fenceColor = baseColor.withAlpha(ALPHA_FRESH)
-      const prim = buildFencePrimitive(panel.vertices, panel.triangles, fenceColor, projectEpsg)
+      // Pass the split clip so a split view shows each pane only its half's
+      // walls (without it the walls render whole over both panes).
+      const prim = buildFencePrimitive(
+        panel.vertices,
+        panel.triangles,
+        fenceColor,
+        projectEpsg,
+        clip,
+      )
       if (prim) scene.primitives.add(prim)
     }
   }
@@ -1332,6 +1376,8 @@ interface CesiumViewportProps {
   hiddenFormationIds?: ReadonlySet<string>
   /** When false, no basemap imagery is added (the 3D "Basemap" toggle). */
   basemapEnabled?: boolean
+  /** When false, the DEM ground-surface TIN is not drawn (the "Ground surface" toggle). */
+  groundSurfaceVisible?: boolean
   /** Per-project confidence-fade toggle (debt #94 follow-up). */
   showConfidenceFade?: boolean
   /** Fence-diagram wall panels — threaded from Geology3DViewerProps. */
@@ -1390,6 +1436,7 @@ function CesiumViewport({
   groundSurface,
   hiddenFormationIds,
   basemapEnabled = true,
+  groundSurfaceVisible = true,
   showConfidenceFade = true,
   fencePanels,
 }: CesiumViewportProps): JSX.Element {
@@ -1507,6 +1554,7 @@ function CesiumViewport({
       splitLine,
       showConfidenceFade,
       fencePanels,
+      groundSurfaceVisible,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -1572,6 +1620,8 @@ function CesiumViewport({
     // Fence panels: rebuild when the lithology canvas passes new wall panels
     // (new section, new correlations, or section deselected).
     fencePanels,
+    // Ground-surface visibility toggle — rebuild so the DEM appears/disappears.
+    groundSurfaceVisible,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -1804,6 +1854,8 @@ export default function Geology3DViewer({
   }, [])
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
+  // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
+  const [groundSurfaceVisible, setGroundSurfaceVisible] = useState(true)
 
   // Debt #26: when offline, the basemap "lid" texture fetch fails and
   // the canvas shows formation surfaces against a black globe — users
@@ -1881,6 +1933,7 @@ export default function Geology3DViewer({
           groundSurface={groundSurface}
           hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
+          groundSurfaceVisible={groundSurfaceVisible}
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
         />
@@ -1934,6 +1987,33 @@ export default function Geology3DViewer({
                   </span>
                 </button>
               </li>
+              {/* Ground surface (DEM) on/off — only shown when a terrain TIN
+                  exists. The flat DEM plane reads as a "basemap backdrop" the
+                  user couldn't switch off otherwise (dogfeed 2026-06-10). */}
+              {groundSurface && groundSurface.vertices.length > 0 && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setGroundSurfaceVisible(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!groundSurfaceVisible ? 'opacity-50' : ''}`}
+                    title={groundSurfaceVisible ? 'Hide ground surface' : 'Show ground surface'}
+                  >
+                    <span
+                      className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default"
+                      style={
+                        groundSurfaceVisible
+                          ? { backgroundColor: 'rgb(140,133,122)' }
+                          : { borderColor: 'rgb(140,133,122)' }
+                      }
+                    />
+                    <span
+                      className={`truncate ${!groundSurfaceVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
+                    >
+                      Ground surface
+                    </span>
+                  </button>
+                </li>
+              )}
               {/* Youngest-first (surface at top) so the legend reads like the
                   GeologyInspector list / a borehole log. The TIN paint order
                   (ascending display_order) is unaffected — this reverses the
@@ -2040,6 +2120,7 @@ export default function Geology3DViewer({
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
               basemapEnabled={basemapEnabled}
+              groundSurfaceVisible={groundSurfaceVisible}
               showConfidenceFade={showConfidenceFade}
               fencePanels={fencePanels}
             />
