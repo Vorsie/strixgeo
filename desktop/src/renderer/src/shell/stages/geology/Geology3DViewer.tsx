@@ -156,9 +156,9 @@ export interface Geology3DViewerProps {
    * renders solids unconditionally when provided.  Task 8 will suppress the
    * surface sheets in Solid mode and pass this prop.
    *
-   * Task 8 note: the parent must memoize this array (e.g. ``useMemo``) to avoid
-   * an infinite primitive-rebuild loop — a fresh array literal on every render
-   * changes identity each tick and re-triggers the ``useEffect`` dep.
+   * Do not pass a new array literal on every render — a useState value or a
+   * memoized value keeps the reference stable; otherwise the rebuild effect
+   * re-runs every render.  The current caller satisfies this via useState.
    */
   bodySolids?: LithoBodySolidResponse[]
 }
@@ -1844,10 +1844,9 @@ function CesiumViewport({
     // Surfaces visibility toggle — rebuild so the formation TIN sheets appear/disappear.
     surfacesVisible,
     // Body solids: rebuild when the lithology canvas passes new solid meshes
-    // (after a rebuild or when the model changes).
-    // Task 8 note: the parent must pass a memoized array to avoid infinite
-    // rebuild loops — a fresh array literal on every render changes identity
-    // each tick and re-triggers this effect (same dep-array rule as fencePanels).
+    // (after a rebuild or when the model changes).  The caller passes a useState
+    // value so the reference is stable — no useMemo needed; any new array literal
+    // would re-trigger this effect every render (same dep-array rule as fencePanels).
     bodySolids,
   ])
 
