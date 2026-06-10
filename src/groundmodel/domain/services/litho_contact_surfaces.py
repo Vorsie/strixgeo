@@ -69,3 +69,76 @@ def build_columns(
         # Sort shallowest-first: shallower spans have a larger top_elev value
         columns[inv].sort(key=lambda s: s.top_elev, reverse=True)
     return columns, coords
+
+
+@dataclass(frozen=True)
+class ContactKey:
+    """Ordered identity of a contact patch.
+
+    Parameters
+    ----------
+    upper_body : str
+        Body directly above the contact, or ``""`` for the free ground surface.
+    lower_body : str
+        Body directly below the contact, or ``""`` for the free model base.
+    """
+
+    upper_body: str
+    lower_body: str
+
+
+@dataclass(frozen=True)
+class ContactPoint:
+    """One contact observation at one investigation.
+
+    Parameters
+    ----------
+    inv_id : str
+        Investigation id.
+    x : float
+        World x.
+    y : float
+        World y.
+    elev : float
+        Contact elevation (mTAW).
+    """
+
+    inv_id: str
+    x: float
+    y: float
+    elev: float
+
+
+def enumerate_contacts(
+    columns: dict[str, list[LayerSpan]],
+    coords: dict[str, tuple[float, float]],
+) -> dict[ContactKey, list[ContactPoint]]:
+    """Group every contact observation by its ordered ``(upper, lower)`` pair.
+
+    Parameters
+    ----------
+    columns : dict[str, list[LayerSpan]]
+        Per-investigation spans, shallowest-first (from :func:`build_columns`).
+    coords : dict[str, tuple[float, float]]
+        Per-investigation ``(x, y)``.
+
+    Returns
+    -------
+    dict[ContactKey, list[ContactPoint]]
+        Contact points per ordered body pair. Includes the free ground surface
+        (``upper=""``) and free model base (``lower=""``) of every column.
+    """
+    out: dict[ContactKey, list[ContactPoint]] = {}
+
+    def add(key: ContactKey, inv: str, elev: float) -> None:
+        x, y = coords[inv]
+        out.setdefault(key, []).append(ContactPoint(inv, x, y, elev))
+
+    for inv, spans in columns.items():
+        if not spans:
+            continue
+        add(ContactKey("", spans[0].body_id), inv, spans[0].top_elev)  # ground
+        for upper, lower in zip(spans, spans[1:]):
+            add(ContactKey(upper.body_id, lower.body_id), inv, upper.base_elev)
+        add(ContactKey(spans[-1].body_id, ""), inv, spans[-1].base_elev)  # base
+    return out

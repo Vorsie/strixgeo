@@ -58,3 +58,24 @@ def test_build_columns_groups_multiple_investigations_independently():
     assert b_bodies == ["SAND", "PEAT"]
     assert columns["B"][0].top_elev == 0.0 and columns["B"][0].base_elev == -2.0
     assert columns["B"][1].top_elev == -2.0 and columns["B"][1].base_elev == -5.0
+
+
+def test_enumerate_contacts_keys_by_ordered_pair_and_free_surfaces():
+    """Internal interfaces key by (upper, lower); free ground/base use ''."""
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        ContactKey,
+        enumerate_contacts,
+    )
+
+    picks = [
+        _pick("A", 0.0, 0.0, "SAND", 0.0, 4.0),
+        _pick("A", 0.0, 0.0, "CLAY", 4.0, 14.0),
+    ]
+    columns, coords = build_columns(picks)
+    contacts = enumerate_contacts(columns, coords)
+    # internal SAND/CLAY interface at elev -4
+    pts = contacts[ContactKey("SAND", "CLAY")]
+    assert len(pts) == 1 and pts[0].elev == -4.0 and pts[0].x == 0.0
+    # free ground above SAND at elev 0, free base below CLAY at elev -14
+    assert contacts[ContactKey("", "SAND")][0].elev == 0.0
+    assert contacts[ContactKey("CLAY", "")][0].elev == -14.0
