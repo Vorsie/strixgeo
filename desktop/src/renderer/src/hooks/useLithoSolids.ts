@@ -130,10 +130,21 @@ export function useLithoSolids(
 
   // -------------------------------------------------------------------------
   // Build / rebuild
+  //
+  // ``buildingRef`` shadows the ``building`` state so that ``buildLithoSolids``
+  // can guard against concurrent calls without listing ``building`` in its
+  // useCallback dep array.  A stale closure over ``building`` would re-identify
+  // the callback on every build completion — fragile if a future consumer puts
+  // it in an effect dep.
   // -------------------------------------------------------------------------
 
+  const buildingRef = useRef(building)
+  useEffect(() => {
+    buildingRef.current = building
+  }, [building])
+
   const buildLithoSolids = useCallback(async (): Promise<void> => {
-    if (!projectId || !lithoModelId || building) return
+    if (!projectId || !lithoModelId || buildingRef.current) return
     setBuilding(true)
     log.info('useLithoSolids', `building body solids model=${lithoModelId}`)
     try {
@@ -142,9 +153,11 @@ export function useLithoSolids(
         'useLithoSolids',
         `built ${result.bodies_built} body solid(s), flagged=${result.bodies_flagged}`,
       )
+      // Build response already carries the updated solids list — apply
+      // directly.  No nonce bump needed: the fetch effect re-runs only when
+      // the nonce changes, and re-fetching here would overwrite identical data
+      // with an extra round-trip.
       setSolids(result.solids)
-      // Bump so any follow-up listLithoSolids call (future consumer) re-fetches.
-      setRefetchNonce(n => n + 1)
 
       const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
       if (result.bodies_flagged > 0) {
@@ -161,13 +174,19 @@ export function useLithoSolids(
     } finally {
       setBuilding(false)
     }
-  }, [projectId, lithoModelId, building, toast])
+  }, [projectId, lithoModelId, toast])
 
   // -------------------------------------------------------------------------
   // Per-body colour — optimistic + debounced
   // -------------------------------------------------------------------------
 
   const colorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cancel any pending colour-debounce timer on unmount so a 200 ms callback
+  // cannot fire after the component tree is torn down.
+  useEffect(() => () => {
+    if (colorTimeoutRef.current !== null) clearTimeout(colorTimeoutRef.current)
+  }, [])
 
   const setBodyColor = useCallback(
     (bodyId: string, color: string | null): void => {
@@ -187,12 +206,12 @@ export function useLithoSolids(
           .setBodyColor(projectId, lithoModelId, bodyId, color)
           .then(() => {
             log.success('useLithoSolids', `body colour persisted body=${bodyId}`)
-            setRefetchNonce(n => n + 1)
+            // Optimistic update already applied — no re-fetch needed on success.
           })
           .catch(err => {
             log.error('useLithoSolids', 'failed to persist body colour', err)
             toast('error', 'Could not save body colour — try again.')
-            // Re-fetch to restore server state on failure.
+            // Re-fetch to restore server state after a failed persist.
             setRefetchNonce(n => n + 1)
           })
       }, 200)
