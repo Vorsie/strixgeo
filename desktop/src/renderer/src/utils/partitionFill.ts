@@ -194,6 +194,15 @@ export interface PartitionRegion {
   kind: 'quad' | 'pinch' | 'lens'
   /** Closed polygon ring, no repeated last point. */
   polygon: PartitionPoint[]
+  /**
+   * For overlays (``kind: 'lens'``) only — which carve TIER the region belongs to.
+   * ``onlap`` laps one bracket tie-line; ``lens`` is a fully-enclosed minority.
+   * ``carveOverlays`` carves onlaps out of the mains, then lenses out of the
+   * onlaps (an enclosed lens inside an onlapping clay) and finally the mains, so
+   * a lens sitting inside an onlap no longer overlaps it. Mains leave it
+   * ``undefined``; the renderer ignores it (both tiers draw as overlays).
+   */
+  overlayTier?: 'onlap' | 'lens'
 }
 
 // ---------------------------------------------------------------------------
@@ -1172,13 +1181,32 @@ function insertNotches(
  */
 function carveOverlays(regions: PartitionRegion[]): void {
   const mains = regions.filter((r) => r.kind === 'quad' || r.kind === 'pinch')
-  const overlays = regions.filter((r) => r.kind === 'lens')
-  if (overlays.length === 0 || mains.length === 0) return
+  const onlaps = regions.filter((r) => r.overlayTier === 'onlap')
+  const lenses = regions.filter((r) => r.overlayTier === 'lens')
+  if (mains.length === 0) return
 
-  // Group notches per matrix region, per side. Matrices are clipped against
-  // before any are mutated, so every clip sees the original (convex) polygon.
-  const byMatrix = new Map<PartitionRegion, { 0: OverlayNotch[]; 1: OverlayNotch[] }>()
-  for (const ov of overlays) {
+  // Notches to cut, grouped by the region they cut into and the column side. All
+  // notches are accumulated first and applied once at the end, so every clip sees
+  // a CONVEX target (a region is never mutated until all overlays riding on it
+  // have been clipped against it).
+  const byTarget = new Map<PartitionRegion, { 0: OverlayNotch[]; 1: OverlayNotch[] }>()
+  const recordNotch = (t: PartitionRegion, side: 0 | 1, nt: OverlayNotch): void => {
+    let g = byTarget.get(t)
+    if (!g) {
+      g = { 0: [], 1: [] }
+      byTarget.set(t, g)
+    }
+    g[side].push(nt)
+  }
+
+  /**
+   * Clip ``ov`` to the tightest enclosing ``candidate`` (by column-edge span on
+   * the side ``ov`` is anchored to), replace ``ov``'s polygon with the clipped
+   * (seam-riding) shape, and record the notch to cut into that candidate. Returns
+   * the candidate the overlay rode on, or ``null`` when none enclosed it (the
+   * overlay is then left untouched — a harmless overlay).
+   */
+  const carveOnto = (ov: PartitionRegion, candidates: PartitionRegion[]): PartitionRegion | null => {
     const onLeft = edgeElevations(ov.polygon, 0)
     const onRight = edgeElevations(ov.polygon, 1)
     let side: 0 | 1
@@ -1190,50 +1218,56 @@ function carveOverlays(regions: PartitionRegion[]): void {
       side = 1
       edgeElevs = onRight
     } else {
-      continue // defensive: overlay not anchored on a column edge
+      return null // defensive: overlay not anchored on a column edge
     }
     const ob = Math.min(...edgeElevs)
     const ot = Math.max(...edgeElevs)
 
-    // The matrix this overlay sits in: a main with >= 2 verts on `side` whose
-    // edge-span contains [ob, ot]. After LL1 (overlays never overlap each other)
-    // and main×main = 0, exactly one main contains a given elevation band, so the
-    // match is unambiguous; pick the tightest span defensively.
+    // The region this overlay sits in: a candidate with >= 2 verts on `side` whose
+    // edge-span contains [ob, ot]. Pick the TIGHTEST span — when an onlap and the
+    // main beneath it both enclose a lens, the onlap is tighter, so the lens rides
+    // (and carves out of) the onlap, not the main it shares.
     let best: PartitionRegion | null = null
     let bestSpan = Infinity
-    for (const m of mains) {
-      const me = edgeElevations(m.polygon, side)
-      if (me.length < 2) continue
-      const lo = Math.min(...me)
-      const hi = Math.max(...me)
+    for (const c of candidates) {
+      const ce = edgeElevations(c.polygon, side)
+      if (ce.length < 2) continue
+      const lo = Math.min(...ce)
+      const hi = Math.max(...ce)
       if (lo <= ob + SPAN_EPS && hi >= ot - SPAN_EPS) {
         const span = hi - lo
         if (span < bestSpan) {
-          best = m
+          best = c
           bestSpan = span
         }
       }
     }
-    if (!best) continue // defensive: no enclosing matrix (e.g. lens at the column floor)
+    if (!best) return null // no enclosing region (e.g. lens at the column floor)
 
-    // Clip the overlay to the matrix so it rides the seam, then derive its notch.
+    // Clip the overlay to the target so it rides the seam, then derive its notch.
     const clipped = clipToConvex(ov.polygon, best.polygon)
-    if (clipped.length < 3) continue // degenerate after clipping — leave overlay as-is
+    if (clipped.length < 3) return null // degenerate after clipping — leave as-is
     const notch = notchFromClipped(clipped, side)
-    if (!notch) continue
+    if (!notch) return null
     ov.polygon = clipped // the overlay now exactly fills its notch (seam-riding)
-
-    let g = byMatrix.get(best)
-    if (!g) {
-      g = { 0: [], 1: [] }
-      byMatrix.set(best, g)
-    }
-    g[side].push(notch)
+    recordNotch(best, side, notch)
+    return best
   }
 
-  for (const [m, g] of byMatrix) {
-    if (g[0].length > 0) m.polygon = insertNotches(m.polygon, 0, g[0])
-    if (g[1].length > 0) m.polygon = insertNotches(m.polygon, 1, g[1])
+  // Tier 1: onlaps ride on the mains (the connected matrix band beneath them).
+  for (const ov of onlaps) carveOnto(ov, mains)
+  // Tier 2: lenses ride on the onlap they sit inside FIRST (an enclosed minority
+  // inside an onlapping clay — the tie-section-11 peat), else on a main. Onlaps
+  // were clipped above but not yet notched, so they are still convex here; mains
+  // are likewise untouched until the apply pass below. Both clips stay convex.
+  for (const ov of lenses) carveOnto(ov, [...onlaps, ...mains])
+
+  // Apply every accumulated notch once per target/side (insertNotches orders +
+  // de-overlaps stacked notches). Onlaps that gained lens notches turn concave
+  // here; that is after all clipping, so no clip ever saw a concave target.
+  for (const [t, g] of byTarget) {
+    if (g[0].length > 0) t.polygon = insertNotches(t.polygon, 0, g[0])
+    if (g[1].length > 0) t.polygon = insertNotches(t.polygon, 1, g[1])
   }
 }
 
@@ -1844,6 +1878,7 @@ function emitGap(
       formationId: onlap.unit.formationId,
       bodyId: onlap.unit.bodyId,
       kind: 'lens',
+      overlayTier: 'onlap',
       polygon: buildOnlapPolygon(
         onlap.unit,
         onlap.edge,
@@ -1876,6 +1911,7 @@ function emitGap(
       formationId: lens.formationId,
       bodyId: lens.bodyId,
       kind: 'lens',
+      overlayTier: 'lens',
       polygon: buildLeftLensPolygon(topElev, baseElev, apex),
     })
   }
@@ -1889,6 +1925,7 @@ function emitGap(
       formationId: lens.formationId,
       bodyId: lens.bodyId,
       kind: 'lens',
+      overlayTier: 'lens',
       polygon: buildRightLensPolygon(topElev, baseElev, apex),
     })
   }
