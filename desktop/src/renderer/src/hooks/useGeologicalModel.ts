@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
+import type { UseLithoSolidsResult } from './useLithoSolids'
+import { useLithoSolids } from './useLithoSolids'
 import type {
   AcceptLithoSuggestionsResponse,
   BatchAcceptLithoSuggestionsResponse,
@@ -248,6 +250,24 @@ export interface UseGeologicalModelResult {
    * No-ops when no litho model is active.
    */
   handleRebuildLithoSurfaces: () => Promise<void>
+  // ---- Litho body solids (useLithoSolids — lifted from LithologyCanvas) ----
+  /** All built body solids for the active litho model. */
+  lithoSolids: UseLithoSolidsResult['lithoSolids']
+  /** True while the initial fetch is in flight. */
+  lithoSolidsLoading: UseLithoSolidsResult['lithoSolidsLoading']
+  /** True while a rebuild is in progress. */
+  lithoSolidsBuilding: UseLithoSolidsResult['lithoSolidsBuilding']
+  /** True when at least one solid has triangles. */
+  hasLithoSolids: UseLithoSolidsResult['hasLithoSolids']
+  /** True when any solid has ``is_stale === true``. */
+  hasStaleLithoSolid: UseLithoSolidsResult['hasStaleLithoSolid']
+  /** Build / rebuild solids for the active litho model, toast the result. */
+  buildLithoSolids: UseLithoSolidsResult['buildLithoSolids']
+  /**
+   * Set or clear a per-body display colour (optimistic + debounced).
+   * ``null`` resets to the formation lithology colour.
+   */
+  setBodyColor: UseLithoSolidsResult['setBodyColor']
   /**
    * Re-fetch the active litho model's contacts from the server.
    * Called after a manual contact create (handleManualLithoUnitCreate)
@@ -1991,6 +2011,15 @@ export function useGeologicalModel({
   )
 
 
+  // Litho body solids — lifted from LithologyCanvas so the toolbar, canvas,
+  // and inspector all share one state atom.  The hook is always called here
+  // (unconditionally, above any early return) per the hook-order rule.
+  const lithoSolidsResult = useLithoSolids(
+    project?.id ?? null,
+    activeLithoModel?.id ?? null,
+    toast,
+  )
+
   return {
     activeGeologicalModel,
     models,
@@ -2076,5 +2105,7 @@ export function useGeologicalModel({
     handleAutoCorrelate,
     handleClearSuggestions,
     lithoCrossingPinchOuts,
+    // Litho body solids — spread from useLithoSolids (lifted from canvas).
+    ...lithoSolidsResult,
   }
 }
