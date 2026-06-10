@@ -226,8 +226,12 @@ def _assemble(
     * Top faces: each triangle with its original winding (outward = up).
     * Base faces: each triangle with reversed winding (outward = down).
     * Side walls: one quad (two triangles) per boundary edge of the TIN.
-      A boundary edge belongs to exactly one triangle; interior edges
-      belong to two.
+      Boundary edges are found via a DIRECTED edge counter — each boundary
+      edge appears exactly once (directed), preserving outward winding.
+      Interior edges appear once in each direction (count 1 each way).
+      Using an undirected counter would discard traversal direction and
+      produce inward normals on walls where the boundary edge runs
+      high-index → low-index in the Delaunay simplex.
 
     Parameters
     ----------
@@ -255,19 +259,32 @@ def _assemble(
         triangles.append((a, b, c))  # top face, outward-up winding
         triangles.append((c + n, b + n, a + n))  # base face, reversed → outward-down
 
-    # Count directed edge occurrences to find boundary edges (count == 1).
-    edge_count: Counter[tuple[int, int]] = Counter()
+    # Use a DIRECTED edge counter to find boundary edges and preserve winding.
+    # In a consistently-wound (CCW) triangulation each interior edge appears once
+    # as (u, v) and once as (v, u) — both directed counts are 1.  A boundary
+    # edge appears exactly once directed (u→v), so dir_count[(u,v)] == 1 AND
+    # dir_count[(v,u)] == 0.  Checking both conditions identifies the boundary
+    # and gives the outward-consistent direction.  An undirected (min, max)
+    # counter discards traversal direction and would emit walls with inward
+    # normals for any boundary edge traversed high-index → low-index in the
+    # Delaunay simplex.
+    dir_edge_count: Counter[tuple[int, int]] = Counter()
     for a, b, c in tris:
         for u, v in ((a, b), (b, c), (c, a)):
-            edge_count[(min(u, v), max(u, v))] += 1
+            dir_edge_count[(u, v)] += 1
 
-    for (i, j), ct in edge_count.items():
+    for (u, v), ct in dir_edge_count.items():
         if ct != 1:
-            continue  # interior edge — shared by two triangles, no wall needed
-        # Side wall quad bridging top edge (i, j) to base edge (i+n, j+n).
-        # Winding: outward-facing toward the side of the solid.
-        triangles.append((i, j, j + n))
-        triangles.append((i, j + n, i + n))
+            continue  # only one direction of this pair — check if it's boundary
+        if dir_edge_count[(v, u)] != 0:
+            continue  # reverse also present → interior edge, no wall needed
+        # Directed boundary edge u→v in the top surface.
+        # The top face already traverses u→v; the base face (reversed) traverses
+        # (v+n)→(u+n).  The wall quad must pair with both without repeating any
+        # directed edge: start from v (not u) so the wall's top strip is v→u,
+        # complementing the top face's u→v.
+        triangles.append((v, u, u + n))
+        triangles.append((v, u + n, v + n))
 
     return LithoBodyMesh(
         body_id=body_id,

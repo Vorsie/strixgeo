@@ -19,6 +19,21 @@ def _is_closed_manifold(triangles: list[tuple[int, int, int]]) -> bool:
     return len(triangles) > 0 and all(ct == 2 for ct in ec.values())
 
 
+def _is_consistently_wound(triangles: list[tuple[int, int, int]]) -> bool:
+    """Every directed edge appears exactly once — consistent outward winding.
+
+    In a consistently-wound mesh every interior edge is traversed once in
+    each direction (u→v and v→u), and every boundary edge is traversed
+    exactly once in the outward direction.  The combined directed count
+    for every directed pair therefore equals exactly 1.
+    """
+    ec: Counter[tuple[int, int]] = Counter()
+    for a, b, c in triangles:
+        for u, v in ((a, b), (b, c), (c, a)):
+            ec[(u, v)] += 1
+    return len(triangles) > 0 and all(ct == 1 for ct in ec.values())
+
+
 # Six investigations forming a 2×3 grid — enough spread for a real TIN
 # (non-collinear, no degenerate cases when all 6 are used).
 PTS = [
@@ -57,6 +72,7 @@ def test_through_going_body_is_a_closed_watertight_solid() -> None:
     assert m.body_id == "b1"
     assert not m.is_flagged
     assert _is_closed_manifold(m.triangles)
+    assert _is_consistently_wound(m.triangles)
 
 
 def test_pinch_out_keeps_the_solid_watertight_and_zero_thickness_at_the_pinch() -> None:
@@ -76,6 +92,7 @@ def test_pinch_out_keeps_the_solid_watertight_and_zero_thickness_at_the_pinch() 
     meshes = build_body_solids(picks)
     assert len(meshes) == 1
     assert _is_closed_manifold(meshes[0].triangles)
+    assert _is_consistently_wound(meshes[0].triangles)
     # A vertex pair (top, base) at the pinch has the same z — zero-thickness present.
     zs = [v[2] for v in meshes[0].vertices]
     assert any(abs(z - (12.0 - 2.0)) < 1e-9 for z in zs)
@@ -97,6 +114,14 @@ def test_adjacent_bodies_share_the_contact_surface_exactly() -> None:
     clay = _slab_picks("clay", "KLEI", top=4.0, base=9.0)  # clay top == sand base
     meshes = build_body_solids(sand + clay)
     by_id = {m.body_id: m for m in meshes}
-    sand_base_z = sorted(v[2] for v in by_id["sand"].vertices if abs(v[2] - (12.0 - 4.0)) < 1e-6)
-    clay_top_z = sorted(v[2] for v in by_id["clay"].vertices if abs(v[2] - (12.0 - 4.0)) < 1e-6)
-    assert sand_base_z and clay_top_z  # both bodies have vertices on the shared contact
+    shared_elev = 12.0 - 4.0  # surface_elev_m - depth_m
+    # Extract the full (x, y, z) vertex set that each body places on the shared contact.
+    # The cache guarantee is that they reference IDENTICAL surface geometry, so the
+    # sorted vertex sets must be equal — not merely overlapping.
+    sand_shared = sorted(v for v in by_id["sand"].vertices if abs(v[2] - shared_elev) < 1e-6)
+    clay_shared = sorted(v for v in by_id["clay"].vertices if abs(v[2] - shared_elev) < 1e-6)
+    assert sand_shared, "sand mesh has no vertices at the shared contact elevation"
+    assert clay_shared, "clay mesh has no vertices at the shared contact elevation"
+    assert sand_shared == clay_shared, (
+        "shared-contact vertex sets differ — cache did not produce identical surface geometry"
+    )
