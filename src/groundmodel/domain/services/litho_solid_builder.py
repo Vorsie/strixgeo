@@ -15,7 +15,9 @@ surface geometry → the stack is watertight by construction.
 
 Lenses build as their own closed blobs that overlap their matrix (the 3D carve is
 milestone 3). A body with <3 non-collinear control points cannot fit a TIN and is
-emitted as a flagged thin slab (spec §7) rather than crashing.
+emitted as small vertical-cylinder disk markers at its investigations
+(``is_flagged=True``) so local units still show in the viewer rather than
+vanishing (owner directive 2026-06-10).
 """
 
 from __future__ import annotations
@@ -23,15 +25,17 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from groundmodel.domain.services.litho_solid_builder_constants import (
+    MARKER_DISK_MIN_THICKNESS_M,
+    MARKER_DISK_RADIUS_M,
+    MARKER_DISK_SIDES,
+)
 from groundmodel.domain.services.tin_surface import compute_tin
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
-
-#: Thickness (m) of the fallback slab for a body that cannot fit a surface.
-FLAGGED_SLAB_THICKNESS_M = 0.5
 
 
 @dataclass(frozen=True)
@@ -132,7 +136,8 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     Groups picks by ``body_id``, fits a TIN for each contact surface
     (top and base), then assembles the closed solid from the two surfaces
     and their side walls. Bodies whose investigations do not yield a valid
-    TIN (<3 non-collinear points) are emitted as flagged thin slabs.
+    TIN (<3 non-collinear points) are emitted as disk-marker meshes
+    (``is_flagged=True``) — one closed vertical cylinder per pick.
 
     Parameters
     ----------
@@ -145,8 +150,7 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     list[LithoBodyMesh]
         One mesh per body. Order matches the iteration order of
         ``body_id`` first-occurrence in ``picks``. Bodies with <3 control
-        points are flagged slabs (``is_flagged=True``, empty or minimal
-        geometry).
+        points are disk-marker meshes (``is_flagged=True``).
     """
     logger.debug(f"build_body_solids: {len(picks)} picks across bodies")
 
@@ -190,10 +194,10 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
             # guard is cheap).
             logger.warning(
                 f"build_body_solids: body {body_id} could not form a solid "
-                f"(top_tris={len(top_t)}, base_tris={len(base_t)}); "
-                f"emitting flagged slab"
+                f"(top_tris={len(top_t)}, base_tris={len(base_t)}, picks={len(members)}); "
+                f"emitting disk markers"
             )
-            meshes.append(_flagged_slab(body_id, formation_id, top_raw))
+            meshes.append(_disk_markers(body_id, formation_id, members))
             continue
 
         mesh = _assemble(body_id, formation_id, top_v, base_v, top_t)
@@ -295,17 +299,22 @@ def _assemble(
     )
 
 
-def _flagged_slab(
+def _disk_markers(
     body_id: str,
     formation_id: str,
-    top_raw: list[_RawPick],
+    members: list[BodyLayerPick],
 ) -> LithoBodyMesh:
-    """Fallback for an un-triangulable body: a thin slab under its picks.
+    """Fallback for an un-triangulable body: one vertical cylinder per pick.
 
-    With <3 picks the slab has no triangles (empty mesh). With exactly
-    3 picks it produces one top + one base triangle. The slab is a
-    non-crashing marker; the UI shows a count of under-constrained
-    bodies and surfaces them with a distinct colour.
+    Each pick becomes a closed cylinder (top cap + bottom cap + side wall)
+    centred at the pick's (x_m, y_m) with radius ``MARKER_DISK_RADIUS_M``
+    and height equal to the pick's real thickness, so the unit still shows
+    in the 3-D viewer at its actual investigation location and depth extent
+    instead of vanishing.
+
+    Multiple cylinders are concatenated into a single mesh with offset
+    vertex indices; the result is a set of disjoint closed 2-manifolds,
+    which satisfies both the closed-manifold and consistent-winding checks.
 
     Parameters
     ----------
@@ -313,15 +322,16 @@ def _flagged_slab(
         Body identifier.
     formation_id : str
         Formation identifier.
-    top_raw : list[_RawPick]
-        Raw top-contact picks for this body.
+    members : list[BodyLayerPick]
+        Member-layer picks for this body (one per investigation).
 
     Returns
     -------
     LithoBodyMesh
-        Flagged slab with ``is_flagged=True``.
+        Disk-marker mesh with ``is_flagged=True``.  Empty if *members* is
+        empty (defensive guard).
     """
-    if len(top_raw) < 3:
+    if not members:
         return LithoBodyMesh(
             body_id=body_id,
             formation_id=formation_id,
@@ -330,15 +340,67 @@ def _flagged_slab(
             is_flagged=True,
         )
 
-    top = [(x, y, z) for _iv, x, y, z in top_raw]
-    base = [(x, y, z - FLAGGED_SLAB_THICKNESS_M) for _iv, x, y, z in top_raw]
-    n = len(top)
-    vertices: list[tuple[float, float, float]] = top + base
-    # Best-effort single triangle per face using the first 3 picks.
-    triangles: list[tuple[int, int, int]] = [
-        (0, 1, 2),  # top face
-        (2 + n, 1 + n, 0 + n),  # base face, reversed winding
-    ]
+    import math  # noqa: PLC0415 — stdlib, import inside function to keep module-level imports clean
+
+    vertices: list[tuple[float, float, float]] = []
+    triangles: list[tuple[int, int, int]] = []
+
+    for pick in members:
+        cx, cy = pick.x_m, pick.y_m
+        top_elev = pick.surface_elev_m - pick.top_depth_m
+        base_elev = pick.surface_elev_m - pick.base_depth_m
+
+        # Enforce minimum thickness — expand symmetrically about the mid-elevation
+        # so a zero-thickness pick still renders a visible sliver in the viewer.
+        thickness = top_elev - base_elev
+        if thickness < MARKER_DISK_MIN_THICKNESS_M:
+            mid = (top_elev + base_elev) / 2.0
+            top_elev = mid + MARKER_DISK_MIN_THICKNESS_M / 2.0
+            base_elev = mid - MARKER_DISK_MIN_THICKNESS_M / 2.0
+
+        n = MARKER_DISK_SIDES
+        offset = len(vertices)
+
+        # Vertex layout (per cylinder):
+        #   offset + 0              → top cap centre
+        #   offset + 1 .. n         → top rim (CCW from above)
+        #   offset + n+1 .. 2n      → bottom rim (same angular order as top)
+        #   offset + 2n+1           → bottom cap centre
+        vertices.append((cx, cy, top_elev))  # top centre (index offset + 0)
+        for k in range(n):
+            angle = 2.0 * math.pi * k / n
+            vx = cx + MARKER_DISK_RADIUS_M * math.cos(angle)
+            vy = cy + MARKER_DISK_RADIUS_M * math.sin(angle)
+            vertices.append((vx, vy, top_elev))  # top rim (offset + 1 .. n)
+        for k in range(n):
+            angle = 2.0 * math.pi * k / n
+            vx = cx + MARKER_DISK_RADIUS_M * math.cos(angle)
+            vy = cy + MARKER_DISK_RADIUS_M * math.sin(angle)
+            vertices.append((vx, vy, base_elev))  # bottom rim (offset + n+1 .. 2n)
+        vertices.append((cx, cy, base_elev))  # bottom centre (index offset + 2n+1)
+
+        # Convenient index aliases (absolute).
+        top_c = offset + 0
+        top_r = [offset + 1 + k for k in range(n)]
+        bot_r = [offset + n + 1 + k for k in range(n)]
+        bot_c = offset + 2 * n + 1
+
+        for k in range(n):
+            nk = (k + 1) % n
+
+            # Top cap fan: outward normal = +z (CCW from above).
+            # Winding: (centre, next_rim, this_rim) → CCW when viewed from +z.
+            triangles.append((top_c, top_r[nk], top_r[k]))
+
+            # Bottom cap fan: outward normal = -z (CW from above = CCW from below).
+            # Winding: (centre, this_rim, next_rim) → CW from above → outward down.
+            triangles.append((bot_c, bot_r[k], bot_r[nk]))
+
+            # Side wall quad (two triangles, outward normal = radially outward).
+            # CCW order from outside: top_r[k] → top_r[nk] → bot_r[nk] → bot_r[k].
+            triangles.append((top_r[k], top_r[nk], bot_r[nk]))
+            triangles.append((top_r[k], bot_r[nk], bot_r[k]))
+
     return LithoBodyMesh(
         body_id=body_id,
         formation_id=formation_id,
