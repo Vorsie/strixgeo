@@ -13,17 +13,33 @@ top and base surfaces share the same z at a given investigation (validated by th
 so two bodies sharing a contact (base-of-upper = top-of-lower) reference identical
 surface geometry → the stack is watertight by construction.
 
-Lenses build as their own closed blobs that overlap their matrix (the 3D carve is
-milestone 3). A body with <3 non-collinear control points cannot fit a TIN and is
-emitted as small vertical-cylinder disk markers at its investigations
-(``is_flagged=True``) so local units still show in the viewer rather than
-vanishing (owner directive 2026-06-10).
+M3 path (the default): shared surfaces are built ONCE via :mod:`litho_contact_surfaces`
+and handed to :func:`assemble_body` (single-patch bodies) or
+:func:`build_extent_solid` (matrix bodies with interior lens voids). Enclosed
+lenses are carved out as interior voids via :func:`append_void`, so the matrix
+mesh is a true hollow shell around the lens — no blob overlap. A body with <3
+non-collinear control points cannot fit a TIN and is emitted as small
+vertical-cylinder disk markers at its investigations (``is_flagged=True``) so
+local units still show in the viewer rather than vanishing (owner directive
+2026-06-10). Multi-patch or otherwise un-assemblable bodies fall back to the M2
+per-body TIN path (``_legacy_body``) with no behaviour regression.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
+from groundmodel.domain.services.litho_body_assembly import (
+    append_void,
+    assemble_body,
+    build_extent_solid,
+    detect_enclosed_lenses,
+    merged_body_extent,
+)
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.litho_contact_surfaces import (
+    build_columns,
+    enumerate_contacts,
+    fit_patch_surfaces,
+)
 from groundmodel.domain.services.litho_mesh_primitives import assemble_closed_solid
 from groundmodel.domain.services.litho_solid_builder_constants import (
     MARKER_DISK_MIN_THICKNESS_M,
@@ -35,42 +51,10 @@ from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
+# Re-export BodyLayerPick so callers that import it from this module keep working.
+__all__ = ["BodyLayerPick", "build_body_solids"]
+
 logger = LoggerFactory.get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class BodyLayerPick:
-    """One member-layer of a body at one investigation.
-
-    Parameters
-    ----------
-    investigation_id : str
-        CPT/borehole id (identity for the (x, y) anchor).
-    x_m : float
-        World x-coordinate (project CRS).
-    y_m : float
-        World y-coordinate (project CRS).
-    surface_elev_m : float
-        Ground/surface elevation at the investigation; depth → elevation
-        conversion is ``elevation = surface_elev_m - depth_m``.
-    body_id : str
-        The body this pick belongs to.
-    formation_id : str
-        The body's lithology formation.
-    top_depth_m : float
-        Member layer top depth below ``surface_elev_m``.
-    base_depth_m : float
-        Member layer base depth below ``surface_elev_m``.
-    """
-
-    investigation_id: str
-    x_m: float
-    y_m: float
-    surface_elev_m: float
-    body_id: str
-    formation_id: str
-    top_depth_m: float
-    base_depth_m: float
 
 
 # Internal type alias for a raw (investigation_id, x, y, z) tuple used
@@ -130,14 +114,67 @@ def _get_surface(
     return result
 
 
+def _legacy_body(
+    body_id: str,
+    members: list[BodyLayerPick],
+    surface_cache: dict[tuple, tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]],
+) -> LithoBodyMesh:
+    """Per-body M2 fallback: fit this body's own top+base TINs and close them.
+
+    Used when the M3 shared-surface path cannot build the body (multi-patch
+    top/base, or a degenerate <3-pick body → disk markers). Behaviour is
+    identical to the original pre-M3 per-body builder.
+
+    Parameters
+    ----------
+    body_id : str
+        Body id.
+    members : list[BodyLayerPick]
+        The body's member picks.
+    surface_cache : dict
+        Shared per-call surface cache (passed through to ``_get_surface``).
+
+    Returns
+    -------
+    LithoBodyMesh
+        Closed solid, or disk markers (``is_flagged=True``) if un-triangulable.
+    """
+    formation_id = members[0].formation_id
+    top_raw = [
+        (m.investigation_id, m.x_m, m.y_m, m.surface_elev_m - m.top_depth_m) for m in members
+    ]
+    base_raw = [
+        (m.investigation_id, m.x_m, m.y_m, m.surface_elev_m - m.base_depth_m) for m in members
+    ]
+    top_v, top_t = _get_surface(top_raw, surface_cache)
+    base_v, base_t = _get_surface(base_raw, surface_cache)
+    if len(top_t) == 0 or len(base_t) == 0 or top_t != base_t:
+        logger.warning(
+            f"build_body_solids: body {body_id} could not form a solid "
+            f"(top_tris={len(top_t)}, base_tris={len(base_t)}, picks={len(members)}); "
+            f"emitting disk markers"
+        )
+        return _disk_markers(body_id, formation_id, members)
+    return assemble_closed_solid(body_id, formation_id, top_v, base_v, top_t)
+
+
 def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     """Build one closed mesh per body from its member-layer picks.
 
-    Groups picks by ``body_id``, fits a TIN for each contact surface
-    (top and base), then assembles the closed solid from the two surfaces
-    and their side walls. Bodies whose investigations do not yield a valid
-    TIN (<3 non-collinear points) are emitted as disk-marker meshes
-    (``is_flagged=True``) — one closed vertical cylinder per pick.
+    Groups picks by ``body_id``, then follows the M3 assembly path by default:
+
+    * **Single-patch bodies** (common through-going / pinch-out case) — assembled
+      from shared surfaces via :func:`assemble_body`. The top/base surfaces are
+      fitted once and shared between adjacent bodies, so stacked bodies have
+      zero gap at the contact.
+    * **Enclosed-lens bodies** — detected by :func:`detect_enclosed_lenses` and
+      rendered as their own closed solid; the surrounding matrix is built over the
+      merged outer extent and the lens is carved out as an interior void via
+      :func:`append_void`.
+    * **Fallback (M2 legacy path)** — any body that :func:`assemble_body` /
+      :func:`build_extent_solid` cannot handle (multi-patch, degenerate, <3 picks)
+      is built by :func:`_legacy_body`, which fits per-body TINs exactly as the
+      original M2 builder did. Disk-marker fallback is also preserved here.
 
     Parameters
     ----------
@@ -168,44 +205,48 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
         tuple, tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]
     ] = {}
 
+    # M3: build shared contact surfaces once for the whole model.
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    lens_to_matrix = detect_enclosed_lenses(columns)  # lens_id -> matrix_id
+    matrix_to_lenses: dict[str, list[str]] = {}
+    for lens_id, mat_id in lens_to_matrix.items():
+        matrix_to_lenses.setdefault(mat_id, []).append(lens_id)
+
+    # Build every lens body first (single-patch slabs) so matrices can void them.
+    lens_meshes: dict[str, LithoBodyMesh] = {}
+    for lens_id in lens_to_matrix:
+        members = by_body[lens_id]
+        fm = members[0].formation_id
+        lens_meshes[lens_id] = assemble_body(lens_id, fm, columns, surfaces) or _legacy_body(
+            lens_id, members, surface_cache
+        )
+
     meshes: list[LithoBodyMesh] = []
-    for idx, (body_id, members) in enumerate(by_body.items()):
+    for body_id, members in by_body.items():
         formation_id = members[0].formation_id
-        logger.debug(
-            f"[{idx + 1}/{len(by_body)}] body {body_id} ({formation_id}): "
-            f"{len(members)} member pick(s)"
-        )
-
-        top_raw: list[_RawPick] = [
-            (m.investigation_id, m.x_m, m.y_m, m.surface_elev_m - m.top_depth_m) for m in members
-        ]
-        base_raw: list[_RawPick] = [
-            (m.investigation_id, m.x_m, m.y_m, m.surface_elev_m - m.base_depth_m) for m in members
-        ]
-
-        top_v, top_t = _get_surface(top_raw, surface_cache)
-        base_v, base_t = _get_surface(base_raw, surface_cache)
-
-        if len(top_t) == 0 or len(base_t) == 0 or top_t != base_t:
-            # Degenerate (<3 non-collinear picks): TIN produces no triangles.
-            # Defensively also catches mismatched triangulations that could
-            # arise if the alpha-shape trim produces different topology for
-            # top vs base (shouldn't happen for horizontal-only TIN, but
-            # guard is cheap).
-            logger.warning(
-                f"build_body_solids: body {body_id} could not form a solid "
-                f"(top_tris={len(top_t)}, base_tris={len(base_t)}, picks={len(members)}); "
-                f"emitting disk markers"
-            )
-            meshes.append(_disk_markers(body_id, formation_id, members))
+        if body_id in lens_to_matrix:
+            # Lens body: already assembled above.
+            meshes.append(lens_meshes[body_id])
             continue
-
-        mesh = assemble_closed_solid(body_id, formation_id, top_v, base_v, top_t)
-        logger.debug(
-            f"build_body_solids: body {body_id} assembled — "
-            f"{len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles"
+        if body_id in matrix_to_lenses:
+            # Matrix body: build over merged outer extent, then carve lens voids.
+            outer = build_extent_solid(
+                body_id, formation_id, merged_body_extent(body_id, columns), coords
+            )
+            mesh = outer if outer is not None else _legacy_body(body_id, members, surface_cache)
+            if outer is not None:
+                for lid in matrix_to_lenses[body_id]:
+                    lens_mesh = lens_meshes.get(lid)
+                    if lens_mesh is not None and not lens_mesh.is_flagged:
+                        mesh = append_void(mesh, lens_mesh)
+            meshes.append(mesh)
+            continue
+        # Regular (non-lens) body: prefer the M3 shared-surface path.
+        shared = assemble_body(body_id, formation_id, columns, surfaces)
+        meshes.append(
+            shared if shared is not None else _legacy_body(body_id, members, surface_cache)
         )
-        meshes.append(mesh)
 
     logger.success(
         f"build_body_solids: built {len(meshes)} solid(s) "
