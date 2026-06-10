@@ -56,9 +56,11 @@ import {
 import {
   buildCutFaceBands,
   computeBasemapBounds,
+  computeSolidCapTriangles,
   sampleTinZ,
   clipTrisToHalfSpace,
   clipTexTrisToHalfSpace,
+  type CapPlane,
   type TexVert,
 } from './cesiumGeometry'
 import { formationsYoungestFirst } from '../../../utils/formationOrder'
@@ -965,6 +967,107 @@ function buildSolidPrimitive(
 }
 
 // ---------------------------------------------------------------------------
+// Solid cut-face cap builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a Cesium ``Primitive`` for the cut-face cap of a clipped litho body
+ * solid — the filled cross-section polygon exposed at the split plane.
+ *
+ * Unlike the geology formation cap path (``buildCapPrimitives``), which
+ * samples formation TINs along the split line at discrete stations, this
+ * function intersects the ACTUAL solid mesh with the split plane using
+ * ``computeSolidCapTriangles``.  The result is the exact cross-section
+ * boundary of the body, correctly non-convex when the body is non-convex.
+ *
+ * The cap is rendered:
+ *   - **Opaque** (``translucent: false``) — caps must read as filled solid
+ *     material, not a ghost overlay.
+ *   - **Flat** (``flat: true``) — no normals supplied; FLAT_VERTEX_FORMAT.
+ *   - **Open** (``closed: false``) — a cap is a single-sided planar polygon,
+ *     not a closed volume, so back-face culling is disabled.  The split plane
+ *     is viewed head-on in the cut-face camera position, so both sides of the
+ *     cap plane can be the "front".
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x_m, y_m, elevation_m]`` triples in the project's projected CRS.
+ * triangles
+ *     Vertex-index triples of the solid mesh (outward winding).
+ * color
+ *     Cap colour — must match the body colour so the cap reads as a
+ *     continuous cross-section of the same material.
+ * projectEpsg
+ *     Horizontal CRS EPSG code for the coordinate transform.
+ * plane
+ *     The projected cut plane (same ``{ normal, constant }`` shape as
+ *     ``CapPlane``).  The normal does not need to be unit-length.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Primitive`` or ``null`` when the plane misses the solid or the
+ * cap triangulation produces no non-degenerate triangles.
+ */
+function buildSolidCapPrimitive(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  color: Cesium.Color,
+  projectEpsg: number,
+  plane: CapPlane,
+): Cesium.Primitive | null {
+  const cap = computeSolidCapTriangles(vertices, triangles, plane)
+  if (cap.positions.length === 0 || cap.indices.length === 0) return null
+
+  // Convert the projected flat position array to ECEF, mirroring the
+  // pattern used in buildCapPrimitives (the geology formation cap path).
+  const nVerts = cap.positions.length / 3
+  const positionValues = new Float64Array(nVerts * 3)
+  let pi = 0
+  for (let v = 0; v < cap.positions.length; v += 3) {
+    const [lat, lng] = projectedToWgs84(cap.positions[v], cap.positions[v + 1], projectEpsg)
+    const ecef = Cesium.Cartesian3.fromDegrees(lng, lat, cap.positions[v + 2])
+    positionValues[pi++] = ecef.x
+    positionValues[pi++] = ecef.y
+    positionValues[pi++] = ecef.z
+  }
+
+  const indices = new Uint32Array(cap.indices)
+
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({
+      geometry: new Cesium.Geometry({
+        // See buildCutFaceBands for the partial-shape cast rationale.
+        attributes: {
+          position: new Cesium.GeometryAttribute({
+            componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+            componentsPerAttribute: 3,
+            values: positionValues,
+          }),
+        } as unknown as Cesium.GeometryAttributes,
+        indices,
+        primitiveType: Cesium.PrimitiveType.TRIANGLES,
+        boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+      }),
+      attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+      },
+    }),
+    // flat: true — no normals; FLAT_VERTEX_FORMAT (position-only).
+    // translucent: false — cap is opaque solid material; writes depth.
+    // closed: false — a cap polygon is one-sided; back-face culling disabled
+    //   so it is visible from both sides (the camera can be on either side of
+    //   the split plane).
+    appearance: new Cesium.PerInstanceColorAppearance({
+      flat: true,
+      translucent: false,
+      closed: false,
+    }),
+    asynchronous: false,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Per-vertex gradient appearance (debt #28 follow-up, 2026-05-21).
 //
 // PerInstanceColorAppearance gives a single colour to the whole primitive.
@@ -1509,6 +1612,71 @@ function rebuildSurfacePrimitives(
         solid.is_flagged === true,
       )
       if (prim) scene.primitives.add(prim)
+    }
+  }
+
+  // Cut-face caps for body solids (Solid mode, split active, NOT fence mode).
+  // Each clipped solid shows a hollow cut face without caps — these fill it
+  // with the body's colour so the exposed cross-section reads as layered rock.
+  //
+  // The cap plane is derived from the drawn split line in projected CRS (NOT
+  // the ECEF Cesium.Plane): normal = perpendicular to the line direction in
+  // the horizontal plane (z-component zero), constant from the standard
+  // plane equation.  This is exact because the solid vertices are stored in
+  // projected coordinates and the split plane is vertical.
+  //
+  // Caps are rendered in BOTH viewports (they sit ON the split plane, so each
+  // half's geometry is the same), mirroring how buildCapPrimitives works for
+  // the geology formation caps.  Flagged solids (marker disks) are skipped —
+  // they have no confirmed lateral extent and their marker geometry produces
+  // misleading caps.
+  if (clippingPlane && splitLine && fencePanels === undefined && bodySolids && bodySolids.length > 0) {
+    // Projected-space plane: perpendicular to the split line, infinite vertical
+    // extent (z-component of the normal = 0).
+    const dx = splitLine.x1 - splitLine.x0
+    const dy = splitLine.y1 - splitLine.y0
+    const lineLen = Math.sqrt(dx * dx + dy * dy)
+    if (lineLen > 1e-6) {
+      // Normal = (dy, -dx, 0) / lineLen — perpendicular to the line in XY.
+      const capPlane: CapPlane = {
+        normal: [dy / lineLen, -dx / lineLen, 0],
+        // Plane passes through (x0, y0, *): constant = -(nx * x0 + ny * y0)
+        constant: -(dy / lineLen) * splitLine.x0 - (-dx / lineLen) * splitLine.y0,
+      }
+
+      for (const solid of bodySolids) {
+        if (hiddenFormationIds?.has(solid.formation_id)) continue
+        if (solid.is_flagged === true) continue // flagged marker disks → no meaningful cap
+        if (solid.triangles.length === 0) continue
+
+        // Re-resolve the colour using the same logic as the solid loop above.
+        let capColor: Cesium.Color
+        if (solid.display_color) {
+          const dc = solid.display_color.startsWith('#')
+            ? solid.display_color
+            : `#${solid.display_color}`
+          capColor = Cesium.Color.fromCssColorString(dc) ?? Cesium.Color.GRAY
+        } else {
+          const formation = formations.find(f => f.id === solid.formation_id)
+          if (formation) {
+            const hexColor = formation.color.startsWith('#')
+              ? formation.color
+              : `#${formation.color}`
+            capColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
+          } else {
+            capColor = Cesium.Color.GRAY
+          }
+        }
+
+        const cap = buildSolidCapPrimitive(
+          solid.vertices,
+          solid.triangles,
+          capColor,
+          projectEpsg,
+          capPlane,
+        )
+        if (cap) scene.primitives.add(cap)
+      }
     }
   }
 }
