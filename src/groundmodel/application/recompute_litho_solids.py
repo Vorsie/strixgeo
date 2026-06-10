@@ -94,10 +94,12 @@ def _checksum_picks(picks: list[BodyLayerPick]) -> bytes:
     h = hashlib.blake2b(digest_size=16)
     for p in sorted(picks, key=lambda x: x.investigation_id):
         h.update(p.investigation_id.encode("utf-8"))
+        # "<ddddd" packs exactly the five geometry fields of BodyLayerPick.
+        # Any change to this packed layout busts every stored
+        # source_pick_checksum → all bodies force-rebuild on next execute
+        # (acceptable pre-ship).
         h.update(
-            struct.pack(
-                "<dddddd", p.x_m, p.y_m, p.surface_elev_m, p.top_depth_m, p.base_depth_m, 0.0
-            )
+            struct.pack("<ddddd", p.x_m, p.y_m, p.surface_elev_m, p.top_depth_m, p.base_depth_m)
         )
     return h.digest()
 
@@ -219,10 +221,14 @@ class RecomputeLithoSolids(GroundModelLogger):
         # the orphan-delete below knows which body_ids are "wanted".
         wanted_body_ids: set[str] = set(picks_by_body)
         bodies_to_build: dict[str, list[BodyLayerPick]] = {}
+        # Cache checksums keyed by body_id so the upsert loop below reads the
+        # pre-computed value instead of hashing each body's picks twice.
+        cached_checksums: dict[str, bytes] = {}
         skipped_checksum = 0
 
         for body_id_str, body_picks in picks_by_body.items():
             new_checksum = _checksum_picks(body_picks)
+            cached_checksums[body_id_str] = new_checksum
             existing = existing_by_body.get(body_id_str)
 
             if (
@@ -272,7 +278,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         # Step 4: upsert each built mesh into litho_body_solid.
         for i, mesh in enumerate(built_meshes):
             body_picks = bodies_to_build[mesh.body_id]
-            new_checksum = _checksum_picks(body_picks)
+            new_checksum = cached_checksums[mesh.body_id]
             existing = existing_by_body.get(mesh.body_id)
 
             vertices_payload = [list(v) for v in mesh.vertices]
