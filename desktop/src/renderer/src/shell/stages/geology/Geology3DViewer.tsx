@@ -62,6 +62,7 @@ import {
 } from './cesiumGeometry'
 import { formationsYoungestFirst } from '../../../utils/formationOrder'
 import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import type { FencePanel } from '../../../utils/fencePanels'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
 Cesium.Ion.defaultAccessToken = ''
@@ -133,6 +134,15 @@ export interface Geology3DViewerProps {
   /** Collapse the split back to a single viewport (the "Single view"
    * button in the viewer). Owned by GeologyCanvas. */
   onExitSplit?: () => void
+  /**
+   * Fence-diagram wall panels produced by ``buildFencePanels``.
+   *
+   * When present and non-empty, each panel is rendered as a vertical coloured
+   * wall in the 3D scene, coloured by its formation's colour.  The geology
+   * callers do NOT pass this prop (default ``undefined``) so geology behaviour
+   * is unchanged; LithologyCanvas passes it when it renders the fence diagram.
+   */
+  fencePanels?: FencePanel[]
 }
 
 // ---------------------------------------------------------------------------
@@ -640,6 +650,99 @@ function buildTinPrimitive(
 }
 
 // ---------------------------------------------------------------------------
+// Fence-panel primitive builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a double-sided Cesium ``Primitive`` for a vertical fence-diagram wall.
+ *
+ * This mirrors ``buildTinPrimitive`` but disables back-face culling so the
+ * wall is visible from both sides (the camera may orbit behind a panel).
+ * The clip parameter is intentionally omitted: fence panels are always
+ * rendered in full — the split-plane geometry is section-derived and does
+ * not need halving the way a formation TIN does.
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS.
+ * triangles
+ *     Vertex-index triples.
+ * color
+ *     ``Cesium.Color`` (including alpha) for the primitive.
+ * projectEpsg
+ *     Horizontal CRS EPSG code for the coordinate transform.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Primitive`` or ``null`` when ``triangles`` is empty.
+ */
+function buildFencePrimitive(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  color: Cesium.Color,
+  projectEpsg: number,
+): Cesium.Primitive | null {
+  if (triangles.length === 0) return null
+
+  const ecef = vertices.map(([x, y, z]) => {
+    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+  })
+
+  const positionValues = new Float64Array(ecef.length * 3)
+  let i = 0
+  for (const v of ecef) {
+    positionValues[i++] = v.x
+    positionValues[i++] = v.y
+    positionValues[i++] = v.z
+  }
+
+  const indices = new Uint32Array(triangles.length * 3)
+  let j = 0
+  for (const [i0, i1, i2] of triangles) {
+    indices[j++] = i0
+    indices[j++] = i1
+    indices[j++] = i2
+  }
+
+  const geometry = new Cesium.Geometry({
+    // See buildCutFaceBands for the partial-shape cast rationale.
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positionValues,
+      }),
+    } as unknown as Cesium.GeometryAttributes,
+    indices,
+    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+  })
+
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({
+      geometry,
+      attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+      },
+    }),
+    // flat: true — same reason as buildTinPrimitive (no normals computed;
+    // FLAT_VERTEX_FORMAT, position-only).  closed: false disables back-face
+    // culling so the panel is visible from both sides — when closed=true the
+    // render state sets cull.enabled:true; closed=false omits the cull key
+    // entirely, leaving WebGL's default (no culling) in effect. Users orbiting
+    // the 3D scene will view fence walls from behind, so double-sided is required.
+    appearance: new Cesium.PerInstanceColorAppearance({
+      translucent: true,
+      flat: true,
+      closed: false,
+    }),
+    asynchronous: false,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Per-vertex gradient appearance (debt #28 follow-up, 2026-05-21).
 //
 // PerInstanceColorAppearance gives a single colour to the whole primitive.
@@ -865,6 +968,7 @@ function rebuildSurfacePrimitives(
   invertClip?: boolean,
   splitLine?: SplitLine | null,
   showConfidenceFade: boolean = true,
+  fencePanels?: FencePanel[],
 ): void {
   scene.primitives.removeAll()
 
@@ -1002,6 +1106,30 @@ function rebuildSurfacePrimitives(
     )
     if (terrainPrimitive) {
       scene.primitives.add(terrainPrimitive)
+    }
+  }
+
+  // Fence-diagram wall panels. Rendered above the ground surface and below
+  // the formation TINs (painter's algorithm: added in this order).
+  // Each panel is a vertical coloured wall, double-sided so the user can
+  // orbit freely. The formation TINs stay on top so the section cut reads
+  // clearly through the translucent fence.
+  if (fencePanels && fencePanels.length > 0) {
+    for (const panel of fencePanels) {
+      const formation = formations.find((f) => f.id === panel.formationId)
+      const hexColor =
+        formation && formation.color.startsWith('#')
+          ? formation.color
+          : formation
+            ? `#${formation.color}`
+            : ''
+      const baseColor =
+        (hexColor ? Cesium.Color.fromCssColorString(hexColor) : null) ?? Cesium.Color.GRAY
+      // Fence walls render at ALPHA_FRESH so they match formation-surface
+      // opacity and don't appear heavier than the surrounding geology.
+      const fenceColor = baseColor.withAlpha(ALPHA_FRESH)
+      const prim = buildFencePrimitive(panel.vertices, panel.triangles, fenceColor, projectEpsg)
+      if (prim) scene.primitives.add(prim)
     }
   }
 
@@ -1202,6 +1330,8 @@ interface CesiumViewportProps {
   basemapEnabled?: boolean
   /** Per-project confidence-fade toggle (debt #94 follow-up). */
   showConfidenceFade?: boolean
+  /** Fence-diagram wall panels — threaded from Geology3DViewerProps. */
+  fencePanels?: FencePanel[]
 }
 
 /**
@@ -1257,6 +1387,7 @@ function CesiumViewport({
   hiddenFormationIds,
   basemapEnabled = true,
   showConfidenceFade = true,
+  fencePanels,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -1371,6 +1502,7 @@ function CesiumViewport({
       invertClip,
       splitLine,
       showConfidenceFade,
+      fencePanels,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -1433,6 +1565,9 @@ function CesiumViewport({
     // changing the toggle has no visual effect because the existing
     // alpha-baked primitives stay in place.
     showConfidenceFade,
+    // Fence panels: rebuild when the lithology canvas passes new wall panels
+    // (new section, new correlations, or section deselected).
+    fencePanels,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -1613,6 +1748,7 @@ export default function Geology3DViewer({
   groundSurface,
   onExitSplit,
   showConfidenceFade = true,
+  fencePanels,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -1742,6 +1878,7 @@ export default function Geology3DViewer({
           hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
           showConfidenceFade={showConfidenceFade}
+          fencePanels={fencePanels}
         />
 
         {/* Debt #26 offline banner — overlays the primary viewport when
@@ -1900,6 +2037,7 @@ export default function Geology3DViewer({
               hiddenFormationIds={hiddenFormationIds}
               basemapEnabled={basemapEnabled}
               showConfidenceFade={showConfidenceFade}
+              fencePanels={fencePanels}
             />
           </div>
         </>
