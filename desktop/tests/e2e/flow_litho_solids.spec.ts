@@ -2,10 +2,11 @@
  * Flow — Lithology 3D stage: Build Solids + Solid mode smoke (Task 10,
  * Litho 3D milestone 2).
  *
- * Guards the Build Solids button + Solid-mode render path in
- * ``LithologyCanvas`` — proves the complete loop (surface exists → viewer
- * mounts → switch to Solid → click Build → solids appear → no crash) wires
- * up end-to-end.
+ * Guards the Build Solids button (``LithologyStage`` toolbar) + Solid-mode
+ * render path — proves the complete loop (surface exists → viewer mounts →
+ * switch to Solid → click Build → solids appear → no crash) wires up
+ * end-to-end.  The grouped-by-lithology body legend lives in
+ * ``LithologyInspector``, not on the canvas.
  *
  * WHY setup mirrors flow_litho_fence_diagram:
  *   ``LithologyCanvas`` only renders the viewer branch (Build button +
