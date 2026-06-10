@@ -58,8 +58,16 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
 # ---------------------------------------------------------------------------
 
 
-def _borehole(project_id: UUID, *, suffix: str, x: float, elev: float = 5.0) -> BoreholeOrm:
-    """Unsaved borehole with valid (x, y, elevation_m) so picks are loadable."""
+def _borehole(
+    project_id: UUID, *, suffix: str, x: float, y: float = 200000.0, elev: float = 5.0
+) -> BoreholeOrm:
+    """Unsaved borehole with valid (x, y, elevation_m) so picks are loadable.
+
+    ``y`` defaults to a constant — fine for the stale-cascade tests, which only
+    need rows to exist regardless of solid shape. The happy-path test (RLS-1)
+    overrides ``y`` per borehole so the three anchors are NOT collinear and
+    ``compute_tin`` can fit a real (non-flagged) surface.
+    """
     return BoreholeOrm(
         id=uuid7(),
         name=f"BH-RLS-{suffix}",
@@ -67,7 +75,7 @@ def _borehole(project_id: UUID, *, suffix: str, x: float, elev: float = 5.0) -> 
         project_id="RLS",
         test_id=f"BH-RLS-{suffix}",
         location_x=x,
-        location_y=200000.0,
+        location_y=y,
         elevation_m=elev,
         epsg=31370,
         total_depth_m=20.0,
@@ -218,9 +226,12 @@ async def test_three_investigation_body_produces_solid(
     f = scene["formation"]
     section_id = await _seed_section(db_session, proj.id)
 
-    bh_a = _borehole(proj.id, suffix="1A", x=150000.0, elev=5.0)
-    bh_b = _borehole(proj.id, suffix="1B", x=150200.0, elev=4.8)
-    bh_c = _borehole(proj.id, suffix="1C", x=150100.0, elev=5.2)
+    # Non-collinear anchors (y differs) so compute_tin fits a real surface —
+    # a flagged slab would also satisfy triangles>0, so the spread is what
+    # makes this a genuine watertight-solid test (asserted below).
+    bh_a = _borehole(proj.id, suffix="1A", x=150000.0, y=200000.0, elev=5.0)
+    bh_b = _borehole(proj.id, suffix="1B", x=150200.0, y=200000.0, elev=4.8)
+    bh_c = _borehole(proj.id, suffix="1C", x=150100.0, y=200080.0, elev=5.2)
     db_session.add_all([bh_a, bh_b, bh_c])
     await db_session.flush()
 
@@ -257,10 +268,16 @@ async def test_three_investigation_body_produces_solid(
     )
     assert len(rows) >= 1, f"Expected ≥1 solid row; got {len(rows)}"
 
-    # The 3-point body must produce real triangles (not a degenerate slab).
+    # The 3-point body must produce a REAL watertight solid, not a degenerate
+    # flagged slab — is_flagged=False is the load-bearing assertion here (a
+    # flagged slab also has triangles>0, so the count alone proves nothing).
     solid = rows[0]
     assert solid.is_stale is False, "Solid must be fresh after recompute"
-    assert len(solid.triangles) > 0, "3-point body must produce at least one triangle"
+    assert solid.is_flagged is False, (
+        "Non-collinear 3-point body must fit a real surface, not a flagged slab"
+    )
+    assert len(solid.triangles) > 0, "Real solid must have triangles"
+    assert len(solid.vertices) > 0, "Real solid must have vertices"
 
 
 # ---------------------------------------------------------------------------
