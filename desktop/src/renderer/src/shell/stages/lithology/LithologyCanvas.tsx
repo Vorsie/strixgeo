@@ -41,7 +41,7 @@
 
 import * as Cesium from 'cesium'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layers3, Loader2, Network, RefreshCw, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Layers3, Loader2, Network, RefreshCw, RotateCcw } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type {
@@ -287,7 +287,7 @@ export default function LithologyCanvas(): JSX.Element {
       if (result.bodies_flagged > 0) {
         toast(
           'warning',
-          `${builtMsg} — ${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 control points)`,
+          `${builtMsg} — ${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
         )
       } else {
         toast('success', builtMsg)
@@ -512,13 +512,15 @@ export default function LithologyCanvas(): JSX.Element {
   if (hasLithoSurfaces) {
     return (
       <div className="relative w-full h-full">
-        {/* Build Solids button — top-left overlay, Solid mode only.
+        {/* Build Solids button — top-right overlay, Solid mode only.
             Mirrors GeologyToolbar's Build 3D model pattern: amber tint when
             any solid is stale, spinner while building, toast on completion.
-            Positioned top-2 left-2 z-20 (above the viewer's own z-10 widgets)
-            but BELOW the Fence/Solid toggle (bottom-2 left-2 z-20). */}
+            Positioned top-8 right-2 z-20: stacked directly below the
+            BasemapPanel button (absolute top-2 right-2 z-10 inside
+            Geology3DViewer) so they share the right column without any
+            overlap, regardless of which basemap label is showing. */}
         {viewMode === 'solid' && (
-          <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5">
+          <div className="absolute top-8 right-2 z-20 flex items-center gap-1.5">
             <button
               type="button"
               data-testid="litho-build-solids-button"
@@ -555,14 +557,21 @@ export default function LithologyCanvas(): JSX.Element {
         )}
 
         {/* Per-body colour-picker legend — Solid mode only, rendered when
-            solids are present.  Top-left stacked below the Build button.
-            Each row: colour swatch input + formation name + Reset link.
+            solids are present.  Top-left, positioned to clear the viewer's
+            own Layers panel header (absolute top-2 left-2 z-10 inside
+            Geology3DViewer).  Each row: colour swatch input + formation name
+            + per-row stale dot + Reset button + flagged glyph.
             Reversible action — fire immediately, no confirm dialog. */}
         {viewMode === 'solid' && hasSolids && (
           <div
             data-testid="litho-solid-legend"
             className="absolute top-10 left-2 z-20 flex flex-col gap-0.5 max-h-[calc(100%-6rem)] overflow-y-auto"
           >
+            {/* C1 — section header styled to match the viewer's "Layers" header
+                (text-[10px] uppercase tracking-wide text-text-muted, px-2 py-1). */}
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
+              Body solids
+            </div>
             {solids
               .filter(s => s.triangles.length > 0)
               .map(solid => {
@@ -594,25 +603,40 @@ export default function LithologyCanvas(): JSX.Element {
                     <span className="flex-1 truncate max-w-[8rem]" title={displayName}>
                       {displayName}
                     </span>
-                    {/* Reset to formation colour — only shown when an override exists. */}
+                    {/* S4 — per-row stale indicator. Dirty-marker convention:
+                        amber-500, never red. Title explains the action needed. */}
+                    {solid.is_stale === true && (
+                      <span
+                        className="text-amber-500 leading-none"
+                        title="Stale — rebuild to update"
+                        aria-label="Stale"
+                      >
+                        •
+                      </span>
+                    )}
+                    {/* S2 — Reset to formation colour. p-1 -m-1 grows the hit
+                        target to ~20 px without shifting layout. */}
                     {solid.display_color != null && (
                       <button
                         type="button"
                         data-testid={`solid-color-reset-${solid.body_id}`}
                         onClick={() => handleBodyColorChange(solid.body_id, null)}
                         title="Reset to formation lithology colour"
-                        className="text-text-muted hover:text-text-primary transition-colors"
+                        className="p-1 -m-1 text-text-muted hover:text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                       >
                         <RotateCcw size={10} />
                       </button>
                     )}
-                    {/* Flagged indicator — best-effort slab due to structural anomaly. */}
+                    {/* S3 — Flagged indicator: AlertTriangle icon replaces the
+                        raw 9px "!" glyph; uses a palette token that works on
+                        both light and dark themes. Wrapped in a span so the
+                        tooltip (title) is reachable via keyboard / pointer. */}
                     {solid.is_flagged === true && (
                       <span
-                        className="text-[9px] text-amber-500"
-                        title="Under-constrained: fewer than 3 control points — best-effort slab"
+                        className="shrink-0"
+                        title="Under-constrained: fewer than 3 CPT/borehole traces — best-effort slab"
                       >
-                        !
+                        <AlertTriangle size={10} className="text-amber-500" />
                       </span>
                     )}
                   </div>
@@ -621,8 +645,11 @@ export default function LithologyCanvas(): JSX.Element {
           </div>
         )}
 
-        {/* Loading spinner while solids are being fetched (Solid mode). */}
-        {viewMode === 'solid' && solidsLoading && (
+        {/* Loading spinner while solids are being fetched for the first time
+            (Solid mode, no solids rendered yet). The rebuild case is already
+            covered by the Build button's own "Building…" spinner, so this
+            only shows on the initial fetch when the legend is empty. */}
+        {viewMode === 'solid' && solidsLoading && !hasSolids && (
           <div
             data-testid="solids-loading-indicator"
             className="absolute top-10 left-2 z-20 flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-overlay/80 backdrop-blur-sm text-xs text-text-muted pointer-events-none"
