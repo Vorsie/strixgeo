@@ -211,3 +211,41 @@ def test_merged_extent_spans_first_top_to_last_base():
     ext = merged_body_extent("CLAY", columns)  # inv -> (top_elev, base_elev)
     assert ext["E"] == (-4.0, -14.0)  # spans across the lens
     assert ext["A"] == (-4.0, -14.0)
+
+
+def test_detect_enclosed_lenses_excludes_body_through_going_somewhere():
+    """SILT bracketed by CLAY at inner holes but surface-reaching at one outer hole
+    must NOT be reported as an enclosed lens.
+
+    Layout:
+    - Inner holes E/F/G/H: CLAY / SILT / CLAY  (SILT is bracketed — above==below==CLAY)
+    - Outer hole A:        SILT / CLAY          (SILT is at the surface, above==None,
+                                                  below==CLAY → above != below)
+
+    Because SILT touches the ground surface at hole A, it is through-going there.
+    detect_enclosed_lenses must return {} — SILT is disqualified.
+    """
+    from groundmodel.domain.services.litho_body_assembly import detect_enclosed_lenses
+    from groundmodel.domain.services.litho_contact_surfaces import LayerSpan
+
+    # Outer hole A: SILT at surface (no body above), CLAY below.
+    # Elevations are arbitrary; the function only reads body_id and list order.
+    col_a = [
+        LayerSpan(body_id="SILT", formation_id="silt", top_elev=0.0, base_elev=-4.0),
+        LayerSpan(body_id="CLAY", formation_id="clay", top_elev=-4.0, base_elev=-14.0),
+    ]
+    # Inner holes E–H: CLAY / SILT / CLAY — SILT fully bracketed by the same matrix.
+    col_inner = [
+        LayerSpan(body_id="CLAY", formation_id="clay", top_elev=0.0, base_elev=-4.0),
+        LayerSpan(body_id="SILT", formation_id="silt", top_elev=-4.0, base_elev=-6.0),
+        LayerSpan(body_id="CLAY", formation_id="clay", top_elev=-6.0, base_elev=-14.0),
+    ]
+    columns = {
+        "A": col_a,
+        "E": col_inner,
+        "F": col_inner,
+        "G": col_inner,
+        "H": col_inner,
+    }
+    # SILT is surface-reaching at hole A → it is NOT an enclosed lens.
+    assert detect_enclosed_lenses(columns) == {}
