@@ -212,6 +212,8 @@ function makeStubContext(): ShellContextValue {
       hasStaleLithoSolid: false,
       buildLithoSolids: noopAsync,
       setBodyColor: vi.fn(),
+      hideMarkers: false,
+      setHideMarkers: vi.fn(),
       lithoStaleSurfaceCount: 0,
     lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,

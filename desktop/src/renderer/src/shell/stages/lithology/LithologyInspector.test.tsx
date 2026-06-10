@@ -187,6 +187,8 @@ function makeCtx(overrides: {
   refetchFormations?: () => void
   lithoSolids?: LithoBodySolidResponse[]
   setBodyColor?: (bodyId: string, color: string | null) => void
+  hideMarkers?: boolean
+  setHideMarkers?: (value: boolean) => void
 } = {}): ShellContextValue {
   return {
     project: {
@@ -349,6 +351,8 @@ function makeCtx(overrides: {
       hasStaleLithoSolid: false,
       buildLithoSolids: noopAsync,
       setBodyColor: overrides.setBodyColor ?? vi.fn(),
+      hideMarkers: overrides.hideMarkers ?? false,
+      setHideMarkers: overrides.setHideMarkers ?? vi.fn(),
     },
     sections: {
       sections: [],
@@ -1101,6 +1105,120 @@ describe('LithoSolidLegend — grouped-by-lithology body solids section', () => 
     })
 
     expect(setColor).toHaveBeenCalledWith('b-color', null)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hide-markers toggle — BS1–BS4
+// ---------------------------------------------------------------------------
+
+describe('LithoSolidLegend — hide-markers toggle (BS1–BS4)', () => {
+  // BS1: hideMarkers=false (default) — all body rows visible, no "(N markers hidden)" note.
+  it('BS1 — hideMarkers false: all body rows visible, no "hidden" note', () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b-real', 'f-silt', 1, { is_flagged: false }),
+      makeSolid('b-marker', 'f-silt', 2, { is_flagged: true }),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: solids,
+      hideMarkers: false,
+    })
+    renderInspector(ctx)
+
+    // Both body rows present.
+    expect(screen.getByTestId('solid-legend-row-b-real')).toBeInTheDocument()
+    expect(screen.getByTestId('solid-legend-row-b-marker')).toBeInTheDocument()
+
+    // No "hidden" note on the header.
+    expect(screen.queryByTestId('solid-group-markers-hidden-f-silt')).not.toBeInTheDocument()
+    // "(1 marker)" present (unflagged display mode).
+    expect(screen.getByTestId('solid-group-header-f-silt')).toHaveTextContent(/1 marker/i)
+  })
+
+  // BS2: hideMarkers=true — marker rows gone, real rows remain, header shows "(N markers hidden)".
+  it('BS2 — hideMarkers true: marker rows hidden, real rows present, header note shows count', () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b-real', 'f-silt', 1, { is_flagged: false }),
+      makeSolid('b-marker1', 'f-silt', 2, { is_flagged: true }),
+      makeSolid('b-marker2', 'f-silt', 3, { is_flagged: true }),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: solids,
+      hideMarkers: true,
+    })
+    renderInspector(ctx)
+
+    // Real body row still visible.
+    expect(screen.getByTestId('solid-legend-row-b-real')).toBeInTheDocument()
+    // Marker rows gone.
+    expect(screen.queryByTestId('solid-legend-row-b-marker1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('solid-legend-row-b-marker2')).not.toBeInTheDocument()
+
+    // Header note shows "(2 markers hidden)".
+    const hiddenNote = screen.getByTestId('solid-group-markers-hidden-f-silt')
+    expect(hiddenNote).toBeInTheDocument()
+    expect(hiddenNote).toHaveTextContent(/2 markers hidden/i)
+
+    // Header still shows total body count (3 bodies).
+    expect(screen.getByTestId('solid-group-header-f-silt')).toHaveTextContent(/3 bod/i)
+  })
+
+  // BS3: all-markers group — hideMarkers true keeps the header visible (honest) with "(N markers hidden)".
+  it('BS3 — all-markers group: header kept with hidden note, body list empty', () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b-m1', 'f-silt', 1, { is_flagged: true }),
+      makeSolid('b-m2', 'f-silt', 2, { is_flagged: true }),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: solids,
+      hideMarkers: true,
+    })
+    renderInspector(ctx)
+
+    // Group header still rendered.
+    expect(screen.getByTestId('solid-group-header-f-silt')).toBeInTheDocument()
+    // "(2 markers hidden)" note present.
+    const note = screen.getByTestId('solid-group-markers-hidden-f-silt')
+    expect(note).toHaveTextContent(/2 markers hidden/i)
+
+    // No body rows.
+    expect(screen.queryByTestId('solid-legend-row-b-m1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('solid-legend-row-b-m2')).not.toBeInTheDocument()
+  })
+
+  // BS4: toggle button calls setHideMarkers with the inverse of the current state.
+  it('BS4 — toggle button calls setHideMarkers with !current value', async () => {
+    const setHideMarkers = vi.fn()
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b-real', 'f-silt', 1, { is_flagged: false }),
+      makeSolid('b-flag', 'f-silt', 2, { is_flagged: true }),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: solids,
+      hideMarkers: false,
+      setHideMarkers,
+    })
+    renderInspector(ctx)
+
+    const toggle = screen.getByTestId('hide-markers-toggle')
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    // Called with true (toggled from false).
+    expect(setHideMarkers).toHaveBeenCalledWith(true)
   })
 })
 

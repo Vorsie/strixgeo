@@ -31,7 +31,7 @@
 //   • Semantic tokens for chrome — no raw dark: pairs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Circle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Circle, Eye, EyeOff, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -78,6 +78,8 @@ export default function LithologyInspector(): JSX.Element {
       handleClearLithoModel,
       lithoSolids,
       setBodyColor,
+      hideMarkers,
+      setHideMarkers,
     },
   } = useShell()
 
@@ -367,6 +369,8 @@ export default function LithologyInspector(): JSX.Element {
             lithoSolids={lithoSolids}
             lithoFormations={lithoFormations}
             setBodyColor={setBodyColor}
+            hideMarkers={hideMarkers}
+            onToggleHideMarkers={setHideMarkers}
           />
 
           {/* Workflow guidance footer — always visible when a model is active. */}
@@ -619,6 +623,14 @@ interface LithoSolidLegendProps {
    * Forwarded from ``useLithoSolids`` — optimistic + debounced.
    */
   setBodyColor: (bodyId: string, color: string | null) => void
+  /**
+   * When ``true``, per-body rows for marker bodies (``is_flagged === true``)
+   * are hidden from the legend.  Group headers remain visible and show a
+   * "(N markers hidden)" note so the user knows they exist.
+   */
+  hideMarkers: boolean
+  /** Toggle the ``hideMarkers`` state. */
+  onToggleHideMarkers: (value: boolean) => void
 }
 
 /**
@@ -630,6 +642,13 @@ interface LithoSolidLegendProps {
  * when a custom colour is set.  Large groups (> ``LEGEND_COLLAPSE_THRESHOLD``
  * bodies) are collapsed by default to keep the panel scannable.
  *
+ * When ``hideMarkers`` is true, per-body rows for flagged bodies are hidden.
+ * Group headers remain visible and report "(N markers hidden)" so the user
+ * knows the markers exist but are suppressed.  A group whose ALL bodies are
+ * markers keeps its header with the "(N markers hidden)" note — vanishing
+ * the header entirely would suggest the lithology does not exist, which is
+ * misleading.
+ *
  * When no solids have been built yet, renders a brief empty-state prompt.
  *
  * Parameters
@@ -640,6 +659,10 @@ interface LithoSolidLegendProps {
  *     Litho formations for group metadata + sorting by display_order.
  * setBodyColor
  *     Colour setter from ``useLithoSolids`` (optimistic + debounced).
+ * hideMarkers
+ *     When ``true``, suppress flagged-body rows from the legend.
+ * onToggleHideMarkers
+ *     Called with the new boolean value when the toggle is clicked.
  *
  * Returns
  * -------
@@ -650,6 +673,8 @@ function LithoSolidLegend({
   lithoSolids,
   lithoFormations,
   setBodyColor,
+  hideMarkers,
+  onToggleHideMarkers,
 }: LithoSolidLegendProps): JSX.Element {
   // Only solids that have actual geometry.
   const builtSolids = lithoSolids.filter(s => s.triangles.length > 0)
@@ -729,6 +754,10 @@ function LithoSolidLegend({
     })
   }
 
+  // Total marker (flagged) count across all built solids — used by the
+  // toggle title so the user knows how many are being hidden.
+  const totalMarkerCount = builtSolids.filter(s => s.is_flagged === true).length
+
   if (builtSolids.length === 0) {
     return (
       <div data-testid="litho-solid-legend" className="flex flex-col gap-1">
@@ -742,7 +771,31 @@ function LithoSolidLegend({
 
   return (
     <div data-testid="litho-solid-legend" className="flex flex-col gap-1">
-      <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
+      {/* Section header + hide-markers toggle on the same row.
+          The toggle is a reversible action (show/hide is local UI state)
+          so it fires immediately — no confirm dialog (UX convention). */}
+      <div className="flex items-center justify-between gap-1">
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
+        {totalMarkerCount > 0 && (
+          <button
+            type="button"
+            data-testid="hide-markers-toggle"
+            aria-pressed={hideMarkers}
+            onClick={() => onToggleHideMarkers(!hideMarkers)}
+            className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
+            title={
+              hideMarkers
+                ? `Show ${totalMarkerCount} marker bod${totalMarkerCount === 1 ? 'y' : 'ies'}`
+                : `Hide ${totalMarkerCount} marker bod${totalMarkerCount === 1 ? 'y' : 'ies'} (under-constrained)`
+            }
+          >
+            {hideMarkers
+              ? <Eye size={11} aria-hidden="true" />
+              : <EyeOff size={11} aria-hidden="true" />}
+            {hideMarkers ? 'Show markers' : 'Hide markers'}
+          </button>
+        )}
+      </div>
 
       {groups.map(({ formation, formationId, solids }) => {
         const displayName = formation
@@ -752,6 +805,15 @@ function LithoSolidLegend({
           : formationId
         const flaggedCount = solids.filter(s => s.is_flagged === true).length
         const isExpanded = expandedGroups.has(formationId)
+
+        // When hideMarkers is on, show only non-flagged bodies in the rows.
+        // The header stays visible regardless so the user knows the lithology
+        // exists — a group where every body is a marker renders its header
+        // with "(N markers hidden)" and an empty body list under it.
+        const visibleGroupSolids = hideMarkers
+          ? solids.filter(s => s.is_flagged !== true)
+          : solids
+        const hiddenMarkerCount = hideMarkers ? flaggedCount : 0
 
         return (
           <div key={formationId} className="flex flex-col gap-0.5">
@@ -775,7 +837,13 @@ function LithoSolidLegend({
               </span>
               <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">
                 {solids.length} bod{solids.length === 1 ? 'y' : 'ies'}
-                {flaggedCount > 0 && (
+                {hiddenMarkerCount > 0 ? (
+                  // hideMarkers on: replace "(N markers)" with "(N markers hidden)"
+                  <span className="ml-1 text-text-muted" data-testid={`solid-group-markers-hidden-${formationId}`}>
+                    ({hiddenMarkerCount} marker{hiddenMarkerCount === 1 ? '' : 's'} hidden)
+                  </span>
+                ) : flaggedCount > 0 && (
+                  // hideMarkers off: show "(N markers)" as before
                   <span className="ml-1 text-text-muted">
                     ({flaggedCount} marker{flaggedCount === 1 ? '' : 's'})
                   </span>
@@ -783,10 +851,12 @@ function LithoSolidLegend({
               </span>
             </button>
 
-            {/* Per-body rows — visible only when group is expanded */}
+            {/* Per-body rows — visible only when group is expanded.
+                When hideMarkers is on, marker rows are omitted here;
+                the header's "(N markers hidden)" note covers them. */}
             {isExpanded && (
               <ul className="flex flex-col gap-0.5 pl-3" aria-label={`Bodies for ${displayName}`}>
-                {solids.map(solid => {
+                {visibleGroupSolids.map(solid => {
                   const resolvedColor = solid.display_color ?? formation?.color ?? '#888888'
                   return (
                     <li

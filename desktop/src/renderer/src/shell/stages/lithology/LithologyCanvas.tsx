@@ -144,12 +144,27 @@ export default function LithologyCanvas(): JSX.Element {
       lithoLayers,
       lithoSolids,
       hasLithoSolids,
+      hideMarkers,
     },
     overlays: { showConfidenceFade },
     visibleCpts,
     visibleBoreholes,
     sections: { visibleSections },
   } = useShell()
+
+  // ---------------------------------------------------------------------------
+  // Marker-filtered solids — MUST be useMemo'd.
+  //
+  // An inline lithoSolids.filter(...) in JSX would produce a new array on
+  // every render.  Geology3DViewer's primitive-rebuild effect has bodySolids
+  // in its dep array, so an inline filter would tear down and rebuild every
+  // Cesium primitive on every render (the S7 infinite-rebuild class).
+  // ---------------------------------------------------------------------------
+
+  const visibleSolids = useMemo(
+    () => (hideMarkers ? lithoSolids.filter(s => s.is_flagged !== true) : lithoSolids),
+    [lithoSolids, hideMarkers],
+  )
 
   // ---------------------------------------------------------------------------
   // Fence / Solid view toggle — session-ephemeral, not persisted to the bundle.
@@ -465,7 +480,7 @@ export default function LithologyCanvas(): JSX.Element {
           groundSurface={groundSurface}
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
-          bodySolids={lithoSolids}
+          bodySolids={visibleSolids}
           onExitSplit={() => {
             setSplitMode('single')
             setSplitPlane(null)

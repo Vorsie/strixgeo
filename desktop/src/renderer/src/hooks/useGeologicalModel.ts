@@ -269,6 +269,13 @@ export interface UseGeologicalModelResult {
    */
   setBodyColor: UseLithoSolidsResult['setBodyColor']
   /**
+   * When ``true``, the 3D viewer and inspector suppress under-constrained
+   * marker bodies (``is_flagged === true``).  Default ``false``.
+   */
+  hideMarkers: UseLithoSolidsResult['hideMarkers']
+  /** Toggle the ``hideMarkers`` flag. */
+  setHideMarkers: UseLithoSolidsResult['setHideMarkers']
+  /**
    * Re-fetch the active litho model's contacts from the server.
    * Called after a manual contact create (handleManualLithoUnitCreate)
    * so the section view shows the new contact immediately — without

@@ -271,6 +271,8 @@ function makeCtx(overrides: {
       hasStaleLithoSolid: overrides.hasStaleLithoSolid ?? false,
       buildLithoSolids: overrides.buildLithoSolids ?? noopAsync,
       setBodyColor: vi.fn(),
+      hideMarkers: false,
+      setHideMarkers: vi.fn(),
     },
     sections: {
       sections: [],
