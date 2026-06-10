@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.move_litho_layer_boundary import MoveLithoLayerBoundary
 from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import UpdateFormationContactsBatch
@@ -723,4 +724,91 @@ async def test_batch_litho_contact_depth_edit_marks_solids_stale(
     assert all(r.is_stale for r in rows_after_edit), (
         "All solids must be stale after a geometry-only batch litho contact depth edit — "
         "UpdateFormationContactsBatch must call mark_litho_solids_stale"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RLS-8: layer-path stale cascade via MoveLithoLayerBoundary (geometry edit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_move_litho_layer_boundary_marks_solids_stale(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """A boundary drag on an accepted litho layer via MoveLithoLayerBoundary
+    must mark every solid for the model ``is_stale=True``.
+
+    This pins the layer-path stale-cascade gap (same class as the contact-path
+    fixes in RLS-6/RLS-7): MoveLithoLayerBoundary changes depth_top_m /
+    depth_base_m of accepted layers, which alters the body-pick geometry, but
+    the original code had no mark_litho_solids_stale call.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    f = scene["formation"]
+    section_id = await _seed_section(db_session, proj.id)
+
+    # Three non-collinear boreholes so the solid is real (matches RLS-1 geometry).
+    bh_a = _borehole(proj.id, suffix="8A", x=150000.0, y=200000.0, elev=5.0)
+    bh_b = _borehole(proj.id, suffix="8B", x=150200.0, y=200000.0, elev=4.8)
+    bh_c = _borehole(proj.id, suffix="8C", x=150100.0, y=200080.0, elev=5.2)
+    db_session.add_all([bh_a, bh_b, bh_c])
+    await db_session.flush()
+
+    # Two adjacent layers on bh_a: upper (2→5 m) + lower (5→8 m) so the
+    # boundary move has a valid adjacent pair to operate on.
+    la_upper = _layer(litho, f, bh_a, top=2.0, base=5.0)
+    la_lower = _layer(litho, f, bh_a, top=5.0, base=8.0)
+    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
+    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
+    db_session.add_all([la_upper, la_lower, lb, lc])
+    await db_session.flush()
+
+    # Correlate the upper bh_a layer with bh_b and bh_c to produce a body.
+    edge_ab = _edge(litho, la_upper, lb, section_id)
+    edge_bc = _edge(litho, lb, lc, section_id)
+    db_session.add_all([edge_ab, edge_bc])
+    await db_session.commit()
+
+    # Build solids — precondition: solid exists and is fresh.
+    await RecomputeLithoSolids(db_session).execute(litho.id)
+
+    rows_after_build = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_build, "Precondition: solid must exist after RecomputeLithoSolids"
+    assert all(not r.is_stale for r in rows_after_build), (
+        "Precondition: all solids must be fresh immediately after build"
+    )
+
+    # Move the shared boundary between la_upper and la_lower from 5.0 m to 5.5 m.
+    # This changes la_upper.depth_base_m, which changes the body-pick geometry.
+    await MoveLithoLayerBoundary(db_session).execute(
+        upper_layer_id=la_upper.id,
+        lower_layer_id=la_lower.id,
+        new_depth_m=5.5,
+    )
+
+    litho_model_id = litho.id
+    rows_after_move = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_move, "Solid rows must still exist after the boundary move"
+    assert all(r.is_stale for r in rows_after_move), (
+        "All solids must be stale after a litho layer boundary move — "
+        "MoveLithoLayerBoundary must call mark_litho_solids_stale"
     )
