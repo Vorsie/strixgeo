@@ -30,7 +30,7 @@
 //   • EmptyState primitive for the no-model / empty-roster branches.
 //   • Semantic tokens for chrome — no raw dark: pairs.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Circle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
@@ -700,10 +700,25 @@ function LithoSolidLegend({
       }))
   }, [builtSolids, lithoFormations, formationById])
 
-  // Per-group expand/collapse state.  Initialised lazily on first render.
-  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(groups.filter(g => g.solids.length <= LEGEND_COLLAPSE_THRESHOLD).map(g => g.formationId)),
-  )
+  // Per-group expand/collapse state.
+  //
+  // Why not lazy-init from groups: lithoSolids arrives ASYNC — on the first
+  // render groups is empty, so a lazy () => new Set(...) captures an empty Set
+  // and never updates when solids load (useState ignores subsequent renders).
+  // Instead: start empty, then open small groups ONCE when groups first
+  // transitions from empty to non-empty (the prevGroupsLengthRef guard).
+  // Subsequent renders where groups is already populated do NOT re-run the
+  // expansion so the user's manual collapse/expand is preserved.
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const prevGroupsLengthRef = useRef(0)
+  useEffect(() => {
+    if (groups.length > 0 && prevGroupsLengthRef.current === 0) {
+      setExpandedGroups(
+        new Set(groups.filter(g => g.solids.length <= LEGEND_COLLAPSE_THRESHOLD).map(g => g.formationId)),
+      )
+    }
+    prevGroupsLengthRef.current = groups.length
+  }, [groups])
 
   function toggleGroup(formationId: string): void {
     setExpandedGroups(prev => {

@@ -28,6 +28,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RenderResult } from '@testing-library/react'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
@@ -1024,6 +1025,61 @@ describe('LithoSolidLegend — grouped-by-lithology body solids section', () => 
     // Flagged icon on the flagged row — AlertTriangle renders an <svg> inside a span.
     const flaggedRow = screen.getByTestId('solid-legend-row-b-flagged')
     expect(flaggedRow.querySelector('svg')).not.toBeNull()
+  })
+
+  // SL5: groups expand after ASYNC arrival of solids.
+  //
+  // The legend's expand state must initialise to "open for small groups" even
+  // when lithoSolids arrives asynchronously (empty on first render, then
+  // populated).  The lazy useState(() => new Set(groups.filter(...))) captures
+  // an empty Set on mount and never updates — this test pins the fixed behaviour.
+  //
+  // Protocol: render with empty solids first, then rerender with populated
+  // solids, assert the small group (≤8 bodies) is EXPANDED (body rows visible).
+  it('SL5 — small group expands after async arrival of solids (empty → populated)', async () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b1', 'f-silt', 1),
+      makeSolid('b2', 'f-silt', 2),
+    ]
+
+    // Start: no solids — simulates the async-load window.
+    let renderResult: RenderResult
+    await act(async () => {
+      renderResult = renderInspector(
+        makeCtx({
+          activeLithoModel: makeLithoModel(),
+          lithoFormations: [silt],
+          lithoSolids: [],
+        }),
+      )
+    })
+
+    // Body rows must NOT be present yet (no solids, empty state).
+    expect(screen.queryByTestId('solid-legend-row-b1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('solid-legend-row-b2')).not.toBeInTheDocument()
+
+    // Simulate async arrival: rerender with populated solids.
+    await act(async () => {
+      renderResult!.rerender(
+        <ShellContext.Provider
+          value={makeCtx({
+            activeLithoModel: makeLithoModel(),
+            lithoFormations: [silt],
+            lithoSolids: solids,
+          })}
+        >
+          <LithologyInspector />
+        </ShellContext.Provider>,
+      )
+    })
+
+    // The group has 2 bodies (≤ LEGEND_COLLAPSE_THRESHOLD=8), so it MUST be
+    // expanded automatically — body rows visible without any user interaction.
+    await waitFor(() => {
+      expect(screen.getByTestId('solid-legend-row-b1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('solid-legend-row-b2')).toBeInTheDocument()
   })
 
   // SL4: colour picker fires setBodyColor with null when Reset button clicked.
