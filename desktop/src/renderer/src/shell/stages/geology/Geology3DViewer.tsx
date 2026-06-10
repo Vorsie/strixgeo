@@ -1868,9 +1868,16 @@ export default function Geology3DViewer({
   const [basemapEnabled, setBasemapEnabled] = useState(true)
   // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
   const [groundSurfaceVisible, setGroundSurfaceVisible] = useState(true)
-  // Formation-surface TIN sheets on/off (the "Surfaces" legend toggle). Default
-  // on; the user drops them in Fence mode to see only the section walls.
-  const [surfacesVisible, setSurfacesVisible] = useState(true)
+  // Formation-surface TIN sheets on/off (the "Surfaces" legend toggle).
+  // Default OFF in Fence mode (walls-only) and ON in Solid mode — reset on each
+  // mode switch by the effect below; a manual toggle still persists WITHIN a
+  // mode (the effect only fires when the mode itself flips). Fence mode is
+  // signalled by ``fencePanels`` being defined (undefined = Solid / geology pane).
+  const isFenceMode = fencePanels !== undefined
+  const [surfacesVisible, setSurfacesVisible] = useState(!isFenceMode)
+  useEffect(() => {
+    setSurfacesVisible(!isFenceMode)
+  }, [isFenceMode])
 
   // Debt #26: when offline, the basemap "lid" texture fetch fails and
   // the canvas shows formation surfaces against a black globe — users
