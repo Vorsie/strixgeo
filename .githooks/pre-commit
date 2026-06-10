@@ -35,8 +35,11 @@ if [ -n "$ts_changed" ]; then
   # eslint-reason — enforces CLAUDE.md's "every
   # eslint-disable-next-line react-hooks/exhaustive-deps must carry a
   # `// reason:` comment" rule. Cheapest of the three, runs first.
-  # Debt #42.
-  python scripts/check_eslint_reason.py
+  # Debt #42. Invoke via ``uv run python`` (not bare ``python``) — on the
+  # dev machine only the uv-managed interpreter is on PATH, so a bare
+  # ``python`` aborts the whole desktop check and silently pushes commits
+  # to ``--no-verify``. Mirrors the ``uv run pytest`` line above.
+  uv run python scripts/check_eslint_reason.py
   # tsc --noEmit catches type errors before a green test suite can
   # mask them (vitest happily runs against ``any`` annotations and
   # missing generic args; tsc doesn't). Runs second — slower than
