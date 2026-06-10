@@ -17,7 +17,7 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     LayerSpan,
     Surface,
 )
-from groundmodel.domain.services.litho_solid_builder import _assemble  # reuse M2 walls
+from groundmodel.domain.services.litho_mesh_primitives import assemble_closed_solid
 from groundmodel.domain.services.tin_surface import compute_tin
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
@@ -92,7 +92,7 @@ def assemble_body(
     base_v, base_t = surfaces[base_key]
     if top_t != base_t:
         return None  # different footprints → not the simple single-patch case
-    return _assemble(body_id, formation_id, top_v, base_v, top_t)
+    return assemble_closed_solid(body_id, formation_id, top_v, base_v, top_t)
 
 
 def detect_enclosed_lenses(
@@ -181,7 +181,7 @@ def build_extent_solid(
 
     Top and base TINs are fitted over the SAME inv set (the body's footprint) in
     the same sorted order, so they share Delaunay topology and close with
-    ``_assemble``.
+    :func:`assemble_closed_solid`.
 
     Parameters
     ----------
@@ -227,7 +227,7 @@ def build_extent_solid(
     )
     if not top.triangles or not base.triangles or top.triangles != base.triangles:
         return None
-    return _assemble(
+    return assemble_closed_solid(
         body_id, formation_id, list(top.vertices), list(base.vertices), list(top.triangles)
     )
 
