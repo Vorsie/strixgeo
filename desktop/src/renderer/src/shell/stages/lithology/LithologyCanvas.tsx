@@ -3,6 +3,7 @@
 //
 // Slice D of #55 litho peer-stage scaffolding. Split-viewport added 2026-06-01
 // (resolves debt #64).
+// Fence/Solid toggle added 2026-06-10 (Task 6, Litho 3D fence diagram).
 //
 // Design:
 //   • When at least one litho surface has vertices, render the existing
@@ -16,19 +17,30 @@
 //     scoped to the litho model id (model-id-agnostic call).
 //   • resetLithoCameraCallback: module-level ref shared with LithologyStage's
 //     Reset Camera toolbar button — same pattern as GeologyCanvas.
+//   • viewMode ('solid' | 'fence'): session-ephemeral.  In Solid mode the
+//     TIN surfaces render (today's behaviour).  In Fence mode the
+//     whole-project partition fill is projected to world-space panels and
+//     passed to Geology3DViewer via fencePanels.  Both viewers get the same
+//     fencePanels value; in Solid mode it is undefined so nothing changes.
 
 import * as Cesium from 'cesium'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
-import type { GroundSurfaceBuildResponse } from '../../../api/client'
+import type { GroundSurfaceBuildResponse, LithoContactCorrelationEdge } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer, {
   type SplitMode,
   type SplitLine,
 } from '../geology/Geology3DViewer'
+import { investigationsOnSection } from '../../../utils/sectionProjection'
+import {
+  buildProjectFence,
+  type FenceSectionInput,
+} from '../../../utils/buildProjectFence'
+import type { FenceProjectedColumn, FenceLayerInput } from '../../../utils/sectionFenceData'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with LithologyStage toolbar — no bus extension.
@@ -70,6 +82,13 @@ export const resetLithoSplitViewportCallback: React.MutableRefObject<
  * "Split model" button.  ``resetLithoSplitViewportCallback`` is populated
  * here so ``LithologyStage``'s toolbar Reset verb can collapse the split.
  *
+ * Fence/Solid toggle: ``viewMode`` switches between the TIN-surface render
+ * (Solid) and the whole-project partition fill projected to fence panels
+ * (Fence).  The fence build uses ``lithoLayers`` from the shell bus (no
+ * extra fetch), ``visibleCpts``/``visibleBoreholes`` for investigation
+ * coordinates, ``visibleSections`` for section geometry, and per-section
+ * correlation edges fetched lazily when Fence mode is activated.
+ *
  * All data is sourced from ``useShell()`` — no props accepted (matches
  * the ``StageDescriptor.CanvasComponent`` contract).
  *
@@ -85,9 +104,19 @@ export default function LithologyCanvas(): JSX.Element {
       activeLithoModel,
       lithoFormations,
       lithoSurfacesByFormationId,
+      lithoLayers,
     },
     overlays: { showConfidenceFade },
+    visibleCpts,
+    visibleBoreholes,
+    sections: { visibleSections },
   } = useShell()
+
+  // ---------------------------------------------------------------------------
+  // Fence / Solid view toggle — session-ephemeral, not persisted to the bundle.
+  // ---------------------------------------------------------------------------
+
+  const [viewMode, setViewMode] = useState<'solid' | 'fence'>('solid')
 
   // ---------------------------------------------------------------------------
   // Split-viewport state — session-ephemeral, not persisted to the bundle.
@@ -146,6 +175,127 @@ export default function LithologyCanvas(): JSX.Element {
     // Key on stable id strings; DEM fetch does not depend on surface staleness.
   }, [projectId, lithoModelId])
 
+  // ---------------------------------------------------------------------------
+  // Per-section correlation edges — fetched lazily when Fence mode is active.
+  //
+  // WHY: edges are section-scoped (each edge row carries a section_id — owner
+  // directive 2026-06-08).  We fetch each section's edges in parallel so the
+  // fence build gets only the edges authored on that section.  The fetch fires
+  // whenever viewMode switches to 'fence', the litho model changes, or the
+  // section list changes.  When viewMode is 'solid' the effect still runs but
+  // the expensive buildProjectFence call is gated by the viewMode check in the
+  // fencePanels memo.
+  // ---------------------------------------------------------------------------
+
+  const [edgesBySectionId, setEdgesBySectionId] = useState<
+    Map<string, LithoContactCorrelationEdge[]>
+  >(new Map())
+
+  useEffect(() => {
+    if (!projectId || !lithoModelId || viewMode !== 'fence') {
+      return
+    }
+    if (visibleSections.length === 0) {
+      setEdgesBySectionId(new Map())
+      return
+    }
+    let cancelled = false
+
+    Promise.all(
+      visibleSections.map(section =>
+        api.geology
+          .listContactCorrelations(projectId, lithoModelId, section.id)
+          .then(edges => [section.id, edges] as const)
+          .catch(() => [section.id, [] as LithoContactCorrelationEdge[]] as const),
+      ),
+    ).then(results => {
+      if (cancelled) return
+      setEdgesBySectionId(new Map(results))
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, lithoModelId, viewMode, visibleSections])
+
+  // ---------------------------------------------------------------------------
+  // Fence inputs — assembled from shell-bus data + fetched edges.
+  //
+  // lithoLayers already live on the geoModel bus (loaded by useGeologicalModel
+  // for the Sections stage); no extra fetch is needed.  Each layer is mapped
+  // to a FenceLayerInput keyed by investigationId = cpt_id ?? borehole_id.
+  // ---------------------------------------------------------------------------
+
+  const fenceSectionInputs = useMemo<FenceSectionInput[]>(() => {
+    if (!lithoModelId) return []
+
+    const allItems = [
+      ...visibleCpts.map(c => ({
+        id: c.id,
+        location_x: c.location_x,
+        location_y: c.location_y,
+        elevation_m: c.elevation_m,
+      })),
+      ...visibleBoreholes.map(b => ({
+        id: b.id,
+        location_x: b.location_x,
+        location_y: b.location_y,
+        elevation_m: b.elevation_m,
+      })),
+    ]
+
+    const layerInputs: FenceLayerInput[] = lithoLayers.map(layer => ({
+      investigationId: (layer.cpt_id ?? layer.borehole_id) as string,
+      layerId: layer.id,
+      formationId: layer.formation_id,
+      bodyId: layer.body_id ?? null,
+      topDepthM: layer.depth_top_m,
+      baseDepthM: layer.depth_base_m,
+      accepted: layer.status === 'accepted',
+    }))
+
+    return visibleSections.map<FenceSectionInput>(section => {
+      const excludedIds = new Set([
+        ...(section.excluded_cpt_ids ?? []),
+        ...(section.excluded_borehole_ids ?? []),
+      ])
+      const projected = investigationsOnSection(section, allItems, excludedIds)
+
+      const projectedColumns: FenceProjectedColumn[] = projected.map(p => ({
+        investigationId: p.item.id,
+        alongM: p.along,
+        surfaceElevM: p.item.elevation_m,
+      }))
+
+      const rawEdges = edgesBySectionId.get(section.id) ?? []
+      // Only approved edges drive the band/onlap/lens classification.
+      const edges = rawEdges
+        .filter(e => e.user_approved)
+        .map(e => ({ a: e.contact_a_id, b: e.contact_b_id }))
+
+      return {
+        section: {
+          start_x: section.start_x,
+          start_y: section.start_y,
+          end_x: section.end_x,
+          end_y: section.end_y,
+        },
+        projectedColumns,
+        layers: layerInputs,
+        edges,
+      }
+    })
+  }, [lithoModelId, visibleCpts, visibleBoreholes, visibleSections, lithoLayers, edgesBySectionId])
+
+  // ---------------------------------------------------------------------------
+  // Fence panels — built only in Fence mode to avoid the CPU cost in Solid mode.
+  // ---------------------------------------------------------------------------
+
+  const fencePanels = useMemo(
+    () => (viewMode === 'fence' ? buildProjectFence(fenceSectionInputs) : undefined),
+    [viewMode, fenceSectionInputs],
+  )
+
   // Show the 3D viewer when at least one litho surface has vertices.
   // Stale surfaces are included (Geology3DViewer renders them at lower alpha).
   const hasLithoSurfaces = Array.from(lithoSurfacesByFormationId.values()).some(
@@ -156,23 +306,56 @@ export default function LithologyCanvas(): JSX.Element {
 
   if (hasLithoSurfaces) {
     return (
-      <Geology3DViewer
-        splitMode={splitMode}
-        splitPlane={splitPlane}
-        formations={lithoFormations}
-        surfacesByFormationId={lithoSurfacesByFormationId}
-        projectEpsg={projectEpsg}
-        onSplitPlaneDrawn={handleSplitPlaneDrawn}
-        splitLine={splitLine}
-        resetCameraRef={resetLithoCameraCallback}
-        groundSurface={groundSurface}
-        showConfidenceFade={showConfidenceFade}
-        onExitSplit={() => {
-          setSplitMode('single')
-          setSplitPlane(null)
-          setSplitLine(null)
-        }}
-      />
+      <div className="relative w-full h-full">
+        {/* Fence / Solid view toggle — top-left overlay, mirrors the
+            BasemapPanel button style from Geology3DViewer. */}
+        <div className="absolute top-2 left-2 z-10 flex rounded overflow-hidden border border-border-default shadow-sm">
+          <button
+            type="button"
+            data-testid="litho-view-mode-solid"
+            onClick={() => setViewMode('solid')}
+            className={[
+              'px-3 py-1 text-xs font-medium transition-colors',
+              viewMode === 'solid'
+                ? 'bg-accent text-white'
+                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
+            ].join(' ')}
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            data-testid="litho-view-mode-fence"
+            onClick={() => setViewMode('fence')}
+            className={[
+              'px-3 py-1 text-xs font-medium transition-colors',
+              viewMode === 'fence'
+                ? 'bg-accent text-white'
+                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
+            ].join(' ')}
+          >
+            Fence
+          </button>
+        </div>
+        <Geology3DViewer
+          splitMode={splitMode}
+          splitPlane={splitPlane}
+          formations={lithoFormations}
+          surfacesByFormationId={lithoSurfacesByFormationId}
+          projectEpsg={projectEpsg}
+          onSplitPlaneDrawn={handleSplitPlaneDrawn}
+          splitLine={splitLine}
+          resetCameraRef={resetLithoCameraCallback}
+          groundSurface={groundSurface}
+          showConfidenceFade={showConfidenceFade}
+          fencePanels={fencePanels}
+          onExitSplit={() => {
+            setSplitMode('single')
+            setSplitPlane(null)
+            setSplitLine(null)
+          }}
+        />
+      </div>
     )
   }
 

@@ -31,7 +31,8 @@ vi.mock('../geology/Geology3DViewer', () => ({
   default: () => <div data-testid="geology-3d-viewer" />,
 }))
 
-// api.geology.buildGroundSurface â€” resolve empty so the canvas never hangs.
+// api.geology.buildGroundSurface + listContactCorrelations — resolve empty so
+// the canvas never hangs on async effects.
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
   return {
@@ -39,6 +40,7 @@ vi.mock('../../../api/client', async () => {
     api: {
       geology: {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
+        listContactCorrelations: vi.fn().mockResolvedValue([]),
       },
     },
   }
@@ -446,6 +448,25 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     // The module-level ref is set by the canvas on render.
     // Calling it resets split state; must not throw.
     expect(() => resetLithoSplitViewportCallback.current?.()).not.toThrow()
+  })
+
+  // C4: Fence/Solid toggle buttons render when surfaces are present.
+  it('C4 -- Fence and Solid toggle buttons are present when surfaces exist', () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+    renderCanvas(ctx)
+
+    expect(screen.getByTestId('litho-view-mode-solid')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-view-mode-fence')).toBeInTheDocument()
+  })
+
+  // C5: Toggle buttons are absent when no surfaces exist (EmptyState shows instead).
+  it('C5 -- Fence/Solid toggle absent when no surfaces exist', () => {
+    const ctx = makeCtx({ lithoSurfacesByFormationId: new Map() })
+    renderCanvas(ctx)
+
+    expect(screen.queryByTestId('litho-view-mode-solid')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('litho-view-mode-fence')).not.toBeInTheDocument()
   })
 })
 
