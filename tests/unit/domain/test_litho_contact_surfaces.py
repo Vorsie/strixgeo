@@ -131,6 +131,31 @@ def test_enumerate_contacts_three_layer_stack_produces_correct_internal_keys():
     assert ContactKey("SAND", "CLAY") not in contacts
 
 
+def test_fit_patch_surfaces_skips_under_constrained_patches():
+    """A contact patch with only 2 investigation points is absent from the result.
+
+    Under-constrained patches (< 3 holes) cannot form a TIN triangle; the
+    assembler treats them as disk-marker fallback bodies and must not receive a
+    surface.  Regression guard: lowering the threshold to < 2 would silently
+    pass a collinear/degenerate surface to the assembler.
+    """
+    # Two investigations, each with SAND-over-CLAY → the SAND/CLAY patch has
+    # exactly 2 points and must be skipped.
+    picks = [
+        _pick("A", 0.0, 0.0, "SAND", 0.0, 5.0),
+        _pick("A", 0.0, 0.0, "CLAY", 5.0, 15.0),
+        _pick("B", 10.0, 0.0, "SAND", 0.0, 5.0),
+        _pick("B", 10.0, 0.0, "CLAY", 5.0, 15.0),
+    ]
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+
+    # The shared SAND/CLAY interior patch has 2 points → must not appear
+    assert ContactKey("SAND", "CLAY") not in surfaces, (
+        "Under-constrained patch (2 points) must be absent from fit_patch_surfaces result"
+    )
+
+
 def test_fit_patch_surfaces_uses_only_patch_holes_and_sorts_by_inv():
     """Each patch is a TIN over only its own (inv-sorted) holes."""
     # SAND over CLAY on a non-collinear quad.
