@@ -1,10 +1,15 @@
 // Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
 //
 // Claims pinned here:
-//   C1  When no litho surfaces exist (empty map or all vertices=[]) â†’
+//   C1  When no litho surfaces exist (empty map or all vertices=[]) →
 //       EmptyState renders; Geology3DViewer does NOT mount.
-//   C2  When at least one litho surface has vertices â†’ Geology3DViewer
+//   C2  When at least one litho surface has vertices → Geology3DViewer
 //       mounts; EmptyState does NOT render.
+//   C9  In Solid mode, api.geology.listLithoSolids is called with the
+//       correct projectId + modelId.
+//   C10 Clicking "Build solids" calls api.geology.rebuildLithoSolids and
+//       toasts the result; the nonce bump causes listLithoSolids re-fetch.
+//   C11 The stale badge is shown when any solid has is_stale = true.
 //
 // Geology3DViewer is mocked as a bare <div data-testid="geology-3d-viewer">
 // to avoid the Cesium / WebGL harness (same pattern as the existing
@@ -21,7 +26,9 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoBodySolidResponse,
   LithoContactCorrelationEdge,
+  RebuildLithoSolidsResponse,
 } from '../../../api/client'
 import LithologyCanvas, { resetLithoSplitViewportCallback } from './LithologyCanvas'
 
@@ -34,8 +41,9 @@ vi.mock('../geology/Geology3DViewer', () => ({
   default: () => <div data-testid="geology-3d-viewer" />,
 }))
 
-// api.geology.buildGroundSurface + listContactCorrelations — resolve empty so
-// the canvas never hangs on async effects.
+// api.geology stubs — resolve empty so the canvas never hangs on async effects.
+// listLithoSolids and rebuildLithoSolids are added for the Task-8 solid-mode
+// claims (C9/C10/C11).
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
   return {
@@ -44,6 +52,16 @@ vi.mock('../../../api/client', async () => {
       geology: {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
+        listLithoSolids: vi.fn().mockResolvedValue([]),
+        rebuildLithoSolids: vi.fn().mockResolvedValue({
+          bodies_considered: 0,
+          bodies_built: 0,
+          bodies_skipped_checksum: 0,
+          bodies_flagged: 0,
+          orphans_deleted: 0,
+          solids: [],
+        } satisfies RebuildLithoSolidsResponse),
+        setBodyColor: vi.fn().mockResolvedValue({ body_id: 'b-1', display_color: '#ff0000' }),
       },
     },
   }
@@ -105,6 +123,24 @@ function makeSection(id = 'sec-1'): CrossSectionResponse {
   }
 }
 
+function makeSolid(bodyId: string, formationId: string, overrides: Partial<LithoBodySolidResponse> = {}): LithoBodySolidResponse {
+  return {
+    id: `solid-${bodyId}`,
+    model_id: 'litho-1',
+    body_id: bodyId,
+    formation_id: formationId,
+    method: 'watertight',
+    vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] as [number, number, number][],
+    triangles: [[0, 1, 2]] as [number, number, number][],
+    is_stale: false,
+    is_flagged: false,
+    display_color: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
 function makeSurface(formationId: string, hasVertices: boolean): FormationSurfaceResponse {
   return {
     id: `surf-${formationId}`,
@@ -135,6 +171,7 @@ function makeCtx(overrides: {
   lithoFormations?: GeologicalFormationResponse[]
   lithoSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
   visibleSections?: CrossSectionResponse[]
+  toast?: (type: 'success' | 'error' | 'warning', message: string) => void
 } = {}): ShellContextValue {
   return {
     project: {
@@ -352,7 +389,7 @@ function makeCtx(overrides: {
       showConfidenceFade: true,
       handleSetShowConfidenceFade: vi.fn(),
     },
-    toasts: { toasts: [], toast: vi.fn() },
+    toasts: { toasts: [], toast: overrides.toast ?? vi.fn() },
     undo: {
       push: vi.fn(),
       undo: noopAsync,
@@ -426,6 +463,8 @@ function renderCanvas(ctx: ShellContextValue) {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  // Clear call counts on module-mock vi.fn()s so each test starts fresh.
+  vi.clearAllMocks()
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -591,6 +630,79 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     await act(async () => {
       resolveFetch()
     })
+  })
+
+  // C9: In Solid mode, api.geology.listLithoSolids is called with the
+  //     correct projectId and modelId as soon as the canvas mounts.
+  it('C9 -- Solid mode triggers listLithoSolids fetch on mount', async () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+
+    // The mock resolves empty by default (no solids yet).
+    expect(vi.mocked(api.geology.listLithoSolids)).not.toHaveBeenCalled()
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    // listLithoSolids must have been called once with the project + model ids.
+    expect(vi.mocked(api.geology.listLithoSolids)).toHaveBeenCalledOnce()
+    expect(vi.mocked(api.geology.listLithoSolids)).toHaveBeenCalledWith('proj-1', 'litho-1')
+  })
+
+  // C10: Clicking Build Solids calls rebuildLithoSolids and toasts the result.
+  //      A subsequent listLithoSolids fetch is triggered via the nonce bump.
+  it('C10 -- clicking Build solids calls rebuildLithoSolids and toasts', async () => {
+    const toastFn = vi.fn()
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap, toast: toastFn })
+
+    vi.mocked(api.geology.rebuildLithoSolids).mockResolvedValueOnce({
+      bodies_considered: 1,
+      bodies_built: 1,
+      bodies_skipped_checksum: 0,
+      bodies_flagged: 0,
+      orphans_deleted: 0,
+      solids: [makeSolid('b-1', 'f-built')],
+    })
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    // The Build Solids button must be present in Solid mode (viewMode default).
+    const buildBtn = screen.getByTestId('litho-build-solids-button')
+    expect(buildBtn).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(buildBtn)
+    })
+
+    // rebuildLithoSolids called once with correct ids.
+    expect(vi.mocked(api.geology.rebuildLithoSolids)).toHaveBeenCalledOnce()
+    expect(vi.mocked(api.geology.rebuildLithoSolids)).toHaveBeenCalledWith('proj-1', 'litho-1')
+
+    // toast called with 'success' (0 flagged).
+    expect(toastFn).toHaveBeenCalledWith('success', expect.stringContaining('Built 1'))
+  })
+
+  // C11: The Build Solids button shows the stale badge text when any solid
+  //      has is_stale = true.
+  it('C11 -- stale badge shown when any solid is_stale', async () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+
+    // Seed listLithoSolids with a stale solid so hasStaleSolid is true.
+    vi.mocked(api.geology.listLithoSolids).mockResolvedValueOnce([
+      makeSolid('b-stale', 'f-built', { is_stale: true }),
+    ])
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    const buildBtn = screen.getByTestId('litho-build-solids-button')
+    expect(buildBtn).toHaveTextContent(/stale/i)
   })
 })
 
