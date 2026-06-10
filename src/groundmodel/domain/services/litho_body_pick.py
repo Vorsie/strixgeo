@@ -1,0 +1,45 @@
+"""Shared ``BodyLayerPick`` dataclass used across the litho-3D builder pipeline.
+
+Extracted into its own module so that :mod:`litho_contact_surfaces` (which
+reconstructs per-investigation column stacks) and :mod:`litho_solid_builder`
+(the orchestrator) can both import it without creating a circular dependency.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class BodyLayerPick:
+    """One member-layer of a body at one investigation.
+
+    Parameters
+    ----------
+    investigation_id : str
+        CPT/borehole id (identity for the (x, y) anchor).
+    x_m : float
+        World x-coordinate (project CRS).
+    y_m : float
+        World y-coordinate (project CRS).
+    surface_elev_m : float
+        Ground/surface elevation at the investigation; depth → elevation
+        conversion is ``elevation = surface_elev_m - depth_m``.
+    body_id : str
+        The body this pick belongs to.
+    formation_id : str
+        The body's lithology formation.
+    top_depth_m : float
+        Member layer top depth below ``surface_elev_m``.
+    base_depth_m : float
+        Member layer base depth below ``surface_elev_m``.
+    """
+
+    investigation_id: str
+    x_m: float
+    y_m: float
+    surface_elev_m: float
+    body_id: str
+    formation_id: str
+    top_depth_m: float
+    base_depth_m: float
