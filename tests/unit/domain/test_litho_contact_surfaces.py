@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from groundmodel.domain.services.litho_contact_surfaces import build_columns
+from groundmodel.domain.services.litho_contact_surfaces import (
+    ContactKey,
+    build_columns,
+    enumerate_contacts,
+)
 from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
 
 
@@ -62,10 +66,6 @@ def test_build_columns_groups_multiple_investigations_independently():
 
 def test_enumerate_contacts_keys_by_ordered_pair_and_free_surfaces():
     """Internal interfaces key by (upper, lower); free ground/base use ''."""
-    from groundmodel.domain.services.litho_contact_surfaces import (
-        ContactKey,
-        enumerate_contacts,
-    )
 
     picks = [
         _pick("A", 0.0, 0.0, "SAND", 0.0, 4.0),
@@ -79,3 +79,52 @@ def test_enumerate_contacts_keys_by_ordered_pair_and_free_surfaces():
     # free ground above SAND at elev 0, free base below CLAY at elev -14
     assert contacts[ContactKey("", "SAND")][0].elev == 0.0
     assert contacts[ContactKey("CLAY", "")][0].elev == -14.0
+
+
+def test_enumerate_contacts_same_key_accumulates_across_investigations():
+    """Two investigations both with SAND-over-CLAY → ContactKey("SAND","CLAY") has 2 points.
+
+    This proves setdefault accumulates rather than overwrites; the shared-surface
+    design depends on collecting one point per investigation into a single patch.
+    """
+    picks = [
+        _pick("A", 0.0, 0.0, "SAND", 0.0, 5.0),
+        _pick("A", 0.0, 0.0, "CLAY", 5.0, 15.0),
+        _pick("B", 10.0, 0.0, "SAND", 0.0, 5.0),
+        _pick("B", 10.0, 0.0, "CLAY", 5.0, 15.0),
+    ]
+    columns, coords = build_columns(picks)
+    contacts = enumerate_contacts(columns, coords)
+
+    pts = contacts[ContactKey("SAND", "CLAY")]
+    assert len(pts) == 2, "Both investigations must contribute a point to the shared patch"
+    inv_ids = {p.inv_id for p in pts}
+    assert inv_ids == {"A", "B"}
+
+
+def test_enumerate_contacts_three_layer_stack_produces_correct_internal_keys():
+    """One column SAND/SILT/CLAY → two distinct internal keys at the correct elevations.
+
+    Also verifies the ground cap ("", "SAND") and base cap ("CLAY", "") are present.
+    """
+    picks = [
+        _pick("A", 1.0, 2.0, "SAND", 0.0, 3.0),
+        _pick("A", 1.0, 2.0, "SILT", 3.0, 8.0),
+        _pick("A", 1.0, 2.0, "CLAY", 8.0, 20.0),
+    ]
+    columns, coords = build_columns(picks)
+    contacts = enumerate_contacts(columns, coords)
+
+    # Two internal interfaces at the expected elevations
+    sand_silt = contacts[ContactKey("SAND", "SILT")]
+    assert len(sand_silt) == 1 and sand_silt[0].elev == -3.0  # surface 0 - depth 3
+
+    silt_clay = contacts[ContactKey("SILT", "CLAY")]
+    assert len(silt_clay) == 1 and silt_clay[0].elev == -8.0  # surface 0 - depth 8
+
+    # Free caps
+    assert contacts[ContactKey("", "SAND")][0].elev == 0.0
+    assert contacts[ContactKey("CLAY", "")][0].elev == -20.0
+
+    # No spurious short-circuit key (SAND directly above CLAY should not exist)
+    assert ContactKey("SAND", "CLAY") not in contacts
