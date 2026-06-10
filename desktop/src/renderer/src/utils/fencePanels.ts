@@ -7,6 +7,16 @@ import { projectionFoot, type SectionEndpoints } from './sectionProjection'
 export interface FenceColumn {
   investigationId: string
   alongM: number
+  /**
+   * Optional canonical world position ``(x, y)`` in project CRS where this
+   * column should be DRAWN. When set, the panel is built between these world
+   * points instead of projecting ``alongM`` onto ``section``. Tie-sections use
+   * this to anchor each end at the cross-section column of the same test (so a
+   * tie rung snaps onto the cross-section wall, dogfeed 2026-06-10); cross-
+   * sections leave it unset (or set to their own projection) → unchanged.
+   */
+  worldX?: number
+  worldY?: number
 }
 
 /** A partition region carrying which gap (column pair) it sits in. */
@@ -36,11 +46,15 @@ export interface FencePanel {
  * Project each partition region into a world-space wall panel.
  *
  * For region in gap ``g``: the left column is ``orderedColumns[g]`` and the right
- * is ``orderedColumns[g+1]``. A polygon point's ``fraction`` maps linearly to an
- * along-section distance between the two columns; ``projectionFoot`` turns that
- * into world ``(x, y)``; ``elevation`` is the z. Triangulation runs in the
- * section's 2D plane ``(along, elevation)`` (concave-safe) and the indices are
- * reused for the 3D vertices, which is valid because the panel is planar.
+ * is ``orderedColumns[g+1]``. Each column resolves to a world ``(x, y)`` — its
+ * ``worldX``/``worldY`` when set (a tie's canonical cross-section position), else
+ * the foot of ``alongM`` on ``section``. A polygon point's ``fraction`` linearly
+ * interpolates between the two column world points; ``elevation`` is the z.
+ * Triangulation runs in the panel's own 2D plane ``(horizontal-distance,
+ * elevation)`` (concave-safe) and the indices are reused for the 3D vertices,
+ * which is valid because the panel is planar. For a cross-section the two world
+ * points are colinear on the section line, so interpolating between them is
+ * identical to projecting ``alongM`` — the change is inert there.
  *
  * Parameters
  * ----------
@@ -62,26 +76,34 @@ export function buildFencePanels(
   orderedColumns: readonly FenceColumn[],
   regions: readonly FenceRegion[],
 ): FencePanel[] {
+  // Resolve a column to the world (x, y) where it should be drawn: its canonical
+  // worldX/worldY if set, else the foot of its alongM on the section line.
+  const colWorld = (col: FenceColumn): { x: number; y: number } | null =>
+    col.worldX !== undefined && col.worldY !== undefined
+      ? { x: col.worldX, y: col.worldY }
+      : projectionFoot(section, col.alongM)
+
   const panels: FencePanel[] = []
   for (const region of regions) {
     const left = orderedColumns[region.gapIndex]
     const right = orderedColumns[region.gapIndex + 1]
     if (!left || !right) continue
+    const leftPt = colWorld(left)
+    const rightPt = colWorld(right)
+    if (!leftPt || !rightPt) continue
+    // Horizontal span of the gap in world metres — the 2D plane's x axis, so the
+    // ear-clip triangulation sees the true panel aspect ratio.
+    const gapLen = Math.hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y)
 
     const plane: Vec2[] = []
     const vertices: [number, number, number][] = []
-    let ok = true
     for (const p of region.polygon) {
-      const along = left.alongM + p.fraction * (right.alongM - left.alongM)
-      const foot = projectionFoot(section, along)
-      if (!foot) {
-        ok = false
-        break
-      }
-      vertices.push([foot.x, foot.y, p.elevation])
-      plane.push({ x: along, y: p.elevation })
+      const x = leftPt.x + p.fraction * (rightPt.x - leftPt.x)
+      const y = leftPt.y + p.fraction * (rightPt.y - leftPt.y)
+      vertices.push([x, y, p.elevation])
+      plane.push({ x: p.fraction * gapLen, y: p.elevation })
     }
-    if (!ok || vertices.length < 3) continue
+    if (vertices.length < 3) continue
 
     const triangles = triangulatePolygon2D(plane)
     if (triangles.length === 0) continue
