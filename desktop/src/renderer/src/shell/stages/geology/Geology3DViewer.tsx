@@ -1003,6 +1003,7 @@ function rebuildSurfacePrimitives(
   showConfidenceFade: boolean = true,
   fencePanels?: FencePanel[],
   groundSurfaceVisible: boolean = true,
+  surfacesVisible: boolean = true,
 ): void {
   scene.primitives.removeAll()
 
@@ -1031,8 +1032,10 @@ function rebuildSurfacePrimitives(
 
   // Step 2 — coloured cut-face caps. Shared geometry rendered in both
   // halves (each half's far side is clipped away, so it reads as that
-  // half's exposed cross-section).
-  if (clip && splitLine) {
+  // half's exposed cross-section). Cut-face caps are a SOLID-mode concept —
+  // suppressed in Fence mode (``fencePanels`` defined) where the user wants
+  // only the section walls, not the block's cut face (dogfeed 2026-06-10).
+  if (clip && splitLine && fencePanels === undefined) {
     for (const cap of buildCapPrimitives(
       formations,
       surfacesByFormationId,
@@ -1181,7 +1184,10 @@ function rebuildSurfacePrimitives(
     }
   }
 
-  for (const formation of formations) {
+  // The formation-surface TIN sheets ("solids"). Gated by the "Surfaces"
+  // legend toggle so the user can drop them in Fence mode and keep only the
+  // section walls (dogfeed 2026-06-10) — the fence walls above are unaffected.
+  for (const formation of surfacesVisible ? formations : []) {
     // Per-formation visibility toggle (the 3D legend). A hidden
     // formation's TIN is simply not added, so the next-deeper
     // formation shows through where it would have been.
@@ -1378,6 +1384,8 @@ interface CesiumViewportProps {
   basemapEnabled?: boolean
   /** When false, the DEM ground-surface TIN is not drawn (the "Ground surface" toggle). */
   groundSurfaceVisible?: boolean
+  /** When false, the formation-surface TIN sheets are not drawn (the "Surfaces" toggle). */
+  surfacesVisible?: boolean
   /** Per-project confidence-fade toggle (debt #94 follow-up). */
   showConfidenceFade?: boolean
   /** Fence-diagram wall panels — threaded from Geology3DViewerProps. */
@@ -1437,6 +1445,7 @@ function CesiumViewport({
   hiddenFormationIds,
   basemapEnabled = true,
   groundSurfaceVisible = true,
+  surfacesVisible = true,
   showConfidenceFade = true,
   fencePanels,
 }: CesiumViewportProps): JSX.Element {
@@ -1555,6 +1564,7 @@ function CesiumViewport({
       showConfidenceFade,
       fencePanels,
       groundSurfaceVisible,
+      surfacesVisible,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -1622,6 +1632,8 @@ function CesiumViewport({
     fencePanels,
     // Ground-surface visibility toggle — rebuild so the DEM appears/disappears.
     groundSurfaceVisible,
+    // Surfaces visibility toggle — rebuild so the formation TIN sheets appear/disappear.
+    surfacesVisible,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -1856,6 +1868,9 @@ export default function Geology3DViewer({
   const [basemapEnabled, setBasemapEnabled] = useState(true)
   // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
   const [groundSurfaceVisible, setGroundSurfaceVisible] = useState(true)
+  // Formation-surface TIN sheets on/off (the "Surfaces" legend toggle). Default
+  // on; the user drops them in Fence mode to see only the section walls.
+  const [surfacesVisible, setSurfacesVisible] = useState(true)
 
   // Debt #26: when offline, the basemap "lid" texture fetch fails and
   // the canvas shows formation surfaces against a black globe — users
@@ -1934,6 +1949,7 @@ export default function Geology3DViewer({
           hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
           groundSurfaceVisible={groundSurfaceVisible}
+          surfacesVisible={surfacesVisible}
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
         />
@@ -2010,6 +2026,28 @@ export default function Geology3DViewer({
                       className={`truncate ${!groundSurfaceVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
                     >
                       Ground surface
+                    </span>
+                  </button>
+                </li>
+              )}
+              {/* Formation surfaces (the "solid" TIN sheets) on/off — only shown
+                  when surfaces exist. Lets the user drop the sheets in Fence
+                  mode and keep only the section walls (dogfeed 2026-06-10). The
+                  per-formation rows below still toggle individual lithologies
+                  (walls + sheet); this hides ALL sheets at once. */}
+              {[...surfacesByFormationId.values()].some(s => s.vertices.length > 0) && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setSurfacesVisible(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!surfacesVisible ? 'opacity-50' : ''}`}
+                    title={surfacesVisible ? 'Hide formation surfaces' : 'Show formation surfaces'}
+                  >
+                    <span className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default bg-text-secondary" />
+                    <span
+                      className={`truncate ${!surfacesVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
+                    >
+                      Surfaces
                     </span>
                   </button>
                 </li>
@@ -2121,6 +2159,7 @@ export default function Geology3DViewer({
               hiddenFormationIds={hiddenFormationIds}
               basemapEnabled={basemapEnabled}
               groundSurfaceVisible={groundSurfaceVisible}
+              surfacesVisible={surfacesVisible}
               showConfidenceFade={showConfidenceFade}
               fencePanels={fencePanels}
             />
