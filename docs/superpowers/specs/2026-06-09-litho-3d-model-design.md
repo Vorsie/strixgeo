@@ -417,3 +417,89 @@ so there is a visible, testable artifact early.
   bundle; identity tag = `body_id` + formation. (§5.5–5.6)
 
 All open questions resolved — spec ready for planning.
+
+---
+
+## 11. Part-b refinements (brainstorm 2026-06-10)
+
+Phase 1 (auto-tie) + 1b shipped; the owner has now **correlated all tie-sections**
+(the connected fence exists). "Part b" = the rest of the builder. This section
+records the decisions taken in the 2026-06-10 brainstorm and supersedes §9's
+plain build-order where they differ.
+
+### 11.1 Scope
+- **Part b = spec steps 2 + 3 together** — through-going bodies + pinch-outs AND
+  enclosed lenses + full drawn-shape fidelity. One cohesive builder.
+
+### 11.2 Uncertainty toggle (resolves the §4 one-liner)
+- **Distance-to-data shading, reusing the geological model's existing mechanism**
+  — per-vertex confidence computed **frontend-side** from TIN geometry
+  (`tinConfidence.ts`: hull-edge + longest/median edge-length ratio →
+  `confidenceToAlphaMultiplier`), toggled by the existing `showConfidenceFade`
+  shell-overlay flag. No backend schema change; the litho body meshes flow
+  through the same `buildTinPrimitiveWithVertexColor` path.
+- **Advanced flavours deferred to Phase 5 debt** (surface ± envelope shell;
+  distance-to-nearest-*control-point* rather than edge-length proxy). Add a
+  Phase-5 / Tier-D debt item.
+
+### 11.3 Build order — fence diagram FIRST, then solids
+A 3D fence of the validated 2D panels is hollow; watertight solids require
+*interpolating between panels*, which is surface-fitting (`compute_tin`). So
+"loft the 2D shapes" and "fit surfaces" converge — surfaces are how the gaps get
+filled. The owner chose to ship the fence as an explicit earlier checkpoint:
+
+- **Milestone 1 — Fence diagram (client-side).** Project each section's 2D
+  partition regions (`computeSectionFill` output, already validated) from
+  `(gap-fraction, elevation)` to world `(x, y, z)` using the section endpoints +
+  the two bounding investigations' coordinates, and render them as coloured
+  vertical walls in the existing Cesium viewer. A **permanent Fence / Solid view
+  toggle** in the litho 3D pane (Fence stays useful for sanity-checking
+  correlations, like LeapFrog — not a throwaway scaffold). No backend, no new
+  table. **First rotatable 3D + cheap insurance that the ties/correlations are
+  right before solids are built on top of them.**
+- **Milestone 2 — Through-going body solids + pinch-outs.** NEW
+  `LithoSolidBuilder` (domain, pure) → per-contact-boundary surfaces via
+  `compute_tin` → body = volume between its two bounding surfaces → pinch-outs
+  where surfaces meet. NEW `litho_body_solid` table (mirrors
+  `formation_surface_orm`: `vertices`/`triangles`/`is_stale`/`method` JSONB +
+  checksum), same stale-on-edit cascade + on-click Build. NEW
+  `GET /geology/models/{id}/litho-solids`. Viewer renders each body mesh (Solid
+  mode); distance-to-data shading reused (§11.2); **per-body colour picker**
+  (§5.6) → nullable `display_color` on `body`, rides in the `.strix` bundle.
+- **Milestone 3 — Lenses + full drawn-shape fidelity.** Enclosed-lens bodies as
+  closed blobs carved from the matrix (3D analog of `carveOverlays`); freedraw
+  `body_boundary_node` + user-edited pinch positions fed as control points.
+  **Fallback (§7):** a body that cannot form a clean solid → flagged slab + log,
+  never a crash or silently invented geometry.
+
+### 11.4 Research-confirmed reuse map (2026-06-10)
+Measured against the codebase so the plan mirrors what exists:
+
+| Need | Existing piece to reuse | Path |
+|------|------------------------|------|
+| Surface fit | `compute_tin` (Delaunay + concave hull, α factor 6.0) | `domain/services/tin_surface.py` |
+| Surface table pattern | `FormationSurfaceOrm` (vertices/triangles/is_stale/method/checksum JSONB) | `infrastructure/db/models/formation_surface_orm.py` |
+| Recompute + stale cascade | `RecomputeFormationSurface`, `RebuildModelSurfaces`, `mark_surfaces_stale` | `application/recompute_formation_surface.py`, `application/rebuild_model_surfaces.py` |
+| Surfaces API pattern | `GET .../surfaces`, `POST .../surfaces/rebuild`, `FormationSurfaceResponse` | `api/routers/geology/surfaces.py` |
+| 3D viewer (generic over (formation, mesh)) | `Geology3DViewer` — already consumed by `LithologyCanvas` unchanged | `shell/stages/geology/Geology3DViewer.tsx`, `shell/stages/lithology/LithologyCanvas.tsx` |
+| Distance-to-data shading | `showConfidenceFade` + `tinConfidence.ts` (per-vertex, frontend) | `shell/stages/...` + `utils/tinConfidence.ts` |
+| Mesh primitive build | `buildTinPrimitive` / `buildTinPrimitiveWithVertexColor` | `Geology3DViewer.tsx` |
+| body_id spanning sections | `ResolveLithoInstances` (unions edges across ALL sections → `litho_layer.body_id`) | `application/resolve_litho_instances_use_case.py` |
+| Body entity | `BodyOrm` (needs NEW nullable `display_color`) | `infrastructure/db/models/body_orm.py` |
+| Freedraw shape (section-local along_m/elevation_m → project to world) | `BodyBoundaryShapeOrm` / `BodyBoundaryNodeOrm`, `section_projection.py` | `infrastructure/gis/section_projection.py` |
+| Investigation (x,y) + surface elevation | `CptOrm` / `BoreholeOrm` `location_x/y`, `elevation_m` | `infrastructure/db/models/{cpt,borehole}_orm.py` |
+
+Two findings that shaped the milestones: (1) the viewer renders per-*formation*
+surfaces today (one sheet per lithology — cannot express interfingering), so
+per-*body* closed solids are genuinely new; (2) the existing "solid look" in the
+geology viewer is split-plane cut-face *bands*, not closed volumes — milestone 2
+renders each body's closed mesh as its own primitive instead.
+
+### 11.5 Planning note
+Milestone 1 (fence) is fully specifiable now and ships a working 3D view.
+Milestones 2–3 hinge on a genuinely novel watertight-mesh + 3D-carve algorithm;
+per the no-placeholders planning rule they get their own executable plan after a
+short builder spike (prototype `body_between_surfaces` + `lens_carve` on a
+synthetic two-section fence), written once milestone 1 has de-risked the viewer
+path. So part b is planned as: **Plan B1 (fence) now → spike → Plan B2 (solids
+2+3).**
