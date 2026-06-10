@@ -14,9 +14,11 @@ import {
   GEOPUNT_ORTHO_WMS,
   buildCutFaceBands,
   computeBasemapBounds,
+  computeSolidCapTriangles,
   sampleTinZ,
   clipTrisToHalfSpace,
   clipTexTrisToHalfSpace,
+  type CapPlane,
   type StationFormationZ,
   type TexVert,
 } from './cesiumGeometry'
@@ -269,5 +271,246 @@ describe('buildCutFaceBands', () => {
     // B keeps its own sliver depth (−2) and wedges out — it never
     // reaches the far station as a full band.
     expect(Math.min(...zsOf(out.get('B')))).toBeCloseTo(-2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeSolidCapTriangles tests (TDD — RED before implementation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Signed area of a triangle in 3D — used to sanity-check cap geometry.
+ * Returns the magnitude (always >= 0).
+ */
+function triArea3D(
+  a: [number, number, number],
+  b: [number, number, number],
+  c: [number, number, number],
+): number {
+  const ux = b[0] - a[0]
+  const uy = b[1] - a[1]
+  const uz = b[2] - a[2]
+  const vx = c[0] - a[0]
+  const vy = c[1] - a[1]
+  const vz = c[2] - a[2]
+  const cx = uy * vz - uz * vy
+  const cy = uz * vx - ux * vz
+  const cz = ux * vy - uy * vx
+  return 0.5 * Math.sqrt(cx * cx + cy * cy + cz * cz)
+}
+
+/**
+ * Signed distance of a point to a CapPlane (positive = same side as normal).
+ * Matches Cesium.Plane.getPointDistance semantics: normal·X + constant.
+ */
+function planeDist(
+  p: [number, number, number],
+  plane: CapPlane,
+): number {
+  return (
+    p[0] * plane.normal[0] +
+    p[1] * plane.normal[1] +
+    p[2] * plane.normal[2] +
+    plane.constant
+  )
+}
+
+/** Unit cube: 8 vertices, 12 triangles (2 per face), watertight. */
+function unitCubeGeometry(): {
+  vertices: [number, number, number][]
+  triangles: [number, number, number][]
+} {
+  // Corners at (0,0,0)...(1,1,1) in XYZ.
+  const v: [number, number, number][] = [
+    [0, 0, 0], // 0 front-bottom-left
+    [1, 0, 0], // 1 front-bottom-right
+    [1, 1, 0], // 2 back-bottom-right
+    [0, 1, 0], // 3 back-bottom-left
+    [0, 0, 1], // 4 front-top-left
+    [1, 0, 1], // 5 front-top-right
+    [1, 1, 1], // 6 back-top-right
+    [0, 1, 1], // 7 back-top-left
+  ]
+  const t: [number, number, number][] = [
+    // bottom (z=0), outward normal -Z
+    [0, 2, 1], [0, 3, 2],
+    // top (z=1), outward normal +Z
+    [4, 5, 6], [4, 6, 7],
+    // front (y=0), outward normal -Y
+    [0, 1, 5], [0, 5, 4],
+    // back (y=1), outward normal +Y
+    [2, 3, 7], [2, 7, 6],
+    // left (x=0), outward normal -X
+    [0, 4, 7], [0, 7, 3],
+    // right (x=1), outward normal +X
+    [1, 2, 6], [1, 6, 5],
+  ]
+  return { vertices: v, triangles: t }
+}
+
+describe('computeSolidCapTriangles', () => {
+  it('unit cube cut at z=0.5 → cap area ≈ 1 (the unit square cross-section), all vertices on plane', () => {
+    // Horizontal plane z = 0.5: normal = (0,0,1), constant = -0.5
+    // (normal·X + constant = z - 0.5 = 0 at z=0.5)
+    const plane: CapPlane = { normal: [0, 0, 1], constant: -0.5 }
+    const { vertices, triangles } = unitCubeGeometry()
+    const result = computeSolidCapTriangles(vertices, triangles, plane)
+
+    // Must produce some cap geometry.
+    expect(result.positions.length).toBeGreaterThan(0)
+    // Positions come in triples (x,y,z) for each vertex.
+    expect(result.positions.length % 3).toBe(0)
+    // Indices come in triples (one per triangle).
+    expect(result.indices.length % 3).toBe(0)
+    expect(result.indices.length).toBeGreaterThan(0)
+
+    // All cap vertices must lie on the plane (signed dist ≈ 0).
+    const EPS = 1e-6
+    for (let i = 0; i < result.positions.length; i += 3) {
+      const pt: [number, number, number] = [
+        result.positions[i],
+        result.positions[i + 1],
+        result.positions[i + 2],
+      ]
+      expect(Math.abs(planeDist(pt, plane))).toBeLessThan(EPS)
+    }
+
+    // Total cap area should be ≈ 1.0 (unit square).
+    let totalArea = 0
+    for (let i = 0; i < result.indices.length; i += 3) {
+      const a: [number, number, number] = [
+        result.positions[result.indices[i] * 3],
+        result.positions[result.indices[i] * 3 + 1],
+        result.positions[result.indices[i] * 3 + 2],
+      ]
+      const b: [number, number, number] = [
+        result.positions[result.indices[i + 1] * 3],
+        result.positions[result.indices[i + 1] * 3 + 1],
+        result.positions[result.indices[i + 1] * 3 + 2],
+      ]
+      const c: [number, number, number] = [
+        result.positions[result.indices[i + 2] * 3],
+        result.positions[result.indices[i + 2] * 3 + 1],
+        result.positions[result.indices[i + 2] * 3 + 2],
+      ]
+      totalArea += triArea3D(a, b, c)
+    }
+    // The cross-section of a unit cube by a horizontal plane is a unit square
+    // with area 1.0. Allow 1% tolerance for floating-point.
+    expect(totalArea).toBeGreaterThan(0.99)
+    expect(totalArea).toBeLessThan(1.01)
+  })
+
+  it('plane that misses the cube entirely → empty result', () => {
+    // Plane at z=2 is entirely above the unit cube (z range [0,1]).
+    const plane: CapPlane = { normal: [0, 0, 1], constant: -2 }
+    const { vertices, triangles } = unitCubeGeometry()
+    const result = computeSolidCapTriangles(vertices, triangles, plane)
+    expect(result.positions.length).toBe(0)
+    expect(result.indices.length).toBe(0)
+  })
+
+  it('plane through a vertex/edge of the cube → valid (possibly small) cap, no crash, all points on plane', () => {
+    // Plane exactly through z=0 (the bottom face shared by vertices 0,1,2,3).
+    // Every bottom-face vertex has signed distance 0 — degenerate edges exist.
+    const plane: CapPlane = { normal: [0, 0, 1], constant: 0 }
+    const { vertices, triangles } = unitCubeGeometry()
+    // Should not throw.
+    const result = computeSolidCapTriangles(vertices, triangles, plane)
+    // May produce an empty cap (all bottom triangles are coplanar, no crossings
+    // that produce a loop) OR a degenerate-free small polygon — both are valid.
+    // What must NOT happen: positions off the plane or a throw.
+    const EPS = 1e-4
+    for (let i = 0; i < result.positions.length; i += 3) {
+      const pt: [number, number, number] = [
+        result.positions[i],
+        result.positions[i + 1],
+        result.positions[i + 2],
+      ]
+      expect(Math.abs(planeDist(pt, plane))).toBeLessThan(EPS)
+    }
+    // Indices must be consistent with positions.
+    const nVerts = result.positions.length / 3
+    for (const idx of result.indices) {
+      expect(idx).toBeGreaterThanOrEqual(0)
+      expect(idx).toBeLessThan(nVerts)
+    }
+  })
+
+  it('all cap triangles are non-degenerate (area > 0)', () => {
+    // Use a diagonal cut through the cube to stress-test triangle quality.
+    // Plane: x + z = 1.0 → normal (1/√2, 0, 1/√2), constant = -1/√2.
+    const s = 1 / Math.sqrt(2)
+    const plane: CapPlane = { normal: [s, 0, s], constant: -s }
+    const { vertices, triangles } = unitCubeGeometry()
+    const result = computeSolidCapTriangles(vertices, triangles, plane)
+    expect(result.indices.length).toBeGreaterThan(0)
+    const MIN_TRI_AREA = 1e-10
+    for (let i = 0; i < result.indices.length; i += 3) {
+      const a: [number, number, number] = [
+        result.positions[result.indices[i] * 3],
+        result.positions[result.indices[i] * 3 + 1],
+        result.positions[result.indices[i] * 3 + 2],
+      ]
+      const b: [number, number, number] = [
+        result.positions[result.indices[i + 1] * 3],
+        result.positions[result.indices[i + 1] * 3 + 1],
+        result.positions[result.indices[i + 1] * 3 + 2],
+      ]
+      const c: [number, number, number] = [
+        result.positions[result.indices[i + 2] * 3],
+        result.positions[result.indices[i + 2] * 3 + 1],
+        result.positions[result.indices[i + 2] * 3 + 2],
+      ]
+      expect(triArea3D(a, b, c)).toBeGreaterThan(MIN_TRI_AREA)
+    }
+  })
+
+  it('thin slab cut → a band-shaped cap with area ≈ width × thickness', () => {
+    // Slab: x in [0,10], y in [0,1], z in [0,0.1] (thin horizontal slab).
+    // Cut by plane z=0.05 (mid-height). Expected cap area = 10 × 1 = 10.
+    const vertices: [number, number, number][] = [
+      [0, 0, 0],   // 0
+      [10, 0, 0],  // 1
+      [10, 1, 0],  // 2
+      [0, 1, 0],   // 3
+      [0, 0, 0.1], // 4
+      [10, 0, 0.1],// 5
+      [10, 1, 0.1],// 6
+      [0, 1, 0.1], // 7
+    ]
+    const triangles: [number, number, number][] = [
+      [0, 2, 1], [0, 3, 2], // bottom
+      [4, 5, 6], [4, 6, 7], // top
+      [0, 1, 5], [0, 5, 4], // front
+      [2, 3, 7], [2, 7, 6], // back
+      [0, 4, 7], [0, 7, 3], // left
+      [1, 2, 6], [1, 6, 5], // right
+    ]
+    const plane: CapPlane = { normal: [0, 0, 1], constant: -0.05 }
+    const result = computeSolidCapTriangles(vertices, triangles, plane)
+    expect(result.positions.length).toBeGreaterThan(0)
+    let totalArea = 0
+    for (let i = 0; i < result.indices.length; i += 3) {
+      const a: [number, number, number] = [
+        result.positions[result.indices[i] * 3],
+        result.positions[result.indices[i] * 3 + 1],
+        result.positions[result.indices[i] * 3 + 2],
+      ]
+      const b: [number, number, number] = [
+        result.positions[result.indices[i + 1] * 3],
+        result.positions[result.indices[i + 1] * 3 + 1],
+        result.positions[result.indices[i + 1] * 3 + 2],
+      ]
+      const c: [number, number, number] = [
+        result.positions[result.indices[i + 2] * 3],
+        result.positions[result.indices[i + 2] * 3 + 1],
+        result.positions[result.indices[i + 2] * 3 + 2],
+      ]
+      totalArea += triArea3D(a, b, c)
+    }
+    // Expected area = 10 × 1 = 10. Allow 2% tolerance.
+    expect(totalArea).toBeGreaterThan(9.8)
+    expect(totalArea).toBeLessThan(10.2)
   })
 })
