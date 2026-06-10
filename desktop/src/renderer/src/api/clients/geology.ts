@@ -659,6 +659,8 @@ export interface LithoBodySolidResponse {
   model_id: string
   body_id: string
   formation_id: string
+  /** The body's ordinal within its formation's naming group (0-based). Combined with the lithology gives a stable human handle e.g. "SILT #3". */
+  body_ordinal: number
   method: string
   /** ``[x_m, y_m, z_m]`` triples in the project CRS. Empty for flagged slabs. */
   vertices: [number, number, number][]
