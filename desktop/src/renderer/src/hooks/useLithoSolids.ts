@@ -54,6 +54,14 @@ export interface UseLithoSolidsResult {
    *     CSS hex string (``#rrggbb``) or ``null`` to reset.
    */
   setBodyColor: (bodyId: string, color: string | null) => void
+  /**
+   * When ``true``, the 3D viewer and the inspector legend both suppress
+   * under-constrained marker bodies (``is_flagged === true``).
+   * Default ``false`` — all built solids are visible.
+   */
+  hideMarkers: boolean
+  /** Toggle the ``hideMarkers`` flag. */
+  setHideMarkers: (value: boolean) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +94,11 @@ export function useLithoSolids(
   lithoModelId: string | null,
   toast: (type: 'success' | 'error' | 'warning', message: string) => void,
 ): UseLithoSolidsResult {
+  // hideMarkers must be declared BEFORE the useEffect / useRef calls below
+  // so hook order is stable across every render path (including early returns
+  // in consumers that wrap this hook).
+  const [hideMarkers, setHideMarkers] = useState(false)
+
   const [solids, setSolids] = useState<LithoBodySolidResponse[]>([])
   const [loading, setLoading] = useState(false)
   const [building, setBuilding] = useState(false)
@@ -234,5 +247,7 @@ export function useLithoSolids(
     hasStaleLithoSolid,
     buildLithoSolids,
     setBodyColor,
+    hideMarkers,
+    setHideMarkers,
   }
 }
