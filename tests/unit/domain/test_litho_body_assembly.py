@@ -288,3 +288,20 @@ def test_matrix_with_void_is_watertight_and_excludes_the_lens():
     assert not inside(voided.vertices, voided.triangles, (10.0, 10.0, -9.0))  # in the void
     assert inside(voided.vertices, voided.triangles, (2.0, 2.0, -9.0))  # in the clay
     assert not inside(voided.vertices, voided.triangles, (2.0, 2.0, -20.0))  # below all
+    # append_void is pure concatenation — no stitching geometry added.
+    assert len(voided.triangles) == len(clay.triangles) + len(lens.triangles)
+
+
+def test_build_extent_solid_returns_none_for_under_constrained():
+    """Fewer than 3 investigations cannot form a TIN -> None."""
+    from groundmodel.domain.services.litho_body_assembly import build_extent_solid
+
+    assert (
+        build_extent_solid(
+            "X",
+            "f",
+            {"A": (0.0, -1.0), "B": (1.0, -1.0)},
+            {"A": (0.0, 0.0), "B": (1.0, 0.0)},
+        )
+        is None
+    )
