@@ -63,6 +63,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.constants.litho_constants import (
     LITHOLOGY_COLORS,
     LITHOLOGY_FALLBACK_COLOR,
@@ -262,6 +263,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
         self._repo = GeologyRepository(session)
+        self._litho_repo = LithoLayerRepository(session)
 
     async def execute(
         self,
@@ -544,6 +546,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             await self._repo.mark_surfaces_stale(
                 [(litho_model_id, fid) for fid in all_formation_ids]
             )
+            await self._litho_repo.mark_litho_solids_stale(litho_model_id)
 
         # Recompute display_order for litho formations whenever new formation
         # rows were created.  The sort encodes the superposition rule:

@@ -45,6 +45,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -260,6 +261,8 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
         pairs = [(model_id, UUID(c["formation_id"])) for c in changed]
         if pairs:
             await repo.mark_surfaces_stale(pairs)
+        # Body membership changed → 3-D solid cache is stale.
+        await LithoLayerRepository(session).mark_litho_solids_stale(model_id)
         logger.info(
             f"_run_resolver: {len(changed)} body change(s), {n_stamped} layer stamp(s) "
             f"for model {model_id}"

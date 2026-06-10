@@ -73,6 +73,9 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -125,6 +128,7 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
         self._repo = GeologyRepository(session)
+        self._litho_repo = LithoLayerRepository(session)
 
     async def execute(
         self,
@@ -386,6 +390,8 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         stale_count = await self._repo.mark_surfaces_stale(
             (model_id, fid) for fid in created_formation_ids
         )
+        if created_formation_ids:
+            await self._litho_repo.mark_litho_solids_stale(model_id)
 
         await self._session.commit()
         self.success(

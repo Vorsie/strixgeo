@@ -159,6 +159,7 @@ class DeleteLithoLayer(GroundModelLogger):
                 if filled_formation is not None:
                     stale.append((pre.model_id, filled_formation))
                 await self._geology.mark_surfaces_stale(stale)
+                await self._repo.mark_litho_solids_stale(pre.model_id)
 
             self.debug(f"litho layer deleted — running resolver for model={model_id}")
             # Correlation edges referencing this layer just cascaded away
