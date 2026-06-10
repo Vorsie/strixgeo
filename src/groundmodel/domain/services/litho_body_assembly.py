@@ -18,6 +18,8 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     Surface,
 )
 from groundmodel.domain.services.litho_solid_builder import _assemble  # reuse M2 walls
+from groundmodel.domain.services.tin_surface import compute_tin
+from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 
 
@@ -167,3 +169,98 @@ def merged_body_extent(
         if tops:
             ext[inv] = (max(tops), min(bases))
     return ext
+
+
+def build_extent_solid(
+    body_id: str,
+    formation_id: str,
+    extent: dict[str, tuple[float, float]],
+    coords: dict[str, tuple[float, float]],
+) -> LithoBodyMesh | None:
+    """Build a closed solid between a body's merged top and base extent.
+
+    Top and base TINs are fitted over the SAME inv set (the body's footprint) in
+    the same sorted order, so they share Delaunay topology and close with
+    ``_assemble``.
+
+    Parameters
+    ----------
+    body_id : str
+        Body identifier.
+    formation_id : str
+        Formation id (drives colour).
+    extent : dict[str, tuple[float, float]]
+        ``inv -> (top_elev, base_elev)`` (from ``merged_body_extent``).
+    coords : dict[str, tuple[float, float]]
+        ``inv -> (x, y)``.
+
+    Returns
+    -------
+    LithoBodyMesh | None
+        Closed solid, or ``None`` if < 3 points / no triangulation / mismatched
+        top vs base topology.
+    """
+    invs = sorted(extent)
+    if len(invs) < 3:
+        return None
+    top = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=i,
+                x_m=coords[i][0],
+                y_m=coords[i][1],
+                elevation_m=extent[i][0],
+            )
+            for i in invs
+        ]
+    )
+    base = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=i,
+                x_m=coords[i][0],
+                y_m=coords[i][1],
+                elevation_m=extent[i][1],
+            )
+            for i in invs
+        ]
+    )
+    if not top.triangles or top.triangles != base.triangles:
+        return None
+    return _assemble(
+        body_id, formation_id, list(top.vertices), list(base.vertices), list(top.triangles)
+    )
+
+
+def append_void(matrix: LithoBodyMesh, lens: LithoBodyMesh) -> LithoBodyMesh:
+    """Return the matrix mesh with the lens appended as an interior void.
+
+    The lens surface is appended with REVERSED winding so its normals point into
+    the void (out of the matrix material). The lens and the void wall are the same
+    geometry — they tile with zero gap (spike-validated 2026-06-10). The result is
+    a closed 2-manifold: the matrix outer shell plus the lens inner shell.
+
+    Parameters
+    ----------
+    matrix : LithoBodyMesh
+        The matrix body's outer solid.
+    lens : LithoBodyMesh
+        The lens body's closed solid (its surface becomes the cavity wall).
+
+    Returns
+    -------
+    LithoBodyMesh
+        Matrix-with-void.
+    """
+    n = len(matrix.vertices)
+    verts = list(matrix.vertices) + list(lens.vertices)
+    # Reverse winding of every lens triangle so its normals point into the void
+    # (outward from the material's perspective). Swap a and c to flip orientation.
+    tris = list(matrix.triangles) + [(c + n, b + n, a + n) for (a, b, c) in lens.triangles]
+    return LithoBodyMesh(
+        body_id=matrix.body_id,
+        formation_id=matrix.formation_id,
+        vertices=verts,
+        triangles=tris,
+        is_flagged=False,
+    )

@@ -249,3 +249,42 @@ def test_detect_enclosed_lenses_excludes_body_through_going_somewhere():
     }
     # SILT is surface-reaching at hole A → it is NOT an enclosed lens.
     assert detect_enclosed_lenses(columns) == {}
+
+
+# ---------------------------------------------------------------------------
+# Task 6: build_extent_solid + append_void
+# ---------------------------------------------------------------------------
+
+
+def test_matrix_with_void_is_watertight_and_excludes_the_lens():
+    """A matrix solid + reversed lens = watertight; parity is matrix-minus-lens."""
+    from groundmodel.domain.services.litho_body_assembly import (
+        append_void,
+        build_extent_solid,
+    )
+
+    # CLAY matrix over a 20x20 square + interior holes; SILT lens on the 4
+    # interior holes only, strictly inside the clay slab (-8..-10 within -4..-14).
+    coords = {
+        "A": (0.0, 0.0),
+        "B": (20.0, 0.0),
+        "C": (20.0, 20.0),
+        "D": (0.0, 20.0),
+        "E": (8.0, 10.0),
+        "F": (12.0, 10.0),
+        "G": (10.0, 8.0),
+        "H": (10.0, 12.0),
+    }
+    clay_extent = {i: (-4.0, -14.0) for i in coords}
+    lens_extent = {i: (-8.0, -10.0) for i in ("E", "F", "G", "H")}
+    clay = build_extent_solid("CLAY", "f2", clay_extent, coords)
+    lens = build_extent_solid("SILT", "f3", lens_extent, coords)
+    assert clay is not None and lens is not None
+    assert closed_manifold(lens.triangles) and consistently_wound(lens.triangles)
+    voided = append_void(clay, lens)
+    # Closed 2-manifold = outer shell + inner (void) shell.
+    assert closed_manifold(voided.triangles) and consistently_wound(voided.triangles)
+    # Parity is exactly "matrix minus lens".
+    assert not inside(voided.vertices, voided.triangles, (10.0, 10.0, -9.0))  # in the void
+    assert inside(voided.vertices, voided.triangles, (2.0, 2.0, -9.0))  # in the clay
+    assert not inside(voided.vertices, voided.triangles, (2.0, 2.0, -20.0))  # below all
