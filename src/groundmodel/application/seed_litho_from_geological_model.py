@@ -390,8 +390,10 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         stale_count = await self._repo.mark_surfaces_stale(
             (model_id, fid) for fid in created_formation_ids
         )
-        if created_formation_ids:
-            await self._litho_repo.mark_litho_solids_stale(model_id)
+        # mark_litho_solids_stale is itself a no-op when there are no solid
+        # rows — no need to guard on created_formation_ids.  Unconditional
+        # call mirrors mark_surfaces_stale symmetry.
+        await self._litho_repo.mark_litho_solids_stale(model_id)
 
         await self._session.commit()
         self.success(
