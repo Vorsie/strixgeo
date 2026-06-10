@@ -77,6 +77,11 @@ class BatchUpdateLithoLayerStatus(GroundModelLogger):
 
         for row in rows:
             row.status = new_status
+        # Status transition adds / removes accepted layers from body picks →
+        # 3-D solid cache is stale.  Unconditional: the call is a cheap no-op
+        # when no solid rows exist, and a geo model id never matches
+        # litho_body_solid.model_id so it's safe for cross-kind callers.
+        await self._repo.mark_litho_solids_stale(rows[0].model_id)
         await self._session.flush()
         await self._session.commit()
         # See UpdateLithoLayer: refresh so Pydantic doesn't lazy-load

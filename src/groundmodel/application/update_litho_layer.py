@@ -71,6 +71,10 @@ class UpdateLithoLayer(GroundModelLogger):
         if layer is None:
             self.warning(f"UpdateLithoLayer: id={layer_id} not found")
             return None
+        # Geometry / formation / status change → 3-D solid cache is stale.
+        # Idempotent no-op when no solid rows exist yet.  Called before commit so
+        # the UPDATE is part of the same transaction (mirrors contact-CRUD sites).
+        await self._repo.mark_litho_solids_stale(layer.model_id)
         try:
             await self._session.commit()
         except IntegrityError as err:

@@ -135,6 +135,10 @@ class MoveLithoLayerBoundary(GroundModelLogger):
         # Apply the atomic update — same session, single flush + commit.
         upper.depth_base_m = new_depth_m
         lower.depth_top_m = new_depth_m
+        # Geometry change → 3-D solid cache is stale.  Idempotent no-op when no
+        # solid rows exist yet.  Called before commit so the UPDATE is part of the
+        # same transaction (mirrors the contact-CRUD cascade sites).
+        await self._repo.mark_litho_solids_stale(upper.model_id)
         try:
             await self._session.flush()
             await self._session.commit()

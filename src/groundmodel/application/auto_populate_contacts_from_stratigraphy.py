@@ -85,6 +85,9 @@ from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -1449,6 +1452,11 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         stale_count = await self._repo.mark_surfaces_stale(
             (model_id, fid) for fid in touched_formations
         )
+        # Mirror to the 3-D solid cache — geological model ids never match
+        # litho_body_solid.model_id rows, so the call is a safe unconditional
+        # no-op for geological models and fires correctly for lithostratigraphic
+        # ones (the FC→LL trigger re-derives layer geometry from new contacts).
+        await LithoLayerRepository(self._session).mark_litho_solids_stale(model_id)
 
         # When selected_keys is provided, delete every project formation whose
         # stable key is NOT in the selected set.  This runs server-side so

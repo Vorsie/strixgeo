@@ -81,6 +81,10 @@ class BatchUpdateLithoLayers(GroundModelLogger):
                 setattr(row, key, value)
             out.append(row)
 
+        # Geometry / formation / status changes → 3-D solid cache is stale.
+        # Unconditional: no-op when no solid rows exist; geo model ids never
+        # match litho_body_solid.model_id so safe for cross-kind callers.
+        await self._repo.mark_litho_solids_stale(out[0].model_id)
         await self._session.flush()
         await self._session.commit()
         # See UpdateLithoLayer / BatchUpdateLithoLayerStatus: refresh

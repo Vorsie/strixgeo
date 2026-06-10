@@ -32,6 +32,9 @@ def _use_case_with_commit_error(commit_error: Exception) -> tuple[UpdateLithoLay
     # The row exists (truthy) so execute reaches the commit.
     use_case._repo = MagicMock()
     use_case._repo.update_layer = AsyncMock(return_value=MagicMock())
+    # mark_litho_solids_stale is called before commit; stub it as a no-op so the
+    # commit-error path is isolated — this test is only about the commit translation.
+    use_case._repo.mark_litho_solids_stale = AsyncMock(return_value=0)
     return use_case, session
 
 
