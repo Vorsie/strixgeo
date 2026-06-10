@@ -170,3 +170,44 @@ def test_assemble_body_returns_none_for_missing_surface():
     columns, coords = build_columns(picks)
     surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
     assert assemble_body("SAND", "f", columns, surfaces) is None
+
+
+# ---------------------------------------------------------------------------
+# Task 5: detect_enclosed_lenses + merged_body_extent
+# ---------------------------------------------------------------------------
+
+
+def _matrix_with_lens():
+    """CLAY (matrix) over a 20x20 square; SILT lens at interior holes,
+    bracketed by CLAY above and below.
+    """
+    outer = [("A", 0, 0), ("B", 20, 0), ("C", 20, 20), ("D", 0, 20)]
+    inner = [("E", 8, 10), ("F", 12, 10), ("G", 10, 8), ("H", 10, 12)]
+    picks = []
+    for inv, x, y in outer:  # CLAY only, full thickness
+        picks.append(_pick(inv, x, y, "CLAY", 4.0, 14.0))
+    for inv, x, y in inner:  # CLAY / SILT / CLAY
+        picks.append(_pick(inv, x, y, "CLAY", 4.0, 8.0))
+        picks.append(_pick(inv, x, y, "SILT", 8.0, 10.0))
+        picks.append(_pick(inv, x, y, "CLAY", 10.0, 14.0))
+    columns, _ = build_columns(picks)
+    return columns
+
+
+def test_detect_enclosed_lenses_finds_silt_in_clay():
+    """A SILT bracketed by CLAY above+below at every hole is enclosed in CLAY."""
+    from groundmodel.domain.services.litho_body_assembly import detect_enclosed_lenses
+
+    columns = _matrix_with_lens()
+    enclosed = detect_enclosed_lenses(columns)
+    assert enclosed == {"SILT": "CLAY"}
+
+
+def test_merged_extent_spans_first_top_to_last_base():
+    """The matrix's merged extent spans across the lens (top of first to base of last)."""
+    from groundmodel.domain.services.litho_body_assembly import merged_body_extent
+
+    columns = _matrix_with_lens()
+    ext = merged_body_extent("CLAY", columns)  # inv -> (top_elev, base_elev)
+    assert ext["E"] == (-4.0, -14.0)  # spans across the lens
+    assert ext["A"] == (-4.0, -14.0)

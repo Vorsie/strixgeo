@@ -91,3 +91,79 @@ def assemble_body(
     if top_t != base_t:
         return None  # different footprints → not the simple single-patch case
     return _assemble(body_id, formation_id, top_v, base_v, top_t)
+
+
+def detect_enclosed_lenses(
+    columns: dict[str, list[LayerSpan]],
+) -> dict[str, str]:
+    """Map each enclosed-lens body to the matrix body that wraps it.
+
+    A body is an enclosed lens when, at every hole where it occurs, the span
+    directly above AND directly below is the SAME body (its matrix). Bodies that
+    ever touch the ground surface, the model base, or two different neighbours
+    are not enclosed.
+
+    Parameters
+    ----------
+    columns : dict[str, list[LayerSpan]]
+        Per-investigation spans (shallowest-first).
+
+    Returns
+    -------
+    dict[str, str]
+        ``lens_body_id -> matrix_body_id`` for every enclosed lens detected.
+    """
+    # Accumulate the set of observed (above, below) neighbour pairs per body.
+    # An enclosed lens has exactly one unique pair, and above == below != body.
+    matrix_of: dict[str, set[str | None]] = {}
+    for spans in columns.values():
+        for i, s in enumerate(spans):
+            above = spans[i - 1].body_id if i > 0 else None
+            below = spans[i + 1].body_id if i + 1 < len(spans) else None
+            seen = matrix_of.setdefault(s.body_id, set())
+            # Record the unique matrix candidate; if above != below the lens is
+            # not uniformly enclosed, so sentinel None marks it as non-enclosed.
+            seen.add(above if above == below else None)
+
+    out: dict[str, str] = {}
+    for body, mats in matrix_of.items():
+        if len(mats) == 1:
+            (m,) = tuple(mats)
+            # m must be a real body (not None) and not the body itself.
+            if m is not None and m != body:
+                out[body] = m
+    return out
+
+
+def merged_body_extent(
+    body_id: str,
+    columns: dict[str, list[LayerSpan]],
+) -> dict[str, tuple[float, float]]:
+    """Per-hole outer extent of a body, merging spans split by interior lenses.
+
+    When a matrix body is split at a lens hole into an upper span and a lower
+    span, this function returns the combined outer envelope: the shallowest top
+    elevation and the deepest base elevation across all spans of the body at
+    that investigation.
+
+    Parameters
+    ----------
+    body_id : str
+        The (matrix) body whose outer extent is wanted.
+    columns : dict[str, list[LayerSpan]]
+        Per-investigation spans (shallowest-first).
+
+    Returns
+    -------
+    dict[str, tuple[float, float]]
+        ``inv -> (top_elev, base_elev)`` where ``top_elev`` is the shallowest
+        (most positive) top and ``base_elev`` is the deepest (most negative)
+        base for the body at that hole.
+    """
+    ext: dict[str, tuple[float, float]] = {}
+    for inv, spans in columns.items():
+        tops = [s.top_elev for s in spans if s.body_id == body_id]
+        bases = [s.base_elev for s in spans if s.body_id == body_id]
+        if tops:
+            ext[inv] = (max(tops), min(bases))
+    return ext
