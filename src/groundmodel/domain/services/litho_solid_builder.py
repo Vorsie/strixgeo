@@ -131,7 +131,7 @@ def _legacy_body(
         Body id.
     members : list[BodyLayerPick]
         The body's member picks.
-    surface_cache : dict
+    surface_cache : dict[tuple, tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]]
         Shared per-call surface cache (passed through to ``_get_surface``).
 
     Returns
@@ -218,16 +218,20 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     for lens_id in lens_to_matrix:
         members = by_body[lens_id]
         fm = members[0].formation_id
-        lens_meshes[lens_id] = assemble_body(lens_id, fm, columns, surfaces) or _legacy_body(
-            lens_id, members, surface_cache
+        shared_result = assemble_body(lens_id, fm, columns, surfaces)
+        lens_meshes[lens_id] = shared_result or _legacy_body(lens_id, members, surface_cache)
+        logger.debug(
+            f"[lens] body {lens_id}: {'shared' if shared_result is not None else 'legacy-fallback'}"
         )
 
     meshes: list[LithoBodyMesh] = []
-    for body_id, members in by_body.items():
+    for idx, (body_id, members) in enumerate(by_body.items()):
         formation_id = members[0].formation_id
         if body_id in lens_to_matrix:
             # Lens body: already assembled above.
             meshes.append(lens_meshes[body_id])
+            path = "lens"
+            logger.debug(f"[{idx + 1}/{len(by_body)}] body {body_id}: {path}")
             continue
         if body_id in matrix_to_lenses:
             # Matrix body: build over merged outer extent, then carve lens voids.
@@ -238,15 +242,22 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
             if outer is not None:
                 for lid in matrix_to_lenses[body_id]:
                     lens_mesh = lens_meshes.get(lid)
+                    # Belt-and-suspenders: every lens in matrix_to_lenses is guaranteed
+                    # present in lens_meshes, but the guard protects a future decoupling
+                    # of the two build phases.
                     if lens_mesh is not None and not lens_mesh.is_flagged:
                         mesh = append_void(mesh, lens_mesh)
             meshes.append(mesh)
+            path = "matrix-void" if outer is not None else "matrix-fallback"
+            logger.debug(f"[{idx + 1}/{len(by_body)}] body {body_id}: {path}")
             continue
         # Regular (non-lens) body: prefer the M3 shared-surface path.
         shared = assemble_body(body_id, formation_id, columns, surfaces)
         meshes.append(
             shared if shared is not None else _legacy_body(body_id, members, surface_cache)
         )
+        path = "shared" if shared is not None else "legacy-fallback"
+        logger.debug(f"[{idx + 1}/{len(by_body)}] body {body_id}: {path}")
 
     logger.success(
         f"build_body_solids: built {len(meshes)} solid(s) "
