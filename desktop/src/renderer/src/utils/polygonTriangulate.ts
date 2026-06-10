@@ -76,7 +76,28 @@ export function triangulatePolygon2D(polygon: readonly Vec2[]): [number, number,
       clipped = true
       break
     }
-    if (!clipped) break // degenerate / self-touching ring — stop with what we have
+    if (clipped) continue
+    // No convex ear found. The blocker is almost always a COLLINEAR vertex
+    // (cross == 0) — carved-matrix regions carry vertical runs on the column
+    // edge (a notch's two endpoints + the edge between), and a mid-run vertex is
+    // neither convex (cross > 0) nor reflex, so the convex-ear test above skips
+    // it forever and the loop stalls → the polygon is left under-triangulated
+    // and the 3D fence shows a hole (dogfeed 2026-06-10). Drop one collinear
+    // vertex (it lies ON the edge between its neighbours, so removing it changes
+    // nothing geometrically and emits no triangle), then retry.
+    let removedCollinear = false
+    for (let i = 0; i < idx.length; i++) {
+      const a = polygon[idx[(i - 1 + idx.length) % idx.length]]
+      const b = polygon[idx[i]]
+      const c = polygon[idx[(i + 1) % idx.length]]
+      const cross = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)
+      if (Math.abs(cross) < 1e-9) {
+        idx.splice(i, 1)
+        removedCollinear = true
+        break
+      }
+    }
+    if (!removedCollinear) break // truly stuck (self-intersecting) — stop with what we have
   }
   // Guard: only emit the last 3-vertex triangle if it has non-degenerate area.
   // A fully-collinear 3-point polygon skips the while-loop (idx.length > 3 is

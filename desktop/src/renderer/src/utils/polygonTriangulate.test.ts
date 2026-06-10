@@ -72,4 +72,35 @@ describe('triangulatePolygon2D', () => {
     expect(tris).toHaveLength(1)
     expect(triArea(tri, tris)).toBeCloseTo(6, 6)
   })
+  // Regression (dogfeed 2026-06-10): the REAL carved-matrix region from tie-10
+  // (a KLEI quad with two lens/onlap notches carved into its left edge). It
+  // carries DUPLICATE points ([0,8.55] twice) and collinear left-edge runs — the
+  // old ear-clipper skipped them forever, stalled, and covered only 2.32 of the
+  // 3.86 m² polygon → a visible hole in the 3D fence (the 2D overlay draws the
+  // polygon directly, so it was unaffected). The triangulation must cover the
+  // FULL polygon area.
+  it('fully triangulates the real tie-10 carved KLEI region (dup + collinear)', () => {
+    // Full-precision coords captured from the real tie-10 partition.
+    const poly: Vec2[] = [
+      { x: 0, y: 12.59 },
+      { x: 1, y: 5.7299999999999995 },
+      { x: 1, y: 3.5489114719044768 },
+      { x: 0, y: 4.049999999999999 },
+      { x: 0, y: 5.06 },
+      { x: 0.45, y: 6.805 }, // notch apex (reflex)
+      { x: 0, y: 8.549999999999999 },
+      { x: 0, y: 8.549999999999999 }, // DUPLICATE — what carveOverlays emitted
+      { x: 0.3559819855100842, y: 10.147963579400821 }, // second notch apex
+      { x: 0, y: 12.59 }, // trailing close-dup of the first vertex
+    ]
+    // Shoelace area of the polygon ring (absolute).
+    let polyArea = 0
+    for (let i = 0; i < poly.length; i++) {
+      const q = poly[(i + 1) % poly.length]
+      polyArea += poly[i].x * q.y - q.x * poly[i].y
+    }
+    polyArea = Math.abs(polyArea) / 2
+    const tris = triangulatePolygon2D(poly)
+    expect(triArea(poly, tris)).toBeCloseTo(polyArea, 4) // full coverage, no hole
+  })
 })
