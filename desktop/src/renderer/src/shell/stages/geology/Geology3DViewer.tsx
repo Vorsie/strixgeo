@@ -1667,6 +1667,12 @@ function CesiumViewport({
   // Last split plane the cut-face camera framed — re-frame once per
   // newly-drawn plane, not on every basemap/visibility toggle.
   const lastSplitPlaneRef = useRef<Cesium.Plane | null>(null)
+  // Tracks whether the split-view camera has already been framed with
+  // content for the current clipping plane. Cleared alongside
+  // lastSplitPlaneRef so a new plane OR first-content arrival both
+  // trigger a fly-to (fixes solid-mode secondary viewport staying on
+  // the bare globe when surfaces are empty but bodySolids arrive).
+  const lastSplitHadContentRef = useRef<boolean>(false)
 
   // ---------------------------------------------------------------------------
   // Mount / unmount the CesiumWidget
@@ -1726,6 +1732,7 @@ function CesiumViewport({
     // to the model instead of staying on the bare globe.
     lastFitKeyRef.current = null
     lastSplitPlaneRef.current = null
+    lastSplitHadContentRef.current = false
 
     return () => {
       widget.destroy()
@@ -1779,6 +1786,17 @@ function CesiumViewport({
     const allSurfaces = Array.from(surfacesByFormationId.values())
     const hasSurfaces = allSurfaces.some(s => s.vertices.length > 0)
 
+    // In Solid mode the caller passes an empty surfacesByFormationId (surface
+    // sheets are suppressed) and fills bodySolids instead. Frame to the solids
+    // when there are no surfaces so the camera lands on the geometry rather
+    // than the bare globe. Both helpers accept FormationSurfaceResponse[] for
+    // their vertex source; LithoBodySolidResponse carries the same
+    // { vertices: [number,number,number][] } shape, so a cast suffices.
+    const frameTargets: FormationSurfaceResponse[] = hasSurfaces
+      ? allSurfaces
+      : ((bodySolids?.filter(b => b.vertices.length > 0) ?? []) as unknown as FormationSurfaceResponse[])
+    const hasContent = frameTargets.length > 0
+
     // Camera. Split active → look at the cut FACE head-on (step 3);
     // single → oblique bounds fit. Reset verb mirrors the active mode.
     if (cameraResetRef) {
@@ -1786,22 +1804,29 @@ function CesiumViewport({
         ? () =>
             flyToCutFace(
               widget.scene.camera,
-              allSurfaces,
+              frameTargets,
               projectEpsg,
               clippingPlane,
               !invertClip,
             )
-        : () => flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
+        : () => flyToBounds(widget.scene.camera, frameTargets, projectEpsg)
     }
 
     if (clippingPlane) {
-      // Re-frame to the cut once per newly-drawn plane (object
-      // identity changes per draw) — not on basemap/visibility toggles.
-      if (hasSurfaces && lastSplitPlaneRef.current !== clippingPlane) {
+      // Re-frame to the cut when:
+      //   (a) a new plane was drawn (object identity changes), OR
+      //   (b) content first appeared for the current plane (e.g. Solid
+      //       mode: Build completes after the plane was already drawn,
+      //       so the secondary viewport was sitting on the bare globe).
+      // Guard: don't re-frame on every basemap/visibility/colour toggle.
+      const planeChanged = lastSplitPlaneRef.current !== clippingPlane
+      const contentJustAppeared = hasContent && !lastSplitHadContentRef.current
+      if (hasContent && (planeChanged || contentJustAppeared)) {
         lastSplitPlaneRef.current = clippingPlane
+        lastSplitHadContentRef.current = true
         flyToCutFace(
           widget.scene.camera,
-          allSurfaces,
+          frameTargets,
           projectEpsg,
           clippingPlane,
           !invertClip,
@@ -1809,13 +1834,15 @@ function CesiumViewport({
       }
     } else {
       lastSplitPlaneRef.current = null
-      // Single view: fly only when the surface SET changes.
+      lastSplitHadContentRef.current = false
+      // Single view: fly only when the content SET changes.
+      // Include solid vertex counts so switching surfaces→solids re-frames.
       const fitKey = `${projectEpsg}|${allSurfaces
         .map(s => s.vertices.length)
-        .join(',')}|${groundSurface?.vertices.length ?? 0}`
-      if (hasSurfaces && lastFitKeyRef.current !== fitKey) {
+        .join(',')}|${groundSurface?.vertices.length ?? 0}|${bodySolids?.map(b => b.vertices.length).join(',') ?? ''}`
+      if (hasContent && lastFitKeyRef.current !== fitKey) {
         lastFitKeyRef.current = fitKey
-        flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
+        flyToBounds(widget.scene.camera, frameTargets, projectEpsg)
       }
     }
     // reason: clippingPlane/invertClip/splitLine drive the per-half
