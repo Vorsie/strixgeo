@@ -14,6 +14,10 @@ from groundmodel.api.schemas.project.body.name_body_request import (
     NameBodyRequest,
     NameBodyResponse,
 )
+from groundmodel.api.schemas.project.body.update_body_color_request import (
+    UpdateBodyColorRequest,
+    UpdateBodyColorResponse,
+)
 
 __all__ = [
     "BodyBoundaryNodeItem",
@@ -24,4 +28,6 @@ __all__ = [
     "MergeEnclosedLensResponse",
     "NameBodyRequest",
     "NameBodyResponse",
+    "UpdateBodyColorRequest",
+    "UpdateBodyColorResponse",
 ]
