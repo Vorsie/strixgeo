@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
+from groundmodel.domain.services.tin_surface import compute_tin
+from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,10 @@ def build_columns(
         # Sort shallowest-first: shallower spans have a larger top_elev value
         columns[inv].sort(key=lambda s: s.top_elev, reverse=True)
     return columns, coords
+
+
+# A fitted patch surface: (vertices, triangles), as produced by compute_tin.
+Surface = tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]
 
 
 @dataclass(frozen=True)
@@ -141,4 +147,43 @@ def enumerate_contacts(
         for upper, lower in zip(spans, spans[1:]):
             add(ContactKey(upper.body_id, lower.body_id), inv, upper.base_elev)
         add(ContactKey(spans[-1].body_id, ""), inv, spans[-1].base_elev)  # base
+    return out
+
+
+def fit_patch_surfaces(
+    contacts: dict[ContactKey, list[ContactPoint]],
+) -> dict[ContactKey, Surface]:
+    """Fit one TIN per contact patch over exactly that patch's holes.
+
+    Points are sorted by ``inv_id`` so any two patches over the same
+    investigation set produce identical vertex order — and therefore identical
+    Delaunay topology, which the single-patch assembler relies on to pair top
+    and base walls.
+
+    Parameters
+    ----------
+    contacts : dict[ContactKey, list[ContactPoint]]
+        Contact points per ordered pair (from :func:`enumerate_contacts`).
+
+    Returns
+    -------
+    dict[ContactKey, Surface]
+        ``(vertices, triangles)`` per patch. Patches with < 3 points are
+        skipped (no surface) — the assembler treats their bodies as
+        under-constrained (disk-marker fallback upstream).
+    """
+    out: dict[ContactKey, Surface] = {}
+    for key, pts in contacts.items():
+        ordered = sorted(pts, key=lambda p: p.inv_id)
+        if len(ordered) < 3:
+            continue
+        tin = compute_tin(
+            [
+                ContactPoint3D(contact_id=p.inv_id, x_m=p.x, y_m=p.y, elevation_m=p.elev)
+                for p in ordered
+            ]
+        )
+        if not tin.triangles:
+            continue
+        out[key] = (list(tin.vertices), list(tin.triangles))
     return out

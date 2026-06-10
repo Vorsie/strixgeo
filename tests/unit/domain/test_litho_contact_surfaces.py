@@ -6,6 +6,7 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     ContactKey,
     build_columns,
     enumerate_contacts,
+    fit_patch_surfaces,
 )
 from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
 
@@ -128,3 +129,19 @@ def test_enumerate_contacts_three_layer_stack_produces_correct_internal_keys():
 
     # No spurious short-circuit key (SAND directly above CLAY should not exist)
     assert ContactKey("SAND", "CLAY") not in contacts
+
+
+def test_fit_patch_surfaces_uses_only_patch_holes_and_sorts_by_inv():
+    """Each patch is a TIN over only its own (inv-sorted) holes."""
+    # SAND over CLAY on a non-collinear quad.
+    quad = [("A", 0, 0), ("B", 10, 0), ("C", 10, 10), ("D", 0, 10)]
+    picks = []
+    for inv, x, y in quad:
+        picks.append(_pick(inv, x, y, "SAND", 0.0, 4.0))
+        picks.append(_pick(inv, x, y, "CLAY", 4.0, 14.0))
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    verts, tris = surfaces[ContactKey("SAND", "CLAY")]
+    assert len(verts) == 4 and len(tris) >= 2
+    # the contact sits at elev -4 everywhere
+    assert [round(v[2], 3) for v in verts] == [-4.0, -4.0, -4.0, -4.0]
