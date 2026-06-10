@@ -200,6 +200,12 @@ const ALPHA_GROUND_SURFACE = 0.45
 /** Earth-tone colour for the DEM ground-surface TIN (warm grey). */
 const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SURFACE)
 
+/** Alpha applied to flagged body marker disk solids — semi-transparent so they
+ * read as "local occurrence, no confirmed lateral extent" rather than a filled
+ * body. The backend emits disk-marker geometry for flagged bodies (is_flagged
+ * true) when the solid builder could not produce a watertight mesh. */
+const FLAGGED_SOLID_ALPHA = 0.45
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -803,8 +809,9 @@ function buildFencePrimitive(
  *
  * Mirrors ``buildFencePrimitive`` in coordinate transform + clip threading, but
  * uses ``PerInstanceColorAppearance({ translucent: false, flat: true, closed:
- * true })`` — the three attributes that distinguish a closed opaque volume from
- * the translucent open surface sheets used for formation TINs:
+ * true })`` for normal (non-flagged) solids — the three attributes that
+ * distinguish a closed opaque volume from the translucent open surface sheets
+ * used for formation TINs:
  *
  *   - ``translucent: false`` writes to the depth buffer and sorts in front of
  *     every translucent surface, matching how a filled geological body should
@@ -820,6 +827,14 @@ function buildFencePrimitive(
  *     use ``closed: false`` because they are open surfaces that the camera may
  *     view from behind; a watertight body solid never shows its interior.
  *
+ * Flagged solids (``isFlagged=true``) are rendered translucent (``translucent:
+ * true``, alpha ``FLAGGED_SOLID_ALPHA``) because the backend emitted them as
+ * best-effort disk-marker geometry rather than a true watertight body — they
+ * represent a local occurrence with no confirmed lateral extent and must be
+ * visually distinguished from confirmed solids.  Translucent primitives are
+ * submitted as separate ``Primitive`` instances so their appearance flags differ
+ * from the opaque batch; Cesium handles depth-sort ordering between them.
+ *
  * Parameters
  * ----------
  * vertices
@@ -827,14 +842,19 @@ function buildFencePrimitive(
  * triangles
  *     Vertex-index triples (outward right-hand-rule winding).
  * color
- *     ``Cesium.Color`` for the primitive.  Alpha is ignored — the primitive is
- *     rendered opaque (``translucent: false``).
+ *     ``Cesium.Color`` for the primitive.  Alpha is ignored for non-flagged
+ *     solids (rendered fully opaque); for flagged solids the alpha is replaced
+ *     by ``FLAGGED_SOLID_ALPHA`` to produce the ghostly marker appearance.
  * projectEpsg
  *     Horizontal CRS EPSG code for the coordinate transform.
  * clip
  *     Optional half-space plane + side; when set, only the kept half is built
  *     (same split-view threading as ``buildTinPrimitive`` and
  *     ``buildFencePrimitive``).
+ * isFlagged
+ *     When true, applies translucent appearance + ``FLAGGED_SOLID_ALPHA`` so
+ *     the marker disk reads as "local, unconfirmed extent" rather than a solid
+ *     body.  Defaults to false (opaque).
  *
  * Returns
  * -------
@@ -847,6 +867,7 @@ function buildSolidPrimitive(
   color: Cesium.Color,
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
+  isFlagged: boolean = false,
 ): Cesium.Primitive | null {
   if (triangles.length === 0) return null
 
@@ -914,22 +935,28 @@ function buildSolidPrimitive(
     boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
   })
 
+  // Flagged solids are marker disks ("local occurrence, no lateral extent"):
+  // render semi-transparent so they are visually distinct from confirmed bodies.
+  // Non-flagged solids stay fully opaque (translucent:false) so they write
+  // depth and occlude translucent formation surfaces correctly.
+  const renderColor = isFlagged ? color.withAlpha(FLAGGED_SOLID_ALPHA) : color
+
   return new Cesium.Primitive({
     geometryInstances: new Cesium.GeometryInstance({
       geometry,
       attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(renderColor),
       },
     }),
-    // translucent: false — a body solid is filled rock, not a ghosted sheet;
-    //   writes depth so it occludes translucent formation surfaces correctly.
     // flat: true — no normals supplied; FLAT_VERTEX_FORMAT (position-only)
     //   avoids the compressedAttributes crash that flat:false triggers.
     // closed: true — enables back-face culling (cull.enabled: true on the
-    //   render state); correct for a watertight outward-wound solid and
-    //   cheaper than the double-sided fence/TIN-sheet path.
+    //   render state); correct for a watertight outward-wound solid.
+    // translucent: depends on isFlagged — opaque for real bodies (writes depth,
+    //   occludes formation surfaces), translucent for flagged marker disks
+    //   (ghostly appearance, reads as "local occurrence, no lateral extent").
     appearance: new Cesium.PerInstanceColorAppearance({
-      translucent: false,
+      translucent: isFlagged,
       flat: true,
       closed: true,
     }),
@@ -1479,6 +1506,7 @@ function rebuildSurfacePrimitives(
         solidColor,
         projectEpsg,
         clip,
+        solid.is_flagged === true,
       )
       if (prim) scene.primitives.add(prim)
     }
