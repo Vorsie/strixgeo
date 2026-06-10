@@ -12,6 +12,8 @@
 
 import * as Cesium from 'cesium'
 
+import { triangulatePolygon2D } from '../../../utils/polygonTriangulate'
+
 import type { FormationSurfaceResponse } from '../../../api/client'
 import { projectedToWgs84 } from '../../../hooks/useWgs84'
 
@@ -395,4 +397,352 @@ export function clipTexTrisToHalfSpace(
     }
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// computeSolidCapTriangles — plane∩mesh cut-face cap geometry
+// ---------------------------------------------------------------------------
+
+/**
+ * A plane in the form ``normal·X + constant = 0``.
+ *
+ * Matches Cesium's ``Cesium.Plane(normal, distance)`` semantics:
+ * ``Cesium.Plane.getPointDistance(plane, p) == normal·p + distance``.
+ * Use ``constant = plane.distance`` when converting from a Cesium plane.
+ *
+ * The normal does NOT need to be unit-length — the signed-distance computation
+ * is normalised internally so the epsilon comparisons are in metres.
+ */
+export interface CapPlane {
+  /** Plane normal (does not need to be unit-length). */
+  normal: [number, number, number]
+  /** Plane constant (= Cesium.Plane.distance). */
+  constant: number
+}
+
+/**
+ * Result of {@link computeSolidCapTriangles}: flat projected triangle soup,
+ * with positions deduplicated into a vertex array + an index array.
+ */
+export interface CapTriangles {
+  /**
+   * Flat ``[x0, y0, z0, x1, y1, z1, ...]`` projected position array.
+   * All positions lie on the cap plane (signed-distance ≈ 0).
+   */
+  positions: number[]
+  /**
+   * Triangle indices into ``positions / 3``. Three consecutive entries form
+   * one triangle: ``(indices[i], indices[i+1], indices[i+2])``.
+   */
+  indices: number[]
+}
+
+/**
+ * Compute the cap triangles produced by intersecting a plane with a closed
+ * watertight triangle mesh.
+ *
+ * Algorithm
+ * ---------
+ * 1. For each triangle, compute the signed plane distance for all three
+ *    vertices.  Triangles fully on one side contribute nothing.  Triangles
+ *    that cross the plane contribute exactly one edge segment (the two
+ *    edge–plane intersection points).  A vertex exactly on the plane
+ *    (|dist| < EPS) is treated as in-plane to avoid duplicate/dropped points.
+ * 2. Collect all crossing segments.  For a closed watertight mesh they form
+ *    one or more closed loops (the cross-section boundary polygon).  Segments
+ *    are stitched into loops by matching endpoints within EPS_STITCH.
+ * 3. Each loop is projected into the plane's local 2D basis (two orthonormal
+ *    vectors spanning the plane).  ``triangulatePolygon2D`` (concave-safe
+ *    ear-clip, already in the codebase) triangulates each loop independently.
+ * 4. The resulting 2D triangles are lifted back to 3D positions on the plane
+ *    and returned as a flat position array + index array.
+ *
+ * Multi-loop support
+ * ------------------
+ * Each loop is triangulated independently — a U-shaped or annular cross-section
+ * produces multiple loops; all are included in the output.  The triangulation
+ * of a loop does not handle holes (i.e., a loop inside another loop is treated
+ * as a separate region, not subtracted).  For typical geological solids
+ * (convex or simply-connected non-convex cross-sections) this is correct; for
+ * a torus-shaped body it would over-fill.  Real subsurface bodies are always
+ * simply-connected, so this limitation is not a practical constraint.
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x, y, z]`` triples in the project's projected CRS (same units as the
+ *     plane's constant).
+ * triangles
+ *     Vertex-index triples (any winding — the solid is assumed closed).
+ * plane
+ *     The cut plane.  The normal does not need to be unit-length.
+ *
+ * Returns
+ * -------
+ * CapTriangles
+ *     Flat position array (``positions``) and index array (``indices``).
+ *     Empty when the plane misses the mesh entirely.
+ */
+export function computeSolidCapTriangles(
+  vertices: readonly (readonly [number, number, number])[],
+  triangles: readonly (readonly [number, number, number])[],
+  plane: CapPlane,
+): CapTriangles {
+  // Normalise the plane normal so signed-distance comparisons are in metres.
+  const [nx, ny, nz] = plane.normal
+  const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz)
+  if (nLen < 1e-12) return { positions: [], indices: [] }
+  const inx = nx / nLen
+  const iny = ny / nLen
+  const inz = nz / nLen
+  const ic = plane.constant / nLen
+
+  /** Signed distance of a vertex to the normalised plane. */
+  const dist = (i: number): number =>
+    inx * vertices[i][0] + iny * vertices[i][1] + inz * vertices[i][2] + ic
+
+  // Epsilon for "on the plane" — 1e-6 m (sub-mm, well below measurement noise).
+  const EPS = 1e-6
+
+  // --- Step 1 & 2: collect crossing segments ----------------------------
+  // Each element is [Ax,Ay,Az, Bx,By,Bz] — the two endpoints of one segment.
+  const segments: [number, number, number, number, number, number][] = []
+
+  for (const [i0, i1, i2] of triangles) {
+    const d0 = dist(i0)
+    const d1 = dist(i1)
+    const d2 = dist(i2)
+
+    // Map each vertex to -1 (below), 0 (on plane), +1 (above).
+    const s0 = d0 < -EPS ? -1 : d0 > EPS ? 1 : 0
+    const s1 = d1 < -EPS ? -1 : d1 > EPS ? 1 : 0
+    const s2 = d2 < -EPS ? -1 : d2 > EPS ? 1 : 0
+
+    // Determine whether the triangle can contribute a segment:
+    // - Triangles with all three vertices strictly on one side contribute nothing.
+    // - Triangles with all three vertices coplanar (s===0) are face-coplanar
+    //   and their edges would duplicate every segment; skip them (the adjacent
+    //   non-coplanar triangles contribute the boundary segments already).
+    // - The remaining cases all cross the plane: at least one vertex is strictly
+    //   positive and at least one is strictly negative, OR exactly two vertices
+    //   are on-plane with the third strictly off — both produce one segment.
+    const minS = Math.min(s0, s1, s2)
+    const maxS = Math.max(s0, s1, s2)
+    if (minS === maxS) continue // all same sign (or all zero)
+    if (minS === 0 && maxS === 0) continue // all coplanar (unreachable after above but explicit)
+    // Triangles with minS >= 0 (no strictly-below vertex) OR maxS <= 0
+    // (no strictly-above vertex) have no genuine crossing unless one side is 0.
+    // The only edge case: two vertices on-plane + one strictly above/below → one
+    // segment (the edge between the two on-plane vertices). The "genuine crossing"
+    // check handles this correctly via edgeIntersect returning the vertex for s===0.
+    // We only need to skip the fully-same-side case handled above.
+
+    // Collect up to 2 crossing points from the three edges.
+    const crossPts: [number, number, number][] = []
+
+    const edgeIntersect = (
+      ia: number,
+      ib: number,
+      sa: number,
+      sb: number,
+      da: number,
+      db: number,
+    ): [number, number, number] | null => {
+      // Both on-plane: the edge lies in the plane. Skip — it will be emitted by
+      // the triangle on the other side of this edge (if that triangle is also on
+      // the plane, it's a coplanar face and is filtered above). Emitting it here
+      // would double-count and break loop stitching.
+      if (sa === 0 && sb === 0) return null
+      if (sa === 0) {
+        // Vertex ia is exactly on the plane.
+        return [vertices[ia][0], vertices[ia][1], vertices[ia][2]]
+      }
+      if (sb === 0) {
+        // Vertex ib is exactly on the plane.
+        return [vertices[ib][0], vertices[ib][1], vertices[ib][2]]
+      }
+      if (sa === sb) {
+        // Same side — no crossing on this edge.
+        return null
+      }
+      // Different signs — genuine crossing.
+      const t = da / (da - db)
+      return [
+        vertices[ia][0] + t * (vertices[ib][0] - vertices[ia][0]),
+        vertices[ia][1] + t * (vertices[ib][1] - vertices[ia][1]),
+        vertices[ia][2] + t * (vertices[ib][2] - vertices[ia][2]),
+      ]
+    }
+
+    const p01 = edgeIntersect(i0, i1, s0, s1, d0, d1)
+    const p12 = edgeIntersect(i1, i2, s1, s2, d1, d2)
+    const p20 = edgeIntersect(i2, i0, s2, s0, d2, d0)
+
+    if (p01) crossPts.push(p01)
+    if (p12) crossPts.push(p12)
+    if (p20) crossPts.push(p20)
+
+    // Deduplicate coincident points (two edges sharing an on-plane vertex
+    // each produce the same point).
+    const unique: [number, number, number][] = []
+    for (const p of crossPts) {
+      const dup = unique.some(
+        q =>
+          Math.abs(p[0] - q[0]) < EPS &&
+          Math.abs(p[1] - q[1]) < EPS &&
+          Math.abs(p[2] - q[2]) < EPS,
+      )
+      if (!dup) unique.push(p)
+    }
+
+    if (unique.length === 2) {
+      segments.push([
+        unique[0][0], unique[0][1], unique[0][2],
+        unique[1][0], unique[1][1], unique[1][2],
+      ])
+    }
+    // unique.length < 2 means the triangle only grazed the plane at a single
+    // point (a vertex touching the plane) — no area, skip.
+  }
+
+  if (segments.length === 0) return { positions: [], indices: [] }
+
+  // --- Step 3: stitch segments into closed loops -------------------------
+  // Use a small stitching epsilon (1e-4 m) to handle floating-point drift
+  // in the edge-intersection arithmetic.
+  const EPS_STITCH = 1e-4
+
+  /** Stitch all segments into ordered closed polylines. */
+  function stitchLoops(
+    segs: [number, number, number, number, number, number][],
+  ): [number, number, number][][] {
+    // Work on a mutable copy — segments are consumed as they're stitched.
+    const remaining = segs.slice()
+    const loops: [number, number, number][][] = []
+
+    while (remaining.length > 0) {
+      const loop: [number, number, number][] = []
+      // Seed the loop with the first remaining segment.
+      const seed = remaining.splice(0, 1)[0]
+      loop.push([seed[0], seed[1], seed[2]])
+      loop.push([seed[3], seed[4], seed[5]])
+
+      let extended = true
+      while (extended) {
+        extended = false
+        const tail = loop[loop.length - 1]
+        for (let i = 0; i < remaining.length; i += 1) {
+          const seg = remaining[i]
+          const matchA =
+            Math.abs(seg[0] - tail[0]) < EPS_STITCH &&
+            Math.abs(seg[1] - tail[1]) < EPS_STITCH &&
+            Math.abs(seg[2] - tail[2]) < EPS_STITCH
+          const matchB =
+            Math.abs(seg[3] - tail[0]) < EPS_STITCH &&
+            Math.abs(seg[4] - tail[1]) < EPS_STITCH &&
+            Math.abs(seg[5] - tail[2]) < EPS_STITCH
+          if (matchA) {
+            loop.push([seg[3], seg[4], seg[5]])
+            remaining.splice(i, 1)
+            extended = true
+            break
+          } else if (matchB) {
+            loop.push([seg[0], seg[1], seg[2]])
+            remaining.splice(i, 1)
+            extended = true
+            break
+          }
+        }
+      }
+
+      // A closed loop has its last point ≈ its first point; drop the
+      // duplicate closing point so triangulation gets an open ring.
+      if (loop.length > 1) {
+        const head = loop[0]
+        const tail2 = loop[loop.length - 1]
+        if (
+          Math.abs(head[0] - tail2[0]) < EPS_STITCH &&
+          Math.abs(head[1] - tail2[1]) < EPS_STITCH &&
+          Math.abs(head[2] - tail2[2]) < EPS_STITCH
+        ) {
+          loop.pop()
+        }
+      }
+
+      if (loop.length >= 3) loops.push(loop)
+    }
+    return loops
+  }
+
+  const loops = stitchLoops(segments)
+  if (loops.length === 0) return { positions: [], indices: [] }
+
+  // --- Step 4: build a 2D orthonormal basis for the plane ---------------
+  // u = first tangent vector (arbitrary, perpendicular to the normal).
+  // v = second tangent vector (perpendicular to both normal and u).
+  let ux: number
+  let uy: number
+  let uz: number
+  if (Math.abs(inx) <= Math.abs(iny) && Math.abs(inx) <= Math.abs(inz)) {
+    // Normal is least aligned with X — use X as the reference.
+    ux = 0; uy = -inz; uz = iny
+  } else if (Math.abs(iny) <= Math.abs(inz)) {
+    // Least aligned with Y — use Y as the reference.
+    ux = inz; uy = 0; uz = -inx
+  } else {
+    // Least aligned with Z — use Z as the reference.
+    ux = -iny; uy = inx; uz = 0
+  }
+  const uLen = Math.sqrt(ux * ux + uy * uy + uz * uz)
+  ux /= uLen; uy /= uLen; uz /= uLen
+  // v = normal × u (right-hand rule).
+  const vx = iny * uz - inz * uy
+  const vy = inz * ux - inx * uz
+  const vz = inx * uy - iny * ux
+
+  /** Project a 3D point on the plane to its 2D (u, v) coordinates. */
+  const to2D = (p: [number, number, number]): { x: number; y: number } => ({
+    x: p[0] * ux + p[1] * uy + p[2] * uz,
+    y: p[0] * vx + p[1] * vy + p[2] * vz,
+  })
+
+  /** Lift a 2D (u, v) coordinate back to 3D by projecting onto the plane. */
+  const to3D = (u2: number, v2: number): [number, number, number] => {
+    // The 3D point that lies on the plane at (u, v):
+    //   P = u * uAxis + v * vAxis + origin_on_plane
+    // The origin on the plane closest to world origin is: -ic * (inx, iny, inz).
+    const ox = -ic * inx
+    const oy = -ic * iny
+    const oz = -ic * inz
+    return [
+      ox + u2 * ux + v2 * vx,
+      oy + u2 * uy + v2 * vy,
+      oz + u2 * uz + v2 * vz,
+    ]
+  }
+
+  // --- Step 5: triangulate each loop + accumulate output ----------------
+  const outPositions: number[] = []
+  const outIndices: number[] = []
+
+  for (const loop of loops) {
+    const ring2D = loop.map(to2D)
+    const tris2D = triangulatePolygon2D(ring2D)
+    if (tris2D.length === 0) continue
+
+    // Collect the unique 2D vertices referenced by this loop's triangles
+    // so we emit each 3D position only once.
+    const baseIndex = outPositions.length / 3
+
+    for (const pt2D of ring2D) {
+      const p3 = to3D(pt2D.x, pt2D.y)
+      outPositions.push(p3[0], p3[1], p3[2])
+    }
+
+    for (const [ia, ib, ic2] of tris2D) {
+      outIndices.push(baseIndex + ia, baseIndex + ib, baseIndex + ic2)
+    }
+  }
+
+  return { positions: outPositions, indices: outIndices }
 }
