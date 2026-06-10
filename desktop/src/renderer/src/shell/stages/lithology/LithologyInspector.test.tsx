@@ -35,6 +35,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoBodySolidResponse,
 } from '../../../api/client'
 import LithologyInspector from './LithologyInspector'
 
@@ -183,6 +184,8 @@ function makeCtx(overrides: {
   lithoStaleSurfaceCount?: number
   lithoStaleTinSessionCount?: number
   refetchFormations?: () => void
+  lithoSolids?: LithoBodySolidResponse[]
+  setBodyColor?: (bodyId: string, color: string | null) => void
 } = {}): ShellContextValue {
   return {
     project: {
@@ -338,6 +341,13 @@ function makeCtx(overrides: {
       clearLithoSuggestions: vi.fn(),
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoSolids: overrides.lithoSolids ?? [],
+      lithoSolidsLoading: false,
+      lithoSolidsBuilding: false,
+      hasLithoSolids: false,
+      hasStaleLithoSolid: false,
+      buildLithoSolids: noopAsync,
+      setBodyColor: overrides.setBodyColor ?? vi.fn(),
     },
     sections: {
       sections: [],
@@ -913,6 +923,128 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
     await waitFor(() => {
       expect(wipeSpy).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// LithoSolidLegend — grouped body solids section (lifted from canvas overlay)
+// ---------------------------------------------------------------------------
+
+function makeSolid(
+  bodyId: string,
+  formationId: string,
+  bodyOrdinal = 1,
+  overrides: Partial<LithoBodySolidResponse> = {},
+): LithoBodySolidResponse {
+  return {
+    id: `solid-${bodyId}`,
+    model_id: 'litho-1',
+    body_id: bodyId,
+    formation_id: formationId,
+    body_ordinal: bodyOrdinal,
+    method: 'watertight',
+    vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] as [number, number, number][],
+    triangles: [[0, 1, 2]] as [number, number, number][],
+    is_stale: false,
+    is_flagged: false,
+    display_color: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('LithoSolidLegend — grouped-by-lithology body solids section', () => {
+  // SL1: empty state when no solids — shows "Build the 3D model" prompt.
+  it('SL1 — empty state message when no solids built yet', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoSolids: [],
+    })
+    renderInspector(ctx)
+    expect(screen.getByTestId('litho-solid-legend')).toBeInTheDocument()
+    expect(screen.getByText(/build the 3d model/i)).toBeInTheDocument()
+  })
+
+  // SL2: group header shows name, body count, and marker count for flagged bodies.
+  //   Given 2 formations (SILT: 3 bodies, 1 flagged) + (ZAND: 1 body, 0 flagged):
+  //   - SILT group header shows "3 bodies" and "(1 marker)"
+  //   - ZAND group header shows "1 body" with no "(0 markers)" text
+  it('SL2 — group header shows correct body count and marker count', () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1, color: '#aaaaaa' })
+    const zand = makeFormation('f-zand', 'ZAND', { display_order: 2, color: '#bbbbbb' })
+    const solids = [
+      makeSolid('b-s1', 'f-silt', 1),
+      makeSolid('b-s2', 'f-silt', 2),
+      makeSolid('b-s3', 'f-silt', 3, { is_flagged: true }),
+      makeSolid('b-z1', 'f-zand', 1),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt, zand],
+      lithoSolids: solids,
+    })
+    renderInspector(ctx)
+
+    // Both group headers visible.
+    const siltHeader = screen.getByTestId('solid-group-header-f-silt')
+    const zandHeader = screen.getByTestId('solid-group-header-f-zand')
+
+    expect(siltHeader).toBeInTheDocument()
+    expect(siltHeader).toHaveTextContent(/3 bod/i)
+    expect(siltHeader).toHaveTextContent(/1 marker/i)
+
+    expect(zandHeader).toBeInTheDocument()
+    expect(zandHeader).toHaveTextContent(/1 body/i)
+    expect(zandHeader).not.toHaveTextContent(/marker/i)
+  })
+
+  // SL3: per-body rows visible after expanding a group; stale dot + flagged icon present.
+  it('SL3 — per-body rows rendered with stale dot and flagged icon when set', () => {
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solids = [
+      makeSolid('b-stale', 'f-silt', 1, { is_stale: true }),
+      makeSolid('b-flagged', 'f-silt', 2, { is_flagged: true }),
+    ]
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: solids,
+    })
+    renderInspector(ctx)
+
+    // The group (2 bodies, ≤8) should be expanded by default.
+    expect(screen.getByTestId('solid-legend-row-b-stale')).toBeInTheDocument()
+    expect(screen.getByTestId('solid-legend-row-b-flagged')).toBeInTheDocument()
+
+    // Stale dot on the stale row.
+    const staleRow = screen.getByTestId('solid-legend-row-b-stale')
+    expect(staleRow.textContent).toMatch(/•/)
+
+    // Flagged icon on the flagged row — AlertTriangle renders an <svg> inside a span.
+    const flaggedRow = screen.getByTestId('solid-legend-row-b-flagged')
+    expect(flaggedRow.querySelector('svg')).not.toBeNull()
+  })
+
+  // SL4: colour picker fires setBodyColor with null when Reset button clicked.
+  it('SL4 — Reset button calls setBodyColor(bodyId, null)', async () => {
+    const setColor = vi.fn()
+    const silt = makeFormation('f-silt', 'SILT', { display_order: 1 })
+    const solid = makeSolid('b-color', 'f-silt', 1, { display_color: '#ff0000' })
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [silt],
+      lithoSolids: [solid],
+      setBodyColor: setColor,
+    })
+    renderInspector(ctx)
+
+    const resetBtn = screen.getByTestId('solid-color-reset-b-color')
+    await act(async () => {
+      fireEvent.click(resetBtn)
+    })
+
+    expect(setColor).toHaveBeenCalledWith('b-color', null)
   })
 })
 

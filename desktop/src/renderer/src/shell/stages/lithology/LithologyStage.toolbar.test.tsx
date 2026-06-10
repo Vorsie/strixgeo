@@ -97,6 +97,9 @@ function makeCtx(overrides: {
   lithoSurfacesByFormationId?: Map<string, FormationSurfaceResponse>
   lithoStaleSurfaceCount?: number
   handleRebuildLithoSurfaces?: () => Promise<void>
+  lithoSolidsBuilding?: boolean
+  hasStaleLithoSolid?: boolean
+  buildLithoSolids?: () => Promise<void>
 } = {}): ShellContextValue {
   return {
     project: {
@@ -261,6 +264,13 @@ function makeCtx(overrides: {
       clearLithoSuggestions: vi.fn(),
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoSolids: [],
+      lithoSolidsLoading: false,
+      lithoSolidsBuilding: overrides.lithoSolidsBuilding ?? false,
+      hasLithoSolids: false,
+      hasStaleLithoSolid: overrides.hasStaleLithoSolid ?? false,
+      buildLithoSolids: overrides.buildLithoSolids ?? noopAsync,
+      setBodyColor: vi.fn(),
     },
     sections: {
       sections: [],
@@ -483,6 +493,51 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
     renderToolbar(ctx)
     // Label: "Build litho Â· 3 stale" â€” getByRole matches any containing text.
     expect(screen.getByRole('button', { name: /build litho.*3 stale/i })).toBeInTheDocument()
+  })
+})
+
+describe('LithologyToolbar Build solids button (lifted from canvas overlay 2026-06-10)', () => {
+  // BS1: Build solids button renders when a litho model is active.
+  it('BS1 — Build solids button renders when a litho model is active', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
+    renderToolbar(ctx)
+    expect(screen.getByTestId('litho-build-solids-button')).toBeInTheDocument()
+  })
+
+  // BS2: Build solids button calls buildLithoSolids when clicked.
+  it('BS2 — clicking Build solids calls buildLithoSolids', async () => {
+    const buildSolids = vi.fn().mockResolvedValue(undefined)
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      buildLithoSolids: buildSolids,
+    })
+    renderToolbar(ctx)
+    fireEvent.click(screen.getByTestId('litho-build-solids-button'))
+    await vi.waitFor(() => {
+      expect(buildSolids).toHaveBeenCalledOnce()
+    })
+  })
+
+  // BS3: Stale amber badge — button label shows “· stale” when hasStaleLithoSolid.
+  it('BS3 — stale badge in button label when hasStaleLithoSolid is true', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      hasStaleLithoSolid: true,
+    })
+    renderToolbar(ctx)
+    expect(screen.getByTestId('litho-build-solids-button')).toHaveTextContent(/stale/i)
+  })
+
+  // BS4: While lithoSolidsBuilding, label shows “Building…” and button is disabled.
+  it('BS4 — while building, label shows “Building…” and button is disabled', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoSolidsBuilding: true,
+    })
+    renderToolbar(ctx)
+    const btn = screen.getByTestId('litho-build-solids-button') as HTMLButtonElement
+    expect(btn).toHaveTextContent(/building/i)
+    expect(btn.disabled).toBe(true)
   })
 })
 

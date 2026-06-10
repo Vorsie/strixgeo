@@ -129,6 +129,7 @@ function makeSolid(bodyId: string, formationId: string, overrides: Partial<Litho
     model_id: 'litho-1',
     body_id: bodyId,
     formation_id: formationId,
+    body_ordinal: 0,
     method: 'watertight',
     vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] as [number, number, number][],
     triangles: [[0, 1, 2]] as [number, number, number][],
@@ -172,6 +173,8 @@ function makeCtx(overrides: {
   lithoSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
   visibleSections?: CrossSectionResponse[]
   toast?: (type: 'success' | 'error' | 'warning', message: string) => void
+  lithoSolids?: LithoBodySolidResponse[]
+  hasLithoSolids?: boolean
 } = {}): ShellContextValue {
   return {
     project: {
@@ -327,6 +330,13 @@ function makeCtx(overrides: {
       clearLithoSuggestions: vi.fn(),
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoSolids: overrides.lithoSolids ?? [],
+      lithoSolidsLoading: false,
+      lithoSolidsBuilding: false,
+      hasLithoSolids: overrides.hasLithoSolids ?? false,
+      hasStaleLithoSolid: false,
+      buildLithoSolids: noopAsync,
+      setBodyColor: vi.fn(),
     },
     sections: {
       sections: [],
@@ -632,77 +642,33 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     })
   })
 
-  // C9: In Solid mode, api.geology.listLithoSolids is called with the
-  //     correct projectId and modelId as soon as the canvas mounts.
-  it('C9 -- Solid mode triggers listLithoSolids fetch on mount', async () => {
+  // C9 (updated 2026-06-10 — Build button + legend moved to toolbar +
+  //     inspector).  The canvas reads lithoSolids from context (useLithoSolids
+  //     via geoModel bus) and forwards them to Geology3DViewer.  The canvas
+  //     itself no longer calls listLithoSolids — that is the hook's job.
+  //
+  //     Claim: when hasLithoSolids is true in the context, the canvas suppresses
+  //     TIN sheets (surfacesMapForViewer = EMPTY_SURFACES_MAP) so the viewer
+  //     renders only the opaque solids.  The canvas still mounts — no crash.
+  it('C9 -- canvas mounts cleanly when lithoSolids are provided via context', async () => {
     const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
-
-    // The mock resolves empty by default (no solids yet).
-    expect(vi.mocked(api.geology.listLithoSolids)).not.toHaveBeenCalled()
-
-    await act(async () => {
-      renderCanvas(ctx)
-    })
-
-    // listLithoSolids must have been called once with the project + model ids.
-    expect(vi.mocked(api.geology.listLithoSolids)).toHaveBeenCalledOnce()
-    expect(vi.mocked(api.geology.listLithoSolids)).toHaveBeenCalledWith('proj-1', 'litho-1')
-  })
-
-  // C10: Clicking Build Solids calls rebuildLithoSolids and toasts the result.
-  //      A subsequent listLithoSolids fetch is triggered via the nonce bump.
-  it('C10 -- clicking Build solids calls rebuildLithoSolids and toasts', async () => {
-    const toastFn = vi.fn()
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap, toast: toastFn })
-
-    vi.mocked(api.geology.rebuildLithoSolids).mockResolvedValueOnce({
-      bodies_considered: 1,
-      bodies_built: 1,
-      bodies_skipped_checksum: 0,
-      bodies_flagged: 0,
-      orphans_deleted: 0,
-      solids: [makeSolid('b-1', 'f-built')],
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({
+      lithoSurfacesByFormationId: surfMap,
+      lithoSolids: [solid],
+      hasLithoSolids: true,
     })
 
     await act(async () => {
       renderCanvas(ctx)
     })
 
-    // The Build Solids button must be present in Solid mode (viewMode default).
-    const buildBtn = screen.getByTestId('litho-build-solids-button')
-    expect(buildBtn).toBeInTheDocument()
-
-    await act(async () => {
-      fireEvent.click(buildBtn)
-    })
-
-    // rebuildLithoSolids called once with correct ids.
-    expect(vi.mocked(api.geology.rebuildLithoSolids)).toHaveBeenCalledOnce()
-    expect(vi.mocked(api.geology.rebuildLithoSolids)).toHaveBeenCalledWith('proj-1', 'litho-1')
-
-    // toast called with 'success' (0 flagged).
-    expect(toastFn).toHaveBeenCalledWith('success', expect.stringContaining('Built 1'))
-  })
-
-  // C11: The Build Solids button shows the stale badge text when any solid
-  //      has is_stale = true.
-  it('C11 -- stale badge shown when any solid is_stale', async () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
-
-    // Seed listLithoSolids with a stale solid so hasStaleSolid is true.
-    vi.mocked(api.geology.listLithoSolids).mockResolvedValueOnce([
-      makeSolid('b-stale', 'f-built', { is_stale: true }),
-    ])
-
-    await act(async () => {
-      renderCanvas(ctx)
-    })
-
-    const buildBtn = screen.getByTestId('litho-build-solids-button')
-    expect(buildBtn).toHaveTextContent(/stale/i)
+    // Geology3DViewer still renders (canvas did not crash).
+    expect(screen.getByTestId('geology-3d-viewer')).toBeInTheDocument()
+    // The Build-Solids button is NOT in the canvas (it is in the toolbar now).
+    expect(screen.queryByTestId('litho-build-solids-button')).not.toBeInTheDocument()
+    // The legend is NOT in the canvas (it is in the inspector now).
+    expect(screen.queryByTestId('litho-solid-legend')).not.toBeInTheDocument()
   })
 })
 
