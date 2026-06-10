@@ -225,6 +225,48 @@ def test_disk_radius_matches_constant() -> None:
         )
 
 
+def _ray_hits(vertices, triangles, p):
+    """Count ray–triangle intersections from point p in a fixed generic direction."""
+    ox, oy, oz = p
+    d = (1.0, 0.4142135623730951, 0.7320508075688772)  # generic dir (general position)
+    eps = 1e-9
+    hits = 0
+    for a, b, c in triangles:
+        v0, v1, v2 = vertices[a], vertices[b], vertices[c]
+        e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+        e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+        h = (
+            d[1] * e2[2] - d[2] * e2[1],
+            d[2] * e2[0] - d[0] * e2[2],
+            d[0] * e2[1] - d[1] * e2[0],
+        )
+        det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]
+        if -eps < det < eps:
+            continue
+        inv = 1.0 / det
+        s = (ox - v0[0], oy - v0[1], oz - v0[2])
+        u = inv * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2])
+        if u < -eps or u > 1 + eps:
+            continue
+        q = (
+            s[1] * e1[2] - s[2] * e1[1],
+            s[2] * e1[0] - s[0] * e1[2],
+            s[0] * e1[1] - s[1] * e1[0],
+        )
+        v = inv * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2])
+        if v < -eps or u + v > 1 + eps:
+            continue
+        t = inv * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2])
+        if t > eps:
+            hits += 1
+    return hits
+
+
+def _inside(vertices, triangles, p):
+    """True iff point p is inside the closed mesh (parity ray-cast)."""
+    return _ray_hits(vertices, triangles, p) % 2 == 1
+
+
 def test_adjacent_bodies_share_the_contact_surface_exactly() -> None:
     """Body A's base picks == body B's top picks → the shared surface coincides
     vertex-for-vertex (watertight stack), because the builder caches one surface
@@ -244,3 +286,86 @@ def test_adjacent_bodies_share_the_contact_surface_exactly() -> None:
     assert sand_shared == clay_shared, (
         "shared-contact vertex sets differ — cache did not produce identical surface geometry"
     )
+
+
+def test_shared_interface_has_zero_gap_between_stacked_bodies() -> None:
+    """M3: SAND.base and CLAY.top are the same shared surface (vertices coincide)."""
+    quad = [(0, 0), (40, 0), (40, 40), (0, 40), (18, 22)]  # extra interior point
+    picks = []
+    for i, (x, y) in enumerate(quad):
+        inv = f"q{i}"
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="SAND",
+                formation_id="f1",
+                top_depth_m=0.0,
+                base_depth_m=4.0,
+            )
+        )
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="CLAY",
+                formation_id="f2",
+                top_depth_m=4.0,
+                base_depth_m=14.0,
+            )
+        )
+    meshes = {m.body_id: m for m in build_body_solids(picks)}
+    sand_base = {
+        (round(x, 5), round(y, 5)) for (x, y, z) in meshes["SAND"].vertices if abs(z + 4) < 1e-6
+    }
+    clay_top = {
+        (round(x, 5), round(y, 5)) for (x, y, z) in meshes["CLAY"].vertices if abs(z + 4) < 1e-6
+    }
+    assert sand_base == clay_top and len(sand_base) == 5
+
+
+def test_orchestrator_lens_void() -> None:
+    """M3: an enclosed SILT lens is carved out of its CLAY matrix as a void."""
+    outer = [("A", 0, 0), ("B", 20, 0), ("C", 20, 20), ("D", 0, 20)]
+    inner = [("E", 8, 10), ("F", 12, 10), ("G", 10, 8), ("H", 10, 12)]
+    picks = []
+    for inv, x, y in outer:
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="CLAY",
+                formation_id="f2",
+                top_depth_m=4.0,
+                base_depth_m=14.0,
+            )
+        )
+    for inv, x, y in inner:
+        for body, td, bd, fm in [
+            ("CLAY", 4.0, 8.0, "f2"),
+            ("SILT", 8.0, 10.0, "f3"),
+            ("CLAY", 10.0, 14.0, "f2"),
+        ]:
+            picks.append(
+                BodyLayerPick(
+                    investigation_id=inv,
+                    x_m=x,
+                    y_m=y,
+                    surface_elev_m=0.0,
+                    body_id=body,
+                    formation_id=fm,
+                    top_depth_m=td,
+                    base_depth_m=bd,
+                )
+            )
+    meshes = {m.body_id: m for m in build_body_solids(picks)}
+    clay = meshes["CLAY"]
+    assert _is_closed_manifold(clay.triangles) and _is_consistently_wound(clay.triangles)
+    assert not _inside(clay.vertices, clay.triangles, (10.0, 10.0, -9.0))  # in the lens void
+    assert _inside(clay.vertices, clay.triangles, (2.0, 2.0, -9.0))  # in the clay
