@@ -1116,6 +1116,10 @@ function rebuildSurfacePrimitives(
   // clearly through the translucent fence.
   if (fencePanels && fencePanels.length > 0) {
     for (const panel of fencePanels) {
+      // Mirror the formation-TIN loop's visibility toggle — a hidden
+      // formation's fence walls are skipped so the legend toggle works
+      // in both Solid and Fence modes.
+      if (hiddenFormationIds?.has(panel.formationId)) continue
       const formation = formations.find((f) => f.id === panel.formationId)
       const hexColor =
         formation && formation.color.startsWith('#')
