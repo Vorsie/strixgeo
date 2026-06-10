@@ -160,6 +160,12 @@ def fit_patch_surfaces(
     Delaunay topology, which the single-patch assembler relies on to pair top
     and base walls.
 
+    Each investigation contributes exactly one point per patch. This is
+    guaranteed by :func:`enumerate_contacts`'s ``setdefault`` accumulation:
+    every investigation emits one contact elevation per ordered body pair, so
+    ``inv_id`` is unique within a patch's point list. The sort over ``inv_id``
+    therefore gives a well-defined, deterministic order.
+
     Parameters
     ----------
     contacts : dict[ContactKey, list[ContactPoint]]
