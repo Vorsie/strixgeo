@@ -503,3 +503,45 @@ short builder spike (prototype `body_between_surfaces` + `lens_carve` on a
 synthetic two-section fence), written once milestone 1 has de-risked the viewer
 path. So part b is planned as: **Plan B1 (fence) now → spike → Plan B2 (solids
 2+3).**
+
+### 11.6 Builder spike result (2026-06-10) + milestone-2 design
+
+**Spike (throwaway, reused `compute_tin`) PASSED.** Confirmed: a body's top and
+base contact picks are at the *same* investigations (wherever the body exists),
+so `compute_tin` over that shared point set yields the **same triangulation +
+vertex correspondence** for both surfaces. A body mesh built as
+`[top faces] + [flipped base faces] + [side walls on the boundary edges]` is a
+**closed watertight 2-manifold** (every edge shared by exactly 2 triangles),
+verified for (a) a through-going slab and (b) a pinch-out where base meets top —
+the body thins to zero at the pinch and the mesh stays watertight. So pinch-outs
+are free and the core construction is sound.
+
+**Milestone-2 design (brainstormed 2026-06-10, owner-confirmed):**
+
+- **One surface per CONTACT, shared.** Fit one `compute_tin` surface per
+  contact-boundary; the two bodies it bounds (base-of-upper = top-of-lower)
+  reference the *same* surface object → the stack is watertight by construction,
+  no inter-body sliver gaps. (Chosen over per-body independent fits, which risk
+  float drift → hairline gaps.)
+- **Solid view = per-body closed solids, REPLACING the placeholder sheets.** The
+  litho 3D pane's "Solid" mode renders each body as an opaque, lithology-coloured
+  closed solid (isolatable, recolourable, exportable later); the placeholder
+  per-formation surface sheets are retired *for litho* (the geology pane is
+  untouched — it keeps `formation_surface`). Legend per-lithology toggles hide a
+  lithology's bodies; per-body colour picker overrides one body.
+- **M2 scope — through-going bodies + pinch-outs (the de-risked part).** Build
+  every body as its own closed solid using the shared contact surfaces.
+  **Lenses** render as their own closed blob that *overlaps* its matrix (correct
+  shape; the **3D carve is deferred to M3**, the hardest piece kept isolated).
+  **Degenerate bodies** (<3 control points / collinear) fall back to a flagged
+  thin slab + a log line (§7) — never a crash, never invented geometry.
+- **Components (mirror the geology surface pipeline):** NEW `LithoSolidBuilder`
+  (domain, pure — internal units `contact_surface_set` + `body_between_surfaces`;
+  `lens_carve` is M3) → NEW `litho_body_solid` ORM (mirrors
+  `formation_surface_orm`: `vertices`/`triangles`/`is_stale`/`method`/checksum
+  JSONB, + an `is_flagged` slab marker) → NEW nullable `body.display_color` →
+  NEW `RecomputeLithoSolids` use case + stale-on-edit cascade + on-click Build
+  (mirror `RebuildModelSurfaces`) → NEW `GET /geology/models/{id}/litho-solids`
+  + `POST .../litho-solids/rebuild` + `PATCH` body colour → `Geology3DViewer`
+  gains a `bodySolids` render path (opaque closed meshes) consumed by
+  `LithologyCanvas` in Solid mode.
