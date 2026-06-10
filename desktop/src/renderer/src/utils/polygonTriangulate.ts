@@ -4,7 +4,8 @@
  * given as a ring with no repeated last point. Returns vertex-index triples
  * into the input array. Concave-safe: a carved-lens matrix region has a notch,
  * which fan triangulation would wrongly fill. Winding-agnostic (normalises to
- * CCW internally). Returns [] for fewer than 3 points or a fully-degenerate ring.
+ * CCW internally). Returns [] for fewer than 3 points or a fully-degenerate
+ * (zero-area / all-collinear) ring.
  */
 
 /** A point in the section's 2D plane (u = along/fraction axis, v = elevation). */
@@ -24,7 +25,7 @@ function signedArea2(poly: readonly Vec2[]): number {
   return s
 }
 
-/** Is point p inside triangle (a, b, c)? (barycentric sign test, CCW triangle). */
+/** Is point p inside triangle (a, b, c), including on the boundary? (barycentric sign test, CCW triangle). */
 function pointInTriangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2): boolean {
   const d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y)
   const d2 = (p.x - c.x) * (b.y - c.y) - (b.x - c.x) * (p.y - c.y)
@@ -77,6 +78,15 @@ export function triangulatePolygon2D(polygon: readonly Vec2[]): [number, number,
     }
     if (!clipped) break // degenerate / self-touching ring — stop with what we have
   }
-  if (idx.length === 3) triangles.push([idx[0], idx[1], idx[2]])
+  // Guard: only emit the last 3-vertex triangle if it has non-degenerate area.
+  // A fully-collinear 3-point polygon skips the while-loop (idx.length > 3 is
+  // never true) and falls here — without this check it would emit a zero-area
+  // triangle instead of [].
+  if (idx.length === 3) {
+    const lastTri: Vec2[] = [polygon[idx[0]], polygon[idx[1]], polygon[idx[2]]]
+    if (Math.abs(signedArea2(lastTri)) >= 1e-12) {
+      triangles.push([idx[0], idx[1], idx[2]])
+    }
+  }
   return triangles
 }

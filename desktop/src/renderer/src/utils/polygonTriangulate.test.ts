@@ -46,4 +46,30 @@ describe('triangulatePolygon2D', () => {
   it('returns [] for degenerate input (<3 points)', () => {
     expect(triangulatePolygon2D([{ x: 0, y: 0 }, { x: 1, y: 1 }])).toEqual([])
   })
+
+  it('returns [] for a fully-collinear polygon (all points on one line)', () => {
+    // With n===3, the while-loop is never entered (condition idx.length > 3 is false),
+    // so the final push must be guarded by an area check — otherwise a zero-area
+    // "triangle" is emitted.  n===4+ already returns [] because the while-loop's
+    // !clipped break leaves idx.length===4, missing the if(idx.length===3) guard.
+    const collinear3: Vec2[] = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]
+    expect(triangulatePolygon2D(collinear3)).toEqual([])
+
+    // 4-point collinear — already correct, kept as regression pin.
+    const collinear4: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 3, y: 0 },
+    ]
+    expect(triangulatePolygon2D(collinear4)).toEqual([])
+  })
+
+  it('returns exactly 1 triangle for a valid 3-point input (fast path)', () => {
+    // Right triangle with legs 4 and 3 → area = 6.
+    const tri: Vec2[] = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 0, y: 3 }]
+    const tris = triangulatePolygon2D(tri)
+    expect(tris).toHaveLength(1)
+    expect(triArea(tri, tris)).toBeCloseTo(6, 6)
+  })
 })
