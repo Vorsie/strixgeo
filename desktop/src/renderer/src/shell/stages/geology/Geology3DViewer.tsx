@@ -43,6 +43,7 @@ import type {
   FormationSurfaceResponse,
   GroundSurfaceBuildResponse,
 } from '../../../api/client'
+import type { LithoBodySolidResponse } from '../../../api/clients/geology'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
@@ -143,6 +144,23 @@ export interface Geology3DViewerProps {
    * is unchanged; LithologyCanvas passes it when it renders the fence diagram.
    */
   fencePanels?: FencePanel[]
+  /**
+   * Per-body watertight closed solids built by ``LithoSolidBuilder``.
+   *
+   * When present and non-empty, each solid is rendered as an OPAQUE CLOSED mesh
+   * coloured by ``display_color ?? formation colour``.  A solid whose
+   * ``formation_id`` is in ``hiddenFormationIds`` is skipped so the legend toggle
+   * works.  Solids with empty ``triangles`` (flagged slabs) are also skipped.
+   *
+   * The CALLER decides whether to show surfaces alongside solids — this component
+   * renders solids unconditionally when provided.  Task 8 will suppress the
+   * surface sheets in Solid mode and pass this prop.
+   *
+   * Task 8 note: the parent must memoize this array (e.g. ``useMemo``) to avoid
+   * an infinite primitive-rebuild loop — a fresh array literal on every render
+   * changes identity each tick and re-triggers the ``useEffect`` dep.
+   */
+  bodySolids?: LithoBodySolidResponse[]
 }
 
 // ---------------------------------------------------------------------------
@@ -776,6 +794,150 @@ function buildFencePrimitive(
 }
 
 // ---------------------------------------------------------------------------
+// Solid body primitive builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a Cesium ``Primitive`` for a watertight closed lithostratigraphic body
+ * solid.
+ *
+ * Mirrors ``buildFencePrimitive`` in coordinate transform + clip threading, but
+ * uses ``PerInstanceColorAppearance({ translucent: false, flat: true, closed:
+ * true })`` — the three attributes that distinguish a closed opaque volume from
+ * the translucent open surface sheets used for formation TINs:
+ *
+ *   - ``translucent: false`` writes to the depth buffer and sorts in front of
+ *     every translucent surface, matching how a filled geological body should
+ *     read (solid rock, not ghosted).
+ *   - ``flat: true`` uses FLAT_VERTEX_FORMAT (position-only) — the same reason
+ *     as all other primitives in this file (we do not supply normals, and
+ *     Cesium's compressVertices pipeline would crash looking for
+ *     ``compressedAttributes`` if ``flat`` were false).
+ *   - ``closed: true`` sets ``cull.enabled: true`` on the render state, enabling
+ *     back-face culling.  A closed solid has correct outward-facing winding
+ *     everywhere, so back-face culling is both correct and cheaper than
+ *     ``closed: false`` (double-sided).  Formation TIN sheets and fence walls
+ *     use ``closed: false`` because they are open surfaces that the camera may
+ *     view from behind; a watertight body solid never shows its interior.
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS.
+ * triangles
+ *     Vertex-index triples (outward right-hand-rule winding).
+ * color
+ *     ``Cesium.Color`` for the primitive.  Alpha is ignored — the primitive is
+ *     rendered opaque (``translucent: false``).
+ * projectEpsg
+ *     Horizontal CRS EPSG code for the coordinate transform.
+ * clip
+ *     Optional half-space plane + side; when set, only the kept half is built
+ *     (same split-view threading as ``buildTinPrimitive`` and
+ *     ``buildFencePrimitive``).
+ *
+ * Returns
+ * -------
+ * ``Cesium.Primitive`` or ``null`` when ``triangles`` is empty or the clip
+ * removes the whole solid.
+ */
+function buildSolidPrimitive(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  color: Cesium.Color,
+  projectEpsg: number,
+  clip?: { plane: Cesium.Plane; keepPositive: boolean },
+): Cesium.Primitive | null {
+  if (triangles.length === 0) return null
+
+  const ecef = vertices.map(([x, y, z]) => {
+    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+  })
+
+  let positionValues: Float64Array
+  let indices: Uint32Array
+
+  if (!clip) {
+    // No split — compact indexed geometry (the shared-vertex fast path).
+    positionValues = new Float64Array(ecef.length * 3)
+    let i = 0
+    for (const v of ecef) {
+      positionValues[i++] = v.x
+      positionValues[i++] = v.y
+      positionValues[i++] = v.z
+    }
+    indices = new Uint32Array(triangles.length * 3)
+    let j = 0
+    for (const [i0, i1, i2] of triangles) {
+      indices[j++] = i0
+      indices[j++] = i1
+      indices[j++] = i2
+    }
+  } else {
+    // Split active — clip the solid to the half-space and emit a triangle
+    // soup (clipped triangles don't share vertices), exactly like
+    // buildTinPrimitive and buildFencePrimitive.
+    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
+      ecef[a],
+      ecef[b],
+      ecef[c],
+    ])
+    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    if (clipped.length === 0) return null
+    positionValues = new Float64Array(clipped.length * 9)
+    indices = new Uint32Array(clipped.length * 3)
+    let pi = 0
+    let ii = 0
+    for (const t of clipped) {
+      for (const v of t) {
+        positionValues[pi++] = v.x
+        positionValues[pi++] = v.y
+        positionValues[pi++] = v.z
+        indices[ii] = ii
+        ii++
+      }
+    }
+  }
+
+  const geometry = new Cesium.Geometry({
+    // See buildCutFaceBands for the partial-shape cast rationale.
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positionValues,
+      }),
+    } as unknown as Cesium.GeometryAttributes,
+    indices,
+    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+  })
+
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({
+      geometry,
+      attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+      },
+    }),
+    // translucent: false — a body solid is filled rock, not a ghosted sheet;
+    //   writes depth so it occludes translucent formation surfaces correctly.
+    // flat: true — no normals supplied; FLAT_VERTEX_FORMAT (position-only)
+    //   avoids the compressedAttributes crash that flat:false triggers.
+    // closed: true — enables back-face culling (cull.enabled: true on the
+    //   render state); correct for a watertight outward-wound solid and
+    //   cheaper than the double-sided fence/TIN-sheet path.
+    appearance: new Cesium.PerInstanceColorAppearance({
+      translucent: false,
+      flat: true,
+      closed: true,
+    }),
+    asynchronous: false,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Per-vertex gradient appearance (debt #28 follow-up, 2026-05-21).
 //
 // PerInstanceColorAppearance gives a single colour to the whole primitive.
@@ -1004,6 +1166,7 @@ function rebuildSurfacePrimitives(
   fencePanels?: FencePanel[],
   groundSurfaceVisible: boolean = true,
   surfacesVisible: boolean = true,
+  bodySolids?: LithoBodySolidResponse[],
 ): void {
   scene.primitives.removeAll()
 
@@ -1278,6 +1441,48 @@ function rebuildSurfacePrimitives(
       if (primitive) scene.primitives.add(primitive)
     }
   }
+
+  // Per-body closed opaque solids (lithostratigraphic Solid mode). Rendered
+  // above the translucent formation-surface sheets so they occlude correctly
+  // in Cesium's painter order — a solid body reads as filled rock, not a
+  // ghosted overlay.  Hidden lithologies (legend toggle) skip their solids
+  // so the toggle works uniformly across both surface sheets and body solids.
+  if (bodySolids && bodySolids.length > 0) {
+    for (const solid of bodySolids) {
+      // Skip hidden lithologies and empty (flagged) slabs.
+      if (hiddenFormationIds?.has(solid.formation_id)) continue
+      if (solid.triangles.length === 0) continue
+
+      // Resolve colour: per-body override wins, fall back to the formation
+      // hex colour using the same parse pattern as the formation-surface loop.
+      let solidColor: Cesium.Color
+      if (solid.display_color) {
+        const dc = solid.display_color.startsWith('#')
+          ? solid.display_color
+          : `#${solid.display_color}`
+        solidColor = Cesium.Color.fromCssColorString(dc) ?? Cesium.Color.GRAY
+      } else {
+        const formation = formations.find(f => f.id === solid.formation_id)
+        if (formation) {
+          const hexColor = formation.color.startsWith('#')
+            ? formation.color
+            : `#${formation.color}`
+          solidColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
+        } else {
+          solidColor = Cesium.Color.GRAY
+        }
+      }
+
+      const prim = buildSolidPrimitive(
+        solid.vertices,
+        solid.triangles,
+        solidColor,
+        projectEpsg,
+        clip,
+      )
+      if (prim) scene.primitives.add(prim)
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1390,6 +1595,8 @@ interface CesiumViewportProps {
   showConfidenceFade?: boolean
   /** Fence-diagram wall panels — threaded from Geology3DViewerProps. */
   fencePanels?: FencePanel[]
+  /** Per-body closed opaque solids — threaded from Geology3DViewerProps. */
+  bodySolids?: LithoBodySolidResponse[]
 }
 
 /**
@@ -1448,6 +1655,7 @@ function CesiumViewport({
   surfacesVisible = true,
   showConfidenceFade = true,
   fencePanels,
+  bodySolids,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -1565,6 +1773,7 @@ function CesiumViewport({
       fencePanels,
       groundSurfaceVisible,
       surfacesVisible,
+      bodySolids,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -1634,6 +1843,12 @@ function CesiumViewport({
     groundSurfaceVisible,
     // Surfaces visibility toggle — rebuild so the formation TIN sheets appear/disappear.
     surfacesVisible,
+    // Body solids: rebuild when the lithology canvas passes new solid meshes
+    // (after a rebuild or when the model changes).
+    // Task 8 note: the parent must pass a memoized array to avoid infinite
+    // rebuild loops — a fresh array literal on every render changes identity
+    // each tick and re-triggers this effect (same dep-array rule as fencePanels).
+    bodySolids,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -1815,6 +2030,7 @@ export default function Geology3DViewer({
   onExitSplit,
   showConfidenceFade = true,
   fencePanels,
+  bodySolids,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -1959,6 +2175,7 @@ export default function Geology3DViewer({
           surfacesVisible={surfacesVisible}
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
+          bodySolids={bodySolids}
         />
 
         {/* Debt #26 offline banner — overlays the primary viewport when
@@ -2169,6 +2386,7 @@ export default function Geology3DViewer({
               surfacesVisible={surfacesVisible}
               showConfidenceFade={showConfidenceFade}
               fencePanels={fencePanels}
+              bodySolids={bodySolids}
             />
           </div>
         </>
