@@ -99,6 +99,19 @@ def _to_solid_response(
     Merges the ``display_color`` (which lives on ``BodyOrm``) into the
     response at construction time so Pydantic never touches a lazy
     attribute on the ``solid`` row.
+
+    Parameters
+    ----------
+    solid : LithoBodySolidOrm
+        The cached solid ORM row.
+    display_color : str | None
+        Colour override fetched from ``BodyOrm``; ``None`` falls back to the
+        formation colour in the 3-D viewer.
+
+    Returns
+    -------
+    LithoBodySolidResponse
+        Fully populated response object.
     """
     return LithoBodySolidResponse(
         id=solid.id,

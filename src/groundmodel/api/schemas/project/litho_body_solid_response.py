@@ -58,10 +58,12 @@ class LithoBodySolidResponse(BaseModel):
         Row last-modified timestamp.
     """
 
-    # No from_attributes here — the endpoint builds instances manually
-    # (it merges display_color from BodyOrm into each solid row rather
-    # than serialising the ORM object directly, mirroring the
-    # _geo_labels_by_body pattern in the bodies router).
+    # The endpoint builds instances manually — it merges display_color from
+    # BodyOrm into each solid row rather than serialising the ORM object
+    # directly (mirroring the _geo_labels_by_body pattern in the bodies
+    # router), so from_attributes is never exercised on the hot path. It is
+    # still enabled so a future caller/test can serialise an ORM row directly
+    # (display_color would then default to None) without a schema change.
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
