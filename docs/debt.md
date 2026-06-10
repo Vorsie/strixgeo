@@ -5240,5 +5240,30 @@ owner's hands and there's a concrete need to communicate model confidence to
 coworkers/clients — pair with the design-ready-parameter work, which has its own
 statistical uncertainty story.
 
+## 206. Customisable single-hole body markers (Tier D — Phase 5, frontend/domain, S)
+
+**What.** A body that cannot form a real 3D solid (a unit logged on <3
+non-collinear investigations — 80 of 102 bodies on the owner's `test.strix`)
+renders as a small lithology-coloured **vertical-cylinder disk marker** at each
+hole (`litho_solid_builder._marker` / `litho_solid_builder_constants.py`:
+`MARKER_DISK_RADIUS_M = 1.5`, real top→base thickness, `MARKER_DISK_SIDES = 16`),
+drawn semi-transparent (`FLAGGED_SOLID_ALPHA = 0.45`) in `Geology3DViewer`. The
+shape + size are hard-coded constants. Owner asked (dogfeed 2026-06-10) to make
+them **customisable later** — a Settings knob for marker radius, and a richer
+shape (e.g. a **lenticular** lens-disc rather than a flat-capped cylinder) so the
+marker reads more like a geological lens than a probe stub.
+
+**Why deferred.** The current 1.5 m cylinder is honest + legible at dogfeed scale
+and the constants are a one-line tune; a Settings UI + a lenticular mesh generator
+are polish, not MVP. Owner directive 2026-06-10: "we can make it customizable
+settings later on, like make it more lenticular and change its size, maybe add to
+phase 5 or something to build later."
+
+**When to revisit.** Phase 5, alongside #205 (the other litho-3D presentation
+polish) — or sooner if a coworker demo needs the markers to look less like sticks.
+The radius/sides constants live in `litho_solid_builder_constants.py`; the alpha
+in `Geology3DViewer.tsx` — surface them onto `view_state.litho_segmenter` (the
+established knob home) when the Settings row lands.
+
 ## (end)
 
