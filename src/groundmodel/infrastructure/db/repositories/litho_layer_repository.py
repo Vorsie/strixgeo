@@ -9,15 +9,27 @@ the dual-write transition. List queries are scoped by ``model_id`` +
 optional ``borehole_id`` / ``cpt_id`` filters and always return rows
 sorted by ``depth_top_m`` ascending, matching the dominant frontend
 read pattern ("give me this anchor's layers in top-to-bottom order").
+
+Methods added for the litho-3D solid cache (Task 4):
+  * ``load_body_picks`` — builds ``BodyLayerPick`` tuples for all accepted
+    layers in a model that have a non-null ``body_id`` and a resolvable
+    anchor with valid (x, y, elevation_m).
+  * ``mark_litho_solids_stale`` — bulk flips ``is_stale=True`` on the
+    ``litho_body_solid`` cache rows for a model.
+  * ``list_litho_solids`` — returns the cached solid rows for a model.
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -203,4 +215,205 @@ class LithoLayerRepository(GroundModelLogger):
         if not layer_ids:
             return []
         stmt = select(LithoLayerOrm).where(LithoLayerOrm.id.in_(layer_ids))
+        return list((await self._session.execute(stmt)).scalars().all())
+
+    # -----------------------------------------------------------------
+    # Litho-3D solid cache support (Task 4 — RecomputeLithoSolids)
+    # -----------------------------------------------------------------
+
+    async def load_body_picks(self, model_id: UUID) -> list[BodyLayerPick]:
+        """Load one ``BodyLayerPick`` per accepted litho layer with a resolved body.
+
+        The pick carries the investigation's world coordinates and surface
+        elevation, mirroring the ``ContactPoint3D`` assembly in
+        ``RecomputeFormationSurface``.  Layers are skipped (and counted)
+        when:
+
+        * ``body_id`` is ``None`` — resolver has not run yet or the layer
+          is an isolated singleton.
+        * The anchor investigation row is missing.
+        * Any of ``location_x``, ``location_y``, or ``elevation_m`` is
+          ``None`` on the anchor.
+
+        The (x, y, elevation_m) columns are on the same ``CptOrm`` /
+        ``BoreholeOrm`` rows that ``RecomputeFormationSurface`` uses —
+        ``location_x``, ``location_y``, ``elevation_m`` — ensuring
+        the two pipelines share the same coordinate source.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model to scope the query to.
+
+        Returns
+        -------
+        list[BodyLayerPick]
+            One entry per accepted layer with a valid body + anchor.
+            Order is deterministic (sorted by ``body_id`` then
+            ``depth_top_m``) but callers must not depend on it.
+        """
+        self.debug(f"load_body_picks: model={model_id}")
+
+        # One query for all accepted layers with non-null body_id.
+        layer_rows = list(
+            (
+                await self._session.execute(
+                    select(
+                        LithoLayerOrm.id,
+                        LithoLayerOrm.body_id,
+                        LithoLayerOrm.formation_id,
+                        LithoLayerOrm.depth_top_m,
+                        LithoLayerOrm.depth_base_m,
+                        LithoLayerOrm.borehole_id,
+                        LithoLayerOrm.cpt_id,
+                    )
+                    .where(
+                        LithoLayerOrm.model_id == model_id,
+                        LithoLayerOrm.status == "accepted",
+                        LithoLayerOrm.body_id.is_not(None),
+                    )
+                    .order_by(LithoLayerOrm.body_id, LithoLayerOrm.depth_top_m)
+                )
+            ).all()
+        )
+
+        if not layer_rows:
+            self.debug(f"load_body_picks: no accepted body-assigned layers for model={model_id}")
+            return []
+
+        # Bulk-load the unique anchor ids (same pattern as
+        # RecomputeFormationSurface to keep coordinate sources identical).
+        bh_ids: set[UUID] = {r.borehole_id for r in layer_rows if r.borehole_id is not None}
+        cpt_ids: set[UUID] = {r.cpt_id for r in layer_rows if r.cpt_id is not None}
+
+        boreholes_by_id: dict[UUID, BoreholeOrm] = (
+            {
+                b.id: b
+                for b in (
+                    await self._session.execute(
+                        select(BoreholeOrm).where(BoreholeOrm.id.in_(bh_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            }
+            if bh_ids
+            else {}
+        )
+        cpts_by_id: dict[UUID, CptOrm] = (
+            {
+                c.id: c
+                for c in (await self._session.execute(select(CptOrm).where(CptOrm.id.in_(cpt_ids))))
+                .scalars()
+                .all()
+            }
+            if cpt_ids
+            else {}
+        )
+
+        picks: list[BodyLayerPick] = []
+        skipped_no_anchor = 0
+        skipped_no_coords = 0
+
+        for r in layer_rows:
+            # Resolve anchor to a (location_x, location_y, elevation_m) triple.
+            if r.borehole_id is not None:
+                anchor = boreholes_by_id.get(r.borehole_id)
+                anchor_id = str(r.borehole_id)
+            else:
+                anchor = cpts_by_id.get(r.cpt_id)
+                anchor_id = str(r.cpt_id)
+
+            if anchor is None:
+                skipped_no_anchor += 1
+                self.debug(
+                    f"load_body_picks: layer {r.id} anchor {anchor_id!r} not found — skipping"
+                )
+                continue
+
+            if anchor.location_x is None or anchor.location_y is None or anchor.elevation_m is None:
+                skipped_no_coords += 1
+                self.debug(
+                    f"load_body_picks: layer {r.id} anchor {anchor_id!r} "
+                    f"has incomplete coordinates "
+                    f"(x={anchor.location_x} y={anchor.location_y} "
+                    f"elev={anchor.elevation_m}) — skipping"
+                )
+                continue
+
+            picks.append(
+                BodyLayerPick(
+                    investigation_id=anchor_id,
+                    x_m=anchor.location_x,
+                    y_m=anchor.location_y,
+                    surface_elev_m=anchor.elevation_m,
+                    body_id=str(r.body_id),
+                    formation_id=str(r.formation_id),
+                    top_depth_m=r.depth_top_m,
+                    base_depth_m=r.depth_base_m,
+                )
+            )
+
+        if skipped_no_anchor or skipped_no_coords:
+            self.warning(
+                f"load_body_picks: model={model_id} — skipped "
+                f"{skipped_no_anchor} layer(s) with missing anchor, "
+                f"{skipped_no_coords} layer(s) with incomplete coordinates; "
+                f"{len(picks)} pick(s) produced"
+            )
+        else:
+            self.debug(
+                f"load_body_picks: model={model_id} — {len(picks)} pick(s) "
+                f"from {len(layer_rows)} accepted body-assigned layer(s)"
+            )
+
+        return picks
+
+    async def mark_litho_solids_stale(self, model_id: UUID) -> int:
+        """Flip ``is_stale=True`` on every cached solid for a model.
+
+        Called by every use case that mutates accepted litho layers or
+        body membership so the on-click Build knows the 3-D cache is
+        no longer valid.  No-ops when no solid rows exist yet (legal —
+        the user hasn't clicked Build yet).
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model whose solids are invalidated.
+
+        Returns
+        -------
+        int
+            Number of rows actually flipped.  ``0`` means the model has
+            no built solid cache to invalidate (not an error).
+        """
+        result = await self._session.execute(
+            update(LithoBodySolidOrm)
+            .where(LithoBodySolidOrm.model_id == model_id)
+            .values(is_stale=True)
+        )
+        count = result.rowcount or 0
+        if count:
+            self.debug(f"mark_litho_solids_stale: {count} row(s) staled for model={model_id}")
+        return count
+
+    async def list_litho_solids(self, model_id: UUID) -> list[LithoBodySolidOrm]:
+        """Return every cached solid for *model_id*.
+
+        Used by the GET endpoint (Task 5) and the recompute use case.
+        Order is arbitrary; callers index by ``body_id``.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model to scope the query to.
+
+        Returns
+        -------
+        list[LithoBodySolidOrm]
+            All cached solid rows for the model (may be empty when
+            ``RecomputeLithoSolids`` has not run yet).
+        """
+        stmt = select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())
