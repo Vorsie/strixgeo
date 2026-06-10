@@ -415,3 +415,71 @@ def test_no_two_body_solids_overlap():
             for pz in (-2, -9, -19):
                 hits = [m.body_id for m in meshes if _inside(m.vertices, m.triangles, (px, py, pz))]
                 assert len(hits) <= 1, f"point {(px, py, pz)} in {hits}"
+
+
+def test_lens_and_matrix_do_not_overlap() -> None:
+    """M3 partition: SILT lens + CLAY matrix tile — every sampled point is in <=1 body.
+
+    Geometry: 4 outer CLAY-only investigations (A–D on a 20×20 square) + 4
+    inner investigations (E–H near the centre) that each carry CLAY/SILT/CLAY
+    layers — identical to test_orchestrator_lens_void.  The lens void test
+    confirms the CLAY mesh has a hole at the lens location; this test confirms
+    the SILT mesh fills that hole without overlapping the surrounding CLAY.
+    """
+    outer = [("A", 0, 0), ("B", 20, 0), ("C", 20, 20), ("D", 0, 20)]
+    inner = [("E", 8, 10), ("F", 12, 10), ("G", 10, 8), ("H", 10, 12)]
+    picks = []
+    for inv, x, y in outer:
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="CLAY",
+                formation_id="f2",
+                top_depth_m=4.0,
+                base_depth_m=14.0,
+            )
+        )
+    for inv, x, y in inner:
+        for body, td, bd, fm in [
+            ("CLAY", 4.0, 8.0, "f2"),
+            ("SILT", 8.0, 10.0, "f3"),
+            ("CLAY", 10.0, 14.0, "f2"),
+        ]:
+            picks.append(
+                BodyLayerPick(
+                    investigation_id=inv,
+                    x_m=x,
+                    y_m=y,
+                    surface_elev_m=0.0,
+                    body_id=body,
+                    formation_id=fm,
+                    top_depth_m=td,
+                    base_depth_m=bd,
+                )
+            )
+    meshes = build_body_solids(picks)
+
+    # Partition invariant: no sampled point sits inside more than one body.
+    # Points are chosen to exercise: lens interior, clay above/below the lens,
+    # clay away from the lens, and the near-boundary clay zone.
+    samples = [
+        (10.0, 10.0, -9.0),  # inside the SILT lens (depth 8–10 m → z -8 to -10)
+        (10.0, 10.0, -6.0),  # clay above the lens (depth 4–8 m)
+        (10.0, 10.0, -12.0),  # clay below the lens (depth 10–14 m)
+        (3.0, 3.0, -9.0),  # clay away from the lens (outer corner zone)
+        (10.0, 10.0, -5.0),  # clay near the lens top boundary
+    ]
+    for pt in samples:
+        hits = [m.body_id for m in meshes if _inside(m.vertices, m.triangles, pt)]
+        assert len(hits) <= 1, f"point {pt} is inside multiple bodies: {hits}"
+
+    # Sanity: the lens point must be owned by the SILT body — the partition is
+    # not vacuously satisfied by both meshes being empty there.
+    silt = next((m for m in meshes if m.body_id == "SILT"), None)
+    assert silt is not None, "SILT body mesh was not produced"
+    assert _inside(silt.vertices, silt.triangles, (10.0, 10.0, -9.0)), (
+        "SILT mesh does not contain the lens-interior sample point — lens solid is hollow"
+    )
