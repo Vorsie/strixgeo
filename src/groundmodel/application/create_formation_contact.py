@@ -42,6 +42,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -214,6 +217,12 @@ class CreateFormationContact(GroundModelLogger):
         # it dashed + faded; user clicks Build to materialise. Cheap
         # one-row UPDATE (no-op when no surface row exists yet).
         await self._repo.mark_surfaces_stale([(model_id, formation_id)])
+        # Mirror the surfaces-stale signal to the 3D solid cache so the on-click
+        # Build knows the geometry is out of date. Called unconditionally: this
+        # use case does not carry the model kind, and the UPDATE is a genuine
+        # no-op for a geological model (litho_body_solid rows are keyed by the
+        # litho model id, which never collides with a geology model id).
+        await LithoLayerRepository(self._session).mark_litho_solids_stale(model_id)
         await self._session.commit()
         await self._session.refresh(contact)
         self.success(f"Formation contact created: {contact.id}")

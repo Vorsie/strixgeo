@@ -56,6 +56,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+    LithoLayerRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -267,6 +270,13 @@ class UpdateFormationContact(GroundModelLogger):
         # ------------------------------------------------------------------ #
         if self.absorbed:
             await self._repo.mark_surfaces_stale([(old_model_id, old_formation_id)])
+            if is_litho_model:
+                # Mirror the surfaces-stale signal to the 3D solid cache so the
+                # on-click Build knows the geometry is out of date.  The absorbed
+                # path is structurally unreachable for litho contacts today (litho
+                # cross-merge is disabled per owner directive 2026-05-27), but the
+                # stale call is harmless and guards against future re-enablement.
+                await LithoLayerRepository(self._session).mark_litho_solids_stale(old_model_id)
             await self._session.commit()
             self.success(
                 f"Formation contact {contact_id} absorbed by formation above (drag-down cross)"
@@ -295,6 +305,12 @@ class UpdateFormationContact(GroundModelLogger):
         if old_model_id == updated.model_id and old_formation_id != updated.formation_id:
             pairs.append((old_model_id, old_formation_id))
         await self._repo.mark_surfaces_stale(pairs)
+        if is_litho_model:
+            # Mirror the surfaces-stale signal to the 3D solid cache so the
+            # on-click Build knows the geometry is out of date.  Covers the
+            # geometry-only edit path (no topology change, no resolver) that
+            # was the gap identified in the Task-4 stale-cascade audit.
+            await LithoLayerRepository(self._session).mark_litho_solids_stale(updated.model_id)
         await self._session.commit()
         await self._session.refresh(updated)
         self.success(f"Formation contact updated: {contact_id}")
