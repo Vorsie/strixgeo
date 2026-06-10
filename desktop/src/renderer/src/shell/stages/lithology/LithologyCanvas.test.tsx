@@ -10,12 +10,14 @@
 // to avoid the Cesium / WebGL harness (same pattern as the existing
 // debt #41 part-a discussion).
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
+import { api } from '../../../api/client'
 import type {
+  CrossSectionResponse,
   FormationSurfaceResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
@@ -77,6 +79,31 @@ function makeLithoModel(): GeologicalModelResponse {
   }
 }
 
+function makeSection(id = 'sec-1'): CrossSectionResponse {
+  return {
+    id,
+    app_project_id: 'proj-1',
+    name: `Section ${id}`,
+    description: null,
+    start_x: 200000,
+    start_y: 200000,
+    end_x: 201000,
+    end_y: 200000,
+    epsg: 31370,
+    projection_buffer_m: 50,
+    vertical_exaggeration: 1,
+    excluded_borehole_ids: [],
+    excluded_cpt_ids: [],
+    min_depth_m: null,
+    max_depth_m: null,
+    display_order: 0,
+    view_state: null,
+    seeded_formation_contact_ids: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 function makeSurface(formationId: string, hasVertices: boolean): FormationSurfaceResponse {
   return {
     id: `surf-${formationId}`,
@@ -106,6 +133,7 @@ function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
   lithoFormations?: GeologicalFormationResponse[]
   lithoSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  visibleSections?: CrossSectionResponse[]
 } = {}): ShellContextValue {
   return {
     project: {
@@ -267,7 +295,7 @@ function makeCtx(overrides: {
       selectedSectionId: null,
       drawingSection: false,
       focusedContactIds: [],
-      visibleSections: [],
+      visibleSections: overrides.visibleSections ?? [],
       effectiveHorizontalEpsg: 31370,
       sectionModelAxis: 'geological' as const,
       setSectionModelAxis: vi.fn(),
@@ -467,6 +495,34 @@ describe('LithologyCanvas (Slice D, #55)', () => {
 
     expect(screen.queryByTestId('litho-view-mode-solid')).not.toBeInTheDocument()
     expect(screen.queryByTestId('litho-view-mode-fence')).not.toBeInTheDocument()
+  })
+
+  // C6: Clicking Fence triggers the section-scoped correlations fetch.
+  //     The listContactCorrelations mock is wired at module level; clicking
+  //     Fence sets viewMode → 'fence' which fires the effect.
+  it('C6 -- clicking Fence triggers listContactCorrelations fetch per visible section', async () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({
+      lithoSurfacesByFormationId: surfMap,
+      visibleSections: [makeSection('sec-1')],
+    })
+    renderCanvas(ctx)
+
+    // Confirm the mock has not been called before toggling.
+    expect(vi.mocked(api.geology.listContactCorrelations)).not.toHaveBeenCalled()
+
+    // Click the Fence toggle — the viewMode effect fires listContactCorrelations.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+
+    // The fetch must have been called exactly once for the one visible section.
+    expect(vi.mocked(api.geology.listContactCorrelations)).toHaveBeenCalledOnce()
+    expect(vi.mocked(api.geology.listContactCorrelations)).toHaveBeenCalledWith(
+      'proj-1',
+      'litho-1',
+      'sec-1',
+    )
   })
 })
 

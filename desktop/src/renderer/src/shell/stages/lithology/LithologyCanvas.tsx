@@ -182,9 +182,9 @@ export default function LithologyCanvas(): JSX.Element {
   // directive 2026-06-08).  We fetch each section's edges in parallel so the
   // fence build gets only the edges authored on that section.  The fetch fires
   // whenever viewMode switches to 'fence', the litho model changes, or the
-  // section list changes.  When viewMode is 'solid' the effect still runs but
-  // the expensive buildProjectFence call is gated by the viewMode check in the
-  // fencePanels memo.
+  // section list changes.  When viewMode is 'solid' the effect early-returns
+  // immediately (guarded by `viewMode !== 'fence'` at the top of the effect),
+  // so no fetch fires in Solid mode.
   // ---------------------------------------------------------------------------
 
   const [edgesBySectionId, setEdgesBySectionId] = useState<
@@ -227,6 +227,7 @@ export default function LithologyCanvas(): JSX.Element {
   // ---------------------------------------------------------------------------
 
   const fenceSectionInputs = useMemo<FenceSectionInput[]>(() => {
+    if (viewMode !== 'fence') return []
     if (!lithoModelId) return []
 
     const allItems = [
@@ -244,15 +245,23 @@ export default function LithologyCanvas(): JSX.Element {
       })),
     ]
 
-    const layerInputs: FenceLayerInput[] = lithoLayers.map(layer => ({
-      investigationId: (layer.cpt_id ?? layer.borehole_id) as string,
-      layerId: layer.id,
-      formationId: layer.formation_id,
-      bodyId: layer.body_id ?? null,
-      topDepthM: layer.depth_top_m,
-      baseDepthM: layer.depth_base_m,
-      accepted: layer.status === 'accepted',
-    }))
+    // Skip layers that carry neither a cpt_id nor a borehole_id — they have
+    // no investigation anchor and cannot be projected onto a section column.
+    const layerInputs: FenceLayerInput[] = lithoLayers.flatMap(layer => {
+      const invId = layer.cpt_id ?? layer.borehole_id
+      if (!invId) return []
+      return [
+        {
+          investigationId: invId,
+          layerId: layer.id,
+          formationId: layer.formation_id,
+          bodyId: layer.body_id ?? null,
+          topDepthM: layer.depth_top_m,
+          baseDepthM: layer.depth_base_m,
+          accepted: layer.status === 'accepted',
+        },
+      ]
+    })
 
     return visibleSections.map<FenceSectionInput>(section => {
       const excludedIds = new Set([
@@ -285,7 +294,7 @@ export default function LithologyCanvas(): JSX.Element {
         edges,
       }
     })
-  }, [lithoModelId, visibleCpts, visibleBoreholes, visibleSections, lithoLayers, edgesBySectionId])
+  }, [viewMode, lithoModelId, visibleCpts, visibleBoreholes, visibleSections, lithoLayers, edgesBySectionId])
 
   // ---------------------------------------------------------------------------
   // Fence panels — built only in Fence mode to avoid the CPU cost in Solid mode.
@@ -313,6 +322,7 @@ export default function LithologyCanvas(): JSX.Element {
           <button
             type="button"
             data-testid="litho-view-mode-solid"
+            aria-pressed={viewMode === 'solid'}
             onClick={() => setViewMode('solid')}
             className={[
               'px-3 py-1 text-xs font-medium transition-colors',
@@ -326,6 +336,7 @@ export default function LithologyCanvas(): JSX.Element {
           <button
             type="button"
             data-testid="litho-view-mode-fence"
+            aria-pressed={viewMode === 'fence'}
             onClick={() => setViewMode('fence')}
             className={[
               'px-3 py-1 text-xs font-medium transition-colors',
