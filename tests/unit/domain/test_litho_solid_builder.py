@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
+
+import pytest
 
 from groundmodel.domain.services.litho_solid_builder import (
     BodyLayerPick,
     build_body_solids,
+)
+from groundmodel.domain.services.litho_solid_builder_constants import (
+    MARKER_DISK_MIN_THICKNESS_M,
+    MARKER_DISK_RADIUS_M,
+    MARKER_DISK_SIDES,
 )
 
 
@@ -63,6 +71,29 @@ def _slab_picks(body_id: str, formation_id: str, top: float, base: float) -> lis
     ]
 
 
+def _one_pick(
+    *,
+    x: float = 10.0,
+    y: float = 20.0,
+    surface_elev: float = 5.0,
+    top_depth: float = 1.0,
+    base_depth: float = 4.0,
+) -> list[BodyLayerPick]:
+    """One pick at a configurable location + depth."""
+    return [
+        BodyLayerPick(
+            investigation_id="inv0",
+            x_m=x,
+            y_m=y,
+            surface_elev_m=surface_elev,
+            body_id="b1",
+            formation_id="ZAND",
+            top_depth_m=top_depth,
+            base_depth_m=base_depth,
+        )
+    ]
+
+
 def test_through_going_body_is_a_closed_watertight_solid() -> None:
     """A body present on every investigation builds one closed manifold solid."""
     picks = _slab_picks("b1", "ZAND", top=2.0, base=6.0)
@@ -98,12 +129,100 @@ def test_pinch_out_keeps_the_solid_watertight_and_zero_thickness_at_the_pinch() 
     assert any(abs(z - (12.0 - 2.0)) < 1e-9 for z in zs)
 
 
-def test_degenerate_body_falls_back_to_a_flagged_slab_not_a_crash() -> None:
-    """A body on <3 investigations can't fit a TIN → flagged slab, no crash."""
+def test_degenerate_body_emits_disk_markers_not_empty_mesh() -> None:
+    """A body on 2 investigations (can't fit a TIN) emits two closed cylinder
+    disk markers — is_flagged=True with non-empty, manifold + wound geometry.
+    """
     picks = _slab_picks("b1", "ZAND", top=2.0, base=6.0)[:2]  # only 2 points
     meshes = build_body_solids(picks)
     assert len(meshes) == 1
-    assert meshes[0].is_flagged is True
+    m = meshes[0]
+    assert m.is_flagged is True
+    # Non-empty: two cylinders concatenated.
+    assert len(m.vertices) > 0
+    assert len(m.triangles) > 0
+    # Two disjoint closed cylinders satisfy both manifold + winding invariants.
+    assert _is_closed_manifold(m.triangles)
+    assert _is_consistently_wound(m.triangles)
+
+
+def test_single_pick_body_renders_one_disk_marker() -> None:
+    """A body with exactly 1 pick emits one closed cylinder with the correct
+    vertex/triangle counts.
+
+    Vertex count = 2 cap centres + 2 * SIDES rim vertices = 2 + 2*SIDES.
+    Triangle count = SIDES top cap + SIDES bottom cap + 2*SIDES wall = 4*SIDES.
+    """
+    picks = _one_pick()
+    meshes = build_body_solids(picks)
+    assert len(meshes) == 1
+    m = meshes[0]
+    assert m.is_flagged is True
+
+    expected_verts = 2 + 2 * MARKER_DISK_SIDES
+    expected_tris = 4 * MARKER_DISK_SIDES
+    assert len(m.vertices) == expected_verts, (
+        f"Expected {expected_verts} vertices; got {len(m.vertices)}"
+    )
+    assert len(m.triangles) == expected_tris, (
+        f"Expected {expected_tris} triangles; got {len(m.triangles)}"
+    )
+    assert _is_closed_manifold(m.triangles)
+    assert _is_consistently_wound(m.triangles)
+
+
+def test_disk_marker_uses_real_thickness() -> None:
+    """A pick with 4 m thickness (base_depth - top_depth = 4.0) produces a
+    cylinder whose z-extent equals 4.0 m.
+    """
+    picks = _one_pick(surface_elev=10.0, top_depth=2.0, base_depth=6.0)
+    meshes = build_body_solids(picks)
+    m = meshes[0]
+    assert m.is_flagged is True
+    zs = [v[2] for v in m.vertices]
+    assert max(zs) - min(zs) == pytest.approx(4.0, abs=1e-6)
+
+
+def test_zero_thickness_pick_gets_min_thickness_disk() -> None:
+    """A pick with top_depth == base_depth emits a cylinder with z-extent equal
+    to MARKER_DISK_MIN_THICKNESS_M, centred on the pick's elevation.
+    """
+    surface_elev = 8.0
+    depth = 3.0
+    elev = surface_elev - depth
+    picks = _one_pick(surface_elev=surface_elev, top_depth=depth, base_depth=depth)
+    meshes = build_body_solids(picks)
+    m = meshes[0]
+    assert m.is_flagged is True
+    zs = [v[2] for v in m.vertices]
+    z_extent = max(zs) - min(zs)
+    assert z_extent == pytest.approx(MARKER_DISK_MIN_THICKNESS_M, abs=1e-6)
+    # Cylinder is centred on the pick elevation.
+    z_mid = (max(zs) + min(zs)) / 2.0
+    assert z_mid == pytest.approx(elev, abs=1e-6)
+    assert _is_closed_manifold(m.triangles)
+    assert _is_consistently_wound(m.triangles)
+
+
+def test_disk_radius_matches_constant() -> None:
+    """Rim vertices of a disk marker lie at exactly MARKER_DISK_RADIUS_M from
+    the pick's (x, y) centre.
+    """
+    x, y = 100.0, 200.0
+    picks = _one_pick(x=x, y=y, surface_elev=5.0, top_depth=1.0, base_depth=3.0)
+    meshes = build_body_solids(picks)
+    m = meshes[0]
+    # The 2 centre vertices are at (x, y); all rim vertices are at radius R.
+    # Filter out centre vertices (exactly at x, y) and measure radii of the rest.
+    rim_verts = [v for v in m.vertices if not (abs(v[0] - x) < 1e-9 and abs(v[1] - y) < 1e-9)]
+    assert len(rim_verts) == 2 * MARKER_DISK_SIDES, (
+        f"Expected {2 * MARKER_DISK_SIDES} rim vertices; got {len(rim_verts)}"
+    )
+    for vx, vy, _vz in rim_verts:
+        r = math.sqrt((vx - x) ** 2 + (vy - y) ** 2)
+        assert r == pytest.approx(MARKER_DISK_RADIUS_M, abs=1e-6), (
+            f"Rim vertex radius {r} != MARKER_DISK_RADIUS_M={MARKER_DISK_RADIUS_M}"
+        )
 
 
 def test_adjacent_bodies_share_the_contact_surface_exactly() -> None:
