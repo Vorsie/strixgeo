@@ -281,7 +281,11 @@ class RecomputeLithoSolids(GroundModelLogger):
         for i, body_id_str in enumerate(bodies_to_build):
             mesh = mesh_by_body.get(body_id_str)
             if mesh is None:
-                continue  # body produced no mesh (shouldn't happen for accepted picks)
+                self.error(
+                    f"build_body_solids produced no mesh for body {body_id_str} "
+                    f"— solid NOT updated (picks={len(bodies_to_build[body_id_str])})"
+                )
+                continue
             bodies_built += 1
             if mesh.is_flagged:
                 bodies_flagged += 1
