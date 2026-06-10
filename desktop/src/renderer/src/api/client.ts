@@ -160,6 +160,9 @@ export type {
   BodyBoundaryNode,
   BodyRenderStyle,
   BodyBoundaryResponse,
+  LithoBodySolidResponse,
+  RebuildLithoSolidsResponse,
+  UpdateBodyColorResponse,
 } from './clients/geology'
 export { DuplicateContactError, ProvenanceViolationError } from './clients/geology'
 
