@@ -13,11 +13,15 @@ Covers:
          ``bodies_flagged`` == 1).
   RLS-5  No picks — if all layers have ``body_id=None``, the use case
          returns ``bodies_considered=0`` and writes no rows.
+  RLS-6  Natural stale cascade — a geometry-only litho contact depth edit
+         via ``UpdateFormationContact`` (no topology change, no cross-merge)
+         must mark every solid for the model ``is_stale=True`` without
+         the caller explicitly calling ``mark_litho_solids_stale``.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
 import pytest
@@ -27,8 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
-from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -496,3 +501,110 @@ async def test_no_accepted_layers_produces_no_solid_rows(
         .all()
     )
     assert not rows, f"Expected 0 solid rows; got {len(rows)}"
+
+
+# ---------------------------------------------------------------------------
+# RLS-6: natural stale cascade via UpdateFormationContact (geometry-only edit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_litho_contact_depth_edit_marks_solids_stale(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """A geometry-only litho contact depth edit via UpdateFormationContact
+    must mark every solid for the model ``is_stale=True`` without the test
+    explicitly calling ``mark_litho_solids_stale``.
+
+    This is the natural cascade regression test for the Task-4 gap: the
+    existing Task-4 hooks covered the resolver + three litho-specific use
+    cases, but a pure depth-only ``UpdateFormationContact`` call on a litho
+    contact went through ``mark_surfaces_stale`` WITHOUT touching
+    ``mark_litho_solids_stale``, so the 3D solid cache silently diverged.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    f = scene["formation"]
+    section_id = await _seed_section(db_session, proj.id)
+
+    # Three boreholes for the solid body — same geometry as RLS-1.
+    bh_a = _borehole(proj.id, suffix="6A", x=150000.0, elev=5.0)
+    bh_b = _borehole(proj.id, suffix="6B", x=150200.0, elev=4.8)
+    bh_c = _borehole(proj.id, suffix="6C", x=150100.0, elev=5.2)
+    # A fourth borehole carries the formation contact under test.  It has NO
+    # accepted litho layers, so the FC→LL mirror trigger fires on an empty
+    # column and produces no constraint violations.
+    bh_d = _borehole(proj.id, suffix="6D", x=150050.0, elev=4.9)
+    db_session.add_all([bh_a, bh_b, bh_c, bh_d])
+    await db_session.flush()
+
+    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
+    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
+    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
+    db_session.add_all([la, lb, lc])
+    await db_session.flush()
+
+    edge_ab = _edge(litho, la, lb, section_id)
+    edge_bc = _edge(litho, lb, lc, section_id)
+    db_session.add_all([edge_ab, edge_bc])
+
+    # Insert a litho FormationContact on bh_d (no accepted layers on that
+    # anchor) so UpdateFormationContact has a target row on the litho model.
+    # The FC→LL mirror trigger fires on bh_d but finds no existing accepted
+    # layers to conflict with.
+    litho_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=litho.id,
+        formation_id=f.id,
+        borehole_id=bh_d.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+    )
+    db_session.add(litho_contact)
+    await db_session.commit()
+
+    # Build solids — precondition: solid exists and is fresh.
+    await RecomputeLithoSolids(db_session).execute(litho.id)
+
+    rows_after_build = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_build, "Precondition: solid must exist after RecomputeLithoSolids"
+    assert all(not r.is_stale for r in rows_after_build), (
+        "Precondition: all solids must be fresh immediately after build"
+    )
+
+    # Geometry-only depth edit on the litho contact — move it 0.5 m deeper.
+    # No cross-merge fires (depth 2.5 m is below 2.0 m but stays above 5.0 m
+    # base, and litho cross-merge is disabled per owner directive 2026-05-27).
+    # The session is in a fresh state (prior commit() closed the transaction).
+    await UpdateFormationContact(db_session).execute(
+        litho_contact.id,
+        {"depth_top_m": 2.5},
+    )
+
+    # The use case committed. Re-query from the DB to pick up the stale flag.
+    # Using a fresh model_id local variable avoids touching the expired litho
+    # ORM proxy; the select() always issues a real DB round-trip.
+    litho_model_id = litho.id
+    rows_after_edit = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_edit, "Solid rows must still exist after the depth edit"
+    assert all(r.is_stale for r in rows_after_edit), (
+        "All solids must be stale after a geometry-only litho contact depth edit — "
+        "the natural cascade through UpdateFormationContact must fire mark_litho_solids_stale"
+    )
