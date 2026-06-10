@@ -103,6 +103,17 @@ class BodyOrm(Base):
     # Optional human label. UI falls back to a derived name when null.
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
+    # Per-project display colour override for the 3D Solid view.
+    #
+    # Nullable hex string, e.g. ``"#aabbcc"``.  ``null`` means "fall back to
+    # the lithology (formation) colour" — the 3D viewer reads formation.color
+    # when this is absent.  Stored here (not in localStorage) because it is a
+    # per-project engineering decision — the engineer picks a colour that
+    # communicates something about THIS project's model, so it must travel in
+    # the .gmproj/.strix bundle and survive a move to a different machine.
+    # Task 8 adds the colour-picker UI; this column is the persistence layer.
+    display_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # The cross-section the body was first interacted with.
     # SET NULL on section delete so the body row survives a section reshuffle.
     primary_section_id: Mapped[UUID | None] = mapped_column(
