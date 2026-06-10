@@ -8,20 +8,7 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     enumerate_contacts,
     fit_patch_surfaces,
 )
-from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
-
-
-def _pick(inv, x, y, body, top_d, base_d, surf=0.0, fm="f"):
-    return BodyLayerPick(
-        investigation_id=inv,
-        x_m=x,
-        y_m=y,
-        surface_elev_m=surf,
-        body_id=body,
-        formation_id=fm,
-        top_depth_m=top_d,
-        base_depth_m=base_d,
-    )
+from tests.unit.domain.mesh_test_helpers import make_pick as _pick
 
 
 def test_build_columns_sorts_shallow_to_deep_and_keeps_coords():

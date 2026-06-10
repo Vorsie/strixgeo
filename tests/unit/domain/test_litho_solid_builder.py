@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
 
 import pytest
 
@@ -16,31 +15,15 @@ from groundmodel.domain.services.litho_solid_builder_constants import (
     MARKER_DISK_RADIUS_M,
     MARKER_DISK_SIDES,
 )
-
-
-def _is_closed_manifold(triangles: list[tuple[int, int, int]]) -> bool:
-    """A closed 2-manifold: every undirected edge is shared by exactly 2 tris."""
-    ec: Counter[tuple[int, int]] = Counter()
-    for a, b, c in triangles:
-        for u, v in ((a, b), (b, c), (c, a)):
-            ec[(min(u, v), max(u, v))] += 1
-    return len(triangles) > 0 and all(ct == 2 for ct in ec.values())
-
-
-def _is_consistently_wound(triangles: list[tuple[int, int, int]]) -> bool:
-    """Every directed edge appears exactly once — consistent outward winding.
-
-    In a consistently-wound mesh every interior edge is traversed once in
-    each direction (u→v and v→u), and every boundary edge is traversed
-    exactly once in the outward direction.  The combined directed count
-    for every directed pair therefore equals exactly 1.
-    """
-    ec: Counter[tuple[int, int]] = Counter()
-    for a, b, c in triangles:
-        for u, v in ((a, b), (b, c), (c, a)):
-            ec[(u, v)] += 1
-    return len(triangles) > 0 and all(ct == 1 for ct in ec.values())
-
+from tests.unit.domain.mesh_test_helpers import (
+    inside as _inside,
+)
+from tests.unit.domain.mesh_test_helpers import (
+    is_closed_manifold as _is_closed_manifold,
+)
+from tests.unit.domain.mesh_test_helpers import (
+    is_consistently_wound as _is_consistently_wound,
+)
 
 # Six investigations forming a 2×3 grid — enough spread for a real TIN
 # (non-collinear, no degenerate cases when all 6 are used).
@@ -223,67 +206,6 @@ def test_disk_radius_matches_constant() -> None:
         assert r == pytest.approx(MARKER_DISK_RADIUS_M, abs=1e-6), (
             f"Rim vertex radius {r} != MARKER_DISK_RADIUS_M={MARKER_DISK_RADIUS_M}"
         )
-
-
-def _ray_hits(vertices, triangles, p):
-    """Count ray–triangle intersections from point *p* in a fixed generic direction.
-
-    Uses the Möller–Trumbore algorithm.  The ray direction is chosen to be
-    generic (irrational components) so it is unlikely to be coplanar with
-    any triangle of a well-formed test mesh.
-
-    Parameters
-    ----------
-    vertices : list[tuple[float, float, float]]
-        Mesh vertex list; each element is ``(x, y, z)``.
-    triangles : list[tuple[int, int, int]]
-        Triangle index triples indexing into *vertices*.
-    p : tuple[float, float, float]
-        Ray origin ``(x, y, z)``.
-
-    Returns
-    -------
-    int
-        Number of forward intersections (``t > eps``).
-    """
-    ox, oy, oz = p
-    d = (1.0, 0.4142135623730951, 0.7320508075688772)  # generic dir (general position)
-    eps = 1e-9
-    hits = 0
-    for a, b, c in triangles:
-        v0, v1, v2 = vertices[a], vertices[b], vertices[c]
-        e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
-        e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
-        h = (
-            d[1] * e2[2] - d[2] * e2[1],
-            d[2] * e2[0] - d[0] * e2[2],
-            d[0] * e2[1] - d[1] * e2[0],
-        )
-        det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]
-        if -eps < det < eps:
-            continue
-        inv = 1.0 / det
-        s = (ox - v0[0], oy - v0[1], oz - v0[2])
-        u = inv * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2])
-        if u < -eps or u > 1 + eps:
-            continue
-        q = (
-            s[1] * e1[2] - s[2] * e1[1],
-            s[2] * e1[0] - s[0] * e1[2],
-            s[0] * e1[1] - s[1] * e1[0],
-        )
-        v = inv * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2])
-        if v < -eps or u + v > 1 + eps:
-            continue
-        t = inv * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2])
-        if t > eps:
-            hits += 1
-    return hits
-
-
-def _inside(vertices, triangles, p):
-    """Return True iff point *p* is inside the closed mesh (parity ray-cast)."""
-    return _ray_hits(vertices, triangles, p) % 2 == 1
 
 
 def test_adjacent_bodies_share_the_contact_surface_exactly() -> None:
