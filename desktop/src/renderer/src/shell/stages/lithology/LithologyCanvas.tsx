@@ -316,9 +316,13 @@ export default function LithologyCanvas(): JSX.Element {
   if (hasLithoSurfaces) {
     return (
       <div className="relative w-full h-full">
-        {/* Fence / Solid view toggle — top-left overlay, mirrors the
-            BasemapPanel button style from Geology3DViewer. */}
-        <div className="absolute top-2 left-2 z-10 flex rounded overflow-hidden border border-border-default shadow-sm">
+        {/* Fence / Solid view toggle — bottom-left overlay.
+            Positioned bottom-2 left-2 z-20 to stay CLEAR of the Layers
+            legend (top-2 left-2 z-10) and the BasemapPanel (top-2 right-2)
+            that Geology3DViewer paints.  z-20 wins over any z-10 children
+            the viewer renders (Cesium attribution bar is centred, not
+            bottom-left, so there is no collision there either). */}
+        <div className="absolute bottom-2 left-2 z-20 flex rounded overflow-hidden border border-border-default shadow-sm">
           <button
             type="button"
             data-testid="litho-view-mode-solid"

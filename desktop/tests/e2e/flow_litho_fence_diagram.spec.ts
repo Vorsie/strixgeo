@@ -231,23 +231,13 @@ test.describe('flow_litho_fence_diagram', () => {
       // -----------------------------------------------------------------------
       // 8. Switch to Fence mode.
       //
-      //    The Cesium basemap panel (``Layers`` header at ``top-2 left-2
-      //    z-10`` inside Geology3DViewer) shares the same top-left position
-      //    as the toggle buttons (``top-2 left-2 z-10`` in LithologyCanvas).
-      //    Both render with z-10; the panel wins because it appears later in
-      //    the DOM, so Playwright's pointer-hit-test times out.
-      //
-      //    Solution: dispatch a native ``click`` via ``page.evaluate`` so the
-      //    React ``onClick`` fires without Playwright's hit-test path.  This
-      //    is correct for a TOGGLE-LOGIC smoke — we are testing whether the
-      //    ``aria-pressed`` state changes and the viewer stays mounted, not
-      //    that a user can find and click the button at its exact screen pixel.
-      //    The hit-test issue is a separate UX/z-index concern.
+      //    The toggle is positioned ``bottom-2 left-2 z-20`` (LithologyCanvas
+      //    fix 2026-06-10) so it sits CLEAR of both the Layers legend
+      //    (``top-2 left-2 z-10``) and the BasemapPanel (``top-2 right-2``)
+      //    that Geology3DViewer renders.  A normal Playwright ``.click()`` is
+      //    sufficient — no programmatic workaround needed.
       // -----------------------------------------------------------------------
-      await page.evaluate(() => {
-        const btn = document.querySelector('[data-testid="litho-view-mode-fence"]') as HTMLElement | null
-        btn?.click()
-      })
+      await page.getByTestId('litho-view-mode-fence').click()
 
       // -----------------------------------------------------------------------
       // 9. Fence is now active; Solid is inactive.
