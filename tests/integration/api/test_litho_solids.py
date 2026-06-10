@@ -301,6 +301,12 @@ async def test_rebuild_produces_solid_with_geometry(
     assert solid["is_flagged"] is False
     assert len(solid["vertices"]) > 0
     assert len(solid["triangles"]) > 0
+    # body_ordinal must be present and be an integer (resolver assigns 0 for
+    # the first body per formation in a fresh model).
+    assert isinstance(solid["body_ordinal"], int), (
+        f"body_ordinal must be an int; got {solid['body_ordinal']!r}"
+    )
+    assert solid["body_ordinal"] == 0, "Only one body in this formation → ordinal must be 0"
 
 
 # ---------------------------------------------------------------------------
