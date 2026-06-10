@@ -21,6 +21,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoContactCorrelationEdge,
 } from '../../../api/client'
 import LithologyCanvas, { resetLithoSplitViewportCallback } from './LithologyCanvas'
 
@@ -523,6 +524,73 @@ describe('LithologyCanvas (Slice D, #55)', () => {
       'litho-1',
       'sec-1',
     )
+  })
+
+  // C7: Empty-fence pill renders when Fence mode is active, the fetch has
+  //     resolved, and no panels were produced (no correlations in the section).
+  //
+  //     The listContactCorrelations mock returns [] by default, so after the
+  //     fetch settles edgesBySectionId is populated but fencePanels === [].
+  //     We provide one section so the fetch path runs; fencePanels comes out
+  //     empty because there are no approved edges → no bands → no panels.
+  it('C7 -- empty-fence hint pill renders when fence mode is on and no panels exist', async () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({
+      lithoSurfacesByFormationId: surfMap,
+      visibleSections: [makeSection('sec-1')],
+    })
+    renderCanvas(ctx)
+
+    // The hint must NOT be visible in Solid mode (the default).
+    expect(screen.queryByTestId('fence-empty-hint')).not.toBeInTheDocument()
+
+    // Switch to Fence and let the fetch + useMemo settle.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+
+    // After the mock resolves (empty edges → empty panels) the hint appears.
+    expect(screen.getByTestId('fence-empty-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('fence-empty-hint')).toHaveTextContent(
+      /accept correlations in the sections stage/i,
+    )
+  })
+
+  // C8: Both toggle buttons carry disabled={true} while the fence fetch is
+  //     in flight (fenceLoading = true).  We hold the mock promise unresolved
+  //     for the duration of the assertion so fenceLoading stays true.
+  it('C8 -- toggle buttons are disabled while the fence fetch is pending', async () => {
+    // Hold the promise so fenceLoading never clears during the assertion.
+    let resolveFetch!: () => void
+    const pending = new Promise<LithoContactCorrelationEdge[]>(resolve => {
+      resolveFetch = () => resolve([])
+    })
+    vi.mocked(api.geology.listContactCorrelations).mockReturnValue(pending)
+
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({
+      lithoSurfacesByFormationId: surfMap,
+      visibleSections: [makeSection('sec-1')],
+    })
+    renderCanvas(ctx)
+
+    // Buttons start enabled in Solid mode.
+    expect(screen.getByTestId('litho-view-mode-solid')).not.toBeDisabled()
+    expect(screen.getByTestId('litho-view-mode-fence')).not.toBeDisabled()
+
+    // Click Fence — the effect fires but the promise is unresolved →
+    // fenceLoading = true → both buttons become disabled.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+
+    expect(screen.getByTestId('litho-view-mode-solid')).toBeDisabled()
+    expect(screen.getByTestId('litho-view-mode-fence')).toBeDisabled()
+
+    // Resolve the fetch so the component cleans up properly after the test.
+    await act(async () => {
+      resolveFetch()
+    })
   })
 })
 

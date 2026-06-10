@@ -25,7 +25,7 @@
 
 import * as Cesium from 'cesium'
 import { useEffect, useMemo, useState } from 'react'
-import { Layers3 } from 'lucide-react'
+import { Layers3, Loader2, Network } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse, LithoContactCorrelationEdge } from '../../../api/client'
@@ -118,6 +118,11 @@ export default function LithologyCanvas(): JSX.Element {
 
   const [viewMode, setViewMode] = useState<'solid' | 'fence'>('solid')
 
+  // True while the per-section edge fetches are in flight (Fence mode only).
+  // Drives the loading spinner on the Fence button and the disabled state of
+  // both toggle buttons so the user cannot switch during an in-flight fetch.
+  const [fenceLoading, setFenceLoading] = useState(false)
+
   // ---------------------------------------------------------------------------
   // Split-viewport state — session-ephemeral, not persisted to the bundle.
   // Mirrors GeologyCanvas's splitMode / splitPlane / splitLine pattern.
@@ -201,6 +206,7 @@ export default function LithologyCanvas(): JSX.Element {
     }
     let cancelled = false
 
+    setFenceLoading(true)
     Promise.all(
       visibleSections.map(section =>
         api.geology
@@ -211,10 +217,14 @@ export default function LithologyCanvas(): JSX.Element {
     ).then(results => {
       if (cancelled) return
       setEdgesBySectionId(new Map(results))
+      setFenceLoading(false)
     })
 
     return () => {
       cancelled = true
+      // Clear the loading flag on cleanup so a stale fetch never leaves
+      // the buttons permanently disabled when the effect re-fires.
+      setFenceLoading(false)
     }
   }, [projectId, lithoModelId, viewMode, visibleSections])
 
@@ -321,37 +331,71 @@ export default function LithologyCanvas(): JSX.Element {
             legend (top-2 left-2 z-10) and the BasemapPanel (top-2 right-2)
             that Geology3DViewer paints.  z-20 wins over any z-10 children
             the viewer renders (Cesium attribution bar is centred, not
-            bottom-left, so there is no collision there either). */}
-        <div className="absolute bottom-2 left-2 z-20 flex rounded overflow-hidden border border-border-default shadow-sm">
-          <button
-            type="button"
-            data-testid="litho-view-mode-solid"
-            aria-pressed={viewMode === 'solid'}
-            onClick={() => setViewMode('solid')}
-            className={[
-              'px-3 py-1 text-xs font-medium transition-colors',
-              viewMode === 'solid'
-                ? 'bg-accent text-white'
-                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-            ].join(' ')}
-          >
-            Solid
-          </button>
-          <button
-            type="button"
-            data-testid="litho-view-mode-fence"
-            aria-pressed={viewMode === 'fence'}
-            onClick={() => setViewMode('fence')}
-            className={[
-              'px-3 py-1 text-xs font-medium transition-colors',
-              viewMode === 'fence'
-                ? 'bg-accent text-white'
-                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-            ].join(' ')}
-          >
-            Fence
-          </button>
+            bottom-left, so there is no collision there either).
+            title= on the wrapper makes the view-mode concept discoverable
+            via browser tooltip (Fix D). */}
+        <div
+          className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5"
+          title="Switch between solid TIN surfaces and fence-diagram walls"
+        >
+          {/* Small "View" label so first-time users read this as a view-mode
+              switch rather than an action button (Fix D). */}
+          <span className="text-[10px] text-text-secondary select-none leading-none">View</span>
+          <div className="flex rounded overflow-hidden border border-border-default shadow-sm">
+            <button
+              type="button"
+              data-testid="litho-view-mode-solid"
+              aria-pressed={viewMode === 'solid'}
+              disabled={fenceLoading}
+              onClick={() => setViewMode('solid')}
+              className={[
+                'px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                viewMode === 'solid'
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
+              ].join(' ')}
+            >
+              Solid
+            </button>
+            <button
+              type="button"
+              data-testid="litho-view-mode-fence"
+              aria-pressed={viewMode === 'fence'}
+              disabled={fenceLoading}
+              onClick={() => setViewMode('fence')}
+              className={[
+                'px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed',
+                viewMode === 'fence'
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
+              ].join(' ')}
+            >
+              {/* Spinner replaces nothing — it sits beside the label so the
+                  button width stays stable and the label stays readable. */}
+              {fenceLoading && <Loader2 size={11} className="animate-spin" />}
+              Fence
+            </button>
+          </div>
         </div>
+
+        {/* Empty-fence hint pill (Fix C) — rendered only when Fence mode is
+            active, the edge fetch has completed (not loading), and no panels
+            were produced. Positioned top-centre so it clears the Layers
+            legend (top-2 left-2) and the BasemapPanel (top-2 right-2). */}
+        {viewMode === 'fence' && !fenceLoading && fencePanels !== undefined && fencePanels.length === 0 && (
+          <div
+            data-testid="fence-empty-hint"
+            className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] pointer-events-none"
+            style={{
+              color: 'var(--section-hint-text)',
+              background: 'var(--section-hint-bg)',
+            }}
+          >
+            <Network size={12} />
+            No fence panels — accept correlations in the Sections stage
+          </div>
+        )}
+
         <Geology3DViewer
           splitMode={splitMode}
           splitPlane={splitPlane}
