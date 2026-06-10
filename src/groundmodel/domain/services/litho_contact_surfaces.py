@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.tin_surface import compute_tin
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 
