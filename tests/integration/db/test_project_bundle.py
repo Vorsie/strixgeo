@@ -2531,3 +2531,206 @@ async def test_restore_ignores_legacy_extent_fields(db_session: AsyncSession) ->
     assert restored_node.along_m == 12.5
     assert restored_node.elevation_m == -3.0
     assert restored_node.node_index == 0
+
+
+# ---------------------------------------------------------------------------
+# body.display_color bundle round-trip (Task 3 — litho-3D milestone-2)
+# ---------------------------------------------------------------------------
+
+
+async def test_body_display_color_round_trips_in_bundle(db_session: AsyncSession) -> None:
+    """``body.display_color`` survives build → wipe → restore (Task 3).
+
+    A body with an explicit hex display_color is bundled, the project is wiped,
+    and the bundle is restored.  The restored body must carry the same
+    display_color — confirming the per-project engineering decision travels
+    in the .gmproj/.strix bundle as required.
+
+    Two cases are verified in a single test to keep setup overhead low:
+    (1) display_color set to a hex string → value survives the round-trip.
+    (2) display_color omitted from the bundle payload → restores as None
+        (legacy tolerance — bundles saved before this column existed must
+        open cleanly on the new schema).
+
+    Parameters
+    ----------
+    db_session : AsyncSession
+        Injected by the integration conftest.
+    """
+    from groundmodel.infrastructure.db.models.body_orm import BodyOrm as _BodyOrm
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    cpt = (
+        await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="KLEI-DC",
+        code="KL",
+        color="#8b5cf6",
+        display_order=0,
+    )
+    geo_backbone = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo DC",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="geological",
+    )
+    db_session.add_all([formation, geo_backbone])
+    await db_session.flush()
+
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho DC",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_backbone.id,
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    # Case (1): body with an explicit display_color.
+    body_with_color = _BodyOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        model_id=model.id,
+        formation_id=formation.id,
+        body_ordinal=0,
+        source_investigation_id=cpt.id,
+        display_color="#ff6600",
+    )
+    # Case (2): body without a display_color (null — fall back to formation colour).
+    body_no_color = _BodyOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        model_id=model.id,
+        formation_id=formation.id,
+        body_ordinal=1,
+        source_investigation_id=cpt.id,
+        display_color=None,
+    )
+    db_session.add_all([body_with_color, body_no_color])
+
+    # Need a cross-section for the bodies restore FK validation (section scope).
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Sec-DC",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=151000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+        seeded_formation_contact_ids=[],
+        display_order=0,
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    with_color_id = body_with_color.id
+    no_color_id = body_no_color.id
+
+    # ---- Build: display_color must appear in the bundle body payload -------
+    bundle = await build_project_bundle(db_session, source)
+    assert "bodies" in bundle
+    by_id = {b["id"]: b for b in bundle["bodies"]}
+    assert str(with_color_id) in by_id, "body with display_color must appear in bundle"
+    assert str(no_color_id) in by_id, "body without display_color must appear in bundle"
+    assert by_id[str(with_color_id)]["display_color"] == "#ff6600", (
+        "display_color must be serialised into the bundle verbatim"
+    )
+    assert by_id[str(no_color_id)]["display_color"] is None, (
+        "null display_color must serialise as None"
+    )
+
+    # ---- Wipe end-to-end (simulate restoring onto a fresh DB) -------------
+    await db_session.execute(delete(_BodyOrm).where(_BodyOrm.app_project_id == source.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore: display_color must survive the round-trip ---------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bodies_payload=bundle["bodies"],
+    )
+    await db_session.commit()
+
+    restored_with = (
+        await db_session.execute(select(_BodyOrm).where(_BodyOrm.id == with_color_id))
+    ).scalar_one()
+    restored_no = (
+        await db_session.execute(select(_BodyOrm).where(_BodyOrm.id == no_color_id))
+    ).scalar_one()
+    assert restored_with.display_color == "#ff6600", (
+        "display_color must survive build → restore unchanged"
+    )
+    assert restored_no.display_color is None, "null display_color must restore as None"
+
+    # ---- Legacy tolerance: a bundle payload WITHOUT the key restores to None
+    # This simulates opening a .gmproj saved by an older build that pre-dates
+    # the display_color column.  _apply_json_to_kwargs silently skips keys
+    # absent from the data dict, so display_color gets no value in the ORM
+    # constructor kwargs and the nullable column defaults to None.
+    legacy_payload = dict(by_id[str(with_color_id)])
+    del legacy_payload["display_color"]
+    # Fresh id + a distinct body_ordinal so the legacy row doesn't collide with
+    # the two bodies already restored in the DB (ordinals 0 and 1).
+    legacy_payload["id"] = str(uuid7())
+    legacy_payload["body_ordinal"] = 2
+    bundle_legacy = dict(bundle)
+    bundle_legacy["bodies"] = [legacy_payload]
+
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bodies_payload=bundle_legacy["bodies"],
+    )
+    await db_session.commit()
+
+    from uuid import UUID as _UUID
+
+    legacy_id = legacy_payload["id"]
+    restored_legacy = (
+        await db_session.execute(select(_BodyOrm).where(_BodyOrm.id == _UUID(legacy_id)))
+    ).scalar_one()
+    assert restored_legacy.display_color is None, (
+        "legacy bundle without display_color key must restore to None (additive tolerance)"
+    )
