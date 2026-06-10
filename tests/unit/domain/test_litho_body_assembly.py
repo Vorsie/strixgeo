@@ -23,7 +23,11 @@ def closed_manifold(triangles) -> bool:
 
 
 def consistently_wound(triangles) -> bool:
-    """Every directed edge appears exactly once (consistent outward winding)."""
+    """Every directed edge appears exactly once (consistent outward winding).
+
+    Use together with closed_manifold; this check alone does not detect
+    boundary (open) edges.
+    """
     ec: Counter = Counter()
     for a, b, c in triangles:
         for u, v in ((a, b), (b, c), (c, a)):
@@ -32,9 +36,12 @@ def consistently_wound(triangles) -> bool:
 
 
 def ray_hits(vertices, triangles, p) -> int:
-    """Count +x-ray / triangle intersections from p (Moller-Trumbore)."""
+    """Count ray / triangle intersections from p (Moller-Trumbore)."""
     ox, oy, oz = p
-    d = (1.0, 0.0, 0.0)
+    # Generic (non-axis-aligned, incommensurate) ray direction so the ray almost
+    # never passes exactly through a triangle shared-edge/vertex (which would
+    # double-count and flip the inside/outside parity). General-position trick.
+    d = (1.0, 0.4142135623730951, 0.7320508075688772)
     eps = 1e-9
     hits = 0
     for a, b, c in triangles:
@@ -107,3 +114,59 @@ def test_single_patch_body_is_watertight_and_shares_its_interface():
         if abs(z + 4.0) < 1e-6
     }
     assert sand_base and sand_base == clay_top
+
+
+def test_inside_centroid_is_inside_and_far_point_is_outside():
+    """inside() correctly classifies a centroid and a distant point on a real body.
+
+    Exercises the robust-ray path (non-axis-aligned direction) on a mesh produced
+    by the full assemble_body pipeline.  SAND spans depth 0–4 over the 0..10 quad,
+    so its elevation range is [0, -4] and its centroid is at (5, 5, -2).
+    """
+    columns, surfaces = _two_body_stack()
+    sand = assemble_body("SAND", "f", columns, surfaces)
+    assert sand is not None, "SAND body must assemble from the two-body stack"
+    # Centroid of the SAND slab — clearly inside.
+    assert inside(sand.vertices, sand.triangles, (5.0, 5.0, -2.0))
+    # Well above the slab — clearly outside.
+    assert not inside(sand.vertices, sand.triangles, (5.0, 5.0, 10.0))
+
+
+def test_assemble_body_returns_none_for_multi_patch_top():
+    """assemble_body returns None when a body has more than one distinct top-contact key.
+
+    CLAY has SAND above on investigations A/B and PEAT above on C/D, so it has
+    2 top-contact keys — the multi-patch guard must fire.
+    """
+    # Build a 4-hole quad where the upper body differs between the two halves.
+    picks = []
+    for inv, x, y, upper in [
+        ("A", 0, 0, "SAND"),
+        ("B", 10, 0, "SAND"),
+        ("C", 10, 10, "PEAT"),
+        ("D", 0, 10, "PEAT"),
+    ]:
+        picks.append(_pick(inv, x, y, upper, 0.0, 4.0))
+        picks.append(_pick(inv, x, y, "CLAY", 4.0, 14.0))
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    # CLAY has ContactKey("SAND","CLAY") AND ContactKey("PEAT","CLAY") as top keys.
+    assert assemble_body("CLAY", "f", columns, surfaces) is None
+
+
+def test_assemble_body_returns_none_for_missing_surface():
+    """assemble_body returns None when a patch has fewer than 3 holes (no TIN fitted).
+
+    A 2-investigation column cannot triangulate; fit_patch_surfaces skips it, so the
+    surface is absent in the dict and assemble_body must return None.
+    """
+    # Only 2 investigations — every contact patch has 2 points → no TIN.
+    picks = [
+        _pick("A", 0, 0, "SAND", 0.0, 4.0),
+        _pick("A", 0, 0, "CLAY", 4.0, 14.0),
+        _pick("B", 10, 0, "SAND", 0.0, 4.0),
+        _pick("B", 10, 0, "CLAY", 4.0, 14.0),
+    ]
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    assert assemble_body("SAND", "f", columns, surfaces) is None
