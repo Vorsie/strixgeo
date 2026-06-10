@@ -17,6 +17,10 @@ Covers:
          via ``UpdateFormationContact`` (no topology change, no cross-merge)
          must mark every solid for the model ``is_stale=True`` without
          the caller explicitly calling ``mark_litho_solids_stale``.
+  RLS-7  Batch-path stale cascade — a geometry-only litho contact depth
+         edit via ``UpdateFormationContactsBatch`` must mark every solid
+         for the model ``is_stale=True``.  This is the multi-drag path
+         which was missing the ``mark_litho_solids_stale`` call.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.application.update_formation_contact import UpdateFormationContact
+from groundmodel.application.update_formation_contacts_batch import UpdateFormationContactsBatch
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -607,4 +612,98 @@ async def test_litho_contact_depth_edit_marks_solids_stale(
     assert all(r.is_stale for r in rows_after_edit), (
         "All solids must be stale after a geometry-only litho contact depth edit — "
         "the natural cascade through UpdateFormationContact must fire mark_litho_solids_stale"
+    )
+
+
+# ---------------------------------------------------------------------------
+# RLS-7: batch-path stale cascade via UpdateFormationContactsBatch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_litho_contact_depth_edit_marks_solids_stale(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """A geometry-only litho contact depth edit via UpdateFormationContactsBatch
+    (the multi-drag path) must mark every solid for the model ``is_stale=True``.
+
+    This pins the missed cascade site: ``UpdateFormationContactsBatch`` called
+    ``mark_surfaces_stale`` but never called ``mark_litho_solids_stale``, so
+    the 3D solid cache silently diverged on multi-drag commits.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    f = scene["formation"]
+    section_id = await _seed_section(db_session, proj.id)
+
+    # Three boreholes for the solid body.
+    bh_a = _borehole(proj.id, suffix="7A", x=150000.0, elev=5.0)
+    bh_b = _borehole(proj.id, suffix="7B", x=150200.0, elev=4.8)
+    bh_c = _borehole(proj.id, suffix="7C", x=150100.0, elev=5.2)
+    # A fourth borehole carries the formation contact under test.
+    bh_d = _borehole(proj.id, suffix="7D", x=150050.0, elev=4.9)
+    db_session.add_all([bh_a, bh_b, bh_c, bh_d])
+    await db_session.flush()
+
+    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
+    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
+    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
+    db_session.add_all([la, lb, lc])
+    await db_session.flush()
+
+    edge_ab = _edge(litho, la, lb, section_id)
+    edge_bc = _edge(litho, lb, lc, section_id)
+    db_session.add_all([edge_ab, edge_bc])
+
+    # A litho FormationContact on bh_d — batch path has a target row.
+    litho_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=litho.id,
+        formation_id=f.id,
+        borehole_id=bh_d.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+    )
+    db_session.add(litho_contact)
+    await db_session.commit()
+
+    # Build solids — precondition: solid exists and is fresh.
+    await RecomputeLithoSolids(db_session).execute(litho.id)
+
+    rows_after_build = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_build, "Precondition: solid must exist after RecomputeLithoSolids"
+    assert all(not r.is_stale for r in rows_after_build), (
+        "Precondition: all solids must be fresh immediately after build"
+    )
+
+    # Geometry-only batch depth edit — move the contact 0.5 m deeper.
+    result = await UpdateFormationContactsBatch(db_session).execute(
+        litho.id,
+        [(litho_contact.id, {"depth_top_m": 2.5})],
+    )
+    assert result is not None, "Batch update must succeed (not a scope-miss None)"
+
+    litho_model_id = litho.id
+    rows_after_edit = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after_edit, "Solid rows must still exist after the batch depth edit"
+    assert all(r.is_stale for r in rows_after_edit), (
+        "All solids must be stale after a geometry-only batch litho contact depth edit — "
+        "UpdateFormationContactsBatch must call mark_litho_solids_stale"
     )
