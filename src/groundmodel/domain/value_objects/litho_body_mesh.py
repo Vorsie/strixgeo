@@ -20,9 +20,11 @@ class LithoBodyMesh:
     triangles : list[tuple[int, int, int]]
         Vertex-index triples (outward-facing winding).
     is_flagged : bool
-        ``True`` when the body could not form a real solid (<3 control
-        points or collinear) and was emitted as a thin fallback slab —
-        surfaced as under-constrained in the UI (spec §7).
+        ``True`` when the body could not form a real solid (<3 non-collinear
+        control points) and was rendered as small disk markers (vertical
+        cylinders at its investigations) — a unit with too little lateral
+        spread to triangulate, surfaced as under-constrained in the UI.
+        The mesh is non-empty: one closed cylinder per pick.
     """
 
     body_id: str
