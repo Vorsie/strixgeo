@@ -59,12 +59,12 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-async def _display_colors_by_body(
+async def _body_attrs_by_body(
     session: AsyncSession, body_ids: list[UUID]
-) -> dict[UUID, str | None]:
-    """Return each body's ``display_color`` override from ``BodyOrm``.
+) -> dict[UUID, tuple[str | None, int]]:
+    """Return each body's ``display_color`` and ``body_ordinal`` from ``BodyOrm``.
 
-    A second bulk SELECT keyed on the body_ids seen in the solid rows —
+    A single bulk SELECT keyed on the body_ids seen in the solid rows —
     avoids lazy-loading ``BodyOrm`` from inside Pydantic serialisation
     (which would raise ``MissingGreenlet`` in an async context).
 
@@ -73,31 +73,36 @@ async def _display_colors_by_body(
     session : AsyncSession
         Active database session.
     body_ids : list[UUID]
-        The body ids whose colour overrides are needed.
+        The body ids whose attributes are needed.
 
     Returns
     -------
-    dict[UUID, str | None]
-        ``body_id → display_color``.  Bodies absent from the map (or
-        not found in the DB) resolve to ``None``.
+    dict[UUID, tuple[str | None, int]]
+        ``body_id → (display_color, body_ordinal)``.  Bodies absent from the
+        result set (not found in the DB) will be missing from the dict; callers
+        default to ``(None, 0)`` in that case.
     """
     if not body_ids:
         return {}
     rows = (
         await session.execute(
-            select(BodyOrm.id, BodyOrm.display_color).where(BodyOrm.id.in_(body_ids))
+            select(BodyOrm.id, BodyOrm.display_color, BodyOrm.body_ordinal).where(
+                BodyOrm.id.in_(body_ids)
+            )
         )
     ).all()
-    return {row.id: row.display_color for row in rows}
+    return {row.id: (row.display_color, row.body_ordinal) for row in rows}
 
 
 def _to_solid_response(
-    solid: LithoBodySolidOrm, display_color: str | None
+    solid: LithoBodySolidOrm,
+    display_color: str | None,
+    body_ordinal: int,
 ) -> LithoBodySolidResponse:
-    """Build a :class:`LithoBodySolidResponse` from an ORM row + colour override.
+    """Build a :class:`LithoBodySolidResponse` from an ORM row + body attributes.
 
-    Merges the ``display_color`` (which lives on ``BodyOrm``) into the
-    response at construction time so Pydantic never touches a lazy
+    Merges ``display_color`` and ``body_ordinal`` (both from ``BodyOrm``) into
+    the response at construction time so Pydantic never touches a lazy
     attribute on the ``solid`` row.
 
     Parameters
@@ -107,6 +112,10 @@ def _to_solid_response(
     display_color : str | None
         Colour override fetched from ``BodyOrm``; ``None`` falls back to the
         formation colour in the 3-D viewer.
+    body_ordinal : int
+        The body's ordinal within its formation's naming group, fetched from
+        ``BodyOrm``; combined with the lithology gives a stable human handle
+        such as "SILT #3".
 
     Returns
     -------
@@ -118,6 +127,7 @@ def _to_solid_response(
         model_id=solid.model_id,
         body_id=solid.body_id,
         formation_id=solid.formation_id,
+        body_ordinal=body_ordinal,
         method=solid.method,
         vertices=solid.vertices,
         triangles=solid.triangles,
@@ -178,12 +188,12 @@ async def list_litho_solids(
     repo = LithoLayerRepository(session)
     solids = await repo.list_litho_solids(model_id)
 
-    # Bulk-load display_color from BodyOrm to avoid lazy-load during
-    # Pydantic serialisation (MissingGreenlet in async context).
+    # Bulk-load display_color + body_ordinal from BodyOrm to avoid lazy-load
+    # during Pydantic serialisation (MissingGreenlet in async context).
     body_ids = [s.body_id for s in solids]
-    colors = await _display_colors_by_body(session, body_ids)
+    body_attrs = await _body_attrs_by_body(session, body_ids)
 
-    result = [_to_solid_response(s, colors.get(s.body_id)) for s in solids]
+    result = [_to_solid_response(s, *body_attrs.get(s.body_id, (None, 0))) for s in solids]
     logger.info(
         f"list_litho_solids: project={project_id} model={model_id} → {len(result)} solid(s)"
     )
@@ -249,8 +259,8 @@ async def rebuild_litho_solids(
     repo = LithoLayerRepository(session)
     solids = await repo.list_litho_solids(model_id)
     body_ids = [s.body_id for s in solids]
-    colors = await _display_colors_by_body(session, body_ids)
-    solid_responses = [_to_solid_response(s, colors.get(s.body_id)) for s in solids]
+    body_attrs = await _body_attrs_by_body(session, body_ids)
+    solid_responses = [_to_solid_response(s, *body_attrs.get(s.body_id, (None, 0))) for s in solids]
 
     logger.info(
         f"rebuild_litho_solids: project={project_id} model={model_id} "

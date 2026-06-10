@@ -28,6 +28,10 @@ class LithoBodySolidResponse(BaseModel):
         The ``BodyOrm`` row this solid caches.
     formation_id : UUID
         The geological formation (= lithology) the body belongs to.
+    body_ordinal : int
+        The body's ordinal within its formation's naming group (0-based,
+        assigned by ``ResolveLithoInstances``).  Combined with the lithology
+        name gives a stable human handle such as "SILT #3".
     method : str
         Triangulation method.  v1 always writes ``"tin"``.
     vertices : list[list[float]]
@@ -70,6 +74,7 @@ class LithoBodySolidResponse(BaseModel):
     model_id: UUID
     body_id: UUID
     formation_id: UUID
+    body_ordinal: int
     method: str
     vertices: list[list[float]]
     triangles: list[list[int]]
