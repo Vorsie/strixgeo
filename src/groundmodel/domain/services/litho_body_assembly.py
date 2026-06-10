@@ -225,7 +225,7 @@ def build_extent_solid(
             for i in invs
         ]
     )
-    if not top.triangles or top.triangles != base.triangles:
+    if not top.triangles or not base.triangles or top.triangles != base.triangles:
         return None
     return _assemble(
         body_id, formation_id, list(top.vertices), list(base.vertices), list(top.triangles)
