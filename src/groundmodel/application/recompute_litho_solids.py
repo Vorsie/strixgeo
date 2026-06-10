@@ -264,28 +264,36 @@ class RecomputeLithoSolids(GroundModelLogger):
 
             bodies_to_build[body_id_str] = body_picks
 
-        built_meshes: list[LithoBodyMesh] = []
+        # M3: shared contact surfaces need neighbour context, so the builder must
+        # see EVERY pick in the model — not just the changed subset. We still only
+        # WRITE the bodies whose checksum changed (or all, under force), preserving
+        # the incremental dedup. (A body whose neighbour changed but whose own picks
+        # did not keeps its prior solid until the next force-Build; acceptable
+        # pre-ship — the on-click Build passes force=True and rewrites everything.)
+        mesh_by_body: dict[str, LithoBodyMesh] = {}
         if bodies_to_build:
-            # Flatten to a list in body_id order and call the builder.
-            flat_picks: list[BodyLayerPick] = [
-                p for body_picks in bodies_to_build.values() for p in body_picks
-            ]
-            built_meshes = build_body_solids(flat_picks)
+            mesh_by_body = {m.body_id: m for m in build_body_solids(picks)}
 
-        bodies_built = len(built_meshes)
-        bodies_flagged = sum(1 for m in built_meshes if m.is_flagged)
+        bodies_built = 0
+        bodies_flagged = 0
 
         # Step 4: upsert each built mesh into litho_body_solid.
-        for i, mesh in enumerate(built_meshes):
-            body_picks = bodies_to_build[mesh.body_id]
-            new_checksum = cached_checksums[mesh.body_id]
-            existing = existing_by_body.get(mesh.body_id)
+        for i, body_id_str in enumerate(bodies_to_build):
+            mesh = mesh_by_body.get(body_id_str)
+            if mesh is None:
+                continue  # body produced no mesh (shouldn't happen for accepted picks)
+            bodies_built += 1
+            if mesh.is_flagged:
+                bodies_flagged += 1
+            body_picks = bodies_to_build[body_id_str]
+            new_checksum = cached_checksums[body_id_str]
+            existing = existing_by_body.get(body_id_str)
 
             vertices_payload = [list(v) for v in mesh.vertices]
             triangles_payload = [list(t) for t in mesh.triangles]
 
             self.debug(
-                f"[{i + 1}/{bodies_built}] upsert body {mesh.body_id} — "
+                f"[{i + 1}/{len(bodies_to_build)}] upsert body {mesh.body_id} — "
                 f"{len(vertices_payload)} vertices, {len(triangles_payload)} triangles "
                 f"flagged={mesh.is_flagged}"
             )

@@ -388,3 +388,30 @@ def test_orchestrator_lens_void() -> None:
     assert _is_closed_manifold(clay.triangles) and _is_consistently_wound(clay.triangles)
     assert not _inside(clay.vertices, clay.triangles, (10.0, 10.0, -9.0))  # in the lens void
     assert _inside(clay.vertices, clay.triangles, (2.0, 2.0, -9.0))  # in the clay
+
+
+def test_no_two_body_solids_overlap():
+    """M3 partition: every sampled interior point is inside at most one body solid."""
+    holes = [(0, 0), (40, 0), (40, 40), (0, 40), (20, 20)]
+    layers = [("SAND", 0, 4, "f1"), ("CLAY", 4, 14, "f2"), ("SAND2", 14, 24, "f3")]
+    picks = []
+    for i, (x, y) in enumerate(holes):
+        for body, td, bd, fm in layers:
+            picks.append(
+                BodyLayerPick(
+                    investigation_id=f"h{i}",
+                    x_m=x,
+                    y_m=y,
+                    surface_elev_m=0.0,
+                    body_id=body,
+                    formation_id=fm,
+                    top_depth_m=td,
+                    base_depth_m=bd,
+                )
+            )
+    meshes = build_body_solids(picks)
+    for px in (5, 20, 35):
+        for py in (5, 20, 35):
+            for pz in (-2, -9, -19):
+                hits = [m.body_id for m in meshes if _inside(m.vertices, m.triangles, (px, py, pz))]
+                assert len(hits) <= 1, f"point {(px, py, pz)} in {hits}"
