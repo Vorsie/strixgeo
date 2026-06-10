@@ -1543,3 +1543,57 @@ describe('carveOverlays — lens carved out of matrix → true partition', () =>
     assertTiles(regions, left, right, ALL)
   })
 })
+
+// ---------------------------------------------------------------------------
+// TIE11 — tie-section 11, S34 ↔ B4 (real dogfeed overlap 2026-06-10)
+//
+// The peat (VEEN) on S34 is enclosed between two clays (KLEI/KLEI) and the whole
+// upper interval has NO correlation to B4. reduceColumn floods the lower clay UP
+// over the peat's vacated space and emits that clay as a 1-corr ONLAP (an
+// overlay), then re-emits the peat lens at its original elevation — landing on
+// top of the clay. The carve only carved lenses into MAINS (quad/pinch), never
+// into an onlap, so peat-over-clay survived as a 4 m overlap (the screenshot).
+// The fix tiers the carve: onlaps carve out of mains, lenses carve out of onlaps
+// then mains, so the gap is a TRUE partition.
+// ---------------------------------------------------------------------------
+describe('tie11 S34/B4 (real dogfeed 2026-06-10)', () => {
+  const L = col('L', 13.04, [
+    { top: 1.21, base: 2.15, f: 'ZAND', b: 'L0' },
+    { top: 2.15, base: 2.667, f: 'KLEI', b: 'L1' },
+    { top: 2.667, base: 7.18, f: 'VEEN', b: 'L2' }, // peat, enclosed in KLEI/KLEI
+    { top: 7.18, base: 8.44, f: 'KLEI', b: 'L3' },
+    { top: 8.44, base: 9.96, f: 'SILT', b: 'L4' },
+    { top: 9.96, base: 12.19, f: 'ZAND', b: 'L5' },
+    { top: 12.19, base: 13.96, f: 'SILT', b: 'L6' },
+    { top: 13.96, base: 15.68, f: 'ZAND', b: 'L7' },
+    { top: 15.68, base: 23.34, f: 'KLEI', b: 'L8' },
+  ])
+  const R = col('R', 13.13, [
+    { top: 0, base: 5.621, f: 'SILT', b: 'R0' },
+    { top: 5.621, base: 6.0, f: 'KLEI', b: 'R1' }, // clay
+    { top: 6.0, base: 8.425, f: 'ZAND', b: 'R2' },
+    { top: 8.425, base: 9.071, f: 'SILT', b: 'R3' },
+    { top: 9.071, base: 12.465, f: 'ZAND', b: 'R4' },
+    { top: 12.465, base: 12.898, f: 'SILT', b: 'R5' },
+    { top: 12.898, base: 15.5, f: 'ZAND', b: 'R6' },
+    { top: 15.5, base: 17.0, f: 'KLEI', b: 'R7' },
+  ])
+  // The REAL approved S34↔B4 correlations (5 edges), by layerId. NOT bodyId-
+  // derived: body 1b7f appears twice on B4, so edgesFromBodyId would fabricate an
+  // edge that the real model does not have.
+  const edges: CorrelationEdge[] = [
+    { a: 'L#4', b: 'R#3' }, // SILT 8.44 ↔ SILT 8.425
+    { a: 'L#5', b: 'R#4' }, // ZAND 9.96 ↔ ZAND 9.071
+    { a: 'L#6', b: 'R#5' }, // SILT 12.19 ↔ SILT 12.465
+    { a: 'L#7', b: 'R#6' }, // ZAND 13.96 ↔ ZAND 12.898
+    { a: 'L#8', b: 'R#7' }, // KLEI 15.68 ↔ KLEI 15.5
+  ]
+
+  it('carves every overlay into a true partition — no peat-over-clay overlap', () => {
+    const regions = computePartitionFill(L, R, edges)
+    // ALL kinds included → the concave-aware partition check (no gaps, no
+    // overlaps). Before the fix this fails on the peat (VEEN) lens overlapping
+    // the flooded clay (KLEI) onlap in the top-left interval.
+    assertTiles(regions, L, R)
+  })
+})
