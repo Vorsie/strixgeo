@@ -226,7 +226,26 @@ def test_disk_radius_matches_constant() -> None:
 
 
 def _ray_hits(vertices, triangles, p):
-    """Count ray–triangle intersections from point p in a fixed generic direction."""
+    """Count ray–triangle intersections from point *p* in a fixed generic direction.
+
+    Uses the Möller–Trumbore algorithm.  The ray direction is chosen to be
+    generic (irrational components) so it is unlikely to be coplanar with
+    any triangle of a well-formed test mesh.
+
+    Parameters
+    ----------
+    vertices : list[tuple[float, float, float]]
+        Mesh vertex list; each element is ``(x, y, z)``.
+    triangles : list[tuple[int, int, int]]
+        Triangle index triples indexing into *vertices*.
+    p : tuple[float, float, float]
+        Ray origin ``(x, y, z)``.
+
+    Returns
+    -------
+    int
+        Number of forward intersections (``t > eps``).
+    """
     ox, oy, oz = p
     d = (1.0, 0.4142135623730951, 0.7320508075688772)  # generic dir (general position)
     eps = 1e-9
@@ -263,7 +282,7 @@ def _ray_hits(vertices, triangles, p):
 
 
 def _inside(vertices, triangles, p):
-    """True iff point p is inside the closed mesh (parity ray-cast)."""
+    """Return True iff point *p* is inside the closed mesh (parity ray-cast)."""
     return _ray_hits(vertices, triangles, p) % 2 == 1
 
 
