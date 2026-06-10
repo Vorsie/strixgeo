@@ -31,7 +31,7 @@
 //   • Semantic tokens for chrome — no raw dark: pairs.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Circle, RefreshCw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Circle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -39,6 +39,7 @@ import type {
   BodyListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
+  LithoBodySolidResponse,
 } from '../../../api/client'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
@@ -75,6 +76,8 @@ export default function LithologyInspector(): JSX.Element {
       lithoStaleTinSessionCount,
       refetchFormations,
       handleClearLithoModel,
+      lithoSolids,
+      setBodyColor,
     },
   } = useShell()
 
@@ -354,6 +357,18 @@ export default function LithologyInspector(): JSX.Element {
             />
           )}
 
+          {/* Body solids legend — grouped by lithology, always visible when a
+              litho model is active.  Empty state when no solids have been
+              built yet.  testid preserved from the old canvas overlay so the
+              e2e spec still finds it.
+              Groups sorted by formation display_order (oldest first —
+              superposition convention); within a group sorted by body_ordinal. */}
+          <LithoSolidLegend
+            lithoSolids={lithoSolids}
+            lithoFormations={lithoFormations}
+            setBodyColor={setBodyColor}
+          />
+
           {/* Workflow guidance footer — always visible when a model is active. */}
           <p className="text-[11px] leading-snug text-text-muted">
             Draw contacts on Sections, then Build to update surfaces.
@@ -583,5 +598,241 @@ function LithoFormationRoster({
         />
       ))}
     </ul>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// LithoSolidLegend — per-body colour pickers grouped by lithology
+// ---------------------------------------------------------------------------
+
+// Collapse threshold: groups with more than this many bodies are collapsed
+// by default to avoid a wall of rows on larger models.
+const LEGEND_COLLAPSE_THRESHOLD = 8
+
+interface LithoSolidLegendProps {
+  /** All built body solids for the active litho model. */
+  lithoSolids: readonly LithoBodySolidResponse[]
+  /** All litho formations for the active model — used for group metadata. */
+  lithoFormations: readonly GeologicalFormationResponse[]
+  /**
+   * Set or clear a per-body display colour.
+   * Forwarded from ``useLithoSolids`` — optimistic + debounced.
+   */
+  setBodyColor: (bodyId: string, color: string | null) => void
+}
+
+/**
+ * Inspector section that renders built body solids grouped by lithology.
+ *
+ * Each group header shows the formation colour swatch, translated name, body
+ * count, and (when any flagged) a marker count.  Per-body rows show a colour
+ * picker, the ordinal handle, a stale dot, a flagged icon, and a Reset button
+ * when a custom colour is set.  Large groups (> ``LEGEND_COLLAPSE_THRESHOLD``
+ * bodies) are collapsed by default to keep the panel scannable.
+ *
+ * When no solids have been built yet, renders a brief empty-state prompt.
+ *
+ * Parameters
+ * ----------
+ * lithoSolids
+ *     Built body solids for the active model.
+ * lithoFormations
+ *     Litho formations for group metadata + sorting by display_order.
+ * setBodyColor
+ *     Colour setter from ``useLithoSolids`` (optimistic + debounced).
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The body solids legend section.
+ */
+function LithoSolidLegend({
+  lithoSolids,
+  lithoFormations,
+  setBodyColor,
+}: LithoSolidLegendProps): JSX.Element {
+  // Only solids that have actual geometry.
+  const builtSolids = lithoSolids.filter(s => s.triangles.length > 0)
+
+  // Formation lookup for colour + display name.
+  const formationById = useMemo(() => {
+    const m = new Map<string, GeologicalFormationResponse>()
+    for (const f of lithoFormations) m.set(f.id, f)
+    return m
+  }, [lithoFormations])
+
+  // Build groups: formation_id → solids[], sorted by body_ordinal.
+  // Groups ordered by formation display_order (oldest first).
+  const groups = useMemo<
+    {
+      formation: GeologicalFormationResponse | undefined
+      formationId: string
+      solids: LithoBodySolidResponse[]
+    }[]
+  >(() => {
+    const byFormation = new Map<string, LithoBodySolidResponse[]>()
+    for (const s of builtSolids) {
+      const arr = byFormation.get(s.formation_id) ?? []
+      arr.push(s)
+      byFormation.set(s.formation_id, arr)
+    }
+
+    // Sort each group's solids by body_ordinal ascending.
+    for (const arr of byFormation.values()) {
+      arr.sort((a, b) => a.body_ordinal - b.body_ordinal)
+    }
+
+    // Sort groups by formation display_order; formations not in the map
+    // go last (stable so UUIDs are the tiebreaker).
+    const formationOrder = new Map<string, number>()
+    for (const f of lithoFormations) formationOrder.set(f.id, f.display_order)
+
+    return [...byFormation.entries()]
+      .sort(([aId], [bId]) => {
+        const aOrd = formationOrder.get(aId) ?? Number.MAX_SAFE_INTEGER
+        const bOrd = formationOrder.get(bId) ?? Number.MAX_SAFE_INTEGER
+        return aOrd - bOrd
+      })
+      .map(([formationId, solids]) => ({
+        formation: formationById.get(formationId),
+        formationId,
+        solids,
+      }))
+  }, [builtSolids, lithoFormations, formationById])
+
+  // Per-group expand/collapse state.  Initialised lazily on first render.
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(groups.filter(g => g.solids.length <= LEGEND_COLLAPSE_THRESHOLD).map(g => g.formationId)),
+  )
+
+  function toggleGroup(formationId: string): void {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(formationId)) next.delete(formationId)
+      else next.add(formationId)
+      return next
+    })
+  }
+
+  if (builtSolids.length === 0) {
+    return (
+      <div data-testid="litho-solid-legend" className="flex flex-col gap-1">
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
+        <p className="text-[11px] leading-snug text-text-muted">
+          Build the 3D model to see bodies.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="litho-solid-legend" className="flex flex-col gap-1">
+      <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
+
+      {groups.map(({ formation, formationId, solids }) => {
+        const displayName = formation
+          ? (formation.litho_main_soil_code != null
+              ? formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
+              : formation.name)
+          : formationId
+        const flaggedCount = solids.filter(s => s.is_flagged === true).length
+        const isExpanded = expandedGroups.has(formationId)
+
+        return (
+          <div key={formationId} className="flex flex-col gap-0.5">
+            {/* Group header row — click to expand/collapse */}
+            <button
+              type="button"
+              data-testid={`solid-group-header-${formationId}`}
+              onClick={() => toggleGroup(formationId)}
+              className="flex items-center gap-1.5 w-full text-left px-1 py-0.5 rounded hover:bg-surface-sunken transition-colors"
+              aria-expanded={isExpanded}
+              title={isExpanded ? 'Collapse group' : 'Expand group'}
+            >
+              {/* Formation colour swatch */}
+              <span
+                className="h-2.5 w-2.5 flex-shrink-0 rounded-sm border border-border-subtle"
+                style={{ backgroundColor: formation?.color ?? '#888' }}
+                aria-hidden="true"
+              />
+              <span className="flex-1 truncate text-[11px] font-medium text-text-primary">
+                {displayName}
+              </span>
+              <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">
+                {solids.length} bod{solids.length === 1 ? 'y' : 'ies'}
+                {flaggedCount > 0 && (
+                  <span className="ml-1 text-text-muted">
+                    ({flaggedCount} marker{flaggedCount === 1 ? '' : 's'})
+                  </span>
+                )}
+              </span>
+            </button>
+
+            {/* Per-body rows — visible only when group is expanded */}
+            {isExpanded && (
+              <ul className="flex flex-col gap-0.5 pl-3" aria-label={`Bodies for ${displayName}`}>
+                {solids.map(solid => {
+                  const resolvedColor = solid.display_color ?? formation?.color ?? '#888888'
+                  return (
+                    <li
+                      key={solid.id}
+                      data-testid={`solid-legend-row-${solid.body_id}`}
+                      className="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-text-secondary"
+                    >
+                      {/* Colour picker — reversible (fire immediately) */}
+                      <input
+                        type="color"
+                        data-testid={`solid-color-input-${solid.body_id}`}
+                        value={resolvedColor.startsWith('#') ? resolvedColor : `#${resolvedColor}`}
+                        onChange={e => setBodyColor(solid.body_id, e.target.value)}
+                        title="Pick a custom colour for this body solid"
+                        className="w-4 h-4 p-0 border border-border-subtle rounded cursor-pointer flex-shrink-0"
+                        aria-label={`Colour for ${displayName} #${solid.body_ordinal}`}
+                      />
+                      {/* Ordinal handle */}
+                      <span className="tabular-nums text-text-muted">
+                        #{solid.body_ordinal}
+                      </span>
+                      <span className="flex-1" />
+                      {/* Stale indicator — amber dot, title explains */}
+                      {solid.is_stale === true && (
+                        <span
+                          className="text-amber-500 leading-none text-[10px]"
+                          title="Stale — rebuild to update"
+                          aria-label="Stale"
+                        >
+                          •
+                        </span>
+                      )}
+                      {/* Flagged icon */}
+                      {solid.is_flagged === true && (
+                        <span
+                          className="shrink-0"
+                          title="Under-constrained: fewer than 3 CPT/borehole traces — best-effort slab"
+                        >
+                          <AlertTriangle size={10} className="text-amber-500" />
+                        </span>
+                      )}
+                      {/* Reset to formation colour — shown only when overridden */}
+                      {solid.display_color != null && (
+                        <button
+                          type="button"
+                          data-testid={`solid-color-reset-${solid.body_id}`}
+                          onClick={() => setBodyColor(solid.body_id, null)}
+                          title="Reset to formation lithology colour"
+                          className="p-1 -m-1 text-text-muted hover:text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent flex-shrink-0"
+                        >
+                          <RotateCcw size={9} />
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
