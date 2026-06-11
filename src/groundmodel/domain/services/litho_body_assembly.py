@@ -25,6 +25,9 @@ from groundmodel.domain.services.litho_facies_partition import (
     partition_footprint,
 )
 from groundmodel.domain.services.litho_mesh_primitives import assemble_closed_solid
+from groundmodel.domain.services.litho_solid_builder_constants import (
+    DEGENERATE_PLAN_AREA_M2,
+)
 from groundmodel.domain.services.tin_surface import compute_tin, evaluate_tin_at
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
@@ -310,7 +313,7 @@ def build_prism(
         ax, ay = vertices_2d[raw[0]]
         bx, by = vertices_2d[raw[1]]
         cx, cy = vertices_2d[raw[2]]
-        if abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < 1e-9:
+        if abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < DEGENERATE_PLAN_AREA_M2:
             continue  # skip degenerate triangles
         a, b, c = _ccw(*raw)
         # Top face: CCW when viewed from above (normal points up).

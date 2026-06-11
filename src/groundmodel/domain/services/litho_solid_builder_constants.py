@@ -20,3 +20,9 @@ MARKER_DISK_MIN_THICKNESS_M: float = 0.2
 #: 16 segments gives a smooth appearance at typical 3-D zoom levels without
 #: excessive triangle count per marker.
 MARKER_DISK_SIDES: int = 16
+
+#: Plan-triangle signed-area threshold below which a triangle is treated as
+#: degenerate (m^2). 1e-9 m^2 ≈ 1 mm^2 in plan — unreachable for real geotech
+#: hole spacing (tens of metres apart), so this only ever fires on collinear /
+#: collapsed partition triangles.
+DEGENERATE_PLAN_AREA_M2: float = 1e-9
