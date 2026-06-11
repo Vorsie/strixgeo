@@ -124,8 +124,9 @@ test.describe('flow_litho_fence_diagram', () => {
       //    empty.  Rebuilding here ensures the first fetch (on open) finds
       //    real surface rows.
       //
-      //    Strategy: copy the geological model's contacts (11 CPTs across 4
-      //    Y-rows → non-degenerate TIN) onto the litho model, then rebuild.
+      //    Strategy: copy the geological model's contacts (14 CPTs across 5
+      //    Y-rows → non-degenerate TIN; Section E adds facies CPTs 11/12/13)
+      //    onto the litho model, then rebuild.
       //    Duplicate contacts (model+anchor+formation uniqueness constraint)
       //    return 409 — tolerated for re-run safety.
       //
