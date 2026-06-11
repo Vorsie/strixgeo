@@ -1,5 +1,6 @@
 import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { spawn, ChildProcess } from 'child_process'
 import {
   readFileSync,
@@ -174,6 +175,12 @@ function stopApi(): void {
 function createWindow(): void {
   const isDev = !!process.env.ELECTRON_RENDERER_URL
   const rendererBase = process.env.ELECTRON_RENDERER_URL ?? null
+  // The packaged renderer directory as a ``file://`` prefix. In prod the
+  // window loads ``<dir>/index.html`` and SPA navigations stay under this
+  // directory; anything else (an arbitrary local file) is denied (audit #15).
+  const rendererFileBase = isDev
+    ? null
+    : pathToFileURL(join(__dirname, '../renderer/')).href
 
   // Inject Content-Security-Policy at the response-header layer so
   // it's enforced BEFORE page parse (a CSP meta tag in index.html
@@ -228,7 +235,7 @@ function createWindow(): void {
   // top-level window to an attacker-controlled page that then has
   // access to the same preload + IPC surface. Debt #36.
   win.webContents.on('will-navigate', (event, url) => {
-    if (!isInAppNavigation(url, rendererBase)) {
+    if (!isInAppNavigation(url, rendererBase, rendererFileBase)) {
       event.preventDefault()
       // If the navigation looks like an external link the user
       // clicked, hand it off to the OS browser instead — same UX
