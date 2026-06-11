@@ -53,8 +53,14 @@
  *   5. The solid legend shows at least two distinct lithology group headers —
  *      the facies competitors (ZAND + VEEN) plus the shared KLEI.  We assert
  *      ≥2 group headers are visible, confirming the build produced multiple
- *      bodies and the facies path ran (a single-lithology build would produce
- *      exactly one group header).
+ *      bodies.
+ *   6. The decisive facies check: the single-CPT VEEN body builds as a real
+ *      prism (``is_flagged=false`` via the ``litho-solids`` API), NOT an M2
+ *      disk marker (``is_flagged=true``).  Criterion 5 alone is too weak — it
+ *      passes even if the facies path failed and both competitors fell back to
+ *      M2.  A single-column body is un-triangulable under M2 → flagged disk
+ *      markers; under the facies path it is a clipped prism → not flagged.  A
+ *      "PEAT" group-header DOM cross-check rides alongside.
  *
  * Mirrors: flow_litho_solids.spec.ts (harness + setup pattern).
  *
@@ -299,6 +305,86 @@ test.describe('flow_litho_facies', () => {
         await expect(groupHeaders.first()).toBeVisible({ timeout: 5_000 })
         const groupCount = await groupHeaders.count()
         expect(groupCount, 'Facies build must produce ≥2 lithology groups in the legend').toBeGreaterThanOrEqual(2)
+
+        // -----------------------------------------------------------------------
+        // 12. The single-CPT VEEN competitor is a real PRISM, not a disk marker.
+        //
+        //     This is the assertion that actually validates the facies path ran.
+        //     The ≥2-group check above is too weak: it passes even if the facies
+        //     path FAILED and both competitors fell back to the M2 single-patch /
+        //     disk-marker path (the legend would still show ≥2 lithology groups —
+        //     KLEI + ZAND alone clears the bar, and a VEEN that built as a disk
+        //     marker still renders its own group header).
+        //
+        //     KEY DISTINCTION: VEEN sits on a SINGLE CPT (CPT-13). Under the OLD
+        //     M2 builder a single-column body is un-triangulable → it emits
+        //     vertical disk markers with ``is_flagged=true``. Under the NEW facies
+        //     path VEEN builds as a real clipped prism → ``is_flagged=false``.
+        //     So asserting the VEEN body solid has ``is_flagged=false`` proves the
+        //     facies-competition prism path actually fired for the single-CPT body.
+        //
+        //     We go to the API rather than the DOM because the legend's per-body
+        //     marker note ("(N markers)") is only visible when a group is expanded
+        //     AND only distinguishes flagged bodies — the API exposes the per-body
+        //     ``is_flagged`` flag directly and unambiguously. We map the VEEN
+        //     formation by ``litho_main_soil_code === 'VEEN'`` (the fixture seeds
+        //     ``form("VEEN facies …", "VEEN", …)``), then find the solid whose
+        //     ``formation_id`` matches and assert it is a non-flagged prism.
+        // -----------------------------------------------------------------------
+        const veenCheck = await page.evaluate(
+          async ([base, pid, mid]) => {
+            const fr = await fetch(`${base}/projects/${pid}/geology/formations`)
+            if (!fr.ok) return { error: `formations fetch: ${fr.status}` }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const formations: any[] = await fr.json()
+            const veenIds = new Set(
+              formations
+                .filter(f => f.litho_main_soil_code === 'VEEN')
+                .map(f => f.id as string),
+            )
+
+            const sr = await fetch(`${base}/projects/${pid}/geology/models/${mid}/litho-solids`)
+            if (!sr.ok) return { error: `litho-solids fetch: ${sr.status}` }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const solids: any[] = await sr.json()
+            const veenSolids = solids.filter(s => veenIds.has(s.formation_id as string))
+            return {
+              veenFormationCount: veenIds.size,
+              veenSolidCount: veenSolids.length,
+              // True only if EVERY VEEN body is a real prism (facies path).
+              // Under M2 the single-CPT VEEN body would be a flagged disk marker.
+              allVeenPrisms:
+                veenSolids.length > 0 && veenSolids.every(s => s.is_flagged === false),
+            }
+          },
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
+        )
+
+        expect(
+          (veenCheck as { error?: string }).error,
+          'VEEN solid check should not error',
+        ).toBeUndefined()
+        const vc = veenCheck as {
+          veenFormationCount: number
+          veenSolidCount: number
+          allVeenPrisms: boolean
+        }
+        expect(vc.veenFormationCount, 'Fixture must define a VEEN formation').toBeGreaterThan(0)
+        expect(
+          vc.veenSolidCount,
+          'The single-CPT VEEN competitor must build a body solid (not be dropped)',
+        ).toBeGreaterThan(0)
+        expect(
+          vc.allVeenPrisms,
+          'Single-CPT VEEN must build as a facies PRISM (is_flagged=false), not an M2 disk marker (is_flagged=true) — confirms the facies path ran',
+        ).toBe(true)
+
+        // DOM cross-check: the VEEN body renders under a "PEAT" group header
+        // (formatLithoDisplayName maps VEEN → "Peat" → upper-cased "PEAT").
+        // Belt-and-braces alongside the API assertion above.
+        await expect(
+          legend.locator('[data-testid^="solid-group-header-"]').filter({ hasText: 'PEAT' }),
+        ).toHaveCount(1)
       } finally {
         // -----------------------------------------------------------------------
         // Cleanup: remove the formation contacts seeded on the litho model and
