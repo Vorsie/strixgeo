@@ -350,10 +350,10 @@ export default function InspectLensBodyPanel({
         name: trimmed,
         primary_section_id: null,
       })
-      onLensNamed(result.lens_id, result.was_created)
+      onLensNamed(result.body_id, result.was_created)
       log.success(
         'section',
-        `InspectLensBodyPanel: lens ${result.lens_id} ` +
+        `InspectLensBodyPanel: lens ${result.body_id} ` +
           `${result.was_created ? 'created' : 'updated'} with name="${trimmed}"`,
       )
     } catch (err) {
