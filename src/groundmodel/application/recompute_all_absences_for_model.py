@@ -267,14 +267,26 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
                 total_wedge_tips_created += mat_result.new_contacts_created
                 total_wedge_tips_deleted += mat_result.old_contacts_deleted
                 formations_processed += 1
-            except (ValueError, Exception) as exc:
-                # Log and skip so one broken formation does not abort the
-                # entire batch.  The session is not rolled back here — all
-                # prior formations in this iteration remain staged.
+            except (ValueError, LookupError) as exc:
+                # Expected per-formation failures (bad data / missing lookup):
+                # log and skip so one broken formation does not abort the entire
+                # batch.  Prior formations in this iteration remain staged.
                 self.warning(
                     f"[{i}/{total}] RecomputeAllAbsencesForModel: "
                     f"formation {fid} failed — skipping: {exc}"
                 )
+            except Exception:
+                # Anything else is an unexpected bug, not a per-formation data
+                # issue.  Roll back so we never commit a partial batch under a
+                # real error, then re-raise so the caller sees it (audit #5 —
+                # the old ``except (ValueError, Exception)`` swallowed everything
+                # and committed whatever had accumulated).
+                await self._session.rollback()
+                self.error(
+                    f"[{i}/{total}] RecomputeAllAbsencesForModel: "
+                    f"formation {fid} raised an unexpected error — rolling back batch"
+                )
+                raise
 
         # ------------------------------------------------------------------
         # 4. Single commit for the full batch.
