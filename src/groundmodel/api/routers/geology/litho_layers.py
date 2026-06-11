@@ -197,6 +197,7 @@ async def move_boundary(
             request.upper_layer_id,
             request.lower_layer_id,
             request.new_depth_m,
+            model_id=model_id,
         )
     except BoundaryMoveError as err:
         raise HTTPException(
@@ -227,7 +228,7 @@ async def batch_update_status(
     )
     use_case = BatchUpdateLithoLayerStatus(session)
     try:
-        result = await use_case.execute(request.layer_ids, request.status)
+        result = await use_case.execute(request.layer_ids, request.status, model_id=model_id)
     except BatchStatusError as err:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -268,7 +269,7 @@ async def batch_update_layers(
     ]
     use_case = BatchUpdateLithoLayers(session)
     try:
-        result = await use_case.execute(patches)
+        result = await use_case.execute(patches, model_id=model_id)
     except BatchUpdateError as err:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
