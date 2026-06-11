@@ -405,3 +405,71 @@ def test_lens_and_matrix_do_not_overlap() -> None:
     assert _inside(silt.vertices, silt.triangles, (10.0, 10.0, -9.0)), (
         "SILT mesh does not contain the lens-interior sample point — lens solid is hollow"
     )
+
+
+def test_build_body_solids_facies_competitors_dont_overlap():
+    """A multi-patch SAND with CLAY/SILT/PEAT above builds competitors that don't overlap.
+
+    The 6 investigations form a ring — SAND is present on every one (multi-patch,
+    ≥2 distinct bodies above it), so CLAY/SILT/PEAT must be built as clipped facies
+    prisms (is_flagged=False), not degenerate disk markers, and they must partition
+    the footprint without overlap.
+    """
+    ring = [
+        ("A", 0, 0, "CLAY"),
+        ("B", 6, 1, "CLAY"),
+        ("C", 10, 6, "SILT"),
+        ("D", 7, 11, "SILT"),
+        ("E", 1, 10, "PEAT"),
+        ("F", -3, 5, "PEAT"),
+    ]
+    picks = []
+    for inv, x, y, up in ring:
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id=up,
+                formation_id=up,
+                top_depth_m=0.0,
+                base_depth_m=2.0,
+            )
+        )
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="SAND",
+                formation_id="SAND",
+                top_depth_m=2.0,
+                base_depth_m=9.0,
+            )
+        )
+    meshes = {m.body_id: m for m in build_body_solids(picks)}
+    assert {"SAND", "CLAY", "SILT", "PEAT"} <= set(meshes)
+    comps = [meshes[b] for b in ("CLAY", "SILT", "PEAT")]
+
+    # Competitors must be real clipped prisms, not degenerate disk markers.
+    # Disk markers are produced when the legacy path is taken for a <3-pick body
+    # (2 investigations per competitor body here); the facies path must build
+    # full coverage prisms instead.
+    for m in comps:
+        assert not m.is_flagged, (
+            f"body {m.body_id} was built as disk markers (is_flagged=True); "
+            "expected a real facies prism — facies path not taken"
+        )
+
+    # No two competitors cover the same point.
+    for x in (0, 3, 5, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in comps
+                if _inside(m.vertices, m.triangles, (float(x), float(y), -1.0))
+            ]
+            assert len(hits) <= 1, (x, y, hits)
+    assert _is_closed_manifold(meshes["SAND"].triangles)  # SAND continuous underneath

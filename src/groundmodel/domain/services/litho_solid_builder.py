@@ -28,8 +28,10 @@ per-body TIN path (``_legacy_body``) with no behaviour regression.
 from __future__ import annotations
 
 from groundmodel.domain.services.litho_body_assembly import (
+    _keys_for_body,
     append_void,
     assemble_body,
+    assemble_facies_competitors,
     build_extent_solid,
     detect_enclosed_lenses,
     merged_body_extent,
@@ -158,6 +160,43 @@ def _legacy_body(
     return assemble_closed_solid(body_id, formation_id, top_v, base_v, top_t)
 
 
+def _concat_meshes(body_id: str, formation_id: str, parts: list[LithoBodyMesh]) -> LithoBodyMesh:
+    """Concatenate a body's region-prisms into one mesh (index-offset, multi-component).
+
+    A competitor may contribute a clipped prism for each shared body it competes
+    over; this stitches them into a single ``LithoBodyMesh`` per ``body_id`` so the
+    geotech stage can extract per-body data. The components are disjoint closed
+    solids (each watertight); together they are one mesh keyed by the body.
+
+    Parameters
+    ----------
+    body_id : str
+        Body identifier.
+    formation_id : str
+        Formation identifier used for colour lookup.
+    parts : list[LithoBodyMesh]
+        The body's region-prisms (from ``assemble_facies_competitors``).
+
+    Returns
+    -------
+    LithoBodyMesh
+        The concatenated mesh; ``is_flagged`` only if every part was flagged.
+    """
+    verts: list[tuple[float, float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    for m in parts:
+        off = len(verts)
+        verts.extend(m.vertices)
+        tris.extend((a + off, b + off, c + off) for (a, b, c) in m.triangles)
+    return LithoBodyMesh(
+        body_id=body_id,
+        formation_id=formation_id,
+        vertices=verts,
+        triangles=tris,
+        is_flagged=all(m.is_flagged for m in parts) if parts else True,
+    )
+
+
 def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     """Build one closed mesh per body from its member-layer picks.
 
@@ -224,6 +263,21 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
             f"[lens] body {lens_id}: {'shared' if shared_result is not None else 'legacy-fallback'}"
         )
 
+    # Facies pass: build the competitors of every multi-patch shared body.
+    # A body with >=2 distinct neighbours directly above (or below) is "shared";
+    # its competitors are clipped prisms that partition the shared footprint.
+    facies_meshes: dict[str, list[LithoBodyMesh]] = {}
+    for shared_id in by_body:
+        top_keys, base_keys = _keys_for_body(shared_id, columns)
+        ups = {k.upper_body for k in top_keys if k.upper_body}
+        downs = {k.lower_body for k in base_keys if k.lower_body}
+        for side, comp_set in (("above", ups), ("below", downs)):
+            if len(comp_set) >= 2:
+                for comp, mesh in assemble_facies_competitors(
+                    shared_id, side, columns, coords, surfaces
+                ).items():
+                    facies_meshes.setdefault(comp, []).append(mesh)
+
     meshes: list[LithoBodyMesh] = []
     for idx, (body_id, members) in enumerate(by_body.items()):
         formation_id = members[0].formation_id
@@ -250,6 +304,10 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
             meshes.append(mesh)
             path = "matrix-void" if outer is not None else "matrix-fallback"
             logger.debug(f"[{idx + 1}/{len(by_body)}] body {body_id}: {path}")
+            continue
+        if body_id in facies_meshes:
+            meshes.append(_concat_meshes(body_id, formation_id, facies_meshes[body_id]))
+            logger.debug(f"[{idx + 1}/{len(by_body)}] body {body_id}: facies")
             continue
         # Regular (non-lens) body: prefer the M3 shared-surface path.
         shared = assemble_body(body_id, formation_id, columns, surfaces)
