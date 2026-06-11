@@ -23,9 +23,9 @@
  *   (``_seed_action_scenarios_async``), but those are all collinear (3 CPTs in
  *   the same Y-row), so ``compute_tin`` raises QhullError and stores empty
  *   ``triangles`` — ``hasLithoSurfaces`` still flips to true if ``vertices``
- *   is non-empty, but to be safe we copy the geological model's contacts (11
- *   CPTs across 4 Y-rows → non-degenerate TIN) so the rebuild produces real
- *   triangulated vertices.
+ *   is non-empty, but to be safe we copy the geological model's contacts (14
+ *   CPTs across 5 Y-rows; Section E adds facies CPTs 11/12/13 → non-degenerate
+ *   TIN) so the rebuild produces real triangulated vertices.
  *
  * Acceptance criteria (no-crash + state correctness only — no WebGL pixel
  * assertions; geometry correctness is covered by the Vitest layer):
@@ -135,7 +135,7 @@ test.describe('flow_litho_fence_diagram', () => {
       // -----------------------------------------------------------------------
       const seedResult = await page.evaluate(
         async ([base, pid, geoMid, lithoMid]) => {
-          // Fetch geological model contacts (11 CPTs × 3 formations = 33 rows).
+          // Fetch geological model contacts (14 CPTs × 3 formations = 42 rows; Section E adds 3 series-less CPTs).
           const r = await fetch(`${base}/projects/${pid}/geology/models/${geoMid}/contacts`)
           if (!r.ok) return { error: `geo contacts fetch: ${r.status}` }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
