@@ -2956,6 +2956,7 @@ export default function SectionPanel({
                 screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
                 onSaveBoundary={onSaveLensShape}
+                openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
                   onNameBody ?? onDissolveBody
