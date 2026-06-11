@@ -205,16 +205,35 @@ class LithoLayerRepository(GroundModelLogger):
         self.info(f"Layer deleted: {layer_id}")
         return True
 
-    async def list_layers_by_ids(self, layer_ids: list[UUID]) -> list[LithoLayerOrm]:
+    async def list_layers_by_ids(
+        self, layer_ids: list[UUID], model_id: UUID | None = None
+    ) -> list[LithoLayerOrm]:
         """Load layers by id in one IN-query.
 
-        Used by the boundary-move + batch-status use cases for the
-        all-or-nothing scope check. Returns in arbitrary order; the
-        caller indexes by id.
+        Used by the boundary-move + batch-status + batch-update use cases for
+        the all-or-nothing scope check. Returns in arbitrary order; the caller
+        indexes by id.
+
+        Parameters
+        ----------
+        layer_ids : list[UUID]
+            The layer ids to load.
+        model_id : UUID, optional
+            When given, restrict the result to layers belonging to this
+            model. A foreign-model layer id then simply does not come back,
+            which the caller's all-or-nothing guard reports as not-found
+            (audit #2: closes an IDOR on the batch / boundary endpoints).
+
+        Returns
+        -------
+        list[LithoLayerOrm]
+            The matching layers (a subset of ``layer_ids``).
         """
         if not layer_ids:
             return []
         stmt = select(LithoLayerOrm).where(LithoLayerOrm.id.in_(layer_ids))
+        if model_id is not None:
+            stmt = stmt.where(LithoLayerOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())
 
     # -----------------------------------------------------------------
