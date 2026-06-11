@@ -2,7 +2,8 @@
  * Tiny external store for the "Fill bands" toggle.
  *
  * The toggle is driven from the Sections toolbar's Bodies dropdown and read by
- * ``SectionPanel`` (which renders ``BodyBandOverlay``). Those two are sibling
+ * ``SectionPanel`` (which feeds it as ``showBands`` to ``PartitionFillOverlay``).
+ * Those two are sibling
  * components with no shared props path short of the coordinator bus, and this
  * is a single boolean view toggle — so a module-level store read via
  * ``useSyncExternalStore`` is the lightest correct way to share it, without
