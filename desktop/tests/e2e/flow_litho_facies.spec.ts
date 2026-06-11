@@ -140,8 +140,9 @@ test.describe('flow_litho_facies', () => {
         //    BEFORE opening the project.
         //
         //    Same pattern as flow_litho_fence_diagram + flow_litho_solids:
-        //    copy the geological model's contacts (11 CPTs across 4 Y-rows →
-        //    non-degenerate TIN) onto the litho model so RebuildModelSurfaces
+        //    copy the geological model's contacts (14 CPTs across 5 Y-rows →
+        //    non-degenerate TIN; Section E adds facies CPTs 11/12/13) onto the
+        //    litho model so RebuildModelSurfaces
         //    produces real vertices.  ``useGeologicalModel`` fetches
         //    lithoSurfacesByFormationId once on project-open, so surfaces must
         //    exist before the project is opened.
