@@ -62,6 +62,9 @@ Done when:
 - Each competing body is a closed 2-manifold; adjacent competitors **share their wall geometry
   exactly** (gap 0); no sampled interior point is inside two bodies.
 - **Tops meet** — one continuous upper surface across the facies boundary (no step).
+- **One mesh per body** — each competitor is emitted as its own `LithoBodyMesh` keyed by its
+  `body_id` (its competition-region clip unified with its non-competing extent into a single body
+  object), so the geotech stage can extract per-body data from it (owner requirement).
 - A vertical section through the 3D model reproduces the 2D `computeSectionFill` seam position
   (midpoint) for that section.
 - On real `test.strix`, the hairlines between competing units are gone (owner dogfeed).
@@ -91,14 +94,18 @@ construction.
 - all 3 labels equal → the triangle belongs to that competitor;
 - 2 distinct (one vertex differs) → split the two differing edges at their **midpoints** and cut
   the triangle into the two competitors' pieces;
-- 3 distinct (triple junction) → split each edge at its midpoint and connect the three midpoints to
-  the triangle **centroid**, giving three pieces meeting at the junction.
+- 3 distinct (triple junction) → the junction is the triangle's **circumcenter** (the true Voronoi
+  point, equidistant from all 3 holes); the three boundaries are the perpendicular-bisector
+  segments from each edge midpoint to it. This is the midpoint rule generalised — every boundary
+  lies on a Voronoi edge. **Obtuse-triangle guard:** when the circumcenter falls outside the
+  triangle, clamp the junction onto the triangle (the two nearer cells then meet on the longest
+  edge); the partition stays valid and non-overlapping.
 
 This is **local mixed-triangle subdivision** — no CDT library. The midpoint on every edge matches
 the 2D `meetFraction = 0.5`, so a section crossing that edge reproduces the 2D seam.
 
 **(d) Build clipped prisms.** Each competitor's region = the union of its labelled (sub-)triangles.
-Build its closed mesh = its region triangles at `S_upper` (top) + at B's floor (base, flipped) +
+Build its closed mesh (we'll need to give every closed mesh it's own body object so we can easily extract data from it in geotech stage) = its region triangles at `S_upper` (top) + at B's floor (base, flipped) +
 vertical walls on the region boundary. Walls between adjacent competitors are built on the **same
 shared midpoint/junction vertices** → they coincide (spike-proven watertight). The shared body B is
 built normally (continuous, full footprint between its top and base).
@@ -152,6 +159,9 @@ The midpoint rule is a 2-line constant (`FACIES_MEET_FRACTION = 0.5`) mirroring 
   envelope.
 - **Real-data dogfeed (the gate):** owner Builds `test.strix` — the competing-unit hairlines gone,
   the 52-hole 3-way SAND case carved into CLAY/SILT/PEAT regions, no new holes.
+- **e2e (Playwright):** a `flow_litho_facies` spec — Build the litho solids on a synthetic fixture
+  that contains a multi-patch competition, switch to Solid view, assert the 3D pane mounts and the
+  competing-unit bodies render (no flagged fallback for the shared/competitor bodies).
 
 ---
 
@@ -167,17 +177,20 @@ The midpoint rule is a 2-line constant (`FACIES_MEET_FRACTION = 0.5`) mirroring 
   correlated *before* taking the midpoint. The label in (a) is already the *actual* above-body
   (post-resolver, correlation-aware), so the footprints are correlation-extended for free; confirm
   on real data that the midpoint then matches the 2D seam.
-- **Centroid junction vs true Voronoi point** — the centroid is a simple, deterministic triple-
-  junction point; if a section-cut through the junction triangle must match the 2D exactly there,
-  revisit (sections rarely cross exactly at a junction).
+- **Triple-junction point = circumcenter (true Voronoi) — RESOLVED.** Using the circumcenter (not
+  the centroid) puts every boundary on a perpendicular bisector, so it is consistent with the 2-way
+  midpoint *and* is the geometrically-correct equidistant point. Only wrinkle: an obtuse triangle's
+  circumcenter lies outside it → clamp onto the triangle (§3c). No remaining open question here.
 
 ---
 
 ## 8. Build order
 
-1. `litho_facies_partition.py`: label + midpoint/centroid subdivision (TDD, pure).
-2. `assemble_facies_competitors` + prism builder (TDD: 2-way then 3-way watertight + no-overlap).
+1. `litho_facies_partition.py`: label + midpoint/circumcenter subdivision (TDD, pure; obtuse guard).
+2. `assemble_facies_competitors` + prism builder (TDD: 2-way then 3-way watertight + no-overlap),
+   each competitor emitted as its own `LithoBodyMesh` (unify competition clip + non-competing extent).
 3. Route multi-patch bodies in `build_body_solids`; keep the shared body normal + disk fallback.
 4. Section-cut-matches-midpoint test; above-and-below fixture; degenerate guards.
 5. No-overlap invariant on a multi-patch model; bench.
-6. Owner dogfeed on `test.strix`.
+6. `flow_litho_facies` Playwright e2e.
+7. Owner dogfeed on `test.strix`.
