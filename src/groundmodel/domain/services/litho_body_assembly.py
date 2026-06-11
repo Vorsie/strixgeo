@@ -19,6 +19,11 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     LayerSpan,
     Surface,
 )
+from groundmodel.domain.services.litho_facies_partition import (
+    competitor_labels_above,
+    competitor_labels_below,
+    partition_footprint,
+)
 from groundmodel.domain.services.litho_mesh_primitives import assemble_closed_solid
 from groundmodel.domain.services.tin_surface import compute_tin
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
@@ -330,6 +335,188 @@ def build_prism(
         triangles=tris,
         is_flagged=not tris,
     )
+
+
+def _formation_of(body_id: str, columns: dict[str, list[LayerSpan]]) -> str:
+    """Return the formation id of the first span belonging to ``body_id``.
+
+    Falls back to ``body_id`` itself if the body is not found in any column
+    (defensive: callers only pass bodies that exist in ``columns``).
+
+    Parameters
+    ----------
+    body_id : str
+        The body whose formation id is wanted.
+    columns : dict[str, list[LayerSpan]]
+        Per-investigation spans, shallowest-first.
+
+    Returns
+    -------
+    str
+        The ``formation_id`` of the first matching span, or ``body_id`` if no
+        span is found.
+    """
+    for spans in columns.values():
+        for s in spans:
+            if s.body_id == body_id:
+                return s.formation_id
+    return body_id
+
+
+def _tin_z(tin, x: float, y: float) -> float | None:
+    """Barycentric-interpolate the TIN elevation at ``(x, y)``.
+
+    Iterates the TIN's triangles and tests each via barycentric coordinates.
+    Returns ``None`` when ``(x, y)`` lies outside every triangle (i.e., outside
+    the triangulated hull).
+
+    Parameters
+    ----------
+    tin : object
+        A TIN object with ``.vertices`` (list of ``(x, y, z)``) and
+        ``.triangles`` (list of ``(a, b, c)`` index triples).
+    x : float
+        Query easting.
+    y : float
+        Query northing.
+
+    Returns
+    -------
+    float | None
+        Interpolated elevation, or ``None`` when outside the hull.
+    """
+    for a, b, c in tin.triangles:
+        ax, ay, az = tin.vertices[a]
+        bx, by, bz = tin.vertices[b]
+        cx, cy, cz = tin.vertices[c]
+        det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(det) < 1e-12:
+            continue
+        l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det
+        l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det
+        l3 = 1.0 - l1 - l2
+        if min(l1, l2, l3) >= -1e-9:
+            return l1 * az + l2 * bz + l3 * cz
+    return None
+
+
+def assemble_facies_competitors(
+    body_id: str,
+    side: str,
+    columns: dict[str, list[LayerSpan]],
+    coords: dict[str, tuple[float, float]],
+    surfaces: dict,
+) -> dict[str, LithoBodyMesh]:
+    """Build each competitor above/below a shared body as a clipped, tiling prism.
+
+    Partitions the shared body's footprint among the competitors (midpoint/Voronoi),
+    then builds one prism per competitor between a single continuous floor (the
+    shared body's contact) and a single continuous upper surface (the competitors'
+    tops) — both sampled at every partition vertex so tops meet and walls coincide.
+
+    Parameters
+    ----------
+    body_id : str
+        The shared body.
+    side : str
+        ``"above"`` or ``"below"`` — which side the competition is on.
+    columns : dict[str, list[LayerSpan]]
+        Per-investigation spans, shallowest-first.
+    coords : dict[str, tuple[float, float]]
+        ``inv_id -> (x, y)``.
+    surfaces : dict
+        Fitted patch surfaces (currently unused here; kept for signature symmetry
+        with the other assemblers and future shared-surface reuse).
+
+    Returns
+    -------
+    dict[str, LithoBodyMesh]
+        ``competitor_body_id -> closed prism``.  Empty if the shared body has no
+        facies competition on ``side`` (fewer than 3 labelled holes).
+    """
+    labels = (competitor_labels_above if side == "above" else competitor_labels_below)(
+        body_id, columns
+    )
+    part = partition_footprint(coords, labels)
+    if not part.regions:
+        return {}
+
+    # Per-hole top/base elevations of the competitor slab.
+    # For "above": competitor top = upper span's top_elev; floor = shared body's top_elev.
+    # For "below": competitor base = lower span's base_elev; ceiling = shared body's base_elev.
+    top_h: dict[str, float] = {}
+    base_h: dict[str, float] = {}
+    for h in labels:
+        for i, s in enumerate(columns[h]):
+            if s.body_id != body_id:
+                continue
+            if side == "above":
+                # Competitor sits immediately above: index i-1 is the competitor span.
+                top_h[h] = columns[h][i - 1].top_elev
+                base_h[h] = s.top_elev  # shared body's top is the floor of the competitor slab
+            else:
+                # Competitor sits immediately below: index i+1 is the competitor span.
+                top_h[h] = s.base_elev  # shared body's base is the ceiling of the competitor slab
+                base_h[h] = columns[h][i + 1].base_elev
+            break
+
+    holes = sorted(labels)
+    # Fit two TINs over the same hole set: one at the competitor-outer surface
+    # (top for "above", base for "below") and one at the shared-body contact
+    # (the floor/ceiling that all competitors share). Both surfaces are sampled
+    # at every partition vertex so coincident walls are guaranteed watertight.
+    top_tin = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=h,
+                x_m=coords[h][0],
+                y_m=coords[h][1],
+                elevation_m=top_h[h],
+            )
+            for h in holes
+        ]
+    )
+    base_tin = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=h,
+                x_m=coords[h][0],
+                y_m=coords[h][1],
+                elevation_m=base_h[h],
+            )
+            for h in holes
+        ]
+    )
+    hole_xy = [coords[h] for h in holes]
+
+    def _sample(tin, hole_z: dict[str, float], x: float, y: float) -> float:
+        """Sample elevation from TIN, falling back to nearest hole when outside hull."""
+        z = _tin_z(tin, x, y)
+        if z is not None:
+            return z
+        # Nearest-hole fallback: a partition vertex outside the trimmed TIN hull
+        # (e.g., a midpoint or circumcenter inserted beyond the convex hull) is
+        # assigned the elevation of its nearest labelled hole.
+        nearest = min(
+            range(len(hole_xy)),
+            key=lambda k: (hole_xy[k][0] - x) ** 2 + (hole_xy[k][1] - y) ** 2,
+        )
+        return hole_z[holes[nearest]]
+
+    top_field: dict[int, float] = {}
+    base_field: dict[int, float] = {}
+    for idx, (vx, vy) in enumerate(part.vertices):
+        top_field[idx] = _sample(top_tin, top_h, vx, vy)
+        base_field[idx] = _sample(base_tin, base_h, vx, vy)
+
+    out: dict[str, LithoBodyMesh] = {}
+    for comp, tris in part.regions.items():
+        mesh = build_prism(
+            comp, _formation_of(comp, columns), part.vertices, tris, top_field, base_field
+        )
+        if mesh.triangles:
+            out[comp] = mesh
+    return out
 
 
 def append_void(matrix: LithoBodyMesh, lens: LithoBodyMesh) -> LithoBodyMesh:

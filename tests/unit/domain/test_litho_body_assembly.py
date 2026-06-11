@@ -261,3 +261,142 @@ def test_build_prism_is_watertight_over_a_region():
     assert closed_manifold(mesh.triangles) and consistently_wound(mesh.triangles)
     assert inside(mesh.vertices, mesh.triangles, (5.0, 5.0, -4.0))
     assert not inside(mesh.vertices, mesh.triangles, (5.0, 5.0, 0.0))
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — assemble_facies_competitors (3-way watertight gate)
+# ---------------------------------------------------------------------------
+
+
+def test_facies_competitors_3way_tile_watertight():
+    """CLAY/SILT/PEAT competing above a SAND tile watertight, no overlap, tops meet.
+
+    Six investigations on a hexagonal ring, each carrying one of three upper bodies
+    (CLAY, SILT, PEAT) directly above a shared SAND body.  The gate checks:
+    - all three competitors are present in the result,
+    - every competitor mesh is watertight and consistently wound,
+    - no point in a grid of samples is claimed by two competitors simultaneously.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    ring = [
+        ("A", 0, 0, "CLAY"),
+        ("B", 6, 1, "CLAY"),
+        ("C", 10, 6, "SILT"),
+        ("D", 7, 11, "SILT"),
+        ("E", 1, 10, "PEAT"),
+        ("F", -3, 5, "PEAT"),
+    ]
+    picks = []
+    for inv, x, y, up in ring:
+        picks.append(_pick(inv, x, y, up, 0.0, 2.0))  # competitor above
+        picks.append(_pick(inv, x, y, "SAND", 2.0, 9.0))  # shared SAND below
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "above", columns, coords, surfaces)
+    assert set(comps) == {"CLAY", "SILT", "PEAT"}
+    meshes = list(comps.values())
+    for m in meshes:
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+    for x in (0, 3, 5, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -3.0))
+            ]
+            assert len(hits) <= 1, f"overlap at ({x},{y},-3.0): {hits}"
+
+
+def test_facies_competitors_2way_watertight_no_overlap():
+    """CLAY and PEAT competing above SAND on a 4-hole square: both watertight, no overlap.
+
+    Two competitors on a minimal (4-investigation) ring that still triangulates.
+    Verifies the 2-way midpoint path in assemble_facies_competitors.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    ring = [
+        ("A", 0, 0, "CLAY"),
+        ("B", 8, 0, "CLAY"),
+        ("C", 8, 10, "PEAT"),
+        ("D", 0, 10, "PEAT"),
+    ]
+    picks = []
+    for inv, x, y, up in ring:
+        picks.append(_pick(inv, x, y, up, 0.0, 3.0))
+        picks.append(_pick(inv, x, y, "SAND", 3.0, 10.0))
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "above", columns, coords, surfaces)
+    assert set(comps) == {"CLAY", "PEAT"}
+    meshes = list(comps.values())
+    for m in meshes:
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+    for x in (1, 4, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -5.0))
+            ]
+            assert len(hits) <= 1, f"overlap at ({x},{y},-5.0): {hits}"
+
+
+def test_facies_competitors_below_watertight_no_overlap():
+    """SILT and GRAVEL competing below SAND: both watertight, no overlap.
+
+    Exercises the ``side="below"`` path: competitors are directly below the shared
+    SAND body.  Sanity-checks the per-hole index walk uses ``i + 1`` correctly.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    ring = [
+        ("A", 0, 0, "SILT"),
+        ("B", 8, 0, "SILT"),
+        ("C", 8, 10, "GRAVEL"),
+        ("D", 0, 10, "GRAVEL"),
+    ]
+    picks = []
+    for inv, x, y, lo in ring:
+        picks.append(_pick(inv, x, y, "SAND", 0.0, 4.0))  # shared SAND above
+        picks.append(_pick(inv, x, y, lo, 4.0, 12.0))  # competitor below
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "below", columns, coords, surfaces)
+    assert set(comps) == {"SILT", "GRAVEL"}
+    meshes = list(comps.values())
+    for m in meshes:
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+    for x in (1, 4, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -8.0))
+            ]
+            assert len(hits) <= 1, f"overlap at ({x},{y},-8.0): {hits}"
