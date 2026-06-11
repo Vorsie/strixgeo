@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel"
     debug: bool = False
+    # SQLAlchemy engine echo. OFF by default and decoupled from `debug`
+    # because echo logs every statement WITH the bound DSN — leaking the DB
+    # password into backend.log on any debug run (audit #6). Opt in explicitly
+    # via SQLALCHEMY_ECHO=true only for local query debugging.
+    sqlalchemy_echo: bool = False
     log_level: str = "INFO"
     # Deployment environment. "development" keeps relaxed dev ergonomics
     # (e.g. the SECRET_KEY default is a warning, not an error). Any other
