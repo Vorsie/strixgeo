@@ -37,6 +37,12 @@ def test_default_secret_key_in_production_raises() -> None:
         )
 
 
+def test_empty_secret_key_in_production_raises() -> None:
+    """An empty SECRET_KEY (bare ``SECRET_KEY=`` line) is as weak as the default."""
+    with pytest.raises(ValueError, match="SECRET_KEY"):
+        Settings(environment="production", secret_key="", _env_file=None)
+
+
 def test_real_secret_key_in_production_is_accepted() -> None:
     """A genuine key in production passes validation."""
     settings = Settings(
