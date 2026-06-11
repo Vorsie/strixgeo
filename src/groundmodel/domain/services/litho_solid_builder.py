@@ -27,6 +27,8 @@ per-body TIN path (``_legacy_body``) with no behaviour regression.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from groundmodel.domain.services.litho_body_assembly import (
     _keys_for_body,
     append_void,
@@ -279,7 +281,11 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
         top_keys, base_keys = _keys_for_body(shared_id, columns)
         ups = {k.upper_body for k in top_keys if k.upper_body}
         downs = {k.lower_body for k in base_keys if k.lower_body}
-        for side, comp_set in (("above", ups), ("below", downs)):
+        sides: tuple[tuple[Literal["above", "below"], set[str]], ...] = (
+            ("above", ups),
+            ("below", downs),
+        )
+        for side, comp_set in sides:
             if len(comp_set) >= 2:
                 result = assemble_facies_competitors(shared_id, side, columns, coords, surfaces)
                 for comp, mesh in result.items():

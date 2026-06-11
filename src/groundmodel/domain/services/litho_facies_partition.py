@@ -274,10 +274,11 @@ class FaciesPartition:
         ``competitor_body_id -> plan triangles`` (indices into ``vertices``).
     hole_vertex : dict[str, int]
         ``inv_id -> vertex index`` for each **labelled** hole (those present in
-        ``labels``).  Holes present in ``coords`` but absent from ``labels`` are
+        ``labels``).  Holes present in ``labels`` but absent from ``coords`` are
         not included — in production ``labels`` from
         :func:`competitor_labels_above` / :func:`competitor_labels_below` is a
-        subset of ``coords``.
+        subset of ``coords``.  Reserved for callers needing a hole→pool-index
+        lookup; not consumed by the v1 assembly path.
     """
 
     vertices: list[tuple[float, float]]

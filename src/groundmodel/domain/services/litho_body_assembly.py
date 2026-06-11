@@ -13,6 +13,7 @@ them. Pure: no I/O.
 from __future__ import annotations
 
 from collections import Counter
+from typing import Literal
 
 from groundmodel.domain.services.litho_contact_surfaces import (
     ContactKey,
@@ -278,8 +279,9 @@ def build_prism(
     Returns
     -------
     LithoBodyMesh
-        Closed prism (``is_flagged=False``); empty (``is_flagged=True``) if no
-        non-degenerate triangle.
+        Closed prism (``is_flagged=False``); a degenerate mesh
+        (``is_flagged=True``, ``triangles=[]``) if every plan triangle was below
+        the area threshold.
 
     Raises
     ------
@@ -298,14 +300,6 @@ def build_prism(
         verts.append((x, y, top_elev[p]))
         verts.append((x, y, base_elev[p]))
 
-    def _ccw(a: int, b: int, c: int) -> tuple[int, int, int]:
-        """Return (a, b, c) wound CCW (positive area) in the XY plane."""
-        ax, ay = vertices_2d[a]
-        bx, by = vertices_2d[b]
-        cx, cy = vertices_2d[c]
-        area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
-        return (a, b, c) if area > 0 else (a, c, b)
-
     tris: list[tuple[int, int, int]] = []
     # Count each directed edge to identify boundary edges.
     edge_count: Counter[tuple[int, int]] = Counter()
@@ -313,9 +307,13 @@ def build_prism(
         ax, ay = vertices_2d[raw[0]]
         bx, by = vertices_2d[raw[1]]
         cx, cy = vertices_2d[raw[2]]
-        if abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < DEGENERATE_PLAN_AREA_M2:
+        # 2D signed area (× 2) of the plan triangle — computed once and reused for
+        # both the degenerate-skip guard and the CCW winding decision.
+        area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+        if abs(area) < DEGENERATE_PLAN_AREA_M2:
             continue  # skip degenerate triangles
-        a, b, c = _ccw(*raw)
+        # Wind CCW (positive area) so the top face normal points up.
+        a, b, c = (raw[0], raw[1], raw[2]) if area > 0 else (raw[0], raw[2], raw[1])
         # Top face: CCW when viewed from above (normal points up).
         tris.append((top_i[a], top_i[b], top_i[c]))
         # Base face: CW when viewed from above → CCW from below (normal points down).
@@ -340,35 +338,9 @@ def build_prism(
     )
 
 
-def _formation_of(body_id: str, columns: dict[str, list[LayerSpan]]) -> str:
-    """Return the formation id of the first span belonging to ``body_id``.
-
-    Falls back to ``body_id`` itself if the body is not found in any column
-    (defensive: callers only pass bodies that exist in ``columns``).
-
-    Parameters
-    ----------
-    body_id : str
-        The body whose formation id is wanted.
-    columns : dict[str, list[LayerSpan]]
-        Per-investigation spans, shallowest-first.
-
-    Returns
-    -------
-    str
-        The ``formation_id`` of the first matching span, or ``body_id`` if no
-        span is found.
-    """
-    for spans in columns.values():
-        for s in spans:
-            if s.body_id == body_id:
-                return s.formation_id
-    return body_id
-
-
 def assemble_facies_competitors(
     body_id: str,
-    side: str,
+    side: Literal["above", "below"],
     columns: dict[str, list[LayerSpan]],
     coords: dict[str, tuple[float, float]],
     surfaces: dict[ContactKey, Surface],
@@ -376,9 +348,10 @@ def assemble_facies_competitors(
     """Build each competitor above/below a shared body as a clipped, tiling prism.
 
     Partitions the shared body's footprint among the competitors (midpoint/Voronoi),
-    then builds one prism per competitor between a single continuous floor (the
-    shared body's contact) and a single continuous upper surface (the competitors'
-    tops) — both sampled at every partition vertex so tops meet and walls coincide.
+    then builds one prism per competitor between the shared-body contact surface
+    (the floor for ``above``, the ceiling for ``below``) and the competitor's outer
+    surface (competitor tops for ``above``, competitor bases for ``below``) — both
+    sampled at every partition vertex so walls coincide.
 
     Parameters
     ----------
@@ -487,10 +460,14 @@ def assemble_facies_competitors(
         top_field[idx] = _sample(top_tin, top_h, vx, vy)
         base_field[idx] = _sample(base_tin, base_h, vx, vy)
 
+    # One scan of the columns gives every body's formation id; avoids a full
+    # column scan per competitor (defaults to the body id if a span is missing).
+    formation_by_body = {s.body_id: s.formation_id for spans in columns.values() for s in spans}
+
     out: dict[str, LithoBodyMesh] = {}
     for comp, tris in part.regions.items():
         mesh = build_prism(
-            comp, _formation_of(comp, columns), part.vertices, tris, top_field, base_field
+            comp, formation_by_body.get(comp, comp), part.vertices, tris, top_field, base_field
         )
         if mesh.triangles:
             out[comp] = mesh
