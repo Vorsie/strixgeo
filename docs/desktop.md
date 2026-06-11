@@ -41,7 +41,7 @@ desktop/src/
     │   ├── DovImportProgressPanel.tsx  SSE-streaming import progress panel (CPT + borehole).
     │   ├── SectionPanel.tsx     Cross-section SVG canvas; contacts/litho layers/correlation
     │   │                        overlays. Hosts ContactsLayer, CorrelationEdgesOverlay,
-    │   │                        LensWedgeOverlay, BodyExtentOverlay.
+    │   │                        PartitionFillOverlay (band/onlap/lens fill).
     │   ├── SettingsDialog.tsx   Per-project litho-segmenter settings (snap tolerance, sliver
     │   │                        guard, correlation depth window, lens max thickness, …).
     │   └── WelcomeScreen.tsx    Shown when no project is loaded. Two-column layout:
@@ -55,10 +55,10 @@ desktop/src/
     ├── components/sections/     Section-canvas sub-components:
     │   ├── ContactsLayer.tsx        SVG contact lines + drag handles + snap indicators.
     │   ├── CorrelationEdgesOverlay.tsx  Ribbon rendering for correlation edges.
-    │   ├── LensWedgeOverlay.tsx     Body (lens) wedge geometry + drag nodes.
-    │   ├── BodyExtentOverlay.tsx    Lateral-extent markers and handles.
+    │   ├── PartitionFillOverlay.tsx Band/onlap/lens partition fill + pinch
+    │   │                            shaping (sole owner of section litho fill).
     │   ├── ColumnContextMenu.tsx    Right-click menu on a section column.
-    │   └── BodyContextMenu.tsx      Right-click menu on a body wedge.
+    │   └── BodyContextMenu.tsx      Right-click menu on a body (Dissolve / Name).
     ├── shell/
     │   ├── AppShell.tsx       Top-level layout shell: spine + stage canvas + inspector panel.
     │   ├── StageSpine.tsx     Left navigation spine — one button per stage.
@@ -105,7 +105,8 @@ desktop/src/
     │   ├── lithoConstants.ts  LITHOLOGY_COLORS, LITHOLOGY_LABELS — must stay byte-identical
     │   │                      to the backend mirror in ``shared/constants/litho_constants.py``.
     │   ├── lithoSegmenterPrefs.ts  read/write helpers for ``view_state.litho_segmenter.*``.
-    │   ├── bodyExtent.ts      ClaimBodyExtent client helpers + body-extent geometry.
+    │   ├── partitionFill.ts   computeSectionFill — derives band/onlap/lens geometry
+    │   │                      from contact-correlation counts (body shape source of truth).
     │   ├── verticalDatum.ts   EPSG → datum-label lookup (5710→mTAW, 5709→NAP)
     │   └── useWgs84.ts        Lambert72 → WGS84 projection cache (moved to hooks/ in practice)
     └── App.tsx                Project gate, data loading, import handlers, toasts.
