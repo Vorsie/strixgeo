@@ -9,6 +9,10 @@ from pydantic_settings import BaseSettings
 # Sentinel value written in the codebase default so callers can cheaply
 # detect the un-overridden case without importing the whole settings module.
 _SECRET_KEY_DEFAULT = "change-me"
+# Values that are NOT a real secret. An empty string (e.g. a bare
+# ``SECRET_KEY=`` line) is as weak as the shipped default, so both are
+# rejected outside development (audit #16).
+_SECRET_KEY_WEAK = frozenset({_SECRET_KEY_DEFAULT, ""})
 
 
 def _default_dov_cache_dir() -> Path:
@@ -72,7 +76,7 @@ class Settings(BaseSettings):
             If ``secret_key`` is the shipped default and ``environment`` is
             not ``"development"``.
         """
-        if self.secret_key != _SECRET_KEY_DEFAULT:
+        if self.secret_key not in _SECRET_KEY_WEAK:
             return self
         if self.environment == "development":
             warnings.warn(
