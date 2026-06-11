@@ -829,7 +829,8 @@ export interface NameBodyRequest {
 
 /** Slice 5: response from ``PATCH .../bodies/{id}``. */
 export interface NameBodyResponse {
-  lens_id: string
+  /** The BodyOrm row id. Backend field is ``body_id`` (audit #3). */
+  body_id: string
   was_created: boolean
 }
 
@@ -892,7 +893,8 @@ export type BodyRenderStyle = 'straight' | 'blocky' | 'rounded'
 
 /** Response from ``GET/PUT .../bodies/{id}/boundary``. */
 export interface BodyBoundaryResponse {
-  lens_id: string
+  /** The BodyOrm row id. Backend field is ``body_id`` (audit #3). */
+  body_id: string
   content_key: string | null
   render_style: BodyRenderStyle
   primary_section_id: string | null
