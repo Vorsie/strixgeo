@@ -570,3 +570,69 @@ def test_facies_competitors_obtuse_triangle_junction_stays_watertight():
                 if inside(m.vertices, m.triangles, (float(x), float(y), -1.0))
             ]
             assert len(hits) <= 1, f"overlap at ({x},{y},-1.0): {hits}"
+
+
+def test_facies_competition_over_a_tilted_shared_body_floor():
+    """3-way facies competition over a DIPPING shared-body floor stays watertight.
+
+    Unlike the flat-floor fixtures, every hole gets a DIFFERENT surface elevation
+    and a different competitor thickness, so the shared-body contact (the floor of
+    the competitor slabs) is a genuinely tilted plane and the competitor tops vary
+    too.  This forces the midpoint / circumcenter-junction partition vertices to be
+    INTERPOLATED off the two TINs (and may exercise the nearest-hole fallback for a
+    vertex just outside the trimmed hull).  The gate: every competitor mesh is
+    watertight + consistently wound and no point is claimed by two competitors,
+    PLUS an explicit check that the floor is not accidentally flat.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    # Hexagonal (acute) ring; per-hole (surface_elev, competitor_thickness) varies
+    # so floor elevation (= surf - competitor_thickness) differs at every hole.
+    ring = [
+        ("A", 0.0, 0.0, "CLAY", 0.0, 1.0),
+        ("B", 6.0, 1.0, "CLAY", 1.0, 1.5),
+        ("C", 10.0, 6.0, "SILT", 2.0, 2.0),
+        ("D", 7.0, 11.0, "SILT", 2.5, 2.5),
+        ("E", 1.0, 10.0, "PEAT", 1.5, 3.0),
+        ("F", -3.0, 5.0, "PEAT", 0.5, 3.5),
+    ]
+    picks = []
+    floor_elevs = {}
+    for inv, x, y, up, surf, thick in ring:
+        # Competitor occupies depth 0..thick below the (per-hole) surface; the
+        # shared SAND body starts at that depth → its top is the slab floor.
+        picks.append(_pick(inv, x, y, up, 0.0, thick, surf=surf))
+        picks.append(_pick(inv, x, y, "SAND", thick, thick + 7.0, surf=surf))
+        floor_elevs[inv] = surf - thick
+    # The shared-body floor is genuinely tilted — guard against a flat-surface
+    # tautology that would make the interpolation paths trivial.
+    assert len(set(round(z, 6) for z in floor_elevs.values())) > 1, (
+        f"floor must be tilted, got {floor_elevs}"
+    )
+
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "above", columns, coords, surfaces)
+    assert set(comps) == {"CLAY", "SILT", "PEAT"}
+    meshes = list(comps.values())
+    for m in meshes:
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+    # No sampled point claimed by two competitors.  Sweep a range of z so the
+    # check covers the full tilted slab, not just one horizontal slice.
+    for x in (0, 3, 5, 7):
+        for y in (2, 5, 8):
+            for z in (0.0, -1.0, -2.0):
+                hits = [
+                    m.body_id
+                    for m in meshes
+                    if inside(m.vertices, m.triangles, (float(x), float(y), z))
+                ]
+                assert len(hits) <= 1, f"overlap at ({x},{y},{z}): {hits}"
