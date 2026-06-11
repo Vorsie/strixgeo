@@ -513,3 +513,60 @@ def test_facies_competitors_above_and_below_shared_body():
                 if inside(m.vertices, m.triangles, (float(x), float(y), -9.0))
             ]
             assert len(hits) <= 1, f"below overlap at ({x},{y},-9.0): {hits}"
+
+
+def test_facies_competitors_obtuse_triangle_junction_stays_watertight():
+    """A 3-way facies competition over a strongly-obtuse footprint triangle stays watertight.
+
+    Three of the footprint holes are placed nearly collinear so at least one
+    Delaunay triangle is strongly obtuse — its circumcenter falls OUTSIDE the
+    triangle and ``circumcenter`` must clamp it back inside via barycentric
+    coordinates.  This exercises the clamp path that a well-shaped (acute) ring
+    never hits.  The gate: every competitor mesh is watertight + consistently
+    wound, and no sampled point is claimed by two competitors at once.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    # A very flat, wide footprint with a central hole forces Delaunay to emit
+    # strongly-obtuse triangles whose circumcenter lies OUTSIDE the triangle
+    # (verified: triangles B·E·A and D·E·C each have a raw circumcenter at
+    # barycentric min ≈ -49 → the clamp fires).  Labels are chosen so each obtuse
+    # triangle carries three DISTINCT competitor labels, so the 3-way Voronoi
+    # circumcenter junction (the clamped point) is actually computed:
+    #   B·E·A = SILT·PEAT·CLAY  and  D·E·C = SILT·PEAT·CLAY.
+    ring = [
+        ("A", 0.0, 0.0, "CLAY"),
+        ("B", 30.0, 0.0, "SILT"),
+        ("C", 30.0, 3.0, "CLAY"),
+        ("D", 0.0, 3.0, "SILT"),
+        ("E", 15.0, 1.5, "PEAT"),
+    ]
+    picks = []
+    for inv, x, y, up in ring:
+        picks.append(_pick(inv, x, y, up, 0.0, 2.0))  # competitor above
+        picks.append(_pick(inv, x, y, "SAND", 2.0, 9.0))  # shared SAND below
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "above", columns, coords, surfaces)
+    assert set(comps) == {"CLAY", "SILT", "PEAT"}
+    meshes = list(comps.values())
+    for m in meshes:
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+    # No sampled point inside two competitors at once (z = -1.0 is inside the
+    # competitor slab, depth 0–2 → elevation 0..-2).
+    for x in (3, 9, 15, 21, 27):
+        for y in (0.5, 1.5, 2.5):
+            hits = [
+                m.body_id
+                for m in meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -1.0))
+            ]
+            assert len(hits) <= 1, f"overlap at ({x},{y},-1.0): {hits}"
