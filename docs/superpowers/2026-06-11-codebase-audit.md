@@ -1,5 +1,18 @@
 # Strix Repository — Executive Audit
 
+> **Remediation status (2026-06-12, branch `feat-litho-3d-m3-watertight`, unpushed).**
+> Audit-remediation run executed Phases 0–4 of
+> `docs/superpowers/plans/2026-06-11-next-session-handoff.md`. **Done:** #1, #2
+> (+ two single-layer IDOR paths the security-reviewer surfaced: PATCH `/layers/{id}`
+> and `unlink-geo`), #3 (+ the live `lenses_created/removed`→`bodies_*` client mismatch),
+> #5, #6, #8, #10, #12, #13, #15 (+ dotdot-traversal hardening), #16 (+ packaged-build
+> `ENVIRONMENT=production` injection + empty-key rejection), #19, the missing partial
+> index, and the `partitionFill.ts` hot-loop allocations. **Skipped (logged):** #4
+> (god-component memo split — owner-present), #7 (Electron EOL bump — major-version bump
+> not safe to verify unattended via headless e2e with the fixture wiped), #11/#14/#18 and
+> the §4/§5 larger refactors (gated on the geotech stage). All Phase-0 fixes passed a
+> `security-reviewer` subagent pass. Suites green at completion.
+>
 > **Re-landed 2026-06-11 after the floor-clip revert.** This audit ran during the
 > (now reverted) floor-clip / geo-coupled-fill thread. Findings **#9** (`_build_fill_meta`
 > / `load_floor_inputs.py`), **#17** (PartitionFillOverlay floor-clip divergence), **#20**
