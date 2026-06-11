@@ -273,7 +273,11 @@ class FaciesPartition:
     regions : dict[str, list[tuple[int, int, int]]]
         ``competitor_body_id -> plan triangles`` (indices into ``vertices``).
     hole_vertex : dict[str, int]
-        ``inv_id -> vertex index`` for each footprint hole (for surface lookup).
+        ``inv_id -> vertex index`` for each **labelled** hole (those present in
+        ``labels``).  Holes present in ``coords`` but absent from ``labels`` are
+        not included — in production ``labels`` from
+        :func:`competitor_labels_above` / :func:`competitor_labels_below` is a
+        subset of ``coords``.
     """
 
     vertices: list[tuple[float, float]]
@@ -325,6 +329,14 @@ def partition_footprint(
             for h in holes
         ]
     )
+    # Defensive guard: compute_tin may have dropped or collapsed points (NaN,
+    # duplicate (x,y), or all-collinear → QhullError caught internally).  When
+    # that happens tin.vertices is shorter than `holes`, so the index assumption
+    # ``tin.vertices[i] == holes[i]`` no longer holds.  A silently-wrong
+    # partition is worse than an empty one, so bail out here.
+    if len(tin.vertices) != len(holes):
+        return FaciesPartition([], {}, {})
+
     hole_coords = [coords[h] for h in holes]
     acc = _PartitionAccumulator(hole_coords)
     for a, b, c in tin.triangles:
