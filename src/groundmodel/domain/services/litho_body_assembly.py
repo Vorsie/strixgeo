@@ -12,6 +12,8 @@ them. Pure: no I/O.
 
 from __future__ import annotations
 
+from collections import Counter
+
 from groundmodel.domain.services.litho_contact_surfaces import (
     ContactKey,
     LayerSpan,
@@ -259,18 +261,25 @@ def build_prism(
     region_tris : list[tuple[int, int, int]]
         This region's plan triangles (indices into ``vertices_2d``).
     top_elev : dict[int, float]
-        Elevation of each used 2D vertex on the top surface.
+        Elevation of each used 2D vertex on the top surface.  Every vertex
+        index appearing in ``region_tris`` must be present here.
     base_elev : dict[int, float]
-        Elevation of each used 2D vertex on the base surface.
+        Elevation of each used 2D vertex on the base surface.  Every vertex
+        index appearing in ``region_tris`` must be present here.
 
     Returns
     -------
     LithoBodyMesh
         Closed prism (``is_flagged=False``); empty (``is_flagged=True``) if no
         non-degenerate triangle.
-    """
-    from collections import Counter
 
+    Raises
+    ------
+    KeyError
+        If any vertex index appearing in ``region_tris`` is absent from
+        ``top_elev`` or ``base_elev`` (fail-fast on a caller contract
+        violation — the caller is responsible for supplying complete maps).
+    """
     used = sorted({p for t in region_tris for p in t})
     # Map each 2D vertex index to paired 3D indices: top=2n, base=2n+1.
     top_i = {p: 2 * n for n, p in enumerate(used)}
@@ -291,7 +300,7 @@ def build_prism(
 
     tris: list[tuple[int, int, int]] = []
     # Count each directed edge to identify boundary edges.
-    edge_count: Counter = Counter()
+    edge_count: Counter[tuple[int, int]] = Counter()
     for raw in region_tris:
         ax, ay = vertices_2d[raw[0]]
         bx, by = vertices_2d[raw[1]]
