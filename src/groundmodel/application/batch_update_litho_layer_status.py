@@ -48,6 +48,7 @@ class BatchUpdateLithoLayerStatus(GroundModelLogger):
         self,
         layer_ids: list[UUID],
         new_status: str,
+        model_id: UUID | None = None,
     ) -> BatchStatusResult:
         """Mutate status on every id and commit atomically.
 
@@ -59,6 +60,10 @@ class BatchUpdateLithoLayerStatus(GroundModelLogger):
             One of ``"pending"`` / ``"accepted"`` / ``"rejected"``.
             The DB CHECK enforces the literal; this method trusts the
             caller (the Pydantic request schema does the early check).
+        model_id : UUID, optional
+            When given, every id must belong to this model or the call is
+            rejected as not-found (audit #2 IDOR guard). The router always
+            passes the URL's model id.
 
         Raises
         ------
@@ -69,7 +74,7 @@ class BatchUpdateLithoLayerStatus(GroundModelLogger):
         if not layer_ids:
             return BatchStatusResult(updated_count=0, layers=[])
 
-        rows = await self._repo.list_layers_by_ids(layer_ids)
+        rows = await self._repo.list_layers_by_ids(layer_ids, model_id=model_id)
         if len(rows) != len(layer_ids):
             found = {r.id for r in rows}
             missing = [str(lid) for lid in layer_ids if lid not in found]
