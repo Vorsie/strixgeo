@@ -126,3 +126,131 @@ def circumcenter(
     s = l1 + l2 + l3
     l1, l2, l3 = l1 / s, l2 / s, l3 / s
     return (l1 * ax + l2 * bx + l3 * cx, l1 * ay + l2 * by + l3 * cy)
+
+
+class _PartitionAccumulator:
+    """Build the shared-vertex planar partition triangle by triangle.
+
+    Owns the 2D vertex pool (holes first, then midpoints + junctions), dedupes
+    edge midpoints by their undirected edge so adjacent triangles reference the
+    SAME midpoint (walls coincide), and groups sub-triangles by competitor label.
+
+    Parameters
+    ----------
+    hole_coords : list[tuple[float, float]]
+        The footprint hole coordinates; become vertices ``0 .. len-1``.
+    """
+
+    def __init__(self, hole_coords: list[tuple[float, float]]) -> None:
+        self.vertices: list[tuple[float, float]] = list(hole_coords)
+        self._mid: dict[frozenset[int], int] = {}
+        self.regions: dict[str, list[tuple[int, int, int]]] = {}
+
+    def _add(self, p: tuple[float, float]) -> int:
+        """Append a new vertex and return its index.
+
+        Parameters
+        ----------
+        p : tuple[float, float]
+            The ``(x, y)`` coordinate to append.
+
+        Returns
+        -------
+        int
+            Index of the newly added vertex in ``self.vertices``.
+        """
+        self.vertices.append(p)
+        return len(self.vertices) - 1
+
+    def _midpoint(self, i: int, j: int) -> int:
+        """Return the index of the midpoint vertex between vertices ``i`` and ``j``.
+
+        Deduplicates by undirected edge — if ``_midpoint(i, j)`` was already
+        called (or ``_midpoint(j, i)``), the cached index is returned so that
+        adjacent triangles share the exact same vertex object.
+
+        Parameters
+        ----------
+        i, j : int
+            Vertex indices into ``self.vertices``.
+
+        Returns
+        -------
+        int
+            Index of the midpoint vertex in ``self.vertices``.
+        """
+        key = frozenset((i, j))
+        idx = self._mid.get(key)
+        if idx is None:
+            xi, yi = self.vertices[i]
+            xj, yj = self.vertices[j]
+            idx = self._add(((xi + xj) / 2.0, (yi + yj) / 2.0))
+            self._mid[key] = idx
+        return idx
+
+    def _emit(self, label: str, tri: tuple[int, int, int]) -> None:
+        """Append a sub-triangle to the region list for ``label``.
+
+        Parameters
+        ----------
+        label : str
+            The competitor body label this sub-triangle belongs to.
+        tri : tuple[int, int, int]
+            Vertex indices of the sub-triangle.
+        """
+        self.regions.setdefault(label, []).append(tri)
+
+    def subdivide(self, tri: tuple[int, int, int], labels: tuple[str, str, str]) -> None:
+        """Subdivide one footprint triangle by its three vertex labels.
+
+        - **all-equal**: whole triangle emitted to that label.
+        - **one-odd** (2 distinct labels): the odd vertex gets a single sub-triangle
+          bounded by the midpoints of its two incident edges; the majority label
+          gets the remaining two sub-triangles.
+        - **all-distinct** (3 labels): three pairs of sub-triangles meeting at the
+          circumcenter junction (Voronoi decomposition), one pair per label.
+
+        Midpoints are cached by undirected edge so adjacent triangles that share
+        an edge produce the identical midpoint vertex index, ensuring facies walls
+        coincide when the full mesh is assembled.
+
+        Parameters
+        ----------
+        tri : tuple[int, int, int]
+            Vertex indices into ``self.vertices``.
+        labels : tuple[str, str, str]
+            Competitor label of each vertex, in the same order as ``tri``.
+        """
+        i, j, k = tri
+        la, lb, lc = labels
+        if la == lb == lc:
+            self._emit(la, (i, j, k))
+            return
+        if len({la, lb, lc}) == 2:
+            # Rotate so the odd vertex is always ``k`` (label ``lc``).
+            # Original layout: (i=la, j=lb, k=lc). la==lb means lc is odd;
+            # la==lc means lb is odd (swap j↔k); lb==lc means la is odd (rotate).
+            if la == lc:  # b (j) is the odd vertex
+                i, j, k, la, lb, lc = i, k, j, la, lc, lb
+            elif lb == lc:  # a (i) is the odd vertex
+                i, j, k, la, lb, lc = j, k, i, lb, lc, la
+            # k is now the odd vertex with label lc; la == lb is the majority.
+            m_ik = self._midpoint(i, k)
+            m_jk = self._midpoint(j, k)
+            self._emit(lc, (k, m_jk, m_ik))  # odd vertex's cell: one triangle
+            self._emit(la, (i, j, m_jk))  # majority cell: two triangles
+            self._emit(la, (i, m_jk, m_ik))
+            return
+        # Three distinct labels: compute edge midpoints first (they may be shared
+        # with adjacent triangles), then add the circumcenter junction last so it
+        # occupies the highest index in self.vertices at emit time.
+        m_ij = self._midpoint(i, j)
+        m_jk = self._midpoint(j, k)
+        m_ki = self._midpoint(k, i)
+        j_idx = self._add(circumcenter(self.vertices[i], self.vertices[j], self.vertices[k]))
+        self._emit(la, (i, m_ij, j_idx))  # vertex i Voronoi region (two tris)
+        self._emit(la, (i, j_idx, m_ki))
+        self._emit(lb, (j, m_jk, j_idx))  # vertex j Voronoi region (two tris)
+        self._emit(lb, (j, j_idx, m_ij))
+        self._emit(lc, (k, m_ki, j_idx))  # vertex k Voronoi region (two tris)
+        self._emit(lc, (k, j_idx, m_jk))

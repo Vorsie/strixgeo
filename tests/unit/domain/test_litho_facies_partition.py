@@ -109,3 +109,20 @@ def test_circumcenter_equilateral_triangle_is_strictly_interior():
     l2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
     l3 = 1.0 - l1 - l2
     assert l1 > 0.0 and l2 > 0.0 and l3 > 0.0
+
+
+def test_subdivide_two_label_and_three_label():
+    """A 2-label triangle splits into the two cells; a 3-label into three at the junction."""
+    from groundmodel.domain.services.litho_facies_partition import _PartitionAccumulator
+
+    acc = _PartitionAccumulator([(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)])
+    acc.subdivide((0, 1, 2), ("SAND", "SAND", "PEAT"))  # v2 odd
+    assert set(acc.regions) == {"SAND", "PEAT"}
+    peat_pts = {p for t in acc.regions["PEAT"] for p in t}
+    assert 2 in peat_pts and 0 not in peat_pts
+
+    acc2 = _PartitionAccumulator([(0.0, 0.0), (10.0, 0.0), (5.0, 9.0)])
+    acc2.subdivide((0, 1, 2), ("CLAY", "SILT", "PEAT"))
+    assert set(acc2.regions) == {"CLAY", "SILT", "PEAT"}
+    junction = len(acc2.vertices) - 1  # circumcenter is the last-added vertex
+    assert all(any(junction in t for t in acc2.regions[k]) for k in ("CLAY", "SILT", "PEAT"))
