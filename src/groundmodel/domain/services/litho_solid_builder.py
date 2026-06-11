@@ -181,6 +181,8 @@ def _concat_meshes(body_id: str, formation_id: str, parts: list[LithoBodyMesh]) 
     -------
     LithoBodyMesh
         The concatenated mesh; ``is_flagged`` only if every part was flagged.
+        An empty ``parts`` list (never produced by the normal build path) yields
+        ``is_flagged=True`` as a defensive sentinel.
     """
     verts: list[tuple[float, float, float]] = []
     tris: list[tuple[int, int, int]] = []
@@ -210,6 +212,11 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
       rendered as their own closed solid; the surrounding matrix is built over the
       merged outer extent and the lens is carved out as an interior void via
       :func:`append_void`.
+    * **Facies-competitor bodies** (a body directly above or below a shared body
+      that has ≥2 distinct neighbours on that side) — assembled by
+      :func:`assemble_facies_competitors` into clipped prisms that partition the
+      shared footprint; concatenated into one mesh per competitor via
+      :func:`_concat_meshes`.
     * **Fallback (M2 legacy path)** — any body that :func:`assemble_body` /
       :func:`build_extent_solid` cannot handle (multi-patch, degenerate, <3 picks)
       is built by :func:`_legacy_body`, which fits per-body TINs exactly as the
@@ -266,6 +273,7 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
     # Facies pass: build the competitors of every multi-patch shared body.
     # A body with >=2 distinct neighbours directly above (or below) is "shared";
     # its competitors are clipped prisms that partition the shared footprint.
+    # `facies_meshes` is keyed by COMPETITOR body id (not the shared body id).
     facies_meshes: dict[str, list[LithoBodyMesh]] = {}
     for shared_id in by_body:
         top_keys, base_keys = _keys_for_body(shared_id, columns)
