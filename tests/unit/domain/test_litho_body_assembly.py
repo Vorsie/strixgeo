@@ -428,3 +428,88 @@ def test_facies_competitors_below_watertight_no_overlap():
                 if inside(m.vertices, m.triangles, (float(x), float(y), -8.0))
             ]
             assert len(hits) <= 1, f"overlap at ({x},{y},-8.0): {hits}"
+
+
+def test_facies_competitors_above_and_below_shared_body():
+    """A shared MID body has 2 competitors above AND 2 below: both sides tile, no overlap.
+
+    Six investigations on a hexagonal ring.  Each hole carries a three-layer stack:
+    - Upper competitor (CLAY on A/B/C, SILT on D/E/F), depth 0–2
+    - Shared MID body, depth 2–7
+    - Lower competitor (ZAND on A/B/C, VEEN on D/E/F), depth 7–12
+
+    Both ``assemble_facies_competitors("MID", "above", ...)`` and ``("MID", "below", ...)``
+    must return ≥2 competitors each; every mesh must be watertight + consistently wound;
+    within each side no sampled point may be claimed by two competitors simultaneously.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    # Hexagonal ring — 6 holes, non-collinear, split in half for the two competitors.
+    ring = [
+        ("A", 0, 0),
+        ("B", 6, 1),
+        ("C", 10, 6),
+        ("D", 7, 11),
+        ("E", 1, 10),
+        ("F", -3, 5),
+    ]
+    # A/B/C → CLAY above, ZAND below; D/E/F → SILT above, VEEN below.
+    picks = []
+    for inv, x, y in ring:
+        upper = "CLAY" if inv in ("A", "B", "C") else "SILT"
+        lower = "ZAND" if inv in ("A", "B", "C") else "VEEN"
+        picks.append(_pick(inv, x, y, upper, 0.0, 2.0))  # upper competitor
+        picks.append(_pick(inv, x, y, "MID", 2.0, 7.0))  # shared MID body
+        picks.append(_pick(inv, x, y, lower, 7.0, 12.0))  # lower competitor
+
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+
+    above = assemble_facies_competitors("MID", "above", columns, coords, surfaces)
+    below = assemble_facies_competitors("MID", "below", columns, coords, surfaces)
+
+    # Each side must return 2 distinct competitors.
+    assert len(above) >= 2, f"expected ≥2 above competitors, got {set(above)}"
+    assert len(below) >= 2, f"expected ≥2 below competitors, got {set(below)}"
+    assert set(above) == {"CLAY", "SILT"}
+    assert set(below) == {"ZAND", "VEEN"}
+
+    # Every mesh is watertight and consistently wound.
+    for side_name, comp_dict in (("above", above), ("below", below)):
+        for comp_id, m in comp_dict.items():
+            assert closed_manifold(m.triangles), (
+                f"{side_name} competitor {comp_id} is not a closed manifold"
+            )
+            assert consistently_wound(m.triangles), (
+                f"{side_name} competitor {comp_id} is not consistently wound"
+            )
+
+    # Within each side: no sampled point is inside two competitors.
+    # Sample at z = -1.0 (inside the upper competitor slab, depth 0–2 → elev 0..-2)
+    above_meshes = list(above.values())
+    for x in (0, 3, 5, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in above_meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -1.0))
+            ]
+            assert len(hits) <= 1, f"above overlap at ({x},{y},-1.0): {hits}"
+
+    # Sample at z = -9.0 (inside the lower competitor slab, depth 7–12 → elev -7..-12)
+    below_meshes = list(below.values())
+    for x in (0, 3, 5, 7):
+        for y in (2, 5, 8):
+            hits = [
+                m.body_id
+                for m in below_meshes
+                if inside(m.vertices, m.triangles, (float(x), float(y), -9.0))
+            ]
+            assert len(hits) <= 1, f"below overlap at ({x},{y},-9.0): {hits}"
