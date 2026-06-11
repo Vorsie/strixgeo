@@ -108,6 +108,8 @@ def circumcenter(
     cx, cy = c
     d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
     if abs(d) < 1e-12:  # degenerate / collinear -> centroid fallback
+        # d = 4 × signed_area, so the threshold is ~signed_area < 2.5e-13 m²,
+        # unreachable for real geotech coordinates (d is typically 1e3–1e10).
         return ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0)
     a2 = ax * ax + ay * ay
     b2 = bx * bx + by * by

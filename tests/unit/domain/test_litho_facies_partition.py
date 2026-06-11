@@ -56,11 +56,12 @@ def test_labels_below_are_the_body_directly_under_the_shared_body():
 
 
 def test_circumcenter_is_equidistant_and_clamps_when_obtuse():
-    """Acute triangle -> true circumcenter (equidistant); obtuse -> clamped inside."""
+    """Right triangle -> equidistant circumcenter; obtuse -> clamped inside."""
     import math
 
     from groundmodel.domain.services.litho_facies_partition import circumcenter
 
+    # Right triangle (circumcenter on the hypotenuse midpoint).
     a, b, c = (0.0, 0.0), (4.0, 0.0), (0.0, 4.0)
     cx, cy = circumcenter(a, b, c)
     assert abs(math.dist((cx, cy), a) - math.dist((cx, cy), b)) < 1e-9
@@ -74,3 +75,37 @@ def test_circumcenter_is_equidistant_and_clamps_when_obtuse():
     l2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
     l3 = 1 - l1 - l2
     assert min(l1, l2, l3) >= -1e-9 and max(l1, l2, l3) <= 1 + 1e-9
+
+
+def test_circumcenter_equilateral_triangle_is_strictly_interior():
+    """Strictly-acute triangle: circumcenter is strictly inside, equidistant from all vertices.
+
+    Uses an equilateral triangle where the circumcenter coincides with the centroid.
+    All three barycentric coordinates are strictly positive, exercising the
+    unclamped interior-return branch of circumcenter().
+    """
+    import math
+
+    from groundmodel.domain.services.litho_facies_partition import circumcenter
+
+    s = math.sqrt(3)
+    a, b, c = (0.0, 0.0), (2.0, 0.0), (1.0, s)
+    px, py = circumcenter(a, b, c)
+
+    # Circumcenter of equilateral triangle == centroid.
+    expected_x = (0.0 + 2.0 + 1.0) / 3.0
+    expected_y = (0.0 + 0.0 + s) / 3.0
+    assert abs(px - expected_x) < 1e-9
+    assert abs(py - expected_y) < 1e-9
+
+    # Equidistant from all three vertices.
+    r = math.dist((px, py), a)
+    assert abs(math.dist((px, py), b) - r) < 1e-9
+    assert abs(math.dist((px, py), c) - r) < 1e-9
+
+    # Strictly inside: all barycentric coordinates > 0.
+    det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+    l1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+    l2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+    l3 = 1.0 - l1 - l2
+    assert l1 > 0.0 and l2 > 0.0 and l3 > 0.0
