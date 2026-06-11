@@ -234,6 +234,16 @@ describe('isInAppNavigation', () => {
     expect(isInAppNavigation('file:///etc/passwd', null, RENDERER_DIR)).toBe(false)
   })
 
+  it('rejects file:// with dotdot traversal out of the renderer directory', () => {
+    expect(
+      isInAppNavigation(
+        'file:///C:/app/resources/renderer/../../../Windows/System32/x.html',
+        null,
+        RENDERER_DIR,
+      ),
+    ).toBe(false)
+  })
+
   it('rejects all file:// when no renderer file base is set (dev)', () => {
     expect(isInAppNavigation('file:///C:/anything.html', 'http://localhost:5173', null)).toBe(
       false,
