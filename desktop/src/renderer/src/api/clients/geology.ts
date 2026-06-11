@@ -764,15 +764,6 @@ export interface GroundSurfaceBuildResponse {
 // Correlation-edge types
 // ---------------------------------------------------------------------------
 
-/** Formation-level correlation edge (Phase-2 Slice 3). */
-export interface LithoCorrelationEdge {
-  id: string
-  formation_a_id: string
-  formation_b_id: string
-  source: string
-  created_at: string
-}
-
 /** Contact-level correlation edge (#133 Phase 1). */
 export interface LithoContactCorrelationEdge {
   id: string
@@ -788,14 +779,6 @@ export interface LithoContactCorrelationEdge {
 /** Response from ``POST /correlations/resolve``. */
 export interface ResolveInstancesResponse {
   updated: Array<{ formation_id: string; new_ordinal: number }>
-}
-
-/** Response from ``POST /models/{mid}/auto-correlate``. */
-export interface AutoCorrelateResult {
-  edges_created: number
-  edges_skipped_existing: number
-  formations_recomputed: number
-  wedge_tips_materialised: number
 }
 
 /**
@@ -1788,8 +1771,8 @@ export const geologyClient = {
     sectionId?: string | null,
   ): Promise<{
     edges_accepted: number
-    lenses_created: number
-    lenses_removed: number
+    bodies_created: number
+    bodies_removed: number
     ordinals_changed: number
   }> =>
     post(
@@ -1804,8 +1787,8 @@ export const geologyClient = {
     edgeId: string,
   ): Promise<{
     edges_accepted: number
-    lenses_created: number
-    lenses_removed: number
+    bodies_created: number
+    bodies_removed: number
     ordinals_changed: number
   }> =>
     post(
