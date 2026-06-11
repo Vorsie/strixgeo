@@ -118,6 +118,14 @@ export interface Props {
     lowerNodes: BodyBoundaryNode[],
     style: 'straight' | 'blocky' | 'rounded',
   ) => void
+  /**
+   * Open-end stub length in metres — how far the first/last column's
+   * open-ended unit draws past the test when there's no plot edge to fill to.
+   * Driven by the "Open extent length" setting; falls back to ``OPEN_END_M``
+   * when undefined (audit #19 — the setting was wired 4 layers but never
+   * reached this overlay).
+   */
+  openExtentLengthM?: number
   /** Bodies on the model — used to resolve a right-clicked pinch to its body. */
   bodies?: readonly BodyListItem[]
   /** Right-click a pinch (lens) → open the body context menu (Dissolve / Name). */
@@ -376,6 +384,7 @@ export default function PartitionFillOverlay({
   screenToLevel,
   boundariesByBodyId,
   onSaveBoundary,
+  openExtentLengthM,
   bodies,
   onBodyContextMenu,
 }: Props): JSX.Element {
@@ -572,10 +581,13 @@ export default function PartitionFillOverlay({
 
   const clampY = (y: number): number => Math.max(plotTop, Math.min(plotBottom, y))
 
-  // Open-end stub length: ~5 m of section (dogfeed 2026-06-05), derived from the
-  // horizontal scale so it stays 5 m through zoom; clamped so it never vanishes.
+  // Open-end stub length in metres — the "Open extent length" setting, falling
+  // back to OPEN_END_M when the prop is absent. Derived from the horizontal
+  // scale so it stays a fixed number of metres through zoom; clamped so it
+  // never vanishes (audit #19 — wire the dead setting through to here).
+  const openEndM = openExtentLengthM ?? OPEN_END_M
   const openEndPx = alongToScreenX
-    ? Math.max(8, OPEN_END_M * Math.abs(alongToScreenX(1) - alongToScreenX(0)))
+    ? Math.max(8, openEndM * Math.abs(alongToScreenX(1) - alongToScreenX(0)))
     : EDGE_STUB_PX
 
   // Ghost-node handle size shrinks as you zoom OUT (fewer px per metre) so the
