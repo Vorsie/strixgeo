@@ -463,6 +463,12 @@ def test_build_body_solids_facies_competitors_dont_overlap():
             "expected a real facies prism — facies path not taken"
         )
 
+    # Each competitor must be a closed manifold (watertight prism).
+    for b in ("CLAY", "SILT", "PEAT"):
+        assert _is_closed_manifold(meshes[b].triangles), (
+            f"body {b} facies prism is not a closed manifold"
+        )
+
     # No two competitors cover the same point.
     for x in (0, 3, 5, 7):
         for y in (2, 5, 8):
