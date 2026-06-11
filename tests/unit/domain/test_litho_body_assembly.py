@@ -242,3 +242,22 @@ def test_build_extent_solid_returns_none_for_under_constrained():
         )
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 7: build_prism
+# ---------------------------------------------------------------------------
+
+
+def test_build_prism_is_watertight_over_a_region():
+    """A region of plan triangles closes into a watertight prism between two fields."""
+    from groundmodel.domain.services.litho_body_assembly import build_prism
+
+    verts2d = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    tris = [(0, 1, 2), (0, 2, 3)]
+    top = {i: -2.0 for i in range(4)}
+    base = {i: -6.0 for i in range(4)}
+    mesh = build_prism("X", "f", verts2d, tris, top, base)
+    assert closed_manifold(mesh.triangles) and consistently_wound(mesh.triangles)
+    assert inside(mesh.vertices, mesh.triangles, (5.0, 5.0, -4.0))
+    assert not inside(mesh.vertices, mesh.triangles, (5.0, 5.0, 0.0))

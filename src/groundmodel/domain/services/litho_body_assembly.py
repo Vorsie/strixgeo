@@ -232,6 +232,97 @@ def build_extent_solid(
     )
 
 
+def build_prism(
+    body_id: str,
+    formation_id: str,
+    vertices_2d: list[tuple[float, float]],
+    region_tris: list[tuple[int, int, int]],
+    top_elev: dict[int, float],
+    base_elev: dict[int, float],
+) -> LithoBodyMesh:
+    """Close a prism over a set of plan triangles between a top and base field.
+
+    Each used 2D vertex gets a top vertex (at ``top_elev``) and a base vertex (at
+    ``base_elev``). Triangles are wound CCW for an upward top normal; walls go on
+    boundary edges (edges in exactly one region triangle), so a wall shared with an
+    adjacent region (same boundary vertices) coincides. Degenerate (zero-area)
+    triangles are skipped.
+
+    Parameters
+    ----------
+    body_id : str
+        Body identifier.
+    formation_id : str
+        Formation id (drives colour).
+    vertices_2d : list[tuple[float, float]]
+        Shared 2D vertex pool.
+    region_tris : list[tuple[int, int, int]]
+        This region's plan triangles (indices into ``vertices_2d``).
+    top_elev : dict[int, float]
+        Elevation of each used 2D vertex on the top surface.
+    base_elev : dict[int, float]
+        Elevation of each used 2D vertex on the base surface.
+
+    Returns
+    -------
+    LithoBodyMesh
+        Closed prism (``is_flagged=False``); empty (``is_flagged=True``) if no
+        non-degenerate triangle.
+    """
+    from collections import Counter
+
+    used = sorted({p for t in region_tris for p in t})
+    # Map each 2D vertex index to paired 3D indices: top=2n, base=2n+1.
+    top_i = {p: 2 * n for n, p in enumerate(used)}
+    base_i = {p: 2 * n + 1 for n, p in enumerate(used)}
+    verts: list[tuple[float, float, float]] = []
+    for p in used:
+        x, y = vertices_2d[p]
+        verts.append((x, y, top_elev[p]))
+        verts.append((x, y, base_elev[p]))
+
+    def _ccw(a: int, b: int, c: int) -> tuple[int, int, int]:
+        """Return (a, b, c) wound CCW (positive area) in the XY plane."""
+        ax, ay = vertices_2d[a]
+        bx, by = vertices_2d[b]
+        cx, cy = vertices_2d[c]
+        area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+        return (a, b, c) if area > 0 else (a, c, b)
+
+    tris: list[tuple[int, int, int]] = []
+    # Count each directed edge to identify boundary edges.
+    edge_count: Counter = Counter()
+    for raw in region_tris:
+        ax, ay = vertices_2d[raw[0]]
+        bx, by = vertices_2d[raw[1]]
+        cx, cy = vertices_2d[raw[2]]
+        if abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < 1e-9:
+            continue  # skip degenerate triangles
+        a, b, c = _ccw(*raw)
+        # Top face: CCW when viewed from above (normal points up).
+        tris.append((top_i[a], top_i[b], top_i[c]))
+        # Base face: CW when viewed from above → CCW from below (normal points down).
+        tris.append((base_i[c], base_i[b], base_i[a]))
+        for u, v in ((a, b), (b, c), (c, a)):
+            edge_count[(u, v)] += 1
+
+    # A boundary edge (u→v) appears once in this region but its reverse (v→u) is absent.
+    # Build two wall triangles per boundary edge to cap the sides.
+    for (u, v), n in edge_count.items():
+        if n == 1 and edge_count[(v, u)] == 0:
+            # Wall quad: top_v → top_u → base_u → base_v (two CCW tris from outside).
+            tris.append((top_i[v], top_i[u], base_i[u]))
+            tris.append((top_i[v], base_i[u], base_i[v]))
+
+    return LithoBodyMesh(
+        body_id=body_id,
+        formation_id=formation_id,
+        vertices=verts,
+        triangles=tris,
+        is_flagged=not tris,
+    )
+
+
 def append_void(matrix: LithoBodyMesh, lens: LithoBodyMesh) -> LithoBodyMesh:
     """Return the matrix mesh with the lens appended as an interior void.
 
