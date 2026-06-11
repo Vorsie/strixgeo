@@ -371,7 +371,7 @@ def assemble_facies_competitors(
     side: str,
     columns: dict[str, list[LayerSpan]],
     coords: dict[str, tuple[float, float]],
-    surfaces: dict,
+    surfaces: dict[ContactKey, Surface],
 ) -> dict[str, LithoBodyMesh]:
     """Build each competitor above/below a shared body as a clipped, tiling prism.
 
@@ -431,7 +431,8 @@ def assemble_facies_competitors(
                 # Competitor sits immediately below: index i+1 is the competitor span.
                 top_h[h] = s.base_elev  # shared body's base is the ceiling of the competitor slab
                 base_h[h] = columns[h][i + 1].base_elev
-            break
+            # no break: match competitor_labels_* which records the deepest occurrence
+            # (the single-occurrence case — the only one routed to the facies path — is unaffected).
 
     holes = sorted(labels)
     # Fit two TINs over the same hole set: one at the competitor-outer surface
