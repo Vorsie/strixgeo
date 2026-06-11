@@ -22,6 +22,7 @@ paths inside other use cases).
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TypedDict
 from uuid import UUID
@@ -247,14 +248,19 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
 
     await session.flush()  # bodies get their ids before stamping layers
 
-    # 5. Stamp litho_layer.body_id where it changed.
-    n_stamped = 0
+    # 5. Stamp litho_layer.body_id where it changed — grouped by target body so
+    #    it's ONE UPDATE per body, not one per layer (audit #10: the per-layer
+    #    loop was an N+1 issuing one round-trip per stamped layer on every
+    #    accept / auto-correlate / startup sweep).
+    layers_by_target: dict[UUID, list[UUID]] = defaultdict(list)
     for lid, bid in layer_to_body_id.items():
         if existing_body_id_by_layer.get(lid) != bid:
-            await session.execute(
-                update(LithoLayerOrm).where(LithoLayerOrm.id == lid).values(body_id=bid)
-            )
-            n_stamped += 1
+            layers_by_target[bid].append(lid)
+    n_stamped = sum(len(lids) for lids in layers_by_target.values())
+    for bid, lids in layers_by_target.items():
+        await session.execute(
+            update(LithoLayerOrm).where(LithoLayerOrm.id.in_(lids)).values(body_id=bid)
+        )
 
     if changed or n_stamped:
         await session.flush()
