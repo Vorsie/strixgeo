@@ -68,8 +68,8 @@ vi.mock('../../../api/client', async () => {
         }),
         acceptContactCorrelations: vi.fn().mockResolvedValue({
           edges_accepted: 0,
-          lenses_created: 0,
-          lenses_removed: 0,
+          bodies_created: 0,
+          bodies_removed: 0,
           ordinals_changed: 0,
         }),
         materialiseLensCompanions: vi.fn().mockResolvedValue({
@@ -993,8 +993,8 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
   it('S5-4: clicking Accept calls acceptContactCorrelations(projectId, modelId, sectionId), toasts success, and refetches edges', async () => {
     vi.mocked(api.geology.acceptContactCorrelations).mockResolvedValueOnce({
       edges_accepted: 3,
-      lenses_created: 1,
-      lenses_removed: 0,
+      bodies_created: 1,
+      bodies_removed: 0,
       ordinals_changed: 2,
     })
     const toast = vi.fn()
