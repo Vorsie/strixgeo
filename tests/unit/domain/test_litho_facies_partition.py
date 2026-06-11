@@ -126,3 +126,43 @@ def test_subdivide_two_label_and_three_label():
     assert set(acc2.regions) == {"CLAY", "SILT", "PEAT"}
     junction = len(acc2.vertices) - 1  # circumcenter is the last-added vertex
     assert all(any(junction in t for t in acc2.regions[k]) for k in ("CLAY", "SILT", "PEAT"))
+
+
+def test_subdivide_rotation_la_eq_lc_odd_vertex_is_j():
+    """``la == lc`` branch: vertex 1 (PEAT) is the odd vertex.
+
+    Labels ``("SAND", "PEAT", "SAND")`` trigger the ``la == lc`` rotation that
+    swaps j and k so the odd vertex ends up at position k.  Vertex index 1 must
+    appear in PEAT's sub-triangles and NOT in SAND's vertex set.
+    """
+    from groundmodel.domain.services.litho_facies_partition import _PartitionAccumulator
+
+    # la == lc ("SAND" == "SAND"), so lb ("PEAT") is the odd vertex at index j=1.
+    acc = _PartitionAccumulator([(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)])
+    acc.subdivide((0, 1, 2), ("SAND", "PEAT", "SAND"))
+    assert set(acc.regions) == {"SAND", "PEAT"}
+    peat_pts = {p for t in acc.regions["PEAT"] for p in t}
+    sand_pts = {p for t in acc.regions["SAND"] for p in t}
+    # The odd vertex (original index 1) must appear in PEAT and not in SAND.
+    assert 1 in peat_pts
+    assert 1 not in sand_pts
+
+
+def test_subdivide_rotation_lb_eq_lc_odd_vertex_is_i():
+    """``lb == lc`` branch: vertex 0 (PEAT) is the odd vertex.
+
+    Labels ``("PEAT", "SAND", "SAND")`` trigger the ``lb == lc`` rotation that
+    moves the odd vertex to position k.  Vertex index 0 must appear in PEAT's
+    sub-triangles and NOT in SAND's vertex set.
+    """
+    from groundmodel.domain.services.litho_facies_partition import _PartitionAccumulator
+
+    # lb == lc ("SAND" == "SAND"), so la ("PEAT") is the odd vertex at index i=0.
+    acc = _PartitionAccumulator([(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)])
+    acc.subdivide((0, 1, 2), ("PEAT", "SAND", "SAND"))
+    assert set(acc.regions) == {"SAND", "PEAT"}
+    peat_pts = {p for t in acc.regions["PEAT"] for p in t}
+    sand_pts = {p for t in acc.regions["SAND"] for p in t}
+    # The odd vertex (original index 0) must appear in PEAT and not in SAND.
+    assert 0 in peat_pts
+    assert 0 not in sand_pts

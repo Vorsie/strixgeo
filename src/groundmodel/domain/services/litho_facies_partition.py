@@ -247,6 +247,9 @@ class _PartitionAccumulator:
         m_ij = self._midpoint(i, j)
         m_jk = self._midpoint(j, k)
         m_ki = self._midpoint(k, i)
+        # Circumcenter junctions are NOT cached: each footprint triangle contributes
+        # exactly one junction, so deduplication would never fire.  Only edge
+        # midpoints need the cache because they are shared by adjacent triangles.
         j_idx = self._add(circumcenter(self.vertices[i], self.vertices[j], self.vertices[k]))
         self._emit(la, (i, m_ij, j_idx))  # vertex i Voronoi region (two tris)
         self._emit(la, (i, j_idx, m_ki))
