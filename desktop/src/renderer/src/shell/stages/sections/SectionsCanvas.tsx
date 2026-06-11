@@ -694,7 +694,7 @@ export default function SectionsCanvas(): JSX.Element {
         log.success(
           'section',
           `contact-accept: edge=${edgeId} accepted=${result.edges_accepted} ` +
-            `lenses_created=${result.lenses_created} lenses_removed=${result.lenses_removed} ` +
+            `bodies_created=${result.bodies_created} bodies_removed=${result.bodies_removed} ` +
             `ordinals_changed=${result.ordinals_changed}`,
         )
       } catch (err) {
