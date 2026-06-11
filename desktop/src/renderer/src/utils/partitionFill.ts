@@ -323,6 +323,19 @@ function reduceColumn(
   const origTop = new Map(units.map((u) => [u.layerId, u.topDepthM]))
   const origBase = new Map(units.map((u) => [u.layerId, u.baseDepthM]))
   const thick = (x: PartitionUnit): number => x.baseDepthM - x.topDepthM
+  // Precompute "is this unit's contact correlated to ANY neighbour" once for the
+  // column (perf): classifyTermination then does a Set lookup instead of
+  // re-scanning neighbourLayerIds on every while×for pass. Splices only remove
+  // units / mutate depths, never add new layer ids, so the set stays valid.
+  const correlatedToNeighbour = new Set<string>()
+  for (const u of units) {
+    for (const v of neighbourLayerIds) {
+      if (correlated(u.layerId, v)) {
+        correlatedToNeighbour.add(u.layerId)
+        break
+      }
+    }
+  }
   let changed = true
   while (changed) {
     changed = false
@@ -334,7 +347,11 @@ function reduceColumn(
       // continuously (a silt lens in sand → the sand stays one band via its OUTER
       // correlated boundaries, the silt overlays). The matrix's INTERNAL boundary
       // (the lens contact) is uncorrelated; its outer boundaries carry the band.
-      if (classifyTermination(units, i, neighbourLayerIds, correlated) !== 'lens') continue
+      if (
+        classifyTermination(units, i, neighbourLayerIds, correlated, correlatedToNeighbour) !==
+        'lens'
+      )
+        continue
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
@@ -431,10 +448,13 @@ function extractIntervalMinorities(
     ['right', rightStack, leftStack],
   ]
   for (const [side, stack, other] of sides) {
+    // `other` is read-only within this side's loop (only `stack` is spliced),
+    // so the formation set is invariant across while-iterations — build it once
+    // per side instead of every pass (perf: hot-loop allocation).
+    const otherFormations = new Set(other.map((u) => u.formationId))
     let changed = true
     while (changed) {
       changed = false
-      const otherFormations = new Set(other.map((u) => u.formationId))
 
       // (1) Interior lens — enclosed by the same matrix above AND below.
       for (let i = 1; i < stack.length - 1; i++) {
@@ -559,11 +579,17 @@ export function classifyTermination(
   index: number,
   neighbourLayerIds: ReadonlySet<string>,
   correlated: Correlated,
+  correlatedToNeighbour?: ReadonlySet<string>,
 ): ContactTermination {
-  const contactCorrelated = (layerId: string): boolean => {
-    for (const v of neighbourLayerIds) if (correlated(layerId, v)) return true
-    return false
-  }
+  // When the caller precomputed which layer ids are correlated to any neighbour
+  // (a hot-loop optimisation — see reduceColumn), this is a Set lookup; else we
+  // fall back to scanning neighbourLayerIds. Same result either way.
+  const contactCorrelated = correlatedToNeighbour
+    ? (layerId: string): boolean => correlatedToNeighbour.has(layerId)
+    : (layerId: string): boolean => {
+        for (const v of neighbourLayerIds) if (correlated(layerId, v)) return true
+        return false
+      }
   const below = units[index + 1]
   const topCorr = contactCorrelated(units[index].layerId)
   const baseCorr = below !== undefined && contactCorrelated(below.layerId)
