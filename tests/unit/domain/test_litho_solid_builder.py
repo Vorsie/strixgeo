@@ -407,6 +407,116 @@ def test_lens_and_matrix_do_not_overlap() -> None:
     )
 
 
+def test_no_overlap_invariant_multi_patch_facies_model() -> None:
+    """No sampled 3-D point is inside more than one solid in a two-shared-body facies model.
+
+    Stack (shallowest → deepest, depth from ground surface at 0 m elevation):
+    - CLAY  (depth 0–2): competitor above UPPER on A/B/C
+    - SILT  (depth 0–2): competitor above UPPER on D/E/F
+    - UPPER (depth 2–6): first shared body (≥2 neighbours above → facies path)
+    - LOWER (depth 6–11): second shared body (≥2 neighbours below → facies path)
+    - ZAND  (depth 11–16): competitor below LOWER on A/B/C
+    - VEEN  (depth 11–16): competitor below LOWER on D/E/F
+
+    Partition invariant: every interior 3-D sample point is inside AT MOST one body
+    solid.  This is the model-wide no-overlap guarantee for the facies path.
+    """
+    ring = [
+        ("A", 0, 0),
+        ("B", 6, 1),
+        ("C", 10, 6),
+        ("D", 7, 11),
+        ("E", 1, 10),
+        ("F", -3, 5),
+    ]
+    all_picks: list[BodyLayerPick] = []
+    for inv, x, y in ring:
+        upper_comp = "CLAY" if inv in ("A", "B", "C") else "SILT"
+        lower_comp = "ZAND" if inv in ("A", "B", "C") else "VEEN"
+        surface_elev = 0.0
+        all_picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=surface_elev,
+                body_id=upper_comp,
+                formation_id=upper_comp,
+                top_depth_m=0.0,
+                base_depth_m=2.0,
+            )
+        )
+        all_picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=surface_elev,
+                body_id="UPPER",
+                formation_id="UPPER",
+                top_depth_m=2.0,
+                base_depth_m=6.0,
+            )
+        )
+        all_picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=surface_elev,
+                body_id="LOWER",
+                formation_id="LOWER",
+                top_depth_m=6.0,
+                base_depth_m=11.0,
+            )
+        )
+        all_picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=surface_elev,
+                body_id=lower_comp,
+                formation_id=lower_comp,
+                top_depth_m=11.0,
+                base_depth_m=16.0,
+            )
+        )
+
+    meshes = build_body_solids(all_picks)
+    # Expect 6 distinct body meshes: CLAY, SILT, UPPER, LOWER, ZAND, VEEN.
+    by_id = {m.body_id: m for m in meshes}
+    assert {"CLAY", "SILT", "UPPER", "LOWER", "ZAND", "VEEN"} <= set(by_id), (
+        f"missing body meshes; got {set(by_id)}"
+    )
+    # Facies competitors must not be flagged disk markers.
+    for comp in ("CLAY", "SILT", "ZAND", "VEEN"):
+        assert not by_id[comp].is_flagged, (
+            f"{comp} was built as disk markers — facies path not taken"
+        )
+
+    # Model-wide partition invariant: no sampled 3-D point is inside >1 body solid.
+    # Sample a grid covering the entire column depth.
+    all_meshes = list(by_id.values())
+    # Points sampled at each layer's midpoint elevation (ground at z=0, depths go negative).
+    for px in (0, 3, 5, 7):
+        for py in (2, 5, 8):
+            for pz in (
+                -1.0,  # inside the upper-competitor band (depth 0–2 → z 0..−2)
+                -4.0,  # inside UPPER (depth 2–6 → z −2..−6)
+                -8.5,  # inside LOWER (depth 6–11 → z −6..−11)
+                -13.5,  # inside the lower-competitor band (depth 11–16 → z −11..−16)
+            ):
+                hits = [
+                    m.body_id
+                    for m in all_meshes
+                    if _inside(m.vertices, m.triangles, (float(px), float(py), float(pz)))
+                ]
+                assert len(hits) <= 1, (
+                    f"point ({px},{py},{pz}) is inside {len(hits)} bodies: {hits}"
+                )
+
+
 def test_build_body_solids_facies_competitors_dont_overlap():
     """A multi-patch SAND with CLAY/SILT/PEAT above builds competitors that don't overlap.
 
