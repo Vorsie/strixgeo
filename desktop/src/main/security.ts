@@ -178,7 +178,18 @@ export function isInAppNavigation(
 ): boolean {
   if (rendererBase !== null && url.startsWith(rendererBase)) return true
   // Production: only file:// paths under the packaged renderer directory.
-  if (rendererFileBase !== null && url.startsWith(rendererFileBase)) return true
+  // Normalise through the URL parser first so a ``..`` traversal segment
+  // (``renderer/../../Windows/...``) collapses BEFORE the prefix check —
+  // a raw startsWith on the unresolved string would let it through.
+  if (rendererFileBase !== null) {
+    try {
+      const resolved = new URL(url).href
+      if (resolved.startsWith(rendererFileBase)) return true
+    } catch {
+      // Malformed URL — deny.
+      return false
+    }
+  }
   return false
 }
 
