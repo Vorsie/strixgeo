@@ -499,6 +499,7 @@ def test_no_overlap_invariant_multi_patch_facies_model() -> None:
     # Sample a grid covering the entire column depth.
     all_meshes = list(by_id.values())
     # Points sampled at each layer's midpoint elevation (ground at z=0, depths go negative).
+    claimed = 0  # count of sample points owned by exactly one body (partition coverage check)
     for px in (0, 3, 5, 7):
         for py in (2, 5, 8):
             for pz in (
@@ -515,6 +516,14 @@ def test_no_overlap_invariant_multi_patch_facies_model() -> None:
                 assert len(hits) <= 1, (
                     f"point ({px},{py},{pz}) is inside {len(hits)} bodies: {hits}"
                 )
+                if len(hits) == 1:
+                    claimed += 1
+    # Non-vacuity: the solids must actually cover interior points, not just be empty.
+    # A model that built nothing would pass the <=1 check above trivially.
+    assert claimed > 0, (
+        "no sampled point fell inside any body solid — "
+        "meshes appear to be empty or non-overlapping vacuously"
+    )
 
 
 def test_build_body_solids_facies_competitors_dont_overlap():

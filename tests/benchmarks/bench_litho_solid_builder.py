@@ -641,6 +641,10 @@ def test_bench_build_body_solids_with_facies(benchmark) -> None:
       correct code branch ran.
     """
     n_bodies, n_inv = 50, 12
+    # With 50 body slots and _FACIES_PERIOD=10, slots b=5,15,25,35,45 are
+    # facies slots (b % 10 == 5), giving 5 shared bodies each with
+    # len(_FACIES_COMPETITORS)=3 competitor IDs → 15 competitor bodies total.
+    # Expected total distinct bodies = 50 (regular + shared slots) + 15 = 65.
     picks, total_bodies = _synthetic_picks_with_facies(n_bodies, n_inv)
     meshes = benchmark(build_body_solids, picks)
     _sanity_check_with_facies(meshes, total_bodies)
