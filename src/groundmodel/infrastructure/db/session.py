@@ -6,7 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from groundmodel.shared.config import settings
 
-engine = create_async_engine(settings.database_url, echo=settings.debug)
+# echo is gated on the dedicated `sqlalchemy_echo` flag, NOT `debug`: SQLAlchemy
+# echo prints every statement together with the engine DSN, leaking the DB
+# password into the log on a debug run (audit #6). Off unless SQLALCHEMY_ECHO=true.
+engine = create_async_engine(settings.database_url, echo=settings.sqlalchemy_echo)
 
 AsyncSessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
