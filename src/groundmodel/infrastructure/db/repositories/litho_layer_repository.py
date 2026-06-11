@@ -110,6 +110,7 @@ class LithoLayerRepository(GroundModelLogger):
         self,
         layer_id: UUID,
         patch: dict[str, object],
+        model_id: UUID | None = None,
     ) -> LithoLayerOrm | None:
         """Apply a partial update to a layer.
 
@@ -125,14 +126,22 @@ class LithoLayerRepository(GroundModelLogger):
         patch : dict
             Column-name → new-value pairs. Keys must be valid column
             names on ``LithoLayerOrm``.
+        model_id : UUID, optional
+            When given, the layer must belong to this model or the update
+            is rejected as not-found (audit #2 IDOR guard for the
+            single-layer write paths). The router always passes the URL's
+            model id.
 
         Returns
         -------
         LithoLayerOrm | None
-            The updated row, or ``None`` when the id does not exist.
+            The updated row, or ``None`` when the id does not exist (or is
+            outside ``model_id`` when that scope is given).
         """
         layer = await self._session.get(LithoLayerOrm, layer_id)
         if layer is None:
+            return None
+        if model_id is not None and layer.model_id != model_id:
             return None
         for key, value in patch.items():
             setattr(layer, key, value)
