@@ -181,3 +181,24 @@ def test_partition_footprint_covers_all_competitors_with_shared_pool():
         for t in tris:
             assert all(0 <= v < n for v in t)
     assert set(part.hole_vertex) == set(coords)
+    # The subdivision must add midpoint/junction vertices beyond the raw holes.
+    assert len(part.vertices) > len(coords)
+
+
+def test_partition_footprint_collinear_holes_returns_empty_regions():
+    """Collinear footprint holes -> compute_tin produces no triangles -> empty regions, no crash.
+
+    compute_tin catches the QhullError from collinear input and returns a
+    TinSurface with vertices but empty triangles.  Because the returned vertex
+    count equals ``len(holes)`` (no points were dropped), the defensive guard in
+    partition_footprint does NOT fire — instead it falls through to the
+    accumulator loop which iterates over zero triangles, producing an empty
+    ``regions`` dict.  The function must not raise in either case.
+    """
+    from groundmodel.domain.services.litho_facies_partition import partition_footprint
+
+    coords = {"A": (0.0, 0.0), "B": (5.0, 0.0), "C": (10.0, 0.0)}
+    labels = {"A": "SAND", "B": "CLAY", "C": "PEAT"}
+    part = partition_footprint(coords, labels)
+    assert part.regions == {}  # no triangles -> no subdivision
+    assert set(part.hole_vertex) == {"A", "B", "C"}
