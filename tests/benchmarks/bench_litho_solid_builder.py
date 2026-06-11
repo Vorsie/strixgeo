@@ -509,9 +509,10 @@ def _sanity_check_with_facies(meshes: list, total_bodies: int) -> None:
     """Assert facies-model sanity: correct count and no flagged competitor bodies.
 
     Competitor bodies (``body_id`` starts with ``"COMP-A-"``, ``"COMP-B-"``, or
-    ``"COMP-C-"``) must NOT be flagged — a flagged competitor means the builder
-    took the disk-marker fallback instead of the facies prism path, which would
-    indicate the geometry is degenerate or the facies trigger was not reached.
+    ``"COMP-C-"``) must NOT be flagged — a flagged competitor means the facies
+    path was bypassed (routing: the facies trigger was not reached, so it fell to
+    the disk-marker / legacy fallback) OR all partition triangles were degenerate
+    (geometry); either way no usable facies mesh was produced.
 
     Parameters
     ----------

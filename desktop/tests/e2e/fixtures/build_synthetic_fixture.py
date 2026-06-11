@@ -844,9 +844,13 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         # ``build_body_solids``:  a shared KLEI (clay) body spans all three CPTs
         # (11/12/13) and has TWO distinct competitors directly above it:
         #
-        #   CPT-11: ZAND top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
-        #   CPT-12: ZAND top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
-        #   CPT-13: VEEN top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
+        # (only the ``depth_top_m`` contacts below are stored; each unit's base
+        # is the next contact's top — or the CPT depth for the deepest unit — and
+        # is NOT stored):
+        #
+        #   CPT-11: ZAND top@1 m  |  KLEI top@4 m
+        #   CPT-12: ZAND top@1 m  |  KLEI top@4 m
+        #   CPT-13: VEEN top@1 m  |  KLEI top@4 m
         #
         # Edges:
         #   ZAND  CPT-11 ↔ ZAND  CPT-12  (same litho → one ZAND body)
