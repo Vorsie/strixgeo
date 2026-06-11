@@ -18,6 +18,48 @@ branch_labels = None
 depends_on = None
 
 
+def _extent_update_sql(side: str) -> str:
+    """Return the side-scoped ``UPDATE body`` statement for one extent side.
+
+    The column name is selected from two hard-coded literal statements, never
+    built by interpolating ``side`` into the SQL. ``side`` is asserted against
+    the allow-list so a value outside ``{"left", "right"}`` raises rather than
+    reaching the database (audit #1: kill the injection-shaped f-string idiom).
+
+    Parameters
+    ----------
+    side : str
+        Either ``"left"`` or ``"right"``.
+
+    Returns
+    -------
+    str
+        A parameterised SQL string with ``:neighbour_inv_id`` and ``:body_id``
+        bind placeholders.
+
+    Raises
+    ------
+    AssertionError
+        If ``side`` is not exactly ``"left"`` or ``"right"``.
+    """
+    assert side in ("left", "right"), f"side must be 'left' or 'right', got {side!r}"
+    if side == "left":
+        return """
+                UPDATE body
+                SET extent_left_kind = 'extrapolated',
+                    extent_left_neighbour_inv_id = :neighbour_inv_id
+                WHERE id = :body_id
+                  AND extent_left_kind IS NULL
+            """
+    return """
+                UPDATE body
+                SET extent_right_kind = 'extrapolated',
+                    extent_right_neighbour_inv_id = :neighbour_inv_id
+                WHERE id = :body_id
+                  AND extent_right_kind IS NULL
+            """
+
+
 def upgrade() -> None:
     """Absorb synthetic pinch-out contacts (source='pinch_out_extrapolation')
     into body extents with kind='extrapolated'.
@@ -99,13 +141,7 @@ def upgrade() -> None:
             )
             # Conditional update: only set extent if currently NULL.
             updated = bind.execute(
-                sa.text(f"""
-                UPDATE body
-                SET extent_{side}_kind = 'extrapolated',
-                    extent_{side}_neighbour_inv_id = :neighbour_inv_id
-                WHERE id = :body_id
-                  AND extent_{side}_kind IS NULL
-            """),
+                sa.text(_extent_update_sql(side)),
                 {
                     "body_id": body_row.id,
                     "neighbour_inv_id": row.neighbour_inv_id,
