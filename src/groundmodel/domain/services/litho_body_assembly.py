@@ -424,10 +424,14 @@ def assemble_facies_competitors(
             if s.body_id != body_id:
                 continue
             if side == "above":
+                if i == 0:
+                    continue  # this occurrence is at the surface (no competitor above)
                 # Competitor sits immediately above: index i-1 is the competitor span.
                 top_h[h] = columns[h][i - 1].top_elev
                 base_h[h] = s.top_elev  # shared body's top is the floor of the competitor slab
             else:
+                if i + 1 >= len(columns[h]):
+                    continue  # deepest occurrence (no competitor below)
                 # Competitor sits immediately below: index i+1 is the competitor span.
                 top_h[h] = s.base_elev  # shared body's base is the ceiling of the competitor slab
                 base_h[h] = columns[h][i + 1].base_elev

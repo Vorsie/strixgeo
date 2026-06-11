@@ -281,10 +281,18 @@ def build_body_solids(picks: list[BodyLayerPick]) -> list[LithoBodyMesh]:
         downs = {k.lower_body for k in base_keys if k.lower_body}
         for side, comp_set in (("above", ups), ("below", downs)):
             if len(comp_set) >= 2:
-                for comp, mesh in assemble_facies_competitors(
-                    shared_id, side, columns, coords, surfaces
-                ).items():
+                result = assemble_facies_competitors(shared_id, side, columns, coords, surfaces)
+                for comp, mesh in result.items():
                     facies_meshes.setdefault(comp, []).append(mesh)
+                # A competitor with no prism here silently falls through to the M2
+                # legacy path below; surface the gap so the regression is visible.
+                missing = comp_set - set(result)
+                if missing:
+                    logger.warning(
+                        f"build_body_solids: facies {side} for shared body {shared_id} "
+                        f"produced no prism for {len(missing)}/{len(comp_set)} competitor(s) "
+                        f"{sorted(missing)}; they fall back to the M2 legacy path"
+                    )
 
     meshes: list[LithoBodyMesh] = []
     for idx, (body_id, members) in enumerate(by_body.items()):
