@@ -25,7 +25,7 @@ from groundmodel.domain.services.litho_facies_partition import (
     partition_footprint,
 )
 from groundmodel.domain.services.litho_mesh_primitives import assemble_closed_solid
-from groundmodel.domain.services.tin_surface import compute_tin
+from groundmodel.domain.services.tin_surface import compute_tin, evaluate_tin_at
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 
@@ -363,43 +363,6 @@ def _formation_of(body_id: str, columns: dict[str, list[LayerSpan]]) -> str:
     return body_id
 
 
-def _tin_z(tin, x: float, y: float) -> float | None:
-    """Barycentric-interpolate the TIN elevation at ``(x, y)``.
-
-    Iterates the TIN's triangles and tests each via barycentric coordinates.
-    Returns ``None`` when ``(x, y)`` lies outside every triangle (i.e., outside
-    the triangulated hull).
-
-    Parameters
-    ----------
-    tin : object
-        A TIN object with ``.vertices`` (list of ``(x, y, z)``) and
-        ``.triangles`` (list of ``(a, b, c)`` index triples).
-    x : float
-        Query easting.
-    y : float
-        Query northing.
-
-    Returns
-    -------
-    float | None
-        Interpolated elevation, or ``None`` when outside the hull.
-    """
-    for a, b, c in tin.triangles:
-        ax, ay, az = tin.vertices[a]
-        bx, by, bz = tin.vertices[b]
-        cx, cy, cz = tin.vertices[c]
-        det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-        if abs(det) < 1e-12:
-            continue
-        l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det
-        l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det
-        l3 = 1.0 - l1 - l2
-        if min(l1, l2, l3) >= -1e-9:
-            return l1 * az + l2 * bz + l3 * cz
-    return None
-
-
 def assemble_facies_competitors(
     body_id: str,
     side: str,
@@ -433,7 +396,14 @@ def assemble_facies_competitors(
     dict[str, LithoBodyMesh]
         ``competitor_body_id -> closed prism``.  Empty if the shared body has no
         facies competition on ``side`` (fewer than 3 labelled holes).
+
+    Raises
+    ------
+    ValueError
+        If ``side`` is not ``"above"`` or ``"below"``.
     """
+    if side not in ("above", "below"):
+        raise ValueError(f"side must be 'above' or 'below', got {side!r}")
     labels = (competitor_labels_above if side == "above" else competitor_labels_below)(
         body_id, columns
     )
@@ -491,7 +461,7 @@ def assemble_facies_competitors(
 
     def _sample(tin, hole_z: dict[str, float], x: float, y: float) -> float:
         """Sample elevation from TIN, falling back to nearest hole when outside hull."""
-        z = _tin_z(tin, x, y)
+        z = evaluate_tin_at(tin, x, y)
         if z is not None:
             return z
         # Nearest-hole fallback: a partition vertex outside the trimmed TIN hull
