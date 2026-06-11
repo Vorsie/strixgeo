@@ -155,18 +155,30 @@ export function decideExternalOpen(url: string): ExternalOpenDecision {
  * ``will-navigate`` URL should be allowed to proceed.
  *
  * In dev the renderer is served from ``http://localhost:<port>`` (Vite);
- * in prod it's served from ``file://`` (BrowserWindow.loadFile). Any
- * other URL the renderer tries to navigate to is denied — clicking an
- * external link should go through ``setWindowOpenHandler`` /
- * ``shell.openExternal`` instead.
+ * in prod it's served from a ``file://`` path under the packaged renderer
+ * directory (BrowserWindow.loadFile). Any other URL the renderer tries to
+ * navigate to is denied — clicking an external link should go through
+ * ``setWindowOpenHandler`` / ``shell.openExternal`` instead.
+ *
+ * Audit #15: the production branch used to allow ANY ``file://`` URL, so a
+ * compromised renderer could ``will-navigate`` to an arbitrary local file
+ * (``file:///C:/Windows/...``). It is now confined to the renderer
+ * directory prefix, exactly like the dev base is confined to the Vite origin.
+ *
+ * @param url - The navigation target Electron reports.
+ * @param rendererBase - The dev renderer origin (Vite), or null in prod.
+ * @param rendererFileBase - The packaged renderer directory ``file://``
+ *   prefix (prod), or null in dev. A navigation is allowed only when it
+ *   starts with this prefix.
  */
 export function isInAppNavigation(
   url: string,
   rendererBase: string | null,
+  rendererFileBase: string | null,
 ): boolean {
   if (rendererBase !== null && url.startsWith(rendererBase)) return true
-  // Production prod renderer loads from ``file://`` paths.
-  if (url.startsWith('file://')) return true
+  // Production: only file:// paths under the packaged renderer directory.
+  if (rendererFileBase !== null && url.startsWith(rendererFileBase)) return true
   return false
 }
 
