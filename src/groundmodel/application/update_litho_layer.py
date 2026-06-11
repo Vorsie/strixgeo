@@ -43,6 +43,7 @@ class UpdateLithoLayer(GroundModelLogger):
         self,
         layer_id: UUID,
         patch: dict[str, object],
+        model_id: UUID | None = None,
     ) -> LithoLayerOrm | None:
         """Mutate the layer and commit.
 
@@ -53,11 +54,16 @@ class UpdateLithoLayer(GroundModelLogger):
         patch : dict
             Column-name → new-value pairs. Empty patch = no-op (returns
             the unchanged row).
+        model_id : UUID, optional
+            When given, the layer must belong to this model or the update is
+            rejected as not-found (audit #2 IDOR guard). The router always
+            passes the URL's model id.
 
         Returns
         -------
         LithoLayerOrm | None
-            The updated row, or ``None`` when the id does not exist.
+            The updated row, or ``None`` when the id does not exist (or is
+            outside ``model_id`` when that scope is given).
 
         Raises
         ------
@@ -67,7 +73,7 @@ class UpdateLithoLayer(GroundModelLogger):
             at commit). Any other integrity error propagates unchanged.
         """
         self.debug(f"UpdateLithoLayer: id={layer_id} patch_keys={list(patch.keys())}")
-        layer = await self._repo.update_layer(layer_id, patch)
+        layer = await self._repo.update_layer(layer_id, patch, model_id=model_id)
         if layer is None:
             self.warning(f"UpdateLithoLayer: id={layer_id} not found")
             return None
