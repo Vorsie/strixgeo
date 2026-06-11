@@ -202,3 +202,14 @@ def test_partition_footprint_collinear_holes_returns_empty_regions():
     part = partition_footprint(coords, labels)
     assert part.regions == {}  # no triangles -> no subdivision
     assert set(part.hole_vertex) == {"A", "B", "C"}
+
+
+def test_partition_footprint_facies_seam_at_edge_midpoint():
+    """The facies boundary crosses a SAND|PEAT edge at its midpoint (= 2D meetFraction 0.5)."""
+    from groundmodel.domain.services.litho_facies_partition import partition_footprint
+
+    coords = {"A": (0, 0), "B": (10, 0), "C": (5, 8)}
+    labels = {"A": "SAND", "B": "PEAT", "C": "SAND"}
+    part = partition_footprint(coords, labels)
+    # the A(SAND)-B(PEAT) edge midpoint must be a created vertex at (5, 0)
+    assert any(abs(vx - 5.0) < 1e-9 and abs(vy - 0.0) < 1e-9 for (vx, vy) in part.vertices)
