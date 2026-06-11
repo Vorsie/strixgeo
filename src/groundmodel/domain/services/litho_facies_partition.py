@@ -2,15 +2,18 @@
 
 This module extracts the per-hole labels that mark which competing body sits
 immediately above or below a shared body at each investigation.  These labels are
-the input to the facies-boundary subdivision step, which will divide the shared
-body's footprint triangulation at midpoint (2-way) / circumcenter (3-way Voronoi)
-boundaries into a shared-vertex planar partition.  That subdivision machinery lands
-in later commits; only the label-extraction helpers are present here.  Pure: no I/O.
+the input to the facies-boundary subdivision step, which divides the shared body's
+footprint triangulation at midpoint (2-way) / circumcenter (3-way Voronoi)
+boundaries into a shared-vertex planar partition.  Pure: no I/O.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from groundmodel.domain.services.litho_contact_surfaces import LayerSpan
+from groundmodel.domain.services.tin_surface import compute_tin
+from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 
 
 def competitor_labels_above(body_id: str, columns: dict[str, list[LayerSpan]]) -> dict[str, str]:
@@ -257,3 +260,77 @@ class _PartitionAccumulator:
         self._emit(lb, (j, j_idx, m_ij))
         self._emit(lc, (k, m_ki, j_idx))  # vertex k Voronoi region (two tris)
         self._emit(lc, (k, j_idx, m_jk))
+
+
+@dataclass(frozen=True)
+class FaciesPartition:
+    """A planar partition of a shared body's footprint among its competitors.
+
+    Parameters
+    ----------
+    vertices : list[tuple[float, float]]
+        Shared 2D vertex pool (holes first, then midpoints + junctions).
+    regions : dict[str, list[tuple[int, int, int]]]
+        ``competitor_body_id -> plan triangles`` (indices into ``vertices``).
+    hole_vertex : dict[str, int]
+        ``inv_id -> vertex index`` for each footprint hole (for surface lookup).
+    """
+
+    vertices: list[tuple[float, float]]
+    regions: dict[str, list[tuple[int, int, int]]]
+    hole_vertex: dict[str, int]
+
+
+def partition_footprint(
+    coords: dict[str, tuple[float, float]], labels: dict[str, str]
+) -> FaciesPartition:
+    """Partition the labelled footprint among competitors at midpoint/Voronoi lines.
+
+    Triangulates the labelled holes (via :func:`compute_tin`), then subdivides each
+    triangle by its vertices' labels into a shared-vertex partition.
+
+    The vertex order returned by :func:`compute_tin` matches the input order of the
+    supplied ``ContactPoint3D`` list (no deduplication fires because the footprint
+    holes have distinct (x, y) coordinates).  This means triangle index ``a`` from
+    ``tin.triangles`` directly indexes ``holes[a]``, so the label lookup is
+    ``labels[holes[a]]`` without any coordinate remap.
+
+    Parameters
+    ----------
+    coords : dict[str, tuple[float, float]]
+        ``inv_id -> (x, y)`` for the shared body's footprint.
+    labels : dict[str, str]
+        ``inv_id -> competitor_body_id`` (from :func:`competitor_labels_above` or
+        :func:`competitor_labels_below`).
+
+    Returns
+    -------
+    FaciesPartition
+        The partition; empty ``regions`` if fewer than 3 labelled holes.
+    """
+    # Sort for deterministic order; ContactPoint3D inputs are built in this
+    # order so tin.vertices[i] corresponds to holes[i] (order preserved by
+    # compute_tin when no duplicates are present — verified by live probe).
+    holes = sorted(labels)
+    if len(holes) < 3:
+        return FaciesPartition([], {}, {})
+    tin = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=h,
+                x_m=coords[h][0],
+                y_m=coords[h][1],
+                elevation_m=0.0,
+            )
+            for h in holes
+        ]
+    )
+    hole_coords = [coords[h] for h in holes]
+    acc = _PartitionAccumulator(hole_coords)
+    for a, b, c in tin.triangles:
+        acc.subdivide(
+            (a, b, c),
+            (labels[holes[a]], labels[holes[b]], labels[holes[c]]),
+        )
+    hole_vertex = {h: i for i, h in enumerate(holes)}
+    return FaciesPartition(acc.vertices, acc.regions, hole_vertex)

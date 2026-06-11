@@ -166,3 +166,18 @@ def test_subdivide_rotation_lb_eq_lc_odd_vertex_is_i():
     # The odd vertex (original index 0) must appear in PEAT and not in SAND.
     assert 0 in peat_pts
     assert 0 not in sand_pts
+
+
+def test_partition_footprint_covers_all_competitors_with_shared_pool():
+    """The footprint partitions into one region per competitor over a shared vertex pool."""
+    from groundmodel.domain.services.litho_facies_partition import partition_footprint
+
+    coords = {"A": (0, 0), "B": (0, 10), "C": (10, 0), "D": (10, 10), "E": (5, 5)}
+    labels = {"A": "SAND", "B": "SAND", "C": "PEAT", "D": "PEAT", "E": "CLAY"}
+    part = partition_footprint(coords, labels)
+    assert set(part.regions) == {"SAND", "PEAT", "CLAY"}
+    n = len(part.vertices)
+    for tris in part.regions.values():
+        for t in tris:
+            assert all(0 <= v < n for v in t)
+    assert set(part.hole_vertex) == set(coords)
