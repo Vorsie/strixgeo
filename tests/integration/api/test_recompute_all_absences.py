@@ -12,6 +12,7 @@ RA2  Re-running is idempotent — the batched UPSERT writes no duplicate row.
 
 from __future__ import annotations
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -30,6 +31,7 @@ from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 @pytest_asyncio.fixture
 async def project(db_session: AsyncSession) -> ProjectOrm:
+    """An active project to scope the recompute use case to."""
     proj = ProjectOrm(id=uuid7(), name="recompute test", status="active")
     db_session.add(proj)
     await db_session.commit()
@@ -222,3 +224,42 @@ async def test_ra3_incremental_filter_scopes_to_requested_formations(
     )
     assert res_hit.formations_processed == 1
     assert await _absence_count(db_session, fid) == 1
+
+
+async def test_ra4_unexpected_error_propagates_and_rolls_back(
+    project: ProjectOrm,
+    scenario: dict,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    """RA4 (audit #5): an unexpected error re-raises and commits no partial batch.
+
+    The old ``except (ValueError, Exception)`` swallowed every error and
+    committed whatever had accumulated. A non-data bug (here a ``RuntimeError``)
+    must now propagate out and leave nothing committed.
+    """
+    import groundmodel.application.recompute_all_absences_for_model as mod
+
+    async def _boom(self, **_kwargs):  # noqa: ANN001
+        raise RuntimeError("simulated unexpected failure")
+
+    monkeypatch.setattr(mod.RecomputeFormationAbsencesForFormation, "execute", _boom)
+
+    # Spy on commit so we can prove it was never reached.
+    commit_calls = {"n": 0}
+    real_commit = db_session.commit
+
+    async def _spy_commit():
+        commit_calls["n"] += 1
+        await real_commit()
+
+    monkeypatch.setattr(db_session, "commit", _spy_commit)
+
+    with pytest.raises(RuntimeError, match="simulated unexpected failure"):
+        await RecomputeAllAbsencesForModel(db_session).execute(
+            project_id=project.id, model_id=scenario["litho_model_id"]
+        )
+
+    assert commit_calls["n"] == 0, "must not commit a partial batch on an unexpected error"
+    # Session is rolled back and usable; no absence rows were persisted.
+    assert await _absence_count(db_session, scenario["formation_id"]) == 0
