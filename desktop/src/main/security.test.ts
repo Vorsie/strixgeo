@@ -210,24 +210,42 @@ describe('isValidRecentProjectEntry (debt #41)', () => {
 })
 
 describe('isInAppNavigation', () => {
+  const RENDERER_DIR = 'file:///C:/app/resources/renderer/'
+
   it('allows navigation within the dev renderer URL', () => {
-    expect(isInAppNavigation('http://localhost:5173/some-page', 'http://localhost:5173')).toBe(
-      true,
+    expect(
+      isInAppNavigation('http://localhost:5173/some-page', 'http://localhost:5173', null),
+    ).toBe(true)
+  })
+
+  it('allows file:// navigation under the packaged renderer directory', () => {
+    expect(
+      isInAppNavigation(`${RENDERER_DIR}index.html`, null, RENDERER_DIR),
+    ).toBe(true)
+    expect(
+      isInAppNavigation(`${RENDERER_DIR}index.html#/sections`, null, RENDERER_DIR),
+    ).toBe(true)
+  })
+
+  it('rejects file:// navigation outside the renderer directory (audit #15)', () => {
+    expect(isInAppNavigation('file:///C:/Windows/System32/x.html', null, RENDERER_DIR)).toBe(
+      false,
+    )
+    expect(isInAppNavigation('file:///etc/passwd', null, RENDERER_DIR)).toBe(false)
+  })
+
+  it('rejects all file:// when no renderer file base is set (dev)', () => {
+    expect(isInAppNavigation('file:///C:/anything.html', 'http://localhost:5173', null)).toBe(
+      false,
     )
   })
 
-  it('allows file:// navigation (production loadFile)', () => {
-    expect(isInAppNavigation('file:///C:/.../index.html', null)).toBe(true)
-  })
-
   it('rejects external https navigation', () => {
-    expect(isInAppNavigation('https://evil.com', null)).toBe(false)
-    expect(
-      isInAppNavigation('https://evil.com', 'http://localhost:5173'),
-    ).toBe(false)
+    expect(isInAppNavigation('https://evil.com', null, RENDERER_DIR)).toBe(false)
+    expect(isInAppNavigation('https://evil.com', 'http://localhost:5173', null)).toBe(false)
   })
 
   it('rejects javascript: navigation', () => {
-    expect(isInAppNavigation('javascript:alert(1)', null)).toBe(false)
+    expect(isInAppNavigation('javascript:alert(1)', null, RENDERER_DIR)).toBe(false)
   })
 })
