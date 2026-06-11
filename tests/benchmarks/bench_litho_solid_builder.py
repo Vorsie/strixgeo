@@ -72,6 +72,10 @@ from groundmodel.domain.services.litho_solid_builder import BodyLayerPick, build
 # them and build_extent_solid can triangulate.
 _LENS_PERIOD = 10  # one lens body per this many regular bodies
 _LENS_INNER_FRACTION = 0.5  # fraction of investigations used as lens-present
+_FACIES_PERIOD = 10  # one shared (facies) body per this many regular bodies
+# Three competitor lithologies cycling over shared-body slots; must be ≥2 to
+# trigger the facies path.  Using 3 exercises the Voronoi (circumcenter) branch.
+_FACIES_COMPETITORS = ["COMP-A", "COMP-B", "COMP-C"]
 
 
 def _synthetic_picks(
@@ -371,6 +375,161 @@ def _sanity_check_with_lenses(meshes: list, total_bodies: int) -> None:
     )
 
 
+def _synthetic_picks_with_facies(
+    n_bodies: int,
+    n_investigations: int,
+) -> tuple[list[BodyLayerPick], int]:
+    """Build a synthetic fence where a fraction of bodies are multi-patch shared bodies.
+
+    Every ``_FACIES_PERIOD``-th body slot is replaced by a shared body with 2–3
+    distinct competitors directly above it, triggering the facies path in
+    :func:`build_body_solids`.
+
+    The shared body is present at every investigation (full footprint).  The
+    competitors are assigned by cycling ``_FACIES_COMPETITORS`` round-robin over the
+    sorted investigation indices so at least 2 distinct competitors appear at the
+    ≥3 non-collinear investigations required for the facies partition TIN.  The
+    competitor occupies a thin slab above the shared body (half a ``layer_m`` thick)
+    and the shared body spans the normal ``layer_m`` band below it.
+
+    Regular (non-facies) body slots are identical to :func:`_synthetic_picks`.
+
+    Parameters
+    ----------
+    n_bodies : int
+        Number of body slots.  Each facies slot contributes 1 shared body + N
+        competitor bodies (N = len(_FACIES_COMPETITORS)), so the total distinct body
+        IDs is slightly more than ``n_bodies``.
+    n_investigations : int
+        Number of investigation anchors.
+
+    Returns
+    -------
+    tuple[list[BodyLayerPick], int]
+        ``(picks, total_distinct_bodies)`` where *total_distinct_bodies* counts
+        all distinct ``body_id`` values emitted (shared + competitor + regular).
+    """
+    # Build the staggered investigation grid (same as _synthetic_picks).
+    inv_x: list[float] = []
+    inv_y: list[float] = []
+    side = max(2, int(math.ceil(math.sqrt(n_investigations))))
+    spacing = 50.0
+
+    for k in range(n_investigations):
+        col = k % side
+        row = k // side
+        x = col * spacing + (row % 2) * 12.5
+        y = row * spacing
+        inv_x.append(x)
+        inv_y.append(y)
+
+    surface_elev_m = 5.0
+    layer_m = 2.0
+    comp_layer_m = layer_m / 2.0  # competitor slab is half the body thickness
+
+    picks: list[BodyLayerPick] = []
+    competitor_body_ids: set[str] = set()
+
+    for b in range(n_bodies):
+        formation_id = f"form-{b % 8:02d}"
+
+        if b % _FACIES_PERIOD == _FACIES_PERIOD // 2:
+            # --- Facies slot ---
+            # The shared body spans the lower half of the depth band; the competitor
+            # slab sits immediately above it (upper half of the band).
+            shared_top_depth = b * layer_m + comp_layer_m  # shared body starts after the comp slab
+            shared_base_depth = (b + 1) * layer_m
+            comp_top_depth = b * layer_m
+            comp_base_depth = shared_top_depth
+
+            shared_id = f"shared-{b:04d}"
+
+            for i in range(n_investigations):
+                inv_id = f"inv-{i:04d}"
+                x, y = inv_x[i], inv_y[i]
+                # Assign competitor round-robin by investigation index so all three
+                # competitor labels appear across the investigation set.
+                comp_label = _FACIES_COMPETITORS[i % len(_FACIES_COMPETITORS)]
+                comp_id = f"{comp_label}-{b:04d}"
+                competitor_body_ids.add(comp_id)
+
+                # Competitor pick (above the shared body).
+                picks.append(
+                    BodyLayerPick(
+                        investigation_id=inv_id,
+                        x_m=x,
+                        y_m=y,
+                        surface_elev_m=surface_elev_m,
+                        body_id=comp_id,
+                        formation_id=comp_label,
+                        top_depth_m=comp_top_depth,
+                        base_depth_m=comp_base_depth,
+                    )
+                )
+                # Shared body pick.
+                picks.append(
+                    BodyLayerPick(
+                        investigation_id=inv_id,
+                        x_m=x,
+                        y_m=y,
+                        surface_elev_m=surface_elev_m,
+                        body_id=shared_id,
+                        formation_id=formation_id,
+                        top_depth_m=shared_top_depth,
+                        base_depth_m=shared_base_depth,
+                    )
+                )
+        else:
+            # --- Regular body --- identical to _synthetic_picks.
+            body_id = f"body-{b:04d}"
+            top_depth = b * layer_m
+            base_depth = (b + 1) * layer_m
+            for i in range(n_investigations):
+                picks.append(
+                    BodyLayerPick(
+                        investigation_id=f"inv-{i:04d}",
+                        x_m=inv_x[i],
+                        y_m=inv_y[i],
+                        surface_elev_m=surface_elev_m,
+                        body_id=body_id,
+                        formation_id=formation_id,
+                        top_depth_m=top_depth,
+                        base_depth_m=base_depth,
+                    )
+                )
+
+    # Count distinct body IDs: n_bodies regular/shared slots + competitor bodies.
+    # Regular slots use "body-NNNN"; shared slots use "shared-NNNN" (1 per facies
+    # slot, counted within n_bodies); competitor bodies are additive.
+    total_distinct = n_bodies + len(competitor_body_ids)
+    return picks, total_distinct
+
+
+def _sanity_check_with_facies(meshes: list, total_bodies: int) -> None:
+    """Assert facies-model sanity: correct count and no flagged competitor bodies.
+
+    Competitor bodies (``body_id`` starts with ``"COMP-A-"``, ``"COMP-B-"``, or
+    ``"COMP-C-"``) must NOT be flagged — a flagged competitor means the builder
+    took the disk-marker fallback instead of the facies prism path, which would
+    indicate the geometry is degenerate or the facies trigger was not reached.
+
+    Parameters
+    ----------
+    meshes : list
+        Output of :func:`build_body_solids`.
+    total_bodies : int
+        Expected total mesh count (shared + competitor + regular bodies).
+    """
+    assert len(meshes) == total_bodies, f"Expected {total_bodies} meshes, got {len(meshes)}"
+    comp_prefix = tuple(f"{c}-" for c in _FACIES_COMPETITORS)
+    competitor_meshes = [m for m in meshes if m.body_id.startswith(comp_prefix)]
+    flagged_comps = [m for m in competitor_meshes if m.is_flagged]
+    assert not flagged_comps, (
+        f"{len(flagged_comps)} competitor bodies are flagged (disk markers) — "
+        f"the facies prism path was NOT taken: {[m.body_id for m in flagged_comps]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Small — 10 bodies × 6 investigations
 # ---------------------------------------------------------------------------
@@ -457,3 +616,31 @@ def test_bench_build_body_solids_with_lenses(benchmark) -> None:
     picks, total_bodies = _synthetic_picks_with_lenses(n_matrix, n_inv)
     meshes = benchmark(build_body_solids, picks)
     _sanity_check_with_lenses(meshes, total_bodies)
+
+
+# ---------------------------------------------------------------------------
+# Facies — 50 bodies × 12 investigations, ~5 shared bodies with competitors
+# ---------------------------------------------------------------------------
+
+
+def test_bench_build_body_solids_with_facies(benchmark) -> None:
+    """Medium fence with facies competition: 50 body slots × 12 investigations.
+
+    Every tenth body slot is a shared body with 2–3 distinct competitors
+    (``_FACIES_COMPETITORS``) directly above it, exercising
+    :func:`assemble_facies_competitors` and the Voronoi/midpoint partition path
+    inside :func:`build_body_solids`.
+
+    The sanity assertions confirm that:
+
+    * The total mesh count equals n_bodies + n_competitor_bodies.
+    * Competitor bodies (``body_id`` starts with a ``_FACIES_COMPETITORS`` prefix)
+      are NOT flagged — they were built as real facies prisms via the clipped-
+      prism path, not as degenerate disk markers.  A flagged competitor means the
+      facies partition path was bypassed, so this assertion gates whether the
+      correct code branch ran.
+    """
+    n_bodies, n_inv = 50, 12
+    picks, total_bodies = _synthetic_picks_with_facies(n_bodies, n_inv)
+    meshes = benchmark(build_body_solids, picks)
+    _sanity_check_with_facies(meshes, total_bodies)
