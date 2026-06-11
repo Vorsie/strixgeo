@@ -598,3 +598,124 @@ def test_build_body_solids_facies_competitors_dont_overlap():
             ]
             assert len(hits) <= 1, (x, y, hits)
     assert _is_closed_manifold(meshes["SAND"].triangles)  # SAND continuous underneath
+
+
+def test_facies_competitor_spanning_two_shared_bodies_concat() -> None:
+    """One competitor lithology above TWO different shared bodies → a 2-part concat mesh.
+
+    Two spatially separate hole-clusters, each a facies competition above its own
+    shared body:
+
+    * Cluster 1 (holes a0–a3): a shared body ``SH1`` with WEDGE above on a0/a1 and
+      ``X`` above on a2/a3 → ``SH1`` has two distinct upper neighbours (multi-patch)
+      → the facies path fires and emits a WEDGE prism for cluster 1.
+    * Cluster 2 (holes b0–b3, offset far away): a shared body ``SH2`` with WEDGE
+      above on b0/b1 and ``Y`` above on b2/b3 → emits a SECOND WEDGE prism.
+
+    Because the competitor ``body_id`` is the SAME (``"WEDGE"``) in both clusters,
+    ``build_body_solids`` accumulates both prisms under ``facies_meshes["WEDGE"]``
+    and stitches them via ``_concat_meshes`` into ONE two-component mesh.  The gate:
+    the WEDGE mesh exists, each of its two components is a closed manifold (the
+    concat did not corrupt indices), and WEDGE does not overlap any other body.
+    """
+    # Cluster 1 around the origin; cluster 2 shifted far away (+1000 m x, +500 m y)
+    # so the two footprints never share a Delaunay edge and are non-collinear.
+    cluster1 = [
+        ("a0", 0.0, 0.0, "WEDGE"),
+        ("a1", 8.0, 0.0, "WEDGE"),
+        ("a2", 8.0, 10.0, "X"),
+        ("a3", 0.0, 10.0, "X"),
+    ]
+    # Cluster 2 is also offset in y so the two WEDGE patches are not collinear
+    # with cluster 1 (a single flat line would make WEDGE's own footprint
+    # un-triangulable).
+    cluster2 = [
+        ("b0", 1000.0, 500.0, "WEDGE"),
+        ("b1", 1008.0, 500.0, "WEDGE"),
+        ("b2", 1008.0, 510.0, "Y"),
+        ("b3", 1000.0, 510.0, "Y"),
+    ]
+    picks: list[BodyLayerPick] = []
+    for inv, x, y, upper in cluster1:
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id=upper,
+                formation_id=upper,
+                top_depth_m=0.0,
+                base_depth_m=2.0,
+            )
+        )
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="SH1",
+                formation_id="SH1",
+                top_depth_m=2.0,
+                base_depth_m=9.0,
+            )
+        )
+    for inv, x, y, upper in cluster2:
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id=upper,
+                formation_id=upper,
+                top_depth_m=0.0,
+                base_depth_m=2.0,
+            )
+        )
+        picks.append(
+            BodyLayerPick(
+                investigation_id=inv,
+                x_m=x,
+                y_m=y,
+                surface_elev_m=0.0,
+                body_id="SH2",
+                formation_id="SH2",
+                top_depth_m=2.0,
+                base_depth_m=9.0,
+            )
+        )
+
+    meshes = {m.body_id: m for m in build_body_solids(picks)}
+    assert "WEDGE" in meshes, "competitor WEDGE mesh was not produced"
+    wedge = meshes["WEDGE"]
+    assert not wedge.is_flagged, "WEDGE was built as disk markers — facies path not taken"
+    assert len(wedge.vertices) > 0 and len(wedge.triangles) > 0
+
+    # The concat is two disjoint closed solids: the whole-mesh edge-pairing check
+    # (each undirected edge shared by exactly 2 triangles) holds iff the index
+    # offsetting in _concat_meshes did not weld or corrupt the two parts.
+    assert _is_closed_manifold(wedge.triangles), (
+        "WEDGE concat mesh is not a closed 2-manifold — two-part index offset corrupted"
+    )
+    assert _is_consistently_wound(wedge.triangles)
+
+    # WEDGE actually occupies BOTH clusters (non-vacuous: not just one prism).
+    assert _inside(wedge.vertices, wedge.triangles, (2.0, 2.0, -1.0)), (
+        "WEDGE mesh empty over cluster 1"
+    )
+    assert _inside(wedge.vertices, wedge.triangles, (1002.0, 502.0, -1.0)), (
+        "WEDGE mesh empty over cluster 2"
+    )
+
+    # WEDGE does not overlap any other body across either cluster.
+    others = [m for bid, m in meshes.items() if bid != "WEDGE"]
+    for base_x, base_y in ((0.0, 0.0), (1000.0, 500.0)):
+        for dx in (1.0, 4.0, 6.0):
+            for dy in (2.0, 5.0, 8.0):
+                pt = (base_x + dx, base_y + dy, -1.0)
+                if not _inside(wedge.vertices, wedge.triangles, pt):
+                    continue
+                clashes = [m.body_id for m in others if _inside(m.vertices, m.triangles, pt)]
+                assert not clashes, f"WEDGE overlaps {clashes} at {pt}"
