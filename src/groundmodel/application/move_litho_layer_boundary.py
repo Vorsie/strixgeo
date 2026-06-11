@@ -80,8 +80,20 @@ class MoveLithoLayerBoundary(GroundModelLogger):
         upper_layer_id: UUID,
         lower_layer_id: UUID,
         new_depth_m: float,
+        model_id: UUID | None = None,
     ) -> BoundaryMoveResult:
         """Move the shared boundary, committing both rows atomically.
+
+        Parameters
+        ----------
+        upper_layer_id, lower_layer_id : UUID
+            The two adjacent layers sharing the boundary to move.
+        new_depth_m : float
+            The new shared-boundary depth.
+        model_id : UUID, optional
+            When given, both layers must belong to this model or the move is
+            rejected as not-found (audit #2 IDOR guard). The router always
+            passes the URL's model id.
 
         Raises
         ------
@@ -93,7 +105,9 @@ class MoveLithoLayerBoundary(GroundModelLogger):
             f"MoveLithoLayerBoundary: upper={upper_layer_id} "
             f"lower={lower_layer_id} new_depth_m={new_depth_m:.3f}"
         )
-        rows = await self._repo.list_layers_by_ids([upper_layer_id, lower_layer_id])
+        rows = await self._repo.list_layers_by_ids(
+            [upper_layer_id, lower_layer_id], model_id=model_id
+        )
         by_id = {r.id: r for r in rows}
         upper = by_id.get(upper_layer_id)
         lower = by_id.get(lower_layer_id)
