@@ -23,7 +23,9 @@
    `docs/superpowers/2026-06-11-codebase-audit.md`. Subagent-driven, commit per fix,
    **do not push**.
 3. **Do NOT** touch the litho 3D builder, do NOT build the geological-bounding feature,
-   do NOT merge the branch — those are §4, owner-present.
+   do NOT merge the branch — those are §4, handled in a **separate** session (the
+   geological-bounding feature design is now DECIDED — see §4 — but it is its own
+   session, not part of this unattended audit run).
 4. When §3 is done (or the night runs out), run the full suite (§5) and write a
    completion summary listing what shipped, what was skipped + why, and any red tests.
 
@@ -156,23 +158,27 @@ Never block the night on one item.
 
 ---
 
-## 4. ⛔ OWNER-PRESENT WORK — do NOT touch overnight
+## 4. SEPARATE SESSIONS — not part of THIS unattended audit run
 
-These are here for context only. **Do not start them. Do not ask about them.**
+These are NOT for the overnight audit run — they get their own sessions. Listed here so
+you know to leave them alone tonight.
 
 - **Litho 3D dogfeed + merge.** The M3 + facies builder has never been owner-dogfed on
   `test.strix`. The owner will Build the 3D solids, confirm no hairlines/overlaps, then
-  merge to develop via `finishing-a-development-branch`. Not an overnight task (needs a
-  human looking at the 3D render).
+  merge to develop via `finishing-a-development-branch`. Needs a human looking at the 3D
+  render — not an overnight task.
 - **3D geological-unit bounding feature** (what the reverted thread was trying to do,
-  aimed correctly at `build_body_solids`). The validated model is in `CLAUDE.local.md`
-  → "The geo-coupled MODEL". It has a **BLOCKING open design decision** — the 3D litho
-  model is currently "litho interfingers freely, NOT bounded by geological/age order"
-  (`rebuild_model_surfaces.py:222`); geo-coupling imposes geological bounds; the
-  synthesis "litho interfingers WITHIN each geological unit" is a foundational product
-  change. **This needs the owner's call + a fresh brainstorm → spec → plan when they're
-  present. Building it unsupervised overnight is the exact failure mode of today — do
-  not.**
+  aimed correctly at `build_body_solids`; the 2D section is the INPUT, not the target).
+  The owner is starting a **separate fresh session** for this. **The product design is
+  DECIDED (owner directive 2026-06-11): geology prevails — interfingering can NEVER
+  cross a geological boundary; litho interfingers ONLY within each geological unit.**
+  Geological surfaces are the HARD outer bounds; the existing litho partition
+  (correlations / bodies / facies / `computeSectionFill` / the 3D fence) fills WITHIN
+  each geological band; the deepest band is bounded below by the observed-base surface.
+  Full model in `CLAUDE.local.md` → "The geo-coupled MODEL". That session's path:
+  `superpowers:brainstorming` (implementation only — the product question is answered)
+  → `writing-plans` → build in `build_body_solids`. **Still do NOT start it in the
+  overnight audit run — it is a different session.**
 
 ---
 
