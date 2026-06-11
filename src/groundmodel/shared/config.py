@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel"
     debug: bool = False
     log_level: str = "INFO"
+    # Deployment environment. "development" keeps relaxed dev ergonomics
+    # (e.g. the SECRET_KEY default is a warning, not an error). Any other
+    # value ("production", "staging", a packaged coworker binary) is treated
+    # as non-dev and hardens those checks. Override with ENVIRONMENT env var.
+    environment: str = "development"
     # Debt #113: the default is intentionally the well-known sentinel "change-me"
     # so a startup warning fires loudly before auth routes ever use it.  Set
     # SECRET_KEY in the environment or .env — any non-default value silences
@@ -42,19 +47,29 @@ class Settings(BaseSettings):
     secret_key: str = _SECRET_KEY_DEFAULT
 
     @model_validator(mode="after")
-    def _warn_on_default_secret_key(self) -> "Settings":
-        """Emit a RuntimeWarning when secret_key is still the shipped default.
+    def _enforce_secret_key(self) -> "Settings":
+        """Block the shipped default SECRET_KEY outside local development.
 
-        A hard error would break dev setups that haven't set SECRET_KEY yet;
-        a warning surfaces loudly in logs without blocking startup.  When auth
-        (#3/#4) lands this becomes a hard assertion.
+        In ``environment == "development"`` the default key only warns, so a
+        first-run dev setup is not blocked. In any non-dev environment
+        (production / staging / a packaged coworker binary) the default key is
+        a hard error, because it would forge any future signed token
+        (audit #16).
 
         Returns
         -------
         Settings
             Self — required by the ``mode="after"`` validator protocol.
+
+        Raises
+        ------
+        ValueError
+            If ``secret_key`` is the shipped default and ``environment`` is
+            not ``"development"``.
         """
-        if self.secret_key == _SECRET_KEY_DEFAULT:
+        if self.secret_key != _SECRET_KEY_DEFAULT:
+            return self
+        if self.environment == "development":
             warnings.warn(
                 "SECRET_KEY is still the default 'change-me' value.  "
                 "Set SECRET_KEY in your environment or .env file before "
@@ -62,7 +77,12 @@ class Settings(BaseSettings):
                 RuntimeWarning,
                 stacklevel=2,
             )
-        return self
+            return self
+        raise ValueError(
+            "SECRET_KEY must be set to a non-default value when "
+            f"environment={self.environment!r}.  Set SECRET_KEY in the "
+            "environment before running outside local development."
+        )
 
     # Where to cache downloaded DOV sondering XMLs. Reused across imports so the same
     # CPT is never downloaded twice. DOV measurement data is historical, so cached
