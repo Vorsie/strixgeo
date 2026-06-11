@@ -53,3 +53,24 @@ def test_labels_below_are_the_body_directly_under_the_shared_body():
         "C": "GRAVEL",
         "D": "GRAVEL",
     }
+
+
+def test_circumcenter_is_equidistant_and_clamps_when_obtuse():
+    """Acute triangle -> true circumcenter (equidistant); obtuse -> clamped inside."""
+    import math
+
+    from groundmodel.domain.services.litho_facies_partition import circumcenter
+
+    a, b, c = (0.0, 0.0), (4.0, 0.0), (0.0, 4.0)
+    cx, cy = circumcenter(a, b, c)
+    assert abs(math.dist((cx, cy), a) - math.dist((cx, cy), b)) < 1e-9
+    assert abs(math.dist((cx, cy), a) - math.dist((cx, cy), c)) < 1e-9  # equidistant
+
+    # Strongly obtuse: true circumcenter is far outside; clamp keeps it inside.
+    a, b, c = (0.0, 0.0), (10.0, 0.0), (5.0, 0.3)
+    px, py = circumcenter(a, b, c)
+    det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+    l1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+    l2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+    l3 = 1 - l1 - l2
+    assert min(l1, l2, l3) >= -1e-9 and max(l1, l2, l3) <= 1 + 1e-9

@@ -80,3 +80,47 @@ def competitor_labels_below(body_id: str, columns: dict[str, list[LayerSpan]]) -
             if s.body_id == body_id and i + 1 < len(spans):
                 out[inv] = spans[i + 1].body_id
     return out
+
+
+def circumcenter(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> tuple[float, float]:
+    """Return the triangle's circumcenter, clamped inside if it falls outside.
+
+    The circumcenter is equidistant from all three vertices — the true Voronoi
+    point — so the three perpendicular bisectors (each crossing its edge at the
+    midpoint) meet there, consistent with the 2-way midpoint rule. For an obtuse
+    triangle the circumcenter lies outside; we clamp it to the triangle via
+    barycentric coordinates so the partition stays inside and non-overlapping.
+
+    Parameters
+    ----------
+    a, b, c : tuple[float, float]
+        Triangle vertices ``(x, y)``.
+
+    Returns
+    -------
+    tuple[float, float]
+        The (possibly clamped) junction point.
+    """
+    ax, ay = a
+    bx, by = b
+    cx, cy = c
+    d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-12:  # degenerate / collinear -> centroid fallback
+        return ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0)
+    a2 = ax * ax + ay * ay
+    b2 = bx * bx + by * by
+    c2 = cx * cx + cy * cy
+    ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+    uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+    det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+    l1 = ((by - cy) * (ux - cx) + (cx - bx) * (uy - cy)) / det
+    l2 = ((cy - ay) * (ux - cx) + (ax - cx) * (uy - cy)) / det
+    l3 = 1.0 - l1 - l2
+    if min(l1, l2, l3) >= 0.0:
+        return (ux, uy)
+    l1, l2, l3 = (max(0.0, l1), max(0.0, l2), max(0.0, l3))
+    s = l1 + l2 + l3
+    l1, l2, l3 = l1 / s, l2 / s, l3 / s
+    return (l1 * ax + l2 * bx + l3 * cx, l1 * ay + l2 * by + l3 * cy)
