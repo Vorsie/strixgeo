@@ -48,6 +48,7 @@ class BatchUpdateLithoLayers(GroundModelLogger):
     async def execute(
         self,
         patches: list[tuple[UUID, dict[str, Any]]],
+        model_id: UUID | None = None,
     ) -> BatchUpdateResult:
         """Apply patches atomically.
 
@@ -55,6 +56,10 @@ class BatchUpdateLithoLayers(GroundModelLogger):
         ----------
         patches : list[tuple[UUID, dict]]
             ``(layer_id, patch_dict)`` pairs. Empty list = no-op.
+        model_id : UUID, optional
+            When given, every layer must belong to this model or the call is
+            rejected as not-found (audit #2 IDOR guard). The router always
+            passes the URL's model id.
 
         Raises
         ------
@@ -66,7 +71,7 @@ class BatchUpdateLithoLayers(GroundModelLogger):
             return BatchUpdateResult(updated_count=0, layers=[])
 
         layer_ids = [lid for lid, _ in patches]
-        existing = await self._repo.list_layers_by_ids(layer_ids)
+        existing = await self._repo.list_layers_by_ids(layer_ids, model_id=model_id)
         if len(existing) != len(layer_ids):
             found = {r.id for r in existing}
             missing = [str(lid) for lid in layer_ids if lid not in found]
