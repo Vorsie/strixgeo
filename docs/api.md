@@ -679,42 +679,26 @@ GET    /projects/{pid}/virtuele-boring/predictions?models=A,B
                                             only — no rows persisted.
 ```
 
-**Bodies (lateral extents)** — full catalogue (design doc: `docs/superpowers/specs/2026-05-31-body-with-extent-design.md`):
+**Bodies** — full catalogue. The per-side lateral-extent endpoints
+(`/bodies/detect`, `/bodies/suggest-pinch-outs`, bulk `DELETE /bodies`,
+`DELETE /bodies/{bid}/extents/{side}`) were **removed 2026-06-06** with the
+body-extent retirement — body shape is now derived client-side by the
+partition fill, not stored as extents (design doc:
+`docs/superpowers/specs/2026-06-06-body-extent-retirement-design.md`):
 
 ```
 GET    /projects/{pid}/geology/models/{mid}/bodies
                                 List all body metadata rows (oldest-first).
-POST   /projects/{pid}/geology/models/{mid}/bodies/detect
-                                Explicit "Detect bodies" verb (same as
-                                /lenses/detect above — canonical path).
-                                Runs DetectBodies: materialises BodyOrm rows
-                                for bilateral-closure topologies + removes
-                                stale rows. Idempotent. 422 when model is
-                                not lithostratigraphic.
-POST   /projects/{pid}/geology/models/{mid}/bodies/suggest-pinch-outs
-                                Ephemeral only — returns PinchOutCandidateItem
-                                list (no DB writes). Frontend renders as ghost
-                                wedges; click-to-commit fires ClaimBodyExtent.
+POST   /projects/{pid}/geology/models/{mid}/bodies/merge-enclosed-lenses
+                                Merge an enclosed-lens body into its
+                                surrounding matrix body (MergeEnclosedLensBodies).
 PATCH  /projects/{pid}/geology/models/{mid}/bodies/{bid}
                                 Update a body's human-readable name
                                 (NameBody use case).
-DELETE /projects/{pid}/geology/models/{mid}/bodies
-                                Bulk-delete the purely-detected bodies of the
-                                model (DeleteDetectedBodies). Preserves
-                                user-named + user-claimed ("accepted") bodies
-                                (provenance rule §5.2). Returns
-                                ClearDetectedBodiesResponse
-                                {bodies_deleted, bodies_preserved}. Backs the
-                                toolbar "Delete all detected lenses".
 DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}
-                                Hard-delete the BodyOrm metadata row.
-                                Formation absence rows + synthetic contacts
-                                are preserved.
-DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}/extents/{side}
-                                Clear one lateral extent back to NULL.
-                                ``side`` ∈ {left, right}. Reaps the body
-                                row when both extents are NULL and name is
-                                empty.
+                                Hard-delete the BodyOrm metadata row
+                                (Dissolve). Formation absence rows + member
+                                layers are preserved.
 GET    /projects/{pid}/geology/models/{mid}/bodies/{bid}/boundary
                                 Return the user-authored boundary shape
                                 (upper/lower control nodes + render_style).
