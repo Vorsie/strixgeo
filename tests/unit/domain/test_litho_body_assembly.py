@@ -8,6 +8,8 @@ from groundmodel.domain.services.litho_contact_surfaces import (
     enumerate_contacts,
     fit_patch_surfaces,
 )
+from groundmodel.domain.services.tin_surface import compute_tin, evaluate_tin_at
+from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from tests.unit.domain.mesh_test_helpers import (
     inside,
 )
@@ -314,6 +316,32 @@ def test_facies_competitors_3way_tile_watertight():
                 if inside(m.vertices, m.triangles, (float(x), float(y), -3.0))
             ]
             assert len(hits) <= 1, f"overlap at ({x},{y},-3.0): {hits}"
+
+    # Floor-continuity: the shared SAND top (at depth -2.0 = elevation 0 - 2.0)
+    # must be single-valued at every labelled hole — i.e. the base_tin used by
+    # assemble_facies_competitors interpolates exactly the hole's floor elevation.
+    # Rebuild base_tin the same way assemble_facies_competitors does: from each
+    # labelled hole's shared-body top_elev (SAND.top_elev = elevation at depth 2.0).
+    shared_top_elev = -2.0  # SAND starts at depth 2.0 → elevation = -2.0
+    holes = sorted(coords)
+    base_tin = compute_tin(
+        [
+            ContactPoint3D(
+                contact_id=h,
+                x_m=coords[h][0],
+                y_m=coords[h][1],
+                elevation_m=shared_top_elev,
+            )
+            for h in holes
+        ]
+    )
+    for h in holes:
+        hx, hy = coords[h]
+        z = evaluate_tin_at(base_tin, hx, hy)
+        assert z is not None, f"base_tin gave None at labelled hole {h}"
+        assert abs(z - shared_top_elev) < 1e-6, (
+            f"floor not single-valued at hole {h}: got {z}, expected {shared_top_elev}"
+        )
 
 
 def test_facies_competitors_2way_watertight_no_overlap():
