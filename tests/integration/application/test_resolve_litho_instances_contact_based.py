@@ -21,7 +21,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -317,3 +317,74 @@ async def test_unapproved_edge_does_not_merge_components(
     body_ids = {ly.body_id for ly in layers}
     assert None not in body_ids
     assert len(body_ids) == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 3 (audit #10): body_id stamping is one UPDATE per body, not per layer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_body_id_stamping_is_one_update_per_body(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Three layers in ONE component stamp in a single UPDATE (audit #10 N+1).
+
+    The resolver groups layer ids by target body and issues one
+    ``UPDATE litho_layer ... SET body_id`` per distinct body, instead of one
+    per layer. With three members in one body the count must be 1, not 3.
+    """
+    geo = _geo_model(project)
+    litho = _litho_model(project, geo)
+    geo_parent = _geo_formation(project, name="Quaternary QC")
+    f_sand = _formation(project, geo_parent, name="ZAND occ QC", soil_code="ZAND")
+    bh_a = _borehole(project.id, suffix="021", x=150000.0)
+    bh_b = _borehole(project.id, suffix="022", x=150300.0)
+    bh_c = _borehole(project.id, suffix="023", x=150600.0)
+    db_session.add_all([geo, litho, geo_parent, f_sand, bh_a, bh_b, bh_c])
+    await db_session.flush()
+
+    la = _layer(litho, f_sand, bh_a, depth_top=3.0, depth_base=5.0)
+    lb = _layer(litho, f_sand, bh_b, depth_top=4.0, depth_base=6.0)
+    lc = _layer(litho, f_sand, bh_c, depth_top=4.0, depth_base=6.0)
+    db_session.add_all([la, lb, lc])
+    await db_session.flush()
+
+    sec = _minimal_section(project, name="Sec-RLIC-QC")
+    db_session.add(sec)
+    await db_session.flush()
+
+    # Chain a-b-c via approved edges → ONE connected component (one body).
+    db_session.add_all(
+        [
+            _layer_edge(litho, la, lb, user_approved=True, section_id=sec.id),
+            _layer_edge(litho, lb, lc, user_approved=True, section_id=sec.id),
+        ]
+    )
+    await db_session.commit()
+
+    stamp_updates = {"n": 0}
+    sync_engine = db_session.bind.sync_engine
+
+    def _count(conn, cursor, statement, params, context, executemany):  # noqa: ANN001
+        s = statement.lstrip().lower()
+        if s.startswith("update litho_layer") and "body_id" in s:
+            stamp_updates["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _count)
+    try:
+        await ResolveLithoInstances(db_session).execute(model_id=litho.id)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _count)
+
+    assert stamp_updates["n"] == 1, (
+        f"Expected one grouped UPDATE for the single body; got {stamp_updates['n']}"
+    )
+
+    layers = (
+        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == litho.id)))
+        .scalars()
+        .all()
+    )
+    assert len({ly.body_id for ly in layers}) == 1
