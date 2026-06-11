@@ -128,7 +128,11 @@ function startApi(): void {
   ], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env }
+    // A packaged build has no repo-root .env and won't have ENVIRONMENT set,
+    // so the backend would default to "development" and only WARN on a
+    // default SECRET_KEY. Force ENVIRONMENT=production for packaged builds so
+    // the backend's hard SECRET_KEY guard actually fires (audit #16 Gap A).
+    env: { ...process.env, ...(app.isPackaged ? { ENVIRONMENT: 'production' } : {}) }
   })
 
   // Backend stdout/stderr carry the asyncpg DSN (groundmodel:groundmodel@…)
