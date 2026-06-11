@@ -350,7 +350,9 @@ async def unlink_layer_from_geo(
         project_id,
         detail="Model not found",
     )
-    updated = await UpdateLithoLayer(session).execute(layer_id, {"parent_geo_contact_id": None})
+    updated = await UpdateLithoLayer(session).execute(
+        layer_id, {"parent_geo_contact_id": None}, model_id=model_id
+    )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
     return updated
@@ -426,7 +428,7 @@ async def update_layer(
     patch = request.model_dump(exclude_unset=True)
     use_case = UpdateLithoLayer(session)
     try:
-        updated = await use_case.execute(layer_id, patch)
+        updated = await use_case.execute(layer_id, patch, model_id=model_id)
     except LithoLayerOverlapError as err:
         # The no-overlap exclusion constraint fired at commit. Answer 409 with a
         # named code instead of leaking a raw 500 — the edit would put this
