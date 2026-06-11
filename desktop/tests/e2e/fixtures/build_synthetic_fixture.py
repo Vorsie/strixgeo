@@ -100,9 +100,18 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 900.0),
     (150.0, 900.0),
     (300.0, 900.0),
-    # Section E — facies competition (CPTs 11, 12, 13)
+    # Section E — facies competition (CPTs 11, 12, 13). The MIDDLE CPT (index
+    # 12) is offset +60 m in Y so the three facies anchors are NON-COLLINEAR.
+    # The shared KLEI body's 3-point footprint must triangulate for
+    # ``build_body_solids`` to fit a TIN and route the competitors (ZAND, VEEN)
+    # through ``assemble_facies_competitors`` — three CPTs on a perfectly
+    # straight E-W line give SciPy Delaunay a degenerate (collinear) point set
+    # → 0 triangles → every facies body falls back to flagged disk markers and
+    # the facies prism path never fires. The +60 m stagger stays well inside
+    # Section E's 200 m projection buffer so all three CPTs still project onto
+    # the section.
     (0.0, 1200.0),
-    (150.0, 1200.0),
+    (150.0, 1260.0),
     (300.0, 1200.0),
 ]
 

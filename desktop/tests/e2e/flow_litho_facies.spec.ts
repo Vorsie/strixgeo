@@ -163,10 +163,50 @@ test.describe('flow_litho_facies', () => {
             const contacts: any[] = await r.json()
             if (contacts.length === 0) return { error: 'geo model has 0 contacts' }
 
+            // CRITICAL: do NOT copy geological contacts onto the facies CPTs.
+            // The facies scenario (Section E, CPTs 11/12/13) is pre-seeded
+            // directly on the litho model with a CLEAN ZAND/VEEN-directly-over-
+            // KLEI stack — that direct adjacency is exactly what
+            // ``assemble_facies_competitors`` keys on.  When this spec runs
+            // after other specs that have populated the *geological* model's
+            // contacts (e.g. flow_build_3d_model seeds the fixture's geo model
+            // with Q@0/TC@2/TS@5 on every CPT, including 11/12/13), copying
+            // them across inserts a Tertiary-Clay contact at 2 m BETWEEN the
+            // VEEN@1 m and KLEI@4 m facies units.  VEEN is then no longer a
+            // direct upper neighbour of the shared KLEI body, the facies path
+            // never fires for it, and the single-CPT VEEN body collapses to an
+            // M2 disk marker (``is_flagged=true``) — breaking criterion 12.
+            // The facies CPTs are identified as those that already carry a
+            // litho contact for a "%facies%" formation (the fixture's
+            // pre-seeded scenario).
+            const fr0 = await fetch(`${base}/projects/${pid}/geology/formations`)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const allForms: any[] = fr0.ok ? await fr0.json() : []
+            const faciesFormIds = new Set(
+              allForms
+                .filter(f => typeof f.name === 'string' && f.name.includes('facies'))
+                .map(f => f.id as string),
+            )
+            const lr0 = await fetch(`${base}/projects/${pid}/geology/models/${lithoMid}/contacts`)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const lithoContacts0: any[] = lr0.ok ? await lr0.json() : []
+            const faciesCptIds = new Set(
+              lithoContacts0
+                .filter(c => faciesFormIds.has(c.formation_id as string) && c.cpt_id)
+                .map(c => c.cpt_id as string),
+            )
+
             const createdIds: string[] = []
             let skipped = 0
             let failed = 0
+            let skippedFacies = 0
             for (const c of contacts) {
+              // Skip any geological contact on a facies CPT — keep that column's
+              // pre-seeded ZAND/VEEN-over-KLEI stack pristine.
+              if (c.cpt_id && faciesCptIds.has(c.cpt_id as string)) {
+                skippedFacies++
+                continue
+              }
               const cr = await fetch(
                 `${base}/projects/${pid}/geology/models/${lithoMid}/contacts`,
                 {
@@ -189,7 +229,14 @@ test.describe('flow_litho_facies', () => {
               } else if (cr.status === 409) skipped++
               else failed++
             }
-            return { seeded: createdIds.length, skipped, failed, total: contacts.length, createdIds }
+            return {
+              seeded: createdIds.length,
+              skipped,
+              failed,
+              skippedFacies,
+              total: contacts.length,
+              createdIds,
+            }
           },
           [API_BASE, FIXTURE_PROJECT_ID, geoModelId, lithoModelId] as const,
         )
@@ -199,6 +246,7 @@ test.describe('flow_litho_facies', () => {
           seeded: number
           skipped: number
           failed: number
+          skippedFacies: number
           total: number
           createdIds: string[]
         }
