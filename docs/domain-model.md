@@ -63,34 +63,27 @@ Geophysical: MASW, Seismic CPT
 - Correlation edges (``litho_contact_correlation_edge.contact_a_id /
   contact_b_id``) FK ``litho_layer.id`` post-A4 (UUIDs preserved
   end-to-end since the A2.5 backfill).
-- **Bodies** (``BodyOrm``) are the per-side lateral-extent primitive
-  introduced by the body-with-extent refactor (2026-05-31, ~50 commits
-  on develop). A body row represents a detected or user-claimed lateral
-  body between a source investigation and a neighbour, with independently
-  addressable left + right extents. Four extent kinds: ``to_target``
-  (detector-set bilateral closure), ``pinch_out_halfway``, ``extrapolated``,
-  ``open`` (user-claimed). Provenance rule (revised 2026-06-04): the detector
-  never overwrites a user-claimed extent (enforced in ``DetectBodies``); a
-  user claim, conversely, overwrites a detector ``to_target`` DIRECTLY — the
-  engineer's explicit decision wins, no ``ClearBodyExtent`` step.
-  Bodies replace the former ``LithoLensOrm`` entity as the closure
-  primitive — the unilateral lens rule (one primary target) is superseded
-  by per-side bilateral closure detection. See spec at
-  ``docs/superpowers/specs/2026-05-31-body-with-extent-design.md``.
-  **Extent anchor (2026-06-04, resolves #195):** each side also carries an
-  optional ``extent_<side>_anchor_layer_id`` (FK ``litho_layer.id``, SET
-  NULL) — the litho_layer the user (or detector) pinned that cap to. It is
-  the SPATIAL source of truth for where the cap renders (its column + depth
-  interval), set by ``ClaimBodyExtent``. The renderer
-  (``BodyExtentOverlay._capFramingFor``) frames an anchored cap from that
-  layer directly; an unanchored open falls back to the body's extreme
-  on-section member, unanchored pinch/extrapolated to the source member
-  (detector ``to_target`` is never anchored → unaffected). This killed the
-  whole wrong-column / not-rendering / half-width class — those bugs all
-  came from re-deriving the column from the body's emergent geometry every
-  frame. The resolver (``_run_resolver``) carries anchored extents forward
-  by re-attaching each to the body that NOW owns its anchor layer, so a
-  user-claimed open survives an instance renumber (was the #195 loss).
+- **Bodies** (``BodyOrm``) are single-lithology units traced across a
+  section — the resolver's connected components of approved layer↔layer
+  correlation edges, with ``body_id`` stamped on every member
+  ``litho_layer``. A body's lateral SHAPE (bands / onlaps / lenses) is NOT
+  stored: it is derived geometrically client-side by the partition fill
+  (``utils/partitionFill.ts`` ``computeSectionFill`` + ``PartitionFillOverlay``)
+  from how many of each unit's two bounding contacts are correlated to the
+  neighbour (2 → band, 1 → onlap, 0 → lens), per-gap / per-side.
+  **⚠ The per-side lateral-extent system is RETIRED (2026-06-06, Option 1 —
+  partition fill is the single source of truth for body shape).** Gone:
+  the four extent kinds (``to_target`` / ``pinch_out_halfway`` /
+  ``extrapolated`` / ``open``), ``DetectBodies``, ``SuggestBodyPinchOuts``,
+  ``ClaimBodyExtent`` / ``ClearBodyExtent``, ``BodyExtentOverlay``, the
+  ``extent_<side>_anchor_layer_id`` anchors (debt #195 is now moot — nothing
+  populates extents to lose), and the 10 ``body.extent_*`` columns (drop
+  migration ``d8868bb27884``). Kept on ``BodyOrm``: identity, ``body_ordinal``,
+  ``name``, the Dissolve/Name context-menu actions, and "Materialise
+  companions". Bodies still replace the former ``LithoLensOrm`` entity as the
+  lateral primitive. Legacy ``.strix`` bundles carrying stale ``extent_*``
+  keys still restore (unknown-key filter). Spec:
+  ``docs/superpowers/specs/2026-06-06-body-extent-retirement-design.md``.
   **A2 — geological-formation independence (owner directive 2026-06-04,
   SUPERSEDES the same-day one-geological-formation invariant):** a litho body
   MAY span a geological-formation boundary. ``resolve_litho_instances`` drops a
