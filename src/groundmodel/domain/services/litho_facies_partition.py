@@ -1,10 +1,11 @@
-"""Partition a shared body's footprint among the units competing above/below it.
+"""Label each investigation hole by the competitor body directly above/below the shared body.
 
-Where different bodies occupy the space directly above (or below) one shared body
-in different lateral regions, they must be divided by a facies boundary or they
-overlap. This module labels the shared body's footprint by the competitor at each
-hole and subdivides the footprint triangulation at midpoint (2-way) / circumcenter
-(3-way Voronoi) boundaries into a shared-vertex planar partition. Pure: no I/O.
+This module extracts the per-hole labels that mark which competing body sits
+immediately above or below a shared body at each investigation.  These labels are
+the input to the facies-boundary subdivision step, which will divide the shared
+body's footprint triangulation at midpoint (2-way) / circumcenter (3-way Voronoi)
+boundaries into a shared-vertex planar partition.  That subdivision machinery lands
+in later commits; only the label-extraction helpers are present here.  Pure: no I/O.
 """
 
 from __future__ import annotations
@@ -28,6 +29,15 @@ def competitor_labels_above(body_id: str, columns: dict[str, list[LayerSpan]]) -
         ``inv_id -> upper_body_id`` for every hole where ``body_id`` has a body
         directly above it. Holes where it reaches the surface (nothing above) are
         omitted (no competitor there).
+
+    Notes
+    -----
+    A body is assumed to occur at most once per investigation in the facies context.
+    A body that appears both above and below a thin unit (same ``body_id`` bracketing
+    a thin layer) is an enclosed-lens / matrix case handled by the lens path, not
+    here.  If a body does occur more than once in a column the loop records each
+    match in turn, so the **deepest** occurrence's upper neighbour is what survives
+    in the output dict.
     """
     out: dict[str, str] = {}
     for inv, spans in columns.items():
@@ -56,6 +66,13 @@ def competitor_labels_below(body_id: str, columns: dict[str, list[LayerSpan]]) -
         ``inv_id -> lower_body_id`` for every hole where ``body_id`` has a body
         directly below it. Holes where the shared body is the deepest span are
         omitted (no competitor there).
+
+    Notes
+    -----
+    Same single-occurrence assumption as :func:`competitor_labels_above`: a body
+    that brackets a thin unit (same ``body_id`` above and below) is an enclosed-lens
+    / matrix case, not a facies case.  When a body does appear more than once, the
+    deepest occurrence's lower neighbour survives in the output dict.
     """
     out: dict[str, str] = {}
     for inv, spans in columns.items():
