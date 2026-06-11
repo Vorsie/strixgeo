@@ -69,19 +69,24 @@ _SITE_Y = 214_000.0  # m, Lambert72
 _EPSG = 31370  # RD New → Lambert 72 (Belgian)
 _VERTICAL_EPSG = 5710  # Ostend datum
 
-# CPT grid — 8 points on three rows.
-#   Row 1 (y+0)   : CPTs 0,1,2 → Section A, kept EMPTY for build-from-scratch
-#                   specs (suggest → accept, band / contact / empty-space menus).
-#   Row 2 (y+300) : CPTs 3,4,5 → Section B, PRE-SEEDED with committed litho
-#                   contacts + a bilateral body (body/contact action specs).
-#   Row 3 (y+600) : CPTs 6,7   → Section C, PRE-SEEDED with an interfingered
-#                   crossing (auto-lens spec).
-#   Row 4 (y+900) : CPTs 8,9,10 → Section D, PRE-SEEDED with TWO uncorrelated
-#                   same-lithology (KLEI) bodies at different depths on the
-#                   centre CPT — the per-instance body spec
-#                   (flow_per_instance_body): two distinct depth-ranked labels
-#                   (QC1 / QC2), merge-on-correlate, and no-jump framing.
-# The four scenarios live on DISJOINT CPTs so ``auto-correlate`` — which loads
+# CPT grid — 11 points on five rows.
+#   Row 1 (y+0)    : CPTs 0,1,2   → Section A, kept EMPTY for build-from-scratch
+#                    specs (suggest → accept, band / contact / empty-space menus).
+#   Row 2 (y+300)  : CPTs 3,4,5   → Section B, PRE-SEEDED with committed litho
+#                    contacts + a bilateral body (body/contact action specs).
+#   Row 3 (y+600)  : CPTs 6,7     → Section C, PRE-SEEDED with an interfingered
+#                    crossing (auto-lens spec).
+#   Row 4 (y+900)  : CPTs 8,9,10  → Section D, PRE-SEEDED with TWO uncorrelated
+#                    same-lithology (KLEI) bodies at different depths on the
+#                    centre CPT — the per-instance body spec
+#                    (flow_per_instance_body): two distinct depth-ranked labels
+#                    (QC1 / QC2), merge-on-correlate, and no-jump framing.
+#   Row 5 (y+1200) : CPTs 11,12,13 → Section E, PRE-SEEDED with a FACIES
+#                    COMPETITION scenario: a shared KLEI body has two different
+#                    bodies directly above it (ZAND on CPTs 11/12, VEEN on CPT
+#                    13). This triggers the ``assemble_facies_competitors`` path
+#                    in ``build_body_solids`` (the multi-patch solid builder).
+# The five scenarios live on DISJOINT CPTs so ``auto-correlate`` — which loads
 # the whole model — can never cross-contaminate one section's data into another.
 _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 0.0),
@@ -95,6 +100,10 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 900.0),
     (150.0, 900.0),
     (300.0, 900.0),
+    # Section E — facies competition (CPTs 11, 12, 13)
+    (0.0, 1200.0),
+    (150.0, 1200.0),
+    (300.0, 1200.0),
 ]
 
 # Realistic CPT qc profile: stiff sand below silt below soft clay.
@@ -137,8 +146,14 @@ _CROSSING_CPT_INDICES = {6, 7}
 # target, 10 = right target.
 _PER_INSTANCE_CPT_INDICES = {8, 9, 10}
 
+# The facies CPTs (Section E) are DEDICATED and carry NO qc series, for the
+# same reason as the crossing / per-instance CPTs: ``suggest-litho`` returns no
+# layers for a series-less CPT, so every all-CPT seeder skips them and the
+# pre-seeded facies scenario stays pristine.
+_FACIES_CPT_INDICES = {11, 12, 13}
+
 # CPTs that carry NO qc series (dedicated pre-seeded scenarios — see above).
-_SERIESLESS_CPT_INDICES = _CROSSING_CPT_INDICES | _PER_INSTANCE_CPT_INDICES
+_SERIESLESS_CPT_INDICES = _CROSSING_CPT_INDICES | _PER_INSTANCE_CPT_INDICES | _FACIES_CPT_INDICES
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +530,29 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
             "view_state": {},
             "seeded_formation_contact_ids": [],
         },
+        {
+            "id": _uid("section-e"),
+            "app_project_id": project_id,
+            "name": "Section E (E2E)",
+            "description": (
+                "Fifth transect — pre-seeded facies competition: ZAND (CPTs 11/12)"
+                " and VEEN (CPT 13) both above a shared KLEI body"
+            ),
+            "start_x": _SITE_X - 100.0,
+            "start_y": _SITE_Y + 1200.0,
+            "end_x": _SITE_X + 400.0,
+            "end_y": _SITE_Y + 1200.0,
+            "epsg": _EPSG,
+            "projection_buffer_m": 200.0,
+            "vertical_exaggeration": 5.0,
+            "excluded_borehole_ids": [],
+            "excluded_cpt_ids": [],
+            "min_depth_m": None,
+            "max_depth_m": None,
+            "display_order": 4,
+            "view_state": {},
+            "seeded_formation_contact_ids": [],
+        },
     ]
 
     # --- Assemble bundle -------------------------------------------------------
@@ -664,9 +702,11 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     sec_b = UUID(_uid("section-b"))
     sec_c = UUID(_uid("section-c"))
     sec_d = UUID(_uid("section-d"))
+    sec_e = UUID(_uid("section-e"))
     cpt3, cpt4, cpt5 = UUID(_uid("cpt-3")), UUID(_uid("cpt-4")), UUID(_uid("cpt-5"))
     cpt6, cpt7 = UUID(_uid("cpt-6")), UUID(_uid("cpt-7"))
     cpt8, cpt9, cpt10 = UUID(_uid("cpt-8")), UUID(_uid("cpt-9")), UUID(_uid("cpt-10"))
+    cpt11, cpt12, cpt13 = UUID(_uid("cpt-11")), UUID(_uid("cpt-12")), UUID(_uid("cpt-13"))
 
     async with AsyncSessionFactory() as s:
 
@@ -799,6 +839,50 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         ]
         await s.flush()
 
+        # --- Facies competition scenario (Section E) --------------------------
+        # Topology that exercises ``assemble_facies_competitors`` in
+        # ``build_body_solids``:  a shared KLEI (clay) body spans all three CPTs
+        # (11/12/13) and has TWO distinct competitors directly above it:
+        #
+        #   CPT-11: ZAND top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
+        #   CPT-12: ZAND top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
+        #   CPT-13: VEEN top@1 m / base@4 m  |  KLEI top@4 m / base@9 m
+        #
+        # Edges:
+        #   ZAND  CPT-11 ↔ ZAND  CPT-12  (same litho → one ZAND body)
+        #   KLEI  CPT-11 ↔ KLEI  CPT-12  \
+        #   KLEI  CPT-12 ↔ KLEI  CPT-13  / → one KLEI body spanning all 3 CPTs
+        #   VEEN  CPT-13  (no VEEN neighbour — single-column VEEN body)
+        #
+        # Result: KLEI body has {ZAND, VEEN} as distinct upper neighbours
+        # → ``len(ups) >= 2`` → facies-competitor path fires.
+        f_facies_klei = form("KLEI facies (facies seed)", "KLEI", 60, "#c2a0d8")
+        f_facies_zand = form("ZAND facies (facies seed)", "ZAND", 61, "#f5c842")
+        f_facies_veen = form("VEEN facies (facies seed)", "VEEN", 62, "#6b4a2a")
+        await s.flush()
+        ek11 = contact(f_facies_klei, cpt11, 4.0)
+        ek12 = contact(f_facies_klei, cpt12, 4.0)
+        ek13 = contact(f_facies_klei, cpt13, 4.0)
+        ez11 = contact(f_facies_zand, cpt11, 1.0)
+        ez12 = contact(f_facies_zand, cpt12, 1.0)
+        ev13 = contact(f_facies_veen, cpt13, 1.0)
+        await s.flush()
+        # ZAND–ZAND correlation (same litho, CPT-11 ↔ CPT-12)
+        edge(ez11, ez12, section_id=sec_e)
+        # KLEI–KLEI correlations spanning all three CPTs
+        edge(ek11, ek12, section_id=sec_e)
+        edge(ek12, ek13, section_id=sec_e)
+        # VEEN has no same-litho neighbour — single-CPT body, still above KLEI
+        facies_contact_ids = [
+            ek11.id,
+            ek12.id,
+            ek13.id,
+            ez11.id,
+            ez12.id,
+            ev13.id,
+        ]
+        await s.flush()
+
         # Make the contacts visible on their sections (explicit-content invariant).
         sb = (
             await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_b))
@@ -818,6 +902,12 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         sd.seeded_formation_contact_ids = list(
             set(sd.seeded_formation_contact_ids or []) | set(per_instance_contact_ids)
         )
+        se = (
+            await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_e))
+        ).scalar_one()
+        se.seeded_formation_contact_ids = list(
+            set(se.seeded_formation_contact_ids or []) | set(facies_contact_ids)
+        )
         await s.commit()
 
         # Resolve instance ordinals + connected-component bodies. The partition
@@ -827,7 +917,8 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         await s.commit()
         print(
             "[fixture] action scenarios seeded — resolver bodies on Section B "
-            "(KLEI across CPT-3/4/5) + Section D (per-instance QC1/QC2); "
+            "(KLEI across CPT-3/4/5) + Section D (per-instance QC1/QC2) + "
+            "Section E (KLEI with ZAND+VEEN facies competitors); "
             "crossing on Section C",
             file=sys.stderr,
         )
