@@ -141,3 +141,37 @@ async def test_boundary_move_rejects_foreign_model_layers(
         },
     )
     assert resp.status_code == 422, resp.text
+
+
+async def test_patch_single_layer_rejects_foreign_model_layer(
+    async_client: AsyncClient, project_two_models: dict, db_session: AsyncSession
+) -> None:
+    """A model-B layer PATCHed via a model-A URL is 404, not mutated.
+
+    Single-layer write-path IDOR surfaced by the security review of audit #2.
+    """
+    p = project_two_models
+    foreign = p["b_layers"][0]
+    resp = await async_client.patch(
+        f"/projects/{p['project'].id}/geology/models/{p['model_a'].id}/layers/{foreign.id}",
+        json={"depth_top_m": 9.9},
+    )
+    assert resp.status_code == 404, resp.text
+    fresh = (
+        await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.id == foreign.id))
+    ).scalar_one()
+    await db_session.refresh(fresh)
+    assert fresh.depth_top_m == 0.0
+
+
+async def test_unlink_geo_rejects_foreign_model_layer(
+    async_client: AsyncClient, project_two_models: dict
+) -> None:
+    """unlink-geo on a model-B layer via a model-A URL is 404 (IDOR guard)."""
+    p = project_two_models
+    foreign = p["b_layers"][0]
+    resp = await async_client.post(
+        f"/projects/{p['project'].id}/geology/models/{p['model_a'].id}"
+        f"/layers/{foreign.id}/unlink-geo",
+    )
+    assert resp.status_code == 404, resp.text
