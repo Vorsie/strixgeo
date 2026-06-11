@@ -10,9 +10,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -88,6 +90,16 @@ class LithoContactCorrelationEdgeOrm(Base):
         CheckConstraint(
             "source IN ('manual', 'auto')",
             name="ck_litho_contact_corr_source",
+        ),
+        # Partial index for the hot read: the resolver + section render scan
+        # approved edges for a model (model_id AND user_approved=TRUE). A plain
+        # model_id index also matches the speculative auto edges; this partial
+        # index only carries the approved rows, so it's smaller and more
+        # selective for that query (audit: missing index).
+        Index(
+            "idx_litho_contact_corr_model_approved",
+            "model_id",
+            postgresql_where=text("user_approved = true"),
         ),
     )
 
