@@ -38,7 +38,7 @@ const baseProps = {
 
 beforeEach(() => {
   geo.getLensBoundary.mockResolvedValue({
-    lens_id: 'L1',
+    body_id: 'L1',
     content_key: 'a|b|c',
     render_style: 'straight',
     primary_section_id: 's1',
