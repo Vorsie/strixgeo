@@ -688,8 +688,8 @@ describe('LithologyCanvas (Slice D, #55)', () => {
 
     // Geology3DViewer still renders (canvas did not crash).
     expect(screen.getByTestId('geology-3d-viewer')).toBeInTheDocument()
-    // The Build-Solids button is NOT in the canvas (it is in the toolbar now).
-    expect(screen.queryByTestId('litho-build-solids-button')).not.toBeInTheDocument()
+    // The Build model button is NOT in the canvas (it is in the toolbar now).
+    expect(screen.queryByTestId('litho-build-model-button')).not.toBeInTheDocument()
     // The legend is NOT in the canvas (it is in the inspector now).
     expect(screen.queryByTestId('litho-solid-legend')).not.toBeInTheDocument()
   })
