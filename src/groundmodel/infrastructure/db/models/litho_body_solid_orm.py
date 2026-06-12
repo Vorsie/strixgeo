@@ -59,6 +59,10 @@ class LithoBodySolidOrm(Base):
       when a mutation doesn't actually change this body's geometry.
     * ``UNIQUE(model_id, body_id)`` — exactly one cached solid per
       (model, body) pair.  Recompute upserts via the unique key.
+    * ``body_id`` is NOT a foreign key: geology-split halves receive
+      synthesized ``uuid5(parent_body_id, band)`` ids that have no row
+      in the ``body`` table. ``model_id`` and ``formation_id`` still
+      cascade-delete their cached solids when the parent is removed.
     * ``is_stale``: True when a contact mutation has invalidated the
       cached solid.  The 3-D viewer renders stale solids at lower
       opacity; only ``POST /solids/rebuild`` clears it.
@@ -66,7 +70,7 @@ class LithoBodySolidOrm(Base):
       anomaly (e.g. open boundary, non-manifold edge) that produced a
       best-effort rather than watertight solid.  Displayed as an amber
       warning badge in the UI without blocking save/export.
-    * CASCADE on all three parent FKs — a deleted model, body, or
+    * CASCADE on model_id and formation_id FKs — a deleted model or
       formation evaporates its cached solid automatically.
     """
 
@@ -78,16 +82,19 @@ class LithoBodySolidOrm(Base):
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
 
-    # CASCADE on all parents — a deleted model / body / formation
-    # evaporates its cached solid. The data has no meaning without them.
+    # CASCADE on model_id and formation_id — a deleted model or formation
+    # evaporates its cached solid. body_id is intentionally NOT an FK (see below).
     model_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("geological_model.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # NOT an FK: the litho-3D build (RecomputeLithoSolids) may store geology-split
+    # bodies under synthesized uuid5(parent_body_id, band) ids that are NOT rows in
+    # the `body` table (build-only 3D cache; the geological/body model is untouched).
+    # The (model_id, body_id) unique constraint + idx_litho_body_solid_model stay.
     body_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("body.id", ondelete="CASCADE"),
         nullable=False,
     )
     formation_id: Mapped[UUID] = mapped_column(

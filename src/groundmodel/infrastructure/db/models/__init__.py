@@ -23,10 +23,14 @@ from groundmodel.infrastructure.db.models.geotechnical_unit_orm import Geotechni
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
 from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
@@ -53,10 +57,12 @@ __all__ = [
     "InvestigationReviewOrm",
     "FormationAbsenceOrm",
     "LithoBodySolidOrm",
+    "LithoContactCorrelationEdgeOrm",
     "LithoLayerOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
     "OrganicContentOrm",
+    "ProjectOrm",
     "SampleOrm",
     "ScalarLabTestOrm",
     "WaterContentOrm",
