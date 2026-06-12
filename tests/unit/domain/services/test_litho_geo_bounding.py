@@ -64,6 +64,27 @@ def test_shallow_correlated_test_truncates_at_lowest_correlation():
     assert ("DEEP", "B1") in kept  # untouched
 
 
+def test_shallow_test_is_marked_even_when_nothing_is_truncated():
+    """A too-shallow test is flagged even when no pick is dropped or truncated.
+
+    The test's only body is correlated and sits entirely above its own endpoint,
+    so the pick list is unchanged — yet the test is above the floor, so it is
+    excluded from the model floor and must be marked. This pins the rule that
+    marking is unconditional on being above the floor (not gated on a pick change).
+    """
+    # Boundary at -6. SHALLOW reaches only -3 (above -6); its single pick is the
+    # endpoint itself, so nothing is dropped. DEEP is its deep correlated partner.
+    picks = [
+        _pick("DEEP", "B1", 0.0, 8.0, x=10.0),  # deep partner -> valid, below -6
+        _pick("SHALLOW", "B1", 0.0, 3.0),  # correlated, base -3, above the -6 floor
+    ]
+    result = mark_and_truncate_shallow_tests(picks, lambda x, y: -6.0)
+    assert result.marked_investigation_ids == ["SHALLOW"]  # marked despite no change
+    shallow = [p for p in result.picks if p.investigation_id == "SHALLOW"]
+    assert len(shallow) == 1
+    assert (shallow[0].top_depth_m, shallow[0].base_depth_m) == (0.0, 3.0)  # unchanged
+
+
 def test_shallow_test_with_no_correlation_is_excluded_entirely():
     """A shallow test with only single-hole bodies is excluded entirely and marked."""
     # SHALLOW's only body B9 is single-hole (uncorrelated) -> nothing tied -> drop all.
