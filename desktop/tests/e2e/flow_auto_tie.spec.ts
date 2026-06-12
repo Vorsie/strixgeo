@@ -96,8 +96,16 @@ test.describe('flow_auto_tie', () => {
         // Polyline whose SVG element carries ``stroke="#22c55e"``.  The
         // fixture's four parallel E-W sections share x-column CPTs, so the
         // sweep algorithm should return ≥1 candidate.
+        //
+        // Use toBeAttached, NOT toBeVisible: the tie ghosts are N-S lines, so
+        // each ``<path>`` is a perfectly VERTICAL segment whose geometric
+        // bounding box has ZERO width. Playwright treats a zero-area element as
+        // "hidden", so toBeVisible deterministically fails on a rendered ghost
+        // (the line is visually present — it just has no bbox area). Attachment
+        // (the stroke="#22c55e" path exists in the DOM) is the correct proof
+        // that the overlay rendered the ghost.
         const ghosts = page.locator('path[stroke="#22c55e"]')
-        await expect(ghosts.first()).toBeVisible({ timeout: 15_000 })
+        await expect(ghosts.first()).toBeAttached({ timeout: 15_000 })
 
         // --- 5. Right-click a ghost to open the context menu, then accept ----
         // The green dashed Polyline now has no left-click action; right-click
@@ -109,10 +117,37 @@ test.describe('flow_auto_tie', () => {
         // line), not the slim visible 3px line (which is non-interactive — the
         // hit-band owns events). Leaflet emits ``stroke-width`` as an attribute,
         // so target the band by its width.
+        //
+        // Triggering leaflet's contextmenu on the ghost is the fiddly bit. The
+        // ghost is a vertical (zero-bbox-width) line, and leaflet matches
+        // interactive Path targets by DOM event.target via a container-level
+        // delegated listener — NOT by coordinate hit-testing. So a coordinate
+        // right-click (page.mouse / locator.click) lands on whatever element is
+        // topmost at that point, which is often a pane above the path → leaflet
+        // never sees the path as the target and the menu never opens.
+        //
+        // Instead dispatch a BUBBLING native contextmenu event straight on the
+        // hit-band path element: it bubbles up to leaflet's container listener,
+        // which reads event.target (the path) → matches the interactive layer →
+        // fires the react-leaflet contextmenu handler, which reads
+        // originalEvent.clientX/clientY (set here from the band's rect) to anchor
+        // the TieContextMenu. Target-based, so overlapping panes don't matter.
         await page
           .locator('path[stroke="#22c55e"][stroke-width="16"]')
           .first()
-          .click({ button: 'right' })
+          .evaluate((el) => {
+            const r = el.getBoundingClientRect()
+            el.dispatchEvent(
+              new MouseEvent('contextmenu', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                button: 2,
+                clientX: r.left + r.width / 2,
+                clientY: r.top + r.height / 2,
+              }),
+            )
+          })
         await page.getByTestId('tie-context-accept').click()
 
         // Stays on the map: the Leaflet container only renders on the map
@@ -165,8 +200,10 @@ test.describe('flow_auto_tie', () => {
         const suggestBtn = page.getByTestId('suggest-tie-sections')
         await expect(suggestBtn).toBeEnabled({ timeout: 10_000 })
         await suggestBtn.click()
+        // toBeAttached, not toBeVisible: N-S ghost lines have a zero-width bbox
+        // and Playwright treats zero-area SVG as "hidden" (see the first test).
         const ghosts = page.locator('path[stroke="#22c55e"]')
-        await expect(ghosts.first()).toBeVisible({ timeout: 15_000 })
+        await expect(ghosts.first()).toBeAttached({ timeout: 15_000 })
 
         // Accept all → open the SplitToolbarButton caret, then the item.
         await page.getByTestId('suggest-tie-sections-caret').click()
