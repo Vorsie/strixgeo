@@ -1577,7 +1577,13 @@ function rebuildSurfacePrimitives(
   // in Cesium's painter order — a solid body reads as filled rock, not a
   // ghosted overlay.  Hidden lithologies (legend toggle) skip their solids
   // so the toggle works uniformly across both surface sheets and body solids.
-  if (bodySolids && bodySolids.length > 0) {
+  //
+  // Fence mode (fencePanels defined) suppresses the solids so the fence
+  // curtains stand alone — otherwise the closed bodies render UNDER the fence
+  // panels and there is no way to isolate the diagram. bodySolids is still
+  // passed (the camera framing uses its extent), only the render is skipped.
+  // Mirrors the split-clip block below, which already carries this guard.
+  if (fencePanels === undefined && bodySolids && bodySolids.length > 0) {
     for (const solid of bodySolids) {
       // Skip hidden lithologies and empty (flagged) slabs.
       if (hiddenFormationIds?.has(solid.formation_id)) continue
