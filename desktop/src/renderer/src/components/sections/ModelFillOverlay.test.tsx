@@ -109,6 +109,23 @@ describe('Mode A', () => {
     // b2 only on T1 → not rendered
     expect(container.querySelectorAll('[data-testid="model-fill-b2"]')).toHaveLength(0)
   })
+
+  // ---------------------------------------------------------------------------
+  // MFO3b — body present on col1 + col3 but absent col2 (sparse) → one band
+  // bridging the present columns; the missing middle column doesn't break it.
+  // ---------------------------------------------------------------------------
+
+  it('MFO3b body present on first and last columns but absent in the middle still renders one band', () => {
+    const columns: SolidColumn[] = [
+      col('T1', 0, [seg('b1', '#ff0000', 0, -4)]),
+      col('T2', 100, []), // b1 absent here
+      col('T3', 200, [seg('b1', '#ff0000', 0, -4)]),
+    ]
+    const { container } = renderOverlay({ columns })
+
+    // b1 present on 2 of the 3 columns → still ≥2 entries → one band
+    expect(container.querySelectorAll('[data-testid="model-fill-b1"]')).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

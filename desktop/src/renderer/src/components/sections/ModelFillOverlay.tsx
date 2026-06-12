@@ -40,7 +40,9 @@ import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
  *                             columns.
  * @property polys           - Mode B: closed ring polygons from
  *                             ``sliceSolidsAtPlane``.  Each poly renders as one
- *                             filled ``<path>``.
+ *                             filled ``<path>``.  When BOTH ``polys`` and
+ *                             ``columns`` are provided, ``polys`` (Mode B) takes
+ *                             precedence — the consumer passes exactly one.
  * @property alongMToScreenX - Warp/spacing-aware transform: along-section
  *                             distance (m) → SVG screen x (px).  MUST be called
  *                             for every x coordinate — never use raw along values
@@ -220,6 +222,9 @@ export default function ModelFillOverlay({
           d={d}
           fill={entry.color}
           fillOpacity={opacity}
+          // WHY nonzero (matching Mode B): a non-convex body top (e.g. a
+          // valley-shaped contact) could otherwise punch a hole under evenodd.
+          fillRule="nonzero"
           stroke="none"
           pointerEvents="none"
         />,
