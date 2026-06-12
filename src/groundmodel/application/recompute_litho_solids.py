@@ -39,9 +39,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.domain.services.litho_geo_bounding import (
+    divide_picks_by_geology,
+    mark_and_truncate_shallow_tests,
+)
 from groundmodel.domain.services.litho_solid_builder import BodyLayerPick, build_body_solids
+from groundmodel.domain.services.tin_surface import evaluate_tin_at
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
+from groundmodel.domain.value_objects.tin_surface import TinSurface
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
+from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -70,6 +78,7 @@ class RecomputeLithoSolidsOutcome:
     bodies_skipped_checksum: int
     bodies_flagged: int
     orphans_deleted: int
+    marked_test_ids: list[str]  # investigation IDs truncated as above-geology shallow
 
 
 def _checksum_picks(picks: list[BodyLayerPick]) -> bytes:
@@ -127,6 +136,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         model_id: UUID,
         *,
         force: bool = False,
+        litho_snap_tolerance_m: float = 0.20,
     ) -> RecomputeLithoSolidsOutcome:
         """Recompute and upsert the solid cache for every body in the model.
 
@@ -144,6 +154,10 @@ class RecomputeLithoSolids(GroundModelLogger):
             and serve stale geometry).  The automatic dedup path leaves
             it ``False`` (picks change there, so the checksum differs
             anyway).
+        litho_snap_tolerance_m : float, default 0.20
+            Geology↔litho snap tolerance; a boundary within this of a
+            litho contact snaps geology to the contact rather than
+            cutting.
 
         Returns
         -------
@@ -168,6 +182,49 @@ class RecomputeLithoSolids(GroundModelLogger):
         picks = await repo.load_body_picks(model_id)
         self.info(f"RecomputeLithoSolids: model={model_id} — {len(picks)} pick(s) loaded")
 
+        # --- Geology bounding (build-only; the geological model is untouched) ---
+        marked_test_ids: list[str] = []
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        parent_id = model.parent_geological_model_id if model is not None else None
+        if parent_id is not None and picks:
+            surfaces = await GeologyRepository(self._session).list_surfaces(parent_id)
+            tins: list[tuple[str, TinSurface]] = [
+                (
+                    str(s.formation_id),
+                    TinSurface(
+                        vertices=[tuple(v) for v in s.vertices],
+                        triangles=[tuple(t) for t in s.triangles],
+                    ),
+                )
+                for s in surfaces
+            ]
+
+            def _boundary_samples(x: float, y: float) -> list[tuple[str, float]]:
+                hits = [
+                    (fid, e) for fid, tin in tins if (e := evaluate_tin_at(tin, x, y)) is not None
+                ]
+                hits.sort(key=lambda fe: fe[1], reverse=True)
+                return hits
+
+            def _lowest_boundary(x: float, y: float) -> float | None:
+                s = _boundary_samples(x, y)
+                return s[-1][1] if s else None
+
+            shallow = mark_and_truncate_shallow_tests(picks, _lowest_boundary)
+            marked_test_ids = shallow.marked_investigation_ids
+            picks = divide_picks_by_geology(
+                shallow.picks, _boundary_samples, litho_snap_tolerance_m
+            )
+            self.info(
+                f"RecomputeLithoSolids: geo-bounding model={model_id} — "
+                f"{len(marked_test_ids)} marked test(s); {len(picks)} picks after division"
+            )
+        else:
+            self.debug(
+                f"RecomputeLithoSolids: model={model_id} has no parent geological "
+                "model or no picks — geology bounding skipped"
+            )
+
         if not picks:
             # No accepted body-assigned layers → nothing to build.
             # Delete any orphan solid rows that survived (e.g. from a
@@ -191,6 +248,7 @@ class RecomputeLithoSolids(GroundModelLogger):
                 bodies_skipped_checksum=0,
                 bodies_flagged=0,
                 orphans_deleted=orphans,
+                marked_test_ids=[],
             )
 
         # Group picks by body_id for checksum computation.
@@ -360,4 +418,5 @@ class RecomputeLithoSolids(GroundModelLogger):
             bodies_skipped_checksum=skipped_checksum,
             bodies_flagged=bodies_flagged,
             orphans_deleted=orphans_deleted,
+            marked_test_ids=marked_test_ids,
         )
