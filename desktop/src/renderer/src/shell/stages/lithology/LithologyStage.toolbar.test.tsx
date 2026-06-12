@@ -13,7 +13,7 @@
 //   BM5  Label shows "· stale" when hasStaleLithoSolid is true.
 //   BM6  Label shows "Building…" and button is disabled when lithoSolidsBuilding.
 //   BM7  No "Build litho" button and no element with testid litho-build-solids-button.
-//   BL5  Reset camera button absent when no surfaces; present when surfaces exist.
+//   BM8  Reset camera button absent when no surfaces; present when surfaces exist.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -98,6 +98,8 @@ function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
   lithoContacts?: FormationContactResponse[]
   lithoSurfacesByFormationId?: Map<string, FormationSurfaceResponse>
+  // Still required by the ShellContext type; the toolbar no longer uses these
+  // after Task 7 (BM3 only asserts handleRebuildLithoSurfaces is NOT called).
   lithoStaleSurfaceCount?: number
   handleRebuildLithoSurfaces?: () => Promise<void>
   lithoSolidsBuilding?: boolean
@@ -523,15 +525,15 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
 })
 
 describe('LithologyToolbar Reset camera button', () => {
-  // BL5a: Reset camera absent when no litho surfaces have vertices.
-  it('BL5a â€” Reset camera absent when no built litho surfaces exist', () => {
+  // BM8a: Reset camera absent when no litho surfaces have vertices.
+  it('BM8a â€” Reset camera absent when no built litho surfaces exist', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
     renderToolbar(ctx)
     expect(screen.queryByRole('button', { name: /reset camera/i })).not.toBeInTheDocument()
   })
 
-  // BL5b: Reset camera present when at least one surface has vertices.
-  it('BL5b â€” Reset camera present when a built litho surface exists', () => {
+  // BM8b: Reset camera present when at least one surface has vertices.
+  it('BM8b â€” Reset camera present when a built litho surface exists', () => {
     const surfaces = new Map([['f-1', makeSurface('f-1', true)]])
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
