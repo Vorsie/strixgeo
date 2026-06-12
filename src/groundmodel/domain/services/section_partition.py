@@ -48,10 +48,12 @@ __all__ = [
     "CorrelationEdge",
     "LensApexOverride",
     "MatchUnit",
+    "OverlayTier",
     "PartitionColumn",
     "PartitionPoint",
     "PartitionRegion",
     "PartitionUnit",
+    "RegionKind",
     "SectionRegion",
     "classify_termination",
     "compute_section_fill",
@@ -62,6 +64,10 @@ __all__ = [
 # Floating-point epsilon used for overlap comparisons — mirrors ``const EPS = 1e-9``
 # in partitionFill.ts.  A pair of elevations whose difference is smaller than this
 # is treated as non-overlapping (touching edges do not constitute overlap).
+# Tolerance guide for consumers: use ``EPS`` for elevation/depth comparisons,
+# ``FRAC_EPS`` for fraction-axis (0..1 gap-local) comparisons, and ``SPAN_EPS``
+# for polygon span-containment checks (see the carve pipeline) — the same split
+# the TS file uses.
 EPS: float = 1e-9
 
 
@@ -106,6 +112,12 @@ class PartitionUnit:
 @dataclass(frozen=True)
 class PartitionColumn:
     """One column's placement and its gap-free unit stack.
+
+    Deliberately carries NO along-section position: the TS interface has none
+    (regions live in gap-local fraction space), and parity with the TS shape is
+    the contract.  The along ↔ fraction mapping the loft needs belongs to the
+    ``SectionInput`` wrapper (loft_field), which pairs these columns with their
+    along positions.
 
     Parameters
     ----------
@@ -2073,7 +2085,9 @@ def _emit_gap(
             else:
                 # Onlap minorities always carry their bracket edge (TS:
                 # ``min.edge!``).
-                assert minority.edge is not None
+                assert minority.edge is not None, (
+                    "onlap minority must carry its bracket edge (TS: min.edge!)"
+                )
                 interval_onlaps.append(
                     _IntervalOnlap(
                         unit=minority.unit,

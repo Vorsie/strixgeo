@@ -33,21 +33,23 @@ from groundmodel.domain.services.section_partition import (
 
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "partition_goldens"
 
-# One golden per termination path: band (2 correlated contacts), onlap (1),
-# lens (0), and the re-entrant same-body split (monotonic matching blocks the
-# pre-interbed occurrence). Together they exercise the carve pipeline too —
-# the onlap and lens fixtures both notch their matrix quad.
-GOLDEN_NAMES = [
-    "band_two_columns",
-    "onlap_one_corr",
-    "lens_zero_corr",
-    "reentrant_same_body",
-]
+# Glob-discovered so a new golden written by the TS generator is picked up
+# without touching this file. Current set: band (2 correlated contacts),
+# onlap (1), lens (0), and the re-entrant same-body split (monotonic matching
+# blocks the pre-interbed occurrence). Together they exercise the carve
+# pipeline too — the onlap and lens fixtures both notch their matrix quad.
+GOLDEN_PATHS = sorted(GOLDEN_DIR.glob("*.json"))
 
 
-def _load_golden(name: str) -> dict[str, Any]:
-    """Read one golden fixture JSON by name."""
-    return json.loads((GOLDEN_DIR / f"{name}.json").read_text(encoding="utf-8"))
+def test_golden_fixtures_present() -> None:
+    """Glob discovery must find the 4 core goldens — an empty dir would
+    otherwise silently collect zero parity tests."""
+    assert len(GOLDEN_PATHS) >= 4, f"expected >= 4 goldens in {GOLDEN_DIR}"
+
+
+def _load_golden(path: Path) -> dict[str, Any]:
+    """Read one golden fixture JSON."""
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _columns_from_json(raw_columns: list[dict[str, Any]]) -> list[PartitionColumn]:
@@ -71,10 +73,11 @@ def _columns_from_json(raw_columns: list[dict[str, Any]]) -> list[PartitionColum
     ]
 
 
-@pytest.mark.parametrize("name", GOLDEN_NAMES)
-def test_compute_section_fill_matches_ts_golden(name: str) -> None:
+@pytest.mark.parametrize("path", GOLDEN_PATHS, ids=lambda p: p.stem)
+def test_compute_section_fill_matches_ts_golden(path: Path) -> None:
     """The port reproduces the TS region output region-by-region, in order."""
-    golden = _load_golden(name)
+    golden = _load_golden(path)
+    name = path.stem
     columns = _columns_from_json(golden["columns"])
     edges = [CorrelationEdge(a=e["a"], b=e["b"]) for e in golden["edges"]]
 
