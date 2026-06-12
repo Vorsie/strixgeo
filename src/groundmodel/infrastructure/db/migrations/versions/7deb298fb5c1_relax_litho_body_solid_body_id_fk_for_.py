@@ -16,6 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Drop the ``litho_body_solid.body_id`` foreign key to ``body.id``."""
     # RecomputeLithoSolids may store geology-split body halves under
     # synthesized uuid5(parent_body_id, band) ids that are NOT rows in the
     # `body` table (build-only 3D cache; the body/geological model is
@@ -27,6 +28,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Re-create the ``litho_body_solid.body_id`` foreign key to ``body.id``."""
     # Restore the FK (reverts to pre-geology-bounding behaviour where every
     # cached solid corresponded to a real body row).
     op.create_foreign_key(
