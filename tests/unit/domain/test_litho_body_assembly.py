@@ -572,6 +572,54 @@ def test_facies_competitors_obtuse_triangle_junction_stays_watertight():
             assert len(hits) <= 1, f"overlap at ({x},{y},-1.0): {hits}"
 
 
+def test_facies_below_competitor_floors_at_own_base():
+    """A shallow SILT competitor below SAND must NOT sag toward a deep CLAY sibling.
+
+    Six holes on a hexagonal ring share a SAND body; below it, A/B/C carry a
+    shallow SILT (own base at elevation -4) and D/E/F a deep CLAY (own base at
+    elevation -12).  The SILT prism's deepest vertex must stay at SILT's own base
+    (-4), not interpolate down toward CLAY.  Pre-fix the shared blended base TIN
+    drags SILT's boundary floor to roughly -8 (the silt-below-clay overshoot).
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    ring = [
+        ("A", 0, 0, "SILT", 2.0, 4.0),
+        ("B", 6, 1, "SILT", 2.0, 4.0),
+        ("C", 10, 6, "SILT", 2.0, 4.0),
+        ("D", 7, 11, "CLAY", 2.0, 12.0),
+        ("E", 1, 10, "CLAY", 2.0, 12.0),
+        ("F", -3, 5, "CLAY", 2.0, 12.0),
+    ]
+    picks = []
+    for inv, x, y, lo, top_d, base_d in ring:
+        picks.append(_pick(inv, x, y, "SAND", 0.0, 2.0))  # shared SAND above
+        picks.append(_pick(inv, x, y, lo, top_d, base_d))  # competitor below
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "below", columns, coords, surfaces)
+    assert set(comps) == {"SILT", "CLAY"}
+
+    # Behavioural guards: each prism stays a watertight, consistently-wound solid.
+    for m in comps.values():
+        assert closed_manifold(m.triangles), f"{m.body_id} not closed manifold"
+        assert consistently_wound(m.triangles), f"{m.body_id} not consistently wound"
+
+    # The fix: SILT never dips below its OWN deepest base (elevation -4).
+    silt_min_z = min(z for (_x, _y, z) in comps["SILT"].vertices)
+    assert silt_min_z >= -4.0 - 1e-6, f"SILT floor overshot to {silt_min_z} (own base is -4)"
+    # CLAY is the deep competitor and DOES reach its own base (-12), unchanged.
+    clay_min_z = min(z for (_x, _y, z) in comps["CLAY"].vertices)
+    assert abs(clay_min_z - (-12.0)) < 1e-6, f"CLAY floor should reach -12, got {clay_min_z}"
+
+
 def test_facies_competition_over_a_tilted_shared_body_floor():
     """3-way facies competition over a DIPPING shared-body floor stays watertight.
 

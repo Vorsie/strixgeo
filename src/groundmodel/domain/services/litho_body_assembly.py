@@ -348,10 +348,22 @@ def assemble_facies_competitors(
     """Build each competitor above/below a shared body as a clipped, tiling prism.
 
     Partitions the shared body's footprint among the competitors (midpoint/Voronoi),
-    then builds one prism per competitor between the shared-body contact surface
-    (the floor for ``above``, the ceiling for ``below``) and the competitor's outer
-    surface (competitor tops for ``above``, competitor bases for ``below``) — both
-    sampled at every partition vertex so walls coincide.
+    then builds one prism per competitor between the shared-body contact surface and
+    the competitor's outer surface. The shared-body contact (the floor for
+    ``above``, the ceiling for ``below``) is one continuous surface sampled at every
+    partition vertex, so it stays single-valued across competitors. The
+    competitor's outer surface differs by side:
+
+    * ``above`` — competitor tops are sampled from one TIN over all competitors'
+      tops (tops meet at the facies boundary; owner-confirmed). The floor is the
+      shared body's top, so an ``above`` competitor never reaches below its own base.
+    * ``below`` — each competitor floors at its OWN base surface (a TIN fitted over
+      only that competitor's holes, nearest-own-hole fallback outside the hull,
+      clamped to the competitor's own deepest base). A shallow competitor therefore
+      stops at its own base and never sags toward a deeper sibling's base at the
+      facies boundary (the silt-below-clay overshoot fix). Each prism is
+      independently watertight via ``build_prism``'s boundary walls, so the real
+      vertical facies step is the deeper sibling's exposed wall.
 
     Parameters
     ----------
@@ -412,53 +424,55 @@ def assemble_facies_competitors(
             # (the single-occurrence case — the only one routed to the facies path — is unaffected).
 
     holes = sorted(labels)
-    # Fit two TINs over the same hole set: one at the competitor-outer surface
-    # (top for "above", base for "below") and one at the shared-body contact
-    # (the floor/ceiling that all competitors share). Both surfaces are sampled
-    # at every partition vertex so coincident walls are guaranteed watertight.
-    top_tin = compute_tin(
-        [
-            ContactPoint3D(
-                contact_id=h,
-                x_m=coords[h][0],
-                y_m=coords[h][1],
-                elevation_m=top_h[h],
-            )
-            for h in holes
-        ]
-    )
-    base_tin = compute_tin(
-        [
-            ContactPoint3D(
-                contact_id=h,
-                x_m=coords[h][0],
-                y_m=coords[h][1],
-                elevation_m=base_h[h],
-            )
-            for h in holes
-        ]
-    )
+    hole_index = {h: i for i, h in enumerate(holes)}
     hole_xy = [coords[h] for h in holes]
 
-    def _sample(tin, hole_z: dict[str, float], x: float, y: float) -> float:
-        """Sample elevation from TIN, falling back to nearest hole when outside hull."""
-        z = evaluate_tin_at(tin, x, y)
+    # The surface that is CONTINUOUS across every competitor — built once over all
+    # labelled holes:
+    #   "above" -> the competitor tops (blended so tops meet, owner-confirmed)
+    #   "below" -> the shared body's base (the common ceiling)
+    top_tin = compute_tin(
+        [
+            ContactPoint3D(contact_id=h, x_m=coords[h][0], y_m=coords[h][1], elevation_m=top_h[h])
+            for h in holes
+        ]
+    )
+
+    def _sample(tin, hole_z: dict[str, float], x: float, y: float, candidate_idx=None) -> float:
+        """Sample elevation from a TIN; nearest-hole fallback outside the hull.
+
+        ``tin`` may be ``None`` (an under-constrained competitor with < 3 own
+        holes), in which case the nearest-hole fallback is used directly.
+        ``candidate_idx`` restricts the fallback pool to a subset of hole indices
+        so a "below" competitor floors at its OWN nearest hole, never snapping a
+        boundary vertex to a deeper sibling competitor's base.
+        """
+        z = evaluate_tin_at(tin, x, y) if tin is not None else None
         if z is not None:
             return z
-        # Nearest-hole fallback: a partition vertex outside the trimmed TIN hull
-        # (e.g., a midpoint or circumcenter inserted beyond the convex hull) is
-        # assigned the elevation of its nearest labelled hole.
-        nearest = min(
-            range(len(hole_xy)),
-            key=lambda k: (hole_xy[k][0] - x) ** 2 + (hole_xy[k][1] - y) ** 2,
-        )
+        pool = candidate_idx if candidate_idx is not None else range(len(hole_xy))
+        nearest = min(pool, key=lambda k: (hole_xy[k][0] - x) ** 2 + (hole_xy[k][1] - y) ** 2)
         return hole_z[holes[nearest]]
 
-    top_field: dict[int, float] = {}
-    base_field: dict[int, float] = {}
-    for idx, (vx, vy) in enumerate(part.vertices):
-        top_field[idx] = _sample(top_tin, top_h, vx, vy)
-        base_field[idx] = _sample(base_tin, base_h, vx, vy)
+    top_field = {idx: _sample(top_tin, top_h, vx, vy) for idx, (vx, vy) in enumerate(part.vertices)}
+
+    # "above": the floor is the shared body's top — one continuous surface shared
+    # by every competitor (built once).  "below": each competitor floors at its OWN
+    # base surface (built per competitor in the loop) so a shallow competitor never
+    # sags toward a deeper sibling's base at the facies boundary.
+    shared_base_field: dict[int, float] | None = None
+    if side == "above":
+        base_tin = compute_tin(
+            [
+                ContactPoint3D(
+                    contact_id=h, x_m=coords[h][0], y_m=coords[h][1], elevation_m=base_h[h]
+                )
+                for h in holes
+            ]
+        )
+        shared_base_field = {
+            idx: _sample(base_tin, base_h, vx, vy) for idx, (vx, vy) in enumerate(part.vertices)
+        }
 
     # One scan of the columns gives every body's formation id; avoids a full
     # column scan per competitor (defaults to the body id if a span is missing).
@@ -466,6 +480,39 @@ def assemble_facies_competitors(
 
     out: dict[str, LithoBodyMesh] = {}
     for comp, tris in part.regions.items():
+        if side == "above":
+            assert shared_base_field is not None  # built in the "above" branch above
+            base_field = shared_base_field
+        else:
+            # Per-competitor floor: fit this competitor's OWN base TIN over its own
+            # holes and sample its region from it.  The clamp keeps the floor at or
+            # above the competitor's own deepest base (a guard rail that holds the
+            # invariant even if the sampling strategy changes later).
+            own = [h for h in holes if labels[h] == comp]
+            own_idx = [hole_index[h] for h in own]
+            own_deepest_base = min(base_h[h] for h in own)
+            comp_tin = (
+                compute_tin(
+                    [
+                        ContactPoint3D(
+                            contact_id=h,
+                            x_m=coords[h][0],
+                            y_m=coords[h][1],
+                            elevation_m=base_h[h],
+                        )
+                        for h in own
+                    ]
+                )
+                if len(own) >= 3
+                else None
+            )
+            base_field = {
+                v: max(
+                    _sample(comp_tin, base_h, *part.vertices[v], candidate_idx=own_idx),
+                    own_deepest_base,
+                )
+                for v in {p for t in tris for p in t}
+            }
         mesh = build_prism(
             comp, formation_by_body.get(comp, comp), part.vertices, tris, top_field, base_field
         )
