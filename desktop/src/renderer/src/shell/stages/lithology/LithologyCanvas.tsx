@@ -7,7 +7,7 @@
 // Solid-mode solid fetch + Build + per-body colour picker added 2026-06-10
 // (Task 8, Litho 3D milestone 2).
 // Build button + legend LIFTED to toolbar + inspector 2026-06-10 (dogfeed UX):
-//   Build Solids → LithologyToolbar (next to Build litho).
+//   Build → the single "Build model" button in LithologyToolbar.
 //   Per-body legend → LithologyInspector (grouped by lithology, collapsible).
 // Canvas now reads lithoSolids / hasLithoSolids from useShell().geoModel
 // (owned by useLithoSolids called inside useGeologicalModel) — no local
@@ -391,8 +391,8 @@ export default function LithologyCanvas(): JSX.Element {
   if (hasLithoSolids) {
     return (
       <div className="relative w-full h-full">
-        {/* Build Solids button and per-body legend have moved:
-            - Build Solids → LithologyToolbar (next to "Build litho")
+        {/* Build button and per-body legend have moved:
+            - Build → the single "Build model" button in LithologyToolbar
             - Legend → LithologyInspector (grouped by lithology)
             Both read from useShell().geoModel (useLithoSolids). */}
 

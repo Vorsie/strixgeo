@@ -73,12 +73,12 @@ export interface LithoSegmenterPrefs {
    *  committed open extents and ``open`` suggest-pinch-out ghosts.
    *  Range 0.5 – 50 m. Default 3 m. */
   openExtentLengthM: number
-  /** When true, the cross-section model fill is a section-plane slice of
-   *  the body solids; when false (default) it is sampled at each test's
-   *  (x,y). The section-line slice feeds the 3D litho fence builder
-   *  (``build_body_solids``) and is geometrically correct across dipping
-   *  beds; test-location sampling is the legacy 2D-only path and remains
-   *  the default until the 3D builder is wired into the 2D section view. */
+  /** Sampling strategy for the cross-section model fill (both modes render the
+   *  SAME built 3D body solids — see ``sectionFromSolids``):
+   *  - ``false`` (default): sample each body solid with a vertical ray at every
+   *    test's (x,y), so the fill is anchored to where the data actually is.
+   *  - ``true``: slice the body solids with the vertical section plane, giving a
+   *    continuous cut between tests. */
   sectionFillAtSectionLine: boolean
 }
 
