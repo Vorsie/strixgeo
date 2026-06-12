@@ -132,6 +132,33 @@ regression test asserting the invariant for every body.
    (solid-min vs deepest-pick per lithology) → expect ~0 overshoot on all
    lithologies; owner dogfeeds the 3-D Build on `test.strix`.
 
+## Addendum (2026-06-12, post-verification) — below-side inverted prisms
+
+Re-running the read-only dev-DB replay after the own-base floor fix proved the
+**aggregate** symptom resolved (per-lithology solid-min now equals the deepest
+pick: SILT -7.53, ZAND -7.64, KLEI -16.40, VEEN improved 0.73 → 3.12 m), so
+silt/sand no longer render below the basal clay. But a strict **per-body**
+`mesh ≥ own deepest pick` invariant does not hold globally, because the
+continuous shared-contact surfaces legitimately dip across competitor
+boundaries:
+
+- **`facies-above`** — the floor is the shared body's *top* (a continuous
+  surface); a competitor's floor follows it down toward a deeper neighbour. This
+  is the owner-confirmed *tops-meet / continuous shared contact* and is kept as
+  is.
+- **`facies-below`** — the ceiling is the shared body's *base* (continuous); where
+  it dips below a competitor's own base the prism *inverted* into a
+  self-intersecting solid.
+
+Owner decision (2026-06-12): **fix the below-side inverted prisms** (do not pursue
+full per-body bounding / pinch-out clipping, which would be Phase-5 interfingering
+geometry). Implemented by clamping each below-competitor's floor to the shared
+ceiling (`base_field[v] = min(floor, top_field[v])`) so it **pinches to zero
+thickness** along the shared contact instead of inverting. Verified on the dev DB:
+zero inverted facies prisms remain. The `facies-above` continuous dip and the
+`facies-below` zero-thickness pinch sliver are accepted (they stay within each
+lithology's depth range and never reach the basal clay).
+
 ## Verification commands
 
 ```
