@@ -3,7 +3,7 @@
  *
  * Covers the Lithology stage in its baseline (empty-model) state: the
  * always-present ``ModelKindPicker`` (model select/create lifecycle) in the
- * inspector, and the guided canvas placeholder shown until surfaces exist.
+ * inspector, and the guided canvas placeholder shown until solids exist.
  *
  * The contact-dependent inspector controls (wipe / resolve-instances /
  * committed pill) are gated behind a populated model — they are covered by a
@@ -40,10 +40,11 @@ test.describe('flow_lithology_stage_ui', () => {
       // The model lifecycle picker is always present at the inspector top.
       await expect(page.getByTestId('model-kind-picker')).toBeVisible()
 
-      // The canvas shows the guided placeholder until built surfaces exist.
+      // The canvas shows the guided placeholder until built solids exist
+      // (litho-3D plan: the 3D pane mounts on solids, not retired TIN surfaces).
       await expect(page.getByText('Lithostratigraphic model')).toBeVisible()
       await expect(
-        page.getByText(/open the Sections stage and draw them there/),
+        page.getByText(/click Build model on the Lithology toolbar/),
       ).toBeVisible()
     } finally {
       await closeApp(app)
