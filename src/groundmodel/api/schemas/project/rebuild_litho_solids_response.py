@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodySolidResponse
 
@@ -34,6 +34,11 @@ class RebuildLithoSolidsResponse(BaseModel):
         The full solid list after the rebuild, ordered by body creation
         time.  Equivalent to calling ``GET .../litho-solids`` immediately
         after — bundled here to avoid a second round-trip.
+    marked_test_ids : list[str]
+        Investigation ids dropped from the model floor (too shallow to
+        anchor the bottom surface); the UI marks them so the engineer
+        knows which tests were excluded from the geological bounding.
+        Empty when no tests were dropped.
     """
 
     bodies_considered: int
@@ -42,3 +47,5 @@ class RebuildLithoSolidsResponse(BaseModel):
     bodies_flagged: int
     orphans_deleted: int
     solids: list[LithoBodySolidResponse]
+    marked_test_ids: list[str] = Field(default_factory=list)
+    """Investigation ids dropped from the model floor (too shallow); UI marks them."""
