@@ -32,6 +32,7 @@ from groundmodel.domain.services.litho_solid_builder_constants import (
 from groundmodel.domain.services.tin_surface import compute_tin, evaluate_tin_at
 from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
+from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 
 def _keys_for_body(
@@ -441,7 +442,13 @@ def assemble_facies_competitors(
         ]
     )
 
-    def _sample(tin, hole_z: dict[str, float], x: float, y: float, candidate_idx=None) -> float:
+    def _sample(
+        tin: TinSurface | None,
+        hole_z: dict[str, float],
+        x: float,
+        y: float,
+        candidate_idx: list[int] | None = None,
+    ) -> float:
         """Sample elevation from a TIN; nearest-hole fallback outside the hull.
 
         ``tin`` may be ``None`` (an under-constrained competitor with < 3 own
