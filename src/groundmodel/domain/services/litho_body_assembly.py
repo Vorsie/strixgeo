@@ -361,9 +361,12 @@ def assemble_facies_competitors(
       only that competitor's holes, nearest-own-hole fallback outside the hull,
       clamped to the competitor's own deepest base). A shallow competitor therefore
       stops at its own base and never sags toward a deeper sibling's base at the
-      facies boundary (the silt-below-clay overshoot fix). Each prism is
-      independently watertight via ``build_prism``'s boundary walls, so the real
-      vertical facies step is the deeper sibling's exposed wall.
+      facies boundary (the silt-below-clay overshoot fix). Where the continuous
+      shared ceiling dips below the competitor's own base, the floor is pinched up
+      to the ceiling (zero thickness) so the prism never inverts into a
+      self-intersecting solid. Each prism is independently watertight via
+      ``build_prism``'s boundary walls, so the real vertical facies step is the
+      deeper sibling's exposed wall.
 
     Parameters
     ----------
@@ -485,9 +488,13 @@ def assemble_facies_competitors(
             base_field = shared_base_field
         else:
             # Per-competitor floor: fit this competitor's OWN base TIN over its own
-            # holes and sample its region from it.  The clamp keeps the floor at or
-            # above the competitor's own deepest base (a guard rail that holds the
-            # invariant even if the sampling strategy changes later).
+            # holes and sample its region from it.  Two clamps per vertex:
+            #   * floor at/above the competitor's OWN deepest base (a guard rail
+            #     that holds even if the sampling strategy changes later), and
+            #   * floor at/below the shared-body ceiling (``top_field``) so the
+            #     prism never inverts where the continuous shared base dips below
+            #     the competitor's own base — it pinches to zero thickness there
+            #     instead of producing a self-intersecting solid.
             own = [h for h in holes if labels[h] == comp]
             own_idx = [hole_index[h] for h in own]
             own_deepest_base = min(base_h[h] for h in own)
@@ -506,13 +513,13 @@ def assemble_facies_competitors(
                 if len(own) >= 3
                 else None
             )
-            base_field = {
-                v: max(
+            base_field = {}
+            for v in {p for t in tris for p in t}:
+                floor = max(
                     _sample(comp_tin, base_h, *part.vertices[v], candidate_idx=own_idx),
                     own_deepest_base,
                 )
-                for v in {p for t in tris for p in t}
-            }
+                base_field[v] = min(floor, top_field[v])
         mesh = build_prism(
             comp, formation_by_body.get(comp, comp), part.vertices, tris, top_field, base_field
         )

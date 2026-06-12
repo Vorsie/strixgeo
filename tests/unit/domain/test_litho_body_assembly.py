@@ -620,6 +620,55 @@ def test_facies_below_competitor_floors_at_own_base():
     assert abs(clay_min_z - (-12.0)) < 1e-6, f"CLAY floor should reach -12, got {clay_min_z}"
 
 
+def test_facies_below_competitor_pinches_not_inverts_when_ceiling_dips():
+    """A below competitor must pinch (zero thickness), never invert, when its ceiling dips.
+
+    SAND is the shared body with a steeply DIPPING base: shallow (base elevation
+    -2) over A/B/C where a thin SILT sits below it, and deep (base -8) over D/E/F
+    where a deep CLAY sits below it.  At the SILT/CLAY boundary the SAND base (=
+    SILT's ceiling) interpolates to roughly -5, BELOW SILT's own base (-3).  The
+    SILT prism must keep non-negative thickness there (ceiling never below floor),
+    pinching to zero rather than producing a self-intersecting inverted solid.
+    """
+    from groundmodel.domain.services.litho_body_assembly import (
+        assemble_facies_competitors,
+    )
+    from groundmodel.domain.services.litho_contact_surfaces import (
+        build_columns,
+        enumerate_contacts,
+        fit_patch_surfaces,
+    )
+
+    ring = [
+        ("A", 0, 0, "SILT", 2.0, 3.0),  # SAND 0-2, SILT 2-3 (shallow)
+        ("B", 6, 1, "SILT", 2.0, 3.0),
+        ("C", 10, 6, "SILT", 2.0, 3.0),
+        ("D", 7, 11, "CLAY", 8.0, 12.0),  # SAND 0-8 (deep), CLAY 8-12
+        ("E", 1, 10, "CLAY", 8.0, 12.0),
+        ("F", -3, 5, "CLAY", 8.0, 12.0),
+    ]
+    picks = []
+    for inv, x, y, lo, top_d, base_d in ring:
+        picks.append(_pick(inv, x, y, "SAND", 0.0, top_d))  # SAND base = competitor top
+        picks.append(_pick(inv, x, y, lo, top_d, base_d))  # competitor below
+    columns, coords = build_columns(picks)
+    surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
+    comps = assemble_facies_competitors("SAND", "below", columns, coords, surfaces)
+    silt = comps["SILT"]
+
+    # build_prism lays out paired vertices: index 2n is the top (ceiling) and
+    # 2n+1 the base (floor) of the n-th used plan vertex.  Non-negative thickness
+    # means every ceiling sits at or above its paired floor (no inversion).
+    v = silt.vertices
+    for n in range(len(v) // 2):
+        ceiling_z = v[2 * n][2]
+        floor_z = v[2 * n + 1][2]
+        assert ceiling_z >= floor_z - 1e-6, (
+            f"inverted SILT prism at pair {n}: ceiling {ceiling_z} below floor {floor_z}"
+        )
+    assert closed_manifold(silt.triangles) and consistently_wound(silt.triangles)
+
+
 def test_facies_competition_over_a_tilted_shared_body_floor():
     """3-way facies competition over a DIPPING shared-body floor stays watertight.
 
