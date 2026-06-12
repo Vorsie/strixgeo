@@ -325,6 +325,10 @@ describe('readLithoSegmenterPrefs — sectionFillAtSectionLine field', () => {
     const vs = { litho_segmenter: { section_fill_at_section_line: true } }
     expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(true)
   })
+  it('defaults sectionFillAtSectionLine to false when stored as a non-boolean', () => {
+    const vs = { litho_segmenter: { section_fill_at_section_line: 'yes' } }
+    expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(false)
+  })
   it('round-trips sectionFillAtSectionLine through the patch', () => {
     const prefs = { ...LITHO_SEGMENTER_DEFAULTS, sectionFillAtSectionLine: true }
     expect(buildLithoSegmenterPatch(prefs).litho_segmenter)
