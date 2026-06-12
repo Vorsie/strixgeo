@@ -2923,8 +2923,12 @@ export default function SectionPanel({
                 overlay never intercepts geological-axis interactions.
                 pointerEvents=none at the group level — the component
                 enables pointer-events only for gesture rects when
-                contactCorrelateMode is active. */}
-            {axisMode === 'lithostratigraphic' && showCorrelations && (
+                contactCorrelateMode is active. Kept mounted while correlate
+                mode is on even if correlations are hidden — the overlay also
+                hosts the correlate-gesture hit-targets, so unmounting it would
+                silently break correlate clicks. */}
+            {axisMode === 'lithostratigraphic' &&
+              (showCorrelations || contactGestureState?.contactCorrelateMode) && (
               <CorrelationEdgesOverlay
                 contacts={correlateContacts}
                 crossingPinchOuts={crossingPinchOuts}
