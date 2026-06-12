@@ -42,6 +42,7 @@ from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
@@ -253,7 +254,15 @@ async def rebuild_litho_solids(
         detail="Model not found",
     )
 
-    outcome = await RecomputeLithoSolids(session).execute(model_id, force=True)
+    # Read the per-project snap tolerance so geological bounding uses the
+    # same threshold the user configured in Settings → Litho segmenter.
+    project = await session.get(ProjectOrm, project_id)
+    view_state = project.view_state if project is not None else {}
+    snap_tol = float((view_state.get("litho_segmenter") or {}).get("litho_snap_tolerance_m", 0.20))
+
+    outcome = await RecomputeLithoSolids(session).execute(
+        model_id, force=True, litho_snap_tolerance_m=snap_tol
+    )
 
     # Load the rebuilt solid list for the bundled response.
     repo = LithoLayerRepository(session)
@@ -267,7 +276,8 @@ async def rebuild_litho_solids(
         f"considered={outcome.bodies_considered} built={outcome.bodies_built} "
         f"skipped={outcome.bodies_skipped_checksum} flagged={outcome.bodies_flagged} "
         f"orphans_deleted={outcome.orphans_deleted} "
-        f"solids_returned={len(solid_responses)}"
+        f"solids_returned={len(solid_responses)} "
+        f"marked_tests={len(outcome.marked_test_ids)}"
     )
     return RebuildLithoSolidsResponse(
         bodies_considered=outcome.bodies_considered,
@@ -276,6 +286,7 @@ async def rebuild_litho_solids(
         bodies_flagged=outcome.bodies_flagged,
         orphans_deleted=outcome.orphans_deleted,
         solids=solid_responses,
+        marked_test_ids=outcome.marked_test_ids,
     )
 
 
