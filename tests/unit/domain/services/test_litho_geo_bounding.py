@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import (
+    divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
 
@@ -100,3 +101,55 @@ def test_no_boundary_at_location_keeps_the_test():
     result = mark_and_truncate_shallow_tests(picks, lambda x, y: None)
     assert result.marked_investigation_ids == []
     assert result.picks == picks
+
+
+def _flat_sampler(boundaries):
+    """Return a BoundarySampler yielding fixed (formation_id, elevation) pairs."""
+    ordered = sorted(boundaries, key=lambda fe: fe[1], reverse=True)
+    return lambda x, y: list(ordered)
+
+
+def test_straddling_body_is_split_into_two_band_confined_bodies():
+    """A body that straddles a geological boundary is divided into two band-confined bodies."""
+    # One clay body B1 across two investigations, both straddling a boundary at -3
+    # (formation G-MID). No contact within tolerance -> DIVIDE.
+    picks = [
+        _pick("A", "B1", 0.0, 6.0, x=0.0),
+        _pick("B", "B1", 0.0, 6.0, x=10.0),
+    ]
+    sampler = _flat_sampler([("G-MID", -3.0)])
+    out = divide_picks_by_geology(picks, sampler, snap_tolerance_m=0.2)
+
+    # Each pick split into upper (0..3) and lower (3..6); upper halves share a
+    # derived id, lower halves share a different derived id; no original id left.
+    assert len(out) == 4
+    body_ids = {p.body_id for p in out}
+    assert "B1" not in body_ids
+    assert len(body_ids) == 2  # one band-body above, one below
+    # The two halves at A have different bodies but contiguous depths.
+    a = sorted((p for p in out if p.investigation_id == "A"), key=lambda p: p.top_depth_m)
+    assert (a[0].top_depth_m, a[0].base_depth_m) == (0.0, 3.0)
+    assert (a[1].top_depth_m, a[1].base_depth_m) == (3.0, 6.0)
+    assert a[0].body_id != a[1].body_id
+
+
+def test_contact_within_tolerance_snaps_no_split():
+    """A boundary within snap_tolerance of an existing contact causes a snap, not a cut."""
+    # Boundary at -3; the pick's base contact is at -2.95 (within 0.2) -> SNAP,
+    # no cut, body keeps its original id (single band).
+    picks = [_pick("A", "B1", 0.0, 2.95)]
+    sampler = _flat_sampler([("G-MID", -3.0)])
+    out = divide_picks_by_geology(picks, sampler, snap_tolerance_m=0.2)
+    assert len(out) == 1
+    assert out[0].body_id == "B1"
+    assert (out[0].top_depth_m, out[0].base_depth_m) == (0.0, 2.95)
+
+
+def test_body_entirely_in_one_band_keeps_original_id():
+    """A body that sits entirely within one geological band retains its original body_id."""
+    # Boundary at -10; the body sits entirely above it.
+    picks = [_pick("A", "B1", 0.0, 4.0)]
+    sampler = _flat_sampler([("G-MID", -10.0)])
+    out = divide_picks_by_geology(picks, sampler, snap_tolerance_m=0.2)
+    assert len(out) == 1
+    assert out[0].body_id == "B1"
