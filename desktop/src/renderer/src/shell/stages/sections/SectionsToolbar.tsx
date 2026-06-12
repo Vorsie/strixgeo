@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -1027,8 +1027,11 @@ export default function SectionsToolbar(): JSX.Element {
                 // on the litho axis). Appears once litho surfaces are built and
                 // packs into a solid wall of colour at low spacing. Litho axis
                 // only; the geological cross-section keeps its fill. Defaults to shown.
-                label: formationFillVisible ? 'Hide litho fill' : 'Show litho fill',
-                icon: <Layers size={12} />,
+                // "formation fill" (not "litho fill") disambiguates from the
+                // per-column litho bands, which are also a "litho fill". Eye/EyeOff
+                // icon conveys the action + avoids the Layers dropdown-trigger collision.
+                label: formationFillVisible ? 'Hide formation fill' : 'Show formation fill',
+                icon: formationFillVisible ? <EyeOff size={12} /> : <Eye size={12} />,
                 onClick: () => toggleFormationFill(),
                 testid: 'litho-toggle-formation-fill',
                 title:
