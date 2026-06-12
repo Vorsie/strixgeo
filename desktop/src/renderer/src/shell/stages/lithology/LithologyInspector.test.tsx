@@ -6,8 +6,6 @@
 //   I2  When a litho model is active and formations/contacts exist:
 //       the roster renders each formation row with its name and the
 //       correct contact count for THIS model.
-//   I3  When lithoStaleSurfaceCount > 0: the stale banner renders
-//       with the correct count.  When 0: banner is absent.
 //   I4  A2 flat roster: litho units appear as a flat list ordered ascending
 //       by display_order (oldest first). No parent-group headers or
 //       “Unassigned” bucket. All unit rows are always visible regardless
@@ -182,7 +180,6 @@ function makeCtx(overrides: {
   formations?: GeologicalFormationResponse[]
   lithoFormations?: GeologicalFormationResponse[]
   lithoContacts?: FormationContactResponse[]
-  lithoStaleSurfaceCount?: number
   lithoStaleTinSessionCount?: number
   refetchFormations?: () => void
   lithoSolids?: LithoBodySolidResponse[]
@@ -275,7 +272,7 @@ function makeCtx(overrides: {
       lithoLayers: [],
       lithoFormations: overrides.lithoFormations ?? [],
       lithoSurfacesByFormationId: new Map(),
-      lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
+      lithoStaleSurfaceCount: 0,
       lithoStaleTinSessionCount: overrides.lithoStaleTinSessionCount ?? 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
@@ -544,31 +541,6 @@ describe('LithologyInspector (Slice C, #55)', () => {
     expect(
       screen.getByText(/draw contacts on sections, then build/i),
     ).toBeInTheDocument()
-  })
-
-  // I3a: lithoStaleSurfaceCount > 0 â†’ stale banner renders with correct count.
-  it('I3a â€” stale banner renders when lithoStaleSurfaceCount > 0', () => {
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoStaleSurfaceCount: 2,
-    })
-    renderInspector(ctx)
-
-    const banner = screen.getByTestId('litho-stale-banner')
-    expect(banner).toBeInTheDocument()
-    expect(banner).toHaveTextContent(/2 litho surfaces? stale/i)
-    expect(banner).toHaveTextContent(/build on sections/i)
-  })
-
-  // I3b: lithoStaleSurfaceCount === 0 â†’ no stale banner.
-  it('I3b â€” stale banner is absent when lithoStaleSurfaceCount is 0', () => {
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoStaleSurfaceCount: 0,
-    })
-    renderInspector(ctx)
-
-    expect(screen.queryByTestId('litho-stale-banner')).not.toBeInTheDocument()
   })
 
   // I4 (A2 flat roster): units appear in display_order-ascending order

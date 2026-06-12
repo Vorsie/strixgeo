@@ -1,4 +1,4 @@
-// Lithology stage canvas — 3D surface viewer for built litho TINs,
+// Lithology stage canvas — 3D solid viewer for built litho body solids,
 // or a guided EmptyState when none exist yet.
 //
 // Slice D of #55 litho peer-stage scaffolding. Split-viewport added 2026-06-01
@@ -12,11 +12,15 @@
 // Canvas now reads lithoSolids / hasLithoSolids from useShell().geoModel
 // (owned by useLithoSolids called inside useGeologicalModel) — no local
 // solid state.
+// Mount gate changed to hasLithoSolids (Task 8, litho-3d plan):
+//   TIN surfaces are retired from the litho pane; the pane now mounts only
+//   when body solids exist.  An always-empty surfaces map is passed to
+//   Geology3DViewer so the Surfaces legend + draw loop are suppressed without
+//   touching the shared viewer (the geology pane is unaffected).
 //
 // Design:
-//   • When at least one litho surface has vertices, render the existing
-//     Geology3DViewer.  Its props (formations / surfacesByFormationId)
-//     are generic arrays — pass lithoFormations + lithoSurfacesByFormationId.
+//   • When hasLithoSolids is true, render the existing Geology3DViewer.
+//     Its props are generic — pass lithoFormations + EMPTY_SURFACES_MAP.
 //     Geology3DViewer.tsx is NOT modified.
 //   • Split-viewport mirrors GeologyCanvas exactly: local splitMode /
 //     splitPlane / splitLine state; resetLithoSplitViewportCallback exposed
@@ -26,15 +30,14 @@
 //   • resetLithoCameraCallback: module-level ref shared with LithologyStage's
 //     Reset Camera toolbar button — same pattern as GeologyCanvas.
 //   • viewMode ('solid' | 'fence'): session-ephemeral.  In Solid mode the
-//     TIN surfaces render when no solids are built, and the per-body watertight
-//     solids render (with TIN sheets suppressed) when solids exist.  In Fence
-//     mode the whole-project partition fill is projected to world-space panels
-//     and passed to Geology3DViewer via fencePanels.
+//     per-body watertight solids are rendered (TIN sheets always suppressed).
+//     In Fence mode the whole-project partition fill is projected to
+//     world-space panels and passed to Geology3DViewer via fencePanels.
 //
 // Solid mode (canvas responsibility):
-//   • EMPTY_SURFACES_MAP: stable module-level empty Map passed to
-//     Geology3DViewer as surfacesByFormationId in Solid mode when solids
-//     exist — suppresses TIN sheets so the opaque solids read cleanly.
+//   • EMPTY_SURFACES_MAP: stable module-level empty Map always passed to
+//     Geology3DViewer as surfacesByFormationId — suppresses the Surfaces
+//     legend toggle and TIN sheet rendering on the litho pane.
 //   • hasLithoSolids / lithoSolids come from useShell().geoModel (no local
 //     state); the canvas just reads + forwards to the viewer.
 
@@ -89,9 +92,12 @@ export const resetLithoSplitViewportCallback: React.MutableRefObject<
 > = { current: null }
 
 // ---------------------------------------------------------------------------
-// Stable empty surfaces map — passed to Geology3DViewer in Solid mode when
-// solids are present so TIN sheets are suppressed.  Module-level so the
-// reference is identity-stable across renders (no useMemo needed for this one).
+// Stable empty surfaces map — always passed to Geology3DViewer on the litho
+// pane so TIN sheets are never rendered there.  The Surfaces legend toggle
+// and draw loop in Geology3DViewer are both gated on the map having vertices,
+// so an empty map suppresses both without touching the shared viewer.  The
+// geology pane passes its own real surfaces map and is unaffected.
+// Module-level so the reference is identity-stable across renders.
 // ---------------------------------------------------------------------------
 
 const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, never>()
@@ -103,9 +109,14 @@ const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, never>()
 /**
  * Center canvas for the Lithology stage.
  *
- * Renders a ``Geology3DViewer`` (Cesium) when at least one litho surface
- * has been built (``vertices.length > 0``).  Falls back to a guided
- * ``EmptyState`` when no surfaces exist yet.
+ * Renders a ``Geology3DViewer`` (Cesium) when at least one litho body solid
+ * has been built (``hasLithoSolids`` is true in the shell bus).  Falls back
+ * to a guided ``EmptyState`` when no solids exist yet.
+ *
+ * TIN surfaces are NEVER shown on the litho pane — an always-empty surfaces
+ * map is passed to ``Geology3DViewer`` so the Surfaces legend toggle and TIN
+ * sheet rendering are suppressed without modifying the shared viewer (the
+ * geology pane passes its own real surfaces and is unaffected).
  *
  * Split-viewport mode mirrors ``GeologyCanvas`` exactly.  ``splitMode``,
  * ``splitPlane`` and ``splitLine`` are local session-ephemeral state; the
@@ -113,18 +124,12 @@ const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, never>()
  * "Split model" button.  ``resetLithoSplitViewportCallback`` is populated
  * here so ``LithologyStage``'s toolbar Reset verb can collapse the split.
  *
- * Fence/Solid toggle: ``viewMode`` switches between the TIN-surface render
+ * Fence/Solid toggle: ``viewMode`` switches between the closed-solid render
  * (Solid) and the whole-project partition fill projected to fence panels
  * (Fence).  The fence build uses ``lithoLayers`` from the shell bus (no
  * extra fetch), ``visibleCpts``/``visibleBoreholes`` for investigation
  * coordinates, ``visibleSections`` for section geometry, and per-section
  * correlation edges fetched lazily when Fence mode is activated.
- *
- * In Solid mode, if at least one litho body solid has been built
- * (``api.geology.listLithoSolids``), the TIN sheets are suppressed and the
- * opaque closed solids are rendered instead.  A Build Solids button (with
- * an amber stale badge) and a per-body colour-picker legend are rendered as
- * overlays in the viewer container.
  *
  * All data is sourced from ``useShell()`` — no props accepted (matches
  * the ``StageDescriptor.CanvasComponent`` contract).
@@ -140,7 +145,6 @@ export default function LithologyCanvas(): JSX.Element {
     geoModel: {
       activeLithoModel,
       lithoFormations,
-      lithoSurfacesByFormationId,
       lithoLayers,
       lithoSolids,
       hasLithoSolids,
@@ -373,24 +377,18 @@ export default function LithologyCanvas(): JSX.Element {
   // Solid-mode derived state
   //
   // hasLithoSolids comes from useShell().geoModel (owned by useLithoSolids).
-  // surfacesMapForViewer: in Solid mode when solids are present, pass the
-  // stable EMPTY_SURFACES_MAP so TIN sheets are not rendered (the opaque
-  // closed solids replace them).  In all other cases pass the real map.
+  // surfacesMapForViewer: always pass EMPTY_SURFACES_MAP so TIN sheets are
+  // never rendered on the litho pane (the Surfaces legend toggle + draw loop
+  // in Geology3DViewer are both gated on the map having vertices — an empty
+  // map suppresses both without touching the shared viewer component, leaving
+  // the geology pane's Surfaces layer fully intact).
   // ---------------------------------------------------------------------------
 
-  const surfacesMapForViewer = viewMode === 'solid' && hasLithoSolids
-    ? EMPTY_SURFACES_MAP
-    : lithoSurfacesByFormationId
-
-  // Show the 3D viewer when at least one litho surface has vertices.
-  // Stale surfaces are included (Geology3DViewer renders them at lower alpha).
-  const hasLithoSurfaces = Array.from(lithoSurfacesByFormationId.values()).some(
-    s => s.vertices.length > 0,
-  )
+  const surfacesMapForViewer = EMPTY_SURFACES_MAP
 
   const projectEpsg = project.default_horizontal_epsg ?? 31370
 
-  if (hasLithoSurfaces) {
+  if (hasLithoSolids) {
     return (
       <div className="relative w-full h-full">
         {/* Build Solids button and per-body legend have moved:
@@ -495,7 +493,7 @@ export default function LithologyCanvas(): JSX.Element {
     <EmptyState
       icon={<Layers3 />}
       title="Lithostratigraphic model"
-      hint="Select or create a lithology model in the right panel. To place contacts, open the Sections stage and draw them there — once placed and built, the 3D surfaces appear here."
+      hint="Select or create a lithology model in the right panel. Draw contacts in the Sections stage, then click Build model on the Lithology toolbar to generate the 3D solid bodies."
     />
   )
 }

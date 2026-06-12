@@ -1,10 +1,13 @@
 // Behavioral net for LithologyCanvas (Slice D, #55 peer-stage scaffolding).
 //
 // Claims pinned here:
-//   C1  When no litho surfaces exist (empty map or all vertices=[]) →
-//       EmptyState renders; Geology3DViewer does NOT mount.
-//   C2  When at least one litho surface has vertices → Geology3DViewer
-//       mounts; EmptyState does NOT render.
+//   C1  When hasLithoSolids is false → EmptyState renders; Geology3DViewer
+//       does NOT mount.  Surfaces being present (vertices or not) is
+//       irrelevant — only solids gate the pane.
+//   C1b Surfaces map with vertices present but hasLithoSolids=false →
+//       still EmptyState (surfaces alone no longer mount the pane).
+//   C2  When hasLithoSolids is true → Geology3DViewer mounts; EmptyState
+//       does NOT render.
 //   C9  In Solid mode, api.geology.listLithoSolids is called with the
 //       correct projectId + modelId.
 //   C10 Clicking "Build solids" calls api.geology.rebuildLithoSolids and
@@ -487,32 +490,41 @@ afterEach(() => {
 })
 
 describe('LithologyCanvas (Slice D, #55)', () => {
-  // C1: No built surfaces â†’ EmptyState renders; Geology3DViewer absent.
-  it('C1 â€” no litho surfaces: shows guided EmptyState, no Geology3DViewer', () => {
+  // C1: hasLithoSolids=false → EmptyState renders; Geology3DViewer absent.
+  //     Surfaces being present (vertices or not) does not mount the pane.
+  it('C1 â€” no solids: shows guided EmptyState, no Geology3DViewer', () => {
     const ctx = makeCtx({
-      // Empty map â€” no surfaces built yet.
-      lithoSurfacesByFormationId: new Map(),
+      hasLithoSolids: false,
+      lithoSolids: [],
     })
     renderCanvas(ctx)
 
     expect(screen.queryByTestId('geology-3d-viewer')).not.toBeInTheDocument()
-    // EmptyState renders the hint text.
-    expect(screen.getByText(/place contacts, open the sections stage/i)).toBeInTheDocument()
+    // EmptyState renders the updated hint text (references Build model now).
+    expect(screen.getByText(/build model on the lithology toolbar/i)).toBeInTheDocument()
   })
 
-  // C1b: Surface map with vertices=[] â†’ still EmptyState (stale surface, no geometry).
-  it('C1b â€” surface with empty vertices: shows EmptyState (no geometry to render)', () => {
-    const surfMap = new Map([['f-stale', makeSurface('f-stale', false)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+  // C1b: Surfaces map with real vertices but hasLithoSolids=false → still EmptyState.
+  //      This pins the key behavioural change: surfaces alone no longer mount the pane.
+  it('C1b â€” surfaces present but no solids: shows EmptyState (surfaces no longer gate the pane)', () => {
+    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const ctx = makeCtx({
+      lithoSurfacesByFormationId: surfMap,
+      hasLithoSolids: false,
+      lithoSolids: [],
+    })
     renderCanvas(ctx)
 
     expect(screen.queryByTestId('geology-3d-viewer')).not.toBeInTheDocument()
   })
 
-  // C2: At least one surface with vertices â†’ Geology3DViewer mounts; EmptyState absent.
-  it('C2 â€” surface with vertices: Geology3DViewer mounts', () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+  // C2: hasLithoSolids=true → Geology3DViewer mounts; EmptyState absent.
+  it('C2 â€” solids present: Geology3DViewer mounts', () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({
+      lithoSolids: [solid],
+      hasLithoSolids: true,
+    })
     renderCanvas(ctx)
 
     expect(screen.getByTestId('geology-3d-viewer')).toBeInTheDocument()
@@ -521,8 +533,11 @@ describe('LithologyCanvas (Slice D, #55)', () => {
   // C3: resetLithoSplitViewportCallback is exported (debt #64 resolved).
   //     LithologyStage's toolbar Reset calls this to collapse the split viewport.
   it('C3 -- resetLithoSplitViewportCallback is callable after canvas mounts', () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({
+      lithoSolids: [solid],
+      hasLithoSolids: true,
+    })
     renderCanvas(ctx)
 
     // The module-level ref is set by the canvas on render.
@@ -530,19 +545,22 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     expect(() => resetLithoSplitViewportCallback.current?.()).not.toThrow()
   })
 
-  // C4: Fence/Solid toggle buttons render when surfaces are present.
-  it('C4 -- Fence and Solid toggle buttons are present when surfaces exist', () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
-    const ctx = makeCtx({ lithoSurfacesByFormationId: surfMap })
+  // C4: Fence/Solid toggle buttons render when solids are present.
+  it('C4 -- Fence and Solid toggle buttons are present when solids exist', () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({
+      lithoSolids: [solid],
+      hasLithoSolids: true,
+    })
     renderCanvas(ctx)
 
     expect(screen.getByTestId('litho-view-mode-solid')).toBeInTheDocument()
     expect(screen.getByTestId('litho-view-mode-fence')).toBeInTheDocument()
   })
 
-  // C5: Toggle buttons are absent when no surfaces exist (EmptyState shows instead).
-  it('C5 -- Fence/Solid toggle absent when no surfaces exist', () => {
-    const ctx = makeCtx({ lithoSurfacesByFormationId: new Map() })
+  // C5: Toggle buttons are absent when no solids exist (EmptyState shows instead).
+  it('C5 -- Fence/Solid toggle absent when no solids exist', () => {
+    const ctx = makeCtx({ hasLithoSolids: false, lithoSolids: [] })
     renderCanvas(ctx)
 
     expect(screen.queryByTestId('litho-view-mode-solid')).not.toBeInTheDocument()
@@ -553,9 +571,10 @@ describe('LithologyCanvas (Slice D, #55)', () => {
   //     The listContactCorrelations mock is wired at module level; clicking
   //     Fence sets viewMode → 'fence' which fires the effect.
   it('C6 -- clicking Fence triggers listContactCorrelations fetch per visible section', async () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const solid = makeSolid('b-1', 'f-built')
     const ctx = makeCtx({
-      lithoSurfacesByFormationId: surfMap,
+      lithoSolids: [solid],
+      hasLithoSolids: true,
       visibleSections: [makeSection('sec-1')],
     })
     renderCanvas(ctx)
@@ -585,9 +604,10 @@ describe('LithologyCanvas (Slice D, #55)', () => {
   //     We provide one section so the fetch path runs; fencePanels comes out
   //     empty because there are no approved edges → no bands → no panels.
   it('C7 -- empty-fence hint pill renders when fence mode is on and no panels exist', async () => {
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const solid = makeSolid('b-1', 'f-built')
     const ctx = makeCtx({
-      lithoSurfacesByFormationId: surfMap,
+      lithoSolids: [solid],
+      hasLithoSolids: true,
       visibleSections: [makeSection('sec-1')],
     })
     renderCanvas(ctx)
@@ -618,9 +638,10 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     })
     vi.mocked(api.geology.listContactCorrelations).mockReturnValue(pending)
 
-    const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
+    const solid = makeSolid('b-1', 'f-built')
     const ctx = makeCtx({
-      lithoSurfacesByFormationId: surfMap,
+      lithoSolids: [solid],
+      hasLithoSolids: true,
       visibleSections: [makeSection('sec-1')],
     })
     renderCanvas(ctx)

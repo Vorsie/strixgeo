@@ -72,7 +72,6 @@ export default function LithologyInspector(): JSX.Element {
       formations,
       lithoFormations,
       lithoContacts,
-      lithoStaleSurfaceCount,
       lithoStaleTinSessionCount,
       refetchFormations,
       handleClearLithoModel,
@@ -233,20 +232,6 @@ export default function LithologyInspector(): JSX.Element {
         />
       ) : (
         <>
-          {/* Stale-surface info banner — read-only status, no action here.
-              The Build verb lives on the Sections toolbar (cross-sections are
-              the editing surface).  Mirrors the GeologyInspector crossings
-              banner which also carries no action button. */}
-          {lithoStaleSurfaceCount > 0 && (
-            <div
-              className="text-[11px] leading-snug rounded px-2 py-1.5 bg-surface-sunken border border-border-subtle text-text-secondary"
-              data-testid="litho-stale-banner"
-            >
-              {lithoStaleSurfaceCount} litho surface
-              {lithoStaleSurfaceCount === 1 ? '' : 's'} stale — Build on Sections.
-            </div>
-          )}
-
           {/* Stale-TIN straddle-fallback pill. AcceptLithoSuggestions
               falls back to depth-ordered geology contacts when the
               parent geology TIN is stale or absent — geometrically
