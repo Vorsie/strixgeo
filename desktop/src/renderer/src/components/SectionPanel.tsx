@@ -2343,7 +2343,7 @@ export default function SectionPanel({
     }
 
     const meshes = buildModelFillMeshes(
-      lithoSolids as LithoBodySolidResponse[],
+      lithoSolids,
       (fid) => formationColorById.get(fid) ?? '#a3a3a3',
     )
 

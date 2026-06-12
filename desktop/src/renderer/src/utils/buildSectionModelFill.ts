@@ -25,6 +25,11 @@ import type { SolidMesh } from './sectionFromSolids'
  *   ray-sampler and plane-slicer both assume a watertight manifold.
  * - ``display_color`` is used verbatim when present (non-null / non-undefined).
  *   When absent or null, ``colorOf(formationId)`` provides the fallback.
+ * - ``is_stale`` is deliberately NOT filtered.  Staleness is a freshness flag
+ *   (a contact mutation has happened since the last Build), not a
+ *   geometry-correctness flag — the last-built mesh geometry is still valid, so
+ *   we render it rather than make the fill vanish after every contact edit. The
+ *   user refreshes it by clicking Build model again.
  *
  * @param solids  - Body solid responses from the backend (may include flagged
  *                  solids — they are filtered out here).
@@ -34,7 +39,7 @@ import type { SolidMesh } from './sectionFromSolids'
  * @returns ``SolidMesh[]`` with flagged solids removed, colours resolved.
  */
 export function buildModelFillMeshes(
-  solids: LithoBodySolidResponse[],
+  solids: readonly LithoBodySolidResponse[],
   colorOf: (formationId: string) => string,
 ): SolidMesh[] {
   const result: SolidMesh[] = []
