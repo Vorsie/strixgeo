@@ -116,7 +116,10 @@ export function sampleSolidColumns(
       }
 
       // Pair crossings into [base, top] intervals.
-      // A watertight mesh always yields an even count after dedup.
+      // A watertight mesh always yields an even count after dedup. If the count
+      // is odd (a non-manifold / open mesh, e.g. a flagged solid), the trailing
+      // crossing is silently dropped — the caller must guarantee watertight
+      // meshes (filter on is_flagged=false before sampling).
       for (let i = 0; i + 1 < crossings.length; i += 2) {
         const z0 = crossings[i]
         const z1 = crossings[i + 1]
@@ -142,7 +145,7 @@ export function sampleSolidColumns(
 /** Epsilon for deduplicated z-crossing values (metres). */
 const DEDUP_EPS = 1e-6
 
-/** Epsilon for the zero-area guard in 2D point-in-triangle. */
+/** Epsilon for the zero-area guard in 2D point-in-triangle (squared metres — `area2` is 2× the signed 2D area). */
 const AREA_EPS = 1e-10
 
 /**

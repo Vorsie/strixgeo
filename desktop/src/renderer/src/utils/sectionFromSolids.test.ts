@@ -35,5 +35,7 @@ describe('sampleSolidColumns (mode A)', () => {
     const cols = sampleSolidColumns([sand, clay], [{ id: 't1', x: 5, y: 5, alongM: 0 }])
     const elevs = cols[0].segments.map(s => s.baseElev)
     expect(elevs).toEqual([-4, -16])
+    // Directly assert the topElev-descending sort key (shallowest first).
+    expect(cols[0].segments.map(s => s.topElev)).toEqual([0, -4])
   })
 })
