@@ -19,6 +19,15 @@
  * - Each scenario asserts ``regions.length > 0`` AND at least one region of
  *   the expected ``kind``/``overlayTier`` BEFORE writing, so the generator
  *   FAILS instead of silently writing a fixture that misses its named path.
+ * - The JSON write is gated on ``UPDATE_GOLDENS=1`` so a routine full-suite
+ *   vitest run (pre-commit hook, CI) can never silently rewrite the committed
+ *   contract after an unrelated ``partitionFill.ts`` change — the assertions
+ *   still run every time and catch a scenario that stops exercising its path.
+ *   Regenerate with (PowerShell): ``$env:UPDATE_GOLDENS='1'; npx vitest run
+ *   src/renderer/src/utils/partitionFill.goldens.test.ts``.
+ * - Known artefact the Python port must PRESERVE: the ``onlap_one_corr`` CLAY
+ *   polygon contains a consecutive duplicate point (a zero-length edge where
+ *   the onlap notch meets the matrix top). Do not normalise it away.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -41,6 +50,9 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 
 /** Absolute path to the Python-side fixture directory (repo root relative). */
 const FIXTURE_DIR = resolve(HERE, '../../../../../tests/unit/fixtures/partition_goldens')
+
+/** Fixture writes only happen on explicit opt-in (see module docstring). */
+const WRITE_FIXTURES = process.env.UPDATE_GOLDENS === '1'
 
 // ---------------------------------------------------------------------------
 // Serialisation helpers
@@ -76,6 +88,12 @@ function writeGolden(
   edges: CorrelationEdge[],
   regions: SectionRegion[],
 ): void {
+  // A NaN coordinate would serialise as JSON null and only surface later as a
+  // confusing Python-side type error — fail loudly here instead.
+  expect(
+    regions.every((r) => r.polygon.every((p) => isFinite(p.fraction) && isFinite(p.elevation))),
+  ).toBe(true)
+  if (!WRITE_FIXTURES) return
   mkdirSync(FIXTURE_DIR, { recursive: true })
   const payload = roundDeep({ name, columns, edges, regions })
   writeFileSync(resolve(FIXTURE_DIR, `${name}.json`), JSON.stringify(payload, null, 2) + '\n', 'utf8')
@@ -133,7 +151,7 @@ describe('band_two_columns golden', () => {
 // Right: TOPSAND (0–2 m), PEAT (2–4 m), CLAY (4–10 m).
 // Edges: TOPSAND tops (the bracket band above) + PEAT top ↔ left CLAY top.
 //
-// PEAT's top contact (layer-r1) is correlated, its base contact (layer-r2)
+// PEAT's top contact (layer-d1) is correlated, its base contact (layer-d2)
 // is not → exactly 1 correlated contact, so ``reduceColumn`` keeps it (only
 // 0-contact lenses are pulled). The two CLAYs do not pair (no edge, and their
 // elevation spans −2…−3.5 vs −4…−10 do not overlap), so the interval below
@@ -288,8 +306,11 @@ describe('reentrant_same_body golden', () => {
     const regions = computeSectionFill([left, right], edges)
 
     expect(regions.length).toBeGreaterThan(0)
-    // Re-entrant body pins the output ordering — at least one quad must exist.
-    expect(regions.some((r) => r.kind === 'quad')).toBe(true)
+    // The re-entrant body must split: one occurrence wins the LCS match (a
+    // quad), the loser tiles its interval as a pinch. A trivially-passing
+    // "some quad exists" would not catch a wrong re-entrant fixture.
+    expect(regions.some((r) => r.kind === 'quad' && r.bodyId === 'body-9')).toBe(true)
+    expect(regions.some((r) => r.kind === 'pinch' && r.bodyId === 'body-9')).toBe(true)
 
     writeGolden('reentrant_same_body', [left, right], edges, regions)
   })
