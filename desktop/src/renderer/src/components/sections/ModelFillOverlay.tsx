@@ -179,21 +179,42 @@ export default function ModelFillOverlay({
     // left→right regardless of the order the consumer passes them in.
     const sorted = [...columns].sort((a, b) => a.alongM - b.alongM)
 
-    // Group: bodyId → list of { screenX, topY, baseY } entries (one per column).
-    // We accumulate only the columns that carry each body, so a body absent on
-    // one column in the middle still connects its present neighbours correctly.
+    // Group: (bodyId, track) → list of { screenX, topY, baseY } entries (one per
+    // column). We accumulate only the columns that carry each body, so a body
+    // absent on one column in the middle still connects its present neighbours.
+    //
+    // WHY a per-body "track": a re-entrant body (a matrix solid with an enclosed
+    // void/lens) returns TWO same-bodyId intervals at a column — one above the
+    // void, one below. ``sampleSolidColumns`` orders each column's segments
+    // topElev-descending, so the Nth occurrence of a bodyId in a column is its
+    // Nth interval from the top. Grouping by (bodyId, track) keeps those
+    // intervals on separate bands instead of merging them into one
+    // self-crossing polygon. Single-interval bodies are always track 0, so the
+    // common (and sparse-absent-middle) cases are unchanged.
     const bodyEntries = new Map<
       string,
-      { color: string; cols: { x: number; topY: number; baseY: number }[] }
+      {
+        bodyId: string
+        track: number
+        color: string
+        cols: { x: number; topY: number; baseY: number }[]
+      }
     >()
 
     for (const col of sorted) {
       const screenX = alongMToScreenX(col.alongM)
+      // Per-column count of how many times each body has appeared so far → the
+      // interval track index for the current segment.
+      const trackByBody = new Map<string, number>()
       for (const seg of col.segments) {
-        let entry = bodyEntries.get(seg.bodyId)
+        const track = trackByBody.get(seg.bodyId) ?? 0
+        trackByBody.set(seg.bodyId, track + 1)
+
+        const key = `${seg.bodyId}#${track}`
+        let entry = bodyEntries.get(key)
         if (!entry) {
-          entry = { color: seg.color, cols: [] }
-          bodyEntries.set(seg.bodyId, entry)
+          entry = { bodyId: seg.bodyId, track, color: seg.color, cols: [] }
+          bodyEntries.set(key, entry)
         }
         entry.cols.push({
           x: screenX,
@@ -205,7 +226,7 @@ export default function ModelFillOverlay({
 
     const paths: JSX.Element[] = []
 
-    for (const [bodyId, entry] of bodyEntries) {
+    for (const [, entry] of bodyEntries) {
       // WHY ≥2 columns required: a band is an area between two column positions.
       // A body present at only one column has no lateral extent — nothing to fill.
       if (entry.cols.length < 2) continue
@@ -215,10 +236,17 @@ export default function ModelFillOverlay({
       const d = buildBandPath(tops, bases)
       if (!d) continue
 
+      // Track 0 keeps the plain testid (the common single-interval case); deeper
+      // tracks get a -t<n> suffix so every band element is uniquely addressable.
+      const testid =
+        entry.track === 0
+          ? `model-fill-${entry.bodyId}`
+          : `model-fill-${entry.bodyId}-t${entry.track}`
+
       paths.push(
         <path
-          key={`mf-col-${bodyId}`}
-          data-testid={`model-fill-${bodyId}`}
+          key={`mf-col-${entry.bodyId}-${entry.track}`}
+          data-testid={testid}
           d={d}
           fill={entry.color}
           fillOpacity={opacity}

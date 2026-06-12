@@ -126,6 +126,30 @@ describe('Mode A', () => {
     // b1 present on 2 of the 3 columns → still ≥2 entries → one band
     expect(container.querySelectorAll('[data-testid="model-fill-b1"]')).toHaveLength(1)
   })
+
+  // ---------------------------------------------------------------------------
+  // MFO3c — a re-entrant body (matrix with an enclosed void/lens) produces TWO
+  // same-bodyId segments at a column (above the void + below the void). These
+  // must render as SEPARATE clean bands per interval track, NOT one merged
+  // self-crossing polygon. Track 0 keeps the plain testid; deeper tracks get a
+  // -t<n> suffix so the elements are distinct.
+  // ---------------------------------------------------------------------------
+
+  it('MFO3c re-entrant body (two intervals at a column) renders two separate bands', () => {
+    // Matrix body b1 with a void between -2 and -3 at both columns: each column
+    // carries an upper interval [0,-2] and a lower interval [-3,-5].
+    const columns: SolidColumn[] = [
+      col('T1', 0, [seg('b1', '#ff0000', 0, -2), seg('b1', '#ff0000', -3, -5)]),
+      col('T2', 100, [seg('b1', '#ff0000', 0, -2), seg('b1', '#ff0000', -3, -5)]),
+    ]
+    const { container } = renderOverlay({ columns })
+
+    // Two distinct band elements, not one merged (self-crossing) polygon.
+    expect(container.querySelectorAll('[data-testid="model-fill-b1"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-testid="model-fill-b1-t1"]')).toHaveLength(1)
+    // The single-body multi-interval case must produce exactly 2 paths total.
+    expect(container.querySelectorAll('path')).toHaveLength(2)
+  })
 })
 
 // ---------------------------------------------------------------------------
