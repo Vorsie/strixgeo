@@ -44,9 +44,9 @@ from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 __all__ = [
     "DomainTest",
-    "ModelDomain",
     "alpha_hull_polygon",
     "deep_reaching_mask",
+    "ModelDomain",
     "build_model_domain",
 ]
 
@@ -174,9 +174,18 @@ def alpha_hull_polygon(
         raise ValueError("alpha_hull_polygon: no boundary edges found after alpha-shape trim")
 
     # Walk the boundary edges into one or more closed rings.
-    # Build an adjacency map: start → end for boundary edges.
+    # Build an adjacency map: start → end for boundary edges.  The walk
+    # assumes a MANIFOLD boundary — every vertex has exactly one outgoing
+    # boundary edge.  An aggressive trim can violate this (two trimmed
+    # components pinched at a shared vertex); overwriting silently would
+    # drop a chain, so fail loudly instead.
     adj: dict[int, int] = {}
     for src, dst in boundary_edges:
+        if src in adj:
+            raise ValueError(
+                f"alpha_hull_polygon: non-manifold boundary at vertex {src} "
+                "(alpha trim pinched the hull); increase the alpha factor"
+            )
         adj[src] = dst
 
     rings: list[list[tuple[float, float]]] = []
@@ -329,9 +338,13 @@ class ModelDomain:
         polygon : list[tuple[float, float]]
             Alpha-hull ring.
         top_surface_vertices : list[tuple[float, float, float]]
+            Ground-surface TIN vertices as ``(x_m, y_m, elevation_m)``.
         top_surface_triangles : list[tuple[int, int, int]]
+            Ground-surface TIN triangle index triples.
         base_surface_vertices : list[tuple[float, float, float]]
+            Deep-base TIN vertices as ``(x_m, y_m, elevation_m)``.
         base_surface_triangles : list[tuple[int, int, int]]
+            Deep-base TIN triangle index triples.
         """
         self.polygon = polygon
         self._top = TinSurface(vertices=top_surface_vertices, triangles=top_surface_triangles)
@@ -441,6 +454,13 @@ def build_model_domain(
         collinear (Delaunay cannot triangulate them), or if no test reaches
         the lowest geological band within ``tol_m`` (the deep base would
         otherwise be silently built from shallow data).
+
+    Notes
+    -----
+    With only 1–2 deep-reaching tests no base TIN can triangulate, so
+    ``deep_base_at`` degrades to nearest-vertex extrapolation everywhere
+    (a step function rather than an interpolated surface).  Acceptable for
+    sparse projects; the loft still gets a finite base at every node.
     """
     if len(tests) < 3:
         raise ValueError(f"build_model_domain requires at least 3 tests; got {len(tests)}")

@@ -177,6 +177,9 @@ def test_build_model_domain_interpolates_deep_base_across_shallow_test() -> None
     """
     dom = build_model_domain(tests=_four_corners_plus_shallow_centre())
     assert dom.deep_base_at(5.0, 5.0) == pytest.approx(-20.0, abs=0.5)
+    # Invariant: the model base lies below the ground surface everywhere —
+    # a top/base TIN swap would invert the loft bounds (inside-out prisms).
+    assert dom.deep_base_at(5.0, 5.0) < dom.top_at(5.0, 5.0)
 
 
 def test_build_model_domain_top_at_interpolates_surface_elevation() -> None:
