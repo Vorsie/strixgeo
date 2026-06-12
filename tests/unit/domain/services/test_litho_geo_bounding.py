@@ -44,15 +44,15 @@ def test_deep_test_is_kept_unchanged():
 def test_shallow_correlated_test_truncates_at_lowest_correlation():
     """A shallow test with correlated picks is truncated at the deepest correlated base.
 
-    Single-hole bodies below that endpoint are dropped; the test is marked.
-    A correlated partner that is technically above the floor but not actually
-    truncated is NOT listed in marked_investigation_ids.
+    Single-hole bodies below that endpoint are dropped and the shallow test is
+    marked. Its deep correlated partner reaches below the floor, so the partner
+    is valid and untouched (never marked).
     """
     # Boundary at -6. SHALLOW reaches only -4 (above -6) -> marked.
     # Its body B1 spans two investigations (correlated); B2 is single-hole.
     # Lowest correlation = deepest base of a correlated pick = -3.
     picks = [
-        _pick("DEEP", "B1", 0.0, 3.0, x=10.0),  # correlated partner of SHALLOW's B1
+        _pick("DEEP", "B1", 0.0, 8.0, x=10.0),  # deep partner — reaches -8, below the -6 floor
         _pick("SHALLOW", "B1", 0.0, 3.0),  # correlated, base -3 (the endpoint)
         _pick("SHALLOW", "B2", 3.0, 4.0),  # single-hole, below endpoint -> dropped
     ]

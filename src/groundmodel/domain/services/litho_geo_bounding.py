@@ -130,14 +130,14 @@ def mark_and_truncate_shallow_tests(
         if floor is None or deepest_base <= floor + _EPS:
             out.extend(ps)  # reaches the deepest band (or no floor to check)
             continue
-        # The test bottoms above the lowest geological boundary — truncate it.
+        # The test bottoms above the lowest geological boundary -> it is always
+        # flagged (excluded from the model floor), whether or not truncation
+        # actually drops a pick.
+        marked.append(inv_id)
         corr = [p for p in ps if p.body_id in correlated]
         if not corr:
-            # No lateral tie anywhere -> exclude entirely; test is marked.
-            marked.append(inv_id)
-            continue
+            continue  # no lateral tie anywhere -> exclude entirely
         endpoint = min(_elev(p, p.base_depth_m) for p in corr)
-        kept: list[BodyLayerPick] = []
         for p in ps:
             top_e = _elev(p, p.top_depth_m)
             if top_e <= endpoint + _EPS:
@@ -145,14 +145,7 @@ def mark_and_truncate_shallow_tests(
             base_e = _elev(p, p.base_depth_m)
             if base_e < endpoint - _EPS:
                 # straddles the endpoint -> truncate its base to the endpoint
-                kept.append(replace(p, base_depth_m=p.surface_elev_m - endpoint))
+                out.append(replace(p, base_depth_m=p.surface_elev_m - endpoint))
             else:
-                kept.append(p)
-        out.extend(kept)
-        # Only mark if the pick list actually changed (something was dropped or
-        # truncated).  A test whose picks fit entirely within the correlated
-        # endpoint is passed through without being listed as "marked" — it did
-        # not need truncation even though it is technically above the floor.
-        if kept != ps:
-            marked.append(inv_id)
+                out.append(p)
     return ShallowTestResult(picks=out, marked_investigation_ids=sorted(marked))
