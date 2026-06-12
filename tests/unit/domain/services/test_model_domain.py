@@ -16,6 +16,7 @@ Pure-geometry, no DB, no I/O. Pins:
 from __future__ import annotations
 
 import pytest
+
 from groundmodel.domain.services.model_domain import (
     DomainTest,
     ModelDomain,
@@ -261,3 +262,17 @@ def test_build_model_domain_raises_on_collinear_tests() -> None:
     collinear = [_dt(str(i), float(i), 0.0) for i in range(4)]
     with pytest.raises(ValueError):
         build_model_domain(collinear)
+
+
+def test_build_model_domain_raises_when_no_test_reaches_the_lowest_band() -> None:
+    """The lowest band lies deeper than every test reaches — building the
+    deep base from shallow data would silently mask the mismatch, so the
+    factory must fail loudly instead."""
+    tests = [
+        _dt("a", 0.0, 0.0, base=-10.0),
+        _dt("b", 10.0, 0.0, base=-10.0),
+        _dt("c", 5.0, 10.0, base=-10.0),
+    ]
+    band = {"a": -30.0, "b": -30.0, "c": -30.0}  # far below every base
+    with pytest.raises(ValueError, match="lowest geological band"):
+        build_model_domain(tests, lowest_band_elev_at=band, tol_m=1.0)

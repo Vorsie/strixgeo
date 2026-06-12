@@ -40,6 +40,7 @@ from groundmodel.domain.services.tin_surface import (
     evaluate_tin_at,
 )
 from groundmodel.domain.services.tin_surface_constants import CONCAVE_HULL_ALPHA_FACTOR
+from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 __all__ = [
     "DomainTest",
@@ -332,8 +333,6 @@ class ModelDomain:
         base_surface_vertices : list[tuple[float, float, float]]
         base_surface_triangles : list[tuple[int, int, int]]
         """
-        from groundmodel.domain.value_objects.tin_surface import TinSurface
-
         self.polygon = polygon
         self._top = TinSurface(vertices=top_surface_vertices, triangles=top_surface_triangles)
         self._base = TinSurface(vertices=base_surface_vertices, triangles=base_surface_triangles)
@@ -438,8 +437,10 @@ def build_model_domain(
     Raises
     ------
     ValueError
-        If fewer than 3 tests are supplied, or if all test locations are
-        collinear (Delaunay cannot triangulate them).
+        If fewer than 3 tests are supplied, if all test locations are
+        collinear (Delaunay cannot triangulate them), or if no test reaches
+        the lowest geological band within ``tol_m`` (the deep base would
+        otherwise be silently built from shallow data).
     """
     if len(tests) < 3:
         raise ValueError(f"build_model_domain requires at least 3 tests; got {len(tests)}")
@@ -469,10 +470,16 @@ def build_model_domain(
     )
     deep_tests = [t for t in tests if reach_mask.get(t.test_id, False)]
 
-    # Fall back to all tests if no test is classified as deep-reaching
-    # (can happen with very large tol_m or an empty mask).
+    # An empty deep set is only reachable with geo present (the no-geo
+    # fallback threshold always admits the deepest test): the lowest band
+    # lies deeper than every test reaches.  Silently substituting all tests
+    # would build the deep base from shallow data and mask the mismatch —
+    # fail loudly instead.
     if not deep_tests:
-        deep_tests = tests
+        raise ValueError(
+            "no test reaches the lowest geological band within tolerance "
+            f"(tol_m={tol_m}); check lowest_band_elev_at values or increase tol_m"
+        )
 
     base_contacts = [
         ContactPoint3D(
