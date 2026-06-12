@@ -140,6 +140,120 @@ export function sampleSolidColumns(
   })
 }
 
+// ─── Mode B types ─────────────────────────────────────────────────────────────
+
+/**
+ * A 2D section line in map XY space, defined by two endpoints.
+ *
+ * The line extends infinitely in both directions for the purpose of the plane
+ * test; the endpoints only fix the direction and the along-section origin.
+ *
+ * @property ax - X coordinate of the first endpoint (map CRS, metres).
+ * @property ay - Y coordinate of the first endpoint.
+ * @property bx - X coordinate of the second endpoint.
+ * @property by - Y coordinate of the second endpoint.
+ */
+export interface SectionPlaneLine {
+  ax: number
+  ay: number
+  bx: number
+  by: number
+}
+
+/**
+ * A closed polygon produced by slicing one body solid with the section plane.
+ *
+ * The ring is ordered (though winding is not guaranteed); the consumer should
+ * close it by connecting the last point back to the first.
+ *
+ * @property bodyId      - Body that this polygon belongs to.
+ * @property formationId - Formation/lithology identifier.
+ * @property color       - Hex colour for rendering.
+ * @property points      - Ordered ring of (alongM, elev) pairs.  `alongM` is
+ *                         the signed distance along the section line from the
+ *                         first endpoint `a` (metres); `elev` is the map-CRS
+ *                         vertical coordinate (metres, negative underground).
+ */
+export interface SectionPoly {
+  bodyId: string
+  formationId: string
+  color: string
+  points: { alongM: number; elev: number }[]
+}
+
+// ─── Public API — Mode B ──────────────────────────────────────────────────────
+
+/**
+ * Slice each body solid with the vertical plane through the 2D section line,
+ * producing one filled closed polygon per body that the plane intersects.
+ *
+ * Algorithm (Mode B — plane slice):
+ * 1. Define the vertical plane as the locus of all 3D points whose XY
+ *    projection lies on the infinite line through `a` with direction
+ *    `d = (bx-ax, by-ay)`.  A vertex's signed perpendicular distance to this
+ *    line is given by the 2D cross product:
+ *      side(v) = d.x * (v.y - a.y) - d.y * (v.x - a.x)
+ *    Positive = left of the line, negative = right.  The plane contains exactly
+ *    the points where side = 0.
+ * 2. For each triangle, check each of the 3 edges.  An edge crosses the plane
+ *    iff its two endpoint `side` values have opposite (non-zero) signs.
+ *    Interpolate the exact 3D crossing point:
+ *      t = side(p0) / (side(p0) - side(p1));  cross = p0 + t*(p1 - p0)
+ * 3. Project each crossing (x,y) onto the line direction to get `alongM`:
+ *      alongM = dot(cross.xy - a, dHat)   where dHat = d / |d|
+ *    Keep the z-coordinate as `elev`.  Each triangle cut by the plane yields
+ *    exactly 2 crossing points → one cut segment.
+ * 4. Chain all cut segments for the mesh into one ordered closed ring.  A
+ *    watertight manifold sliced by a plane produces a set of segments that
+ *    form one or more closed loops.  We follow the loop by repeatedly finding
+ *    the next segment whose start endpoint matches the current end endpoint
+ *    (within SLICE_EPS).
+ * 5. Output the ordered ring as `SectionPoly.points`.  The closing edge is
+ *    implicit (consumer connects last → first).
+ *
+ * @param meshes  - Watertight body meshes to slice.
+ * @param line    - The 2D section line defining the vertical cutting plane.
+ * @returns       One SectionPoly per body intersected by the plane, in the
+ *                same order as `meshes`.  Bodies that the plane misses entirely
+ *                are omitted.
+ */
+export function sliceSolidsAtPlane(
+  meshes: SolidMesh[],
+  line: SectionPlaneLine,
+): SectionPoly[] {
+  const { ax, ay, bx, by } = line
+  const dx = bx - ax
+  const dy = by - ay
+  const len = Math.sqrt(dx * dx + dy * dy)
+
+  // Guard against a zero-length line (degenerate section).
+  if (len < SLICE_EPS) return []
+
+  const dHatX = dx / len
+  const dHatY = dy / len
+
+  const result: SectionPoly[] = []
+
+  for (const mesh of meshes) {
+    const segments = collectCutSegments(mesh, ax, ay, dx, dy, dHatX, dHatY)
+
+    if (segments.length === 0) continue
+
+    const ring = chainSegments(segments)
+
+    if (ring.length < 3) continue
+
+    result.push({
+      bodyId: mesh.bodyId,
+      formationId: mesh.formationId,
+      color: mesh.color,
+      points: ring,
+    })
+  }
+
+  return result
+}
+
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 /** Epsilon for deduplicated z-crossing values (metres). */
@@ -282,4 +396,212 @@ function dedupSorted(sorted: number[], eps: number): number[] {
     }
   }
   return result
+}
+
+// ─── Mode B private helpers ───────────────────────────────────────────────────
+
+/**
+ * Epsilon for plane-side sign tests and endpoint-matching in mode B (metres).
+ *
+ * Kept separate from DEDUP_EPS because the two tolerances serve different
+ * geometry: DEDUP_EPS is a z-only value for ray crossings; SLICE_EPS is used
+ * in XY for side-distance classification and in the (alongM, elev) 2D space
+ * for segment-endpoint matching.
+ */
+const SLICE_EPS = 1e-6
+
+/** A single cut segment produced by a triangle intersecting the section plane. */
+interface CutSegment {
+  p0: { alongM: number; elev: number }
+  p1: { alongM: number; elev: number }
+}
+
+/**
+ * Compute the signed perpendicular distance of a 3D vertex from the section
+ * line in XY.
+ *
+ * The sign convention follows the 2D cross product of the line direction d with
+ * the vector from the line origin a to the vertex:
+ *   side = dx*(vy - ay) - dy*(vx - ax)
+ * Positive = left of the line, negative = right, zero = on the line.
+ *
+ * Using the cross product (not the dot product) ensures we measure perpendicular
+ * distance, not along-line distance, so vertices anywhere along the section are
+ * classified correctly.
+ *
+ * @param vx,vy - Vertex XY coordinates.
+ * @param ax,ay - Line origin (endpoint A of the section line).
+ * @param dx,dy - Line direction vector (bx-ax, by-ay); need NOT be unit length.
+ */
+function planeSide(
+  vx: number,
+  vy: number,
+  ax: number,
+  ay: number,
+  dx: number,
+  dy: number,
+): number {
+  return dx * (vy - ay) - dy * (vx - ax)
+}
+
+/**
+ * Collect all cut segments produced by intersecting `mesh` with the vertical
+ * plane through the section line.
+ *
+ * For each triangle, we compute each vertex's signed side value.  An edge
+ * crosses the plane iff its two vertices have strictly opposite signs (one
+ * positive, one negative).  Vertices exactly on the plane (|side| < SLICE_EPS)
+ * are treated as zero to avoid double-counting on shared edges: we only register
+ * a crossing when one endpoint is unambiguously positive and the other is
+ * unambiguously negative.
+ *
+ * A triangle crossing the plane yields exactly 2 edge crossings → one segment.
+ *
+ * @param mesh       - Watertight body mesh.
+ * @param ax,ay      - Line origin (endpoint A).
+ * @param dx,dy      - Line direction vector (un-normalised).
+ * @param dHatX,dHatY - Unit line direction (for along-section projection).
+ */
+function collectCutSegments(
+  mesh: SolidMesh,
+  ax: number,
+  ay: number,
+  dx: number,
+  dy: number,
+  dHatX: number,
+  dHatY: number,
+): CutSegment[] {
+  const segments: CutSegment[] = []
+  const { vertices, triangles } = mesh
+
+  for (const [i, j, k] of triangles) {
+    const [vax, vay, vaz] = vertices[i]
+    const [vbx, vby, vbz] = vertices[j]
+    const [vcx, vcy, vcz] = vertices[k]
+
+    const sa = planeSide(vax, vay, ax, ay, dx, dy)
+    const sb = planeSide(vbx, vby, ax, ay, dx, dy)
+    const sc = planeSide(vcx, vcy, ax, ay, dx, dy)
+
+    // Snap near-zero side values to exactly 0 so edge-classification is clean.
+    const sA = Math.abs(sa) < SLICE_EPS ? 0 : sa
+    const sB = Math.abs(sb) < SLICE_EPS ? 0 : sb
+    const sC = Math.abs(sc) < SLICE_EPS ? 0 : sc
+
+    // Collect the two crossing points for this triangle (if any).
+    const crossings: { alongM: number; elev: number }[] = []
+
+    // Helper: interpolate a crossing on edge (p0 → p1) if signs differ strictly.
+    const tryEdge = (
+      x0: number,
+      y0: number,
+      z0: number,
+      x1: number,
+      y1: number,
+      z1: number,
+      s0: number,
+      s1: number,
+    ) => {
+      // Strict sign change: one positive, one negative (zero counts as neither).
+      if (!((s0 > 0 && s1 < 0) || (s0 < 0 && s1 > 0))) return
+      // Linear interpolation parameter t ∈ (0, 1) for the crossing point.
+      const t = s0 / (s0 - s1)
+      const cx = x0 + t * (x1 - x0)
+      const cy = y0 + t * (y1 - y0)
+      const cz = z0 + t * (z1 - z0)
+      // Project the XY crossing position onto the section line to get alongM.
+      const alongM = dHatX * (cx - ax) + dHatY * (cy - ay)
+      crossings.push({ alongM, elev: cz })
+    }
+
+    tryEdge(vax, vay, vaz, vbx, vby, vbz, sA, sB) // edge A→B
+    tryEdge(vbx, vby, vbz, vcx, vcy, vcz, sB, sC) // edge B→C
+    tryEdge(vcx, vcy, vcz, vax, vay, vaz, sC, sA) // edge C→A
+
+    if (crossings.length === 2) {
+      segments.push({ p0: crossings[0], p1: crossings[1] })
+    }
+    // Triangles yielding 0 or 1 crossings are degenerate / tangent — skip.
+  }
+
+  return segments
+}
+
+/**
+ * Chain an unordered set of cut segments into one ordered closed ring.
+ *
+ * A watertight manifold sliced by a plane produces a set of line segments whose
+ * endpoints form a closed loop.  We start from the first segment and repeatedly
+ * find the next one whose start matches the current end (within SLICE_EPS in
+ * both alongM and elev).  The result is the ordered list of ring vertices
+ * (the closing edge is implicit — consumer connects last → first).
+ *
+ * Robustness notes:
+ * - Each segment can be traversed in either direction (p0→p1 or p1→p0); we
+ *   try both when looking for a match.
+ * - Iteration is capped at `segments.length` steps to prevent an infinite loop
+ *   on non-manifold input.
+ * - Once a segment is consumed it is removed from the pool so it can never be
+ *   visited twice.
+ *
+ * @param segments - Unordered cut segments from `collectCutSegments`.
+ * @returns        Ordered ring of (alongM, elev) vertices (no duplicate close).
+ */
+function chainSegments(
+  segments: CutSegment[],
+): { alongM: number; elev: number }[] {
+  if (segments.length === 0) return []
+
+  // Work on a mutable copy so we can splice-out consumed segments.
+  const pool = [...segments]
+
+  // Start the ring from the first segment's p0 → p1.
+  const first = pool.splice(0, 1)[0]
+  const ring: { alongM: number; elev: number }[] = [first.p0, first.p1]
+  let tail = first.p1
+
+  // Build the ring by greedily appending the segment whose nearer endpoint
+  // matches the current tail.
+  const maxIter = segments.length
+  for (let iter = 0; iter < maxIter && pool.length > 0; iter++) {
+    let found = false
+    for (let s = 0; s < pool.length; s++) {
+      const seg = pool[s]
+      // Try matching tail → seg.p0 (forward traversal).
+      if (
+        Math.abs(tail.alongM - seg.p0.alongM) < SLICE_EPS &&
+        Math.abs(tail.elev - seg.p0.elev) < SLICE_EPS
+      ) {
+        ring.push(seg.p1)
+        tail = seg.p1
+        pool.splice(s, 1)
+        found = true
+        break
+      }
+      // Try matching tail → seg.p1 (reverse traversal).
+      if (
+        Math.abs(tail.alongM - seg.p1.alongM) < SLICE_EPS &&
+        Math.abs(tail.elev - seg.p1.elev) < SLICE_EPS
+      ) {
+        ring.push(seg.p0)
+        tail = seg.p0
+        pool.splice(s, 1)
+        found = true
+        break
+      }
+    }
+    // Stop early if the ring is already closed (tail matches the first vertex)
+    // or if no matching segment was found (non-manifold input).
+    if (!found) break
+    if (
+      Math.abs(tail.alongM - ring[0].alongM) < SLICE_EPS &&
+      Math.abs(tail.elev - ring[0].elev) < SLICE_EPS
+    ) {
+      // Remove the duplicate closing vertex — the ring is already complete.
+      ring.pop()
+      break
+    }
+  }
+
+  return ring
 }

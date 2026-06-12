@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sampleSolidColumns, type SolidMesh } from './sectionFromSolids'
+import { sampleSolidColumns, sliceSolidsAtPlane, type SolidMesh } from './sectionFromSolids'
 
 // A single SAND box body spanning x,y in [0,10], top z=0, base z=-4.
 function box(bodyId: string, formationId: string, x0=0, x1=10, y0=0, y1=10, top=0, base=-4): SolidMesh {
@@ -37,5 +37,22 @@ describe('sampleSolidColumns (mode A)', () => {
     expect(elevs).toEqual([-4, -16])
     // Directly assert the topElev-descending sort key (shallowest first).
     expect(cols[0].segments.map(s => s.topElev)).toEqual([0, -4])
+  })
+})
+
+describe('sliceSolidsAtPlane (mode B)', () => {
+  it('slices a box body along a line crossing it → a filled ring', () => {
+    // section line y=5, from x=-5..15 → crosses the [0,10] box
+    const line = { ax: -5, ay: 5, bx: 15, by: 5 }
+    const polys = sliceSolidsAtPlane([box('b1','SAND',0,10,0,10,0,-4)], line)
+    expect(polys).toHaveLength(1)
+    // polygon spans alongM ~5..15 (box x 0..10 mapped onto the line origin -5), elev -4..0
+    const elevs = polys[0].points.map(p => p.elev)
+    expect(Math.min(...elevs)).toBeCloseTo(-4, 6)
+    expect(Math.max(...elevs)).toBeCloseTo(0, 6)
+  })
+  it('returns nothing for a body the line misses', () => {
+    const line = { ax: -5, ay: 50, bx: 15, by: 50 }
+    expect(sliceSolidsAtPlane([box('b1','SAND',0,10,0,10)], line)).toHaveLength(0)
   })
 })
