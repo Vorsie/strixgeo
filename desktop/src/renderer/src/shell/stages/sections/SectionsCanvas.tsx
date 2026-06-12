@@ -124,6 +124,7 @@ export default function SectionsCanvas(): JSX.Element {
       backdropSurfacesByFormationId,
       handleLoadBackdropSurfaces,
       refetchFormations,
+      lithoSolids,
     },
     sections: {
       // WHY visibleSections not sections: both the map overlay and the section
@@ -1451,6 +1452,11 @@ export default function SectionsCanvas(): JSX.Element {
     [project?.view_state],
   )
 
+  const sectionFillAtSectionLine = useMemo(
+    () => readLithoSegmenterPrefs(project?.view_state ?? null).sectionFillAtSectionLine,
+    [project?.view_state],
+  )
+
   const sectionAwareAcceptLithoSuggestion = useCallback(
     async (idx: number): Promise<void> => {
       const result = await handleAcceptLithoSuggestion(
@@ -2224,6 +2230,12 @@ export default function SectionsCanvas(): JSX.Element {
           // guards on a non-empty referenceContacts set.
           geoSnapToleranceM={isLitho ? lithoSnapToleranceM : undefined}
           openExtentLengthM={openExtentLengthM}
+          // 3-D model fill (Task 5, litho-3D M3): feed the prebuilt body solids
+          // into the 2-D section overlay so the geometric fill is consistent with
+          // the 3-D viewer.  Litho axis only — undefined on the geological axis so
+          // SectionPanel renders no ModelFillOverlay there (zero regression).
+          lithoSolids={isLitho ? lithoSolids : undefined}
+          sectionFillAtSectionLine={isLitho ? sectionFillAtSectionLine : undefined}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}

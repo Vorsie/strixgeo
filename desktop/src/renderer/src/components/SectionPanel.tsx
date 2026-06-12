@@ -48,6 +48,7 @@ import type {
   GeologicalFormationResponse,
   CrossingPinchOut,
   LithoContactCorrelationEdge,
+  LithoBodySolidResponse,
   LithoLayerResponse,
   LithoLayerSuggestion,
   VirtueleBoringInvestigationPrediction,
@@ -95,6 +96,10 @@ import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import PartitionFillOverlay from './sections/PartitionFillOverlay'
+import ModelFillOverlay from './sections/ModelFillOverlay'
+import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
+import { sampleSolidColumns, sliceSolidsAtPlane } from '../utils/sectionFromSolids'
+import type { SectionPlaneLine, SolidColumn, SectionPoly } from '../utils/sectionFromSolids'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
@@ -727,6 +732,25 @@ interface Props {
     side: 'left' | 'right',
     neighbourInvId: string | null,
   ) => void
+  /**
+   * 3-D body solids from the litho model (already built + fetched by
+   * ``useLithoSolids``).  When present on the litho axis, a
+   * ``ModelFillOverlay`` is rendered as a sibling of ``PartitionFillOverlay``
+   * showing the geometric solid fill derived from the 3-D builder.  Absent /
+   * undefined on the geological axis or before any solids are built.
+   */
+  lithoSolids?: readonly LithoBodySolidResponse[]
+  /**
+   * When ``true`` the model-fill overlay uses Mode B (section-plane slice
+   * of the body solids via ``sliceSolidsAtPlane``).  When ``false``
+   * (default) it uses Mode A (vertical ray sampling at each test's
+   * map position via ``sampleSolidColumns``).
+   *
+   * Read from ``view_state.litho_segmenter.section_fill_at_section_line``
+   * by SectionsCanvas and passed in as a pre-resolved boolean to avoid
+   * introducing a shell dependency inside SectionPanel.
+   */
+  sectionFillAtSectionLine?: boolean
 }
 
 export default function SectionPanel({
@@ -797,6 +821,8 @@ export default function SectionPanel({
   onPinchOutLayer,
   onNameBody,
   onDissolveBody,
+  lithoSolids,
+  sectionFillAtSectionLine = false,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2296,6 +2322,67 @@ export default function SectionPanel({
     return out
   }, [lithoGhostState, bulkLithoGhostState])
 
+  // ---- 3-D model fill (litho axis only) ------------------------------
+
+  // Build the ModelFillOverlay data from the prebuilt body solids.
+  // The computation is intentionally kept out of SectionPanel's render JSX to
+  // keep the god-component lean (debt #201); the mapping logic lives in the
+  // pure buildModelFillMeshes helper.
+  //
+  // Why sectionFillAtSectionLine lives as a prop not a store read:
+  //   SectionsCanvas already reads readLithoSegmenterPrefs(project.view_state)
+  //   for every other pref (lithoSnapToleranceM, openExtentLengthM).  Following
+  //   the same pattern avoids adding a shell dependency inside SectionPanel.
+  const modelFillData = useMemo<{ columns?: SolidColumn[]; polys?: SectionPoly[] }>(() => {
+    if (
+      axisMode !== 'lithostratigraphic' ||
+      !lithoSolids ||
+      lithoSolids.length === 0
+    ) {
+      return {}
+    }
+
+    const meshes = buildModelFillMeshes(
+      lithoSolids as LithoBodySolidResponse[],
+      (fid) => formationColorById.get(fid) ?? '#a3a3a3',
+    )
+
+    if (meshes.length === 0) return {}
+
+    if (sectionFillAtSectionLine) {
+      // Mode B — plane slice through the section line in map CRS.
+      const sectionLine: SectionPlaneLine = {
+        ax: section.start_x,
+        ay: section.start_y,
+        bx: section.end_x,
+        by: section.end_y,
+      }
+      return { polys: sliceSolidsAtPlane(meshes, sectionLine) }
+    }
+
+    // Mode A (default) — vertical ray at each test's map (x, y).
+    const tests = visibleColumns.map(col => ({
+      id: col.proj.item.id,
+      x: col.proj.item.location_x,
+      y: col.proj.item.location_y,
+      alongM: col.proj.along,
+    }))
+
+    if (tests.length === 0) return {}
+
+    return { columns: sampleSolidColumns(meshes, tests) }
+  }, [
+    axisMode,
+    lithoSolids,
+    sectionFillAtSectionLine,
+    formationColorById,
+    visibleColumns,
+    section.start_x,
+    section.start_y,
+    section.end_x,
+    section.end_y,
+  ])
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -2986,6 +3073,23 @@ export default function SectionPanel({
                 }
               />
             )}
+
+            {/* 3-D model fill — renders the geometric body fill derived from the
+                prebuilt solid meshes.  Litho axis only, beneath interactive
+                overlays (pointerEvents="none" on every element inside).
+                Mode A (default): ray-sampled at each test's map (x,y).
+                Mode B (sectionFillAtSectionLine): plane-sliced through the
+                section line, matching the 3-D fence builder's cut surface. */}
+            {axisMode === 'lithostratigraphic' &&
+              (modelFillData.columns != null || modelFillData.polys != null) && (
+                <ModelFillOverlay
+                  columns={modelFillData.columns}
+                  polys={modelFillData.polys}
+                  alongMToScreenX={warpedXToScreen}
+                  levelToScreen={levelToScreen}
+                  opacity={0.55}
+                />
+              )}
 
             {/* P4 (dogfeed 2026-05-30) — second pass of CptDataColumn in
                 ``overlayMode`` so the qc/Rf reference gridlines + value
