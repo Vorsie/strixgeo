@@ -22,6 +22,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
+
+__all__ = [
+    "EPS",
+    "ContactTermination",
+    "Correlated",
+    "CorrelationEdge",
+    "MatchUnit",
+    "PartitionColumn",
+    "PartitionUnit",
+    "classify_termination",
+    "match_columns",
+]
 
 # Floating-point epsilon used for overlap comparisons — mirrors ``const EPS = 1e-9``
 # in partitionFill.ts.  A pair of elevations whose difference is smaller than this
@@ -131,8 +144,9 @@ class MatchUnit:
 # Type alias mirrors the TS ``Correlated`` type.
 Correlated = Callable[[str, str], bool]
 
-# ContactTermination mirrors the TS union type.
-ContactTermination = str  # 'band' | 'onlap' | 'lens'
+# ContactTermination mirrors the TS union type; Literal lets mypy catch a
+# misspelled termination string at the call site instead of at runtime.
+ContactTermination = Literal["band", "onlap", "lens"]
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +198,11 @@ def classify_termination(
     -------
     ContactTermination
         ``'band'`` (2 contacts correlated), ``'onlap'`` (1), or ``'lens'`` (0).
+
+    Raises
+    ------
+    IndexError
+        If ``index`` is not a valid position in ``units``.
     """
     # When the caller pre-computed which layer ids are correlated to any neighbour
     # (a hot-loop optimisation — see reduce_column), this is a set lookup; else we

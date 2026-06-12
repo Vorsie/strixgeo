@@ -119,6 +119,25 @@ def test_deepest_unit_base_cannot_correlate_so_band_requires_only_top():
     assert result == "onlap"
 
 
+def test_middle_unit_base_contact_is_the_layer_below():
+    """A MIDDLE unit's base contact is keyed by the layer immediately below it.
+
+    L2 sits between L1 and L3: its top contact is L2's own layer id, its base
+    contact is L3's. With both correlated to the neighbour → band.
+    """
+    units = [
+        _unit("L1", top=0.0, base=1.0),
+        _unit("L2", top=1.0, base=2.0),
+        _unit("L3", top=2.0, base=3.0),
+    ]
+    neighbour_ids = frozenset({"R2", "R3"})
+    correlated = _correlated_fn([("L2", "R2"), ("L3", "R3")])
+    result = classify_termination(
+        units, index=1, neighbour_layer_ids=neighbour_ids, correlated=correlated
+    )
+    assert result == "band"
+
+
 def test_deepest_unit_with_no_top_correlation_is_lens():
     """Deepest unit, top contact NOT correlated → lens (0 out of 1 possible)."""
     units = [_unit("L1", top=0.0, base=2.0)]
