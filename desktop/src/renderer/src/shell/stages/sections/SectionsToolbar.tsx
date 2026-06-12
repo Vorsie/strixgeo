@@ -1022,20 +1022,18 @@ export default function SectionsToolbar(): JSX.Element {
                   'Show or hide the correlation ribbons + lines drawn across the section. A 2-D visualisation of your correlations only — it has no link to the 3-D model. Toggles on / off.',
               },
               {
-                // Show / hide the formationFillBands — the coloured fill between
-                // formation surfaces (the geological-model fill mechanism reused
-                // on the litho axis). Appears once litho surfaces are built and
-                // packs into a solid wall of colour at low spacing. Litho axis
-                // only; the geological cross-section keeps its fill. Defaults to shown.
-                // "formation fill" (not "litho fill") disambiguates from the
-                // per-column litho bands, which are also a "litho fill". Eye/EyeOff
-                // icon conveys the action + avoids the Layers dropdown-trigger collision.
-                label: formationFillVisible ? 'Hide formation fill' : 'Show formation fill',
+                // Show / hide the ModelFillOverlay — the cross-section fill
+                // sampled from the built 3-D solids. Appears once the 3-D
+                // litho model has been built (Build button). Litho axis only;
+                // the geological cross-section keeps its own formation fill.
+                // Eye/EyeOff icon conveys the action + avoids the Layers
+                // dropdown-trigger collision.
+                label: formationFillVisible ? 'Hide model fill' : 'Show model fill',
                 icon: formationFillVisible ? <EyeOff size={12} /> : <Eye size={12} />,
                 onClick: () => toggleFormationFill(),
-                testid: 'litho-toggle-formation-fill',
+                testid: 'litho-toggle-model-fill',
                 title:
-                  'Show or hide the coloured fill between formation surfaces on the litho cross-section (the same fill the geology model draws, shown here once litho surfaces are built). Toggles on / off.',
+                  'Show or hide the cross-section fill sampled from the built 3-D solids. Toggles on / off.',
               },
             ]}
           />

@@ -880,9 +880,9 @@ export default function SectionPanel({
   const showCorrelations = useCorrelationOverlayVisible()
   // Litho-fill visibility — gates ContactsLayer's formationFillBands (the
   // geological-model surface fill, reused on the litho axis) so the user can
-  // hide the coloured fill that appears once litho surfaces are built. Applied
-  // on the litho axis only (the geological cross-section keeps its fill).
-  const showFormationFill = useFormationFillVisible()
+  // hide the model fill (solids-derived ModelFillOverlay) on the litho axis.
+  // The geological axis keeps its own formationFillBands fill independently.
+  const showModelFill = useFormationFillVisible()
 
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
@@ -2745,12 +2745,10 @@ export default function SectionPanel({
               // user always sees the lithology stack.
               perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
               // Litho-fill view toggle (litho axis only) — hides the
-              // formationFillBands (the geological-model surface fill reused on
-              // the litho axis) so the user can declutter the section. The
-              // geological axis always passes true, keeping its fill.
-              showFormationFill={
-                axisMode === 'lithostratigraphic' ? showFormationFill : true
-              }
+              // formationFillBands: litho axis OFF (ModelFillOverlay replaces it);
+              // geological axis ON, unchanged. The store-backed showModelFill
+              // now gates ModelFillOverlay, not ContactsLayer.
+              showFormationFill={axisMode === 'geological'}
               // Debt #151 dogfeed refinement 2026-05-27 — pending
               // ghost ranges per anchor so the per-column band can
               // SPLIT around the ghost (ghost visible on top, no
@@ -3081,6 +3079,7 @@ export default function SectionPanel({
                 Mode B (sectionFillAtSectionLine): plane-sliced through the
                 section line, matching the 3-D fence builder's cut surface. */}
             {axisMode === 'lithostratigraphic' &&
+              showModelFill &&
               (modelFillData.columns != null || modelFillData.polys != null) && (
                 <ModelFillOverlay
                   columns={modelFillData.columns}
