@@ -164,7 +164,11 @@ export interface SectionPlaneLine {
  * A closed polygon produced by slicing one body solid with the section plane.
  *
  * The ring is ordered (though winding is not guaranteed); the consumer should
- * close it by connecting the last point back to the first.
+ * close it by connecting the last point back to the first. Winding depends on
+ * the triangle order in the input mesh, so the renderer must use
+ * `fill-rule: nonzero` (or normalise winding) for correct fill on any concave
+ * slice; for the watertight convex bodies we produce, a simple filled path is
+ * sufficient.
  *
  * @property bodyId      - Body that this polygon belongs to.
  * @property formationId - Formation/lithology identifier.

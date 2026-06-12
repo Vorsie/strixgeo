@@ -50,6 +50,28 @@ describe('sliceSolidsAtPlane (mode B)', () => {
     const elevs = polys[0].points.map(p => p.elev)
     expect(Math.min(...elevs)).toBeCloseTo(-4, 6)
     expect(Math.max(...elevs)).toBeCloseTo(0, 6)
+    // alongM is the primary horizontal output: x=0 → along 5, x=10 → along 15
+    // (projection origin is the line's first endpoint at x=-5). Asserting it
+    // guards against a wrong projection origin / transposed axis.
+    const alongs = polys[0].points.map((p) => p.alongM)
+    expect(Math.min(...alongs)).toBeCloseTo(5, 6)
+    expect(Math.max(...alongs)).toBeCloseTo(15, 6)
+  })
+  it('slices along a diagonal line (exercises both dx and dy terms)', () => {
+    // Diagonal section line that cleanly cuts the box interior near the (0,10)
+    // corner — offset so it avoids passing exactly through any box vertex
+    // (a corner-to-corner diagonal is a degenerate tangent, not a real cut).
+    const line = { ax: -2, ay: 0, bx: 8, by: 10 }
+    const polys = sliceSolidsAtPlane([box('b1', 'SAND', 0, 10, 0, 10, 0, -4)], line)
+    expect(polys).toHaveLength(1)
+    const elevs = polys[0].points.map((p) => p.elev)
+    expect(Math.min(...elevs)).toBeCloseTo(-4, 6)
+    expect(Math.max(...elevs)).toBeCloseTo(0, 6)
+  })
+  it('returns [] for a zero-length section line', () => {
+    expect(
+      sliceSolidsAtPlane([box('b1', 'SAND')], { ax: 5, ay: 5, bx: 5, by: 5 }),
+    ).toEqual([])
   })
   it('returns nothing for a body the line misses', () => {
     const line = { ax: -5, ay: 50, bx: 15, by: 50 }
