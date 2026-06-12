@@ -51,16 +51,12 @@ function LithologyToolbar(): JSX.Element | null {
     geoModel: {
       activeLithoModel,
       lithoContacts,
-      lithoSurfacesByFormationId,
       lithoSolidsBuilding,
       hasStaleLithoSolid,
+      hasLithoSolids,
       buildLithoSolids,
     },
   } = useShell()
-
-  const hasLithoSurfaces = Array.from(lithoSurfacesByFormationId.values()).some(
-    s => s.vertices.length > 0,
-  )
 
   if (!activeLithoModel) return null
 
@@ -98,7 +94,7 @@ function LithologyToolbar(): JSX.Element | null {
                 : 'Build the 3-D body solids from accepted contacts'
         }
       />
-      {hasLithoSurfaces && (
+      {hasLithoSolids && (
         <ToolbarButton
           icon={<RefreshCw size={13} />}
           label="Reset camera"

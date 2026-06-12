@@ -1,5 +1,5 @@
-// Lithology stage inspector — model picker, stale-surface banner,
-// flat roster of litho units, and workflow guidance footer.
+// Lithology stage inspector — model picker, flat roster of litho units, and
+// workflow guidance footer.
 //
 // Slice C of #55 litho peer-stage scaffolding.
 //
@@ -20,10 +20,10 @@
 //
 // Design decisions (system-architect):
 //   • ModelKindPicker unchanged at top (model select/create lifecycle).
-//   • Stale-surface info banner when lithoStaleSurfaceCount > 0 —
-//     READ-ONLY status; no Build button here.  Build lives in
-//     LithologyToolbar (moved from SectionsToolbar in Phase 1).
-//     Mirrors how GeologyInspector's crossings banner has no action.
+//   • Build lives in LithologyToolbar ("Build model"); solid staleness is
+//     surfaced there via the amber "Build model · stale" button. The former
+//     read-only stale-surface banner here was removed when the litho TIN
+//     surface build was retired (litho-3D plan, Task 8).
 //   • Formation roster per unit: colour swatch, name, contact count.
 //   • "Resolve instances" action above the roster (refreshes formations).
 //   • Guidance footer pointing engineers to Sections.

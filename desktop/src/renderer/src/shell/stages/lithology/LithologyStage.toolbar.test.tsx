@@ -13,7 +13,8 @@
 //   BM5  Label shows "· stale" when hasStaleLithoSolid is true.
 //   BM6  Label shows "Building…" and button is disabled when lithoSolidsBuilding.
 //   BM7  No "Build litho" button and no element with testid litho-build-solids-button.
-//   BM8  Reset camera button absent when no surfaces; present when surfaces exist.
+//   BM8  Reset camera button gates on litho solids (absent without, present with;
+//        surfaces-only does NOT show it).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -104,6 +105,7 @@ function makeCtx(overrides: {
   handleRebuildLithoSurfaces?: () => Promise<void>
   lithoSolidsBuilding?: boolean
   hasStaleLithoSolid?: boolean
+  hasLithoSolids?: boolean
   buildLithoSolids?: () => Promise<void>
 } = {}): ShellContextValue {
   return {
@@ -272,7 +274,7 @@ function makeCtx(overrides: {
       lithoSolids: [],
       lithoSolidsLoading: false,
       lithoSolidsBuilding: overrides.lithoSolidsBuilding ?? false,
-      hasLithoSolids: false,
+      hasLithoSolids: overrides.hasLithoSolids ?? false,
       hasStaleLithoSolid: overrides.hasStaleLithoSolid ?? false,
       buildLithoSolids: overrides.buildLithoSolids ?? noopAsync,
       setBodyColor: vi.fn(),
@@ -525,22 +527,33 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
 })
 
 describe('LithologyToolbar Reset camera button', () => {
-  // BM8a: Reset camera absent when no litho surfaces have vertices.
-  it('BM8a â€” Reset camera absent when no built litho surfaces exist', () => {
-    const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
+  // BM8a: Reset camera absent when no built litho solids exist (the 3D pane
+  // that the button controls mounts on solids now, not retired TIN surfaces).
+  it('BM8a â€” Reset camera absent when no built litho solids exist', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel(), hasLithoSolids: false })
     renderToolbar(ctx)
     expect(screen.queryByRole('button', { name: /reset camera/i })).not.toBeInTheDocument()
   })
 
-  // BM8b: Reset camera present when at least one surface has vertices.
-  it('BM8b â€” Reset camera present when a built litho surface exists', () => {
+  // BM8b: Reset camera present when built litho solids exist. Surfaces present
+  // but no solids must NOT show the button (gate is solids-driven).
+  it('BM8b â€” Reset camera present when built litho solids exist', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel(), hasLithoSolids: true })
+    renderToolbar(ctx)
+    expect(screen.getByRole('button', { name: /reset camera/i })).toBeInTheDocument()
+  })
+
+  // BM8c: surfaces-only (no solids) does NOT show Reset camera — proves the
+  // gate no longer keys on TIN surfaces.
+  it('BM8c â€” Reset camera absent when only surfaces exist (no solids)', () => {
     const surfaces = new Map([['f-1', makeSurface('f-1', true)]])
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoSurfacesByFormationId: surfaces,
+      hasLithoSolids: false,
     })
     renderToolbar(ctx)
-    expect(screen.getByRole('button', { name: /reset camera/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reset camera/i })).not.toBeInTheDocument()
   })
 })
 
