@@ -24,6 +24,9 @@ from tests.unit.domain.mesh_test_helpers import (
 from tests.unit.domain.mesh_test_helpers import (
     is_consistently_wound as _is_consistently_wound,
 )
+from tests.unit.domain.mesh_test_helpers import (
+    make_pick as _pick,
+)
 
 # Six investigations forming a 2×3 grid — enough spread for a real TIN
 # (non-collinear, no degenerate cases when all 6 are used).
@@ -719,3 +722,39 @@ def test_facies_competitor_spanning_two_shared_bodies_concat() -> None:
                     continue
                 clashes = [m.body_id for m in others if _inside(m.vertices, m.triangles, pt)]
                 assert not clashes, f"WEDGE overlaps {clashes} at {pt}"
+
+
+def test_no_body_solid_dips_below_its_own_deepest_pick():
+    """Builder invariant: every body mesh stays at or above its own deepest pick.
+
+    A facies fixture (shallow SILT + deep CLAY competing below a shared SAND, on a
+    non-collinear ring) is exactly the configuration that used to make the silt
+    mesh sink below the clay.  For every returned body, the deepest mesh vertex
+    must be no deeper than that body's own deepest member-pick base.
+    """
+    ring = [
+        ("A", 0, 0, "SILT", 2.0, 4.0),
+        ("B", 6, 1, "SILT", 2.0, 4.0),
+        ("C", 10, 6, "SILT", 2.0, 4.0),
+        ("D", 7, 11, "CLAY", 2.0, 12.0),
+        ("E", 1, 10, "CLAY", 2.0, 12.0),
+        ("F", -3, 5, "CLAY", 2.0, 12.0),
+    ]
+    picks = []
+    for inv, x, y, lo, top_d, base_d in ring:
+        picks.append(_pick(inv, x, y, "SAND", 0.0, 2.0))
+        picks.append(_pick(inv, x, y, lo, top_d, base_d))
+
+    deepest_pick: dict[str, float] = {}
+    for p in picks:
+        elev = p.surface_elev_m - p.base_depth_m
+        deepest_pick[p.body_id] = min(deepest_pick.get(p.body_id, elev), elev)
+
+    for mesh in build_body_solids(picks):
+        if not mesh.vertices:
+            continue
+        mesh_min = min(z for (_x, _y, z) in mesh.vertices)
+        assert mesh_min >= deepest_pick[mesh.body_id] - 1e-6, (
+            f"body {mesh.body_id} mesh dips to {mesh_min}, "
+            f"below its own deepest pick {deepest_pick[mesh.body_id]}"
+        )
