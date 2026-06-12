@@ -239,7 +239,8 @@ function LithoSection({
     draft.useNormalisedQc !== initial.useNormalisedQc ||
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
-    draft.openExtentLengthM !== initial.openExtentLengthM
+    draft.openExtentLengthM !== initial.openExtentLengthM ||
+    draft.sectionFillAtSectionLine !== initial.sectionFillAtSectionLine
 
   return (
     <SectionShell
@@ -301,6 +302,14 @@ function LithoSection({
         hint="On (default): classify CPTs with the stress-normalised Robertson 2015 pipeline (Qtn / F / Ic), using the unit weight + water table above. Off: use the non-normalised Robertson 2010 I_SBT index (qc/pa + Rf) — no stress profile or groundwater needed, better at shallow depth or when the water table is uncertain. Off-mode leaves Dr / NAD packing blank (relative density needs effective stress). CPT path only."
         checked={draft.useNormalisedQc}
         onChange={v => setDraft({ ...draft, useNormalisedQc: v })}
+        disabled={!hasProject}
+      />
+      <CheckboxRow
+        id="settings-section-fill-at-section-line"
+        label="Section fill at section line"
+        hint="Off = sample at each test location (default); On = slice the body solids at the section line."
+        checked={draft.sectionFillAtSectionLine}
+        onChange={v => setDraft({ ...draft, sectionFillAtSectionLine: v })}
         disabled={!hasProject}
       />
       <NumberRow

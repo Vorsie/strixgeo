@@ -45,7 +45,7 @@
  *      ``litho-view-mode-solid`` button is visible.
  *   2. Solid mode is the default — ``aria-pressed="true"`` on solid,
  *      ``aria-pressed="false"`` on fence.
- *   3. Clicking ``litho-build-solids-button`` triggers a build; after the
+ *   3. Clicking ``litho-build-model-button`` triggers a build; after the
  *      button exits its "Building…" state (disabled state clears), no error
  *      overlay is shown.
  *   4. The Cesium canvas (``id`` prefix ``cesium-viewport-``) stays visible
@@ -307,7 +307,7 @@ test.describe('flow_litho_facies', () => {
         //    ``assemble_facies_competitors`` (multi-patch path).
         //    Wait for the button to re-enable (exits "Building…" state).
         // -----------------------------------------------------------------------
-        const buildBtn = page.getByTestId('litho-build-solids-button')
+        const buildBtn = page.getByTestId('litho-build-model-button')
         await expect(buildBtn).toBeVisible({ timeout: 10_000 })
         await buildBtn.click()
 
