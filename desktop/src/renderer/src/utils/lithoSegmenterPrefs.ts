@@ -73,6 +73,13 @@ export interface LithoSegmenterPrefs {
    *  committed open extents and ``open`` suggest-pinch-out ghosts.
    *  Range 0.5 – 50 m. Default 3 m. */
   openExtentLengthM: number
+  /** When true, the cross-section model fill is a section-plane slice of
+   *  the body solids; when false (default) it is sampled at each test's
+   *  (x,y). The section-line slice feeds the 3D litho fence builder
+   *  (``build_body_solids``) and is geometrically correct across dipping
+   *  beds; test-location sampling is the legacy 2D-only path and remains
+   *  the default until the 3D builder is wired into the 2D section view. */
+  sectionFillAtSectionLine: boolean
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -84,6 +91,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   lithoSnapToleranceM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
   openExtentLengthM: 3.0,
+  sectionFillAtSectionLine: false,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -169,6 +177,12 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.openExtentLengthM,
       LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     ),
+    // Boolean — missing/undefined defaults to false (sample at test locations).
+    // Only an explicit true selects the section-line slice of the body solids.
+    sectionFillAtSectionLine:
+      typeof dict.section_fill_at_section_line === 'boolean'
+        ? dict.section_fill_at_section_line
+        : LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
   }
 }
 
@@ -191,6 +205,7 @@ export function buildLithoSegmenterPatch(
       litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
       open_extent_length_m: prefs.openExtentLengthM,
+      section_fill_at_section_line: prefs.sectionFillAtSectionLine,
     },
   }
 }

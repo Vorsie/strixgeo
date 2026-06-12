@@ -39,6 +39,7 @@ describe('readLithoSegmenterPrefs', () => {
       lithoSnapToleranceM: 0.30,
       autoCorrelateDepthWindowM: 1.2,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
+      sectionFillAtSectionLine: LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
     })
   })
 
@@ -62,6 +63,7 @@ describe('readLithoSegmenterPrefs', () => {
       lithoSnapToleranceM: LITHO_SEGMENTER_DEFAULTS.lithoSnapToleranceM,
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
+      sectionFillAtSectionLine: LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
     })
   })
 
@@ -117,6 +119,7 @@ describe('buildLithoSegmenterPatch', () => {
         lithoSnapToleranceM: 0.25,
         autoCorrelateDepthWindowM: 0.8,
         openExtentLengthM: 5.0,
+        sectionFillAtSectionLine: false,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -128,6 +131,7 @@ describe('buildLithoSegmenterPatch', () => {
         litho_snap_tolerance_m: 0.25,
         auto_correlate_depth_window_m: 0.8,
         open_extent_length_m: 5.0,
+        section_fill_at_section_line: false,
       },
     })
   })
@@ -310,5 +314,20 @@ describe('readLithoSegmenterPrefs — openExtentLengthM field', () => {
     const patch = buildLithoSegmenterPatch(prefs)
     const roundTripped = readLithoSegmenterPrefs(patch)
     expect(roundTripped.openExtentLengthM).toBe(7.5)
+  })
+})
+
+describe('readLithoSegmenterPrefs — sectionFillAtSectionLine field', () => {
+  it('defaults sectionFillAtSectionLine to false (test locations)', () => {
+    expect(readLithoSegmenterPrefs(null).sectionFillAtSectionLine).toBe(false)
+  })
+  it('reads explicit section_fill_at_section_line=true', () => {
+    const vs = { litho_segmenter: { section_fill_at_section_line: true } }
+    expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(true)
+  })
+  it('round-trips sectionFillAtSectionLine through the patch', () => {
+    const prefs = { ...LITHO_SEGMENTER_DEFAULTS, sectionFillAtSectionLine: true }
+    expect(buildLithoSegmenterPatch(prefs).litho_segmenter)
+      .toMatchObject({ section_fill_at_section_line: true })
   })
 })
