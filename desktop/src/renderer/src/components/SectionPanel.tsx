@@ -878,10 +878,10 @@ export default function SectionPanel({
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
-  // Litho-fill visibility — gates ContactsLayer's formationFillBands (the
-  // geological-model surface fill, reused on the litho axis) so the user can
-  // hide the model fill (solids-derived ModelFillOverlay) on the litho axis.
-  // The geological axis keeps its own formationFillBands fill independently.
+  // Litho model-fill visibility — gates the solids-derived ModelFillOverlay on
+  // the litho axis (the cross-section fill sampled from the built 3-D solids).
+  // The litho axis no longer paints ContactsLayer's formationFillBands; the
+  // geological axis keeps its own formationFillBands fill independently.
   const showModelFill = useFormationFillVisible()
 
   // Default viewport — full section length, default vertical

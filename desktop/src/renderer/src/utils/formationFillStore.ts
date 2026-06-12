@@ -1,17 +1,17 @@
 /**
- * Tiny external store for the "Show / hide litho fill" toggle.
+ * Tiny external store for the litho "Show / hide model fill" toggle.
  *
- * ``ContactsLayer`` paints ``formationFillBands`` — the coloured fill between
- * formation surfaces (built via ``buildFillBand``). This is the SAME mechanism
- * the geological model uses to fill its cross-section, reused on the
- * lithostratigraphic axis with the litho formation surfaces. It appears once
- * those surfaces exist (i.e. after a Build recomputes them), which packs into a
- * solid wall of colour at low column spacing. This store lets the user hide it
- * to read the columns + contacts cleanly on the litho cross-section.
+ * NOTE on the name: the store keeps its historical ``formationFill`` name, but
+ * since 2026-06-12 it gates the solids-derived ``ModelFillOverlay`` (the
+ * cross-section fill sampled from the built 3-D body solids), NOT the old
+ * ``formationFillBands``. The litho TIN-surface fill it used to control was
+ * retired; the toggle was repurposed rather than renamed to avoid churning the
+ * store/import surface. See ``SectionPanel`` (``showModelFill``) and the litho
+ * "Hide model fill" toolbar item.
  *
- * Litho-axis only: ``SectionPanel`` passes the toggle value to ``ContactsLayer``
- * only on the lithostratigraphic axis, so the geological cross-section keeps its
- * fill (its primary visualisation) regardless.
+ * Litho-axis only: ``SectionPanel`` uses the toggle value to gate
+ * ``ModelFillOverlay`` only on the lithostratigraphic axis; the geological
+ * cross-section's own ``formationFillBands`` fill is unaffected.
  *
  * Mirrors ``correlationOverlayStore`` / ``bandFillStore``: the toggle is driven
  * from the Sections toolbar's Bodies dropdown and read by ``SectionPanel`` via
@@ -29,13 +29,13 @@ import { useSyncExternalStore } from 'react'
 let visible = true
 const listeners = new Set<() => void>()
 
-/** Flip the formation-fill visibility and notify subscribers. */
+/** Flip the model-fill visibility and notify subscribers. */
 export function toggleFormationFill(): void {
   visible = !visible
   listeners.forEach(listener => listener())
 }
 
-/** Current formation-fill visibility (non-reactive read). */
+/** Current model-fill visibility (non-reactive read). */
 export function getFormationFillVisible(): boolean {
   return visible
 }

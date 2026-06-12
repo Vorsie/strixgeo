@@ -47,9 +47,10 @@ export default function SectionsToolbar(): JSX.Element {
   // are a 2-D visualisation of the user's correlations (no link to the 3-D
   // model); this lets the user hide them to read the columns + model cleanly.
   const correlationsVisible = useCorrelationOverlayVisible()
-  // Litho-fill visibility — the formationFillBands (the geological-model surface
-  // fill reused on the litho axis) appear once litho surfaces are built; this
-  // lets the user hide that coloured fill on the litho cross-section.
+  // Litho model-fill visibility — gates the solids-derived ModelFillOverlay (the
+  // cross-section fill sampled from the built 3-D body solids) on the litho axis;
+  // lets the user hide it to read the columns + contacts cleanly. (Store keeps
+  // its historical formationFill name — see formationFillStore.)
   const formationFillVisible = useFormationFillVisible()
   const {
     project,
