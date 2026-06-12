@@ -6,21 +6,20 @@
 // 3D-view surface; the actual contact editing happens on the Sections
 // stage scoped to the active litho model.
 //
-// LithologyToolbar: Build litho (moved from SectionsToolbar in Phase 1
-// accept flow) + Build solids (lifted from LithologyCanvas overlay per
-// dogfeed UX 2026-06-10) + Reset Camera when built litho surfaces exist.
-// Build litho triggers handleRebuildLithoSurfaces (Delaunay on all litho
-// contacts). Build solids triggers buildLithoSolids (watertight closed
-// meshes per body). Both stale badges mirror the geological Build button
-// amber-tint convention (project_dirty_amber_color.md).
+// LithologyToolbar: "Build model" (single button, Task 7 — collapses
+// the former "Build litho" TIN-surface button and "Build solids" button
+// into one verb that calls buildLithoSolids directly). The TIN-surface
+// build (handleRebuildLithoSurfaces) is retired from the UI; it remains
+// available in the hook for potential future re-exposure.
+// Stale badge mirrors the geological Build button amber-tint convention
+// (project_dirty_amber_color.md).
 //
 // Split-viewport wiring added 2026-06-01 (debt #64 resolved):
 // resetLithoSplitViewportCallback mirrors GeologyCanvas's
 // resetSplitViewportCallback — the toolbar Reset button collapses the
 // split back to a single viewport.
 
-import { useState } from 'react'
-import { Rows3, RefreshCw, Box, Cpu } from 'lucide-react'
+import { Rows3, RefreshCw, Box } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
@@ -34,11 +33,13 @@ import { ToolbarButton } from '../../ToolbarPrimitives'
 /**
  * Toolbar for the Lithology stage.
  *
- * Renders a "Build litho" button (always shown when a litho model is
- * active) and a "Reset camera" button when at least one built litho
- * surface exists.  Build litho was moved here from SectionsToolbar in
- * Phase 1 of the accept flow so it lives with the model-management
- * surface rather than the section-editing surface.
+ * Renders a single "Build model" button (always shown when a litho model
+ * is active) that builds the watertight 3-D body solids, and a "Reset
+ * camera" button when at least one built litho surface exists.
+ *
+ * The former "Build litho" TIN-surface button has been retired from the
+ * UI (Task 7, litho-3D plan). handleRebuildLithoSurfaces remains in the
+ * hook for potential future re-exposure but is not called from here.
  *
  * Returns
  * -------
@@ -51,15 +52,11 @@ function LithologyToolbar(): JSX.Element | null {
       activeLithoModel,
       lithoContacts,
       lithoSurfacesByFormationId,
-      lithoStaleSurfaceCount,
-      handleRebuildLithoSurfaces,
       lithoSolidsBuilding,
       hasStaleLithoSolid,
       buildLithoSolids,
     },
   } = useShell()
-
-  const [rebuilding, setRebuilding] = useState(false)
 
   const hasLithoSurfaces = Array.from(lithoSurfacesByFormationId.values()).some(
     s => s.vertices.length > 0,
@@ -67,74 +64,38 @@ function LithologyToolbar(): JSX.Element | null {
 
   if (!activeLithoModel) return null
 
-  // Debt #94: gate Build litho on contact presence. With zero contacts
-  // in the active litho model the Delaunay pass has nothing to
-  // triangulate; clicking the button is a no-op that confuses dogfeed
-  // users. The tooltip directs to the cross-section view as the place
-  // to place contacts (Suggest litho / manual pick).
+  // Gate Build model on contact presence: with zero contacts the solids
+  // builder has nothing to work with. The tooltip directs to the
+  // cross-section view as the place to accept contacts first.
   const hasLithoContacts = lithoContacts.length > 0
 
-  const buildLabel =
-    rebuilding
-      ? 'Building…'
-      : lithoStaleSurfaceCount > 0
-        ? `Build litho · ${lithoStaleSurfaceCount} stale`
-        : 'Build litho'
-
-  const buildSolidsLabel =
-    lithoSolidsBuilding
-      ? 'Building…'
-      : hasStaleLithoSolid
-        ? 'Build solids · stale'
-        : 'Build solids'
-
-  async function handleBuild(): Promise<void> {
-    if (rebuilding) return
-    setRebuilding(true)
-    try {
-      await handleRebuildLithoSurfaces()
-    } finally {
-      setRebuilding(false)
-    }
-  }
+  const buildModelLabel = lithoSolidsBuilding
+    ? 'Building…'
+    : hasStaleLithoSolid
+      ? 'Build model · stale'
+      : 'Build model'
 
   return (
     <>
+      {/* Single "Build model" button — calls buildLithoSolids directly.
+          Amber badge mirrors GeologyToolbar stale-count convention (debt #55).
+          Gated on contact presence so the button is never a confusing no-op. */}
       <ToolbarButton
-        icon={<Cpu size={13} />}
-        label={buildLabel}
-        onClick={() => void handleBuild()}
-        disabled={rebuilding || !hasLithoContacts}
-        busy={rebuilding}
-        // Amber tint mirrors GeologyToolbar stale-count convention (debt #55).
-        amber={lithoStaleSurfaceCount > 0 && hasLithoContacts}
+        icon={<Box size={13} />}
+        label={buildModelLabel}
+        onClick={() => void buildLithoSolids()}
+        disabled={lithoSolidsBuilding || !hasLithoContacts}
+        busy={lithoSolidsBuilding}
+        amber={hasStaleLithoSolid && hasLithoContacts}
+        testid="litho-build-model-button"
         title={
           !hasLithoContacts
             ? 'No litho contacts yet — open a cross-section on the litho axis, Suggest litho, accept the layers, then return here to Build'
-            : rebuilding
-              ? 'Running Delaunay triangulation on litho contacts…'
-              : lithoStaleSurfaceCount > 0
-                ? `${lithoStaleSurfaceCount} litho surface(s) need rebuilding — click to update`
-                : 'Rebuild 3D lithostratigraphic surfaces from all accepted contacts'
-        }
-      />
-      {/* Build solids — amber badge when any solid is stale, mirrors Build
-          litho convention.  Disabled while rebuilding or when no model active.
-          testid matches the canvas overlay the e2e previously targeted. */}
-      <ToolbarButton
-        icon={<Box size={13} />}
-        label={buildSolidsLabel}
-        onClick={() => void buildLithoSolids()}
-        disabled={lithoSolidsBuilding}
-        busy={lithoSolidsBuilding}
-        amber={hasStaleLithoSolid}
-        testid="litho-build-solids-button"
-        title={
-          lithoSolidsBuilding
-            ? 'Building watertight body solids…'
-            : hasStaleLithoSolid
-              ? 'One or more body solids are stale — click to rebuild'
-              : 'Build watertight closed body solids from accepted contacts'
+            : lithoSolidsBuilding
+              ? 'Building watertight body solids…'
+              : hasStaleLithoSolid
+                ? 'One or more body solids are stale — click to rebuild'
+                : 'Build the 3-D body solids from accepted contacts'
         }
       />
       {hasLithoSurfaces && (

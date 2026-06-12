@@ -1,16 +1,19 @@
-// Behavioral net for LithologyToolbar (Phase 1 litho accept flow).
+// Behavioral net for LithologyToolbar.
 //
-// "Build litho" was moved from SectionsToolbar to LithologyToolbar so
-// it lives beside the model-management surface, not the section editor.
+// The two former buttons ("Build litho" and "Build solids") have been
+// collapsed into a single "Build model" button that calls buildLithoSolids.
+// The TIN-surface build is retired from the UI (Task 7, litho-3D plan).
 //
 // Claims pinned here:
-//   BL1  Build litho button renders when a litho model is active.
-//   BL2  Build litho button is absent when no litho model is active
+//   BM1  Build model button renders when a litho model is active.
+//   BM2  Build model button is absent when no litho model is active
 //        (LithologyToolbar returns null).
-//   BL3  Clicking Build litho calls handleRebuildLithoSurfaces.
-//   BL4  When lithoStaleSurfaceCount > 0 the label shows the count.
-//   BL5  Reset camera button is absent when no litho surfaces exist;
-//        present when at least one surface has vertices.
+//   BM3  Clicking Build model calls buildLithoSolids (NOT handleRebuildLithoSurfaces).
+//   BM4  Build model is disabled + tooltip matches /cross-section/i when no contacts.
+//   BM5  Label shows "· stale" when hasStaleLithoSolid is true.
+//   BM6  Label shows "Building…" and button is disabled when lithoSolidsBuilding.
+//   BM7  No "Build litho" button and no element with testid litho-build-solids-button.
+//   BL5  Reset camera button absent when no surfaces; present when surfaces exist.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -420,26 +423,26 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
-  // BL1: Build litho renders when a litho model is active.
-  it('BL1 â€” Build litho button renders when a litho model is active', () => {
+describe('LithologyToolbar Build model button (Task 7 — single-button collapse)', () => {
+  // BM1: Build model button renders when a litho model is active.
+  it('BM1 — Build model button renders when a litho model is active', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
     renderToolbar(ctx)
-    expect(screen.getByRole('button', { name: /build litho/i })).toBeInTheDocument()
+    expect(screen.getByTestId('litho-build-model-button')).toBeInTheDocument()
   })
 
-  // BL2: LithologyToolbar returns null (no buttons) when no litho model.
-  it('BL2 â€” toolbar renders nothing when no litho model is active', () => {
+  // BM2: LithologyToolbar returns null (no buttons) when no litho model active.
+  it('BM2 — toolbar renders nothing when no litho model is active', () => {
     const ctx = makeCtx({ activeLithoModel: null })
     const { container } = renderToolbar(ctx)
     expect(container.firstChild).toBeNull()
   })
 
-  // BL3: Clicking Build litho calls handleRebuildLithoSurfaces.
-  // Debt #94: Build is gated on contact presence, so the test fixture
-  // seeds one contact for the click to fire.
-  it('BL3 â€” clicking Build litho calls handleRebuildLithoSurfaces', async () => {
-    const rebuild = vi.fn().mockResolvedValue(undefined)
+  // BM3: Clicking Build model calls buildLithoSolids (not handleRebuildLithoSurfaces).
+  // The fixture seeds one contact so the no-contacts gate is open.
+  it('BM3 — clicking Build model calls buildLithoSolids', async () => {
+    const buildSolids = vi.fn().mockResolvedValue(undefined)
+    const rebuildSurfaces = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [
@@ -462,84 +465,60 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
           updated_at: '2026-01-01T00:00:00Z',
         } as FormationContactResponse,
       ],
-      handleRebuildLithoSurfaces: rebuild,
+      buildLithoSolids: buildSolids,
+      handleRebuildLithoSurfaces: rebuildSurfaces,
     })
     renderToolbar(ctx)
 
-    fireEvent.click(screen.getByRole('button', { name: /build litho/i }))
+    fireEvent.click(screen.getByTestId('litho-build-model-button'))
 
     await vi.waitFor(() => {
-      expect(rebuild).toHaveBeenCalledOnce()
+      expect(buildSolids).toHaveBeenCalledOnce()
     })
+    // The old TIN-surface build must NOT be called.
+    expect(rebuildSurfaces).not.toHaveBeenCalled()
   })
 
-  // BL3b (Debt #94): Build litho is DISABLED when the active litho
-  // model has zero contacts; tooltip points to the cross-section view.
-  it('BL3b â€” Build litho is disabled with cross-section hint when no contacts', () => {
+  // BM4: Build model is DISABLED + tooltip points to cross-section when no contacts.
+  it('BM4 — Build model is disabled with cross-section hint when no contacts', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
     })
     renderToolbar(ctx)
-    const btn = screen.getByRole('button', { name: /build litho/i }) as HTMLButtonElement
+    const btn = screen.getByTestId('litho-build-model-button') as HTMLButtonElement
     expect(btn.disabled).toBe(true)
     expect(btn.title).toMatch(/cross-section/i)
   })
 
-  // BL4: When lithoStaleSurfaceCount > 0, the label shows the count.
-  it('BL4 â€” stale count appears in button label when > 0', () => {
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      lithoStaleSurfaceCount: 3,
-    })
-    renderToolbar(ctx)
-    // Label: "Build litho Â· 3 stale" â€” getByRole matches any containing text.
-    expect(screen.getByRole('button', { name: /build litho.*3 stale/i })).toBeInTheDocument()
-  })
-})
-
-describe('LithologyToolbar Build solids button (lifted from canvas overlay 2026-06-10)', () => {
-  // BS1: Build solids button renders when a litho model is active.
-  it('BS1 — Build solids button renders when a litho model is active', () => {
-    const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
-    renderToolbar(ctx)
-    expect(screen.getByTestId('litho-build-solids-button')).toBeInTheDocument()
-  })
-
-  // BS2: Build solids button calls buildLithoSolids when clicked.
-  it('BS2 — clicking Build solids calls buildLithoSolids', async () => {
-    const buildSolids = vi.fn().mockResolvedValue(undefined)
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      buildLithoSolids: buildSolids,
-    })
-    renderToolbar(ctx)
-    fireEvent.click(screen.getByTestId('litho-build-solids-button'))
-    await vi.waitFor(() => {
-      expect(buildSolids).toHaveBeenCalledOnce()
-    })
-  })
-
-  // BS3: Stale amber badge — button label shows “· stale” when hasStaleLithoSolid.
-  it('BS3 — stale badge in button label when hasStaleLithoSolid is true', () => {
+  // BM5: Label shows “· stale” when hasStaleLithoSolid is true.
+  it('BM5 — label shows “· stale” when hasStaleLithoSolid is true', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       hasStaleLithoSolid: true,
     })
     renderToolbar(ctx)
-    expect(screen.getByTestId('litho-build-solids-button')).toHaveTextContent(/stale/i)
+    expect(screen.getByTestId('litho-build-model-button')).toHaveTextContent(/stale/i)
   })
 
-  // BS4: While lithoSolidsBuilding, label shows “Building…” and button is disabled.
-  it('BS4 — while building, label shows “Building…” and button is disabled', () => {
+  // BM6: Label shows “Building…” and button is disabled while lithoSolidsBuilding.
+  it('BM6 — label shows “Building…” and button is disabled while building', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoSolidsBuilding: true,
     })
     renderToolbar(ctx)
-    const btn = screen.getByTestId('litho-build-solids-button') as HTMLButtonElement
+    const btn = screen.getByTestId('litho-build-model-button') as HTMLButtonElement
     expect(btn).toHaveTextContent(/building/i)
     expect(btn.disabled).toBe(true)
+  })
+
+  // BM7 (negative): the old “Build litho” and “litho-build-solids-button” are gone.
+  it('BM7 — no “Build litho” button and no litho-build-solids-button element', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
+    renderToolbar(ctx)
+    expect(screen.queryByRole('button', { name: /build litho/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('litho-build-solids-button')).not.toBeInTheDocument()
   })
 })
 
