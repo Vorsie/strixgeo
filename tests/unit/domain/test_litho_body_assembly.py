@@ -654,6 +654,9 @@ def test_facies_below_competitor_pinches_not_inverts_when_ceiling_dips():
     columns, coords = build_columns(picks)
     surfaces = fit_patch_surfaces(enumerate_contacts(columns, coords))
     comps = assemble_facies_competitors("SAND", "below", columns, coords, surfaces)
+    # A clear failure if the fixture ever degenerates to a fully-suppressed SILT
+    # (empty triangles → dropped from comps) instead of a cryptic KeyError.
+    assert "SILT" in comps, "SILT competitor was fully suppressed — fixture degenerate"
     silt = comps["SILT"]
 
     # build_prism lays out paired vertices: index 2n is the top (ceiling) and
