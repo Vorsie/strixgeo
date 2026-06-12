@@ -96,6 +96,8 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import PartitionFillOverlay from './sections/PartitionFillOverlay'
 import { useBandFillVisible } from '../utils/bandFillStore'
+import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
+import { useFormationFillVisible } from '../utils/formationFillStore'
 import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
@@ -847,6 +849,14 @@ export default function SectionPanel({
   // interpretation isn't shown as a misleading fill. Driven from the toolbar
   // via the shared bandFill store (sibling components, single view toggle).
   const showBands = useBandFillVisible()
+  // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
+  // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
+  const showCorrelations = useCorrelationOverlayVisible()
+  // Litho-fill visibility — gates ContactsLayer's formationFillBands (the
+  // geological-model surface fill, reused on the litho axis) so the user can
+  // hide the coloured fill that appears once litho surfaces are built. Applied
+  // on the litho axis only (the geological cross-section keeps its fill).
+  const showFormationFill = useFormationFillVisible()
 
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
@@ -2647,6 +2657,13 @@ export default function SectionPanel({
               // column directly — independent of any TIN — so the
               // user always sees the lithology stack.
               perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
+              // Litho-fill view toggle (litho axis only) — hides the
+              // formationFillBands (the geological-model surface fill reused on
+              // the litho axis) so the user can declutter the section. The
+              // geological axis always passes true, keeping its fill.
+              showFormationFill={
+                axisMode === 'lithostratigraphic' ? showFormationFill : true
+              }
               // Debt #151 dogfeed refinement 2026-05-27 — pending
               // ghost ranges per anchor so the per-column band can
               // SPLIT around the ghost (ghost visible on top, no
@@ -2907,7 +2924,7 @@ export default function SectionPanel({
                 pointerEvents=none at the group level — the component
                 enables pointer-events only for gesture rects when
                 contactCorrelateMode is active. */}
-            {axisMode === 'lithostratigraphic' && (
+            {axisMode === 'lithostratigraphic' && showCorrelations && (
               <CorrelationEdgesOverlay
                 contacts={correlateContacts}
                 crossingPinchOuts={crossingPinchOuts}

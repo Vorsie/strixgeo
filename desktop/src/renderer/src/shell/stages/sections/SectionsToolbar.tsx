@@ -21,6 +21,11 @@ import { inCorridorInvestigationIds } from '../../../utils/sectionClassification
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { log } from '../../../utils/log'
 import { toggleBandFill, useBandFillVisible } from '../../../utils/bandFillStore'
+import {
+  toggleCorrelationOverlay,
+  useCorrelationOverlayVisible,
+} from '../../../utils/correlationOverlayStore'
+import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -38,6 +43,14 @@ export default function SectionsToolbar(): JSX.Element {
   // Band-fill visibility — shared with SectionPanel via the bandFill store so
   // the Bodies-dropdown toggle and the overlay stay in sync.
   const bandsVisible = useBandFillVisible()
+  // Correlation-overlay visibility — the CorrelationEdgesOverlay ribbons/lines
+  // are a 2-D visualisation of the user's correlations (no link to the 3-D
+  // model); this lets the user hide them to read the columns + model cleanly.
+  const correlationsVisible = useCorrelationOverlayVisible()
+  // Litho-fill visibility — the formationFillBands (the geological-model surface
+  // fill reused on the litho axis) appear once litho surfaces are built; this
+  // lets the user hide that coloured fill on the litho cross-section.
+  const formationFillVisible = useFormationFillVisible()
   const {
     project,
     visibleBoreholes,
@@ -996,6 +1009,30 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'litho-fill-bands',
                 title:
                   'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
+              },
+              {
+                // Show / hide the CorrelationEdgesOverlay (the ribbons + lines
+                // that visualise the user's correlations). Pure 2-D chrome —
+                // no link to the 3-D model. Defaults to shown.
+                label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
+                icon: <Network size={12} />,
+                onClick: () => toggleCorrelationOverlay(),
+                testid: 'litho-toggle-correlations',
+                title:
+                  'Show or hide the correlation ribbons + lines drawn across the section. A 2-D visualisation of your correlations only — it has no link to the 3-D model. Toggles on / off.',
+              },
+              {
+                // Show / hide the formationFillBands — the coloured fill between
+                // formation surfaces (the geological-model fill mechanism reused
+                // on the litho axis). Appears once litho surfaces are built and
+                // packs into a solid wall of colour at low spacing. Litho axis
+                // only; the geological cross-section keeps its fill. Defaults to shown.
+                label: formationFillVisible ? 'Hide litho fill' : 'Show litho fill',
+                icon: <Layers size={12} />,
+                onClick: () => toggleFormationFill(),
+                testid: 'litho-toggle-formation-fill',
+                title:
+                  'Show or hide the coloured fill between formation surfaces on the litho cross-section (the same fill the geology model draws, shown here once litho surfaces are built). Toggles on / off.',
               },
             ]}
           />

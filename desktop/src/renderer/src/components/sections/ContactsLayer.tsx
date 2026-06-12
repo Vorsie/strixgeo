@@ -380,6 +380,12 @@ interface Props {
    *  element (contact lines, traces, labels) so the user reads
    *  "colour fill = lithology, line = boundary". */
   perColumnBandsFromContacts?: boolean
+  /** Show the ``formationFillBands`` — the coloured fill between formation
+   *  surfaces (the geological-model fill mechanism, reused on the litho axis).
+   *  Defaults to ``true``.  ``SectionPanel`` passes the litho-fill view toggle
+   *  here only on the lithostratigraphic axis, so the geological cross-section
+   *  fill is unaffected. */
+  showFormationFill?: boolean
   /** Pending-ghost depth ranges per anchor.  When a litho suggestion
    *  ghost is pending at a depth covered by an accepted band, the
    *  band's per-column rect is SPLIT around the ghost so the ghost
@@ -671,6 +677,7 @@ export default function ContactsLayer({
   axisMode = 'geological',
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
+  showFormationFill = true,
   pendingGhostRangesByAnchorId,
   contactDragClampMinThicknessM,
   geoSnapToleranceM,
@@ -2790,17 +2797,18 @@ export default function ContactsLayer({
           column glyphs, contact lines, labels) paints on top. The
           band's colour matches its formation's top-polyline colour;
           low opacity keeps the underlying curves legible. */}
-      {formationFillBands.map(band => (
-        <path
-          key={`fill-${band.formationId}`}
-          d={band.d}
-          fill={band.color}
-          fillOpacity={band.isStale ? 0.08 : bandFillOpacity}
-          stroke="none"
-          pointerEvents="none"
-          data-testid={`formation-fill-${band.formationId}`}
-        />
-      ))}
+      {showFormationFill &&
+        formationFillBands.map(band => (
+          <path
+            key={`fill-${band.formationId}`}
+            d={band.d}
+            fill={band.color}
+            fillOpacity={band.isStale ? 0.08 : bandFillOpacity}
+            stroke="none"
+            pointerEvents="none"
+            data-testid={`formation-fill-${band.formationId}`}
+          />
+        ))}
       {/* Slice-of-TIN polylines. Drawn first (under everything else)
           so the per-column tops + name labels paint on top. Solid
           stroke distinguishes them from the dashed connect-the-dots
