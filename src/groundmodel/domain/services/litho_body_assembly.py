@@ -491,7 +491,10 @@ def assemble_facies_competitors(
     out: dict[str, LithoBodyMesh] = {}
     for comp, tris in part.regions.items():
         if side == "above":
-            assert shared_base_field is not None  # built in the "above" branch above
+            if shared_base_field is None:
+                # Unreachable: shared_base_field is always built in the "above"
+                # branch above. Raise (not assert) so the invariant survives -O.
+                raise RuntimeError("shared_base_field not built for the 'above' side")
             base_field = shared_base_field
         else:
             # Per-competitor floor: fit this competitor's OWN base TIN over its own
