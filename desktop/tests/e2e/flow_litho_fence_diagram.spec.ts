@@ -2,30 +2,23 @@
  * Flow — Lithology 3D stage: Fence-mode toggle smoke (Task 7, Litho 3D fence diagram).
  *
  * Guards the Fence/Solid toggle wiring in ``LithologyCanvas`` — the toggle only
- * renders when at least one litho surface exists (``hasLithoSurfaces``), so this
- * spec seeds formation contacts on the litho model and triggers a surface rebuild
- * BEFORE opening the project (so the surface fetch on project-open sees them).
+ * renders when built body solids exist (``hasLithoSolids``; litho-3D plan: the
+ * pane now mounts on solids, not retired TIN surfaces), so this spec seeds
+ * formation contacts on the litho model and triggers a SOLID rebuild BEFORE
+ * opening the project (so the solid fetch on project-open sees them).
  *
  * WHY setup must happen before ``openFixtureProject``:
- *   ``useGeologicalModel`` fetches ``lithoSurfacesByFormationId`` once on project
- *   load (``[project, activeLithoModel]`` effect).  If rebuild runs AFTER the
- *   project is already open, the map is already cached as empty and the Litho
- *   stage shows EmptyState — neither a stage re-navigation nor a 30-second wait
- *   triggers a re-fetch until ``activeLithoModel`` itself changes.  Running
- *   rebuild before ``openFixtureProject`` ensures the first surface fetch finds
- *   real rows.
+ *   ``useLithoSolids`` fetches the solid list on project load.  Running the
+ *   rebuild before ``openFixtureProject`` ensures the first solid fetch finds
+ *   real rows so ``hasLithoSolids`` is true when ``LithologyCanvas`` mounts.
  *
  * WHY the spec seeds contacts:
- *   The Litho 3D stage reads ``lithoSurfacesByFormationId`` backed by
- *   ``formation_surface`` rows built by ``RebuildModelSurfaces`` which queries
- *   ``formation_contact`` rows for the model — NOT ``litho_layer`` rows.  The
- *   fixture ships the litho model with action-scenario formation contacts
- *   (``_seed_action_scenarios_async``), but those are all collinear (3 CPTs in
- *   the same Y-row), so ``compute_tin`` raises QhullError and stores empty
- *   ``triangles`` — ``hasLithoSurfaces`` still flips to true if ``vertices``
- *   is non-empty, but to be safe we copy the geological model's contacts (14
- *   CPTs across 5 Y-rows; Section E adds facies CPTs 11/12/13 → non-degenerate
- *   TIN) so the rebuild produces real triangulated vertices.
+ *   ``RebuildLithoSolids`` triangulates bodies from correlated litho layers.
+ *   The fixture ships a KLEI body correlated across CPT-3/4/5 (Section B) — a
+ *   triangulable (non-flagged) body — so the rebuild produces at least one
+ *   solid with triangles.  We additionally copy the geological model's contacts
+ *   (14 CPTs across 5 Y-rows) onto the litho model to give the build more
+ *   content, mirroring the solids + facies specs.
  *
  * Acceptance criteria (no-crash + state correctness only — no WebGL pixel
  * assertions; geometry correctness is covered by the Vitest layer):
@@ -53,21 +46,23 @@ import { getGeologicalModelId } from './helpers/db_helper'
 import { Client } from 'pg'
 
 /**
- * Delete all ``formation_surface`` rows for a litho model.
+ * Delete all ``litho_body_solid`` rows for a litho model.
  *
- * Called in the ``finally`` block to restore the no-surfaces state so
+ * Called in the ``finally`` block to restore the no-solids state so
  * ``flow_lithology_stage_ui`` (which expects EmptyState) is not broken
- * by this spec's rebuild step.  Direct SQL is used because there is no
- * public surface-delete endpoint.
+ * by this spec's solid-rebuild step.  The Litho 3D pane mounts when built
+ * solids exist (``hasLithoSolids``), so leftover solid rows would keep the
+ * viewer mounted for downstream specs.  Direct SQL is used because there is
+ * no public solid-delete endpoint.
  */
-async function deleteLithoSurfaces(modelId: string): Promise<void> {
+async function deleteLithoSolids(modelId: string): Promise<void> {
   const dbUrl =
     process.env.DATABASE_URL ??
     'postgresql://groundmodel:groundmodel@localhost:5433/groundmodel_integration'
   const client = new Client({ connectionString: dbUrl })
   await client.connect()
   try {
-    await client.query('DELETE FROM formation_surface WHERE model_id = $1', [modelId])
+    await client.query('DELETE FROM litho_body_solid WHERE model_id = $1', [modelId])
   } finally {
     await client.end()
   }
@@ -184,34 +179,33 @@ test.describe('flow_litho_fence_diagram', () => {
       seededContactIds.push(...(sr.createdIds ?? []))
 
       // -----------------------------------------------------------------------
-      // 4. Rebuild litho surfaces.
+      // 4. Rebuild litho SOLIDS so hasLithoSolids is true on project-open.
       // -----------------------------------------------------------------------
       const rebuildRes = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/surfaces/rebuild`,
+            `${base}/projects/${pid}/geology/models/${mid}/litho-solids/rebuild`,
             { method: 'POST' },
           )
           return { status: r.status, json: await r.json() }
         },
         [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
       )
-      expect(rebuildRes.status, 'Litho surface rebuild should return 200').toBe(200)
+      expect(rebuildRes.status, 'Litho solids rebuild should return 200').toBe(200)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((rebuildRes.json as any).formations_rebuilt, 'At least one TIN should build').toBeGreaterThan(0)
+      expect((rebuildRes.json as any).bodies_built, 'At least one body solid should build').toBeGreaterThan(0)
 
       // -----------------------------------------------------------------------
-      // 5. Open the fixture project.  At this point ``useGeologicalModel``'s
-      //    surface effect fires for the first time and fetches the now-existing
-      //    surface rows → ``hasLithoSurfaces`` will be true when LithologyCanvas
-      //    mounts.
+      // 5. Open the fixture project.  At this point ``useLithoSolids`` fetches
+      //    the now-existing solid rows → ``hasLithoSolids`` will be true when
+      //    LithologyCanvas mounts.
       // -----------------------------------------------------------------------
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
       // -----------------------------------------------------------------------
       // 6. Navigate to the Litho stage.
       //    LithologyCanvas renders the viewer (Solid / Fence buttons) when
-      //    ``hasLithoSurfaces`` is true.
+      //    ``hasLithoSolids`` is true.
       // -----------------------------------------------------------------------
       await goToStage(page, 'Litho')
 
@@ -253,7 +247,7 @@ test.describe('flow_litho_fence_diagram', () => {
       // 10. Cesium canvas stays mounted — no crash, no unmount to EmptyState.
       //     Geology3DViewer renders ``<div id="cesium-viewport-{key}">``; it
       //     only unmounts on a hard error.  The toggle buttons remaining
-      //     attached proves the ``hasLithoSurfaces`` branch did not flip back.
+      //     attached proves the ``hasLithoSolids`` branch did not flip back.
       // -----------------------------------------------------------------------
       await expect(page.locator('[id^="cesium-viewport-"]')).toBeVisible({ timeout: 10_000 })
       await expect(page.getByTestId('litho-view-mode-solid')).toBeAttached()
@@ -289,12 +283,13 @@ test.describe('flow_litho_fence_diagram', () => {
         // truncate the DB and re-seed, restoring the baseline state.
       }
 
-      // Also remove the formation_surface rows the rebuild created.  Without
+      // Also remove the litho_body_solid rows the rebuild created.  Without
       // this, flow_lithology_stage_ui (which expects EmptyState) would see the
-      // 3D viewer instead, because the surface rows persist past contact cleanup.
+      // 3D viewer instead, because the solid rows persist past contact cleanup
+      // and the pane mounts on hasLithoSolids.
       try {
         if (lithoModelId) {
-          await deleteLithoSurfaces(lithoModelId)
+          await deleteLithoSolids(lithoModelId)
         }
       } catch {
         /* non-fatal — next run's truncate cleans up */
