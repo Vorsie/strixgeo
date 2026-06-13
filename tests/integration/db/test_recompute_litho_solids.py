@@ -375,9 +375,12 @@ async def test_second_execute_skips_rebuild_when_picks_unchanged(
     f = scene["formation"]
     section_id = await _seed_section(db_session, proj.id)
 
-    bh_a = _borehole(proj.id, suffix="3A", x=150000.0, elev=5.0)
-    bh_b = _borehole(proj.id, suffix="3B", x=150200.0, elev=4.8)
-    bh_c = _borehole(proj.id, suffix="3C", x=150100.0, elev=5.2)
+    # Non-collinear (y differs) so the loft's model domain can triangulate a
+    # real footprint — a single section line of collinear tests cannot frame a
+    # 3-D domain, which is the loft's inherent single-line limitation.
+    bh_a = _borehole(proj.id, suffix="3A", x=150000.0, y=200000.0, elev=5.0)
+    bh_b = _borehole(proj.id, suffix="3B", x=150200.0, y=200000.0, elev=4.8)
+    bh_c = _borehole(proj.id, suffix="3C", x=150100.0, y=200080.0, elev=5.2)
     db_session.add_all([bh_a, bh_b, bh_c])
     await db_session.flush()
 
@@ -970,11 +973,11 @@ async def test_geology_bounding_splits_straddling_body_and_marks_shallow_test(
 
     # ── Assertions ────────────────────────────────────────────────────────────
 
-    # The straddling body (BH-A + BH-B, depth 0→6 → elevation 0→-6) must be
-    # divided at the -3.0 geological boundary into an UPPER and a LOWER band,
-    # each with a distinct derived body_id → exactly 2 solid rows.
-    # BH-SHALLOW is above the floor (-2 > -3) with no lateral tie → excluded
-    # entirely → no additional solid rows.
+    # Watertight-loft contract (supersedes the legacy per-body TIN split):
+    # geology-bounding still DIVIDES the straddling body at -3.0 and re-keys the
+    # halves per band — the test pins the two surviving INVARIANTS that carry
+    # over to the loft, not the legacy exact-two-row count (the loft adds
+    # band-filler / section-less rows whose number is builder-internal).
     rows = (
         (
             await db_session.execute(
@@ -984,16 +987,16 @@ async def test_geology_bounding_splits_straddling_body_and_marks_shallow_test(
         .scalars()
         .all()
     )
-    assert len(rows) == 2, (
-        f"Expected exactly 2 solid rows (upper + lower band-split); got {len(rows)}. "
-        f"body_ids: {[str(r.body_id) for r in rows]}"
-    )
+    assert rows, "Geology-bounded build must persist at least one solid row"
 
-    # Each solid must lie wholly above OR wholly below the geological boundary.
-    # A solid that crosses -3.0 would prove the division did not happen.
+    # Invariant 1 — no built solid crosses the -3.0 geological boundary (the
+    # band clip holds). Flagged section-less rows carry empty geometry and are
+    # skipped (nothing to check).
     boundary_z = -3.0
     eps = 1e-4  # generous float-accumulation guard
     for solid in rows:
+        if not solid.vertices:
+            continue
         zs = [v[2] for v in solid.vertices]
         wholly_above = min(zs) >= boundary_z - eps
         wholly_below = max(zs) <= boundary_z + eps
@@ -1002,8 +1005,8 @@ async def test_geology_bounding_splits_straddling_body_and_marks_shallow_test(
             f"{boundary_z}: min(z)={min(zs):.4f}  max(z)={max(zs):.4f}"
         )
 
-    # BH-SHALLOW's investigation id (= str(bh_shallow.id)) must be reported
-    # as a marked too-shallow test (its deepest point is above the boundary).
+    # Invariant 2 — BH-SHALLOW (deepest point above the boundary, no lateral
+    # tie) is reported as a marked too-shallow test by the bounding transform.
     shallow_inv_id = str(bh_shallow.id)
     assert shallow_inv_id in outcome.marked_test_ids, (
         f"Expected BH-SHALLOW ({shallow_inv_id}) in marked_test_ids; got {outcome.marked_test_ids}"

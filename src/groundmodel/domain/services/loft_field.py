@@ -425,9 +425,17 @@ def _clip_to_bands(
     stack: list[StackEntry], bands: Sequence[BandSurface], x: float, y: float
 ) -> list[StackEntry]:
     """Clip the litho stack to each geological band and fill the uncovered
-    sub-intervals with the band itself (the tiling is always complete)."""
+    sub-intervals with the band itself (the tiling is always complete).
+
+    Geology prevails (owner directive 2026-06-11): a litho body never crosses a
+    band boundary.  A body that spans two bands is therefore split into TWO
+    distinct bodies — one per band — by suffixing the band index onto its
+    ``body_id`` (``"<body>#b<k>"``).  Without this re-key the mesher, which
+    groups wedges by ``body_id``, would reunite the two band portions into one
+    mesh that straddles the boundary.  Band fillers keep ``body_id is None``.
+    """
     out: list[StackEntry] = []
-    for band in bands:
+    for k, band in enumerate(bands):
         bt = band.top_elev_at(x, y)
         bb = band.base_elev_at(x, y)
         if bt - bb <= EPS:
@@ -437,19 +445,26 @@ def _clip_to_bands(
             hi = min(e.top_elev, bt)
             lo = max(e.base_elev, bb)
             if hi - lo > EPS:
-                covered.append(StackEntry(e.body_id, e.formation_id, hi, lo, e.is_band_filler))
+                # Re-key the body per band so a body spanning the boundary
+                # becomes two band-confined bodies (geology prevails).
+                band_body_id = None if e.body_id is None else f"{e.body_id}#b{k}"
+                covered.append(StackEntry(band_body_id, e.formation_id, hi, lo, e.is_band_filler))
         covered.sort(key=lambda e: -e.top_elev)
+        # The band's own filler also carries a band-scoped id so two bands'
+        # fillers (same formation colour) do NOT merge into one mesh straddling
+        # the boundary — the geology-prevails rule applies to fillers too.
+        filler_id = f"band-filler#b{k}"
         cur = bt
         for e in covered:
             if e.top_elev < cur - EPS:
-                out.append(StackEntry(None, band.formation_id, cur, e.top_elev, True))
+                out.append(StackEntry(filler_id, band.formation_id, cur, e.top_elev, True))
             out.append(e)
             # ``min`` (not a plain assignment) keeps the frontier at the deepest
             # elevation seen — robust even if a covered entry were nested inside
             # an earlier one, which a plain ``cur = e.base_elev`` would regress.
             cur = min(cur, e.base_elev)
         if cur > bb + EPS:
-            out.append(StackEntry(None, band.formation_id, cur, bb, True))
+            out.append(StackEntry(filler_id, band.formation_id, cur, bb, True))
     return out
 
 

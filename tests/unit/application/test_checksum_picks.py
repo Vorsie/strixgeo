@@ -1,16 +1,23 @@
-"""Unit tests for the ``_checksum_picks`` body-geometry digest (audit #8 backfill).
+"""Unit tests for the model-level ``_model_checksum`` digest (watertight loft).
 
-The checksum is the cache-invalidation key for the 3-D litho solid builder: a
-body rebuilds only when its picks' digest changes. These guard tests pin the
-three properties the cache relies on — determinism, order-independence, and
-geometry-sensitivity — so a future packing change can't silently break cache
-invalidation.
+The checksum is the cache-invalidation key for the 3-D litho solid builder.
+Since the watertight-loft rework it is MODEL-level, not per-body: the loft is
+global, so any input change moves a shared interface and a per-body skip would
+be unsound.  These guard tests pin the properties the cache relies on for its
+pick portion — determinism, order-independence over picks, geometry-sensitivity,
+the 16-byte width — plus that a domain-knob change busts the digest.
 """
 
 from __future__ import annotations
 
-from groundmodel.application.recompute_litho_solids import _checksum_picks
+from groundmodel.application.recompute_litho_solids import _model_checksum
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+
+# Fixed loft inputs other than the picks — held constant so each test isolates
+# the pick portion of the digest unless it deliberately varies a knob.
+_SECTIONS: list = []
+_OPEN_EXTENT_M = 3.0
+_ALPHA = 4.0
 
 
 def _pick(inv: str, *, x=1.0, y=2.0, surf=10.0, top=1.0, base=3.0) -> BodyLayerPick:
@@ -27,34 +34,47 @@ def _pick(inv: str, *, x=1.0, y=2.0, surf=10.0, top=1.0, base=3.0) -> BodyLayerP
     )
 
 
+def _digest(picks: list[BodyLayerPick]) -> bytes:
+    """Compute the model digest with the fixed non-pick inputs."""
+    return _model_checksum(picks, _SECTIONS, _OPEN_EXTENT_M, _ALPHA)
+
+
 def test_identical_pick_sets_have_equal_checksum() -> None:
     """Same picks → same digest (deterministic)."""
     a = [_pick("A"), _pick("B")]
     b = [_pick("A"), _pick("B")]
-    assert _checksum_picks(a) == _checksum_picks(b)
+    assert _digest(a) == _digest(b)
 
 
 def test_checksum_is_order_independent() -> None:
     """Reordering the picks does not change the digest (sorted internally)."""
     forward = [_pick("A"), _pick("B"), _pick("C")]
     shuffled = [_pick("C"), _pick("A"), _pick("B")]
-    assert _checksum_picks(forward) == _checksum_picks(shuffled)
+    assert _digest(forward) == _digest(shuffled)
 
 
 def test_geometry_change_changes_checksum() -> None:
     """A different base depth (any geometry field) busts the digest."""
     base = [_pick("A", base=3.0)]
     moved = [_pick("A", base=3.5)]
-    assert _checksum_picks(base) != _checksum_picks(moved)
+    assert _digest(base) != _digest(moved)
 
 
 def test_added_pick_changes_checksum() -> None:
     """Adding a member layer changes the digest."""
     one = [_pick("A")]
     two = [_pick("A"), _pick("B")]
-    assert _checksum_picks(one) != _checksum_picks(two)
+    assert _digest(one) != _digest(two)
+
+
+def test_domain_knob_change_changes_checksum() -> None:
+    """A different open-extent / alpha knob busts the digest (loft is global)."""
+    picks = [_pick("A")]
+    a = _model_checksum(picks, _SECTIONS, 3.0, _ALPHA)
+    b = _model_checksum(picks, _SECTIONS, 5.0, _ALPHA)
+    assert a != b
 
 
 def test_checksum_is_16_bytes() -> None:
     """The digest is the fixed 16-byte BLAKE2b size the column stores."""
-    assert len(_checksum_picks([_pick("A")])) == 16
+    assert len(_digest([_pick("A")])) == 16
