@@ -1,8 +1,13 @@
 """Frozen value objects shared across all stages of the implicit stratigraphic builder.
 
 These are pure data containers — no I/O, no logging, no framework dependencies.
-All classes use ``@dataclass(frozen=True)`` so they are hashable and
-immutable by construction.
+All classes use ``@dataclass(frozen=True)`` so their fields cannot be rebound.
+The tuple-only value objects (every class except :class:`ContactSurface`) are
+therefore fully hashable and immutable.  :class:`ContactSurface` intentionally
+carries its mesh as ``list`` fields — matching the established
+:class:`~groundmodel.domain.value_objects.litho_body_mesh.LithoBodyMesh`
+convention for large extracted geometry — so it is not hashable and its lists
+are mutable; treat it as a frozen *handle* to mesh data, not a value key.
 
 Notes
 -----

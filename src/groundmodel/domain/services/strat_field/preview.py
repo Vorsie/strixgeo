@@ -129,7 +129,9 @@ function buildGeometry(verts, tris) {{
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(verts.length * 3);
   verts.forEach(([x, y, z], i) => {{ pos[i*3]=x; pos[i*3+1]=z; pos[i*3+2]=-y; }});
-  // swap Y↔Z so Z-up project coords render upright in Three.js (Y-up)
+  // project CRS (X=easting, Y=northing, Z=elevation, Z-up right-handed) ->
+  // Three.js (X=easting, Y=elevation, Z=-northing, Y-up right-handed): map
+  // elevation onto Y and negate northing to keep a right-handed frame.
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const idx = new Uint32Array(tris.flat());
   geo.setIndex(new THREE.BufferAttribute(idx, 1));

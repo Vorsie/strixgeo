@@ -7,6 +7,10 @@ as a clear contract break.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
+import pytest
+
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,  # noqa: F401
     ContactSurface,  # noqa: F401
@@ -24,6 +28,9 @@ def test_horizon_is_frozen_and_ordered():
         rank=0, iso_value=0.0, above_formation="SAND", below_formation="CLAY", contact_ids=("c1",)
     )
     assert h.rank == 0 and h.above_formation == "SAND"
+    # frozen: rebinding any field must raise rather than silently mutate
+    with pytest.raises(FrozenInstanceError):
+        h.rank = 99  # type: ignore[misc]
 
 
 def test_strat_column_exposes_horizons_top_down():
