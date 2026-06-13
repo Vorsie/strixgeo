@@ -1,8 +1,10 @@
 """Shared ``BodyLayerPick`` dataclass used across the litho-3D builder pipeline.
 
-Extracted into its own module so that :mod:`litho_contact_surfaces` (which
-reconstructs per-investigation column stacks) and :mod:`litho_solid_builder`
-(the orchestrator) can both import it without creating a circular dependency.
+Each pick is one body member-layer at one investigation.  The watertight-loft
+pipeline loads these (``LithoLayerRepository.load_body_picks``) for the geology
+bounding transforms (:mod:`litho_geo_bounding`) and the section-less / no-picks
+short-circuit in ``RecomputeLithoSolids``.  Lives in its own module so the
+repository and the geo-bounding service can both import it without a cycle.
 """
 
 from __future__ import annotations

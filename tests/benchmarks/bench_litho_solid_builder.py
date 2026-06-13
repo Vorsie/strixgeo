@@ -59,7 +59,28 @@ from __future__ import annotations
 
 import math
 
-from groundmodel.domain.services.litho_solid_builder import BodyLayerPick, build_body_solids
+import pytest
+
+# TASK 10 — REPOINT THIS BENCH AT THE LOFT PIPELINE.
+# The per-body-TIN builder (`litho_solid_builder.build_body_solids` and its
+# `litho_body_assembly` / `litho_facies_partition` / `litho_contact_surfaces`
+# machinery) was retired in Task 8 (refactor(litho-3d): retire per-body TIN +
+# facies prism + disk-marker paths).  The 3-D model is now built by lofting the
+# 2-D section partitions (`domain.services.loft_mesher.build_loft_meshes`), so
+# this whole module must be rewritten to benchmark that path instead.  Until
+# then the import below cannot resolve; skip-collect the module loudly so a
+# bare `pytest tests/benchmarks` run reports the work clearly instead of
+# erroring at import.  The unit suite + pre-commit never collect benchmarks.
+pytest.skip(
+    "bench_litho_solid_builder benchmarks the retired per-body-TIN builder; "
+    "Task 10 repoints them at the loft pipeline (build_loft_meshes).",
+    allow_module_level=True,
+)
+
+from groundmodel.domain.services.litho_solid_builder import (  # noqa: E402  (unreachable; see Task-10 skip above)
+    BodyLayerPick,
+    build_body_solids,
+)
 
 # ---------------------------------------------------------------------------
 # Shared grid helpers

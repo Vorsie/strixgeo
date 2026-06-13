@@ -1,15 +1,15 @@
 """Shared geometry-test helpers for litho-3D mesh unit tests.
 
-Pure functions only — no I/O, no DB, no logging.  Imported by
-test_litho_body_assembly, test_litho_contact_surfaces, and
-test_litho_solid_builder so each mesh/ray helper has a single source of truth.
+Pure functions only — no I/O, no DB, no logging.  Imported by the loft mesher
+tests (``services/test_loft_mesher.py``) so each mesh/ray helper has a single
+source of truth.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 
-from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 
 
 def make_pick(

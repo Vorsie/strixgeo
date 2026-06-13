@@ -26,7 +26,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.domain.services.litho_solid_builder import BodyLayerPick
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm

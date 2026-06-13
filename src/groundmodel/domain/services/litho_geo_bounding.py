@@ -1,7 +1,7 @@
 """Geology-bounding transforms on the litho-3D pick list.
 
 Two pure transforms applied to the ``BodyLayerPick`` list inside
-``RecomputeLithoSolids`` BEFORE ``build_body_solids``:
+``RecomputeLithoSolids`` before the watertight loft is assembled:
 
 1. :func:`mark_and_truncate_shallow_tests` — flag, and truncate the deep
    part of, any test whose deepest point sits above the lowest geological
