@@ -5240,30 +5240,19 @@ owner's hands and there's a concrete need to communicate model confidence to
 coworkers/clients — pair with the design-ready-parameter work, which has its own
 statistical uncertainty story.
 
-## 206. Customisable single-hole body markers (Tier D — Phase 5, frontend/domain, S)
+## 206. Customisable single-hole body markers — SUPERSEDED by the watertight loft (2026-06-13)
 
-**What.** A body that cannot form a real 3D solid (a unit logged on <3
-non-collinear investigations — 80 of 102 bodies on the owner's `test.strix`)
-renders as a small lithology-coloured **vertical-cylinder disk marker** at each
-hole (`litho_solid_builder._marker` / `litho_solid_builder_constants.py`:
-`MARKER_DISK_RADIUS_M = 1.5`, real top→base thickness, `MARKER_DISK_SIDES = 16`),
-drawn semi-transparent (`FLAGGED_SOLID_ALPHA = 0.45`) in `Geology3DViewer`. The
-shape + size are hard-coded constants. Owner asked (dogfeed 2026-06-10) to make
-them **customisable later** — a Settings knob for marker radius, and a richer
-shape (e.g. a **lenticular** lens-disc rather than a flat-capped cylinder) so the
-marker reads more like a geological lens than a probe stub.
-
-**Why deferred.** The current 1.5 m cylinder is honest + legible at dogfeed scale
-and the constants are a one-line tune; a Settings UI + a lenticular mesh generator
-are polish, not MVP. Owner directive 2026-06-10: "we can make it customizable
-settings later on, like make it more lenticular and change its size, maybe add to
-phase 5 or something to build later."
-
-**When to revisit.** Phase 5, alongside #205 (the other litho-3D presentation
-polish) — or sooner if a coworker demo needs the markers to look less like sticks.
-The radius/sides constants live in `litho_solid_builder_constants.py`; the alpha
-in `Geology3DViewer.tsx` — surface them onto `view_state.litho_segmenter` (the
-established knob home) when the Settings row lands.
+**Superseded.** The watertight loft builder (branch `feat-litho-3d-watertight-loft`,
+spec `2026-06-12-watertight-loft-body-builder-design.md`) RETIRED disk-marker
+geometry entirely: `litho_solid_builder.py` + `litho_solid_builder_constants.py`
+(`MARKER_DISK_*`) are deleted. The loft gives every section-present body a real
+watertight volume (real-data eval on `test.strix`: 134 meshes, 0 markers, was 32).
+A body that the loft genuinely cannot build (model with <3 non-collinear tests, or
+a body on no section) is now stored `is_flagged=True` with an EMPTY mesh — the
+spec's "draw a section through these tests" actionable signal, NOT a cylinder
+stub. There are no markers left to make customisable/lenticular, so this item is
+moot. (If a future UX wants to surface the flagged-body "draw a section" message
+in the 3D viewer, that is a NEW item, not this one.)
 
 ## (end)
 
