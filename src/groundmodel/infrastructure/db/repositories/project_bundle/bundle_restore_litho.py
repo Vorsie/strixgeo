@@ -17,6 +17,8 @@ _restore_formation_absences
     Insert formation-absence rows, skipping orphaned formation refs.
 _restore_contact_edges
     Insert litho contact correlation edge rows.
+_restore_litho_solids
+    Insert cached watertight body-solid rows (dedup on (model_id, body_id)).
 _restore_lens_shapes_and_nodes
     Insert body-boundary shape + node rows.
 _attach_companion_lens_links
@@ -43,6 +45,7 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -783,6 +786,131 @@ async def _restore_contact_edges(
             f"missing FK, or legacy section-less edge)"
         )
     return new_edges, skipped, dropped
+
+
+async def _restore_litho_solids(
+    session: AsyncSession,
+    litho_solids_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    valid_formation_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert cached watertight body-solid rows from the bundle.
+
+    Restores the ``litho_body_solid`` cache (watertight-loft builder Task 9,
+    spec §7) so a freshly-opened ``.strix`` can export 3-D geometry without
+    paying the on-click rebuild. Runs AFTER the geological models and
+    formations are restored, so both FK targets (``model_id`` →
+    ``geological_model``, ``formation_id`` → ``geological_formation``) exist.
+
+    Guards (mirroring ``_restore_bodies``):
+
+    * Dedup on the ``(model_id, body_id)`` unique key — a solid already
+      present in the DB (or duplicated within the payload) is skipped, so the
+      restore is idempotent and never violates ``uq_litho_body_solid_model_body``.
+    * Drop a solid whose ``model_id`` is not in ``valid_model_ids`` (the
+      bundle-injection guard) or whose ``formation_id`` is not in
+      ``valid_formation_ids`` (a dangling FK that would 500 on flush).
+
+    ``body_id`` is NOT validated against any table: the loft stores
+    geology-split bodies under synthesized ``uuid5`` ids that have no row in
+    the ``body`` table by design (see ``LithoBodySolidOrm`` — body_id is not
+    an FK). It rides along verbatim as a plain UUID.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    litho_solids_payload : list[dict[str, Any]]
+        Raw solid dicts from the bundle (``litho_solids`` array).
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    valid_formation_ids : set[UUID]
+        Pre-computed union of DB + payload formation ids.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_solids, skipped_solids, dropped_solids)``.
+    """
+    # Existing (model_id, body_id) pairs across this project's models — the
+    # dedup key. Scoped through geological_model since the solid table has no
+    # direct app_project_id column.
+    existing: set[tuple[UUID, UUID]] = {
+        (row.model_id, row.body_id)
+        for row in (
+            await session.execute(
+                select(LithoBodySolidOrm.model_id, LithoBodySolidOrm.body_id).where(
+                    LithoBodySolidOrm.model_id.in_(valid_model_ids)
+                )
+            )
+        ).all()
+    }
+
+    new_solids = 0
+    skipped = 0
+    dropped = 0
+    total = len(litho_solids_payload)
+    logger.info(f"restore_project_bundle: restoring {total} litho body solid(s)")
+
+    for i, solid_payload in enumerate(litho_solids_payload, start=1):
+        solid_id = _uuid(solid_payload.get("id"))
+        if solid_id is None:
+            logger.debug(f"[{i}/{total}] litho solid skipped — payload has no id")
+            skipped += 1
+            continue
+        model_id = _uuid(solid_payload.get("model_id"))
+        if model_id is None:
+            logger.warning(f"[{i}/{total}] litho solid {solid_id} has no model_id — dropped")
+            dropped += 1
+            continue
+        if model_id not in valid_model_ids:
+            logger.warning(
+                f"[{i}/{total}] litho solid {solid_id} → model {model_id} "
+                f"not in this project — dropped (bundle-injection guard)"
+            )
+            dropped += 1
+            continue
+        body_id = _uuid(solid_payload.get("body_id"))
+        if body_id is None:
+            logger.warning(f"[{i}/{total}] litho solid {solid_id} has no body_id — dropped")
+            dropped += 1
+            continue
+        if (model_id, body_id) in existing:
+            logger.debug(
+                f"[{i}/{total}] litho solid for (model {model_id}, body {body_id}) "
+                f"already present — skipped"
+            )
+            skipped += 1
+            continue
+        formation_id = _uuid(solid_payload.get("formation_id"))
+        if formation_id is None:
+            logger.warning(f"[{i}/{total}] litho solid {solid_id} missing formation_id — dropped")
+            dropped += 1
+            continue
+        if formation_id not in valid_formation_ids:
+            logger.warning(
+                f"[{i}/{total}] litho solid {solid_id}: formation_id {formation_id} "
+                f"not present in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+
+        kwargs = _apply_json_to_kwargs(LithoBodySolidOrm, solid_payload)
+        session.add(LithoBodySolidOrm(**kwargs))
+        existing.add((model_id, body_id))
+        new_solids += 1
+        logger.debug(f"[{i}/{total}] litho solid {solid_id} queued for insert")
+
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle: dropped {dropped} litho body solid(s) "
+            f"(model/formation not in project or missing FK)"
+        )
+    return new_solids, skipped, dropped
 
 
 async def _restore_lens_shapes_and_nodes(

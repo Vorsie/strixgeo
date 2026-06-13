@@ -246,6 +246,7 @@ class ProjectBundleService(GroundModelLogger):
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
         body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
         body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+        litho_solids_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
     ) -> ProjectOrm:
@@ -284,6 +285,8 @@ class ProjectBundleService(GroundModelLogger):
             Lens boundary shape rows.
         body_boundary_nodes_payload : list[dict[str, Any]] | None
             Lens boundary node rows.
+        litho_solids_payload : list[dict[str, Any]] | None
+            Cached watertight body-solid rows (watertight-loft Task 9).
         replace : bool
             When True, wipe the project's child collections before inserting
             (revert-to-last-save, debt #160) so the project ends up matching
@@ -316,6 +319,7 @@ class ProjectBundleService(GroundModelLogger):
             litho_contact_correlation_edges_payload,
             body_boundary_shapes_payload,
             body_boundary_nodes_payload,
+            litho_solids_payload,
             logger=self,
             replace=replace,
         )
@@ -362,6 +366,7 @@ async def restore_project_bundle(
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+    litho_solids_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
 ) -> ProjectOrm:
@@ -399,6 +404,8 @@ async def restore_project_bundle(
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
         Lens boundary node rows.
+    litho_solids_payload : list[dict[str, Any]] | None
+        Cached watertight body-solid rows (watertight-loft Task 9).
     replace : bool
         When True, wipe before insert (revert-to-last-save).
 
@@ -427,5 +434,6 @@ async def restore_project_bundle(
         litho_contact_correlation_edges_payload,
         body_boundary_shapes_payload,
         body_boundary_nodes_payload,
+        litho_solids_payload,
         replace=replace,
     )

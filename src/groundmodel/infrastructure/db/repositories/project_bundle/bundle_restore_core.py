@@ -67,6 +67,7 @@ from .bundle_restore_litho import (
     _restore_formation_absences,
     _restore_geological_models,
     _restore_lens_shapes_and_nodes,
+    _restore_litho_solids,
 )
 from .bundle_row_builders import _build_borehole, _build_cpt, _series_row_count, _uuid
 from .bundle_serialization import _MAX_CPT_SERIES_ROWS, _apply_json_to_kwargs
@@ -623,6 +624,7 @@ async def _restore_project_bundle_impl(
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
+    litho_solids_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -680,6 +682,9 @@ async def _restore_project_bundle_impl(
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
         Lens boundary node rows.
+    litho_solids_payload : list[dict[str, Any]] | None
+        Cached watertight body-solid rows (watertight-loft Task 9). ``None``
+        → empty (legacy bundle without the ``litho_solids`` key).
     logger : GroundModelLogger
         Caller's typed logger.
     replace : bool
@@ -711,6 +716,9 @@ async def _restore_project_bundle_impl(
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
+    # Legacy tolerance: a bundle saved before the litho_solids field existed
+    # has no such key, so the caller passes None → empty list (never KeyError).
+    litho_solids_payload = litho_solids_payload or []
 
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
@@ -868,6 +876,18 @@ async def _restore_project_bundle_impl(
         logger=logger,
     )
 
+    # ---- Phase 12: Cached watertight body solids (watertight-loft Task 9) -
+    # Restored last among litho phases — both FK targets (model_id,
+    # formation_id) are guaranteed present (Phase 3 formations + Phase 5
+    # models), so the valid-id sets are complete.
+    new_solids, skipped_solids, dropped_solids = await _restore_litho_solids(
+        session,
+        litho_solids_payload,
+        valid_model_ids,
+        valid_formation_ids,
+        logger=logger,
+    )
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
@@ -880,6 +900,8 @@ async def _restore_project_bundle_impl(
         f"({skipped_contact_edges} skipped, {dropped_contact_edges} dropped), "
         f"+{new_lenses} lenses ({skipped_lenses} skipped, {dropped_lenses} dropped), "
         f"+{new_absences} formation absences "
-        f"({skipped_absences} skipped, {dropped_absences} dropped)"
+        f"({skipped_absences} skipped, {dropped_absences} dropped), "
+        f"+{new_solids} litho body solids "
+        f"({skipped_solids} skipped, {dropped_solids} dropped)"
     )
     return project
