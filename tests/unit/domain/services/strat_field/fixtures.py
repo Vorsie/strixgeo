@@ -293,8 +293,10 @@ def interbedded_columns_with_xyz() -> list[InvestigationColumn]:
 # ---------------------------------------------------------------------------
 
 # Three columns on a north-south line; the ZAND/VEEN boundary dips 2 m over 400 m
-# (a gentle but clearly non-zero dip — gz will still dominate the unit vector but
-# gx or gy will be non-zero, making this fixture more realistic than a flat horizon).
+# (a gentle but clearly non-zero dip).  NOTE: Stage-2 v1 always emits a pure
+# (0, 0, -1) orientation regardless of this dip — the dip data is here so the
+# future v2 in-plane dip refinement can be tested against a non-flat horizon on
+# the same fixture.
 _DIP_COL_W_X = 201_000.0
 _DIP_COL_W_Y = 201_000.0
 _DIP_COL_M_X = 201_000.0

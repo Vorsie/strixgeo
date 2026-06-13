@@ -27,17 +27,25 @@ Rank N is the FLOOR horizon (the open base of the model).  It carries no
 contact_ids by construction (see ``build_stratigraphic_order``) — there are no
 accepted contacts at the open base — so it can never contribute control points.
 
-Why the gradient direction is vertical-up for v1
--------------------------------------------------
-The implicit-field convention is: the scalar field F increases from the OLDEST
-(deepest) unit to the YOUNGEST (shallowest) unit.  For a sub-horizontal stratigraphy
-this means F increases upward, so the gradient direction is (0, 0, +1) — a unit
-vector in the +z direction.  Version 1 ships this constant orientation; a future
-refinement could derive the local dip vector from adjacent section-contact slopes
-and project it onto the horizon plane, producing a more accurate in-plane
-orientation at each investigation.  That refinement is deferred: the vertical-up
-prior is physically correct for flat-to-gently-dipping BE/NL stratigraphy and
-keeps the Stage-2 code dependency-free (no NumPy required here).
+Why the gradient direction is vertical-DOWN for v1
+--------------------------------------------------
+Our field convention is fixed by Stage 1: ``iso_value = float(rank)`` with
+rank 0 = shallowest/youngest and rank N = deepest/oldest, so the scalar field F
+INCREASES WITH DEPTH (deeper = higher rank = higher iso-value).  This is exactly
+what the Stage-4 monotonicity gate requires ("F strictly increases DOWN every
+borehole").  The gradient of F (the direction of increasing F) therefore points
+DOWNWARD, so the orientation unit vector is (0, 0, -1) — a unit vector in the
+−z direction (z is positive-up).  Matching ``OrientationConstraint.gz``'s own
+contract ("positive gz → field increases upward"), a downward-increasing F means
+gz is negative.  Getting this sign right matters: a +z orientation would fight
+the value constraints and bubble the field near every borehole.
+
+Version 1 ships this constant orientation; a future refinement could derive the
+local dip vector from adjacent section-contact slopes and project it onto the
+horizon plane, producing a more accurate in-plane orientation at each
+investigation.  That refinement is deferred: the vertical prior is correct for
+flat-to-gently-dipping BE/NL stratigraphy and keeps the Stage-2 code
+dependency-free (no NumPy required here).
 
 Why the section-line projection formula is along/length
 -------------------------------------------------------
@@ -166,14 +174,15 @@ class SectionContact:
 
 
 # ---------------------------------------------------------------------------
-# Vertical-up gradient constant (v1 orientation prior)
+# Vertical gradient constant (v1 orientation prior)
 # ---------------------------------------------------------------------------
 
-# The implicit field F increases upward through the stratigraphic column
-# (rank 0 shallowest → rank N deepest, but iso-values increase with rank so
-# the gradient of F points in the +z direction for a horizontal stratigraphy).
-# This is the unit vector encoding that prior.
-_GRADIENT_UP: tuple[float, float, float] = (0.0, 0.0, 1.0)
+# F increases WITH DEPTH (iso_value = rank, rank 0 shallowest → rank N deepest),
+# so the gradient of F (direction of increasing F) points DOWNWARD: (0, 0, -1).
+# See the "Why the gradient direction is vertical-DOWN" docstring section above —
+# this is the sign the Stage-4 monotonicity gate ("F increases down a borehole")
+# requires, and it matches OrientationConstraint.gz (negative gz = F up-decreasing).
+_GRADIENT_DOWN: tuple[float, float, float] = (0.0, 0.0, -1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +262,7 @@ def build_control_data(
                 # Silently skip rather than crashing — the solver proceeds with
                 # the remaining constraints, which is better than a hard abort.
                 continue
-            if not (1 <= rank <= floor_rank - 1):
+            if not (1 <= rank < floor_rank):
                 # Skip the surface horizon (rank 0) and the floor horizon (rank N).
                 # The surface is constrained by the DEM at Stage 4; the floor
                 # carries no contact_ids and would never reach here, but the guard
@@ -263,19 +272,18 @@ def build_control_data(
             z = col.surface_elev_m - unit.top_depth_m
             control_points.append(ControlPoint(x=col.x, y=col.y, z=z, horizon_rank=rank))
 
-        # One vertical-up orientation constraint per investigation, placed at the
-        # column's surface position (the investigation's map location).
-        # The mid-column z is a reasonable anchor; using surface_elev_m keeps the
-        # orientation out of the subsurface and avoids a divide-by-zero when the
-        # column has no internal contacts.
+        # One vertical (down-pointing) orientation constraint per investigation,
+        # anchored at the investigation's map position and surface elevation — the
+        # one z guaranteed to exist even when the column has no accepted internal
+        # contacts (no column-thickness arithmetic needed).
         orientations.append(
             OrientationConstraint(
                 x=col.x,
                 y=col.y,
                 z=col.surface_elev_m,
-                gx=_GRADIENT_UP[0],
-                gy=_GRADIENT_UP[1],
-                gz=_GRADIENT_UP[2],
+                gx=_GRADIENT_DOWN[0],
+                gy=_GRADIENT_DOWN[1],
+                gz=_GRADIENT_DOWN[2],
             )
         )
 

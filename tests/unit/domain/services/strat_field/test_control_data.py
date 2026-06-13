@@ -12,9 +12,9 @@ The tests validate:
   (rank 0) and floor (rank N) are excluded.
 - User-drawn section contacts → additional control points projected along the
   section line.
-- Orientation constraints are emitted for every investigation and point upward
-  (gz > 0.5), encoding the "field increases upward through the stratigraphic
-  column" convention.
+- Orientation constraints are emitted for every investigation and point DOWNWARD
+  (gz < 0), encoding the "field increases WITH DEPTH (deeper = higher iso-value)"
+  convention that the Stage-4 monotonicity gate requires.
 - A contact_id that is absent from the stratigraphic order is silently skipped
   (defensive miss — no crash).
 - Two ZAND instances in the interbedded fixture produce control points at BOTH
@@ -27,13 +27,13 @@ from __future__ import annotations
 import math
 
 import pytest
+
 from groundmodel.domain.services.strat_field.control_data import (
     ContactObservation,
     InvestigationColumn,
     SectionContact,
     build_control_data,
 )
-
 from groundmodel.domain.services.strat_field.stratigraphic_order import (
     build_stratigraphic_order,
 )
@@ -213,6 +213,9 @@ def test_unknown_contact_id_is_skipped_not_crashed():
     data = build_control_data([col], section_contacts=[], order=order)
     # rank 0 skipped (surface) + ORPHAN skipped → 0 control points from this column.
     assert len(data.points) == 0
+    # ...but the column still contributes its one orientation constraint: a
+    # column with all-orphan/surface contacts must not lose its gradient prior.
+    assert len(data.orientations) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -279,25 +282,31 @@ def test_section_contact_sample_projects_onto_section_line():
 
 
 # ---------------------------------------------------------------------------
-# CP-7: orientation constraints point upward (gz > 0.5)
+# CP-7: orientation constraints point downward (gz ≈ -1, field increases with depth)
 # ---------------------------------------------------------------------------
 
 
-def test_orientation_points_up_section():
-    """Orientation constraints encode "field increases upward through the column".
+def test_orientation_points_with_increasing_field():
+    """Orientation constraints encode "field increases WITH DEPTH".
 
-    The gz component of the gradient direction must be positive (> 0.5 for a
-    mostly-vertical constraint) so the solver knows the potential field increases
-    from bottom to top.  A negative or zero gz would flip the stratigraphic order.
+    Stage 1 assigns iso_value = rank with rank 0 = shallowest, so F is larger at
+    depth.  The gradient of F (direction of increasing F) therefore points DOWN:
+    gz must be negative.  A positive gz would invert the field and fight every
+    value constraint, bubbling the solve.  (The dipping fixture is used here so
+    the v2 dip-refinement can later assert a non-zero gx/gy on the same data; v1
+    emits a pure (0, 0, -1) regardless of the fixture's dip.)
     """
     columns = dipping_columns_with_xyz()
     order = _order_dipping()
     data = build_control_data(columns, section_contacts=[], order=order)
 
     assert len(data.orientations) > 0, "At least one orientation constraint must be emitted"
-    assert any(o.gz > 0.5 for o in data.orientations), (
-        "At least one orientation must point predominantly upward (gz > 0.5)"
-    )
+    # v1 ships a pure downward unit vector — pin it exactly so a half-normalised
+    # or sign-flipped regression cannot pass vacuously.
+    for o in data.orientations:
+        assert o.gz == pytest.approx(-1.0)
+        assert o.gx == pytest.approx(0.0)
+        assert o.gy == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +346,38 @@ def test_output_column_matches_input_order():
     data = build_control_data(columns, section_contacts=[], order=order)
 
     assert data.column is order
+
+
+# ---------------------------------------------------------------------------
+# CP-10: single-instance model — the internal-rank guard at its lower boundary
+# ---------------------------------------------------------------------------
+
+
+def test_single_instance_model_emits_no_control_points():
+    """A one-instance model (2 horizons: surface + floor) has NO internal horizon.
+
+    With floor_rank = 1 the guard ``1 <= rank < floor_rank`` is empty, so even a
+    fully-observed column yields zero control points (its only contact maps to
+    the surface rank 0).  The orientation prior is still emitted.  This pins the
+    guard arithmetic at its lower boundary — the case the interbedded fixtures
+    never exercise.
+    """
+    from groundmodel.domain.services.strat_field.stratigraphic_order import OrderInputUnit
+
+    order = build_stratigraphic_order([(OrderInputUnit("zand1", "ZAND", "only-top"),)])
+    assert len(order.horizons) == 2  # surface + floor only, no internal horizon
+
+    col = InvestigationColumn(
+        investigation_id="bh-solo",
+        x=10.0,
+        y=20.0,
+        surface_elev_m=4.0,
+        units=(ContactObservation("zand1", "ZAND", "only-top", top_depth_m=0.0),),
+    )
+    data = build_control_data([col], section_contacts=[], order=order)
+
+    assert len(data.points) == 0
+    assert len(data.orientations) == 1
 
 
 # ---------------------------------------------------------------------------
