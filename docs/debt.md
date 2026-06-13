@@ -78,14 +78,17 @@ subdivision is built on top of it. Priority order:
 
 * **#157** — thin slivers in accepted litho from straddle-split at geo boundaries (likely same root as #149; snap litho→geo + min-sliver-thickness guard — owner dogfeed 2026-05-28)
 * **#159** — drag-lock after deleting an accepted litho unit (can't drag the lower contact up into the freed space; #138/#99 family — owner dogfeed 2026-05-28)
+* **#207** — dead body-extent gestures ("Open end"/"Pinch out"/"Name body") 404 against the deleted endpoint (audit 2026-06-13, coworker-binary blocker — frontend, S)
+* **#208** — `seeded_formation_contact_ids` lost-update race on concurrent accept → accepted contacts silently vanish (audit 2026-06-13 — backend, M)
+* **#209** — section-fill geometry recomputes on every pan/zoom frame (audit 2026-06-13; write the regression test first — frontend, M)
 
 * **2026-05-29 dogfeed batch — RESOLVED (section rendering + auto-correlate + lens cleanup).** A long dogfeed thread; all shipped to `develop` on 2026-05-29. (a) **Section surface through picks** — `surfaceThroughPicks` on ContactsLayer draws the active formation surface as a chord through the user's *placed* contacts, not a TIN slice along the section line (which sat ~1 m below for off-line investigations because the slice samples at the line, not at the borehole); SectionPanel passes it for the active surface on all three views (backdrop already did this via `referenceContacts`). (b) **Section-order auto-correlate adjacency** — `AutoCorrelateContactEdges` gains `section_id`; adjacency = consecutive in-corridor columns along the section, not the model-wide map-plane relative-neighbourhood graph (which crossed intervening columns for off-line tests → "spaghetti" on the section). Domain `auto_correlate_contact_edges(adjacency=…)` override; the toolbar passes the active section; no section → RNG fallback. (c) **Lithology-only correlation grouping** — the grouping key dropped from `(parent, above, below)` to `litho_main_soil_code` alone; same-lithology contacts correlate in depth order via adjacency + depth-window + MNN. The old triple blocked obvious correlations whenever a column had a boundary-edge parent mis-assignment or one extra interbed (different below-code). (d) **Full-band correlate hit target + void-clear** — the correlate hit-rect is sized to the whole band (click the band body, not just the thin boundary line); a click in the void clears the armed source (reuses SectionPanel's pan-safe background-click hook). (e) **Lens degeneracy guard** — `detect_lenses_from_graph(max_lens_thickness_m)` rejects a lens body thicker than the cap (a near-whole-column "lens" born from a loose correlation); `DetectLithoLenses` reads it from `view_state.litho_segmenter.max_lens_thickness_m` (0 = off, default 5 m) — Settings → Litho segmenter → "Lens max thickness (m)". Existing spurious lenses reconcile away on the next correlate. (f) **Delete-lens gesture** — right-click a wedge → confirm → dissolves the lens by deleting its two defining edges (above↔target, below↔target); the detector then reconciles the row away (the metadata-only DELETE endpoint would have left the body in the graph). (g) **Lens-candidate marking** — an *enclosed* contact correlating to neither neighbour gets an amber diamond in correlate mode (the "no-target middle layer" → pinch out, don't correlate). **Interim:** marking only; a one-click candidate→pinch-out conversion + two-sided lens geometry stay future work (the latter is the Phase-5 #101 / interfingering carve-out). **Watch item:** lithology-only grouping can pair same-lithology beds across a formation boundary when depth coincides — bounded by adjacency + depth-window + MNN; revisit if a wrong correlation surfaces.
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #214, #215, #219
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #210, #211, #212, #216, #217, #218
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5282,6 +5285,360 @@ polish) — or sooner if a coworker demo needs the markers to look less like sti
 The radius/sides constants live in `litho_solid_builder_constants.py`; the alpha
 in `Geology3DViewer.tsx` — surface them onto `view_state.litho_segmenter` (the
 established knob home) when the Settings row lands.
+
+## Audit follow-up batch (2026-06-13)
+
+Triage of the 13-reviewer full-repo audit ([`DEBT.md`](../DEBT.md), snapshot of
+`develop` tip `1f52db38`; 121 findings). The audit is an unfiltered point-in-time
+snapshot — this batch is the curated promotion into the tracked backlog. Each new
+item below cites the originating reviewer IDs so the full detail (location, repro,
+remediation) is recoverable from `DEBT.md`. Findings that fold into an existing
+item, and those declined, are listed at the end of the batch.
+
+Numbering continues from #206. New items: **#207–#219**.
+
+## 207. Dead body-extent gestures 404 against a deleted endpoint (Tier G — frontend, S)
+
+*(audit: DEAD-01/02/03, ARCH-01 — High; coworker-binary blocker)*
+
+**What.** The body-extent system was retired 2026-06-06, but three live frontend
+paths still POST to the deleted `POST .../geology/models/{mid}/bodies` route and
+404 silently (the error is swallowed as a `warn`, no user feedback):
+(a) the right-click **"Open end"** gesture (`handleOpenEndLayer`,
+`SectionsCanvas.tsx:745`); (b) the right-click **"Pinch out"** gesture
+(`handlePinchOutLayer`, `:798`) — both via `claimBodyExtent` (`geology.ts:1666`);
+(c) the lens-inspector **"Name this body"** save (`nameLensBody`, `geology.ts:1635`,
+called from `InspectLensBodyPanel.tsx:347`) — which drops the `body_id` the correct
+`PATCH .../bodies/{body_id}` route needs. `ProvenanceViolationError`
+(`geology.ts:894`, caught at `SectionsCanvas.tsx:783,839`) can no longer be thrown.
+
+**Why it matters.** Two named litho context-menu verbs and the body-name save are
+non-functional with zero feedback — a coworker clicking them sees nothing happen.
+This is the single highest-signal cluster in the audit and a pre-distribution blocker.
+
+**When to revisit.** Now — before the coworker binary. Quick win: delete
+`handleOpenEndLayer` / `handlePinchOutLayer` / `claimBodyExtent` /
+`ProvenanceViolationError` + their prop chain (`SectionPanel.tsx:718,728,820–821,
+2819–2831`; `ContactsLayer.tsx:168,177,661–662,3234,3738–3751`); rewire the
+name-body save to `nameBody(projectId, modelId, bodyId, request)`
+(`existingLensId` is already in scope) + fix the test mock. (Bundle with the #216
+dead-code sweep if not done sooner.)
+
+## 208. `seeded_formation_contact_ids` lost-update race on concurrent accept (Tier G — backend, M)
+
+*(audit: COR-02 — High)*
+
+**What.** `CrossSectionRepository` (`cross_section_repository.py:177–180`) does a
+Python-side read-union-write of `seeded_formation_contact_ids`: read the current
+array, `existing | contact_ids`, write back, commit. Two concurrent accept requests
+for the same section both read the same snapshot and the second commit clobbers the
+first's additions. No `SELECT … FOR UPDATE`, no SQL `array_append`, no advisory lock
+(unlike `SaveBodyBoundary`, which correctly uses `pg_advisory_xact_lock`). The bulk
+accept flow fires concurrent requests, so this is reachable in normal use.
+
+**Why it matters.** Dropped ids mean accepted contacts silently vanish from the
+section (the explicit-content invariant: the seeded set drives formation visibility)
+— the same "nothing appears after accept" symptom class the seed-must-apply work
+chased before. Data-integrity-adjacent.
+
+**When to revisit.** During the litho-finishing pass (Tier G). Fix: one atomic SQL
+array-union `UPDATE`, or hold `pg_advisory_xact_lock(section_id)` across the
+read-modify-write. Gate with a concurrent-accept integration test (the COR-02 /
+TEST-05 pattern: two `asyncio.gather`'d accepts, assert no ids lost).
+
+## 209. Section-fill geometry recomputes on every pan/zoom frame (Tier G — frontend, M)
+
+*(audit: PERF-01 / ARCH-03 / TEST-04 — High)*
+
+**What.** `PartitionFillOverlay.screenRegions` (`PartitionFillOverlay.tsx:621–942`)
+keys its `useMemo` on `levelToScreen` / `alongToScreenX` / `plotTop` / `plotBottom`
+— all recreated on every pan/zoom event. So `computeSectionFill` (the ~2,081-line
+LCS + polygon engine in `partitionFill.ts`) re-runs on every scroll/zoom frame, not
+only when contact/edge data changes. There is no regression test pinning "fill is
+NOT recomputed when only the screen transform changes."
+
+**Why it matters.** On a real section (30+ investigations, hundreds of contacts) a
+single wheel tick blocks the main thread for tens of ms → visible jank. Primary
+interactive-perf risk before distribution. STATIC analysis (no profile yet) — but
+the recompute-per-frame is structural, not a micro-cost.
+
+**When to revisit.** During the litho-finishing pass. Fix: split into a data-keyed
+memo (`computeSectionFill(columns, edges, …)` — depends on data only) + a cheap
+transform-keyed memo (project the cached geometry to pixels). **TDD note:** write
+the call-count regression test (TEST-04) first, watch it fail, then split.
+
+## 210. SSE progress sentinel can hang the import dialog forever (Tier E — backend, S)
+
+*(audit: COR-01 — High; OBS-01/11 — Medium)*
+
+**What.** `job_registry.py:98` calls `asyncio.create_task(coro)` with no
+done-callback. If the background coroutine raises after scheduling, the per-job SSE
+queue never receives its `None` sentinel and any consumer awaiting `queue.get()`
+blocks indefinitely — frozen progress bar, no error. Compounding it,
+`import_cpt_dov.py:_fire_pins` (`:35–52`) swallows every callback exception with
+`except Exception: pass  # noqa: BLE001` (zero log), so the failure is invisible.
+The borehole importer (`import_borehole_dov.py`) likely carries the copied pattern
+(verify).
+
+**Why it matters.** A closed SSE connection or a callback error mid-import → the
+user sees a stalled bar with no way to tell success from silent failure, and the
+operator gets no log line.
+
+**When to revisit.** Quick win, any time: `add_done_callback` that enqueues the
+sentinel on exception (or unconditional try/finally sentinel); replace the
+`_fire_pins` `pass` with `self.warning(...)`; grep `application/` for sibling
+`except Exception: pass` / `# noqa: BLE001` swallows.
+
+## 211. Cross-project id acceptance + missing scope guards (Tier E — backend, S)
+
+*(audit: COR-03 — High; ARCH-09, COR-10, DRY-01 — Low/Medium)*
+
+**What.** Three scope-hygiene gaps. (a) `BulkCreateLithoLayers`
+(`bulk_create_litho_layers.py:80`) creates layers with the payload's `formation_id`
+without checking the formation's `app_project_id` matches the target project — a
+foreign-project formation id is accepted (cross-project contamination; FK enforces
+existence, not ownership). (b) `DELETE /jobs/{job_id}` (`jobs.py:133–163`) has no
+project scope — any job id cancels any project's job. (c) The geo→litho propagation
+query (`update_formation_contact.py:391–394`) lacks the defence-in-depth
+`app_project_id` filter every sibling query carries (FK saves it today).
+(d) Related: ≥7 use cases still hand-roll the scope check that `load_scoped_or_raise`
+was extracted for (DRY-01) — `#166` resolved the original sites; the audit found
+new ones, and `materialize_wedge_tips_for_formation.py:180` *silently returns*
+instead of raising on a scope miss.
+
+**Why it matters.** Mitigated today by localhost binding + UUIDs, but these are the
+exact IDOR-class gaps that become real the moment anything is network-reachable
+(SaaS, Phase 5) — and the silent-return variant is a latent 404→empty-result bug now.
+
+**When to revisit.** Bundle as one backend hygiene pass before any network-facing
+deployment. Add the formation-ownership check (+ audit sibling bulk endpoints),
+scope-guard the jobs DELETE, add the propagation scope filter, migrate the hand-rolled
+checks to `load_scoped_or_raise`, and decide/document the silent-return site.
+
+## 212. Per-item exception swallows commit partially-staged session state (Tier E — backend, M)
+
+*(audit: COR-04, COR-06 — Medium)*
+
+**What.** `recompute_all_absences_for_model.py:270–294` catches
+`(ValueError, LookupError)` per formation and continues; staged ORM writes from the
+formation that raised mid-way ride the single final `commit()` with no savepoint.
+Same shape in `materialise_body_companions.py:191` (broad `except Exception` per
+companion). The absence table / companion set can hold a partial write the log says
+was skipped.
+
+**Why it matters.** Breaks the all-or-nothing invariant these recompute passes exist
+to maintain; the partial state is invisible (only a counter is logged).
+
+**When to revisit.** When either use case is next touched, or before distribution.
+Fix: `async with session.begin_nested()` (savepoint) per item, rollback on exception.
+
+## 213. `react-leaflet` Hippocratic-2.1 license risk (Tier B — commercial, M)
+
+*(audit: DEP-02 — High)*
+
+**What.** `react-leaflet@4.2.1` and `@react-leaflet/core@2.1.0` are published under
+the **Hippocratic License 2.1** — non-OSI-approved, with activity-based use
+restrictions and incompatibility with most corporate OSS policies. `leaflet` itself
+is BSD-2-Clause (permissive).
+
+**Why it matters.** Strix is a commercial closed-source product targeting BE/NL
+consultancies (some serving public-works / infrastructure clients). The license is a
+procurement/legal ambiguity that could block enterprise sign-off (the #3 enterprise
+tier) — weak as a literal claim, real as a friction point.
+
+**When to revisit.** Before the first paid/enterprise customer (Tier B horizon).
+Replace with a thin MIT wrapper over bare `leaflet` (consumers: `MapView.tsx`,
+`BboxDrawer`, the section/section-line drawers), or evaluate whether the Cesium 3D
+pane can absorb the map role and drop Leaflet entirely.
+
+## 214. Distribution robustness — crash visibility + log hygiene (Tier B — both, M)
+
+*(audit: OBS-02/03/04 — High; SEC-09 — Medium)*
+
+**What.** Four gaps that make a coworker-binary failure undiagnosable from afar.
+(a) No React **ErrorBoundary** and no `window.onerror` / `unhandledrejection` in the
+renderer — a render exception in the geometry-heavy overlays blanks the app with zero
+trace in packaged builds (`render-process-gone` does not fire for React errors).
+(b) No `process.on('uncaughtException'/'unhandledRejection')` in Electron main — a
+main-process crash leaves no log line (Crashpad minidumps exist but upload is off, #16).
+(c) `backend.log` is append-only with no rotation (`main/index.ts`,
+`createWriteStream(... {flags:'a'})`) → unbounded growth across sessions.
+(d) When the backend exits before ready, the renderer spins forever — the
+`apiProcess` exit handler logs but sends no `app:backend-failed` IPC (SEC-09).
+
+**Why it matters.** The coworker's machine is the "production" you must debug from
+afar; today a failure there is a blank screen or an infinite spinner with no
+attachable artifact (the log path isn't even surfaced — see #214 remediation).
+
+**When to revisit.** Pre-distribution (Tier B), alongside #200. Fixes: top-level
+ErrorBoundary + global rejection handler + a render-error test; the two main-process
+handlers; a rotating `backend.log` (5 MB × 3); an `app:backend-failed` IPC → modal;
+and a Help → "Show log file" item so users can find/attach it.
+
+## 215. Postgres bound to 0.0.0.0 with default credentials (Tier B — pre-distribution, S)
+
+*(audit: SEC-05 — Medium)*
+
+**What.** `docker-compose.yml` binds Postgres `5433:5432` (→ `0.0.0.0`) and
+`config.py:39` ships the default DSN with `groundmodel:groundmodel`. On a shared
+office/lab machine, anyone on the LAN can connect and read all project data.
+
+**Why it matters.** Low risk for a single-user dev box; a real exposure in a
+shared-office coworker deployment.
+
+**When to revisit.** Quick win now: bind `127.0.0.1:5433:5432` (loopback-only).
+Longer term, fold into the bundled-Postgres plan (#2) — generate a random password
+at first run.
+
+## 216. Dead-code removal sweep — retirement shrapnel + stub graveyard (Tier E — both, M)
+
+*(audit: KISS-01..09, DEAD-04..12 — Low/Medium/Info)*
+
+**What.** A batch of confirmed-dead artifacts (zero call sites verified across
+`src/` + `desktop/` + `tests/`), safe to delete: stub parsers returning `...`
+(`ags_parser.py`, `las_parser.py`); stub exporters that only raise
+(`dsheet_exporter.py`, `geostudio_exporter.py`); the never-called `export_project.py`;
+the zero-subclass `BoreholeTest` ABC; disconnected domain stubs (`dmt.py`,
+`insitu_test.py`, `monitoring/inclinometer.py`, `monitoring/piezometer.py`); the empty
+`ec7/` package; dead TS client methods (`detectBodies`, `deleteLens`, the
+`listBodies`/`listLenses` duplicate, `extremeMemberLayerId`); the `gwater_kNm3`
+request param the frontend never sends; the no-op `detectBodiesForFixture` e2e helper
++ 4 call sites; always-zero `bodies_created`/`bodies_removed` response fields; and a
+`// TODO Task 19` dead comment embedded in a toast string (`useLithoSuggestions.ts:276`).
+The `CPT` domain model (`pushed/cpt.py`) needs a decision — delete or document as the
+intended future ORM-decoupling layer.
+
+**Why it matters.** Dead stubs in the parser/exporter hierarchies look wireable to a
+new contributor; the Ellipsis-returning parsers have a broken return contract; the
+double-named client methods obscure which is canonical.
+
+**When to revisit.** A single low-risk cleanup PR, any time. Verify each with grep
+before deleting; git preserves the removed sketches.
+
+## 217. Lens→body naming sweep (Tier E — both, M)
+
+*(audit: NAME-01..08, DEAD-10/11, DOC-08 — Medium/Low)*
+
+**What.** The lens→body retirement left retired vocabulary in live identifiers,
+public API surface, and docstrings: the public field `companion_lens_name` (+ TS
+type) holds `body.name`; `bundle_build.py:63–66` defines `LithoLensOrm = BodyOrm`
+(+2) aliases that keep the old names greppable-as-live; the
+`/lens-companions/materialise` route segment + the `litho_lens/` schema package (which
+now houses formation-absence schemas) name the wrong concept; `accept_litho_suggestions.py`
+assigns a `layer_id` to a var named `contact_id` and has `_load_existing_contacts`
+loading layers; multiple docstrings reference deleted `LithoLensOrm` /
+`SuggestBodyPinchOuts` / `ClaimBodyExtent` / `DetectBodies` /
+`DetectLithoLenses` as live collaborators.
+
+**Why it matters.** Every reader (and the incoming coworker) is misdirected by names
+that promise a retired entity; the `contact_id`-holds-a-`layer_id` case will actively
+mislead anyone debugging a duplicate-layer bug.
+
+**When to revisit.** While backwards-compat is suspended (the window for the public
+field/route renames). Mechanical, mostly find-and-replace; do it as one sweep with
+the #216 dead-code pass.
+
+## 218. Float-equality correctness hygiene (Tier E — backend, S)
+
+*(audit: COR-08, COR-09 — Low)*
+
+**What.** Two exact-float comparisons that should carry an epsilon. (a) The
+bidirectional litho↔geo propagation cycle-breaker
+(`update_formation_contact.py:369,397`) uses `geo_contact.depth_top_m == new_depth`
+— one ULP of drift (mm-rounding / ORM round-trip) defeats the guard. (b) The
+find-or-create layer dedup (`accept_litho_suggestions.py:1147`) uses SQL
+`depth_top_m == :value` — a clean-decimal vs arithmetic-derived value double-inserts
+near-identical layers, violating the no-overlap invariant.
+
+**Why it matters.** Both are silent: (a) risks a propagation loop / missed
+termination, (b) risks duplicate layers the CHECK constraint won't catch.
+
+**When to revisit.** Quick win when either file is next touched. Use a half-mm epsilon
+(0.0005 m) / mm-rounded comparison / `BETWEEN ±ε`.
+
+## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S)
+
+*(audit: DEP-03/04/06/10/12, DEP-05/11 — Low/verify)*
+
+**What.** Pre-distribution dependency hardening, none individually large:
+deprecated build-toolchain transitives (`glob@7`, `rimraf@2`, `inflight@1` via
+electron-builder — `overrides` or a builder bump); the `postgis/postgis:16-3.4`
+docker image pinned to a floating tag, not a digest; GitHub Actions pinned to
+floating major tags (`@v4`) — SHA-pin before signing keys / license secrets land in
+CI (#3/#6); Python runtime deps lower-bound-only (add wide upper bounds on
+polars/scipy/sqlalchemy so a careless `uv lock --upgrade` can't pull a breaking
+major); ensure the future installer (#6) runs `uv sync --no-group dev` so openpyxl's
+XML surface doesn't ship. Two verify-items: `python-multipart` lower bound and the
+transitive `lodash@4.18.1` (a version not in the known release history — confirm
+integrity on the registry).
+
+**Why it matters.** CI supply-chain exposure is acute once signing/license secrets
+exist; the floating pins make builds non-deterministic right when reproducibility
+starts to matter.
+
+**When to revisit.** Pre-distribution (Tier B), as a single hygiene pass. Add a CI
+`pip-audit`/`npm audit` step and a lockfile-drift check at the same time.
+
+### Folded into existing items (no new number)
+
+* **#200** (Electron pre-distribution hardening) — extend with: DevTools + Reload
+  roles (and the F12 accelerator) live in the *packaged* View menu (SEC-01/07 — gate
+  on `!app.isPackaged`); Electron pinned at the first `42.x` patch via caret, EOL/
+  support-window unverified (ARCH-02/SEC-04/DEP-01 — bump to latest 42.x, pin exact,
+  verify the window).
+* **#106** (application welded to the ORM) — the audit confirms it's growing
+  (ARCH-04) and adds the transaction-ownership split (ARCH-06: use cases flush,
+  boundary commits) + ORM-rows-in-result / unconstrained-`setattr` in
+  `batch_update_litho_layers` (ARCH-07) as concrete sub-symptoms.
+* **#108** (documentation refresh) — specifics the audit measured: README frozen at
+  Phase 2 with wrong Node version + stale HTTP/2 claim (DOC-01, its own quick win);
+  `api.md` documents a phantom `/lenses/detect` + misses ~17 live routes (DOC-03);
+  `architecture.md` lists 3 of 19 routers / 6 of 73 use cases (DOC-02); CLAUDE.md is
+  59% inline debt history with 3 dangling file refs (DOC-04 — prune the resolved
+  history into debt.md); 113/117 router endpoints lack docstrings (DOC-05); the
+  gmproj-format.md example shows v4 (DOC-06). Plus the one-class-per-file rule is
+  violated 50× by co-located result dataclasses (DOC-07/MAINT-05 — recommend
+  *amending the rule* to sanction co-located I/O dataclasses rather than splitting).
+* **#110 / #169** (Plaxis exporter dup) — `#169` resolved 4 shared methods; the audit
+  finds `_emit_boreholes` + `_emit_header` still duplicated byte-for-byte (DRY-02/03)
+  — finish the extraction into `plaxis_script_helpers.py`.
+* **#116 / #174 / #175** (test gaps) — add: `computeSectionFill` whole-section path
+  has 1 test (TEST-01); `parseProjectFile`/`isProjectFileV3` (the sole .strix
+  gatekeeper) has zero (TEST-02); the `SaveBodyBoundary` advisory-lock has no
+  contention test (TEST-05); no migration upgrade→downgrade→upgrade roundtrip across
+  75 migrations (TEST-08); a few impl-shaped / over-precise partition-fill assertions
+  (TEST-06/11); 5 permanently-skipped e2e specs untracked (TEST-07); sleep-based
+  Playwright waits (TEST-09); the Py↔TS dip-extrapolation mirror has no parity fixture
+  (DRY-04) and `LITHOLOGY_COLORS` TS↔Python parity is comment-enforced only (DRY-05).
+* **#178 / #201** (god-component splits) — the audit confirms growth beyond the
+  original four: `partitionFill.ts` (2,081 lines, classifier+geometry+coordinator),
+  the three 1,600+-line section overlays (PartitionFillOverlay / CorrelationEdgesOverlay
+  / LithoSuggestionGhostColumns), `geology.ts` (1,904 = types+client — split into
+  `.types`/`.client`), and two 700-/390-line `execute()` methods (MAINT-02/03/04/07/11).
+* **#16** (telemetry/crash reporting) — the renderer's structured-logging gaps
+  (OBS-05/06/09: zero logs in the partition-fill path; error-only API logging;
+  `log.debug` in catch blocks that "see console" toasts point at but production
+  suppresses) and the missing request-ID correlation (OBS-08) belong with the
+  observability work.
+
+### Declined (logged, not promoted)
+
+* **Dutch lithology token values** (NAME-11) — the reviewer flags `BaseLithology =
+  Literal["GRIND","ZAND",…]` etc. as English-only-rule violations. *Declined:* these
+  are token **values**, not identifiers, and the data-integrity rule explicitly says
+  store raw upstream tokens + translate at the presentation boundary — the current
+  state is sanctioned. An English canonical enum is a legitimate *deliberate* choice
+  for later, not automatic debt.
+* **Migration f-string SQL** (SEC-03/COR-05/DRY-08) — reaffirms the existing
+  "Sec1 — deferred" watch note (2026-06-01 batch): compile-time constants only, not
+  injectable; keep as a "don't extend this pattern" note, no fix.
+* **Domain `scipy.spatial.Delaunay` import** (ARCH-10), **abbreviation glossary**
+  (NAME-13), **`create_formation_only` boolean→enum** (NAME-12), **`display_color`
+  regex** (SEC-02) — Informational / cosmetic; record in the audit report, act only
+  if the area is touched for another reason.
+* **`recomputeAllAbsences` UI-unreachable use case** (KISS-08) — needs a *product*
+  decision (wire a visible verb vs delete 481 lines), not a code fix; raise with the
+  owner before acting.
 
 ## (end)
 
