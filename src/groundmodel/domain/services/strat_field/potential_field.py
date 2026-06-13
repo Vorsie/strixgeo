@@ -123,6 +123,13 @@ class PotentialField:
         numpy.ndarray
             A 1-D float ndarray of length ``len(xyz)``: the field value ``F`` at
             each query point.  Returns an empty float array for empty input.
+
+        Notes
+        -----
+        Points OUTSIDE the fit block are not checked; the RBF extrapolates them
+        (no error, no NaN).  Stage 4 only samples the field on a grid inside the
+        block, so this is safe; callers querying arbitrary points should clamp to
+        :attr:`block` themselves if extrapolation is undesirable.
         """
         points = np.asarray(xyz, dtype=float)
         if points.size == 0:
@@ -226,7 +233,23 @@ def _point_in_block(x: float, y: float, z: float, block: Block) -> bool:
 
 
 def _point_in_polygon(x: float, y: float, polygon: Sequence[tuple[float, float]]) -> bool:
-    """Even-odd ray-casting point-in-polygon test (inclusive on the left boundary).
+    """Even-odd ray-casting point-in-polygon test.
+
+    On-boundary behaviour is intentionally left undefined (the standard PIP
+    convention): a point exactly on an edge may test either way and callers must
+    not rely on it.  In v1 the only caller masks control points against the
+    whole-domain block, whose hull is built with a margin, so a control point
+    never lands exactly on the boundary.
+
+    Notes
+    -----
+    This duplicates the ray-cast in
+    :meth:`~groundmodel.domain.services.model_domain.ModelDomain.contains`
+    (which uses a strict ``<`` and so differs subtly on the boundary).  They are
+    NOT unified yet on purpose: ``model_domain`` is still shared with the loft
+    builder, whose hull-membership the strict variant feeds.  Unify both onto a
+    single ``domain`` geometry helper when the loft is retired (plan Task 9) — at
+    that point there is one consumer landscape and one boundary convention to pick.
 
     Parameters
     ----------
@@ -238,8 +261,7 @@ def _point_in_polygon(x: float, y: float, polygon: Sequence[tuple[float, float]]
     Returns
     -------
     bool
-        ``True`` if the point is inside (or on the tested boundary of) the
-        polygon.
+        ``True`` if the point is inside the polygon (boundary undefined).
     """
     n = len(polygon)
     inside = False

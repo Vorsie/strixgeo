@@ -100,6 +100,10 @@ class StratColumn:
         ValueError
             If no horizon in the column has the requested ``rank``.
         """
+        # Linear scan is the right trade-off: a typical column has < 20 horizons
+        # and this is called once per control point at fit time.  A prebuilt dict
+        # would need a non-frozen field or cached_property, both of which clash
+        # with frozen=True — not worth it at this N.
         for horizon in self.horizons:
             if horizon.rank == rank:
                 return horizon.iso_value

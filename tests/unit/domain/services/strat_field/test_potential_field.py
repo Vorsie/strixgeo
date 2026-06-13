@@ -16,10 +16,15 @@ implementation.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from groundmodel.domain.services.strat_field.potential_field import (
     PotentialField,
     fit_potential_field,
+)
+from groundmodel.domain.services.strat_field.strat_types import (
+    StratColumn,
+    StratControlData,
 )
 from tests.unit.domain.services.strat_field.fixtures import (
     BoreholeProbe,
@@ -81,7 +86,9 @@ def _isosurface_depth(
     vals = field.evaluate([(x, y, float(z)) for z in zs])
     for i in range(len(zs) - 1):
         v0, v1 = vals[i], vals[i + 1]
-        # F increases with depth, so going DOWN (i → i+1) v should rise through iso.
+        # The bracket test below catches the crossing for EITHER direction (a
+        # monotone rising field or a non-monotone bubble); the first crossing
+        # found going down is returned.  F normally rises with depth here.
         if (v0 - iso) <= 0.0 <= (v1 - iso) or (v0 - iso) >= 0.0 >= (v1 - iso):
             frac = 0.0 if v1 == v0 else (iso - v0) / (v1 - v0)
             z_cross = zs[i] + frac * (zs[i + 1] - zs[i])
@@ -235,3 +242,34 @@ def test_single_block_masks_to_the_block_domain() -> None:
     cz = 0.5 * (block.z_min + block.z_max)
     out = field.evaluate([(cx, cy, cz)])
     assert np.all(np.isfinite(out))
+
+
+# ---------------------------------------------------------------------------
+# Structural error / boundary paths
+# ---------------------------------------------------------------------------
+
+
+def test_fit_requires_exactly_one_block() -> None:
+    """v1 fits a single block; zero or many blocks is an actionable error."""
+    control, _order, _holes = interbedded_control_with_holes()
+    with pytest.raises(ValueError, match="one block"):
+        fit_potential_field(control, blocks=[])
+    block = interbedded_block()
+    with pytest.raises(ValueError, match="one block"):
+        fit_potential_field(control, blocks=[block, block])
+
+
+def test_fit_with_no_control_points_raises() -> None:
+    """A column with no internal contacts has nothing to constrain — fail clearly."""
+    empty = StratControlData(points=(), orientations=(), column=StratColumn(horizons=()))
+    with pytest.raises(ValueError, match="no control points"):
+        fit_potential_field(empty, blocks=[interbedded_block()])
+
+
+def test_evaluate_empty_returns_empty_array() -> None:
+    """Evaluating zero query points returns an empty 1-D float array, not a crash."""
+    control, _order, _holes = interbedded_control_with_holes()
+    field = fit_potential_field(control, blocks=[interbedded_block()])
+    out = field.evaluate([])
+    assert out.shape == (0,)
+    assert out.dtype == float
