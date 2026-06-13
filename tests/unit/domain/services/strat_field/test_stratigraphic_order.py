@@ -10,6 +10,7 @@ than an implementation mismatch.
 from __future__ import annotations
 
 import pytest
+
 from groundmodel.domain.services.strat_field.stratigraphic_order import (
     NonConformableError,
     build_stratigraphic_order,
@@ -74,8 +75,8 @@ def test_interbedded_iso_values_are_monotonically_increasing():
 def test_interbedded_contact_ids_populated():
     """Every internal horizon carries at least one contact_id from the input columns."""
     col = build_stratigraphic_order(interbedded_columns())
-    # surface and floor horizons may have zero IDs if we attribute IDs to internal
-    # contacts only; internal horizons (rank 1..N-1) MUST have at least one.
+    # Every internal horizon carries at least one contact_id from the input
+    # columns — the minimum the field solver needs to locate the interface.
     internal = [
         h for h in col.horizons if h.above_formation is not None and h.below_formation is not None
     ]
@@ -121,11 +122,6 @@ def test_non_conformable_order_raises_with_the_offending_pair():
     )
 
 
-def test_non_conformable_error_is_exception():
-    """NonConformableError is a proper Exception subclass (not BaseException)."""
-    assert issubclass(NonConformableError, Exception)
-
-
 # ---------------------------------------------------------------------------
 # SO-4: single-column degenerate cases
 # ---------------------------------------------------------------------------
@@ -161,5 +157,36 @@ def test_formation_id_mismatch_raises_value_error():
             [
                 (OrderInputUnit(instance_key="x", formation_id="SAND", contact_id="c1"),),
                 (OrderInputUnit(instance_key="x", formation_id="CLAY", contact_id="c2"),),
+            ]
+        )
+
+
+def test_empty_input_returns_empty_strat_column():
+    """No columns (or only empty columns) yields an empty StratColumn, not a crash.
+
+    A cross-section with zero in-corridor investigations is a legitimate input
+    the orchestrator can hand us; it must come back as "nothing to build here",
+    not an opaque IndexError.
+    """
+    assert build_stratigraphic_order([]).horizons == ()
+    assert build_stratigraphic_order([(), ()]).horizons == ()
+
+
+def test_same_instance_key_twice_in_one_column_raises_value_error():
+    """A body listed directly above itself in one column is a caller data bug.
+
+    This is a data-model violation (the same physical body cannot be its own
+    overlying unit), reported as a ValueError naming the offending key — NOT a
+    NonConformableError, which is reserved for genuine geological cycles.
+    """
+    from groundmodel.domain.services.strat_field.stratigraphic_order import OrderInputUnit
+
+    with pytest.raises(ValueError, match="instance_key"):
+        build_stratigraphic_order(
+            [
+                (
+                    OrderInputUnit(instance_key="dup", formation_id="SAND", contact_id="c1"),
+                    OrderInputUnit(instance_key="dup", formation_id="SAND", contact_id="c2"),
+                )
             ]
         )

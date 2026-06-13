@@ -141,8 +141,10 @@ def build_stratigraphic_order(
     ------
     ValueError
         If the same ``instance_key`` maps to two different ``formation_id`` values
-        across the input columns.  The message contains the substring ``instance_key``
-        so callers can identify this error class programmatically.
+        across the input columns, or if a single column lists the same
+        ``instance_key`` in two consecutive positions (a body directly above
+        itself).  The message contains the substring ``instance_key`` so callers
+        can identify this error class programmatically.
     NonConformableError
         If the aggregate DAG contains a directed cycle (a non-conformable boundary,
         fault, or unconformity).  The message names every ``formation_id`` involved
@@ -156,6 +158,13 @@ def build_stratigraphic_order(
     # accumulate contact_ids as a list so multiple investigations that
     # pick up the same body all contribute their top-contact id.
     # ------------------------------------------------------------------
+    # Degenerate input: no columns, or only empty columns (e.g. a section with
+    # zero in-corridor investigations).  Return an empty column rather than
+    # crashing on ``ordered_keys[0]`` below — the caller treats an empty
+    # StratColumn as "nothing to build here".
+    if not any(column for column in columns):
+        return StratColumn(horizons=())
+
     formation_by_key: dict[str, str] = {}
     contacts_by_key: dict[str, list[str]] = {}
 
@@ -192,6 +201,15 @@ def build_stratigraphic_order(
         for i in range(len(column) - 1):
             above_key = column[i].instance_key
             below_key = column[i + 1].instance_key
+            # A self-edge means the same body appears twice in one column — a
+            # caller data-model bug, not a geological fault.  Reject it with a
+            # clear ValueError rather than letting it surface downstream as a
+            # confusing self-referential NonConformableError cycle.
+            if above_key == below_key:
+                raise ValueError(
+                    f"instance_key {above_key!r} appears consecutively within one "
+                    "column (a body cannot be directly above itself)"
+                )
             predecessors[below_key].add(above_key)
 
     # Build sorter with predecessors in sorted order for determinism.

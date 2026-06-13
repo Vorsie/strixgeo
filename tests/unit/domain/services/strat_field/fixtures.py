@@ -51,7 +51,9 @@ def interbedded_columns() -> list[tuple[OrderInputUnit, ...]]:
     - ``klei1``  — basal KLEI unit (oldest / deepest)
 
     All three columns carry all five instances in the same top-down order,
-    but depths vary by ±1–3 m column-to-column to simulate dipping contacts.
+    with distinct ``contact_id`` per column (three separate investigation picks
+    of the same bodies).  Depths/coordinates arrive in Stage 2; at Stage 1 only
+    the instance order and identity matter.
 
     Returns
     -------
