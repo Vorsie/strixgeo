@@ -71,8 +71,13 @@ from groundmodel.domain.services.strat_field.control_data import (
     InvestigationColumn,
     build_control_data,
 )
+from groundmodel.domain.services.strat_field.potential_field import (
+    PotentialField,
+    fit_potential_field,
+)
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,
+    Horizon,
     StratColumn,
     StratControlData,
 )
@@ -685,3 +690,296 @@ def dipping_block() -> Block:
         Rectangular prism covering ``dipping_columns_with_xyz`` + margin.
     """
     return _block_from_columns(dipping_columns_with_xyz())
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — isosurface-extraction fixtures (small grids for fast marching cubes)
+# ---------------------------------------------------------------------------
+
+# The Stage-3 ``interbedded_block`` spans ~500 m × ~100 m × ~20 m, which at a
+# 1 m grid is ~1 M points — too slow for a unit test.  Stage 4's nesting / shape
+# tests only need a small block over the SAME interbedded field, so we fit the
+# field on the real (wide-apart) control points but extract over a compact block
+# centred on the western column.  The field is still the genuine RBF fit through
+# the benign, monotone interbedded control, so the nesting invariant holds.
+
+# A compact extraction block centred on the western interbedded column.  Small
+# enough that a 1 m grid is ~10×10×16 ≈ 1.6 k points (sub-second marching cubes),
+# while still bracketing the interior iso-values 1..4 vertically (those contacts
+# sit between z ≈ +3 and z ≈ -3 at this column, see interbedded_columns_with_xyz).
+_INTER_S4_HALF_WIDTH_M = 5.0
+_INTER_S4_Z_MIN = -6.0
+_INTER_S4_Z_MAX = 6.0
+
+
+def interbedded_extraction_block() -> Block:
+    """A small block over the interbedded field for fast Stage-4 extraction.
+
+    A compact prism centred on the western interbedded column (``bh-A`` at
+    ``(200_000, 200_000)``), spanning ``±5 m`` horizontally and ``[-6, +6] m``
+    vertically.  At a 1 m grid this is a few thousand points — fast enough for a
+    unit test — while still bracketing the interior contacts (iso-values 1..4),
+    which sit between roughly ``+3 m`` and ``-3 m`` at this column.
+
+    Returns
+    -------
+    Block
+        The compact extraction block.
+    """
+    cx, cy = _INTER_COL_A_X, _INTER_COL_A_Y
+    h = _INTER_S4_HALF_WIDTH_M
+    polygon = (
+        (cx - h, cy - h),
+        (cx + h, cy - h),
+        (cx + h, cy + h),
+        (cx - h, cy + h),
+    )
+    return Block(polygon=polygon, z_min=_INTER_S4_Z_MIN, z_max=_INTER_S4_Z_MAX)
+
+
+def interbedded_field_and_domain() -> tuple[PotentialField, StratColumn, Block]:
+    """Fit the interbedded potential field and return it with a small extraction block.
+
+    The field is fit on the FULL interbedded control (the real, wide-apart
+    borehole picks — a benign, monotone configuration that passes the Stage-3
+    gate, so the extracted isosurfaces nest without crossing).  The returned
+    ``domain`` is the compact :func:`interbedded_extraction_block`, so the
+    Stage-4 tests run a small, fast grid over a genuine fitted field.
+
+    Returns
+    -------
+    (PotentialField, StratColumn, Block)
+        The fitted field, the interbedded stratigraphic column, and the compact
+        extraction block.
+    """
+    order = build_stratigraphic_order(interbedded_columns())
+    xyz_columns = interbedded_columns_with_xyz()
+    control = build_control_data(xyz_columns, [], order)
+    domain = interbedded_extraction_block()
+    field = fit_potential_field(control, [domain])
+    return field, order, domain
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — analytic pinch field (a genuinely terminating lens surface)
+# ---------------------------------------------------------------------------
+
+# The pinch test needs an isosurface that is present in only PART of the domain.
+# A scattered-data RBF through a single lens pick still extrapolates smoothly
+# across the whole block (the lens iso would span everywhere), so it would not
+# genuinely pinch.  Instead we build a small ANALYTIC field whose lens iso-value
+# is reached only in a central x-band:
+#
+#   F(x, y, z) = base(z) + bump(x)
+#       base(z) = 3 * (z_max - z) / (z_max - z_min)   -> 0 at top, 3 at bottom
+#       bump(x) = 4 * exp(-((x - x_mid) / 4)^2)        -> peak 4 in the middle,
+#                                                          ~0 at the edges
+#
+# The MATRIX iso-values (1, 2) lie within base's [0, 3] range, so those surfaces
+# span the whole domain.  The LENS iso-value (5) exceeds base's max (3); it is
+# reached only where bump(x) lifts F into range, i.e. where bump(x) ∈ [2, 5] —
+# a central band.  Outside that band F never reaches 5, so marching cubes finds
+# no lens surface there: a real, geometric pinch-out.
+
+_PINCH_X_MIN = 0.0
+_PINCH_X_MAX = 30.0
+_PINCH_Y_MIN = 0.0
+_PINCH_Y_MAX = 10.0
+_PINCH_Z_MIN = 0.0
+_PINCH_Z_MAX = 10.0
+_PINCH_X_MID = 15.0  # centre of the lens band
+_PINCH_LENS_RANK = 2  # the interior horizon whose iso is the lens iso-value
+_PINCH_MATRIX_RANK = 1  # an interior horizon that spans the whole domain
+
+
+class _AnalyticPinchField:
+    """A tiny analytic potential field with one laterally-pinching isosurface.
+
+    Mimics the :class:`PotentialField` ``evaluate`` interface (a vectorised
+    ``(N, 3) -> (N,)`` field) so :func:`extract_isosurfaces` consumes it
+    unchanged.  Constructed so that the matrix iso-values span the whole block
+    while the lens iso-value is reached only in a central x-band.
+
+    Parameters
+    ----------
+    z_min, z_max : float
+        Vertical span used to normalise the depth-increasing ``base`` term.
+    x_mid : float
+        Centre of the Gaussian ``bump`` that creates the lens band.
+    """
+
+    def __init__(self, z_min: float, z_max: float, x_mid: float) -> None:
+        self._z_min = z_min
+        self._z_max = z_max
+        self._x_mid = x_mid
+
+    def evaluate(self, xyz: object) -> object:
+        """Evaluate the analytic field at a batch of ``(x, y, z)`` points.
+
+        Parameters
+        ----------
+        xyz : array-like of shape (N, 3)
+            Query points; only the x and z columns affect the field.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field value at each point.
+        """
+        import numpy as _np
+
+        pts = _np.asarray(xyz, dtype=float).reshape(-1, 3)
+        x = pts[:, 0]
+        z = pts[:, 2]
+        base = 3.0 * (self._z_max - z) / (self._z_max - self._z_min)
+        bump = 4.0 * _np.exp(-(((x - self._x_mid) / 4.0) ** 2))
+        return base + bump
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — analytic nested field (clean, monotone, gently-dipping contacts)
+# ---------------------------------------------------------------------------
+
+# The nesting / one-surface-per-horizon tests need a field whose contacts are
+# guaranteed to nest (a shallower-rank contact always above a deeper-rank one).
+# A scattered-data RBF only nests near its control points; a SMALL block around a
+# single borehole is poorly constrained laterally and bubbles off-axis (the
+# documented Stage-3 limitation), which is a property of the RBF, not of Stage 4.
+# So the nesting invariant is pinned on a clean analytic field that is monotone
+# in z by construction with a gentle x-dip, exactly the "benign nested surfaces"
+# shape the invariant is supposed to hold on.
+
+_NEST_X_MIN = 0.0
+_NEST_X_MAX = 20.0
+_NEST_Y_MIN = 0.0
+_NEST_Y_MAX = 20.0
+_NEST_Z_MIN = -6.0
+_NEST_Z_MAX = 6.0
+
+
+class _AnalyticNestedField:
+    """A monotone-in-depth analytic field with gently dipping, well-nested contacts.
+
+    ``F(x, y, z) = (z_ref - z) + dip * (x - x_ref)`` increases strictly with
+    depth everywhere (the ``-z`` term), so the iso-surfaces never cross: a higher
+    iso-value is always reached deeper.  The ``dip`` term tilts every contact
+    gently in +x without ever reversing the depth monotonicity, so the surfaces
+    are non-trivial (not perfectly flat) yet provably nested.
+
+    Mimics :class:`PotentialField`'s ``evaluate`` so :func:`extract_isosurfaces`
+    consumes it unchanged.
+
+    Parameters
+    ----------
+    z_ref : float
+        Elevation at which the un-dipped field equals zero.
+    x_ref : float
+        Easting at which the dip term contributes zero.
+    dip : float
+        Field change per metre of +x (a small value keeps the contacts gently
+        dipping rather than steep).
+    """
+
+    def __init__(self, z_ref: float, x_ref: float, dip: float) -> None:
+        self._z_ref = z_ref
+        self._x_ref = x_ref
+        self._dip = dip
+
+    def evaluate(self, xyz: object) -> object:
+        """Evaluate the analytic nested field at a batch of ``(x, y, z)`` points."""
+        import numpy as _np
+
+        pts = _np.asarray(xyz, dtype=float).reshape(-1, 3)
+        x = pts[:, 0]
+        z = pts[:, 2]
+        return (self._z_ref - z) + self._dip * (x - self._x_ref)
+
+
+def nested_field_and_domain() -> tuple[_AnalyticNestedField, StratColumn, Block]:
+    """Build a clean analytic nested field, a matching column, and its block.
+
+    The column has interior contacts at ranks 1, 2, 3 with iso-values 1.0, 2.0,
+    3.0; the analytic field reaches each of those deeper than the previous, so
+    the surfaces nest without crossing.  Rank 0 (surface) and rank 4 (floor) are
+    caps that Stage 4 skips.
+
+    Returns
+    -------
+    (_AnalyticNestedField, StratColumn, Block)
+        The analytic field, a 5-horizon column whose interior iso-values it
+        spans, and the block.
+    """
+    x_ref = (_NEST_X_MIN + _NEST_X_MAX) / 2.0
+    # z_ref at mid-height, small dip so contacts tilt gently across the 20 m span.
+    field = _AnalyticNestedField(z_ref=0.0, x_ref=x_ref, dip=0.05)
+
+    # Interior iso-values 1, 2, 3 all sit within the field's z-range at the block
+    # so all three contacts extract; ranks 0 and 4 are caps (skipped).
+    column = StratColumn(
+        horizons=(
+            Horizon(0, 0.0, None, "ZAND", ("surf",)),
+            Horizon(1, 1.0, "ZAND", "SILT", ("c1",)),
+            Horizon(2, 2.0, "SILT", "ZAND", ("c2",)),
+            Horizon(3, 3.0, "ZAND", "KLEI", ("c3",)),
+            Horizon(4, 4.0, "KLEI", None, ()),
+        )
+    )
+    polygon = (
+        (_NEST_X_MIN, _NEST_Y_MIN),
+        (_NEST_X_MAX, _NEST_Y_MIN),
+        (_NEST_X_MAX, _NEST_Y_MAX),
+        (_NEST_X_MIN, _NEST_Y_MAX),
+    )
+    domain = Block(polygon=polygon, z_min=_NEST_Z_MIN, z_max=_NEST_Z_MAX)
+    return field, column, domain
+
+
+def pinch_field_and_domain() -> tuple[_AnalyticPinchField, StratColumn, Block]:
+    """Build the analytic pinch field, a matching column, and its block.
+
+    The returned :class:`StratColumn` is hand-built so that its interior
+    horizons carry the iso-values the analytic field uses: rank
+    ``_PINCH_MATRIX_RANK`` (iso 1.0, a matrix contact spanning the whole domain)
+    and rank ``_PINCH_LENS_RANK`` (iso 5.0, the lens contact present only in the
+    central x-band).  Rank 0 (surface) and rank 3 (floor) are caps, skipped by
+    Stage 4.
+
+    Returns
+    -------
+    (_AnalyticPinchField, StratColumn, Block)
+        The analytic field, a column whose interior iso-values match it, and the
+        block spanning the analytic domain.
+    """
+    field = _AnalyticPinchField(_PINCH_Z_MIN, _PINCH_Z_MAX, _PINCH_X_MID)
+
+    # A 4-horizon column (3 instances): surface (rank 0), matrix contact (rank 1,
+    # iso 1.0), lens contact (rank 2, iso 5.0), floor (rank 3).  Only the interior
+    # ranks 1 and 2 are extracted by Stage 4.  iso-values are chosen to match the
+    # analytic field's matrix-vs-lens ranges, NOT the rank-as-iso Stage-1 default.
+    column = StratColumn(
+        horizons=(
+            Horizon(0, 0.0, None, "SAND", ("surf",)),
+            Horizon(_PINCH_MATRIX_RANK, 1.0, "SAND", "SILT", ("matrix",)),
+            Horizon(_PINCH_LENS_RANK, 5.0, "SILT", "KLEI", ("lens",)),
+            Horizon(3, 9.0, "KLEI", None, ()),
+        )
+    )
+
+    polygon = (
+        (_PINCH_X_MIN, _PINCH_Y_MIN),
+        (_PINCH_X_MAX, _PINCH_Y_MIN),
+        (_PINCH_X_MAX, _PINCH_Y_MAX),
+        (_PINCH_X_MIN, _PINCH_Y_MAX),
+    )
+    domain = Block(polygon=polygon, z_min=_PINCH_Z_MIN, z_max=_PINCH_Z_MAX)
+    return field, column, domain
+
+
+def pinch_lens_rank() -> int:
+    """Return the rank of the laterally-pinching lens horizon in the pinch fixture."""
+    return _PINCH_LENS_RANK
+
+
+def pinch_domain_width_m() -> float:
+    """Return the full x-extent (metres) of the analytic pinch domain."""
+    return _PINCH_X_MAX - _PINCH_X_MIN
