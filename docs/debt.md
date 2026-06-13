@@ -15,6 +15,24 @@ explicit gate**. Within every group the order is also strict priority.
 This list is the canonical ordering, not the numeric order of the
 sections that follow.
 
+### ═══ Full-repo audit — 2026-06-13 (read + triage) ═══
+
+* **Audit report:** [`DEBT.md`](../DEBT.md) (repo root) — a point-in-time
+  13-reviewer read-only audit of `develop` tip `1f52db38`. 121 findings
+  (0 Critical, 14 High, 42 Medium, 36 Low, 29 Info) across architecture,
+  security, correctness, dead code, testing, performance, dependencies,
+  maintainability, DRY, KISS, naming, observability, docs. **TODO: read
+  it and fix where necessary** — the report is an unfiltered snapshot, so
+  triage first (some findings are disputed / deliberate-design / false-
+  positive-adjacent), then promote the accepted ones into this list in
+  the Tier/What/Why/When format. Highest-signal clusters flagged there:
+  the body-extent-retirement shrapnel (live "Open end"/"Pinch out"/"Name
+  body" gestures 404 against a deleted endpoint), the `seeded_formation_
+  contact_ids` lost-update race, the section-fill geometry recomputing
+  every pan/zoom frame, and README/CLAUDE.md/api.md doc drift. **When to
+  revisit:** before the coworker binary (the audit's "Phase 0" quick wins
+  are the pre-distribution blockers).
+
 ### ═══ G. Before the Geotech stage — finish the litho stage ═══
 
 The litho ghost-review workflow must be solid before geotech
