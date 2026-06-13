@@ -298,13 +298,23 @@ class RecomputeLithoSolids(GroundModelLogger):
         mesh_body_ids = {m.body_id for m in meshes}
         self.info(f"RecomputeLithoSolids: model={model_id} — loft produced {len(meshes)} mesh(es)")
 
-        # Bodies present in the picks but on NO section: cannot shape the loft.
-        # Emit a flagged, empty row ("draw a section through these tests").  A
-        # body that shaped the loft has a mesh keyed by its real id; the
-        # ``none:<fid>`` synthetic ids never appear in the picks, so the
-        # difference is exactly the real pick bodies absent from every section.
+        # Bodies that produced no volume → flag an empty row ("draw a section
+        # through these tests").  Two cases:
+        #  * the loft built nothing at all (too few / collinear tests, or no
+        #    section — the domain is unbuildable): flag EVERY body; or
+        #  * the loft built, but a body has no investigation on any section
+        #    corridor (section presence is GEOMETRIC per spec §3 — a body is
+        #    present iff a test projects onto a corridor).
+        # Mesh-id presence is the WRONG signal: a body that shaped the loft only
+        # as a re-keyed (``#b<k>``) or aggregated minority (``none:<fid>``) mesh
+        # has lost its resolver id, so an id-difference would flag it spuriously.
+        on_section_inv = assembly.on_section_investigation_ids
         pick_body_ids = {p.body_id for p in picks}
-        sectionless_body_ids = pick_body_ids - mesh_body_ids
+        if not meshes:
+            sectionless_body_ids = set(pick_body_ids)
+        else:
+            section_present = {p.body_id for p in picks if p.investigation_id in on_section_inv}
+            sectionless_body_ids = pick_body_ids - section_present
         formation_by_body = {p.body_id: p.formation_id for p in picks}
         self.info(
             f"RecomputeLithoSolids: model={model_id} — "

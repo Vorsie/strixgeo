@@ -105,11 +105,18 @@ class LoftAssembly:
     band_surfaces : list[BandSurface]
         Geological band surfaces bounding the litho fill, top → deep.  Empty
         when the model has no parent geological model.
+    on_section_investigation_ids : set[str]
+        Every investigation id that projects onto at least one section
+        corridor.  A resolver body is section-PRESENT (and so shapes the loft)
+        iff one of its investigations is in this set — the spec's definition of
+        section presence is geometric (test projection), independent of which
+        body id the partition later assigns the volume.
     """
 
     sections: list[SectionInput]
     tests: list[DomainTest]
     band_surfaces: list[BandSurface]
+    on_section_investigation_ids: set[str]
 
 
 class AssembleLoftInputs(GroundModelLogger):
@@ -149,7 +156,9 @@ class AssembleLoftInputs(GroundModelLogger):
         model = await self._session.get(GeologicalModelOrm, model_id)
         if model is None:
             self.warning(f"AssembleLoftInputs: model {model_id} not found")
-            return LoftAssembly(sections=[], tests=[], band_surfaces=[])
+            return LoftAssembly(
+                sections=[], tests=[], band_surfaces=[], on_section_investigation_ids=set()
+            )
 
         # --- Accepted layers (the partition unit stacks) ---
         layer_rows = list(
@@ -174,7 +183,9 @@ class AssembleLoftInputs(GroundModelLogger):
         )
         if not layer_rows:
             self.info(f"AssembleLoftInputs: model={model_id} — no accepted layers")
-            return LoftAssembly(sections=[], tests=[], band_surfaces=[])
+            return LoftAssembly(
+                sections=[], tests=[], band_surfaces=[], on_section_investigation_ids=set()
+            )
 
         # --- Anchor coordinates (bulk-load by id, same source as load_body_picks) ---
         anchors = await self._load_anchors(layer_rows)
@@ -234,7 +245,12 @@ class AssembleLoftInputs(GroundModelLogger):
             f"AssembleLoftInputs: model={model_id} — {len(sections)} section(s), "
             f"{len(tests)} on-section test(s), {len(band_surfaces)} band surface(s)"
         )
-        return LoftAssembly(sections=sections, tests=tests, band_surfaces=band_surfaces)
+        return LoftAssembly(
+            sections=sections,
+            tests=tests,
+            band_surfaces=band_surfaces,
+            on_section_investigation_ids=on_section_ids,
+        )
 
     # -----------------------------------------------------------------
     # Anchor loading

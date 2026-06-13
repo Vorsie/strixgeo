@@ -449,8 +449,10 @@ async def test_two_investigation_body_is_flagged(
     db_session: AsyncSession,
     scene: dict,
 ) -> None:
-    """A body with exactly 2 investigations cannot form a valid TIN and must
-    be emitted as a flagged slab (``is_flagged=True``, ``bodies_flagged==1``).
+    """A body whose model has too few tests for the loft to frame a 3-D domain
+    (< 3 non-collinear) builds no mesh, so every body is emitted as a flagged
+    empty row (``is_flagged=True``, ``bodies_flagged>=1``) — the loft's
+    "draw a section through these tests" actionable signal.
     """
     proj = scene["project"]
     litho = scene["litho"]
