@@ -238,7 +238,12 @@ test.describe('flow_litho_solids', () => {
 
       // Button becomes disabled while building; wait for it to re-enable.
       // Uses toBeEnabled (inverse of disabled) which Playwright auto-waits on.
-      await expect(buildBtn).toBeEnabled({ timeout: 30_000 })
+      // The watertight-loft builder grids the whole map-plane domain and
+      // evaluates the blended column stack once per node, so a real fixture-
+      // sized model takes ~10 s on the backend; the renderer then refetches and
+      // re-renders every body mesh in Cesium. Under e2e load (Electron + WebGL)
+      // the round-trip can approach a minute, so the re-enable wait is 90 s.
+      await expect(buildBtn).toBeEnabled({ timeout: 90_000 })
 
       // -----------------------------------------------------------------------
       // 9. No error overlay after the build completes.
