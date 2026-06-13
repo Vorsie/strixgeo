@@ -44,6 +44,27 @@ def test_strat_column_exposes_horizons_top_down():
     assert [h.rank for h in col.horizons] == [0, 1]
 
 
+def test_strat_column_iso_value_returns_the_horizons_iso_value():
+    """``iso_value(rank)`` returns the iso-value of the horizon at that rank."""
+    col = StratColumn(
+        horizons=(
+            Horizon(0, 0.0, None, "SAND", ("c0",)),
+            Horizon(1, 1.0, "SAND", "CLAY", ("c1",)),
+            Horizon(2, 2.0, "CLAY", None, ()),
+        )
+    )
+    assert col.iso_value(0) == 0.0
+    assert col.iso_value(1) == 1.0
+    assert col.iso_value(2) == 2.0
+
+
+def test_strat_column_iso_value_raises_for_an_absent_rank():
+    """``iso_value`` raises ValueError when no horizon has the requested rank."""
+    col = StratColumn(horizons=(Horizon(0, 0.0, None, "SAND", ("c0",)),))
+    with pytest.raises(ValueError, match="rank"):
+        col.iso_value(7)
+
+
 def test_control_point_carries_horizon_rank():
     """ControlPoint stores the horizon_rank that the solver will constrain."""
     p = ControlPoint(x=1.0, y=2.0, z=-3.0, horizon_rank=1)

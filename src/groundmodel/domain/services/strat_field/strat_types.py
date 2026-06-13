@@ -75,6 +75,39 @@ class StratColumn:
 
     horizons: tuple[Horizon, ...]
 
+    def iso_value(self, rank: int) -> float:
+        """Return the scalar iso-value of the horizon at ``rank``.
+
+        The iso-value is the constant the potential field equals on that
+        horizon's isosurface (``F = iso_value(rank)`` everywhere on the
+        contact).  Stages 3–6 reference horizons by rank and need their
+        iso-value to evaluate / extract the field; this accessor is the
+        single source of truth for that lookup.
+
+        Parameters
+        ----------
+        rank : int
+            The :attr:`Horizon.rank` to look up.
+
+        Returns
+        -------
+        float
+            The :attr:`Horizon.iso_value` of the horizon whose ``rank``
+            equals the argument.
+
+        Raises
+        ------
+        ValueError
+            If no horizon in the column has the requested ``rank``.
+        """
+        for horizon in self.horizons:
+            if horizon.rank == rank:
+                return horizon.iso_value
+        raise ValueError(
+            f"no horizon with rank {rank!r} in this StratColumn "
+            f"(ranks present: {sorted(h.rank for h in self.horizons)!r})"
+        )
+
 
 @dataclass(frozen=True)
 class ControlPoint:

@@ -64,11 +64,22 @@ two_columns_with_xyz
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from groundmodel.domain.services.strat_field.control_data import (
     ContactObservation,
     InvestigationColumn,
+    build_control_data,
 )
-from groundmodel.domain.services.strat_field.stratigraphic_order import OrderInputUnit
+from groundmodel.domain.services.strat_field.strat_types import (
+    Block,
+    StratColumn,
+    StratControlData,
+)
+from groundmodel.domain.services.strat_field.stratigraphic_order import (
+    OrderInputUnit,
+    build_stratigraphic_order,
+)
 
 # ---------------------------------------------------------------------------
 # Stage 1 — interbedded_columns
@@ -446,3 +457,231 @@ def two_columns_with_xyz() -> list[InvestigationColumn]:
     )
 
     return [col_a, col_b]
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — control + holes builders (the potential-field gate fixtures)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BoreholeProbe:
+    """A vertical probe down one investigation, for the monotonicity gate.
+
+    Carries the map position and surface elevation of a borehole/CPT together
+    with a dense descending sample of (x, y, z) points and the observed
+    internal contacts.  The Stage-3 tests evaluate the fitted potential field
+    at ``xyz_descending`` (which must be non-decreasing down the hole) and at
+    each contact elevation (where ``F`` must cross that horizon's iso-value).
+
+    Parameters
+    ----------
+    investigation_id : str
+        Identifier of the source investigation (for assertion messages).
+    x : float
+        Easting in metres (project CRS).
+    y : float
+        Northing in metres (project CRS).
+    surface : float
+        Ground surface elevation in metres (positive upward, TAW/NAP datum).
+    xyz_descending : tuple of (float, float, float)
+        Vertical samples from the surface DOWN to the deepest contact (a few
+        metres apart), at this hole's (x, y).  Strictly descending in z.
+    observed_contacts : tuple of (int, float)
+        ``(horizon_rank, depth_m)`` for each INTERNAL contact in this hole.
+        The contact elevation is ``surface - depth_m``; the field must cross
+        that horizon's iso-value there.
+    """
+
+    investigation_id: str
+    x: float
+    y: float
+    surface: float
+    xyz_descending: tuple[tuple[float, float, float], ...]
+    observed_contacts: tuple[tuple[int, float], ...]
+
+
+def _probes_from_columns(
+    columns: list[InvestigationColumn],
+    order: StratColumn,
+    *,
+    extra_margin_m: float = 1.0,
+    sample_step_m: float = 1.0,
+) -> list[BoreholeProbe]:
+    """Build descending probes from investigation columns + the stratigraphic order.
+
+    The observed depths come straight from the same columns that produced the
+    control data, so the contact elevations the gate checks are exactly the
+    elevations the field was constrained to — no independent numbers to drift.
+
+    Parameters
+    ----------
+    columns : list of InvestigationColumn
+        The same columns passed to ``build_control_data``.
+    order : StratColumn
+        The stratigraphic column, used to resolve each contact_id to its rank
+        and to skip the surface (rank 0) + floor (rank N) horizons (which carry
+        no internal control points).
+    extra_margin_m : float, optional
+        Extra depth sampled below the deepest internal contact, so the probe
+        spans past the last constraint.  Default 1.0 m.
+    sample_step_m : float, optional
+        Vertical spacing of the descending samples.  Default 1.0 m.
+
+    Returns
+    -------
+    list of BoreholeProbe
+        One probe per investigation column.
+    """
+    rank_by_contact_id: dict[str, int] = {}
+    n_horizons = len(order.horizons)
+    floor_rank = n_horizons - 1
+    for horizon in order.horizons:
+        for cid in horizon.contact_ids:
+            rank_by_contact_id[cid] = horizon.rank
+
+    probes: list[BoreholeProbe] = []
+    for col in columns:
+        observed: list[tuple[int, float]] = []
+        deepest_depth = 0.0
+        for unit in col.units:
+            rank = rank_by_contact_id.get(unit.contact_id)
+            if rank is None or not (1 <= rank < floor_rank):
+                continue
+            observed.append((rank, unit.top_depth_m))
+            deepest_depth = max(deepest_depth, unit.top_depth_m)
+
+        # Dense descending samples from the surface down past the deepest contact.
+        z_top = col.surface_elev_m
+        z_bottom = col.surface_elev_m - (deepest_depth + extra_margin_m)
+        samples: list[tuple[float, float, float]] = []
+        z = z_top
+        while z >= z_bottom - 1e-9:
+            samples.append((col.x, col.y, z))
+            z -= sample_step_m
+
+        probes.append(
+            BoreholeProbe(
+                investigation_id=col.investigation_id,
+                x=col.x,
+                y=col.y,
+                surface=col.surface_elev_m,
+                xyz_descending=tuple(samples),
+                observed_contacts=tuple(observed),
+            )
+        )
+    return probes
+
+
+def _block_from_columns(
+    columns: list[InvestigationColumn],
+    *,
+    xy_margin_m: float = 50.0,
+    z_margin_m: float = 5.0,
+) -> Block:
+    """Build the v1 single ``Block`` bounding all investigation columns.
+
+    The polygon is the axis-aligned bounding rectangle of the column (x, y)
+    positions inflated by ``xy_margin_m``; z_min/z_max bracket the deepest /
+    shallowest contact elevation with ``z_margin_m`` of head-/foot-room.
+
+    Parameters
+    ----------
+    columns : list of InvestigationColumn
+        The investigation columns whose extent defines the block.
+    xy_margin_m : float, optional
+        Horizontal margin added on every side of the bounding rectangle.
+    z_margin_m : float, optional
+        Vertical margin added above the shallowest and below the deepest
+        contact elevation.
+
+    Returns
+    -------
+    Block
+        A rectangular prism that brackets the control data with a margin.
+    """
+    xs = [c.x for c in columns]
+    ys = [c.y for c in columns]
+    elevs: list[float] = []
+    for c in columns:
+        for unit in c.units:
+            elevs.append(c.surface_elev_m - unit.top_depth_m)
+        elevs.append(c.surface_elev_m)
+
+    x_min, x_max = min(xs) - xy_margin_m, max(xs) + xy_margin_m
+    y_min, y_max = min(ys) - xy_margin_m, max(ys) + xy_margin_m
+    polygon = (
+        (x_min, y_min),
+        (x_max, y_min),
+        (x_max, y_max),
+        (x_min, y_max),
+    )
+    return Block(
+        polygon=polygon,
+        z_min=min(elevs) - z_margin_m,
+        z_max=max(elevs) + z_margin_m,
+    )
+
+
+def interbedded_control_with_holes() -> tuple[StratControlData, StratColumn, list[BoreholeProbe]]:
+    """Stage-3 interbedded gate fixture: control data + order + descending probes.
+
+    Composes ``interbedded_columns`` (order) with ``interbedded_columns_with_xyz``
+    (xyz) into a :class:`StratControlData`, and derives one descending
+    :class:`BoreholeProbe` per column from the SAME xyz data so the observed
+    contact depths the monotonicity gate checks match the control points
+    exactly.
+
+    Returns
+    -------
+    (StratControlData, StratColumn, list of BoreholeProbe)
+        The solver input, the stratigraphic column, and the per-hole probes.
+    """
+    order = build_stratigraphic_order(interbedded_columns())
+    xyz_columns = interbedded_columns_with_xyz()
+    control = build_control_data(xyz_columns, [], order)
+    holes = _probes_from_columns(xyz_columns, order)
+    return control, order, holes
+
+
+def dipping_control_with_holes() -> tuple[StratControlData, StratColumn, list[BoreholeProbe]]:
+    """Stage-3 dipping gate fixture: control data + order + descending probes.
+
+    Composes ``dipping_order_columns`` with ``dipping_columns_with_xyz`` so the
+    rank-1 (KLEI/ZAND) horizon is flat but the rank-2 (ZAND/VEEN) horizon dips —
+    deeper on the east (down-dip) side than the west (up-dip) side.  The dip test
+    samples the field at the west/east column x-positions and checks the rank-2
+    isosurface is deeper down-dip.
+
+    Returns
+    -------
+    (StratControlData, StratColumn, list of BoreholeProbe)
+        The solver input, the stratigraphic column, and the per-hole probes.
+    """
+    order = build_stratigraphic_order(dipping_order_columns())
+    xyz_columns = dipping_columns_with_xyz()
+    control = build_control_data(xyz_columns, [], order)
+    holes = _probes_from_columns(xyz_columns, order)
+    return control, order, holes
+
+
+def interbedded_block() -> Block:
+    """The v1 single block bracketing the interbedded fixture's columns.
+
+    Returns
+    -------
+    Block
+        Rectangular prism covering ``interbedded_columns_with_xyz`` + margin.
+    """
+    return _block_from_columns(interbedded_columns_with_xyz())
+
+
+def dipping_block() -> Block:
+    """The v1 single block bracketing the dipping fixture's columns.
+
+    Returns
+    -------
+    Block
+        Rectangular prism covering ``dipping_columns_with_xyz`` + margin.
+    """
+    return _block_from_columns(dipping_columns_with_xyz())
