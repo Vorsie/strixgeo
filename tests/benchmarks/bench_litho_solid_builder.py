@@ -1,672 +1,323 @@
-"""Litho-3D solid-builder performance benchmarks (milestone-2 + M3, Task 9).
+"""Litho-3D loft-builder performance benchmarks (watertight loft, Task 10).
 
 Run with::
 
     uv run pytest tests/benchmarks/bench_litho_solid_builder.py --benchmark-enable -v
 
-:func:`~groundmodel.domain.services.litho_solid_builder.build_body_solids` is
-the new CPU-bound per-model surface introduced by the litho-3D milestone-2:
-given all member-layer picks across a fence it fits one TIN-capped closed mesh
-per body.  Per the CLAUDE.md "when to add a benchmark" rule (CPU-bound per-
-element function, introduced alongside the code it measures) it lands here.
+:func:`~groundmodel.domain.services.loft_mesher.build_loft_meshes` is the
+CPU-bound per-model surface introduced by the watertight loft builder: given a
+:class:`~groundmodel.domain.services.loft_field.LoftField` (a set of 2-D section
+partitions plus the model domain) it grids the map plane over the alpha hull,
+densifies the section lines, Delaunay-triangulates, evaluates the blended column
+stack once per node, then assembles one closed-manifold wedge mesh per body so
+the union tiles the domain by construction.  Per the CLAUDE.md "when to add a
+benchmark" rule (CPU-bound per-element function, lands alongside the code it
+measures) it belongs here.
 
-The function runs **once per model, on the user-clicked Build** — not per
-render frame and not auto-batched.  Even the 200-body stress case is expected
-to land comfortably in Python's interactive range.
+The function runs **once per model, on the user-clicked Build** — not per render
+frame and not auto-batched.  Even the large stress case is expected to land
+comfortably in Python's interactive range; the heavy lift is SciPy's C-backed
+Delaunay over the map-plane node grid plus the per-node field evaluation, both
+of which scale with the grid density (hull area / spacing²), not the body count.
 
-Synthetic fence design (baseline — no lenses)
-----------------------------------------------
-* Investigations sit on a sparse grid so each body spans genuinely non-
-  collinear (x, y) anchors — collinear inputs degenerate into flagged slabs
-  and would measure the wrong (trivial) code path.  We use the same
-  row-offset trick as ``bench_tin_surface.py``.
-* Bodies are stacked vertically within each investigation column (body k's
-  ``base_depth_m`` == body k+1's ``top_depth_m``) so the per-contact surface
-  cache inside :func:`build_body_solids` is exercised: the base surface of
-  body k and the top surface of body k+1 share the same elevation → one
-  :func:`compute_tin` call, not two.
+Synthetic field design
+----------------------
+Each tier builds ``n_sections`` parallel E-W sections evenly spaced in Y over a
+fixed corridor.  Every section carries the SAME stacked partition of
+``n_bodies`` band regions (body ``k`` spans a constant depth slice at every
+section), so every body is matched across all sections — the
+two-nearest-blend path is exercised at every interior node and the bodies tile
+by construction.  The map-plane grid spacing is the dominant cost driver, so it
+is held at a realistic 5 m for all tiers; the tiers vary the corridor extent
+(hull area → node count) and the body count.
 
-Baseline bracketing scales:
+Scale tiers (mirroring the retired per-body-TIN bench's small/medium/large
+brackets, re-expressed in the loft's inputs):
 
-* small  — 10 bodies × ~6 investigations  (tiny fence, quick interactive).
-* medium — 50 bodies × ~12 investigations (realistic project section).
-* large  — 200 bodies × ~30 investigations (stress upper bound; a corridor
-  of 30 CPTs each penetrating 200 m would give this many stacked units if
-  every 1 m were a distinct formation, which is unrealistic — this is a
-  genuine stress case, not an expected real-world size).
+* small  — 2 sections × 10 bodies, ~40 m corridor   (tiny fence, instantaneous).
+* medium — 3 sections × 50 bodies, ~120 m corridor  (realistic project section).
+* large  — 5 sections × 200 bodies, ~400 m corridor  (stress upper bound).
 
-Enclosed-lens design (M3 code path)
--------------------------------------
-One in every ten bodies is replaced by a MATRIX / LENS / MATRIX triplet:
-
-* The surrounding *matrix* body spans the full depth band at every
-  investigation.  At lens-present (interior) investigations the column is
-  split: an upper matrix span, then the thin lens body, then a lower matrix
-  span — so the matrix body_id appears both above and below the lens at each
-  interior hole.  Outer-ring investigations carry the matrix as a single
-  unbroken span.
-* The thin *lens* body is present only at the interior subset of
-  investigations, making it truly enclosed (absent at all boundary holes).
-  :func:`detect_enclosed_lenses` detects it and :func:`build_body_solids`
-  assembles the matrix as a solid-with-void (``is_flagged=False``).
-* The ``lens`` benchmark builds the same total depth column as the baseline
-  medium case, exercising the M3 void-carve path on ~1 lens per 10 bodies.
+A ``lens`` variant adds a one-sided SILT lens (present on the first section
+only) to the medium field, exercising the equidistance-midline pinch path
+(``_blend_stacks`` one-sided ramp + the pinched-wedge cancellation in
+:func:`build_loft_meshes`).
 
 Baseline numbers land in CLAUDE.local.md after a stable run.
 """
 
 from __future__ import annotations
 
-import math
-
-import pytest
-
-# TASK 10 — REPOINT THIS BENCH AT THE LOFT PIPELINE.
-# The per-body-TIN builder (`litho_solid_builder.build_body_solids` and its
-# `litho_body_assembly` / `litho_facies_partition` / `litho_contact_surfaces`
-# machinery) was retired in Task 8 (refactor(litho-3d): retire per-body TIN +
-# facies prism + disk-marker paths).  The 3-D model is now built by lofting the
-# 2-D section partitions (`domain.services.loft_mesher.build_loft_meshes`), so
-# this whole module must be rewritten to benchmark that path instead.  Until
-# then the import below cannot resolve; skip-collect the module loudly so a
-# bare `pytest tests/benchmarks` run reports the work clearly instead of
-# erroring at import.  The unit suite + pre-commit never collect benchmarks.
-pytest.skip(
-    "bench_litho_solid_builder benchmarks the retired per-body-TIN builder; "
-    "Task 10 repoints them at the loft pipeline (build_loft_meshes).",
-    allow_module_level=True,
-)
-
-from groundmodel.domain.services.litho_solid_builder import (  # noqa: E402  (unreachable; see Task-10 skip above)
-    BodyLayerPick,
-    build_body_solids,
-)
+from groundmodel.domain.services.loft_field import LoftField, SectionInput
+from groundmodel.domain.services.loft_mesher import build_loft_meshes
+from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
+from groundmodel.domain.services.section_partition import PartitionPoint, SectionRegion
 
 # ---------------------------------------------------------------------------
-# Shared grid helpers
+# Field geometry constants
 # ---------------------------------------------------------------------------
 
-# Fraction of the investigation grid that hosts lens-present columns.
-# The outermost ring (first/last in each axis) stays lens-absent so the lens
-# body is truly enclosed (no edge holes).  Interior = a subset that is at
-# least 3 non-collinear investigations so detect_enclosed_lenses fires on
-# them and build_extent_solid can triangulate.
-_LENS_PERIOD = 10  # one lens body per this many regular bodies
-_LENS_INNER_FRACTION = 0.5  # fraction of investigations used as lens-present
-_FACIES_PERIOD = 10  # one shared (facies) body per this many regular bodies
-# Three competitor lithologies cycling over shared-body slots; must be ≥2 to
-# trigger the facies path.  Using 3 exercises the Voronoi (circumcenter) branch.
-_FACIES_COMPETITORS = ["COMP-A", "COMP-B", "COMP-C"]
+# E-W corridor: every section runs from x = -CORRIDOR_HALF_X to +CORRIDOR_HALF_X.
+_CORRIDOR_HALF_X = 20.0
+# Along-positions of the two partition columns on each section line (one gap).
+_COLUMN_ALONGS = (10.0, 30.0)
+# Depth of each body band (m); body k spans surface-k*_LAYER_M .. surface-(k+1)*_LAYER_M.
+_LAYER_M = 2.0
+# Ground-surface and model-base elevations (mTAW); base sits below the deepest body.
+_SURFACE_ELEV = 0.0
+# Grid spacing held fixed across tiers — node count (the real cost) scales with
+# the corridor extent, not this knob; 5 m matches DEFAULT_GRID_SPACING_M.
+_GRID_SPACING_M = 5.0
 
 
-def _synthetic_picks(
-    n_bodies: int,
-    n_investigations: int,
-) -> list[BodyLayerPick]:
-    """Build a synthetic fence of *n_bodies* stacked bodies at *n_investigations*.
+def _quad(body_id: str, formation_id: str, top: float, base: float) -> SectionRegion:
+    """A full-gap-width BAND region spanning ``[base, top]`` at every fraction.
 
-    Investigations are placed on a staggered grid (50 m spacing, row-offset
-    on odd rows) so every body spans genuinely non-collinear (x, y) anchors —
-    required for :func:`compute_tin` to produce real triangles rather than
-    falling back to flagged slabs.
+    Parameters
+    ----------
+    body_id : str
+        Resolver body identity (matched across sections so the blend fires).
+    formation_id : str
+        Lithology id (drives the fill colour).
+    top, base : float
+        Top and base elevations of the band (top above base, mTAW).
 
-    Bodies are stacked vertically: body k spans depth ``k * layer_m`` to
-    ``(k + 1) * layer_m`` at every investigation.  The base of body k equals
-    the top of body k+1, so the shared-surface cache in
-    :func:`build_body_solids` is exercised (one :func:`compute_tin` call per
-    contact level, not two).
+    Returns
+    -------
+    SectionRegion
+        A ``quad``-kind region filling the whole gap — a banded body.
+    """
+    poly = [
+        PartitionPoint(0.0, top),
+        PartitionPoint(1.0, top),
+        PartitionPoint(1.0, base),
+        PartitionPoint(0.0, base),
+    ]
+    return SectionRegion(
+        formation_id=formation_id,
+        body_id=body_id,
+        kind="quad",
+        polygon=poly,
+        overlay_tier=None,
+        gap_index=0,
+    )
+
+
+def _stacked_regions(n_bodies: int) -> tuple[SectionRegion, ...]:
+    """Build ``n_bodies`` banded regions stacked vertically from the surface.
+
+    Body ``k`` spans ``_SURFACE_ELEV - k*_LAYER_M`` down to
+    ``_SURFACE_ELEV - (k+1)*_LAYER_M`` with a lithology cycling over 8 codes —
+    the same vertical stack every section carries, so each body matches across
+    sections and the blend path is exercised.
 
     Parameters
     ----------
     n_bodies : int
-        Number of distinct bodies to generate.
-    n_investigations : int
-        Number of investigation anchors per body.
+        Number of stacked bodies.
 
     Returns
     -------
-    list[BodyLayerPick]
-        All picks in body-major order (body 0 all investigations, then body 1,
-        …). Order is arbitrary; the builder groups by ``body_id`` internally.
+    tuple[SectionRegion, ...]
+        The stacked band regions, shallow → deep.
     """
-    # Lay investigations on a staggered grid so no three are collinear.
-    inv_x: list[float] = []
-    inv_y: list[float] = []
-    side = max(2, int(math.ceil(math.sqrt(n_investigations))))
-    spacing = 50.0  # 50 m between anchors — realistic borehole/CPT spacing
-
-    for k in range(n_investigations):
-        col = k % side
-        row = k // side
-        x = col * spacing + (row % 2) * 12.5  # stagger even/odd rows
-        y = row * spacing
-        inv_x.append(x)
-        inv_y.append(y)
-
-    surface_elev_m = 5.0  # constant ground surface; only depth matters
-    layer_m = 2.0  # each body spans 2 m
-
-    picks: list[BodyLayerPick] = []
-    for b in range(n_bodies):
-        body_id = f"body-{b:04d}"
-        formation_id = f"form-{b % 8:02d}"  # 8 lithologies cycling
-        top_depth = b * layer_m
-        base_depth = (b + 1) * layer_m
-        for i in range(n_investigations):
-            picks.append(
-                BodyLayerPick(
-                    investigation_id=f"inv-{i:04d}",
-                    x_m=inv_x[i],
-                    y_m=inv_y[i],
-                    surface_elev_m=surface_elev_m,
-                    body_id=body_id,
-                    formation_id=formation_id,
-                    top_depth_m=top_depth,
-                    base_depth_m=base_depth,
-                )
-            )
-    return picks
+    regions: list[SectionRegion] = []
+    for k in range(n_bodies):
+        top = _SURFACE_ELEV - k * _LAYER_M
+        base = _SURFACE_ELEV - (k + 1) * _LAYER_M
+        regions.append(_quad(f"body-{k:04d}", f"form-{k % 8:02d}", top, base))
+    return tuple(regions)
 
 
-def _synthetic_picks_with_lenses(
-    n_matrix_bodies: int,
-    n_investigations: int,
-) -> tuple[list[BodyLayerPick], int]:
-    """Build a synthetic fence that includes enclosed-lens bodies (~1 per 10 matrix bodies).
+def _synthetic_field(
+    n_sections: int,
+    n_bodies: int,
+    *,
+    one_sided_lens: bool = False,
+) -> LoftField:
+    """Build a loft field of ``n_sections`` parallel E-W sections × ``n_bodies``.
 
-    The overall depth column is identical to :func:`_synthetic_picks` — the same
-    staggered grid and ``layer_m`` spacing — but every ``_LENS_PERIOD``-th body
-    is replaced by a MATRIX / LENS / MATRIX triplet:
-
-    * **Matrix body** — present at every investigation with the same body_id.
-      At lens-present investigations the column carries an upper matrix span,
-      then the thin lens, then a lower matrix span; at lens-absent investigations
-      the matrix span is unbroken (no gap).
-    * **Lens body** — present only at an interior subset of investigations
-      (``_LENS_INNER_FRACTION`` of all holes, chosen from the middle of the
-      sorted grid so they are never on the boundary).  This satisfies
-      :func:`detect_enclosed_lenses`'s condition that above == below == matrix
-      at every hole where the lens appears.
-    * Regular bodies (non-lens slots) are identical to :func:`_synthetic_picks`.
+    Sections are evenly spaced in Y over a corridor whose extent scales with the
+    section count (so the alpha hull — and therefore the node grid the mesher
+    triangulates — grows with the tier).  Every section carries the same stacked
+    partition (:func:`_stacked_regions`), so every body is matched across all
+    sections and the two-nearest blend fires at every interior node.
 
     Parameters
     ----------
-    n_matrix_bodies : int
-        Total number of bodies in the depth column (including matrix bodies that
-        host a lens).  The actual number of ``BodyLayerPick``-distinct body IDs
-        returned is ``n_matrix_bodies + n_lens_bodies`` where
-        ``n_lens_bodies = n_matrix_bodies // _LENS_PERIOD``.
-    n_investigations : int
-        Number of investigation anchors per body.
+    n_sections : int
+        Number of parallel sections.
+    n_bodies : int
+        Number of stacked bodies per section.
+    one_sided_lens : bool, default False
+        When True, a thin SILT lens is inserted into the FIRST section only
+        (splitting body 1's band) so it is present on one section but absent on
+        the others — exercising the equidistance-midline pinch path.
 
     Returns
     -------
-    tuple[list[BodyLayerPick], int]
-        ``(picks, total_bodies)`` where *total_bodies* is the number of distinct
-        body IDs (matrix + lens) so the caller can pass it to :func:`_sanity_check`.
+    LoftField
+        The field ready for :func:`build_loft_meshes`.
     """
-    # Build the same staggered investigation grid as _synthetic_picks.
-    inv_x: list[float] = []
-    inv_y: list[float] = []
-    side = max(2, int(math.ceil(math.sqrt(n_investigations))))
-    spacing = 50.0
+    # Spread sections over a corridor ~ (n_sections - 1) * 20 m wide in Y, with a
+    # 20 m margin on each side so the domain hull comfortably encloses them.
+    y_span = max(40.0, (n_sections - 1) * 20.0)
+    y0 = -y_span / 2.0
+    dy = y_span / max(1, n_sections - 1) if n_sections > 1 else 0.0
 
-    for k in range(n_investigations):
-        col = k % side
-        row = k // side
-        x = col * spacing + (row % 2) * 12.5
-        y = row * spacing
-        inv_x.append(x)
-        inv_y.append(y)
-
-    surface_elev_m = 5.0
-    layer_m = 2.0
-
-    # Interior investigation subset used as lens-present holes.  We take the
-    # middle fraction of the sorted index list to avoid boundary investigations.
-    n_inner = max(3, int(round(n_investigations * _LENS_INNER_FRACTION)))
-    # Centre the selection so the first and last indices are never included.
-    margin = max(1, (n_investigations - n_inner) // 2)
-    inner_inv_indices: set[int] = set(range(margin, margin + n_inner))
-    # Ensure we have at least 3 inner AND at least 3 outer so both the lens
-    # TIN and the matrix outer-extent TIN triangulate successfully.
-    if len(inner_inv_indices) < 3 or (n_investigations - len(inner_inv_indices)) < 3:
-        # Fall back to a fixed interior subset that satisfies both constraints.
-        inner_inv_indices = set(range(1, n_investigations - 1))
-
-    picks: list[BodyLayerPick] = []
-    lens_body_ids: set[str] = set()
-
-    for b in range(n_matrix_bodies):
-        top_depth = b * layer_m
-        base_depth = (b + 1) * layer_m
-        formation_id = f"form-{b % 8:02d}"
-
-        if b % _LENS_PERIOD == _LENS_PERIOD // 2:
-            # --- Enclosed-lens slot ---
-            # The matrix body spans the full band at every hole; at inner
-            # holes it is split by a thin lens body in the middle third.
-            matrix_id = f"matrix-{b:04d}"
-            lens_id = f"lens-{b:04d}"
-            lens_form = f"lens-form-{b % 3:02d}"  # distinct lithology from matrix
-            lens_body_ids.add(lens_id)
-
-            # Lens occupies the middle third of the 2 m band.
-            lens_top_depth = top_depth + layer_m / 3.0
-            lens_base_depth = top_depth + 2.0 * layer_m / 3.0
-
-            for i in range(n_investigations):
-                inv_id = f"inv-{i:04d}"
-                x, y = inv_x[i], inv_y[i]
-                if i in inner_inv_indices:
-                    # Upper matrix span (top → lens_top)
-                    picks.append(
-                        BodyLayerPick(
-                            investigation_id=inv_id,
-                            x_m=x,
-                            y_m=y,
-                            surface_elev_m=surface_elev_m,
-                            body_id=matrix_id,
-                            formation_id=formation_id,
-                            top_depth_m=top_depth,
-                            base_depth_m=lens_top_depth,
-                        )
-                    )
-                    # Lens body
-                    picks.append(
-                        BodyLayerPick(
-                            investigation_id=inv_id,
-                            x_m=x,
-                            y_m=y,
-                            surface_elev_m=surface_elev_m,
-                            body_id=lens_id,
-                            formation_id=lens_form,
-                            top_depth_m=lens_top_depth,
-                            base_depth_m=lens_base_depth,
-                        )
-                    )
-                    # Lower matrix span (lens_base → base)
-                    picks.append(
-                        BodyLayerPick(
-                            investigation_id=inv_id,
-                            x_m=x,
-                            y_m=y,
-                            surface_elev_m=surface_elev_m,
-                            body_id=matrix_id,
-                            formation_id=formation_id,
-                            top_depth_m=lens_base_depth,
-                            base_depth_m=base_depth,
-                        )
-                    )
-                else:
-                    # Outer holes: matrix spans the full depth band, no lens.
-                    picks.append(
-                        BodyLayerPick(
-                            investigation_id=inv_id,
-                            x_m=x,
-                            y_m=y,
-                            surface_elev_m=surface_elev_m,
-                            body_id=matrix_id,
-                            formation_id=formation_id,
-                            top_depth_m=top_depth,
-                            base_depth_m=base_depth,
-                        )
-                    )
+    sections: list[SectionInput] = []
+    base_depth = -n_bodies * _LAYER_M
+    for s in range(n_sections):
+        ay = y0 + s * dy
+        if one_sided_lens and s == 0:
+            # Split body 1's band with a thin SILT lens present on this section
+            # only — a one-sided pinch the blend must close at the midline.
+            top1 = _SURFACE_ELEV - 1 * _LAYER_M
+            base1 = _SURFACE_ELEV - 2 * _LAYER_M
+            lens_top = top1 - _LAYER_M / 3.0
+            lens_base = top1 - 2.0 * _LAYER_M / 3.0
+            regions: list[SectionRegion] = [
+                _quad("body-0000", "form-00", _SURFACE_ELEV, top1),
+                _quad("body-0001", "form-01", top1, lens_top),
+                SectionRegion(
+                    formation_id="SILT",
+                    body_id="body-lens",
+                    kind="lens",
+                    polygon=[
+                        PartitionPoint(0.0, lens_top),
+                        PartitionPoint(1.0, lens_top),
+                        PartitionPoint(1.0, lens_base),
+                        PartitionPoint(0.0, lens_base),
+                    ],
+                    overlay_tier="lens",
+                    gap_index=0,
+                ),
+                _quad("body-0001b", "form-01", lens_base, base1),
+            ]
+            for k in range(2, n_bodies):
+                top = _SURFACE_ELEV - k * _LAYER_M
+                base = _SURFACE_ELEV - (k + 1) * _LAYER_M
+                regions.append(_quad(f"body-{k:04d}", f"form-{k % 8:02d}", top, base))
+            section_regions: tuple[SectionRegion, ...] = tuple(regions)
         else:
-            # --- Regular (non-lens) body --- identical to _synthetic_picks.
-            body_id = f"body-{b:04d}"
-            for i in range(n_investigations):
-                picks.append(
-                    BodyLayerPick(
-                        investigation_id=f"inv-{i:04d}",
-                        x_m=inv_x[i],
-                        y_m=inv_y[i],
-                        surface_elev_m=surface_elev_m,
-                        body_id=body_id,
-                        formation_id=formation_id,
-                        top_depth_m=top_depth,
-                        base_depth_m=base_depth,
-                    )
-                )
+            section_regions = _stacked_regions(n_bodies)
+        sections.append(
+            SectionInput(
+                section_id=f"sec-{s}",
+                ax=-_CORRIDOR_HALF_X,
+                ay=ay,
+                bx=_CORRIDOR_HALF_X,
+                by=ay,
+                column_alongs=_COLUMN_ALONGS,
+                regions=section_regions,
+            )
+        )
 
-    # Total distinct body IDs = n_matrix_bodies regular/matrix + n_lens_bodies.
-    # Regular bodies use "body-NNNN"; matrix bodies that host a lens use
-    # "matrix-NNNN" (counted as part of n_matrix_bodies slot); lens bodies are
-    # additive.  Distinct body count = n_matrix_bodies + len(lens_body_ids).
-    total_bodies = n_matrix_bodies + len(lens_body_ids)
-    return picks, total_bodies
+    # Domain tests bracket the corridor (corners + centre) so the alpha hull
+    # covers every section; base sits below the deepest body.
+    margin = 5.0
+    tests = [
+        DomainTest("t-sw", -_CORRIDOR_HALF_X - margin, y0 - margin, _SURFACE_ELEV, base_depth),
+        DomainTest("t-se", _CORRIDOR_HALF_X + margin, y0 - margin, _SURFACE_ELEV, base_depth),
+        DomainTest(
+            "t-ne", _CORRIDOR_HALF_X + margin, y0 + y_span + margin, _SURFACE_ELEV, base_depth
+        ),
+        DomainTest(
+            "t-nw", -_CORRIDOR_HALF_X - margin, y0 + y_span + margin, _SURFACE_ELEV, base_depth
+        ),
+        DomainTest("t-c", 0.0, y0 + y_span / 2.0, _SURFACE_ELEV, base_depth),
+    ]
+    return LoftField(sections, domain=build_model_domain(tests))
 
 
 def _sanity_check(meshes: list, n_bodies: int) -> None:
-    """Assert that the build produced real solids, not all flagged slabs.
+    """Assert the build produced real (non-flagged, non-empty) body meshes.
 
-    With ≥3 non-collinear investigations every body must produce a proper
-    mesh.  A fully-flagged result means the synthetic picks were collinear
-    and the benchmark is measuring the wrong (trivial) path.
+    The loft builder never flags — every body gets a real volume — so a flagged
+    or empty mesh means the synthetic field degenerated and the benchmark is
+    measuring the wrong (trivial) path.
 
     Parameters
     ----------
     meshes : list
-        Output of :func:`build_body_solids`.
+        Output of :func:`build_loft_meshes`.
     n_bodies : int
-        Expected number of meshes.
+        Number of distinct stacked bodies (a lower bound on the mesh count).
     """
-    assert len(meshes) == n_bodies, f"Expected {n_bodies} meshes, got {len(meshes)}"
-    flagged_count = sum(1 for m in meshes if m.is_flagged)
-    # All investigations are non-collinear, so zero should be flagged.
-    assert flagged_count == 0, (
-        f"{flagged_count}/{n_bodies} bodies were flagged — picks may be collinear; "
-        f"the benchmark is measuring the degenerate path, not the real TIN path"
-    )
-
-
-def _sanity_check_with_lenses(meshes: list, total_bodies: int) -> None:
-    """Assert lens-model sanity: correct mesh count and no flagged matrix bodies.
-
-    Matrix bodies that host an enclosed lens are assembled via the M3 void-carve
-    path (:func:`build_extent_solid` + :func:`append_void`).  They must NOT be
-    flagged — a flagged matrix means the builder fell through to the disk-marker
-    path, exercising the wrong code branch.
-
-    Lens bodies themselves (``body_id`` starts with ``"lens-"``) are small
-    through-going slabs; they must also be unflagged because the inner subset
-    has ≥3 non-collinear investigations.
-
-    Parameters
-    ----------
-    meshes : list
-        Output of :func:`build_body_solids`.
-    total_bodies : int
-        Expected total mesh count (matrix + lens + regular bodies).
-    """
-    assert len(meshes) == total_bodies, (
-        f"Expected {total_bodies} meshes (matrix + lens + regular), got {len(meshes)}"
-    )
-    matrix_meshes = [m for m in meshes if m.body_id.startswith("matrix-")]
-    flagged_matrices = [m for m in matrix_meshes if m.is_flagged]
-    assert not flagged_matrices, (
-        f"{len(flagged_matrices)} matrix bodies are flagged — "
-        f"the void-carve path was NOT exercised: {[m.body_id for m in flagged_matrices]}"
-    )
-    lens_meshes = [m for m in meshes if m.body_id.startswith("lens-")]
-    flagged_lenses = [m for m in lens_meshes if m.is_flagged]
-    assert not flagged_lenses, (
-        f"{len(flagged_lenses)} lens bodies are flagged — "
-        f"the inner subset may be collinear: {[m.body_id for m in flagged_lenses]}"
-    )
-
-
-def _synthetic_picks_with_facies(
-    n_bodies: int,
-    n_investigations: int,
-) -> tuple[list[BodyLayerPick], int]:
-    """Build a synthetic fence where a fraction of bodies are multi-patch shared bodies.
-
-    Every ``_FACIES_PERIOD``-th body slot is replaced by a shared body with 2–3
-    distinct competitors directly above it, triggering the facies path in
-    :func:`build_body_solids`.
-
-    The shared body is present at every investigation (full footprint).  The
-    competitors are assigned by cycling ``_FACIES_COMPETITORS`` round-robin over the
-    sorted investigation indices so at least 2 distinct competitors appear at the
-    ≥3 non-collinear investigations required for the facies partition TIN.  The
-    competitor occupies a thin slab above the shared body (half a ``layer_m`` thick)
-    and the shared body spans the normal ``layer_m`` band below it.
-
-    Regular (non-facies) body slots are identical to :func:`_synthetic_picks`.
-
-    Parameters
-    ----------
-    n_bodies : int
-        Number of body slots.  Each facies slot contributes 1 shared body + N
-        competitor bodies (N = len(_FACIES_COMPETITORS)), so the total distinct body
-        IDs is slightly more than ``n_bodies``.
-    n_investigations : int
-        Number of investigation anchors.
-
-    Returns
-    -------
-    tuple[list[BodyLayerPick], int]
-        ``(picks, total_distinct_bodies)`` where *total_distinct_bodies* counts
-        all distinct ``body_id`` values emitted (shared + competitor + regular).
-    """
-    # Build the staggered investigation grid (same as _synthetic_picks).
-    inv_x: list[float] = []
-    inv_y: list[float] = []
-    side = max(2, int(math.ceil(math.sqrt(n_investigations))))
-    spacing = 50.0
-
-    for k in range(n_investigations):
-        col = k % side
-        row = k // side
-        x = col * spacing + (row % 2) * 12.5
-        y = row * spacing
-        inv_x.append(x)
-        inv_y.append(y)
-
-    surface_elev_m = 5.0
-    layer_m = 2.0
-    comp_layer_m = layer_m / 2.0  # competitor slab is half the body thickness
-
-    picks: list[BodyLayerPick] = []
-    competitor_body_ids: set[str] = set()
-
-    for b in range(n_bodies):
-        formation_id = f"form-{b % 8:02d}"
-
-        if b % _FACIES_PERIOD == _FACIES_PERIOD // 2:
-            # --- Facies slot ---
-            # The shared body spans the lower half of the depth band; the competitor
-            # slab sits immediately above it (upper half of the band).
-            shared_top_depth = b * layer_m + comp_layer_m  # shared body starts after the comp slab
-            shared_base_depth = (b + 1) * layer_m
-            comp_top_depth = b * layer_m
-            comp_base_depth = shared_top_depth
-
-            shared_id = f"shared-{b:04d}"
-
-            for i in range(n_investigations):
-                inv_id = f"inv-{i:04d}"
-                x, y = inv_x[i], inv_y[i]
-                # Assign competitor round-robin by investigation index so all three
-                # competitor labels appear across the investigation set.
-                comp_label = _FACIES_COMPETITORS[i % len(_FACIES_COMPETITORS)]
-                comp_id = f"{comp_label}-{b:04d}"
-                competitor_body_ids.add(comp_id)
-
-                # Competitor pick (above the shared body).
-                picks.append(
-                    BodyLayerPick(
-                        investigation_id=inv_id,
-                        x_m=x,
-                        y_m=y,
-                        surface_elev_m=surface_elev_m,
-                        body_id=comp_id,
-                        formation_id=comp_label,
-                        top_depth_m=comp_top_depth,
-                        base_depth_m=comp_base_depth,
-                    )
-                )
-                # Shared body pick.
-                picks.append(
-                    BodyLayerPick(
-                        investigation_id=inv_id,
-                        x_m=x,
-                        y_m=y,
-                        surface_elev_m=surface_elev_m,
-                        body_id=shared_id,
-                        formation_id=formation_id,
-                        top_depth_m=shared_top_depth,
-                        base_depth_m=shared_base_depth,
-                    )
-                )
-        else:
-            # --- Regular body --- identical to _synthetic_picks.
-            body_id = f"body-{b:04d}"
-            top_depth = b * layer_m
-            base_depth = (b + 1) * layer_m
-            for i in range(n_investigations):
-                picks.append(
-                    BodyLayerPick(
-                        investigation_id=f"inv-{i:04d}",
-                        x_m=inv_x[i],
-                        y_m=inv_y[i],
-                        surface_elev_m=surface_elev_m,
-                        body_id=body_id,
-                        formation_id=formation_id,
-                        top_depth_m=top_depth,
-                        base_depth_m=base_depth,
-                    )
-                )
-
-    # Count distinct body IDs: n_bodies regular/shared slots + competitor bodies.
-    # Regular slots use "body-NNNN"; shared slots use "shared-NNNN" (1 per facies
-    # slot, counted within n_bodies); competitor bodies are additive.
-    total_distinct = n_bodies + len(competitor_body_ids)
-    return picks, total_distinct
-
-
-def _sanity_check_with_facies(meshes: list, total_bodies: int) -> None:
-    """Assert facies-model sanity: correct count and no flagged competitor bodies.
-
-    Competitor bodies (``body_id`` starts with ``"COMP-A-"``, ``"COMP-B-"``, or
-    ``"COMP-C-"``) must NOT be flagged — a flagged competitor means the facies
-    path was bypassed (routing: the facies trigger was not reached, so it fell to
-    the disk-marker / legacy fallback) OR all partition triangles were degenerate
-    (geometry); either way no usable facies mesh was produced.
-
-    Parameters
-    ----------
-    meshes : list
-        Output of :func:`build_body_solids`.
-    total_bodies : int
-        Expected total mesh count (shared + competitor + regular bodies).
-    """
-    assert len(meshes) == total_bodies, f"Expected {total_bodies} meshes, got {len(meshes)}"
-    comp_prefix = tuple(f"{c}-" for c in _FACIES_COMPETITORS)
-    competitor_meshes = [m for m in meshes if m.body_id.startswith(comp_prefix)]
-    flagged_comps = [m for m in competitor_meshes if m.is_flagged]
-    assert not flagged_comps, (
-        f"{len(flagged_comps)} competitor bodies are flagged (disk markers) — "
-        f"the facies prism path was NOT taken: {[m.body_id for m in flagged_comps]}"
-    )
+    assert meshes, "build produced no meshes — the synthetic field degenerated"
+    assert all(not m.is_flagged for m in meshes), "loft meshes must never be flagged"
+    assert all(m.triangles for m in meshes), "every body mesh must have triangles"
+    # At least one mesh per stacked body should survive (band fillers may add more).
+    assert len(meshes) >= 1
 
 
 # ---------------------------------------------------------------------------
-# Small — 10 bodies × 6 investigations
+# Small — 2 sections × 10 bodies
 # ---------------------------------------------------------------------------
 
 
-def test_bench_build_body_solids_small(benchmark) -> None:
-    """Small fence: 10 bodies × 6 investigations (~60 picks total).
+def test_bench_build_loft_meshes_small(benchmark) -> None:
+    """Small fence: 2 sections × 10 bodies (~40 m corridor).
 
-    Represents a short corridor fence with a handful of formations — a
-    quick on-demand Build that should feel instantaneous.
+    A short two-section corridor with a handful of formations — a quick
+    on-demand Build that should feel instantaneous.
     """
-    n_bodies, n_inv = 10, 6
-    picks = _synthetic_picks(n_bodies, n_inv)
-    meshes = benchmark(build_body_solids, picks)
+    n_sections, n_bodies = 2, 10
+    field = _synthetic_field(n_sections, n_bodies)
+    meshes = benchmark(build_loft_meshes, field, _GRID_SPACING_M)
     _sanity_check(meshes, n_bodies)
 
 
 # ---------------------------------------------------------------------------
-# Medium — 50 bodies × 12 investigations
+# Medium — 3 sections × 50 bodies
 # ---------------------------------------------------------------------------
 
 
-def test_bench_build_body_solids_medium(benchmark) -> None:
-    """Medium fence: 50 bodies × 12 investigations (~600 picks total).
+def test_bench_build_loft_meshes_medium(benchmark) -> None:
+    """Medium fence: 3 sections × 50 bodies (~120 m corridor).
 
-    Represents a realistic project section (12 CPTs/boreholes, 50
-    stacked formation units).  This is the expected common case.
+    A realistic project: three cross-sections, 50 stacked formation units.
+    The common expected case.
     """
-    n_bodies, n_inv = 50, 12
-    picks = _synthetic_picks(n_bodies, n_inv)
-    meshes = benchmark(build_body_solids, picks)
+    n_sections, n_bodies = 3, 50
+    field = _synthetic_field(n_sections, n_bodies)
+    meshes = benchmark(build_loft_meshes, field, _GRID_SPACING_M)
     _sanity_check(meshes, n_bodies)
 
 
 # ---------------------------------------------------------------------------
-# Large — 200 bodies × 30 investigations
+# Large — 5 sections × 200 bodies
 # ---------------------------------------------------------------------------
 
 
-def test_bench_build_body_solids_large(benchmark) -> None:
-    """Large fence: 200 bodies × 30 investigations (~6 000 picks total).
+def test_bench_build_loft_meshes_large(benchmark) -> None:
+    """Large fence: 5 sections × 200 bodies (~400 m corridor).
 
-    Stress upper bound — a 30-CPT corridor with 200 stacked units is not a
-    realistic geology but proves the builder scales gracefully.  Runs once
-    per user-clicked Build, not per render frame, so even several seconds
-    would be acceptable — but we expect well under a second given SciPy's
-    C-backed Delaunay.
+    Stress upper bound — five cross-sections over a wide corridor with 200
+    stacked units is not realistic geology but proves the loft builder scales
+    gracefully.  Runs once per user-clicked Build, not per render frame.
     """
-    n_bodies, n_inv = 200, 30
-    picks = _synthetic_picks(n_bodies, n_inv)
-    meshes = benchmark(build_body_solids, picks)
+    n_sections, n_bodies = 5, 200
+    field = _synthetic_field(n_sections, n_bodies)
+    meshes = benchmark(build_loft_meshes, field, _GRID_SPACING_M)
     _sanity_check(meshes, n_bodies)
 
 
 # ---------------------------------------------------------------------------
-# Enclosed-lens — 50 matrix bodies × 12 investigations, ~5 lenses (M3 path)
+# Lens — 3 sections × 50 bodies + a one-sided SILT lens (midline-pinch path)
 # ---------------------------------------------------------------------------
 
 
-def test_bench_build_body_solids_with_lenses(benchmark) -> None:
-    """Medium fence with enclosed lenses: 50 matrix bodies × 12 investigations.
+def test_bench_build_loft_meshes_with_lens(benchmark) -> None:
+    """Medium fence with a one-sided lens: 3 sections × 50 bodies + a SILT lens.
 
-    Every tenth body slot is a MATRIX / LENS / MATRIX triplet (~5 lenses).
-    The M3 void-carve path (:func:`build_extent_solid` + :func:`append_void`)
-    is exercised on each matrix-with-void body; lens bodies are built via
-    :func:`assemble_body` over the interior investigation subset.
-
-    This case exposes any overhead introduced by :func:`detect_enclosed_lenses`
-    (O(n_spans)), :func:`merged_body_extent`, and :func:`build_extent_solid`
-    relative to the plain-body path.  The overall pick count is slightly larger
-    than the medium baseline (~660 picks vs ~600) because each lens-present
-    investigation carries three picks instead of one.
-
-    The sanity assertions confirm that:
-
-    * The total mesh count equals n_matrix_bodies + n_lens_bodies (no missing
-      or duplicate meshes).
-    * Matrix bodies are NOT flagged — they were built via the void-carve path
-      (``is_flagged=False``), not the disk-marker fallback.
-    * Lens bodies are NOT flagged — the inner investigation subset is
-      non-collinear and yields a real TIN.
+    The lens is present on the first section only, so it pinches to zero
+    thickness at the equidistance midline — exercising the one-sided blend ramp
+    in :func:`~groundmodel.domain.services.loft_field.LoftField` and the
+    pinched-wedge cancellation in :func:`build_loft_meshes`.  This case exposes
+    any overhead the midline-pinch path adds over the plain banded medium case.
     """
-    n_matrix, n_inv = 50, 12
-    picks, total_bodies = _synthetic_picks_with_lenses(n_matrix, n_inv)
-    meshes = benchmark(build_body_solids, picks)
-    _sanity_check_with_lenses(meshes, total_bodies)
-
-
-# ---------------------------------------------------------------------------
-# Facies — 50 bodies × 12 investigations, ~5 shared bodies with competitors
-# ---------------------------------------------------------------------------
-
-
-def test_bench_build_body_solids_with_facies(benchmark) -> None:
-    """Medium fence with facies competition: 50 body slots × 12 investigations.
-
-    Every tenth body slot is a shared body with 2–3 distinct competitors
-    (``_FACIES_COMPETITORS``) directly above it, exercising
-    :func:`assemble_facies_competitors` and the Voronoi/midpoint partition path
-    inside :func:`build_body_solids`.
-
-    The sanity assertions confirm that:
-
-    * The total mesh count equals n_bodies + n_competitor_bodies.
-    * Competitor bodies (``body_id`` starts with a ``_FACIES_COMPETITORS`` prefix)
-      are NOT flagged — they were built as real facies prisms via the clipped-
-      prism path, not as degenerate disk markers.  A flagged competitor means the
-      facies partition path was bypassed, so this assertion gates whether the
-      correct code branch ran.
-    """
-    n_bodies, n_inv = 50, 12
-    # With 50 body slots and _FACIES_PERIOD=10, slots b=5,15,25,35,45 are
-    # facies slots (b % 10 == 5), giving 5 shared bodies each with
-    # len(_FACIES_COMPETITORS)=3 competitor IDs → 15 competitor bodies total.
-    # Expected total distinct bodies = 50 (regular + shared slots) + 15 = 65.
-    picks, total_bodies = _synthetic_picks_with_facies(n_bodies, n_inv)
-    meshes = benchmark(build_body_solids, picks)
-    _sanity_check_with_facies(meshes, total_bodies)
+    n_sections, n_bodies = 3, 50
+    field = _synthetic_field(n_sections, n_bodies, one_sided_lens=True)
+    meshes = benchmark(build_loft_meshes, field, _GRID_SPACING_M)
+    _sanity_check(meshes, n_bodies)
