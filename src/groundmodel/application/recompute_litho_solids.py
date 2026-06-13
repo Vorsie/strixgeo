@@ -507,10 +507,21 @@ class RecomputeLithoSolids(GroundModelLogger):
             # domain; every body falls back to the section-less flagged path.
             self.warning(f"RecomputeLithoSolids: model domain unbuildable — {err}")
             return []
+        # Geology coupling is DISABLED for the litho model (owner directive
+        # 2026-06-13): the band-filler clip inserted geological band material
+        # (Quartair / Antropogeen) above + below the authored litho columns and
+        # produced overlapping meshes where the geological bands were not
+        # disjoint — making the model untruthful to the user's litho. The litho
+        # model now contains ONLY the litho partition, lofted. Geological
+        # bounding belongs in the GEOTECH model (not yet built); the
+        # ``_clip_to_bands`` machinery + the band-surface assembly are kept for
+        # that, but pass ``band_surfaces=None`` here so nothing is clipped or
+        # filled. Re-enable (and first fix the overlap / no-fill-above-litho
+        # behaviour) when the geotech model needs geological bounding.
         field = LoftField(
             sections=assembly.sections,
             domain=domain,
-            band_surfaces=assembly.band_surfaces or None,
+            band_surfaces=None,
             open_extent_length_m=open_extent_length_m,
         )
         return build_loft_meshes(field)
