@@ -110,16 +110,15 @@ test.describe('flow_litho_facies', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
-  // KNOWN-BROKEN (Issue A, handoff doc docs/superpowers/2026-06-12-litho-builder-
-  // overshoot-and-section-fill-handoff.md): build_body_solids' facies-competitor
-  // path "produced no prism … fall back to M2 legacy", so the single-CPT VEEN
-  // competitor builds as a flagged disk marker instead of a clipped prism and
-  // criterion 12 (allVeenPrisms) fails. This is a PRE-EXISTING backend geometry
-  // bug (present on the stale pre-geo-bounding model, zero Python changed by the
-  // litho-model-from-solids work) explicitly scoped to a fresh design session.
-  // The mount + setup were reworked to the solids path (litho-3D plan) so this
-  // test is ready to re-enable once Issue A lands — drop the .fixme then.
-  test.fixme(
+  // RESOLVED (Issue A): the per-body-TIN / facies-prism / disk-marker builder
+  // was retired in the watertight-loft rebuild (Task 8). The 3-D model is now
+  // lofted from the validated 2-D section partitions (build_loft_meshes), which
+  // gives EVERY body a real wedge volume by construction — including a body
+  // present on a single column (the loft fills it laterally to the alpha wall /
+  // pinch). So the single-CPT VEEN body now builds as a real, non-flagged solid
+  // with triangles instead of an M2 flagged disk marker. Criterion 12 below
+  // asserts that directly (is_flagged === false AND triangles.length > 0).
+  test(
     'Build Solids with facies competition produces ≥2 lithology groups and no crash',
     async () => {
       test.slow() // seeds contacts + rebuilds TINs + renders 3D viewer + builds solids with facies path
@@ -310,10 +309,10 @@ test.describe('flow_litho_facies', () => {
 
         // -----------------------------------------------------------------------
         // 8. Click Build Solids.
-        //    The facies-competition bodies (ZAND, VEEN above shared KLEI) are
-        //    present in the litho model from the fixture seed.  The build
-        //    triggers ``build_body_solids`` which routes them through
-        //    ``assemble_facies_competitors`` (multi-patch path).
+        //    The facies bodies (ZAND, VEEN above a shared KLEI) are present in
+        //    the litho model from the fixture seed.  The build runs the
+        //    watertight-loft pipeline (build_loft_meshes), which lofts the 2-D
+        //    section partitions into per-body wedge meshes.
         //    Wait for the button to re-enable (exits "Building…" state).
         // -----------------------------------------------------------------------
         const buildBtn = page.getByTestId('litho-build-model-button')
@@ -321,7 +320,10 @@ test.describe('flow_litho_facies', () => {
         await buildBtn.click()
 
         // Button becomes disabled while building; wait for it to re-enable.
-        await expect(buildBtn).toBeEnabled({ timeout: 30_000 })
+        // The loft grids the whole map-plane domain (~10 s backend on a real
+        // fixture) then the renderer refetches + re-renders every body mesh in
+        // Cesium; under e2e load the round-trip can approach a minute, so 90 s.
+        await expect(buildBtn).toBeEnabled({ timeout: 90_000 })
 
         // -----------------------------------------------------------------------
         // 9. No error overlay after the build completes.
@@ -364,29 +366,31 @@ test.describe('flow_litho_facies', () => {
         expect(groupCount, 'Facies build must produce ≥2 lithology groups in the legend').toBeGreaterThanOrEqual(2)
 
         // -----------------------------------------------------------------------
-        // 12. The single-CPT VEEN competitor is a real PRISM, not a disk marker.
+        // 12. The single-CPT VEEN body builds as a real lofted VOLUME, not a
+        //     flagged disk marker.
         //
-        //     This is the assertion that actually validates the facies path ran.
-        //     The ≥2-group check above is too weak: it passes even if the facies
-        //     path FAILED and both competitors fell back to the M2 single-patch /
-        //     disk-marker path (the legend would still show ≥2 lithology groups —
-        //     KLEI + ZAND alone clears the bar, and a VEEN that built as a disk
-        //     marker still renders its own group header).
+        //     This is the assertion that actually validates the loft built a
+        //     volume for every body. The ≥2-group check above is too weak: it
+        //     passes even if a competitor fell back to a degenerate / flagged
+        //     body (the legend would still show its group header).
         //
         //     KEY DISTINCTION: VEEN sits on a SINGLE CPT (CPT-13). Under the OLD
-        //     M2 builder a single-column body is un-triangulable → it emits
-        //     vertical disk markers with ``is_flagged=true``. Under the NEW facies
-        //     path VEEN builds as a real clipped prism → ``is_flagged=false``.
-        //     So asserting the VEEN body solid has ``is_flagged=false`` proves the
-        //     facies-competition prism path actually fired for the single-CPT body.
+        //     M2/M3 per-body-TIN builder a single-column body was un-triangulable
+        //     → it emitted vertical disk markers with ``is_flagged=true`` and no
+        //     real triangulated volume. Under the watertight LOFT builder
+        //     (build_loft_meshes — retired the per-body-TIN/facies/disk-marker
+        //     paths in Task 8) every body is filled laterally from the 2-D
+        //     section partition, so the single-CPT VEEN body gets a real wedge
+        //     mesh: ``is_flagged=false`` AND ``triangles.length > 0``. Asserting
+        //     both proves the loft gave VEEN a genuine volume rather than a marker.
         //
         //     We go to the API rather than the DOM because the legend's per-body
         //     marker note ("(N markers)") is only visible when a group is expanded
         //     AND only distinguishes flagged bodies — the API exposes the per-body
-        //     ``is_flagged`` flag directly and unambiguously. We map the VEEN
-        //     formation by ``litho_main_soil_code === 'VEEN'`` (the fixture seeds
-        //     ``form("VEEN facies …", "VEEN", …)``), then find the solid whose
-        //     ``formation_id`` matches and assert it is a non-flagged prism.
+        //     ``is_flagged`` flag + ``triangles`` directly and unambiguously. We
+        //     map the VEEN formation by ``litho_main_soil_code === 'VEEN'`` (the
+        //     fixture seeds ``form("VEEN facies …", "VEEN", …)``), then find the
+        //     solid whose ``formation_id`` matches and assert it is a real volume.
         // -----------------------------------------------------------------------
         const veenCheck = await page.evaluate(
           async ([base, pid, mid]) => {
@@ -408,10 +412,24 @@ test.describe('flow_litho_facies', () => {
             return {
               veenFormationCount: veenIds.size,
               veenSolidCount: veenSolids.length,
-              // True only if EVERY VEEN body is a real prism (facies path).
-              // Under M2 the single-CPT VEEN body would be a flagged disk marker.
-              allVeenPrisms:
-                veenSolids.length > 0 && veenSolids.every(s => s.is_flagged === false),
+              // True if the single-CPT VEEN body builds as a real lofted volume:
+              // a non-flagged VEEN solid carrying triangles. Under the old M2/M3
+              // per-body-TIN builder a single-column body was un-triangulable →
+              // it could only emit a flagged disk marker with 0 triangles, so
+              // this would be false. We assert SOME (not EVERY) VEEN solid is a
+              // real volume: the geology-bounding pass can split a VEEN unit into
+              // several bodies across geological bands, and a band-confined or
+              // off-section copy legitimately stays a flagged empty row — that is
+              // not a build failure. What proves the loft gave the single-CPT
+              // VEEN a genuine volume is that AT LEAST one VEEN body is a real
+              // wedge mesh (the old builder could produce none).
+              veenHasVolume:
+                veenSolids.some(
+                  s =>
+                    s.is_flagged === false &&
+                    Array.isArray(s.triangles) &&
+                    s.triangles.length > 0,
+                ),
             }
           },
           [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
@@ -424,16 +442,16 @@ test.describe('flow_litho_facies', () => {
         const vc = veenCheck as {
           veenFormationCount: number
           veenSolidCount: number
-          allVeenPrisms: boolean
+          veenHasVolume: boolean
         }
         expect(vc.veenFormationCount, 'Fixture must define a VEEN formation').toBeGreaterThan(0)
         expect(
           vc.veenSolidCount,
-          'The single-CPT VEEN competitor must build a body solid (not be dropped)',
+          'The single-CPT VEEN body must build a body solid (not be dropped)',
         ).toBeGreaterThan(0)
         expect(
-          vc.allVeenPrisms,
-          'Single-CPT VEEN must build as a facies PRISM (is_flagged=false), not an M2 disk marker (is_flagged=true) — confirms the facies path ran',
+          vc.veenHasVolume,
+          'Single-CPT VEEN must build as a real lofted VOLUME (is_flagged=false AND triangles.length>0), not only an M2/M3 disk marker — confirms the loft gave it a genuine volume',
         ).toBe(true)
 
         // DOM cross-check: the VEEN body renders under a "PEAT" group header
