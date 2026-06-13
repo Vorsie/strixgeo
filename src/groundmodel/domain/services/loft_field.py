@@ -104,6 +104,19 @@ class SectionInput:
     column_alongs: tuple[float, ...]
     regions: tuple[SectionRegion, ...]
 
+    def __post_init__(self) -> None:
+        """Validate the along ↔ gap invariant: a section with regions needs at
+        least 2 columns, and one more column than its highest gap index."""
+        if not self.regions:
+            return
+        max_gap = max(r.gap_index for r in self.regions)
+        if len(self.column_alongs) < max_gap + 2:
+            raise ValueError(
+                f"section {self.section_id!r}: column_alongs has "
+                f"{len(self.column_alongs)} entries but gap_index reaches "
+                f"{max_gap} (needs {max_gap + 2})"
+            )
+
 
 @dataclass(frozen=True)
 class StackEntry:
@@ -130,6 +143,11 @@ class StackEntry:
     top_elev: float
     base_elev: float
     is_band_filler: bool = False
+
+    @property
+    def thickness(self) -> float:
+        """Vertical thickness of the interval (``top_elev - base_elev``)."""
+        return self.top_elev - self.base_elev
 
 
 @dataclass(frozen=True)
@@ -371,6 +389,9 @@ def _blend_stacks(stack1: list[_RawEntry], stack2: list[_RawEntry], w1: float) -
         if e.body_id is None or e.body_id not in matched:
             specs.append((_mid(e), e.body_id, e.formation_id, _th(e) * max(0.0, 2 * w2 - 1)))
 
+    # Order shallow → deep by reference elevation; the body-id tie-break is only
+    # for determinism on exact elevation ties (None bodies sort as "None" — each
+    # stays its own spec, they never merge).
     specs.sort(key=lambda s: (-s[0], str(s[1])))
     return _layout(specs, _blended_top(stack1, stack2, w1))
 
@@ -381,19 +402,23 @@ def _beyond_stack(raw: list[_RawEntry], ramp: float) -> list[StackEntry]:
     BAND regions (``kind == 'quad'``) extend to the alpha wall unchanged;
     ONLAP/LENS regions (``pinch``/``lens``) ramp to zero thickness over
     ``open_extent_length_m`` (the caller passes the already-computed ``ramp``
-    factor in ``[0, 1]``).  Laid out cumulatively from the section's top.
+    factor in ``[0, 1]``).  Reuses ``_layout`` for the cumulative walk so the
+    gap-free guarantee lives in one place: the raw stack is already ordered
+    shallow → deep, so the specs preserve that order (``_layout`` does not
+    re-sort).
     """
     if not raw:
         return []
-    out: list[StackEntry] = []
-    cur = raw[0].top_elev
-    for e in raw:
-        thickness = _th(e) if e.kind == "quad" else _th(e) * ramp
-        base = cur - thickness
-        if thickness > EPS:
-            out.append(StackEntry(e.body_id, e.formation_id, cur, base))
-        cur = base
-    return out
+    specs = [
+        (
+            _mid(e),
+            e.body_id,
+            e.formation_id,
+            _th(e) if e.kind == "quad" else _th(e) * ramp,
+        )
+        for e in raw
+    ]
+    return _layout(specs, raw[0].top_elev)
 
 
 def _clip_to_bands(
@@ -419,6 +444,9 @@ def _clip_to_bands(
             if e.top_elev < cur - EPS:
                 out.append(StackEntry(None, band.formation_id, cur, e.top_elev, True))
             out.append(e)
+            # ``min`` (not a plain assignment) keeps the frontier at the deepest
+            # elevation seen — robust even if a covered entry were nested inside
+            # an earlier one, which a plain ``cur = e.base_elev`` would regress.
             cur = min(cur, e.base_elev)
         if cur > bb + EPS:
             out.append(StackEntry(None, band.formation_id, cur, bb, True))
@@ -501,6 +529,12 @@ class LoftField:
 
         between = False
         if len(projs) >= 2:
+            # Blend only when the node lies BETWEEN the two sections — its
+            # projection onto the axis joining the two projection points has
+            # t ∈ [0, 1].  For near-parallel sections this axis is the true
+            # interpolation direction; for crossing sections it is an
+            # approximation that errs toward blending, which is geologically
+            # reasonable in the crossing zone.
             _s2, _along2, _d2, px2, py2 = projs[1]
             dx, dy = px2 - px1, py2 - py1
             axis2 = dx * dx + dy * dy
@@ -519,6 +553,8 @@ class LoftField:
             if self.open_extent_length_m > EPS:
                 ramp = max(0.0, 1.0 - d1 / self.open_extent_length_m)
             else:
+                # A zero/negative knob disables the ramp: full thickness when
+                # the node sits on the section line, nothing once it is off it.
                 ramp = 1.0 if d1 < EPS else 0.0
             stack = _beyond_stack(raw, ramp)
 

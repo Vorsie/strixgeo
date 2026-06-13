@@ -185,13 +185,41 @@ def test_beyond_own_section_lens_ramps_over_open_extent_length():
 
 def test_uncovered_band_volume_gets_the_band_filler_body():
     """A band sub-interval not covered by any litho region is filled by the
-    band itself — the tiling is always complete."""
+    band itself — the tiling is always complete.
+
+    Here the SAND/CLAY bands extend (quad) to -10, so the uncovered [-10, -12]
+    tail below the litho is what the band filler covers.
+    """
     f = LoftField([_sec1()], domain=_dom(), band_surfaces=_one_band())
     stack = f.stack_at(0.0, 40.0)  # far outside the section corridor
     assert any(s.is_band_filler for s in stack)
-    # the uncovered [-10, -12] slice below the litho is the filler
     filler = next(s for s in stack if s.is_band_filler)
     assert filler.formation_id == "BAND"
+    # the filler is the tail below the litho, down to the band base
+    assert filler.top_elev == pytest.approx(-10.0)
+    assert filler.base_elev == pytest.approx(-12.0)
+
+
+def test_band_filler_closes_an_interior_hole_in_the_stack():
+    """The band-clip fills a hole BETWEEN two covered entries, not only the
+    tail.  The full pipeline never emits an interior hole (the cumulative
+    layout is gap-free), so this pins the defensive branch directly: a
+    hand-built non-contiguous stack must come back gap-free, band-filled."""
+    from groundmodel.domain.services.loft_field import _clip_to_bands
+
+    holey = [
+        StackEntry("b-sand", "SAND", 0.0, -4.0),
+        StackEntry("b-clay", "CLAY", -6.0, -10.0),  # hole [-4, -6] above it
+    ]
+    out = _clip_to_bands(holey, _one_band(), 0.0, 0.0)
+    # the [-4, -6] hole must now be a BAND filler, and the [-10, -12] tail too
+    interior = next(s for s in out if s.top_elev == pytest.approx(-4.0))
+    assert interior.is_band_filler
+    assert interior.formation_id == "BAND"
+    assert interior.base_elev == pytest.approx(-6.0)
+    # and the whole [0, -12] band is now tiled with no gaps
+    for upper, lower in zip(out, out[1:]):
+        assert upper.base_elev == pytest.approx(lower.top_elev, abs=1e-9)
 
 
 def test_single_section_field_reproduces_its_section_on_the_line():
