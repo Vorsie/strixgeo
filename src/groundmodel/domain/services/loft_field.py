@@ -126,7 +126,10 @@ class StackEntry:
     ----------
     body_id : str | None
         Resolver-stamped body identity, or ``None`` for a never-correlated
-        minority / a band filler.
+        minority.  A band filler is ``None`` until band-clipping, which re-keys
+        it to a band-scoped id (``"band-filler#b<k>"``) so distinct bands stay
+        separate meshes — read ``is_band_filler`` to identify a filler, not the
+        ``body_id``.
     formation_id : str
         Lithology (drives the fill colour).
     top_elev : float
@@ -432,7 +435,10 @@ def _clip_to_bands(
     distinct bodies — one per band — by suffixing the band index onto its
     ``body_id`` (``"<body>#b<k>"``).  Without this re-key the mesher, which
     groups wedges by ``body_id``, would reunite the two band portions into one
-    mesh that straddles the boundary.  Band fillers keep ``body_id is None``.
+    mesh that straddles the boundary.  The band's own fillers are re-keyed the
+    same way (``"band-filler#b<k>"``) so two bands' fillers (same formation
+    colour) likewise stay separate meshes; every filler keeps
+    ``is_band_filler=True``.
     """
     out: list[StackEntry] = []
     for k, band in enumerate(bands):

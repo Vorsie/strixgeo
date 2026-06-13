@@ -196,10 +196,16 @@ class AssembleLoftInputs(GroundModelLogger):
             )
 
         # --- Approved correlation edges (layer-id pairs), model-wide ---
-        # The loft is a model-level interpolation: a body's cross-section
-        # identity comes from edges authored on ANY section (the resolver unions
-        # them), so the partition match key must too.  ``compute_section_fill``
-        # filters per gap, so passing the whole model's edges is correct.
+        # Deliberately model-wide, NOT section-scoped (do not "fix" this to
+        # ``section_id == sec.id``): the loft IS the 3D model, and the owner
+        # design has the 3D model use the UNION of every section's edges
+        # ("ResolveLithoInstances unions ALL sections' edges for body_id/3D" —
+        # memory project_correlations_section_scoped).  Section-scoping is for
+        # the 2D RENDER only.  The 3D-at-section slice does not have to equal the
+        # 2D partition anyway — they only coincide when every test lies exactly
+        # on the section line; in general the loft interpolates real off-line
+        # positions.  ``compute_section_fill`` filters edges per gap, so passing
+        # the whole model's edges is correct.
         edges = await self._load_edges(model_id)
 
         # --- One SectionInput per usable cross-section ---

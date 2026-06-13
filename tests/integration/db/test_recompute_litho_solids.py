@@ -368,7 +368,8 @@ async def test_second_execute_skips_rebuild_when_picks_unchanged(
 ) -> None:
     """A second execute with no pick changes must skip re-triangulation.
 
-    ``bodies_skipped_checksum`` == 1 (the one body) and ``bodies_built`` == 0.
+    ``bodies_skipped_checksum`` >= 1 and ``bodies_built`` == 0 (the model-level
+    digest matches, so every body is skipped).
     """
     proj = scene["project"]
     litho = scene["litho"]
