@@ -69,10 +69,12 @@ __all__ = ["build_loft_meshes"]
 # wedge is everywhere thinner than this is a pinched-out seam (omitted).
 EPS: float = 1e-9
 
-# Node-deduplication grid: nodes are snapped to this many decimal places (mm at
+# Node-deduplication grid: nodes are snapped to this many decimal places (µm at
 # metre scale) before triangulation so two construction sources (grid vs
 # section densification) that land on near-identical points collapse to ONE
-# node — Delaunay is unstable on duplicate / near-duplicate points.
+# node — Delaunay is unstable on duplicate / near-duplicate points.  Assumes
+# ``grid_spacing_m`` ≫ 1e-6 m (model-scale spacing); a sub-µm spacing would
+# start collapsing genuinely distinct grid nodes.
 NODE_ROUND_DECIMALS: int = 6
 
 # Default map-plane grid spacing (metres).  Overridable per call; the section
@@ -478,16 +480,26 @@ def _orient_outward(
 
     oriented: list[tuple[int, int, int]] = list(triangles)
     visited = [False] * len(oriented)
+    # component[ti] = index of the connected shell ti belongs to, so the outward
+    # flip can be decided PER shell — a body whose id appears in two disjoint map
+    # regions forms two closed shells that can enclose opposite-sign volumes, and
+    # a single global flip would leave one of them inward-facing (a back-face-
+    # culled hole in the viewer that no edge-sharing/parity invariant catches).
+    component = [-1] * len(oriented)
 
     def _has_directed_edge(t: tuple[int, int, int], u: int, v: int) -> bool:
         a, b, c = t
         return (a, b) == (u, v) or (b, c) == (u, v) or (c, a) == (u, v)
 
     # BFS over connected components so disconnected shells each get oriented.
+    n_components = 0
     for seed in range(len(oriented)):
         if visited[seed]:
             continue
+        comp = n_components
+        n_components += 1
         visited[seed] = True
+        component[seed] = comp
         queue = [seed]
         while queue:
             ti = queue.pop()
@@ -502,21 +514,24 @@ def _orient_outward(
                         x, y, z = oriented[tj]
                         oriented[tj] = (x, z, y)
                     visited[tj] = True
+                    component[tj] = comp
                     queue.append(tj)
 
-    # Global outward flip: signed volume of the oriented mesh (divergence
-    # theorem with the origin).  Negative → normals point inward → flip all.
-    vol = 0.0
-    for a, b, c in oriented:
+    # Per-component outward flip: signed volume (divergence theorem with the
+    # origin) of each shell separately.  Negative → that shell's normals point
+    # inward → flip just that shell.
+    comp_vol = [0.0] * n_components
+    for ti, (a, b, c) in enumerate(oriented):
         ax, ay, az = vertices[a]
         bx, by, bz = vertices[b]
         cx, cy, cz = vertices[c]
-        vol += (
+        comp_vol[component[ti]] += (
             ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)
         ) / 6.0
-    if vol < 0.0:
-        oriented = [(a, c, b) for a, b, c in oriented]
-    return oriented
+    return [
+        (a, c, b) if comp_vol[component[ti]] < 0.0 else (a, b, c)
+        for ti, (a, b, c) in enumerate(oriented)
+    ]
 
 
 def build_loft_meshes(

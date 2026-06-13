@@ -195,6 +195,12 @@ def vertical_ray_intervals(
         if abs(z - deduped[-1]) > TOL:
             deduped.append(z)
 
+    # Even-odd pairing.  A closed manifold (the documented precondition) always
+    # yields an even crossing count, so the ``len - 1`` stop never drops a real
+    # interval.  An ODD count can only mean the mesh under test is not closed (or
+    # the ray exactly grazed a vertex) — the trailing crossing is then dropped by
+    # design, which surfaces as a tiling/overlap assertion failure downstream
+    # rather than a silent wrong answer here.
     intervals: list[tuple[float, float]] = []
     for k in range(0, len(deduped) - 1, 2):
         base, top = deduped[k], deduped[k + 1]
