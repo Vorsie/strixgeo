@@ -77,6 +77,12 @@ from uuid6 import uuid7
 from groundmodel.application.assemble_strat_inputs import AssembleStratInputs
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.strat_field.body_assembly import build_shared_grid
+from groundmodel.domain.services.strat_field.lens_carving import (
+    carve_lenses,
+    merge_meshes_by_body_id,
+)
+from groundmodel.domain.services.strat_field.lens_classification import LensClassificationError
 from groundmodel.domain.services.strat_field.strat_builder import build_strat_model
 from groundmodel.domain.services.strat_field.stratigraphic_order import NonConformableError
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
@@ -166,7 +172,12 @@ def _model_checksum(
     (not per-body): the build cannot be skipped one body at a time.  The
     stratigraphic order is a pure function of the picks' per-column unit
     sequences, so digesting the picks already captures any order change; the
-    order is not separately folded in.
+    order is not separately folded in.  The lens partition
+    (``classify_lenses``) and the lens carve surfaces are likewise PURE functions
+    of the picks (the matrix/lens split derives from the per-column sequences and
+    the lens surfaces from each lens body's picks), so a lens-classification
+    change cannot occur without a pick change — the pick digest captures it too,
+    and the partition is not separately folded in.
 
     Parameters
     ----------
@@ -276,8 +287,18 @@ class RecomputeLithoSolids(GroundModelLogger):
         # deep-reaching test) flags every body the same way.
         formation_by_body = {p.body_id: p.formation_id for p in picks}
         try:
-            assembly = AssembleStratInputs(self._session).assemble(picks)
-        except NonConformableError as err:
+            # Pass the runtime grid spacing so the lens carve inputs are sampled on
+            # the SAME grid the matrix build uses below — otherwise the lens prisms
+            # would weld to a mismatched grid and the watertight tiling breaks.
+            assembly = AssembleStratInputs(self._session).assemble(
+                picks, grid_spacing_m=grid_spacing_m
+            )
+        except (NonConformableError, LensClassificationError) as err:
+            # NonConformableError: the matrix backbone cycles (a fault the v1
+            # builder cannot model).  LensClassificationError: lenses were found yet
+            # the matrix STILL cycles (true residual interfingering the enclosure
+            # criterion does not cover).  Both flag every body — the model is
+            # unbuildable as a single global iso-order.
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} is non-conformable — {err}; "
                 "flagging every body (v1 cannot build a faulted/unconformable model)"
@@ -310,10 +331,34 @@ class RecomputeLithoSolids(GroundModelLogger):
             )
             return await self._handle_flag_all(model_id, formation_by_body)
 
+        # --- Carve enclosed lenses back into the matrix meshes ----------------
+        # The matrix order excluded each enclosed lens (a single global iso-order
+        # cannot place it); carve_lenses puts it back by splitting its host into
+        # host-upper-plus-outer + host-lower around the lens prism, over the SAME
+        # grid the matrix was built on (byte-identical: same domain + spacing).  A
+        # conformable model with no lenses skips the carve entirely (clean no-op).
+        if assembly.lens_carve_inputs:
+            self.info(
+                f"RecomputeLithoSolids: model={model_id} — carving "
+                f"{len(assembly.lens_carve_inputs)} lens(es) into {len(meshes)} matrix mesh(es)"
+            )
+            gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
+            # carve_lenses returns the FULL updated mesh list (untouched matrix +
+            # carved host pieces + lens prisms), so it replaces `meshes` wholesale.
+            meshes = carve_lenses(assembly.lens_carve_inputs, meshes, gx, gy, node_inside)
+
+        # Merge same-body_id meshes into one row's geometry: the carve emits two
+        # host pieces under one body_id, but persistence keys ONE row per body_id,
+        # so without this merge the second piece would silently overwrite the first
+        # on upsert.  A no-op when no body_id repeats (the conformable / no-lens
+        # path), so non-lens models stay byte-identical to before.
+        meshes = merge_meshes_by_body_id(meshes)
+
         mesh_body_ids = {m.body_id for m in meshes}
         self.info(
             f"RecomputeLithoSolids: model={model_id} — strat field produced "
-            f"{len(meshes)} mesh(es) over grid_spacing={grid_spacing_m} m"
+            f"{len(meshes)} mesh(es) after lens carve + body_id merge "
+            f"over grid_spacing={grid_spacing_m} m"
         )
 
         # --- Model-level checksum short-circuit ---
