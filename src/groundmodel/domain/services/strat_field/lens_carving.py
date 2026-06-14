@@ -84,6 +84,19 @@ import numpy as np
 from groundmodel.domain.services.strat_field.body_assembly import emit_prism_bodies
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 
+# Strict-interior margin (metres) the carve keeps between a lens surface and the
+# host boundary it would otherwise touch / cross.  The lens surfaces come from the
+# lens's OWN picks resampled over the shared grid (Task 5a), so near the footprint
+# edge the RBF can extrapolate a lens top ABOVE the host top or a base BELOW the
+# host base — which would build an inverted / zero-thickness host slab (the
+# upper-plus-outer base above its own top) and break the watertight tiling.  The
+# carve clamps each lens surface to ``host_top - margin`` / ``host_base + margin``
+# and DROPS any cover node whose clamped thickness falls below the margin, so the
+# lens stays strictly interior and both host pieces stay non-degenerate.  10 cm is
+# well below contact resolution yet comfortably above the emitter's 1 mm
+# minimum-band threshold, so a clamped-but-kept node always emits a real slab.
+_LENS_INTERIOR_MARGIN_M: float = 0.10
+
 
 @dataclass(frozen=True)
 class LensCarveInput:
@@ -311,6 +324,81 @@ def carve_lenses(
     return out
 
 
+def merge_meshes_by_body_id(meshes: Sequence[LithoBodyMesh]) -> list[LithoBodyMesh]:
+    """Concatenate every mesh sharing a ``body_id`` into ONE :class:`LithoBodyMesh`.
+
+    The carve emits TWO host pieces (host-upper-plus-outer + host-lower) under the
+    SAME ``body_id`` so the column reads HOST / LENS / HOST.  Persistence keys ONE
+    row per ``body_id`` (``litho_body_solid`` has ``UNIQUE(model_id, body_id)``), so
+    two meshes with one id would UPSERT to the same row and the second silently
+    overwrites the first — a lost host piece.  This merges them into a single mesh
+    of two disjoint closed components: vertices are concatenated and the second
+    mesh's triangle indices are offset by the first's vertex count.
+
+    A merged mesh of disjoint closed components is still valid for every downstream
+    consumer: ``assert_closed_manifold`` checks edge multiplicity (each component is
+    closed independently, so every edge still has multiplicity 2), and the
+    ray-cast / ``vertical_ray_intervals`` returns one interval per component.
+
+    Parameters
+    ----------
+    meshes : Sequence of LithoBodyMesh
+        The meshes to merge (e.g. ``carve_lenses`` output).  Order within a
+        ``body_id`` group is preserved (the carve order: upper-plus-outer, lower).
+
+    Returns
+    -------
+    list of LithoBodyMesh
+        One mesh per distinct ``body_id``, in ascending ``body_id`` order
+        (deterministic).  A single-mesh group passes through unchanged (same
+        geometry, ``is_flagged`` preserved).  ``formation_id`` is taken from the
+        first mesh in the group; ``is_flagged`` is the OR over the group (a flagged
+        piece keeps the merged body flagged), though carved bodies are never
+        flagged.
+
+    Raises
+    ------
+    ValueError
+        When two meshes sharing a ``body_id`` disagree on ``formation_id`` (a
+        carve bug — host pieces must keep the host lithology).
+    """
+    grouped: dict[str, list[LithoBodyMesh]] = {}
+    for mesh in meshes:
+        grouped.setdefault(mesh.body_id, []).append(mesh)
+
+    out: list[LithoBodyMesh] = []
+    for body_id in sorted(grouped):
+        group = grouped[body_id]
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+
+        formation_id = group[0].formation_id
+        vertices: list[tuple[float, float, float]] = []
+        triangles: list[tuple[int, int, int]] = []
+        is_flagged = False
+        for mesh in group:
+            if mesh.formation_id != formation_id:
+                raise ValueError(
+                    f"meshes sharing body_id {body_id!r} disagree on formation_id "
+                    f"({formation_id!r} vs {mesh.formation_id!r}) — a carve bug"
+                )
+            offset = len(vertices)
+            vertices.extend(mesh.vertices)
+            triangles.extend((a + offset, b + offset, c + offset) for a, b, c in mesh.triangles)
+            is_flagged = is_flagged or mesh.is_flagged
+        out.append(
+            LithoBodyMesh(
+                body_id=body_id,
+                formation_id=formation_id,
+                vertices=vertices,
+                triangles=triangles,
+                is_flagged=is_flagged,
+            )
+        )
+    return out
+
+
 def _carve_one(lens: LensCarveInput, host: _Prism, nx: int, ny: int) -> tuple[_Prism, _Prism]:
     """Carve one lens out of ``host`` in place; return the lens + host-lower prisms.
 
@@ -348,12 +436,32 @@ def _carve_one(lens: LensCarveInput, host: _Prism, nx: int, ny: int) -> tuple[_P
     cover = lens.footprint & host.footprint
     host_base_at_carve = host.bottom.copy()  # snapshot before the host mutates
 
+    # --- strict-interior clamp -------------------------------------------------
+    # The lens surfaces are resampled from the lens's OWN picks (Task 5a), NOT
+    # clamped to the host, so near the footprint edge the RBF can push z_top above
+    # the host top or z_base below the host base — which would build an inverted /
+    # zero-thickness host slab and break the watertight tiling.  Clamp each lens
+    # surface to stay ``margin`` inside the host, then DROP any cover node whose
+    # clamped lens thickness collapses below ``margin`` (an edge node where the lens
+    # genuinely pinches out — keeping it would emit a degenerate slab).  The clamp
+    # reads the host's CURRENT top + its base snapshot (the same surfaces the carve
+    # reconstructs), so it composes with a multi-lens / lens-in-lens host correctly.
+    margin = _LENS_INTERIOR_MARGIN_M
+    z_top = lens.z_top.copy()
+    z_base = lens.z_base.copy()
+    z_top[cover] = np.minimum(z_top[cover], host.top[cover] - margin)
+    z_base[cover] = np.maximum(z_base[cover], host_base_at_carve[cover] + margin)
+    # Drop cover nodes whose clamped slab is too thin to enclose (lens pinch-out at
+    # the footprint edge).  A dropped node is host-only there → the host band stays
+    # continuous, the lens simply does not reach that node.
+    cover = cover & (z_top - z_base > margin)
+
     # --- host-upper-plus-outer: raise the host base to z_lt over the lens -------
     # Base = z_lt at lens nodes, host_base elsewhere.  Top unchanged.  This single
     # array stays a connected single-valued prism: outside the lens it is the full
     # host band; over the lens it is just the slab above the lens top.
     new_host_base = host.bottom.copy()
-    new_host_base[cover] = lens.z_top[cover]
+    new_host_base[cover] = z_top[cover]
     host.bottom = new_host_base
     # host.footprint is unchanged — the piece still spans the whole host extent;
     # only its base dropped to the lens top over the cavity.
@@ -363,7 +471,7 @@ def _carve_one(lens: LensCarveInput, host: _Prism, nx: int, ny: int) -> tuple[_P
     # NaN elsewhere so the emitter omits every non-lens node.
     lower_top = np.full((nx, ny), np.nan)
     lower_base = np.full((nx, ny), np.nan)
-    lower_top[cover] = lens.z_base[cover]
+    lower_top[cover] = z_base[cover]
     lower_base[cover] = host_base_at_carve[cover]
     host_lower = _Prism(
         body_id=host.body_id,
@@ -376,8 +484,8 @@ def _carve_one(lens: LensCarveInput, host: _Prism, nx: int, ny: int) -> tuple[_P
     # --- lens prism ------------------------------------------------------------
     lens_top = np.full((nx, ny), np.nan)
     lens_base = np.full((nx, ny), np.nan)
-    lens_top[cover] = lens.z_top[cover]
-    lens_base[cover] = lens.z_base[cover]
+    lens_top[cover] = z_top[cover]
+    lens_base[cover] = z_base[cover]
     lens_prism = _Prism(
         body_id=lens.emitted_body_id,
         formation_id=lens.lens_formation_id,
