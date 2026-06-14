@@ -54,12 +54,24 @@ from groundmodel.domain.services.strat_field.control_data import (
     InvestigationColumn,
     build_control_data,
 )
+from groundmodel.domain.services.strat_field.lens_carving import LensCarveInput
+from groundmodel.domain.services.strat_field.lens_classification import classify_lenses
+from groundmodel.domain.services.strat_field.lens_geometry import build_lens_carve_inputs
+from groundmodel.domain.services.strat_field.lens_types import LensPartition
 from groundmodel.domain.services.strat_field.strat_types import Block, StratControlData
 from groundmodel.domain.services.strat_field.stratigraphic_order import (
     OrderInputUnit,
     build_stratigraphic_order,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Default build-grid spacing (metres) the lens carve inputs are sampled on, used
+# only when ``assemble`` is called WITHOUT an explicit spacing (the unit-test
+# convenience path).  In production ``RecomputeLithoSolids`` reads the project's
+# ``strat_grid_spacing_m`` pref and passes it through, so the lens carve grid
+# MATCHES the matrix body-assembly grid exactly — the shared-grid watertight
+# contract.  Mirrors ``RecomputeLithoSolids._DEFAULT_STRAT_GRID_SPACING_M``.
+_DEFAULT_BUILD_GRID_SPACING_M: float = 1.0
 
 # Vertical margin (metres) added above the highest surface and below the deepest
 # pick base so the strat builder's flat top / base caps sit just OUTSIDE the data
@@ -150,10 +162,21 @@ class StratAssembly:
         The model block framing the solid build (alpha-hull footprint + vertical
         span).  Passed as both the solid ``domain`` and the single field-fit
         block in v1.
+    lens_partition : LensPartition
+        The matrix/lens split of all bodies.  Its ``matrix_body_ids`` filtered the
+        Stage-1 order (so an enclosed-lens over-merge no longer cycles); its
+        ``lenses`` are the enclosed minorities carved back in after the matrix
+        bodies are assembled.  Empty ``lenses`` for a conformable model.
+    lens_carve_inputs : list of LensCarveInput
+        One :class:`LensCarveInput` per lens — its top/base surfaces + footprint
+        over the shared build grid — ready for the Task-4 carve step (consumed by
+        Task 5b's build).  Empty for a conformable model.
     """
 
     control: StratControlData
     domain: Block
+    lens_partition: LensPartition
+    lens_carve_inputs: list[LensCarveInput]
 
 
 class AssembleStratInputs(GroundModelLogger):
@@ -180,7 +203,11 @@ class AssembleStratInputs(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    def assemble(self, picks: list[BodyLayerPick]) -> StratAssembly | None:
+    def assemble(
+        self,
+        picks: list[BodyLayerPick],
+        grid_spacing_m: float = _DEFAULT_BUILD_GRID_SPACING_M,
+    ) -> StratAssembly | None:
         """Map the model's body picks to the strat builder's control + domain.
 
         Pure, synchronous mapping over an already-loaded pick set (no DB read —
@@ -189,23 +216,43 @@ class AssembleStratInputs(GroundModelLogger):
         3-D domain (fewer than 3 non-collinear investigations, or no
         deep-reaching test) — the caller flags every body in that case.
 
+        The picks are classified into a MATRIX backbone plus enclosed LENSES
+        (:func:`classify_lenses`) BEFORE the order is built: only the matrix
+        body ids drive ``build_stratigraphic_order``, so an over-merged model
+        whose host body is recorded both above AND below a minority (a 2-cycle
+        on a single iso-order) becomes conformable.  The classified lenses are
+        turned into per-lens carve inputs (surfaces + footprint over the shared
+        build grid) for the Task-5b carve step.
+
         Parameters
         ----------
         picks : list[BodyLayerPick]
             The model's accepted body-assigned picks (one per member-layer).
+        grid_spacing_m : float, optional
+            The build-grid spacing the lens carve surfaces are sampled on.  MUST
+            match the spacing the matrix body assembly uses (the shared-grid
+            watertight contract) — ``RecomputeLithoSolids`` passes the project's
+            ``strat_grid_spacing_m`` pref.  Defaults to
+            ``_DEFAULT_BUILD_GRID_SPACING_M`` for the unit-test convenience path.
 
         Returns
         -------
         StratAssembly | None
-            The control data + domain block, or ``None`` when the domain is
-            unbuildable.
+            The control data + domain block + lens partition + carve inputs, or
+            ``None`` when the domain is unbuildable.
 
         Raises
         ------
         NonConformableError
-            Propagated from ``build_stratigraphic_order`` when the per-column
-            unit orders form a cycle (a fault / unconformity the v1 builder
-            cannot model).  The caller catches this and flags the model.
+            Propagated from ``build_stratigraphic_order`` when the MATRIX
+            backbone (after the lenses are carved out) still forms a cycle — a
+            true interfingering reversal the v1 builder cannot model.  The caller
+            catches this and flags the model.
+        LensClassificationError
+            Propagated from ``classify_lenses`` when lenses WERE found yet the
+            matrix backbone still cycles (the enclosure criterion failed to break
+            every cycle).  Task 5b's caller must handle this; for now it surfaces
+            so the model is flagged rather than silently mis-built.
         ValueError
             Propagated from ``build_stratigraphic_order`` on an inconsistent
             ``instance_key`` → ``formation_id`` mapping (a data-model bug).
@@ -268,17 +315,48 @@ class AssembleStratInputs(GroundModelLogger):
                 )
             )
 
+        # --- Lens classification (the cycle-breaker) --------------------------
+        # Split the bodies into a conformable MATRIX backbone + enclosed LENSES.
+        # An over-merged host recorded above AND below a minority is a 2-cycle on
+        # a single iso-order; classifying the minority as a lens and ordering only
+        # the matrix backbone makes the model conformable.  May raise
+        # LensClassificationError (lenses found yet matrix still cyclic) — let it
+        # propagate so the caller flags the model (a residual fault).
+        partition = classify_lenses(stage1_columns)
+        self.info(
+            f"AssembleStratInputs: {len(partition.lenses)} lens(es), "
+            f"{len(partition.matrix_body_ids)} matrix body(ies)"
+        )
+
         # --- Stage 1 + Stage 2 (may raise NonConformableError) ----------------
-        order = build_stratigraphic_order(stage1_columns)
+        # Only the matrix backbone is ordered; lens bodies are excluded (carved
+        # back in by Task 5b).  A residual cycle on the matrix is a true reversal.
+        order = build_stratigraphic_order(stage1_columns, matrix_body_ids=partition.matrix_body_ids)
         # Section-drawn contacts are not threaded in v1 — the investigation
         # contacts constrain the field directly (see the module docstring).
         control = build_control_data(stage2_columns, section_contacts=[], order=order)
 
+        # --- Lens carve inputs (surfaces + footprint over the shared grid) -----
+        # Built from each lens body's own picks (the matrix field has no iso for
+        # an enclosed lens); consumed by Task 5b's carve step.
+        picks_by_body: dict[str, list[BodyLayerPick]] = defaultdict(list)
+        for p in picks:
+            picks_by_body[p.body_id].append(p)
+        lens_carve_inputs = build_lens_carve_inputs(
+            partition, dict(picks_by_body), domain, grid_spacing_m
+        )
+
         self.success(
             f"AssembleStratInputs: {len(stage2_columns)} column(s), "
-            f"{len(order.horizons)} horizon(s), {len(control.points)} control point(s)"
+            f"{len(order.horizons)} horizon(s), {len(control.points)} control point(s), "
+            f"{len(lens_carve_inputs)} lens carve input(s)"
         )
-        return StratAssembly(control=control, domain=domain)
+        return StratAssembly(
+            control=control,
+            domain=domain,
+            lens_partition=partition,
+            lens_carve_inputs=lens_carve_inputs,
+        )
 
     # -----------------------------------------------------------------
     # Domain block

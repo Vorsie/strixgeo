@@ -147,3 +147,47 @@ def test_picks_sorted_top_to_bottom_within_investigation() -> None:
     assert assembly is not None
     # Conformable → the topo-sort produced 3 horizons (no NonConformableError).
     assert len(assembly.control.column.horizons) == 3
+
+
+def _enclosed_lens_field() -> list[BodyLayerPick]:
+    """Three investigations with a KLEI / SILT / KLEI enclosed-lens sandwich.
+
+    The host KLEI is recorded BOTH above AND below the SILT under the SAME
+    ``body_id`` (``klei_body``) — the ``test.strix`` over-merge signature.  A
+    single global iso-order cannot place the SILT, so WITHOUT the matrix filter
+    Stage 1's topo-sort sees ``klei_body → silt_body`` and ``silt_body →
+    klei_body`` (a 2-cycle) and raises ``NonConformableError``.  WITH the matrix
+    filter the SILT is classified as a lens and excluded, so the KLEI backbone
+    orders cleanly.
+    """
+    coords = [("A", 0.0, 0.0), ("B", 100.0, 0.0), ("C", 50.0, 80.0)]
+    picks: list[BodyLayerPick] = []
+    for inv, x, y in coords:
+        picks.append(_pick(inv, "klei_body", "f-klei", x=x, y=y, top=0.0, base=4.0))
+        picks.append(_pick(inv, "silt_body", "f-silt", x=x, y=y, top=4.0, base=6.0))
+        picks.append(_pick(inv, "klei_body", "f-klei", x=x, y=y, top=6.0, base=12.0))
+    return picks
+
+
+def test_enclosed_lens_assembles_without_cycle() -> None:
+    """An enclosed-lens field that WOULD cycle now assembles (matrix-only order).
+
+    Without the matrix filter the KLEI-above / KLEI-below over-merge is a 2-cycle
+    and ``assemble`` would raise ``NonConformableError``.  Threading the lens
+    classification's ``matrix_body_ids`` into the order breaks the cycle: the
+    SILT is a lens, the KLEI backbone orders, and the partition surfaces the SILT
+    lens for the carve step.
+    """
+    assembly = _svc().assemble(_enclosed_lens_field())
+    assert assembly is not None
+    # The matrix backbone (KLEI only) is one instance → two horizons (surface +
+    # floor), no internal horizon, no cycle.
+    assert len(assembly.control.column.horizons) >= 1
+
+    # The SILT lens is surfaced on the partition for the carve step.
+    lens_bodies = {L.body_id for L in assembly.lens_partition.lenses}
+    assert "silt_body" in lens_bodies
+    assert "klei_body" in assembly.lens_partition.matrix_body_ids
+
+    # And a carve input was built for the lens.
+    assert any(ci.lens_body_id == "silt_body" for ci in assembly.lens_carve_inputs)
