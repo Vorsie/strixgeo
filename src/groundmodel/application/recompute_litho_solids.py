@@ -2,44 +2,62 @@
 
 This use case is the litho-3D analogue of ``RecomputeFormationSurface`` /
 ``RebuildModelSurfaces`` in the geological model pipeline.  Since the
-watertight-loft rework (spec ``2026-06-12-watertight-loft-body-builder-design.md``)
-it builds the 3-D model by **lofting the 2-D section partitions** rather than
-fitting an independent TIN per body:
+implicit-stratigraphic rework (spec
+``2026-06-13-implicit-stratigraphic-3d-builder-design.md``) it builds the 3-D
+model by fitting a single smooth **stratigraphic potential field** through the
+accepted litho picks and assembling one watertight body per litho band — the
+bodies tile the domain with no overlaps and no gaps by construction (the loft's
+per-section wedge mesher, which produced metre-scale overlaps on interbedded
+data, is retired):
 
 1. Runs ``ResolveLithoInstances`` so ``litho_layer.body_id`` is current
-   before any input is assembled.
-2. Loads ``BodyLayerPick`` tuples (still used for the geology-bounding
-   transforms + the no-picks short-circuit) and runs
-   ``mark_and_truncate_shallow_tests`` / ``divide_picks_by_geology`` —
-   these BOUND the picks the resolver produced and feed the model domain's
-   deep-base reference.
-3. Assembles the loft inputs from the DB via ``AssembleLoftInputs``:
-   one ``SectionInput`` per usable cross-section (its line + column
-   along-positions + ``compute_section_fill`` regions) plus the participating
-   ``DomainTest`` list and the geological ``BandSurface`` set.
-4. Builds the model domain (``build_model_domain``) and the loft field
-   (``LoftField``), then ``build_loft_meshes`` produces one watertight mesh
-   per body — the union tiles the domain by construction.
+   before any input is assembled (correlated layers share one body → one
+   stratigraphic instance).
+2. Loads ``BodyLayerPick`` tuples (the no-picks short-circuit + the checksum).
+3. Assembles the strat builder inputs from the picks via ``AssembleStratInputs``:
+   Stage-1 stratigraphic order (topo-sort over the per-investigation unit
+   sequences) + Stage-2 control data (one elevation control point per contact)
+   + the model domain block (alpha hull / DEM top / deep base).
+4. Builds the watertight meshes (pure domain ``build_strat_model``) over a
+   regular grid whose spacing comes from ``view_state.litho_segmenter`` (the
+   ``strat_grid_spacing_m`` pref, default 1 m).
 5. Upserts each mesh into ``litho_body_solid`` via
-   ``ON CONFLICT (model_id, body_id) DO UPDATE``; bodies present in the picks
-   but on NO section are emitted as a single flagged, empty row ("draw a
-   section through these tests").
+   ``ON CONFLICT (model_id, body_id) DO UPDATE``.
 6. Deletes orphan ``litho_body_solid`` rows whose ``body_id`` is no longer
    among the built bodies.
 
+What changed vs. the loft path (the judgment calls — documented per spec Task 8)
+-------------------------------------------------------------------------------
+* **Section-presence flagging dropped.**  The loft needed a drawn section to
+  loft each body, so it flagged bodies whose tests projected onto NO section.
+  The strat field is fit from ALL picks (boreholes constrain it directly;
+  sections only add density), so every band becomes a real solid and there is no
+  section-less-body limitation.  ``bodies_flagged`` is therefore 0 on the happy
+  path; a NON-zero value only appears when the WHOLE model is non-conformable or
+  the domain is unbuildable (see below).
+* **Geology bounding dropped.**  ``mark_and_truncate_shallow_tests`` /
+  ``divide_picks_by_geology`` are GEOLOGY COUPLING, which the spec keeps OUT of
+  the litho model (owner directive 2026-06-13 — the litho model is pure litho;
+  geological bounding belongs in the not-yet-built geotech model).
+  ``marked_test_ids`` is therefore always empty.  ``build_model_domain`` (alpha
+  hull / deep base) is KEPT — that is geometric framing, not band coupling.
+* **Non-conformable handling.**  A directed cycle in the stratigraphic order
+  (a fault / unconformity the v1 builder cannot model) raises
+  ``NonConformableError`` from Stage 1.  Rather than crash, the use case logs a
+  WARNING and flags EVERY body with an empty row (the UI surfaces the actionable
+  "these contacts conflict — needs a fault/unconformity, not yet supported").
+
 Checksum (model-level, not per-body)
 -----------------------------------
-The loft is GLOBAL: any input change moves shared interfaces, so a per-body
-skip is unsound — a neighbour's edit reshapes this body's wedge even though
-this body's own picks are unchanged.  The checksum is therefore a single
-model-wide digest over the sorted picks + the per-section serialised regions +
-the domain knobs.  When the digest matches every stored row AND ``force`` is
-False the whole rebuild is skipped (``bodies_skipped_checksum``); otherwise all
+The strat field is GLOBAL: any pick change moves the whole field, so a per-body
+skip is unsound.  The checksum is a single model-wide digest over the sorted
+picks + the grid spacing.  When the digest matches every stored row AND ``force``
+is False the whole rebuild is skipped (``bodies_skipped_checksum``); otherwise all
 rows are rebuilt with the new digest.
 
-On-click Build passes ``force=True`` so an explicit user action always
-re-lofts, even if the contact set hasn't changed (a builder-algorithm update
-would otherwise be invisible).
+On-click Build passes ``force=True`` so an explicit user action always rebuilds,
+even if the pick set hasn't changed (a builder-algorithm update would otherwise
+be invisible).
 """
 
 from __future__ import annotations
@@ -56,32 +74,22 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.assemble_loft_inputs import AssembleLoftInputs, LoftAssembly
+from groundmodel.application.assemble_strat_inputs import AssembleStratInputs
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.litho_geo_bounding import (
-    divide_picks_by_geology,
-    mark_and_truncate_shallow_tests,
-)
-from groundmodel.domain.services.loft_field import LoftField, SectionInput
-from groundmodel.domain.services.loft_mesher import build_loft_meshes
-from groundmodel.domain.services.model_domain import build_model_domain
-from groundmodel.domain.services.section_partition import SectionRegion
-from groundmodel.domain.services.tin_surface import evaluate_tin_at
-from groundmodel.domain.services.tin_surface_constants import CONCAVE_HULL_ALPHA_FACTOR
+from groundmodel.domain.services.strat_field.strat_builder import build_strat_model
+from groundmodel.domain.services.strat_field.stratigraphic_order import NonConformableError
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
-from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
-from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-# Default lateral extent (m) past a one-sided section before a pinch/lens region
-# ramps to zero thickness, when the project's view-state carries no override.
-# Mirrors the frontend ``open_extent_length_m`` default (lithoSegmenterPrefs.ts).
-_DEFAULT_OPEN_EXTENT_LENGTH_M: float = 3.0
+# Default grid spacing (m) for the strat field sampling + the prism cells, when
+# the project's view-state carries no override.  Finer spacing → smoother tapers
+# at O(1/h²) grid cost (see the litho-3D solid-builder benchmark).
+_DEFAULT_STRAT_GRID_SPACING_M: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -91,19 +99,23 @@ class RecomputeLithoSolidsOutcome:
     Attributes
     ----------
     bodies_considered : int
-        Total bodies found across the built meshes + section-less picks.
+        Total bodies found across the built meshes (+ any flagged rows).
     bodies_built : int
-        Bodies whose solid was freshly (re-)lofted and upserted.
+        Bodies whose solid was freshly (re-)built and upserted.
     bodies_skipped_checksum : int
         Bodies skipped because the model-level digest matched (all or none).
     bodies_flagged : int
-        Bodies present in the picks but on no section — stored as a flagged,
-        empty row ("draw a section through these tests").
+        Bodies emitted as flagged empty rows.  ALWAYS 0 on the happy strat
+        path (the field is fit from all picks — there is no section-less-body
+        limitation).  Non-zero only when the whole model is non-conformable
+        (a fault / unconformity the v1 builder cannot model).
     orphans_deleted : int
         ``litho_body_solid`` rows removed because their ``body_id`` was no
         longer among the built bodies.
     marked_test_ids : list[str]
-        Investigation ids truncated as above-geology shallow tests.
+        ALWAYS empty on the strat path — geology bounding (which produced the
+        marked-too-shallow list) is kept OUT of the litho model.  Retained on
+        the outcome for API-shape compatibility with the loft contract.
     """
 
     bodies_considered: int
@@ -117,10 +129,10 @@ class RecomputeLithoSolidsOutcome:
 def _storage_body_id(mesh_body_id: str) -> UUID:
     """Map a mesh ``body_id`` string to the UUID stored in ``litho_body_solid``.
 
-    The loft mesher emits a synthetic ``"none:<formation_id>"`` id for a
-    never-correlated minority / band-filler body (``StackEntry.body_id is
-    None``) — these are real volumes that must render, but the token is not a
-    UUID and has no row in the ``body`` table.  ``body_id`` on
+    The strat builder emits a synthetic ``"strat:{rank_top}-{rank_bot}"`` id
+    per band (plus a ``"#<component>"`` suffix when a band splits into
+    disconnected regions) — these are real volumes that must render, but the
+    token is not a UUID and has no row in the ``body`` table.  ``body_id`` on
     ``litho_body_solid`` is intentionally NOT an FK (see the ORM docstring), so
     a deterministic ``uuid5`` over the token is a stable storage key that
     survives rebuilds without churning the cache.  A real UUID id passes
@@ -129,7 +141,7 @@ def _storage_body_id(mesh_body_id: str) -> UUID:
     Parameters
     ----------
     mesh_body_id : str
-        The mesh's ``body_id`` — a real UUID string or a ``"none:<fid>"`` token.
+        The mesh's ``body_id`` — a real UUID string or a ``"strat:…"`` token.
 
     Returns
     -------
@@ -139,33 +151,29 @@ def _storage_body_id(mesh_body_id: str) -> UUID:
     try:
         return UUID(mesh_body_id)
     except ValueError:
-        # Synthetic non-correlated-minority token — derive a stable UUID.
+        # Synthetic strat band token — derive a stable UUID.
         return uuid5(NAMESPACE_OID, mesh_body_id)
 
 
 def _model_checksum(
     picks: list[BodyLayerPick],
-    sections: list[SectionInput],
-    open_extent_length_m: float,
-    alpha_factor: float,
+    grid_spacing_m: float,
 ) -> bytes:
-    """Model-wide BLAKE2b-16 digest over every loft input.
+    """Model-wide BLAKE2b-16 digest over every strat-builder input.
 
-    Covers the sorted pick geometry, the per-section serialised partition
-    regions, and the domain knobs.  Any change moves a shared interface, so the
-    digest is model-level (not per-body): the loft cannot be skipped one body
-    at a time.
+    Covers the sorted pick geometry + the grid-spacing knob.  The strat field is
+    global — any pick change moves the whole field — so the digest is model-level
+    (not per-body): the build cannot be skipped one body at a time.  The
+    stratigraphic order is a pure function of the picks' per-column unit
+    sequences, so digesting the picks already captures any order change; the
+    order is not separately folded in.
 
     Parameters
     ----------
     picks : list[BodyLayerPick]
-        The geology-bounded pick set feeding the domain + section-less flagging.
-    sections : list
-        The assembled ``SectionInput`` list (its regions define the loft shape).
-    open_extent_length_m : float
-        The pinch/lens ramp knob.
-    alpha_factor : float
-        The alpha-hull / deep-base trim factor.
+        The model's accepted body-assigned picks.
+    grid_spacing_m : float
+        The field-sampling / prism-cell grid spacing.
 
     Returns
     -------
@@ -173,51 +181,23 @@ def _model_checksum(
         16-byte BLAKE2b digest.
     """
     h = hashlib.blake2b(digest_size=16)
-    # Domain knobs first.
-    h.update(struct.pack("<dd", open_extent_length_m, alpha_factor))
+    h.update(struct.pack("<d", grid_spacing_m))
     # Sorted pick geometry (insertion order is not significant).
     for p in sorted(picks, key=lambda x: (x.body_id, x.investigation_id, x.top_depth_m)):
         h.update(p.body_id.encode("utf-8"))
         h.update(p.investigation_id.encode("utf-8"))
+        h.update(p.formation_id.encode("utf-8"))
         h.update(
             struct.pack("<ddddd", p.x_m, p.y_m, p.surface_elev_m, p.top_depth_m, p.base_depth_m)
         )
-    # Per-section serialised regions (section order is deterministic from the
-    # assembly; sort by id defensively so a reorder does not bust the digest).
-    for s in sorted(sections, key=lambda sec: sec.section_id):
-        h.update(s.section_id.encode("utf-8"))
-        h.update(struct.pack("<dddd", s.ax, s.ay, s.bx, s.by))
-        for along in s.column_alongs:
-            h.update(struct.pack("<d", along))
-        for r in s.regions:
-            _hash_region(h, r)
     return h.digest()
-
-
-def _hash_region(h: hashlib.blake2b, region: SectionRegion) -> None:
-    """Fold one partition region into the running model digest.
-
-    Parameters
-    ----------
-    h : hashlib.blake2b
-        The running BLAKE2b state.
-    region : SectionRegion
-        The region to serialise (formation, body, kind, gap, polygon).
-    """
-    h.update(region.formation_id.encode("utf-8"))
-    h.update((region.body_id or "").encode("utf-8"))
-    h.update(region.kind.encode("utf-8"))
-    h.update((region.overlay_tier or "").encode("utf-8"))
-    h.update(struct.pack("<i", region.gap_index))
-    for pt in region.polygon:
-        h.update(struct.pack("<dd", pt.fraction, pt.elevation))
 
 
 class RecomputeLithoSolids(GroundModelLogger):
     """Recompute and cache the 3-D solid for every body in a lithostratigraphic model.
 
-    Builds via the watertight loft pipeline (spec
-    ``2026-06-12-watertight-loft-body-builder-design.md``).  The caller owns
+    Builds via the implicit-stratigraphic field (spec
+    ``2026-06-13-implicit-stratigraphic-3d-builder-design.md``).  The caller owns
     the session; this use case commits once at the end.
 
     Parameters
@@ -246,12 +226,12 @@ class RecomputeLithoSolids(GroundModelLogger):
             The lithostratigraphic model to recompute.
         force : bool, default ``False``
             When ``True``, skip the model-level checksum short-circuit and
-            always re-loft.  The on-click "Build 3-D model" path passes this so
+            always rebuild.  The on-click "Build 3-D model" path passes this so
             an explicit Build always reflects the current builder code.
         litho_snap_tolerance_m : float, default 0.20
-            Geology↔litho snap tolerance; a boundary within this of a litho
-            contact snaps geology to the contact rather than cutting (feeds the
-            pick-division transform).
+            Accepted for API-shape parity with the loft contract but UNUSED on
+            the strat path — it fed the geology-coupling pick division, which is
+            kept out of the litho model (owner directive 2026-06-13).
 
         Returns
         -------
@@ -264,84 +244,81 @@ class RecomputeLithoSolids(GroundModelLogger):
         flush and the solid upsert land in the SAME transaction (one fsync).
         The outer ``commit`` at the end owns the transaction boundary.
         """
-        self.info(f"RecomputeLithoSolids(loft): model={model_id} force={force}")
+        self.info(f"RecomputeLithoSolids(strat): model={model_id} force={force}")
 
         # Step 1: ensure body_id stamps are current before assembling inputs.
         await ResolveLithoInstances(self._session).execute(model_id=model_id, commit=False)
         self.debug(f"RecomputeLithoSolids: resolver done for model={model_id}")
 
-        # Step 2: load picks (for geo-bounding + the section-less flag + checksum).
+        # Step 2: load picks (for the no-picks short-circuit + the checksum).
         repo = LithoLayerRepository(self._session)
         picks = await repo.load_body_picks(model_id)
         self.info(f"RecomputeLithoSolids: model={model_id} — {len(picks)} pick(s) loaded")
 
-        # --- Geology bounding (build-only; the geological model is untouched) ---
-        alpha_factor = CONCAVE_HULL_ALPHA_FACTOR
-        picks, marked_test_ids = await self._apply_geo_bounding(
-            model_id, picks, litho_snap_tolerance_m
-        )
-
         if not picks:
             return await self._handle_no_picks(model_id)
 
-        # Step 3: assemble loft inputs from the DB.
-        assembly = await AssembleLoftInputs(self._session).execute(model_id)
-        open_extent_length_m = await self._read_open_extent_length_m(model_id)
-        self.info(
-            f"RecomputeLithoSolids: model={model_id} — assembled "
-            f"{len(assembly.sections)} section(s), {len(assembly.tests)} test(s), "
-            f"{len(assembly.band_surfaces)} band(s); open_extent={open_extent_length_m} m"
-        )
+        grid_spacing_m = await self._read_strat_grid_spacing_m(model_id)
 
-        # Step 4: build the loft meshes (pure domain).
-        meshes = self._build_meshes(assembly, open_extent_length_m, alpha_factor)
-        mesh_body_ids = {m.body_id for m in meshes}
-        self.info(f"RecomputeLithoSolids: model={model_id} — loft produced {len(meshes)} mesh(es)")
-
-        # Bodies that produced no volume → flag an empty row ("draw a section
-        # through these tests").  Two cases:
-        #  * the loft built nothing at all (too few / collinear tests, or no
-        #    section — the domain is unbuildable): flag EVERY body; or
-        #  * the loft built, but a body has no investigation on any section
-        #    corridor (section presence is GEOMETRIC per spec §3 — a body is
-        #    present iff a test projects onto a corridor).
-        # Mesh-id presence is the WRONG signal: a body that shaped the loft only
-        # as a re-keyed (``#b<k>``) or aggregated minority (``none:<fid>``) mesh
-        # has lost its resolver id, so an id-difference would flag it spuriously.
-        on_section_inv = assembly.on_section_investigation_ids
-        pick_body_ids = {p.body_id for p in picks}
-        if not meshes:
-            sectionless_body_ids = set(pick_body_ids)
-        else:
-            section_present = {p.body_id for p in picks if p.investigation_id in on_section_inv}
-            sectionless_body_ids = pick_body_ids - section_present
+        # Step 3 + 4: assemble strat inputs and build the watertight meshes.
+        #
+        # A NonConformableError (a directed cycle in the stratigraphic order — a
+        # fault / unconformity the v1 builder cannot model) is NOT a crash: the
+        # whole model is flagged so the UI surfaces the conflict.  A None
+        # assembly (domain unbuildable: < 3 non-collinear tests, or no
+        # deep-reaching test) flags every body the same way.
         formation_by_body = {p.body_id: p.formation_id for p in picks}
+        try:
+            assembly = AssembleStratInputs(self._session).assemble(picks)
+        except NonConformableError as err:
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} is non-conformable — {err}; "
+                "flagging every body (v1 cannot build a faulted/unconformable model)"
+            )
+            return await self._handle_flag_all(model_id, formation_by_body)
+
+        if assembly is None:
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} domain unbuildable — "
+                "flagging every body (need ≥3 non-collinear tests reaching depth)"
+            )
+            return await self._handle_flag_all(model_id, formation_by_body)
+
+        try:
+            meshes = build_strat_model(
+                assembly.control,
+                assembly.domain,
+                blocks=[assembly.domain],
+                grid_spacing_m=grid_spacing_m,
+            )
+        except ValueError as err:
+            # The field fit needs ≥1 internal contact: a model whose every column
+            # is a SINGLE stratigraphic instance (no interbedding → no internal
+            # horizon → no control point) has nothing to interpolate.  Flag every
+            # body rather than crash — the UI surfaces "add a contact / correlate
+            # a second unit to build this model".
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} field unfittable — {err}; "
+                "flagging every body (no internal contact to interpolate)"
+            )
+            return await self._handle_flag_all(model_id, formation_by_body)
+
+        mesh_body_ids = {m.body_id for m in meshes}
         self.info(
-            f"RecomputeLithoSolids: model={model_id} — "
-            f"{len(sectionless_body_ids)} body/bodies on no section (flagged)"
+            f"RecomputeLithoSolids: model={model_id} — strat field produced "
+            f"{len(meshes)} mesh(es) over grid_spacing={grid_spacing_m} m"
         )
 
         # --- Model-level checksum short-circuit ---
-        new_checksum = _model_checksum(picks, assembly.sections, open_extent_length_m, alpha_factor)
-        existing_by_body: dict[str, LithoBodySolidOrm] = {
-            str(row.body_id): row
-            for row in (
-                await self._session.execute(
-                    select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
-                )
-            )
-            .scalars()
-            .all()
-        }
+        new_checksum = _model_checksum(picks, grid_spacing_m)
+        existing_by_body = await self._load_existing(model_id)
 
-        wanted_storage_ids = {str(_storage_body_id(b)) for b in mesh_body_ids} | {
-            str(_storage_body_id(b)) for b in sectionless_body_ids
-        }
+        wanted_storage_ids = {str(_storage_body_id(b)) for b in mesh_body_ids}
         bodies_considered = len(wanted_storage_ids)
 
         # Skip ALL rows only when the digest matches every stored row AND every
-        # wanted body already has a fresh row (the loft is global — a partial
-        # skip would serve mismatched shared interfaces).
+        # wanted body already has a fresh row (the field is global — a partial
+        # skip would serve a mismatched field).
         if not force and self._digest_matches_all(
             existing_by_body, wanted_storage_ids, new_checksum
         ):
@@ -356,21 +333,14 @@ class RecomputeLithoSolids(GroundModelLogger):
                 bodies_skipped_checksum=bodies_considered,
                 bodies_flagged=0,
                 orphans_deleted=0,
-                marked_test_ids=marked_test_ids,
+                marked_test_ids=[],
             )
 
-        # Step 5: upsert every mesh + every section-less flagged row.
+        # Step 5: upsert every mesh.
         bodies_built = 0
         for i, mesh in enumerate(meshes):
             await self._upsert_mesh(model_id, mesh, new_checksum, existing_by_body, i, len(meshes))
             bodies_built += 1
-
-        bodies_flagged = 0
-        for bid in sorted(sectionless_body_ids):
-            await self._upsert_flagged(
-                model_id, bid, formation_by_body[bid], new_checksum, existing_by_body
-            )
-            bodies_flagged += 1
 
         # Step 6: delete orphan rows for bodies no longer built.
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
@@ -380,155 +350,44 @@ class RecomputeLithoSolids(GroundModelLogger):
         self.success(
             f"RecomputeLithoSolids: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
-            f"flagged={bodies_flagged} orphans_deleted={orphans_deleted}"
+            f"orphans_deleted={orphans_deleted}"
         )
         return RecomputeLithoSolidsOutcome(
             bodies_considered=bodies_considered,
             bodies_built=bodies_built,
             bodies_skipped_checksum=0,
-            bodies_flagged=bodies_flagged,
+            bodies_flagged=0,
             orphans_deleted=orphans_deleted,
-            marked_test_ids=marked_test_ids,
+            marked_test_ids=[],
         )
-
-    # -----------------------------------------------------------------
-    # Geology bounding
-    # -----------------------------------------------------------------
-
-    async def _apply_geo_bounding(
-        self,
-        model_id: UUID,
-        picks: list[BodyLayerPick],
-        litho_snap_tolerance_m: float,
-    ) -> tuple[list[BodyLayerPick], list[str]]:
-        """Truncate shallow tests + divide picks by geology (build-only).
-
-        Bounds the picks the resolver produced so a body never crosses a
-        geological band and shallow tests do not floor the model.  Mirrors the
-        legacy builder's bounding pass verbatim (the samplers wrap the parent
-        model's ``FormationSurfaceOrm`` TINs directly); kept because it produces
-        ``marked_test_ids`` and keeps the pick set consistent with the band
-        surfaces the loft clips against.  No-ops when the model has no parent
-        geological model.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The lithostratigraphic model.
-        picks : list[BodyLayerPick]
-            The model's body-assigned picks.
-        litho_snap_tolerance_m : float
-            Snap-or-divide tolerance for ``divide_picks_by_geology``.
-
-        Returns
-        -------
-        tuple[list[BodyLayerPick], list[str]]
-            The bounded picks + the marked (too-shallow) investigation ids.
-        """
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        parent_id = model.parent_geological_model_id if model is not None else None
-        if parent_id is None or not picks:
-            self.debug(
-                f"RecomputeLithoSolids: model={model_id} has no parent geological "
-                "model or no picks — geology bounding skipped"
-            )
-            return picks, []
-
-        surfaces = await GeologyRepository(self._session).list_surfaces(parent_id)
-        tins: list[tuple[str, TinSurface]] = [
-            (
-                str(s.formation_id),
-                TinSurface(
-                    vertices=[tuple(v) for v in s.vertices],
-                    triangles=[tuple(t) for t in s.triangles],
-                ),
-            )
-            for s in surfaces
-        ]
-
-        def _boundary_samples(x: float, y: float) -> list[tuple[str, float]]:
-            hits = [(fid, e) for fid, tin in tins if (e := evaluate_tin_at(tin, x, y)) is not None]
-            hits.sort(key=lambda fe: fe[1], reverse=True)
-            return hits
-
-        def _lowest_boundary(x: float, y: float) -> float | None:
-            s = _boundary_samples(x, y)
-            return s[-1][1] if s else None
-
-        shallow = mark_and_truncate_shallow_tests(picks, _lowest_boundary)
-        bounded = divide_picks_by_geology(shallow.picks, _boundary_samples, litho_snap_tolerance_m)
-        self.info(
-            f"RecomputeLithoSolids: geo-bounding model={model_id} — "
-            f"{len(shallow.marked_investigation_ids)} marked test(s); "
-            f"{len(bounded)} picks after division"
-        )
-        return bounded, shallow.marked_investigation_ids
-
-    # -----------------------------------------------------------------
-    # Loft mesh build
-    # -----------------------------------------------------------------
-
-    def _build_meshes(
-        self,
-        assembly: LoftAssembly,
-        open_extent_length_m: float,
-        alpha_factor: float,
-    ) -> list[LithoBodyMesh]:
-        """Run the loft pipeline; return the per-body meshes (empty on degeneracy).
-
-        Parameters
-        ----------
-        assembly : LoftAssembly
-            The assembled sections + tests + band surfaces.
-        open_extent_length_m : float
-            The pinch/lens ramp knob.
-        alpha_factor : float
-            The alpha-hull / deep-base trim factor.
-
-        Returns
-        -------
-        list[LithoBodyMesh]
-            One watertight mesh per body, or ``[]`` when the domain cannot be
-            built (fewer than 3 tests, collinear, or no deep-reaching test).
-        """
-        if not assembly.sections or len(assembly.tests) < 3:
-            self.warning(
-                "RecomputeLithoSolids: insufficient loft inputs "
-                f"(sections={len(assembly.sections)} tests={len(assembly.tests)}) "
-                "— no watertight meshes built"
-            )
-            return []
-        try:
-            domain = build_model_domain(
-                assembly.tests, lowest_band_elev_at=None, alpha_factor=alpha_factor
-            )
-        except ValueError as err:
-            # Collinear tests / no deep-reaching test — the loft cannot frame a
-            # domain; every body falls back to the section-less flagged path.
-            self.warning(f"RecomputeLithoSolids: model domain unbuildable — {err}")
-            return []
-        # Geology coupling is DISABLED for the litho model (owner directive
-        # 2026-06-13): the band-filler clip inserted geological band material
-        # (Quartair / Antropogeen) above + below the authored litho columns and
-        # produced overlapping meshes where the geological bands were not
-        # disjoint — making the model untruthful to the user's litho. The litho
-        # model now contains ONLY the litho partition, lofted. Geological
-        # bounding belongs in the GEOTECH model (not yet built); the
-        # ``_clip_to_bands`` machinery + the band-surface assembly are kept for
-        # that, but pass ``band_surfaces=None`` here so nothing is clipped or
-        # filled. Re-enable (and first fix the overlap / no-fill-above-litho
-        # behaviour) when the geotech model needs geological bounding.
-        field = LoftField(
-            sections=assembly.sections,
-            domain=domain,
-            band_surfaces=None,
-            open_extent_length_m=open_extent_length_m,
-        )
-        return build_loft_meshes(field)
 
     # -----------------------------------------------------------------
     # Persistence helpers
     # -----------------------------------------------------------------
+
+    async def _load_existing(self, model_id: UUID) -> dict[str, LithoBodySolidOrm]:
+        """Load the model's stored solid rows keyed by ``str(body_id)``.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model scope.
+
+        Returns
+        -------
+        dict[str, LithoBodySolidOrm]
+            Stored rows keyed by ``str(body_id)``.
+        """
+        return {
+            str(row.body_id): row
+            for row in (
+                await self._session.execute(
+                    select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
+                )
+            )
+            .scalars()
+            .all()
+        }
 
     def _digest_matches_all(
         self,
@@ -538,7 +397,7 @@ class RecomputeLithoSolids(GroundModelLogger):
     ) -> bool:
         """True when every wanted body has a fresh row carrying ``new_checksum``.
 
-        The loft is global, so the skip is all-or-nothing: a single stale or
+        The field is global, so the skip is all-or-nothing: a single stale or
         missing row (or a digest mismatch) forces a full rebuild.
 
         Parameters
@@ -570,7 +429,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         index: int,
         total: int,
     ) -> None:
-        """Upsert one lofted mesh into ``litho_body_solid``.
+        """Upsert one strat-built mesh into ``litho_body_solid``.
 
         Parameters
         ----------
@@ -616,11 +475,12 @@ class RecomputeLithoSolids(GroundModelLogger):
         checksum: bytes,
         existing_by_body: dict[str, LithoBodySolidOrm],
     ) -> None:
-        """Upsert a flagged, empty row for a body that is on no section.
+        """Upsert a flagged, empty row for a body that could not be built.
 
-        The body's tests project into no section corridor, so the loft cannot
-        shape it.  The row is stored flagged with empty geometry; the UI surfaces
-        it as "not on any section — draw a section through these tests".
+        Used only on the whole-model flag path (non-conformable order or an
+        unbuildable domain): every body gets a flagged empty row so the UI
+        surfaces the actionable conflict.  The row is stored flagged with empty
+        geometry.
 
         Parameters
         ----------
@@ -637,7 +497,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         """
         storage_id = _storage_body_id(body_id)
         existing = existing_by_body.get(str(storage_id))
-        self.debug(f"upsert flagged (section-less) body {body_id} → {storage_id}")
+        self.debug(f"upsert flagged body {body_id} → {storage_id}")
         await self._session.execute(
             self._upsert_stmt(
                 model_id=model_id,
@@ -678,7 +538,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         checksum : bytes
             The model-level digest.
         is_flagged : bool
-            Whether the body is a section-less flagged row.
+            Whether the body is a flagged (non-buildable) row.
         existing : LithoBodySolidOrm | None
             The stored row, for primary-key reuse on conflict.
 
@@ -692,7 +552,7 @@ class RecomputeLithoSolids(GroundModelLogger):
             model_id=model_id,
             body_id=storage_id,
             formation_id=formation_id,
-            method="loft",
+            method="strat",
             vertices=vertices,
             triangles=triangles,
             source_pick_count=source_pick_count,
@@ -704,7 +564,7 @@ class RecomputeLithoSolids(GroundModelLogger):
             constraint="uq_litho_body_solid_model_body",
             set_=dict(
                 formation_id=formation_id,
-                method="loft",
+                method="strat",
                 vertices=vertices,
                 triangles=triangles,
                 source_pick_count=source_pick_count,
@@ -755,6 +615,57 @@ class RecomputeLithoSolids(GroundModelLogger):
             )
         return deleted
 
+    async def _handle_flag_all(
+        self,
+        model_id: UUID,
+        formation_by_body: dict[str, str],
+    ) -> RecomputeLithoSolidsOutcome:
+        """Flag every body with an empty row (non-conformable / unbuildable).
+
+        Used when Stage 1 raises ``NonConformableError`` or the domain cannot be
+        framed.  Every resolver body gets a flagged empty row so the UI surfaces
+        the actionable conflict; orphans (storage ids no longer wanted) are
+        pruned.  Always rebuilds (no checksum skip) — a flagged state must be
+        reflected even if the picks are unchanged.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model whose bodies are flagged.
+        formation_by_body : dict[str, str]
+            ``body_id → formation_id`` for every resolver body.
+
+        Returns
+        -------
+        RecomputeLithoSolidsOutcome
+            ``bodies_flagged`` == the body count; ``bodies_built`` == 0.
+        """
+        existing_by_body = await self._load_existing(model_id)
+        new_checksum = _model_checksum([], 0.0)  # flagged rows carry a sentinel digest
+
+        wanted_storage_ids = {str(_storage_body_id(b)) for b in formation_by_body}
+        bodies_flagged = 0
+        for bid in sorted(formation_by_body):
+            await self._upsert_flagged(
+                model_id, bid, formation_by_body[bid], new_checksum, existing_by_body
+            )
+            bodies_flagged += 1
+
+        orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
+        await self._session.commit()
+        self.success(
+            f"RecomputeLithoSolids: model={model_id} — flagged {bodies_flagged} body/bodies, "
+            f"{orphans_deleted} orphan(s) deleted"
+        )
+        return RecomputeLithoSolidsOutcome(
+            bodies_considered=bodies_flagged,
+            bodies_built=0,
+            bodies_skipped_checksum=0,
+            bodies_flagged=bodies_flagged,
+            orphans_deleted=orphans_deleted,
+            marked_test_ids=[],
+        )
+
     async def _handle_no_picks(self, model_id: UUID) -> RecomputeLithoSolidsOutcome:
         """Delete every solid row and return a zero outcome (no picks path).
 
@@ -793,11 +704,12 @@ class RecomputeLithoSolids(GroundModelLogger):
             marked_test_ids=[],
         )
 
-    async def _read_open_extent_length_m(self, model_id: UUID) -> float:
-        """Read the project's ``open_extent_length_m`` from its view-state.
+    async def _read_strat_grid_spacing_m(self, model_id: UUID) -> float:
+        """Read the project's ``strat_grid_spacing_m`` from its view-state.
 
         The model's project owns the ``litho_segmenter`` view-state bag; the
-        knob mirrors the frontend's pinch/lens ramp default (3 m).
+        knob sets the strat field's sampling / prism-cell grid spacing (default
+        1 m).  Stored in JSON view-state, so no migration is needed.
 
         Parameters
         ----------
@@ -807,15 +719,17 @@ class RecomputeLithoSolids(GroundModelLogger):
         Returns
         -------
         float
-            The configured open-extent length, or the 3 m default.
+            The configured grid spacing, or the 1 m default.
         """
         model = await self._session.get(GeologicalModelOrm, model_id)
         if model is None:
-            return _DEFAULT_OPEN_EXTENT_LENGTH_M
+            return _DEFAULT_STRAT_GRID_SPACING_M
         project = await ProjectRepository(self._session).get_by_id(model.app_project_id)
         view_state = project.view_state if project is not None else None
         seg = (view_state or {}).get("litho_segmenter") or {}
         try:
-            return float(seg.get("open_extent_length_m", _DEFAULT_OPEN_EXTENT_LENGTH_M))
+            spacing = float(seg.get("strat_grid_spacing_m", _DEFAULT_STRAT_GRID_SPACING_M))
         except (TypeError, ValueError):
-            return _DEFAULT_OPEN_EXTENT_LENGTH_M
+            return _DEFAULT_STRAT_GRID_SPACING_M
+        # Guard against a zero/negative pref that would crash the grid linspace.
+        return spacing if spacing > 0 else _DEFAULT_STRAT_GRID_SPACING_M
