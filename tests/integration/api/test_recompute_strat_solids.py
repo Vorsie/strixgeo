@@ -395,6 +395,30 @@ async def test_interbedded_model_builds_watertight_no_overlap(
         assert len(solid.triangles) > 0, f"Solid {solid.body_id} must have triangles"
         assert solid.is_stale is False, f"Solid {solid.body_id} must be fresh"
 
+        # Round-trip dtype invariant: JSONB always deserialises as list[list[number]].
+        # Vertex coords must be floats; triangle indices must be ints.  A dtype slip
+        # (e.g. numpy int64 sneaking into triangles) would make json.dumps write an
+        # unserializable object and raise at upsert time — but catching it here as a
+        # type assertion is cheaper than diagnosing a DB error.
+        first_vert = solid.vertices[0]
+        assert isinstance(first_vert, list), (
+            f"Solid {solid.body_id}: JSONB vertices must deserialise as list[list], "
+            f"got {type(first_vert)}"
+        )
+        assert all(isinstance(c, float) for c in first_vert), (
+            f"Solid {solid.body_id}: vertex coords must be float, "
+            f"got {[type(c).__name__ for c in first_vert]}"
+        )
+        first_tri = solid.triangles[0]
+        assert isinstance(first_tri, list), (
+            f"Solid {solid.body_id}: JSONB triangles must deserialise as list[list], "
+            f"got {type(first_tri)}"
+        )
+        assert all(isinstance(i, int) for i in first_tri), (
+            f"Solid {solid.body_id}: triangle indices must be int, "
+            f"got {[type(i).__name__ for i in first_tri]}"
+        )
+
     # Build duck-typed mesh objects for the section-column diff.
     meshes = [
         _MeshView(
