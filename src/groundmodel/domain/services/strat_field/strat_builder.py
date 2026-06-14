@@ -22,7 +22,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from groundmodel.domain.services.strat_field.body_assembly import assemble_bodies
+import numpy as np
+
+from groundmodel.domain.services.strat_field.body_assembly import (
+    assemble_bodies,
+    assemble_bodies_with_fields,
+)
 from groundmodel.domain.services.strat_field.potential_field import fit_potential_field
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,
@@ -83,3 +88,49 @@ def build_strat_model(
     """
     field = fit_potential_field(control, blocks)
     return assemble_bodies(field, control.column, domain, grid_spacing_m)
+
+
+def build_strat_model_with_fields(
+    control: StratControlData,
+    domain: Block,
+    blocks: Sequence[Block],
+    grid_spacing_m: float,
+) -> tuple[list[LithoBodyMesh], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Build the watertight 3-D litho model AND expose each body's height field.
+
+    Identical to :func:`build_strat_model` (fits the implicit field, then
+    assembles watertight body solids over the shared grid), but ALSO returns the
+    per-emitted-body ``(top, base)`` per-node height arrays the assembly already
+    computed.  ``RecomputeLithoSolids`` threads these into the lens carve so the
+    carve reuses them instead of reconstructing each host's height field with an
+    O(grid_nodes × triangles) vertical ray-cast — the dominant real-data build
+    hotspot.  The arrays are EXACTLY what the ray-cast reconstruction recovers, so
+    the carve output is byte-identical to the ray-cast path.
+
+    Parameters
+    ----------
+    control : StratControlData
+        The Stage-2 control data (see :func:`build_strat_model`).
+    domain : Block
+        The model block framing the solid build (see :func:`build_strat_model`).
+    blocks : Sequence of Block
+        The field-fit blocks (see :func:`build_strat_model`).
+    grid_spacing_m : float
+        Target grid spacing in metres (see :func:`build_strat_model`).
+
+    Returns
+    -------
+    (list of LithoBodyMesh, dict[str, tuple[numpy.ndarray, numpy.ndarray]])
+        The watertight body solids (identical to :func:`build_strat_model`), and a
+        mapping from each mesh's ``body_id`` to its ``(top, base)`` per-node
+        ``(nx, ny)`` height arrays (``NaN`` off the body's footprint).  The
+        footprint is recoverable as ``~numpy.isnan(top)``.
+
+    Raises
+    ------
+    ValueError
+        Propagated from ``fit_potential_field`` (no control points, or ``blocks``
+        does not contain exactly one block).
+    """
+    field = fit_potential_field(control, blocks)
+    return assemble_bodies_with_fields(field, control.column, domain, grid_spacing_m)

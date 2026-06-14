@@ -112,12 +112,9 @@ def assemble_bodies(
 ) -> list[LithoBodyMesh]:
     """Assemble watertight body solids from the implicit field over a shared grid.
 
-    Samples ``field`` once on a regular xy-grid spanning the domain's bounding
-    box, computes a single-valued height field per interior horizon (monotone,
-    one crossing per node), then emits one closed-manifold :class:`LithoBodyMesh`
-    per band (per disconnected component) between consecutive height fields.  The
-    top band is capped above by ``domain.z_max`` and the bottom band below by
-    ``domain.z_min``.
+    Thin wrapper over :func:`assemble_bodies_with_fields` that returns only the
+    meshes (the common case for callers that do not need the per-node height
+    fields).  See that function for the full algorithm.
 
     Parameters
     ----------
@@ -146,6 +143,58 @@ def assemble_bodies(
         ``(rank_top, rank_bot, component)`` order.  A band with zero volume
         everywhere is omitted.  Every returned mesh is ``is_flagged=False`` and
         passes the Task-7 ``assert_closed_manifold`` invariant by construction.
+    """
+    meshes, _fields = assemble_bodies_with_fields(field, order, domain, grid_spacing_m)
+    return meshes
+
+
+def assemble_bodies_with_fields(
+    field: PotentialField,
+    order: StratColumn,
+    domain: Block,
+    grid_spacing_m: float,
+) -> tuple[list[LithoBodyMesh], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Assemble watertight body solids AND expose each body's per-node height field.
+
+    Samples ``field`` once on a regular xy-grid spanning the domain's bounding
+    box, computes a single-valued height field per interior horizon (monotone,
+    one crossing per node), then emits one closed-manifold :class:`LithoBodyMesh`
+    per band (per disconnected component) between consecutive height fields.  The
+    top band is capped above by ``domain.z_max`` and the bottom band below by
+    ``domain.z_min``.
+
+    In addition to the meshes, this returns the per-emitted-body ``(top, base)``
+    height arrays the assembly already computed (the band's per-node top/bottom
+    elevation arrays, RESTRICTED to that component's present cells — NaN
+    elsewhere).  The lens carve (Stage 6) reuses these instead of reconstructing
+    them with an O(grid_nodes × triangles) vertical ray-cast per host mesh
+    (:func:`~groundmodel.domain.services.strat_field.lens_carving._prism_height_fields`),
+    which was the dominant real-data build hotspot.  WHY this is exact: the
+    arrays returned here ARE the very arrays the watertight prism emitter builds
+    each component mesh from, so the ray-cast reconstruction recovers them
+    bit-for-bit — reusing them is behaviour-preserving, not an approximation.
+
+    Parameters
+    ----------
+    field : PotentialField
+        The fitted Stage-3 potential field, sampled once on the grid.  Any object
+        exposing ``evaluate((N, 3)) -> (N,)`` works (the analytic test fields do).
+    order : StratColumn
+        The stratigraphic column (see :func:`assemble_bodies`).
+    domain : Block
+        The model block (see :func:`assemble_bodies`).
+    grid_spacing_m : float
+        Target grid spacing in metres (see :func:`assemble_bodies`).
+
+    Returns
+    -------
+    (list of LithoBodyMesh, dict[str, tuple[numpy.ndarray, numpy.ndarray]])
+        The meshes (identical to :func:`assemble_bodies`), and a mapping from each
+        emitted mesh's ``body_id`` to its ``(top, base)`` per-node ``(nx, ny)``
+        float arrays — ``NaN`` off the component's footprint, finite (and at least
+        :data:`_MIN_BAND_THICKNESS_M` thick) on it.  The footprint is recoverable
+        as ``~numpy.isnan(top)``.  Keys match the meshes' ``body_id`` exactly,
+        including any ``#<component>`` split suffix.
 
     Notes
     -----
@@ -188,19 +237,22 @@ def assemble_bodies(
     bands = list(_iter_bands(order, interior, floor_rank, heights, domain, nx, ny))
 
     # ------------------------------------------------------------------
-    # Step 4: emit one closed-manifold mesh per band per connected component.
+    # Step 4: emit one closed-manifold mesh per band per connected component, and
+    # capture each component's per-node (top, base) height field keyed by the
+    # emitted body_id (so the carve can reuse it without a ray-cast reconstruct).
     # ------------------------------------------------------------------
     bodies: list[LithoBodyMesh] = []
+    height_fields: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for band in bands:
-        bodies.extend(
-            _emit_band_bodies(
-                band=band,
-                gx=gx,
-                gy=gy,
-                node_inside=node_inside,
-            )
+        meshes, fields = _emit_band_bodies_with_fields(
+            band=band,
+            gx=gx,
+            gy=gy,
+            node_inside=node_inside,
         )
-    return bodies
+        bodies.extend(meshes)
+        height_fields.update(fields)
+    return bodies, height_fields
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +664,37 @@ def _emit_band_bodies(
         One mesh per connected component, in raster (row-major) component order.
         Empty when the band has no present cell anywhere.
     """
-    return emit_prism_bodies(
+    meshes, _fields = _emit_band_bodies_with_fields(band, gx, gy, node_inside)
+    return meshes
+
+
+def _emit_band_bodies_with_fields(
+    band: _Band,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    node_inside: np.ndarray,
+) -> tuple[list[LithoBodyMesh], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Emit a band's per-component meshes AND each component's per-node height field.
+
+    Thin adapter over :func:`emit_prism_bodies_with_fields` that unpacks the
+    band's per-node top / bottom arrays, lithology, and synthetic body id.
+
+    Parameters
+    ----------
+    band : _Band
+        The band with its per-node top / bottom height arrays.
+    gx, gy : numpy.ndarray
+        Grid node coordinates.
+    node_inside : numpy.ndarray
+        ``(nx, ny)`` inside-polygon mask.
+
+    Returns
+    -------
+    (list of LithoBodyMesh, dict[str, tuple[numpy.ndarray, numpy.ndarray]])
+        The component meshes and the per-emitted-body ``(top, base)`` height
+        arrays (see :func:`emit_prism_bodies_with_fields`).
+    """
+    return emit_prism_bodies_with_fields(
         top=band.top,
         bottom=band.bottom,
         formation_id=band.formation_id,
@@ -634,6 +716,53 @@ def emit_prism_bodies(
 ) -> list[LithoBodyMesh]:
     """Emit one closed-manifold prism mesh per connected component of a height band.
 
+    Thin wrapper over :func:`emit_prism_bodies_with_fields` returning only the
+    meshes (the lens carve uses the ``_with_fields`` variant to capture each
+    component's height field for reuse).  See that function for the full
+    algorithm + parameter docs.
+
+    Parameters
+    ----------
+    top, bottom : numpy.ndarray
+        ``(nx, ny)`` per-node top / base elevations; ``NaN`` marks the prism
+        absent at a node.
+    formation_id : str
+        The prism's lithology (drives colour on every emitted component).
+    body_id : str
+        The base body id stamped on each component (``#<idx>`` suffixed on split).
+    gx, gy : numpy.ndarray
+        Grid node coordinates.
+    node_inside : numpy.ndarray
+        ``(nx, ny)`` inside-polygon mask.
+
+    Returns
+    -------
+    list of LithoBodyMesh
+        One mesh per connected component, in raster (row-major) component order.
+    """
+    meshes, _fields = emit_prism_bodies_with_fields(
+        top=top,
+        bottom=bottom,
+        formation_id=formation_id,
+        body_id=body_id,
+        gx=gx,
+        gy=gy,
+        node_inside=node_inside,
+    )
+    return meshes
+
+
+def emit_prism_bodies_with_fields(
+    top: np.ndarray,
+    bottom: np.ndarray,
+    formation_id: str,
+    body_id: str,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    node_inside: np.ndarray,
+) -> tuple[list[LithoBodyMesh], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Emit prism meshes per connected component AND each component's height field.
+
     A grid CELL ``(i, j)`` (spanning nodes ``i..i+1`` × ``j..j+1``) is PRESENT
     iff all four corner nodes are inside the polygon AND have a finite ``top`` and
     ``bottom`` AND the cell's mean thickness exceeds :data:`_MIN_BAND_THICKNESS_M`.
@@ -647,6 +776,13 @@ def emit_prism_bodies(
     height-field prisms, so each is emitted by THIS function over the SAME grid —
     which is why adjacent pieces share node heights exactly (no overlap, no gap)
     and each is closed by construction.
+
+    Alongside the meshes it returns, per emitted body, the ``(top, base)`` height
+    arrays the component was built from, RESTRICTED to that component's present
+    cells (NaN at every node not touched by a present cell of the component).
+    This is EXACTLY the field a vertical ray-cast reconstruction of the emitted
+    mesh would recover — so the lens carve can reuse it instead of paying the
+    O(grid_nodes × triangles) ray-cast (the dominant real-data hotspot).
 
     Parameters
     ----------
@@ -666,19 +802,22 @@ def emit_prism_bodies(
 
     Returns
     -------
-    list of LithoBodyMesh
-        One mesh per connected component, in raster (row-major) component order.
-        Empty when no cell is present anywhere.  Every mesh is ``is_flagged=False``
-        and passes ``assert_closed_manifold`` by construction.
+    (list of LithoBodyMesh, dict[str, tuple[numpy.ndarray, numpy.ndarray]])
+        One mesh per connected component, in raster (row-major) component order
+        (empty when no cell is present anywhere); and a mapping from each emitted
+        component's ``body_id`` to its component-restricted ``(top, base)`` arrays.
+        Every mesh is ``is_flagged=False`` and passes ``assert_closed_manifold``
+        by construction.
     """
     nx = len(gx)
     ny = len(gy)
     present = _present_cells(top, bottom, node_inside, nx, ny)
     if not present.any():
-        return []
+        return [], {}
 
     components = _label_components(present)
     bodies: list[LithoBodyMesh] = []
+    fields: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for comp_idx, cell_set in enumerate(components):
         verts, tris = _build_component_mesh(top, bottom, gx, gy, cell_set)
         if not tris:
@@ -693,7 +832,57 @@ def emit_prism_bodies(
                 is_flagged=False,
             )
         )
-    return bodies
+        # The component's height field: the source top/base arrays masked to the
+        # nodes touched by a PRESENT cell of this component (NaN elsewhere).  This
+        # matches what a ray-cast of the emitted mesh reconstructs node-for-node,
+        # so the carve can reuse it byte-identically.
+        fields[component_body_id] = _component_height_field(top, bottom, cell_set, nx, ny)
+    return bodies, fields
+
+
+def _component_height_field(
+    top: np.ndarray,
+    bottom: np.ndarray,
+    cells: set[tuple[int, int]],
+    nx: int,
+    ny: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Mask the source top/base arrays to a single component's footprint nodes.
+
+    A component is a set of present grid CELLS; a NODE belongs to the component's
+    footprint iff it is a corner of at least one present cell of the component.
+    The returned arrays carry the source ``top`` / ``bottom`` value at those
+    footprint nodes and ``NaN`` everywhere else — exactly the single-valued height
+    field a vertical ray-cast of the component's emitted mesh recovers, so the
+    lens carve reuses it without reconstructing it.
+
+    Parameters
+    ----------
+    top, bottom : numpy.ndarray
+        ``(nx, ny)`` per-node source top / base elevation arrays.
+    cells : set of (int, int)
+        The component's present cell indices (each cell ``(i, j)`` spans nodes
+        ``i..i+1`` × ``j..j+1``).
+    nx, ny : int
+        Grid node dimensions.
+
+    Returns
+    -------
+    (numpy.ndarray, numpy.ndarray)
+        ``(comp_top, comp_base)`` ``(nx, ny)`` arrays, ``NaN`` off the
+        component's footprint.
+    """
+    footprint = np.zeros((nx, ny), dtype=bool)
+    for ci, cj in cells:
+        footprint[ci, cj] = True
+        footprint[ci + 1, cj] = True
+        footprint[ci + 1, cj + 1] = True
+        footprint[ci, cj + 1] = True
+    comp_top = np.full((nx, ny), np.nan)
+    comp_base = np.full((nx, ny), np.nan)
+    comp_top[footprint] = top[footprint]
+    comp_base[footprint] = bottom[footprint]
+    return comp_top, comp_base
 
 
 def _present_cells(
