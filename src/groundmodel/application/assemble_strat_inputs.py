@@ -159,15 +159,20 @@ class StratAssembly:
 class AssembleStratInputs(GroundModelLogger):
     """Assemble the strat-field builder inputs for one lithostratigraphic model.
 
-    Reads the DB (the accepted body-assigned picks); returns pure value objects.
+    Takes the already-loaded body-assigned picks and returns pure value objects.
     The caller (``RecomputeLithoSolids``) owns the session + transaction boundary
     and has already run ``ResolveLithoInstances`` so ``body_id`` stamps are
     current before the picks are loaded.
 
+    Note: ``assemble`` performs NO DB reads on the current path (it maps the
+    picks the caller passes in); the ``session`` is held only for future hooks
+    such as sampling a DEM surface for the cap elevations.
+
     Parameters
     ----------
     session : AsyncSession
-        Active SQLAlchemy async session.
+        Active SQLAlchemy async session (held for future DB-backed hooks; unused
+        by ``assemble`` today).
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -214,6 +219,18 @@ class AssembleStratInputs(GroundModelLogger):
         for inv_id in by_inv:
             by_inv[inv_id].sort(key=lambda x: x.top_depth_m)
 
+        # --- Domain block FIRST: can we even frame this model geometrically? ---
+        # Cheap to check and the dominant fail mode (< 3 non-collinear tests /
+        # no deep test); short-circuit before the semantically loaded topo-sort
+        # so an unbuildable domain never discards order/control work.
+        domain = self._build_domain(picks)
+        if domain is None:
+            self.warning(
+                "AssembleStratInputs: domain unbuildable "
+                f"({len(by_inv)} investigation(s)) — caller will flag every body"
+            )
+            return None
+
         # --- Stage-1 columns (order) + Stage-2 columns (control points) -------
         # The synthetic contact_id is computed ONCE per pick and used in both
         # stages so the order's contact_ids resolve the Stage-2 observations.
@@ -256,15 +273,6 @@ class AssembleStratInputs(GroundModelLogger):
         # Section-drawn contacts are not threaded in v1 — the investigation
         # contacts constrain the field directly (see the module docstring).
         control = build_control_data(stage2_columns, section_contacts=[], order=order)
-
-        # --- Domain block (alpha hull + DEM top + deep base) ------------------
-        domain = self._build_domain(picks)
-        if domain is None:
-            self.warning(
-                "AssembleStratInputs: domain unbuildable "
-                f"({len(by_inv)} investigation(s)) — caller will flag every body"
-            )
-            return None
 
         self.success(
             f"AssembleStratInputs: {len(stage2_columns)} column(s), "

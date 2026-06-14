@@ -193,6 +193,13 @@ def _model_checksum(
     return h.digest()
 
 
+# Digest stamped on flagged (could-not-build) rows.  A model with picks always
+# digests a non-empty set with a positive grid spacing, so this empty sentinel
+# never collides with a healthy row's digest (the no-picks case is handled
+# earlier by ``_handle_no_picks``).
+_FLAGGED_SENTINEL_CHECKSUM: bytes = _model_checksum([], 0.0)
+
+
 class RecomputeLithoSolids(GroundModelLogger):
     """Recompute and cache the 3-D solid for every body in a lithostratigraphic model.
 
@@ -641,7 +648,11 @@ class RecomputeLithoSolids(GroundModelLogger):
             ``bodies_flagged`` == the body count; ``bodies_built`` == 0.
         """
         existing_by_body = await self._load_existing(model_id)
-        new_checksum = _model_checksum([], 0.0)  # flagged rows carry a sentinel digest
+        # Flagged rows carry a sentinel digest.  This can never collide with a
+        # healthy row's digest in practice: the empty-picks case is intercepted
+        # by ``_handle_no_picks`` before this method is reachable, so a real
+        # build always digests a non-empty pick set with a positive grid spacing.
+        new_checksum = _FLAGGED_SENTINEL_CHECKSUM
 
         wanted_storage_ids = {str(_storage_body_id(b)) for b in formation_by_body}
         bodies_flagged = 0
@@ -729,7 +740,7 @@ class RecomputeLithoSolids(GroundModelLogger):
         seg = (view_state or {}).get("litho_segmenter") or {}
         try:
             spacing = float(seg.get("strat_grid_spacing_m", _DEFAULT_STRAT_GRID_SPACING_M))
+            # Guard against a zero/negative pref that would crash the grid linspace.
+            return spacing if spacing > 0 else _DEFAULT_STRAT_GRID_SPACING_M
         except (TypeError, ValueError):
             return _DEFAULT_STRAT_GRID_SPACING_M
-        # Guard against a zero/negative pref that would crash the grid linspace.
-        return spacing if spacing > 0 else _DEFAULT_STRAT_GRID_SPACING_M
