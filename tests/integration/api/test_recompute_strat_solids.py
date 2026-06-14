@@ -651,6 +651,89 @@ async def test_enclosed_lens_model_builds_with_lens_solid(
 
 
 # ---------------------------------------------------------------------------
+# RSS-5: batch-upsert PK stability — rebuild preserves existing row ids
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rebuild_preserves_solid_primary_keys(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """A forced rebuild with unchanged picks must reuse the SAME row ids.
+
+    The batched multi-row upsert uses ``ON CONFLICT (model_id, body_id) DO
+    UPDATE`` on the unique constraint — the UPDATE path leaves the existing
+    row's primary key (``id``) untouched even though a fresh ``uuid7()`` is
+    proposed in the ``VALUES`` clause (that proposed ``id`` is discarded on
+    conflict).  This test pins that invariant: a second ``force=True`` rebuild
+    must produce rows with identical UUIDs to the first build, so foreign
+    references (e.g. 3-D viewer caches) remain stable across rebuilds.
+    """
+    await _seed_interbedded(db_session, scene)
+    litho = scene["litho"]
+
+    # First build — persist initial solid rows.
+    first = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
+    assert first.bodies_built >= 1, "First build must produce solids"
+
+    rows_after_first = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Record the (body_id → row id) mapping from the first build.
+    ids_by_body_after_first = {str(r.body_id): r.id for r in rows_after_first}
+    assert ids_by_body_after_first, "Must have at least one solid row after first build"
+
+    # Second force-rebuild with the SAME picks — the conflict path fires for
+    # every existing row and the row ids must remain identical.
+    second = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
+    assert second.bodies_built >= 1, "Force rebuild must re-upsert solids"
+
+    rows_after_second = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ids_by_body_after_second = {str(r.body_id): r.id for r in rows_after_second}
+
+    # Same set of body_ids persisted both times.
+    assert set(ids_by_body_after_first) == set(ids_by_body_after_second), (
+        "Rebuild must produce the same set of body_ids as the first build; "
+        f"first={set(ids_by_body_after_first)} second={set(ids_by_body_after_second)}"
+    )
+    # EACH body's row id is identical — the ON CONFLICT UPDATE path kept the PK.
+    for body_id_str, row_id in ids_by_body_after_first.items():
+        assert ids_by_body_after_second[body_id_str] == row_id, (
+            f"body_id={body_id_str}: row id changed from {row_id} "
+            f"to {ids_by_body_after_second[body_id_str]} on rebuild — "
+            "the batched upsert must NOT replace PKs on conflict"
+        )
+
+    # Sanity: row count matches the built-mesh count.
+    assert len(rows_after_second) == second.bodies_built, (
+        f"Row count {len(rows_after_second)} must match bodies_built={second.bodies_built}"
+    )
+
+    # Confirm the checksum-skip path still works after a force rebuild (the
+    # stored digest equals the current digest → no-op on the next non-force pass).
+    skip = await RecomputeLithoSolids(db_session).execute(litho.id)
+    assert skip.bodies_built == 0, (
+        f"Non-force pass after force rebuild must skip; got bodies_built={skip.bodies_built}"
+    )
+    assert skip.bodies_skipped_checksum >= 1
+
+
+# ---------------------------------------------------------------------------
 # Duck-typed mesh view for the section-column diff helper
 # ---------------------------------------------------------------------------
 

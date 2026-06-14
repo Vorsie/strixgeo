@@ -69,7 +69,6 @@ from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
 
 from sqlalchemy import CursorResult, delete, select
-from sqlalchemy.dialects.postgresql import Insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
@@ -85,7 +84,6 @@ from groundmodel.domain.services.strat_field.lens_carving import (
 from groundmodel.domain.services.strat_field.lens_classification import LensClassificationError
 from groundmodel.domain.services.strat_field.strat_builder import build_strat_model_with_fields
 from groundmodel.domain.services.strat_field.stratigraphic_order import NonConformableError
-from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
@@ -403,11 +401,33 @@ class RecomputeLithoSolids(GroundModelLogger):
                 marked_test_ids=[],
             )
 
-        # Step 5: upsert every mesh.
-        bodies_built = 0
-        for i, mesh in enumerate(meshes):
-            await self._upsert_mesh(model_id, mesh, new_checksum, existing_by_body, i, len(meshes))
-            bodies_built += 1
+        # Step 5: batch-upsert all meshes in one (or a small number of chunked)
+        # multi-row statements.  Each chunk is a complete multi-row VALUES upsert;
+        # chunking bounds the statement size when vertices + triangles JSONB payloads
+        # are large (664 meshes × potentially large geometry arrays would produce a
+        # single enormous statement without chunking).
+        rows = [
+            dict(
+                id=uuid7(),  # always a fresh UUID; see _batch_upsert docstring
+                model_id=model_id,
+                body_id=_storage_body_id(mesh.body_id),
+                formation_id=UUID(mesh.formation_id),
+                method="strat",
+                vertices=[list(v) for v in mesh.vertices],
+                triangles=[list(t) for t in mesh.triangles],
+                source_pick_count=len(mesh.vertices),
+                source_pick_checksum=new_checksum,
+                is_flagged=mesh.is_flagged,
+                is_stale=False,
+            )
+            for mesh in meshes
+        ]
+        bodies_built = len(rows)
+        chunks_written = await self._batch_upsert(rows)
+        self.info(
+            f"RecomputeLithoSolids: model={model_id} — "
+            f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
+        )
 
         # Step 6: delete orphan rows for bodies no longer built.
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
@@ -431,6 +451,64 @@ class RecomputeLithoSolids(GroundModelLogger):
     # -----------------------------------------------------------------
     # Persistence helpers
     # -----------------------------------------------------------------
+
+    # Maximum rows per VALUES clause in a batched upsert.  Each row carries
+    # JSONB ``vertices`` + ``triangles`` that can be large; keeping the chunk
+    # small avoids enormous single statements and bounds PostgreSQL's per-
+    # statement memory overhead.  100 rows × ~10 bound parameters = ~1 000
+    # parameters well below the 65 535 PostgreSQL limit, while each chunk is
+    # still a single network round-trip.
+    _UPSERT_CHUNK_SIZE: int = 100
+
+    async def _batch_upsert(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert a list of solid-row dicts in chunked multi-row statements.
+
+        Each chunk is a single ``INSERT … ON CONFLICT (model_id, body_id) DO
+        UPDATE`` statement with up to ``_UPSERT_CHUNK_SIZE`` rows in its
+        ``VALUES`` clause.  Using ``stmt.excluded.<col>`` in the ``set_``
+        clause ensures every row's own proposed values are applied on conflict
+        (required for multi-row upserts; a closed-over per-row value would
+        apply the last row's values to every conflict).
+
+        PK stability: ``ON CONFLICT DO UPDATE`` on the unique constraint
+        ``uq_litho_body_solid_model_body`` leaves the existing row's ``id``
+        untouched — PostgreSQL applies the ``set_`` clause (which does NOT
+        include ``id``) and the proposed ``id`` from the ``VALUES`` clause is
+        discarded.  New rows are inserted with the freshly-minted ``uuid7()``
+        ``id`` from the caller.  This means there is no need to load existing
+        rows' PKs before the upsert: both the insert and the conflict-update
+        paths produce a stable PK.
+
+        Parameters
+        ----------
+        rows : list[dict[str, Any]]
+            Value dicts, each containing all ``LithoBodySolidOrm`` columns.
+            Must be non-empty; the caller guards against an empty mesh list.
+
+        Returns
+        -------
+        int
+            Number of chunks executed (for the INFO log).
+        """
+        chunk_size = self._UPSERT_CHUNK_SIZE
+        chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
+        for chunk in chunks:
+            stmt = pg_insert(LithoBodySolidOrm).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_litho_body_solid_model_body",
+                set_=dict(
+                    formation_id=stmt.excluded.formation_id,
+                    method=stmt.excluded.method,
+                    vertices=stmt.excluded.vertices,
+                    triangles=stmt.excluded.triangles,
+                    source_pick_count=stmt.excluded.source_pick_count,
+                    source_pick_checksum=stmt.excluded.source_pick_checksum,
+                    is_flagged=stmt.excluded.is_flagged,
+                    is_stale=stmt.excluded.is_stale,
+                ),
+            )
+            await self._session.execute(stmt)
+        return len(chunks)
 
     async def _load_existing(self, model_id: UUID) -> dict[str, LithoBodySolidOrm]:
         """Load the model's stored solid rows keyed by ``str(body_id)``.
@@ -485,160 +563,6 @@ class RecomputeLithoSolids(GroundModelLogger):
         return all(
             row.source_pick_checksum == new_checksum and not row.is_stale
             for row in existing_by_body.values()
-        )
-
-    async def _upsert_mesh(
-        self,
-        model_id: UUID,
-        mesh: LithoBodyMesh,
-        checksum: bytes,
-        existing_by_body: dict[str, LithoBodySolidOrm],
-        index: int,
-        total: int,
-    ) -> None:
-        """Upsert one strat-built mesh into ``litho_body_solid``.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The model the solid belongs to.
-        mesh : LithoBodyMesh
-            The watertight mesh to persist.
-        checksum : bytes
-            The model-level digest stamped on the row.
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)`` (for id reuse).
-        index, total : int
-            Progress counters for the bulk-loop log prefix.
-        """
-        storage_id = _storage_body_id(mesh.body_id)
-        existing = existing_by_body.get(str(storage_id))
-        vertices_payload = [list(v) for v in mesh.vertices]
-        triangles_payload = [list(t) for t in mesh.triangles]
-        self.debug(
-            f"[{index + 1}/{total}] upsert body {mesh.body_id} → {storage_id} — "
-            f"{len(vertices_payload)} vertices, {len(triangles_payload)} triangles "
-            f"flagged={mesh.is_flagged}"
-        )
-        await self._session.execute(
-            self._upsert_stmt(
-                model_id=model_id,
-                storage_id=storage_id,
-                formation_id=UUID(mesh.formation_id),
-                vertices=vertices_payload,
-                triangles=triangles_payload,
-                source_pick_count=len(vertices_payload),
-                checksum=checksum,
-                is_flagged=mesh.is_flagged,
-                existing=existing,
-            )
-        )
-
-    async def _upsert_flagged(
-        self,
-        model_id: UUID,
-        body_id: str,
-        formation_id: str,
-        checksum: bytes,
-        existing_by_body: dict[str, LithoBodySolidOrm],
-    ) -> None:
-        """Upsert a flagged, empty row for a body that could not be built.
-
-        Used only on the whole-model flag path (non-conformable order or an
-        unbuildable domain): every body gets a flagged empty row so the UI
-        surfaces the actionable conflict.  The row is stored flagged with empty
-        geometry.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The model the solid belongs to.
-        body_id : str
-            The (real UUID) body id.
-        formation_id : str
-            The body's lithology formation id.
-        checksum : bytes
-            The model-level digest stamped on the row.
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)`` (for id reuse).
-        """
-        storage_id = _storage_body_id(body_id)
-        existing = existing_by_body.get(str(storage_id))
-        self.debug(f"upsert flagged body {body_id} → {storage_id}")
-        await self._session.execute(
-            self._upsert_stmt(
-                model_id=model_id,
-                storage_id=storage_id,
-                formation_id=UUID(formation_id),
-                vertices=[],
-                triangles=[],
-                source_pick_count=0,
-                checksum=checksum,
-                is_flagged=True,
-                existing=existing,
-            )
-        )
-
-    def _upsert_stmt(
-        self,
-        *,
-        model_id: UUID,
-        storage_id: UUID,
-        formation_id: UUID,
-        vertices: list[list[float]],
-        triangles: list[list[int]],
-        source_pick_count: int,
-        checksum: bytes,
-        is_flagged: bool,
-        existing: LithoBodySolidOrm | None,
-    ) -> Insert:
-        """Build the ``ON CONFLICT (model_id, body_id) DO UPDATE`` upsert.
-
-        Parameters
-        ----------
-        model_id, storage_id, formation_id : UUID
-            Row keys + formation FK.
-        vertices, triangles : list
-            JSONB geometry payloads.
-        source_pick_count : int
-            Cheap cache-validity pre-check (vertex count is fine here).
-        checksum : bytes
-            The model-level digest.
-        is_flagged : bool
-            Whether the body is a flagged (non-buildable) row.
-        existing : LithoBodySolidOrm | None
-            The stored row, for primary-key reuse on conflict.
-
-        Returns
-        -------
-        sqlalchemy insert statement
-            The ready-to-execute upsert.
-        """
-        stmt = pg_insert(LithoBodySolidOrm).values(
-            id=uuid7() if existing is None else existing.id,
-            model_id=model_id,
-            body_id=storage_id,
-            formation_id=formation_id,
-            method="strat",
-            vertices=vertices,
-            triangles=triangles,
-            source_pick_count=source_pick_count,
-            source_pick_checksum=checksum,
-            is_flagged=is_flagged,
-            is_stale=False,
-        )
-        return stmt.on_conflict_do_update(
-            constraint="uq_litho_body_solid_model_body",
-            set_=dict(
-                formation_id=formation_id,
-                method="strat",
-                vertices=vertices,
-                triangles=triangles,
-                source_pick_count=source_pick_count,
-                source_pick_checksum=checksum,
-                is_flagged=is_flagged,
-                is_stale=False,
-            ),
         )
 
     async def _delete_orphans(
@@ -707,7 +631,6 @@ class RecomputeLithoSolids(GroundModelLogger):
         RecomputeLithoSolidsOutcome
             ``bodies_flagged`` == the body count; ``bodies_built`` == 0.
         """
-        existing_by_body = await self._load_existing(model_id)
         # Flagged rows carry a sentinel digest.  This can never collide with a
         # healthy row's digest in practice: the empty-picks case is intercepted
         # by ``_handle_no_picks`` before this method is reachable, so a real
@@ -715,13 +638,30 @@ class RecomputeLithoSolids(GroundModelLogger):
         new_checksum = _FLAGGED_SENTINEL_CHECKSUM
 
         wanted_storage_ids = {str(_storage_body_id(b)) for b in formation_by_body}
-        bodies_flagged = 0
-        for bid in sorted(formation_by_body):
-            await self._upsert_flagged(
-                model_id, bid, formation_by_body[bid], new_checksum, existing_by_body
-            )
-            bodies_flagged += 1
 
+        # Batch-upsert all flagged rows in one multi-row statement (same
+        # PK-stability contract as the normal build path via _batch_upsert).
+        flagged_rows = [
+            dict(
+                id=uuid7(),
+                model_id=model_id,
+                body_id=_storage_body_id(bid),
+                formation_id=UUID(formation_by_body[bid]),
+                method="strat",
+                vertices=[],
+                triangles=[],
+                source_pick_count=0,
+                source_pick_checksum=new_checksum,
+                is_flagged=True,
+                is_stale=False,
+            )
+            for bid in sorted(formation_by_body)
+        ]
+        bodies_flagged = len(flagged_rows)
+        if flagged_rows:
+            await self._batch_upsert(flagged_rows)
+
+        existing_by_body = await self._load_existing(model_id)
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
         await self._session.commit()
         self.success(
