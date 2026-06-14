@@ -193,17 +193,26 @@ def test_grid_to_world_axis_and_origin_mapping() -> None:
     wrong z (or in x/y).
     """
 
-    class _FlatField:
+    class _TiltedField:
+        """F = (13 - z) + 0.1*x — increases with depth, tilts along x ONLY.
+
+        The x-dependence is what makes this a transposition trap: the iso=4
+        surface is z = 9 + 0.1*x (tilts with x, flat in y).  If the volume axes
+        were swapped (x↔y) the extracted z would track y instead, breaking the
+        per-vertex check below.  The non-zero ``z_min`` (3.0) exercises the world
+        origin offset: a dropped ``origin`` add would land the surface at z=6, not 9.
+        """
+
         def evaluate(self, xyz: object) -> object:
             import numpy as np
 
             pts = np.asarray(xyz, dtype=float).reshape(-1, 3)
-            z = pts[:, 2]
-            # F increases with depth; floor reference 10.0 so F = 10 - z.
-            return 10.0 - z
+            x, z = pts[:, 0], pts[:, 2]
+            return (13.0 - z) + 0.1 * x
 
     # A 3-horizon column: surface (rank 0), one interior contact (rank 1, iso 4.0
-    # -> flat surface at z = 10 - 4 = 6.0), floor (rank 2).
+    # -> tilted surface z = 9 + 0.1*x), floor (rank 2).  Non-square footprint
+    # (x in [0,8], y in [0,5]) so an x/y transpose also lands verts out of range.
     column = StratColumn(
         horizons=(
             Horizon(0, 0.0, None, "A", ("s",)),
@@ -212,24 +221,26 @@ def test_grid_to_world_axis_and_origin_mapping() -> None:
         )
     )
     domain = Block(
-        polygon=((0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0)),
-        z_min=0.0,
-        z_max=10.0,
+        polygon=((0.0, 0.0), (8.0, 0.0), (8.0, 5.0), (0.0, 5.0)),
+        z_min=3.0,
+        z_max=13.0,
     )
 
     surfaces = extract_isosurfaces(
-        _FlatField(), column, grid_spacing_m=_GRID_SPACING_M, domain=domain
+        _TiltedField(), column, grid_spacing_m=_GRID_SPACING_M, domain=domain
     )
 
     contact = next(s for s in surfaces if s.horizon_rank == 1)
-    zs = [vz for (_vx, _vy, vz) in contact.vertices]
-    # Flat contact at z = 6.0 everywhere (smoothing leaves a flat sheet flat).
-    assert all(abs(vz - 6.0) < 1e-6 for vz in zs)
-    # And its x/y vertices fall inside the domain footprint (origin not dropped).
+    # Every vertex must lie on z = 9 + 0.1*x (a linear field is reproduced
+    # exactly by marching cubes; the tilted plane survives Laplacian smoothing).
+    # This single check pins the z-level, the world-origin offset, AND the
+    # x/y axis order all at once.
+    for vx, _vy, vz in contact.vertices:
+        assert abs(vz - (9.0 + 0.1 * vx)) < 1e-6
     xs = [vx for (vx, _vy, _vz) in contact.vertices]
     ys = [vy for (_vx, vy, _vz) in contact.vertices]
-    assert 0.0 <= min(xs) and max(xs) <= 5.0
-    assert 0.0 <= min(ys) and max(ys) <= 5.0
+    assert max(xs) > 7.0 and max(xs) <= 8.0  # spans the full x-extent, not the y one
+    assert max(ys) <= 5.0
 
 
 def test_absent_contact_is_skipped_without_crashing() -> None:
@@ -274,6 +285,10 @@ def test_surfaces_are_clipped_to_the_footprint_polygon() -> None:
     box, so the grid (built over the bounding box) over-covers the polygon and
     the clip must drop the out-of-polygon triangles.
     """
+    # reason: deliberately reuse the SAME private oracle the production clip uses,
+    # so this test verifies the clip rule, not an independent re-implementation.
+    # When the PIP is promoted to a public domain geometry helper (plan Task 9),
+    # update this import to the public symbol.
     from groundmodel.domain.services.strat_field.potential_field import _point_in_polygon
 
     class _FlatField:

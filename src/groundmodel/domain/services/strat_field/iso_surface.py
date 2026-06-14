@@ -159,8 +159,10 @@ def extract_isosurfaces(
     # ------------------------------------------------------------------
     # Step 3: extract each INTERIOR horizon (rank 1 .. N-1) at its iso-value.
     # ------------------------------------------------------------------
-    n_horizons = len(order.horizons)
-    floor_rank = n_horizons - 1  # rank N (the open floor); skip it (a domain cap)
+    # The floor is the highest rank; ask the column for it rather than deriving
+    # it from the horizon count, so this does not silently couple to Stage 1's
+    # contiguous-rank assignment convention.
+    floor_rank = max((h.rank for h in order.horizons), default=0)
 
     surfaces: list[ContactSurface] = []
     for horizon in sorted(order.horizons, key=lambda h: h.rank):
