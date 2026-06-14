@@ -1,4 +1,4 @@
-"""Integration tests for RecomputeLithoSolids use case (Task 4, litho-3D).
+"""Integration tests for RecomputeLithoSolids use case (strat-builder path).
 
 Covers:
   RLS-1  Happy path — a body spanning ≥3 investigations produces one
@@ -7,10 +7,10 @@ Covers:
          row's ``is_stale`` becomes ``True``.
   RLS-3  Checksum short-circuit — a second execute with unchanged picks
          does NOT re-triangulate (``updated_at`` stays the same;
-         ``bodies_skipped_checksum`` == 1).
-  RLS-4  Flagged slab — a body with only 2 picks cannot form a valid
-         solid and is emitted as a flagged slab (``is_flagged=True``,
-         ``bodies_flagged`` == 1).
+         ``bodies_skipped_checksum`` >= 1).
+  RLS-4  Under-constrained model — a body whose model has fewer than 3
+         non-collinear tests (domain unbuildable) causes every body to be
+         flagged (``is_flagged=True``, ``bodies_flagged`` >= 1).
   RLS-5  No picks — if all layers have ``body_id=None``, the use case
          returns ``bodies_considered=0`` and writes no rows.
   RLS-6  Natural stale cascade — a geometry-only litho contact depth edit
@@ -21,9 +21,14 @@ Covers:
          edit via ``UpdateFormationContactsBatch`` must mark every solid
          for the model ``is_stale=True``.  This is the multi-drag path
          which was missing the ``mark_litho_solids_stale`` call.
-  RLS-9  Geology bounding — a straddling body is divided into two
-         band-confined solids at the geological boundary; a too-shallow
-         uncorrelated test is excluded and appears in ``marked_test_ids``.
+  RLS-8  Layer-path stale cascade — a geometry-only litho layer boundary
+         move via ``MoveLithoLayerBoundary`` must mark every solid
+         ``is_stale=True``.
+
+  RLS-9 (geology bounding / ``marked_test_ids``) was DELETED in Task 9: the
+  strat builder keeps geology bounding out of the litho model (owner directive
+  2026-06-13), so ``marked_test_ids`` is always empty on the strat path and
+  the loft-mechanic assertion no longer applies.
 """
 
 from __future__ import annotations
@@ -43,7 +48,6 @@ from groundmodel.application.update_formation_contact import UpdateFormationCont
 from groundmodel.application.update_formation_contacts_batch import UpdateFormationContactsBatch
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -222,9 +226,10 @@ async def test_three_investigation_body_produces_solid(
     with triangles > 0 and ``is_stale=False`` after RecomputeLithoSolids.
 
     Seeding strategy: insert 3 boreholes with (x, y, elevation_m), create
-    accepted litho layers, manually insert a body row, stamp body_id on
-    the layers, then run the use case.  The resolver inside the use case
-    is idempotent when body_ids are already consistent.
+    accepted litho layers, add approved correlation edges (so the resolver
+    stamps a shared body_id on the layers), then run the use case.  The
+    resolver inside the use case is idempotent when body_ids are already
+    consistent.
     """
     proj = scene["project"]
     litho = scene["litho"]
@@ -376,9 +381,9 @@ async def test_second_execute_skips_rebuild_when_picks_unchanged(
     f = scene["formation"]
     section_id = await _seed_section(db_session, proj.id)
 
-    # Non-collinear (y differs) so the loft's model domain can triangulate a
-    # real footprint — a single section line of collinear tests cannot frame a
-    # 3-D domain, which is the loft's inherent single-line limitation.
+    # Non-collinear (y differs) so the strat builder can frame a 3-D domain —
+    # a single section line of collinear tests cannot form a valid alpha-hull,
+    # which would send the model to _handle_flag_all instead.
     bh_a = _borehole(proj.id, suffix="3A", x=150000.0, y=200000.0, elev=5.0)
     bh_b = _borehole(proj.id, suffix="3B", x=150200.0, y=200000.0, elev=4.8)
     bh_c = _borehole(proj.id, suffix="3C", x=150100.0, y=200080.0, elev=5.2)
@@ -449,10 +454,11 @@ async def test_two_investigation_body_is_flagged(
     db_session: AsyncSession,
     scene: dict,
 ) -> None:
-    """A body whose model has too few tests for the loft to frame a 3-D domain
-    (< 3 non-collinear) builds no mesh, so every body is emitted as a flagged
-    empty row (``is_flagged=True``, ``bodies_flagged>=1``) — the loft's
-    "draw a section through these tests" actionable signal.
+    """A body whose model has too few tests to frame a 3-D domain (fewer than
+    3 non-collinear investigations) causes ``AssembleStratInputs`` to return
+    ``None``.  ``RecomputeLithoSolids`` then calls ``_handle_flag_all``:
+    every body is emitted as a flagged empty row (``is_flagged=True``,
+    ``bodies_flagged>=1``) so the UI can surface the "add a section" signal.
     """
     proj = scene["project"]
     litho = scene["litho"]
@@ -821,196 +827,4 @@ async def test_move_litho_layer_boundary_marks_solids_stale(
     assert all(r.is_stale for r in rows_after_move), (
         "All solids must be stale after a litho layer boundary move — "
         "MoveLithoLayerBoundary must call mark_litho_solids_stale"
-    )
-
-
-# ---------------------------------------------------------------------------
-# RLS-9: geology bounding — straddling body splits; shallow test excluded
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_geology_bounding_splits_straddling_body_and_marks_shallow_test(
-    db_session: AsyncSession,
-    scene: dict,
-) -> None:
-    """Geology bounding divides a body that straddles a geological boundary.
-
-    The LL↔FC bidirectional trigger (``trg_mirror_litho_layer_to_contact``) sets
-    a layer's ``depth_base_m`` to ``COALESCE(next_contact_top_m, total_depth_m)``
-    when the layer is the LAST (or only) layer on the borehole.  Consequently the
-    effective layer depth is ``total_depth_m``, not the value passed to
-    ``LithoLayerOrm(depth_base_m=...)``.  The fixture therefore controls layer
-    depth via ``total_depth_m`` on each ``BoreholeOrm``:
-
-    - BH-A and BH-B get ``total_depth_m=6.0`` → their single layer's
-      ``depth_base_m`` becomes 6.0 after the trigger fires → elevation 0→-6,
-      straddling the geological boundary at -3.0.
-    - BH-SHALLOW gets ``total_depth_m=2.0`` → its single layer's
-      ``depth_base_m`` becomes 2.0 → elevation 0→-2, entirely ABOVE -3.0.
-
-    Setup:
-    - One geological formation surface: flat TIN at elevation -3.0 m over
-      a footprint that covers all borehole (x, y) positions.
-    - BH-A (150000, 200000, elev=0): single layer depth 0→6, correlated with BH-B.
-    - BH-B (150200, 200050, elev=0): single layer depth 0→6, correlated with BH-A.
-      BH-A and BH-B form ONE body via a single approved edge.
-    - BH-SHALLOW (150100, 200020, elev=0): single layer depth 0→2 (elevation 0→-2,
-      above the -3.0 boundary). Uncorrelated → single-hole body.
-
-    Expected outcome after ``RecomputeLithoSolids``:
-    - The straddling clay body (BH-A + BH-B) is divided at -3.0 into an UPPER
-      band and a LOWER band (each with a derived ``body_id``) → 2 solid rows.
-    - BH-SHALLOW is above the lowest geological boundary (-3.0) and carries no
-      lateral correlation → excluded entirely; its investigation id appears in
-      ``outcome.marked_test_ids``.
-    - Every solid vertex sits wholly above OR wholly below -3.0 (no solid
-      crosses the boundary).
-
-    The TIN is a horizontal quad at -3.0 tessellated into two triangles whose
-    footprint encloses all three borehole (x, y) positions.
-    ``evaluate_tin_at`` returns exactly -3.0 for any point inside the quad.
-    """
-    proj = scene["project"]
-    geo = scene["geo"]
-    litho = scene["litho"]
-    f = scene["formation"]
-    geo_parent = scene["geo_parent"]
-    section_id = await _seed_section(db_session, proj.id)
-
-    # ── Geological surface: flat TIN at elevation -3.0 ──────────────────────
-    # Quad corners surround all three borehole positions with generous padding.
-    # Two triangles: [0,1,2] and [0,2,3].
-    xmin, xmax = 149500.0, 150700.0
-    ymin, ymax = 199500.0, 200600.0
-    flat_z = -3.0
-    geo_surface = FormationSurfaceOrm(
-        id=uuid7(),
-        model_id=geo.id,
-        formation_id=geo_parent.id,
-        method="tin",
-        vertices=[
-            [xmin, ymin, flat_z],  # 0
-            [xmax, ymin, flat_z],  # 1
-            [xmax, ymax, flat_z],  # 2
-            [xmin, ymax, flat_z],  # 3
-        ],
-        triangles=[[0, 1, 2], [0, 2, 3]],
-        source_contact_count=4,
-        # Dummy checksum — fixture row, not a live recompute product.
-        source_contact_checksum=b"\x00" * 16,
-        is_stale=False,
-    )
-    db_session.add(geo_surface)
-    await db_session.flush()
-
-    # ── Boreholes ────────────────────────────────────────────────────────────
-    # Non-collinear (y differs on BH-A vs BH-B) so the 2-pick band bodies
-    # can form a real TIN if there were 3+ picks — with 2 picks they are
-    # flagged slabs, which is expected and asserted.
-    #
-    # IMPORTANT — total_depth_m controls the effective layer depth:
-    # The LL→FC trigger (trg_mirror_litho_layer_to_contact) mirrors an
-    # accepted LithoLayerOrm into formation_contact.  The FC→LL trigger
-    # (trg_mirror_litho_contact_to_layer) then re-derives depth_base_m from
-    # COALESCE(next_contact_top_m, total_depth_m).  For a single layer on the
-    # borehole next_contact_top_m is NULL, so depth_base_m = total_depth_m.
-    # Setting total_depth_m to the desired layer base depth is the only way
-    # to get the intended depth into the pick that load_body_picks sees.
-    bh_a = BoreholeOrm(
-        id=uuid7(),
-        name="BH-RLS-9A",
-        app_project_id=proj.id,
-        project_id="RLS9",
-        test_id="BH-RLS-9A",
-        location_x=150000.0,
-        location_y=200000.0,
-        elevation_m=0.0,  # surface at 0 m → depth = -elevation
-        epsg=31370,
-        total_depth_m=6.0,  # trigger sets layer depth_base_m → 6.0
-    )
-    bh_b = BoreholeOrm(
-        id=uuid7(),
-        name="BH-RLS-9B",
-        app_project_id=proj.id,
-        project_id="RLS9",
-        test_id="BH-RLS-9B",
-        location_x=150200.0,
-        location_y=200050.0,
-        elevation_m=0.0,
-        epsg=31370,
-        total_depth_m=6.0,  # trigger sets layer depth_base_m → 6.0
-    )
-    bh_shallow = BoreholeOrm(
-        id=uuid7(),
-        name="BH-RLS-9S",
-        app_project_id=proj.id,
-        project_id="RLS9",
-        test_id="BH-RLS-9S",
-        location_x=150100.0,
-        location_y=200020.0,
-        elevation_m=0.0,
-        epsg=31370,
-        total_depth_m=2.0,  # trigger sets layer depth_base_m → 2.0 (above -3.0)
-    )
-    db_session.add_all([bh_a, bh_b, bh_shallow])
-    await db_session.flush()
-
-    # ── Litho layers ─────────────────────────────────────────────────────────
-    # depth_top_m=0 for all; depth_base_m written here will be overwritten by
-    # the FC→LL trigger to total_depth_m (see borehole comments above).
-    la = _layer(litho, f, bh_a, top=0.0, base=6.0)
-    lb = _layer(litho, f, bh_b, top=0.0, base=6.0)
-    # BH-SHALLOW: depth 0→2 (elevation 0→-2), stays above the -3.0 boundary.
-    ls = _layer(litho, f, bh_shallow, top=0.0, base=2.0)
-    db_session.add_all([la, lb, ls])
-    await db_session.flush()
-
-    # ── Correlation edge: BH-A ↔ BH-B only (BH-SHALLOW intentionally excluded)
-    edge_ab = _edge(litho, la, lb, section_id)
-    db_session.add(edge_ab)
-    await db_session.commit()
-
-    # ── Run the use case ──────────────────────────────────────────────────────
-    outcome = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
-
-    # ── Assertions ────────────────────────────────────────────────────────────
-
-    # Watertight-loft contract (supersedes the legacy per-body TIN split):
-    # geology-bounding still DIVIDES the straddling body at -3.0 and re-keys the
-    # halves per band — the test pins the two surviving INVARIANTS that carry
-    # over to the loft, not the legacy exact-two-row count (the loft adds
-    # band-filler / section-less rows whose number is builder-internal).
-    rows = (
-        (
-            await db_session.execute(
-                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert rows, "Geology-bounded build must persist at least one solid row"
-
-    # Invariant 1 — no built solid crosses the -3.0 geological boundary (the
-    # band clip holds). Flagged section-less rows carry empty geometry and are
-    # skipped (nothing to check).
-    boundary_z = -3.0
-    eps = 1e-4  # generous float-accumulation guard
-    for solid in rows:
-        if not solid.vertices:
-            continue
-        zs = [v[2] for v in solid.vertices]
-        wholly_above = min(zs) >= boundary_z - eps
-        wholly_below = max(zs) <= boundary_z + eps
-        assert wholly_above or wholly_below, (
-            f"Solid {solid.body_id} vertices span the geological boundary at "
-            f"{boundary_z}: min(z)={min(zs):.4f}  max(z)={max(zs):.4f}"
-        )
-
-    # Invariant 2 — BH-SHALLOW (deepest point above the boundary, no lateral
-    # tie) is reported as a marked too-shallow test by the bounding transform.
-    shallow_inv_id = str(bh_shallow.id)
-    assert shallow_inv_id in outcome.marked_test_ids, (
-        f"Expected BH-SHALLOW ({shallow_inv_id}) in marked_test_ids; got {outcome.marked_test_ids}"
     )
