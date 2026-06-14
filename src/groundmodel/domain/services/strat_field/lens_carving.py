@@ -289,7 +289,7 @@ def carve_lenses(
     # ------------------------------------------------------------------
     ordered = sorted(lenses, key=lambda lc: (lc.nesting_depth, lc.emitted_body_id))
     for lens in ordered:
-        host = prism_by_body_id.get(lens.host_body_id)
+        host = _resolve_host(lens, prism_by_body_id)
         if host is None:
             raise ValueError(
                 f"lens {lens.emitted_body_id!r} names host body "
@@ -322,6 +322,80 @@ def carve_lenses(
             )
         )
     return out
+
+
+def _resolve_host(lens: LensCarveInput, prism_by_body_id: dict[str, _Prism]) -> _Prism | None:
+    """Find the working-set prism a lens carves into.
+
+    Two id schemes reach the carve:
+
+    * A **depth-2** lens (lens-in-lens) names its parent lens's EMITTED prism id
+      (``lens:{host}:{tail}``), which IS a working-set key — a direct hit.  The
+      analytic carve tests also name a matrix mesh's ``strat:…`` / synthetic id
+      directly, so the direct-key path stays the fast common case.
+    * A **depth-1** lens built by the application wiring
+      (:func:`~groundmodel.domain.services.strat_field.lens_geometry.build_lens_carve_inputs`)
+      names its matrix host's RESOLVER ``instance_key`` (a body UUID), but the
+      matrix MESHES are emitted with synthetic ``strat:{rank_top}-{rank_bot}`` band
+      tokens — the resolver id is NOT a mesh key.  In that case the host is resolved
+      GEOMETRICALLY: the matrix prism whose lithology matches ``host_formation_id``
+      AND whose reconstructed vertical interval BRACKETS the lens over the lens
+      footprint.  This is exact for an enclosed lens (it sits vertically inside
+      exactly one same-lithology band by definition); when several same-lithology
+      bands bracket it (degenerate), the one with the smallest bracketing interval
+      (the tightest enclosure) wins, deterministically.
+
+    Parameters
+    ----------
+    lens : LensCarveInput
+        The lens whose host prism is sought.
+    prism_by_body_id : dict[str, _Prism]
+        The current carve working set (matrix prisms + already-carved lens prisms),
+        keyed by emitted body id.
+
+    Returns
+    -------
+    _Prism or None
+        The host prism, or ``None`` when no working-set prism matches by id or by
+        formation + vertical containment (an un-carvable lens — the caller raises).
+    """
+    direct = prism_by_body_id.get(lens.host_body_id)
+    if direct is not None:
+        return direct
+
+    # Geometric fallback: the matrix prism of the host's LITHOLOGY closest to the
+    # lens over its footprint.  The host is the band whose lithology equals
+    # ``host_formation_id`` (the over-merged host that brackets the lens in the
+    # AUTHORED column); the sparse RBF can dip the band's bounding contact a few
+    # metres off the picks, so we do NOT require strict bracketing (that would
+    # reject the true host where the field distorted).  Among same-lithology
+    # candidates the one whose vertical interval is CLOSEST to the lens centre at
+    # the footprint wins; ``_carve_one``'s strict-interior clamp then pulls the
+    # lens inside whichever host is chosen, keeping the tiling watertight.
+    lens_mid = _lens_mid_elevation(lens)
+    best: _Prism | None = None
+    best_distance = float("inf")
+    for body_id in sorted(prism_by_body_id):  # deterministic tiebreak
+        prism = prism_by_body_id[body_id]
+        if prism.formation_id != lens.host_formation_id:
+            continue
+        cover = lens.footprint & prism.footprint
+        if not cover.any():
+            continue
+        host_mid = float(np.mean((prism.top[cover] + prism.bottom[cover]) / 2.0))
+        distance = abs(host_mid - lens_mid)
+        if distance < best_distance:
+            best_distance = distance
+            best = prism
+    return best
+
+
+def _lens_mid_elevation(lens: LensCarveInput) -> float:
+    """Mean mid-elevation of a lens over its footprint (for host proximity ranking)."""
+    cover = lens.footprint
+    if not cover.any():
+        return 0.0
+    return float(np.mean((lens.z_top[cover] + lens.z_base[cover]) / 2.0))
 
 
 def merge_meshes_by_body_id(meshes: Sequence[LithoBodyMesh]) -> list[LithoBodyMesh]:
