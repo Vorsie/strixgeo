@@ -1,4 +1,9 @@
-"""Stage 4 of the implicit stratigraphic field builder: carve enclosed lenses.
+"""Stage 6 of the implicit stratigraphic field builder: carve enclosed lenses.
+
+This runs AFTER Stage-5 body assembly
+(:func:`~groundmodel.domain.services.strat_field.body_assembly.assemble_bodies`):
+it takes the assembled matrix body meshes as input and carves each enclosed lens
+into its host.
 
 Stage 1 (``stratigraphic_order``) orders only the conformable MATRIX backbone; an
 enclosed minority (the KLEI / SILT / KLEI over-merge signature on ``test.strix``)
@@ -43,10 +48,12 @@ share node heights exactly (no overlap, no gap).
 
 Recursion (lens-in-lens, ``nesting_depth`` ≥ 2)
 -----------------------------------------------
-Lenses are processed in DESCENDING ``nesting_depth`` so a lens-in-lens carves its
-cavity out of its enclosing LENS prism (not the matrix).  A depth-2 lens (ZAND in
-SILT) splits the already-emitted SILT lens prism into SILT-upper / SILT-lower around
-the ZAND, exactly as the host split above.  The enclosing lens prism is found by its
+Lenses are processed in ASCENDING ``nesting_depth`` (shallowest first) — a depth-1
+SILT must be carved into the matrix before the depth-2 ZAND can carve the SILT prism,
+so the dependency is parent-before-child.  A lens-in-lens then carves its cavity out
+of its (already-emitted) enclosing LENS prism, not the matrix.  A depth-2 lens (ZAND
+in SILT) splits the SILT lens prism into SILT-upper / SILT-lower around the ZAND,
+exactly as the host split above.  The enclosing lens prism is found by its
 emitted ``body_id`` (the ``lens:{host}:{tail}`` scheme), so the wiring (Task 5) must
 set a depth-2 lens's ``host_body_id`` to its parent lens's EMITTED id.
 
@@ -88,6 +95,13 @@ class LensCarveInput:
     enclosed lens — the surfaces come from the lens's own picks (populated by the
     wiring stage), not from the field.
 
+    ``frozen=True`` only prevents rebinding the attributes; it does NOT make the
+    ``np.ndarray`` fields (``z_top`` / ``z_base`` / ``footprint``) deeply immutable
+    — their contents are mutable and the instance is therefore not hashable.  Treat
+    it as a frozen *handle* to array data, not a hashable value key, matching the
+    :class:`~groundmodel.domain.services.strat_field.strat_types.ContactSurface`
+    convention for value objects that carry large array/mesh geometry.
+
     Parameters
     ----------
     host_body_id : str
@@ -115,7 +129,9 @@ class LensCarveInput:
         the footprint (matching the all-corners-inside cell rule of the emitter).
     nesting_depth : int
         ``1`` for a lens directly inside a matrix body, ``2`` for a lens inside a
-        lens, and so on.  Drives the deepest-first carve order.  Always ``>= 1``.
+        lens, and so on.  Drives the carve order: lenses are carved in ASCENDING
+        nesting_depth (shallowest first), so a parent lens prism exists before its
+        child carves it.  Always ``>= 1``.
     """
 
     host_body_id: str
@@ -174,8 +190,9 @@ def carve_lenses(
     """Carve each enclosed lens into its host prism, returning watertight meshes.
 
     Reconstructs each matrix mesh's single-valued top / base height fields from its
-    geometry (one prism per ``body_id``), carves the lenses deepest-nesting-first
-    (a lens-in-lens carves its enclosing lens prism, not the matrix), then emits
+    geometry (one prism per ``body_id``), carves the lenses shallowest-nesting-first
+    (a lens-in-lens carves its enclosing lens prism, not the matrix, so the parent
+    must be carved before the child), then emits
     every resulting prism — carved host pieces + lens prisms — with the shared
     watertight emitter over the SAME grid the matrix meshes were built on.
 
@@ -189,10 +206,10 @@ def carve_lenses(
     lenses : Sequence[LensCarveInput]
         The enclosed lenses to carve, each with its top/base surfaces + footprint
         over the shared grid.  Order does not matter — the carver sorts by
-        descending ``nesting_depth`` (then by ``emitted_body_id``) for a
-        deterministic deepest-first carve.
+        ascending ``nesting_depth`` (then by ``emitted_body_id``) for a
+        deterministic shallowest-first carve (parent lens before child lens).
     matrix_meshes : list[LithoBodyMesh]
-        The Stage-5 matrix body meshes (from
+        The assembled matrix body meshes (the Stage-5 output, from
         :func:`~groundmodel.domain.services.strat_field.body_assembly.assemble_bodies`).
         Each is a single-valued prism over the shared grid; its top/base fields
         are reconstructed by vertical ray-cast at every grid node.
@@ -210,7 +227,7 @@ def carve_lenses(
         Watertight meshes: untouched matrix bodies + carved host pieces + lens
         prisms, in a deterministic order (untouched matrix bodies in input order,
         then per-carved-host the upper-plus-outer piece, the lower piece, and the
-        lens prism, in deepest-first carve order).
+        lens prism, in shallowest-first carve order).
 
     Raises
     ------
@@ -404,6 +421,9 @@ def _prism_height_fields(
     bottom = np.full((nx, ny), np.nan)
     footprint = np.zeros((nx, ny), dtype=bool)
 
+    # O(nx * ny * triangles) per mesh — acceptable for on-click Build at the grid
+    # sizes benchmarked in CLAUDE.local.md; profile if Build exceeds ~30 s on real
+    # data.  Task 5 may thread the height arrays directly from assemble_bodies instead.
     for i in range(nx):
         for j in range(ny):
             intervals = _ray_intervals(mesh.vertices, mesh.triangles, float(gx[i]), float(gy[j]))

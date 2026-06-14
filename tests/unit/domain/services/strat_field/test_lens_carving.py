@@ -19,6 +19,7 @@ populates the lens geometry from the lens's real picks.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from groundmodel.domain.services.strat_field.body_assembly import (
     build_shared_grid,
@@ -258,3 +259,28 @@ def test_lens_in_lens_carves_recursively() -> None:
         assert_closed_manifold(b.vertices, b.triangles)
     assert_no_overlap_sampled(bodies, _grid_samples(_domain(), n=30))
     assert_model_matches_columns(bodies, _lens_in_lens_columns(), tol_m=0.5)
+
+
+def test_unknown_host_body_id_raises_value_error() -> None:
+    """A lens naming a host not in the working set raises ValueError, not KeyError."""
+    # Build the shared grid + the matrix host meshes exactly as the happy-path
+    # test does, then a lens whose host_body_id matches no matrix mesh body_id.
+    gx, gy, node_inside = build_shared_grid(_domain(), _GRID_SPACING_M)
+    nx, ny = len(gx), len(gy)
+    matrix = _host_matrix_meshes(gx, gy, node_inside)
+
+    bad_lens = LensCarveInput(
+        host_body_id="strat:does-not-exist",
+        host_formation_id="KLEI",
+        lens_body_id="silt-lens-0001",
+        lens_formation_id="SILT",
+        z_top=_flat(_LENS_TOP_Z, nx, ny),
+        z_base=_flat(_LENS_BASE_Z, nx, ny),
+        footprint=_footprint_mask(gx, gy, _LENS_X_LO, _LENS_X_HI, _LENS_Y_LO, _LENS_Y_HI),
+        nesting_depth=1,
+    )
+
+    # The unknown host id must hit the explicit ValueError branch in carve_lenses,
+    # not a downstream KeyError or array-shape error.
+    with pytest.raises(ValueError, match="not in the carve working set"):
+        carve_lenses([bad_lens], matrix, gx, gy, node_inside)
