@@ -314,7 +314,7 @@ def carve_lenses(
         lens's parent lens id is wrong).
     """
     nx, ny = len(gx), len(gy)
-    fields_by_body_id = host_height_fields or {}
+    fields_by_body_id = host_height_fields if host_height_fields is not None else {}
 
     # ------------------------------------------------------------------
     # Step 1: index the matrix meshes as CHEAP host candidates.
@@ -526,7 +526,10 @@ def _resolve_host(
     # Tier 2 — closest-mid fallback over the same-lithology candidates.
     best_close: _Candidate | None = None
     best_close_distance = float("inf")
-
+    # WHY: best_close accumulates over ALL same-formation candidates (not just the
+    # strict-bracket tier) because the sparse-RBF distortion can push a host band's
+    # bounding vertex slightly outside the lens mid-elevation — in that case no
+    # candidate brackets, and the closest-mid fallback must still pick the right host.
     for body_id in sorted(candidate_by_body_id):  # deterministic tiebreak
         candidate = candidate_by_body_id[body_id]
         if candidate.formation_id != lens.host_formation_id:
@@ -570,8 +573,8 @@ def _mesh_vertex_z_range(mesh: LithoBodyMesh) -> tuple[float, float]:
     """
     if not mesh.vertices:
         return float("inf"), float("-inf")
-    zs = [v[2] for v in mesh.vertices]
-    return min(zs), max(zs)
+    zs = np.asarray(mesh.vertices)[:, 2]
+    return float(zs.min()), float(zs.max())
 
 
 def _lens_mid_elevation(lens: LensCarveInput) -> float:
