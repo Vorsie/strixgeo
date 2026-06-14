@@ -263,17 +263,22 @@ def _sample_height_fields(
     ny = len(gy)
     z_min, z_max = domain.z_min, domain.z_max
 
-    # Vertical sampling resolution: ~1/4 of the smallest target cell, capped so a
-    # tall block does not blow up the sample count.  The crossing is then refined
-    # by linear interpolation, so this only needs to be fine enough to bracket
-    # each crossing once (no two interior iso-values closer than one sample).
-    nz = max(8, int(round((z_max - z_min) / max(1e-6, (z_max - z_min) / 64.0))))
-    nz = min(nz, 256)
+    # Vertical sampling resolution.  The crossing is refined by linear
+    # interpolation afterward, so this only needs to be fine enough to BRACKET
+    # each interior iso-crossing once.  Tie the vertical step to the actual
+    # horizontal node spacing (a finer Build is finer in z too), with a floor
+    # that keeps a shallow block well-sampled and a cap that bounds a very tall
+    # block.  (The earlier `(z)/((z)/64)` form collapsed algebraically to a
+    # constant 64 for every block — this makes the resolution genuinely depend
+    # on block height.)
+    h_step = float(gx[1] - gx[0]) if nx > 1 else (z_max - z_min)
+    nz = int(np.ceil((z_max - z_min) / max(h_step * 0.5, 1e-6))) + 1
+    nz = min(max(nz, 64), 512)
     zcol = np.linspace(z_max, z_min, nz)  # DESCENDING: index 0 = top
 
     heights: dict[int, np.ndarray] = {h.rank: np.full((nx, ny), np.nan) for h in interior}
     iso_by_rank = {h.rank: h.iso_value for h in interior}
-    ranks_desc = [h.rank for h in interior]  # already ascending rank == top→bottom
+    interior_ranks = [h.rank for h in interior]  # ascending rank == top→bottom
 
     # Evaluate the field on the full (inside-node × zcol) batch in one call.
     inside_nodes = [(i, j) for i in range(nx) for j in range(ny) if node_inside[i, j]]
@@ -292,7 +297,7 @@ def _sample_height_fields(
 
     for n, (i, j) in enumerate(inside_nodes):
         col = fvals[n]  # F sampled top (index 0) → bottom (index nz-1)
-        for rank in ranks_desc:
+        for rank in interior_ranks:
             iso = iso_by_rank[rank]
             z_cross = _contact_crossing(zcol, col, iso)
             if z_cross is not None:
