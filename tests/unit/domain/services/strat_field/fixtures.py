@@ -1308,3 +1308,86 @@ def pinch_lens_rank() -> int:
 def pinch_domain_width_m() -> float:
     """Return the full x-extent (metres) of the analytic pinch domain."""
     return _PINCH_X_MAX - _PINCH_X_MIN
+
+
+# ---------------------------------------------------------------------------
+# Stage 1 — enclosure-classifier fixtures (matrix vs lens)
+# ---------------------------------------------------------------------------
+#
+# These columns deliberately reproduce the real-data over-merge signature that
+# breaks the single-field stratigraphic order on ``test.strix``: the resolver
+# records the SAME klei body (one instance_key) both ABOVE and BELOW a thin
+# minority unit in one borehole (KLEI / SILT / KLEI).  A single global iso-order
+# cannot place that minority, so it must be classified as a lens and carved out
+# of its host matrix body — NOT ordered as a backbone instance.
+
+
+def klei_silt_klei_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Return one column with a KLEI / SILT / KLEI enclosed-lens sandwich.
+
+    The two bracketing KLEI units share the SAME ``instance_key``
+    (``klei_body``) — that shared identity is the resolver over-merge that
+    encloses the SILT.  The SILT (``silt_body``) is therefore a depth-1 lens
+    inside ``klei_body``.
+
+    Returns
+    -------
+    list of tuple of OrderInputUnit
+        A single column ordered top → bottom: KLEI, SILT, KLEI.
+    """
+    col: tuple[OrderInputUnit, ...] = (
+        OrderInputUnit(instance_key="klei_body", formation_id="KLEI", contact_id="k-klei-top"),
+        OrderInputUnit(instance_key="silt_body", formation_id="SILT", contact_id="k-silt-top"),
+        OrderInputUnit(instance_key="klei_body", formation_id="KLEI", contact_id="k-klei-base"),
+    )
+    return [col]
+
+
+def klei_silt_zand_silt_klei_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Return one column with a nested KLEI / SILT / ZAND / SILT / KLEI sandwich.
+
+    Two levels of enclosure:
+    - the two KLEI units share ``klei_body`` → they enclose the SILT
+      (``silt_body``) → SILT is a depth-1 lens in KLEI;
+    - the two SILT units share ``silt_body`` → they enclose the ZAND
+      (``zand_body``) → ZAND is a depth-2 lens in SILT (lens-in-lens).
+
+    Returns
+    -------
+    list of tuple of OrderInputUnit
+        A single column ordered top → bottom: KLEI, SILT, ZAND, SILT, KLEI.
+    """
+    col: tuple[OrderInputUnit, ...] = (
+        OrderInputUnit(instance_key="klei_body", formation_id="KLEI", contact_id="n-klei-top"),
+        OrderInputUnit(instance_key="silt_body", formation_id="SILT", contact_id="n-silt-top"),
+        OrderInputUnit(instance_key="zand_body", formation_id="ZAND", contact_id="n-zand-top"),
+        OrderInputUnit(instance_key="silt_body", formation_id="SILT", contact_id="n-silt-base"),
+        OrderInputUnit(instance_key="klei_body", formation_id="KLEI", contact_id="n-klei-base"),
+    )
+    return [col]
+
+
+def reversed_pair_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Return two columns with a genuine A-over-B / B-over-A interfingering reversal.
+
+    Column 1 places ``a_body`` above ``b_body``; column 2 places ``b_body``
+    above ``a_body``.  The two bodies have DISTINCT ``instance_key`` values and
+    there is NO host-minority-host sandwich in either column, so this is a true
+    non-conformable reversal (interfingering / fault), NOT an enclosed lens.
+    The classifier must leave both as matrix bodies (no lens) so Stage 1's
+    topo-sort still surfaces the cycle.
+
+    Returns
+    -------
+    list of tuple of OrderInputUnit
+        Two columns: [A, B] and [B, A].
+    """
+    col_1: tuple[OrderInputUnit, ...] = (
+        OrderInputUnit(instance_key="a_body", formation_id="ZAND", contact_id="r1-a-top"),
+        OrderInputUnit(instance_key="b_body", formation_id="KLEI", contact_id="r1-b-top"),
+    )
+    col_2: tuple[OrderInputUnit, ...] = (
+        OrderInputUnit(instance_key="b_body", formation_id="KLEI", contact_id="r2-b-top"),
+        OrderInputUnit(instance_key="a_body", formation_id="ZAND", contact_id="r2-a-top"),
+    )
+    return [col_1, col_2]
