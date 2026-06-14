@@ -1,11 +1,11 @@
 """Model-domain geometry: alpha hull, deep-base surface, and ModelDomain.
 
-This module provides the lateral and vertical bounds of the loft's domain
-(spec §2 of the watertight-loft design):
+This module provides the lateral and vertical bounds of the 3-D litho model
+domain used by the implicit stratigraphic builder (``strat_field/``):
 
 * ``alpha_hull_polygon`` — the concave footprint of the participating tests.
-* ``deep_reaching_mask`` — which tests reach the deepest geological band
-  (and therefore anchor the base surface for the loft).
+* ``deep_reaching_mask`` — which tests reach the deepest stratigraphic band
+  (and therefore anchor the base surface of the model domain).
 * ``ModelDomain`` — a value class that answers three spatial questions for
   any (x, y) coordinate:
   - ``contains`` — is this point inside the test footprint?
@@ -14,8 +14,8 @@ This module provides the lateral and vertical bounds of the loft's domain
     through the DEEPEST-reaching tests only; shallow tests do not locally
     truncate the domain)?
 
-Task 5 (LoftField) will consume ``ModelDomain`` to clip per-column stacks to
-the interval ``[deep_base_at(x, y), top_at(x, y)]``.
+``build_model_domain`` is called by ``AssembleStratInputs`` to frame the
+``Block`` passed to ``build_strat_model``.
 
 Domain-layer purity
 -------------------

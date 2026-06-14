@@ -58,8 +58,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
-# reason: scipy ships no type stubs; the rest of the domain (loft_mesher,
-# tin_surface, model_domain) uses the same narrow per-import ignore.
+# reason: scipy ships no type stubs; the rest of the domain (iso_surface,
+# body_assembly, model_domain) uses the same narrow per-import ignore.
 from scipy.interpolate import RBFInterpolator  # type: ignore[import-untyped]
 
 from groundmodel.domain.services.strat_field.potential_field_constants import (
@@ -229,27 +229,24 @@ def _point_in_block(x: float, y: float, z: float, block: Block) -> bool:
     """
     if not (block.z_min <= z <= block.z_max):
         return False
-    return _point_in_polygon(x, y, block.polygon)
+    return point_in_polygon(x, y, block.polygon)
 
 
-def _point_in_polygon(x: float, y: float, polygon: Sequence[tuple[float, float]]) -> bool:
+def point_in_polygon(x: float, y: float, polygon: Sequence[tuple[float, float]]) -> bool:
     """Even-odd ray-casting point-in-polygon test.
 
     On-boundary behaviour is intentionally left undefined (the standard PIP
     convention): a point exactly on an edge may test either way and callers must
-    not rely on it.  In v1 the only caller masks control points against the
+    not rely on it.  The strat-field callers mask control points against the
     whole-domain block, whose hull is built with a margin, so a control point
     never lands exactly on the boundary.
 
     Notes
     -----
-    This duplicates the ray-cast in
-    :meth:`~groundmodel.domain.services.model_domain.ModelDomain.contains`
-    (which uses a strict ``<`` and so differs subtly on the boundary).  They are
-    NOT unified yet on purpose: ``model_domain`` is still shared with the loft
-    builder, whose hull-membership the strict variant feeds.  Unify both onto a
-    single ``domain`` geometry helper when the loft is retired (plan Task 9) — at
-    that point there is one consumer landscape and one boundary convention to pick.
+    A distinct ``contains`` method on
+    :class:`~groundmodel.domain.services.model_domain.ModelDomain` implements the
+    same ray-cast using a strict ``<`` instead of ``<=`` on the crossing check —
+    the boundary conventions intentionally differ, so the two are NOT unified.
 
     Parameters
     ----------

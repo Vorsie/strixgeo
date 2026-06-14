@@ -81,7 +81,7 @@ import numpy as np
 
 from groundmodel.domain.services.strat_field.potential_field import (
     PotentialField,
-    _point_in_polygon,
+    point_in_polygon,
 )
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,
@@ -172,7 +172,7 @@ def assemble_bodies(
     node_inside = np.zeros((nx, ny), dtype=bool)
     for i in range(nx):
         for j in range(ny):
-            node_inside[i, j] = _point_in_polygon(float(gx[i]), float(gy[j]), domain.polygon)
+            node_inside[i, j] = point_in_polygon(float(gx[i]), float(gy[j]), domain.polygon)
 
     # ------------------------------------------------------------------
     # Step 2: per-interior-horizon single-valued height field z_k(x, y).

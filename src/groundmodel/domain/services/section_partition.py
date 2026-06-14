@@ -115,9 +115,9 @@ class PartitionColumn:
 
     Deliberately carries NO along-section position: the TS interface has none
     (regions live in gap-local fraction space), and parity with the TS shape is
-    the contract.  The along ↔ fraction mapping the loft needs belongs to the
-    ``SectionInput`` wrapper (loft_field), which pairs these columns with their
-    along positions.
+    the contract.  The along ↔ fraction mapping belongs to whichever consumer
+    pairs columns with their along-section positions (e.g. the strat-field
+    assembler's ``SectionColumn`` wrapper in ``assemble_strat_inputs.py``).
 
     Parameters
     ----------

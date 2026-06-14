@@ -285,11 +285,9 @@ def test_surfaces_are_clipped_to_the_footprint_polygon() -> None:
     box, so the grid (built over the bounding box) over-covers the polygon and
     the clip must drop the out-of-polygon triangles.
     """
-    # reason: deliberately reuse the SAME private oracle the production clip uses,
-    # so this test verifies the clip rule, not an independent re-implementation.
-    # When the PIP is promoted to a public domain geometry helper (plan Task 9),
-    # update this import to the public symbol.
-    from groundmodel.domain.services.strat_field.potential_field import _point_in_polygon
+    # reason: deliberately reuse the SAME oracle the production clip uses so this
+    # test verifies the clip rule, not an independent re-implementation.
+    from groundmodel.domain.services.strat_field.potential_field import point_in_polygon
 
     class _FlatField:
         def evaluate(self, xyz: object) -> object:
@@ -320,7 +318,7 @@ def test_surfaces_are_clipped_to_the_footprint_polygon() -> None:
         v0, v1, v2 = contact.vertices[i0], contact.vertices[i1], contact.vertices[i2]
         cx = (v0[0] + v1[0] + v2[0]) / 3.0
         cy = (v0[1] + v1[1] + v2[1]) / 3.0
-        assert _point_in_polygon(cx, cy, triangle), (
+        assert point_in_polygon(cx, cy, triangle), (
             f"kept a triangle whose centroid ({cx}, {cy}) is outside the polygon"
         )
     # And the clip actually removed something: the upper-right corner of the

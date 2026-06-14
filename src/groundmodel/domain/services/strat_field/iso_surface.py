@@ -47,7 +47,7 @@ from groundmodel.domain.services.strat_field.iso_surface_constants import (
 )
 from groundmodel.domain.services.strat_field.potential_field import (
     PotentialField,
-    _point_in_polygon,
+    point_in_polygon,
 )
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,
@@ -246,7 +246,7 @@ def _extract_one_horizon(
         i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
         cx = (world[i0, 0] + world[i1, 0] + world[i2, 0]) / 3.0
         cy = (world[i0, 1] + world[i1, 1] + world[i2, 1]) / 3.0
-        if _point_in_polygon(cx, cy, polygon):
+        if point_in_polygon(cx, cy, polygon):
             kept_faces.append((i0, i1, i2))
 
     if not kept_faces:
