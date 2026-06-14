@@ -46,6 +46,7 @@ async def main() -> None:
     async with AsyncSessionFactory() as session:
         await ResolveLithoInstances(session).execute(model_id=_MODEL_ID, commit=False)
         picks = await LithoLayerRepository(session).load_body_picks(_MODEL_ID)
+        litho_name, inv_name = await _load_names(session, picks)
 
     # Group per investigation, top -> bottom (ascending depth), like the assembler.
     by_inv: dict[str, list] = defaultdict(list)
@@ -57,12 +58,14 @@ async def main() -> None:
     formation_of: dict[str, str] = {p.body_id: p.formation_id for p in picks}
 
     # Directed edges: above_instance -> below_instance, with the column count + the
-    # set of investigations supporting each direction.
+    # investigations that support each direction (so a contradiction can be named).
     edge_cols: dict[tuple[str, str], int] = Counter()
-    for inv_picks in by_inv.values():
+    edge_invs: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for inv_id, inv_picks in by_inv.items():
         for a, b in zip(inv_picks, inv_picks[1:]):
             if a.body_id != b.body_id:
                 edge_cols[(a.body_id, b.body_id)] += 1
+                edge_invs[(a.body_id, b.body_id)].append(inv_id)
 
     g = nx.DiGraph()
     g.add_nodes_from(formation_of.keys())
@@ -107,9 +110,68 @@ async def main() -> None:
         pair_tally[frozenset((formation_of[a], formation_of[b]))] += 1
     print("bidirectional contradictions by formation pair:")
     for pair, n in pair_tally.most_common():
-        labels = sorted(p[:8] for p in pair)
+        labels = sorted(litho_name.get(p, p[:8]) for p in pair)
         print(f"    {labels}: {n} instance-pair(s)")
+
+    # --- The 8 instances, per cycle, with names + the contradicting edges ------
+    layers_of: dict[str, list] = defaultdict(list)
+    for p in picks:
+        layers_of[p.body_id].append(p)
+
+    def lab(bid: str) -> str:
+        return f"{litho_name.get(formation_of[bid], '?')}#{bid[-6:]}"
+
+    for ci, scc in enumerate(sorted(sccs, key=len, reverse=True), start=1):
+        print()
+        print(
+            f"### CYCLE {ci} — {len(scc)} instances "
+            f"({Counter(litho_name.get(formation_of[n], '?') for n in scc)})"
+        )
+        for bid in sorted(scc, key=lambda b: litho_name.get(formation_of[b], "")):
+            ls = sorted(layers_of[bid], key=lambda x: x.top_depth_m)
+            invs = sorted({inv_name.get(p.investigation_id, p.investigation_id[:6]) for p in ls})
+            dmin = min(p.top_depth_m for p in ls)
+            dmax = max(p.base_depth_m for p in ls)
+            print(
+                f"  {lab(bid):>16}  — {len(ls)} layer(s), depth {dmin:.1f}–{dmax:.1f} m, "
+                f"in: {', '.join(invs)}"
+            )
+        # The contradicting adjacencies inside this SCC (named by investigation).
+        print("  contradictions (who is ABOVE whom, and where):")
+        members = set(scc)
+        for (a, b), n in edge_cols.items():
+            if a in members and b in members:
+                where = sorted({inv_name.get(i, i[:6]) for i in edge_invs[(a, b)]})
+                print(f"    {lab(a)} ABOVE {lab(b)}  in: {', '.join(where)}")
     print("=" * 70)
+
+
+async def _load_names(session, picks):
+    """Return (formation_id -> lithology name, investigation_id -> human code) maps."""
+    from sqlalchemy import text  # local import; this is a one-off diagnostic
+
+    fids = sorted({p.formation_id for p in picks})
+    iids = sorted({p.investigation_id for p in picks})
+    litho_name: dict[str, str] = {}
+    inv_name: dict[str, str] = {}
+    if fids:
+        rows = (
+            await session.execute(
+                text("SELECT id::text, name FROM geological_formation WHERE id = ANY(:ids)"),
+                {"ids": fids},
+            )
+        ).all()
+        litho_name = {r[0]: r[1] for r in rows}
+    if iids:
+        for tbl, col in (("borehole", "name"), ("cpt", "test_id")):
+            rows = (
+                await session.execute(
+                    text(f"SELECT id::text, {col} FROM {tbl} WHERE id = ANY(:ids)"),
+                    {"ids": iids},
+                )
+            ).all()
+            inv_name.update({r[0]: r[1] for r in rows if r[1]})
+    return litho_name, inv_name
 
 
 if __name__ == "__main__":
