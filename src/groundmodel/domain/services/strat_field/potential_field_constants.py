@@ -61,11 +61,72 @@ RBF_DEGREE: int = -1
 # ~8 % as smoothing rose from 0 to ~1, at the cost of relaxing the on-contact
 # fit by < ~1 iso-unit).
 #
-# We keep it SMALL (0.05) so:
-#   * the on-contact fit stays well inside the gate's 0.25 iso-unit tolerance
-#     (on the fixtures the on-contact error is ~0 either way — they are benign),
-#   * real-data robustness gets the bulk of the smoothing benefit without
-#     visibly over-smoothing gentle dips.
+# ⚠ SMOOTHING IS IN THE UNITS OF THE (NOW NORMALISED) PROBLEM.  As of the
+# coordinate-normalisation fix (see ``RBF_NORMALIZE`` below + the module
+# docstring of ``potential_field``), the RBF is fit on coordinates squeezed to
+# roughly ``[-1, 1]``, so the residual / kernel scale is O(1) rather than the
+# O(10^2) raw-metre scale.  The OLD value (0.05, tuned for raw metres) becomes a
+# HUGE relative smoothing in normalised space — on a collinear cross-section it
+# pushed the on-contact error to ~0.77 iso-units, blowing the gate's 0.25
+# tolerance.  Re-tuned to 1e-5: in normalised space this is a tiny regularisation
+# that keeps the on-contact error ~0.007 iso-units (well inside the 0.25 gate) on
+# both the benign compact fixtures AND the widely-spaced / collinear real-data
+# fixture, while still nudging the solve off the exact-interpolation singularity.
+# A synthetic sweep at this scale: sm 0 → 1e-5 → 1e-4 → 1e-3 gave on-contact
+# error 0.000 → 0.007 → 0.070 → 0.766; 1e-5 is the knee that keeps the fit honest.
 # This is a soft mitigation, NOT a hard monotonicity guarantee — see the
 # module docstring + the DONE_WITH_CONCERNS note.
-RBF_SMOOTHING: float = 0.05
+RBF_SMOOTHING: float = 1e-5
+
+# ---------------------------------------------------------------------------
+# Coordinate normalisation (the coordinate-spread fix)
+# ---------------------------------------------------------------------------
+
+# Whether to normalise the control-point coordinates before fitting the RBF.
+#
+# WHY this exists — the coordinate-spread explosion
+# -------------------------------------------------
+# On a real BE/NL project the control points sit at Lambert-72 magnitude
+# (x ≈ 150 000 m, y ≈ 200 000 m) with internal contacts only a few metres deep,
+# and boreholes are 100–200 m apart.  Fitting the cubic kernel ``phi(r) = r^3``
+# DIRECTLY on those raw metres makes the field's magnitude grow with the project
+# SPAN (a synthetic span sweep: 500 m → 5 km grew the raw max-|F| from ~6 to ~25,
+# and on real data Task-8 integration measured ~190 000 between widely-spaced
+# holes), which produces ZERO usable bodies — the band height-fields are garbage.
+# The compact Task-4 fixtures (~8 m spacing, small coords) never exposed this:
+# the exact "layer-cake fixtures hid the loft bug" trap, one level up.
+#
+# The fix: bring the coordinates to O(1) BEFORE fitting, fit in normalised space,
+# store the transform, and apply the SAME transform to query points at evaluate
+# time.  Normalised coordinates make the field magnitude span-independent (the
+# same span sweep stays ~4–8 normalised) and make ``RBF_SMOOTHING`` mean a fixed
+# fraction of the problem scale regardless of project size.
+#
+# WHY ISOTROPIC, not anisotropic — the collinear trap
+# ---------------------------------------------------
+# Two normalisations were measured head-to-head on BOTH a 2-D-spread fixture and
+# a COLLINEAR one (boreholes along a single cross-section line — the everyday
+# BE/NL case the kernel/degree choice already guards against):
+#
+#   * ISOTROPIC (centre at the centroid, divide ALL three axes by ONE
+#     characteristic length = the max per-axis half-extent) PRESERVES the
+#     x:y:z aspect ratio, so dips are undistorted, and degenerates GRACEFULLY on
+#     collinear data (the zero-spread axis simply contributes nothing).  Measured
+#     max-|F|: ~4.5 (collinear), ~8.7 (2-D) — bounded in both, on-contact error
+#     ~0.007.
+#   * ANISOTROPIC (scale each axis to [-1, 1] independently) gives slightly
+#     better conditioning on a 2-D spread, BUT on collinear data the zero-spread
+#     y-axis has no finite scale: clamping its divisor to 1 leaves y un-normalised
+#     while x and z are squeezed, producing a wildly distorted aspect ratio that
+#     made off-line extrapolation EXPLODE to ~460 000 — catastrophically worse
+#     than raw.  Anisotropic is therefore DISQUALIFIED: it trades a benign 2-D
+#     improvement for a catastrophic collinear failure on the most common
+#     real-data layout.
+#
+# Isotropic is chosen.  The only theoretical cost (a tiny vertical-resolution
+# loss when z-spread ≪ xy-spread, because z barely varies in normalised space) is
+# not observed on the fixtures: the field still crosses each iso-value at the
+# observed depth within the gate tolerance, because the cubic kernel resolves the
+# vertical ordering from the iso-VALUES (which are NOT scaled — only the spatial
+# coordinates are), not from the z-coordinate magnitude.
+RBF_NORMALIZE: bool = True

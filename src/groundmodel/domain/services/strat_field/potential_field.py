@@ -21,6 +21,25 @@ for 3D implicit geological modelling; it runs with NO polynomial tail
 collinear in map view (a single cross-section line) — the case where a
 thin-plate-spline's mandatory linear polynomial tail would be singular.
 
+Coordinate normalisation — why the RBF is NOT fit on raw metres
+---------------------------------------------------------------
+On a real BE/NL project the control points sit at Lambert-72 magnitude
+(x ≈ 150 000 m, y ≈ 200 000 m) with internal contacts only a few metres deep,
+and boreholes are 100–200 m apart.  Fitting the cubic kernel directly on those
+raw metres makes the field's magnitude grow with the project SPAN and EXPLODE
+between widely-spaced holes (Task-8 integration measured ~190 000 — orders of
+magnitude above the iso range), producing ZERO usable bodies.  So
+:func:`fit_potential_field` NORMALISES the control coordinates to ~``[-1, 1]``
+before fitting (centre at the centroid, divide all three axes by one
+characteristic length — ISOTROPIC, so the x:y:z aspect ratio and therefore the
+dip are preserved and collinear data degenerates gracefully), stores the
+transform on the :class:`PotentialField`, and applies the SAME transform to query
+points inside :meth:`PotentialField.evaluate` before calling the RBF.  The
+iso-VALUES (the fit targets) are NOT scaled — only the spatial coordinates — so
+the field still reproduces ``F = iso(rank)`` at each contact.  See
+``potential_field_constants`` (``RBF_NORMALIZE``) for the isotropic-vs-anisotropic
+decision and the collinear-explosion evidence.
+
 Monotonicity — what holds and what does NOT
 -------------------------------------------
 The Stage-4 gate requires ``F`` to be non-decreasing DOWN every borehole and to
@@ -65,6 +84,7 @@ from scipy.interpolate import RBFInterpolator  # type: ignore[import-untyped]
 from groundmodel.domain.services.strat_field.potential_field_constants import (
     RBF_DEGREE,
     RBF_KERNEL,
+    RBF_NORMALIZE,
     RBF_SMOOTHING,
 )
 from groundmodel.domain.services.strat_field.strat_types import (
@@ -82,29 +102,67 @@ class PotentialField:
     compute only.
 
     Construct via :func:`fit_potential_field`, not directly; the constructor
-    takes the already-fitted interpolator.
+    takes the already-fitted interpolator AND the coordinate-normalisation
+    transform (centre + scale) that was applied to the control points before the
+    fit, so :meth:`evaluate` can map query points into the SAME normalised space.
 
     Parameters
     ----------
     interpolator : scipy.interpolate.RBFInterpolator
-        The RBF fit to the on-contact iso-values at the control points.
-        Evaluated at ``(x, y, z)`` to give ``F(x, y, z)``.
+        The RBF fit to the on-contact iso-values at the NORMALISED control
+        points.  Evaluated at normalised ``(x, y, z)`` to give ``F(x, y, z)``.
     block : Block
         The spatial block this field was fit on (v1: the whole domain).
+    center : numpy.ndarray
+        The 3-element ``(cx, cy, cz)`` translation subtracted from every
+        coordinate before scaling (the control-point centroid).  Single source of
+        truth for the transform, shared between fit and evaluate.
+    scale : float
+        The single characteristic length every coordinate axis is divided by
+        after centring (isotropic — the max per-axis half-extent of the control
+        points).  Always strictly positive.
     """
 
     def __init__(
         self,
         interpolator: RBFInterpolator,
         block: Block,
+        center: np.ndarray,
+        scale: float,
     ) -> None:
         self._interpolator = interpolator
         self._block = block
+        # The fitted transform.  Stored so evaluate() maps query points into the
+        # exact normalised space the RBF was fit in — a single source of truth.
+        self._center = np.asarray(center, dtype=float).reshape(3)
+        self._scale = float(scale)
 
     @property
     def block(self) -> Block:
         """Block: The spatial block this field was fit on."""
         return self._block
+
+    def _normalize(self, points: np.ndarray) -> np.ndarray:
+        """Map raw ``(N, 3)`` coordinates into the fitted normalised space.
+
+        Applies the exact transform used at fit time —
+        ``(point - center) / scale`` — so the RBF is always queried in the
+        same coordinate frame it was solved in.  This is the single point where
+        the stored transform is consumed at evaluate time.
+
+        Parameters
+        ----------
+        points : numpy.ndarray
+            An ``(N, 3)`` array of raw ``(x, y, z)`` coordinates in project CRS +
+            vertical datum.
+
+        Returns
+        -------
+        numpy.ndarray
+            The same array centred and isotropically scaled to ~``[-1, 1]``.
+        """
+        normalized: np.ndarray = (points - self._center) / self._scale
+        return normalized
 
     def evaluate(self, xyz: Sequence[tuple[float, float, float]]) -> np.ndarray:
         """Evaluate the potential field at a batch of points.
@@ -136,7 +194,9 @@ class PotentialField:
             return np.empty((0,), dtype=float)
         # Reshape guards a single (x, y, z) passed without an outer sequence.
         points = points.reshape(-1, 3)
-        field = self._interpolator(points)
+        # Map query points into the SAME normalised space the RBF was fit in
+        # (the coordinate-spread fix); the interpolator never sees raw metres.
+        field = self._interpolator(self._normalize(points))
         return np.asarray(field, dtype=float).ravel()
 
 
@@ -197,15 +257,67 @@ def fit_potential_field(
     xyz = np.array([(p.x, p.y, p.z) for p in masked], dtype=float)
     iso = np.array([control.column.iso_value(p.horizon_rank) for p in masked], dtype=float)
 
+    # Normalise the control coordinates BEFORE fitting (the coordinate-spread
+    # fix).  On raw Lambert-72 metres the cubic RBF magnitude grows with the
+    # project span and explodes between widely-spaced holes; squeezing the cloud
+    # to ~[-1, 1] keeps the field bounded and makes RBF_SMOOTHING a fixed fraction
+    # of the problem scale.  Only the SPATIAL coordinates are scaled — the iso
+    # targets are untouched, so the fit still passes through F = iso(rank).
+    center, scale = _normalization_transform(xyz)
+    xyz_fit = (xyz - center) / scale
+
     interpolator = RBFInterpolator(
-        xyz,
+        xyz_fit,
         iso,
         kernel=RBF_KERNEL,
         degree=RBF_DEGREE,
         smoothing=RBF_SMOOTHING,
     )
 
-    return PotentialField(interpolator=interpolator, block=block)
+    return PotentialField(interpolator=interpolator, block=block, center=center, scale=scale)
+
+
+def _normalization_transform(xyz: np.ndarray) -> tuple[np.ndarray, float]:
+    """Derive the deterministic isotropic centre + scale for the control cloud.
+
+    The centre is the control-point CENTROID (per-axis mean); the scale is ONE
+    characteristic length — the maximum per-axis half-extent of the centred
+    cloud — so dividing every axis by it brings the cloud into ~``[-1, 1]`` while
+    PRESERVING the x:y:z aspect ratio (isotropic — no dip distortion).  See
+    ``potential_field_constants.RBF_NORMALIZE`` for why isotropic is chosen over
+    anisotropic (anisotropic explodes on collinear cross-section data).
+
+    The result is fully deterministic (no random, no set ordering) so the build
+    is reproducible — the checksum + bundle replay depend on it.
+
+    Parameters
+    ----------
+    xyz : numpy.ndarray
+        The ``(N, 3)`` raw control-point coordinates (at least one point).
+
+    Returns
+    -------
+    (numpy.ndarray, float)
+        ``(center, scale)``: a 3-element centroid and a strictly-positive scalar
+        length.  When the cloud is a single point (or all coincident), the scale
+        falls back to ``1.0`` so the transform stays well-defined (the degenerate
+        no-spread case).
+
+    Notes
+    -----
+    When ``RBF_NORMALIZE`` is ``False`` the identity transform (zero centre, unit
+    scale) is returned, so the field is fit on raw coordinates — kept as an escape
+    hatch for diagnostics, not used in production.
+    """
+    if not RBF_NORMALIZE:
+        return np.zeros(3, dtype=float), 1.0
+    center = xyz.mean(axis=0)
+    # Max per-axis half-extent of the centred cloud — a SINGLE isotropic length.
+    half_extent = float(np.max(np.abs(xyz - center)))
+    # Degenerate guard: a single control point (or all coincident) has zero
+    # extent; a unit scale keeps the transform finite and well-defined.
+    scale = half_extent if half_extent > 0.0 else 1.0
+    return center, scale
 
 
 def _point_in_block(x: float, y: float, z: float, block: Block) -> bool:

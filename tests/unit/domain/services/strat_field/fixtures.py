@@ -693,6 +693,208 @@ def dipping_block() -> Block:
 
 
 # ---------------------------------------------------------------------------
+# Stage 3 — widely-spaced, real-data-magnitude fixture (the coordinate-spread gate)
+# ---------------------------------------------------------------------------
+#
+# The compact Stage-3 fixtures above (8 m / 200 m apart but small-z-spread, BENIGN)
+# never exposed the coordinate-spread explosion: the raw-coordinate cubic RBF stays
+# bounded on them by luck of scale.  On a REAL BE/NL site the picture is different —
+# boreholes sit at Lambert-72 magnitude (x ≈ 150 km, y ≈ 200 km), 100–200 m apart,
+# with internal contacts only a few metres deep, so the (x, y) spread (hundreds of
+# metres) dwarfs the z spread (a few metres) by ~50×.  Fitting the cubic kernel on
+# those raw coordinates makes the field explode BETWEEN the boreholes (Task-8
+# integration measured ~190 000 — orders of magnitude above the iso range), which
+# yields ZERO usable bodies.  This is the "layer-cake fixtures hid the loft bug"
+# trap, one level up: a fixture that doesn't look like real data misses the bug.
+#
+# This fixture reproduces that real-data shape so the no-explosion + monotonicity +
+# end-to-end gates have a fixture that WOULD fail on raw coordinates and passes only
+# once the coordinates are normalised before fitting.
+
+# Seven investigations on a ~680 m × ~700 m Lambert-72 footprint, IRREGULARLY
+# spaced 100–300 m apart (NOT compact, NOT a regular grid — real boreholes never
+# sit on a lattice).  The irregularity matters: a perfectly regular grid of holes
+# conditions the cubic RBF well even on raw metres, so it would HIDE the bug; the
+# uneven spacing + uneven contact depths below are what make the raw-coordinate
+# field explode (raw max-|F| ≈ 38 here vs ≈ 7 normalised).  All positions and
+# depths are hand-picked deterministic literals (no RNG) so the build is
+# reproducible — the checksum + bundle replay depend on it.
+#
+# (tag, x, y, surface_TAW, (klei1, zand2, klei2 contact depths)).  Every internal
+# contact deepens monotonically along the borehole order so the dip is
+# unambiguous and the down-dip column's contacts are observably deeper.
+_WIDE_SPECS: tuple[tuple[str, float, float, float, tuple[float, float, float]], ...] = (
+    ("a", 150_000.0, 200_000.0, 4.0, (2.0, 4.2, 6.1)),
+    ("b", 150_170.0, 200_040.0, 3.8, (2.3, 4.6, 6.5)),
+    ("c", 150_090.0, 200_260.0, 4.1, (2.6, 5.0, 7.0)),
+    ("d", 150_340.0, 200_310.0, 3.6, (3.1, 5.6, 7.8)),
+    ("e", 150_420.0, 200_080.0, 3.9, (2.8, 5.1, 7.2)),
+    ("f", 150_250.0, 200_520.0, 3.5, (3.4, 6.0, 8.3)),
+    ("g", 150_550.0, 200_470.0, 3.3, (3.7, 6.4, 8.9)),
+)
+
+
+def widely_spaced_order_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Stage-1 order for the widely-spaced fixture: ZAND/KLEI/ZAND/KLEI interbedding.
+
+    Seven investigations, each carrying the same four instances top → bottom:
+    - ``zand1`` — upper ZAND body
+    - ``klei1`` — upper KLEI interbed
+    - ``zand2`` — lower ZAND body
+    - ``klei2`` — basal KLEI unit
+
+    Distinct ``contact_id`` per column (seven separate picks of the same bodies),
+    matching :func:`widely_spaced_columns_with_xyz` so the two compose.
+
+    Returns
+    -------
+    list of tuple of OrderInputUnit
+        Seven columns, each an ordered (top → bottom) tuple of four units.
+    """
+    out: list[tuple[OrderInputUnit, ...]] = []
+    for tag, *_ in _WIDE_SPECS:
+        out.append(
+            (
+                OrderInputUnit("zand1", "ZAND", f"w{tag}-zand1-top"),
+                OrderInputUnit("klei1", "KLEI", f"w{tag}-klei1-top"),
+                OrderInputUnit("zand2", "ZAND", f"w{tag}-zand2-top"),
+                OrderInputUnit("klei2", "KLEI", f"w{tag}-klei2-top"),
+            )
+        )
+    return out
+
+
+def widely_spaced_columns_with_xyz() -> list[InvestigationColumn]:
+    """Seven ``InvestigationColumn`` objects at Lambert-72 magnitude, irregularly spread.
+
+    The interbedded ZAND/KLEI/ZAND/KLEI stack has internal contacts at a few
+    metres' depth that VARY column to column — a genuine dip: every internal
+    contact descends with the borehole order (up-dip → down-dip).  The
+    contact_ids mirror :func:`widely_spaced_order_columns` so
+    ``build_stratigraphic_order(widely_spaced_order_columns())`` resolves every
+    rank used here.
+
+    The defining property: the (x, y) spread is hundreds of metres while the z
+    spread is a few metres, the exact aspect ratio that makes a raw-coordinate
+    cubic RBF explode (and the irregular spacing prevents the regular-grid
+    conditioning that would otherwise hide the bug).
+
+    Returns
+    -------
+    list of InvestigationColumn
+        Seven columns, each four units ordered top → bottom.
+    """
+    cols: list[InvestigationColumn] = []
+    for tag, x, y, surf, (d_klei1, d_zand2, d_klei2) in _WIDE_SPECS:
+        cols.append(
+            InvestigationColumn(
+                investigation_id=f"wide-{tag.upper()}",
+                x=x,
+                y=y,
+                surface_elev_m=surf,
+                units=(
+                    # rank 0 (surface) — top of zand1 at ground → SKIP in control data
+                    ContactObservation("zand1", "ZAND", f"w{tag}-zand1-top", top_depth_m=0.0),
+                    # rank 1 (internal) — top of klei1
+                    ContactObservation("klei1", "KLEI", f"w{tag}-klei1-top", top_depth_m=d_klei1),
+                    # rank 2 (internal) — top of zand2
+                    ContactObservation("zand2", "ZAND", f"w{tag}-zand2-top", top_depth_m=d_zand2),
+                    # rank 3 (internal) — top of klei2 (basal)
+                    ContactObservation("klei2", "KLEI", f"w{tag}-klei2-top", top_depth_m=d_klei2),
+                ),
+            )
+        )
+    return cols
+
+
+def widely_spaced_control_with_holes() -> tuple[StratControlData, StratColumn, list[BoreholeProbe]]:
+    """Widely-spaced gate fixture: control data + order + descending probes.
+
+    Composes :func:`widely_spaced_order_columns` (order) with
+    :func:`widely_spaced_columns_with_xyz` (xyz) into a :class:`StratControlData`,
+    and derives one descending :class:`BoreholeProbe` per column from the SAME xyz
+    data so the observed contact depths the monotonicity gate checks match the
+    control points exactly.
+
+    Returns
+    -------
+    (StratControlData, StratColumn, list of BoreholeProbe)
+        The solver input, the stratigraphic column, and the per-hole probes.
+    """
+    order = build_stratigraphic_order(widely_spaced_order_columns())
+    xyz_columns = widely_spaced_columns_with_xyz()
+    control = build_control_data(xyz_columns, [], order)
+    holes = _probes_from_columns(xyz_columns, order)
+    return control, order, holes
+
+
+def widely_spaced_block() -> Block:
+    """The v1 single block bracketing the widely-spaced fixture's columns.
+
+    Returns
+    -------
+    Block
+        Rectangular prism covering ``widely_spaced_columns_with_xyz`` + margin.
+    """
+    return _block_from_columns(widely_spaced_columns_with_xyz())
+
+
+def widely_spaced_build_fixture() -> tuple[StratControlData, Block, list]:
+    """End-to-end builder fixture at real spacing: control, domain block, authored columns.
+
+    The same widely-spaced ZAND/KLEI/ZAND/KLEI configuration as
+    :func:`widely_spaced_control_with_holes`, packaged like
+    :func:`build_strat_fixture` so the end-to-end no-explosion proof can run
+    ``build_strat_model`` and assert it produces NON-EMPTY watertight bodies that
+    tile the authored columns — the thing that returned ZERO bodies before the
+    coordinate-normalisation fix.
+
+    The authored stack at each column is the four-band ZAND/KLEI/ZAND/KLEI fence
+    bounded above by the domain top and below by the domain base, with the
+    internal bases at ``surface - top_depth`` of the next-deeper contact.
+
+    Returns
+    -------
+    (StratControlData, Block, list of AuthoredColumn)
+        The control data, the solid-extent block, and the authored columns.  The
+        AuthoredColumn import is local to keep the test-only ``strat_invariants``
+        module out of this fixtures module's top-level imports.
+    """
+    from tests.unit.domain.services.strat_field.strat_invariants import (
+        AuthoredColumn,
+        AuthoredUnit,
+    )
+
+    order = build_stratigraphic_order(widely_spaced_order_columns())
+    cols = widely_spaced_columns_with_xyz()
+    control = build_control_data(cols, [], order)
+    # A generous z margin keeps every internal contact comfortably inside the
+    # solid extent; the xy margin matches the other builders.
+    domain = _block_from_columns(cols, xy_margin_m=50.0, z_margin_m=6.0)
+
+    authored: list = []
+    for col in cols:
+        surf = col.surface_elev_m
+        # Contact elevations (z = surface - depth) for the three internal contacts.
+        klei1_top = surf - col.units[1].top_depth_m
+        zand2_top = surf - col.units[2].top_depth_m
+        klei2_top = surf - col.units[3].top_depth_m
+        authored.append(
+            AuthoredColumn(
+                x=col.x,
+                y=col.y,
+                units=(
+                    AuthoredUnit("ZAND", top_elev_m=domain.z_max, base_elev_m=klei1_top),
+                    AuthoredUnit("KLEI", top_elev_m=klei1_top, base_elev_m=zand2_top),
+                    AuthoredUnit("ZAND", top_elev_m=zand2_top, base_elev_m=klei2_top),
+                    AuthoredUnit("KLEI", top_elev_m=klei2_top, base_elev_m=domain.z_min),
+                ),
+            )
+        )
+    return control, domain, authored
+
+
+# ---------------------------------------------------------------------------
 # Stage 4 — isosurface-extraction fixtures (small grids for fast marching cubes)
 # ---------------------------------------------------------------------------
 
