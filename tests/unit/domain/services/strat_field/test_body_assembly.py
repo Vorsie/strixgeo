@@ -18,6 +18,11 @@ from __future__ import annotations
 import numpy as np
 
 from groundmodel.domain.services.strat_field.body_assembly import assemble_bodies
+from groundmodel.domain.services.strat_field.strat_types import (
+    Block,
+    Horizon,
+    StratColumn,
+)
 from tests.unit.domain.services.strat_field.fixtures import (
     nested_field_and_domain,
     pinch_field_and_domain,
@@ -199,3 +204,132 @@ def test_body_assembly_is_deterministic() -> None:
         assert ba.formation_id == bb.formation_id
         assert ba.vertices == bb.vertices
         assert ba.triangles == bb.triangles
+
+
+# ---------------------------------------------------------------------------
+# Bubble (non-monotone field) — the monotone-clamp gate
+# ---------------------------------------------------------------------------
+
+# A deliberately non-monotone analytic field: a central x-band carries a saturating
+# base that asymptotes BETWEEN the rank-1 and rank-2 iso-values deep down (so the
+# rank-1 contact crosses deep but rank-2 never does there) PLUS a strong shallow
+# Gaussian bump that lifts the field through the rank-2 / rank-3 iso-values near the
+# top.  The result is an INVERSION: in the central band the deeper contacts (rank 2,
+# 3) have their only field crossing ABOVE the shallower contact (rank 1).  Without
+# the monotone height clamp the band between rank 1 and rank 2 has negative thickness
+# and two different bodies interpenetrate (a metre-scale overlap fires); with the
+# clamp the inverted contacts pinch to their neighbour (zero-thickness) and the per-
+# column body stack is monotone again.  This is the analytic stand-in for the real
+# VEEN −1.17 m overshoot the owner saw.
+_BUBBLE_X_MIN = 0.0
+_BUBBLE_X_MAX = 20.0
+_BUBBLE_Y_MIN = 0.0
+_BUBBLE_Y_MAX = 20.0
+_BUBBLE_Z_MIN = -6.0
+_BUBBLE_Z_MAX = 6.0
+_BUBBLE_X_MID = 10.0  # centre of the inverting band
+
+
+class _AnalyticBubbledField:
+    """A non-monotone analytic field that inverts two interior contacts in a band.
+
+    Mimics :class:`~groundmodel.domain.services.strat_field.potential_field.PotentialField`'s
+    ``evaluate`` ((N, 3) -> (N,)) interface.  The field is monotone-in-depth at the
+    domain edges (a clean ``z_ref - z`` base) but in a central x-band it (a) suppresses
+    the base so its deep tail saturates between the rank-1 and rank-2 iso-values and
+    (b) adds a strong shallow Gaussian bump that lifts the field through the higher
+    iso-values near the top.  The deeper contacts therefore cross ABOVE the shallower
+    one in that band — a genuine field bubble / inversion.
+
+    Parameters
+    ----------
+    z_min, z_max : float
+        Vertical span (only used to keep the bump within the block).
+    x_mid : float
+        Centre of the x-band where the inversion occurs.
+    """
+
+    def __init__(self, z_min: float, z_max: float, x_mid: float) -> None:
+        self._z_min = z_min
+        self._z_max = z_max
+        self._x_mid = x_mid
+
+    def evaluate(self, xyz: object) -> object:
+        """Evaluate the analytic bubbled field at a batch of ``(x, y, z)`` points.
+
+        Parameters
+        ----------
+        xyz : array-like of shape (N, 3)
+            Query points; only the x and z columns affect the field.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field value at each point.
+        """
+        pts = np.asarray(xyz, dtype=float).reshape(-1, 3)
+        x = pts[:, 0]
+        z = pts[:, 2]
+        # 1 at the band centre, falling to ~0 at the edges.
+        xfac = np.exp(-(((x - self._x_mid) / 3.0) ** 2))
+        # Edge base is the clean monotone-down term; the central base saturates at
+        # ~1.5 deep (between iso 1 and iso 2) so rank-2 never crosses deep there.
+        base_edge = -z
+        base_centre = 1.5 * (1.0 / (1.0 + np.exp(z / 1.0)))
+        base = (1.0 - xfac) * base_edge + xfac * base_centre
+        # Shallow bump (central band only) lifts the field through iso 2 / iso 3.
+        bump = 5.0 * xfac * np.exp(-(((z - 3.5) / 1.0) ** 2))
+        return base + bump
+
+
+def _bubbled_nested_field() -> tuple[_AnalyticBubbledField, StratColumn, Block]:
+    """Build the bubbled field, its matching column, and its domain block.
+
+    Reuses the nested fixture's ZAND/SILT/ZAND/KLEI column (interior iso-values
+    1, 2, 3 at ranks 1, 2, 3; ranks 0 and 4 are caps) so the band lithologies match
+    the other gate tests; only the FIELD differs (non-monotone in the central band).
+
+    Returns
+    -------
+    (_AnalyticBubbledField, StratColumn, Block)
+        The inverting field, the 5-horizon column, and the block spanning it.
+    """
+    field = _AnalyticBubbledField(_BUBBLE_Z_MIN, _BUBBLE_Z_MAX, _BUBBLE_X_MID)
+    column = StratColumn(
+        horizons=(
+            Horizon(0, 0.0, None, "ZAND", ("surf",)),
+            Horizon(1, 1.0, "ZAND", "SILT", ("c1",)),
+            Horizon(2, 2.0, "SILT", "ZAND", ("c2",)),
+            Horizon(3, 3.0, "ZAND", "KLEI", ("c3",)),
+            Horizon(4, 4.0, "KLEI", None, ()),
+        )
+    )
+    polygon = (
+        (_BUBBLE_X_MIN, _BUBBLE_Y_MIN),
+        (_BUBBLE_X_MAX, _BUBBLE_Y_MIN),
+        (_BUBBLE_X_MAX, _BUBBLE_Y_MAX),
+        (_BUBBLE_X_MIN, _BUBBLE_Y_MAX),
+    )
+    domain = Block(polygon=polygon, z_min=_BUBBLE_Z_MIN, z_max=_BUBBLE_Z_MAX)
+    return field, column, domain
+
+
+def test_bubbled_field_is_clamped_monotone() -> None:
+    """A non-monotone field bubble yields a monotone, non-overlapping body stack.
+
+    The analytic bubbled field inverts the rank-2 / rank-3 contacts above rank 1 in
+    a central x-band.  Without the monotone height clamp the inverted band has
+    negative thickness and two different bodies interpenetrate (a metre-scale overlap
+    — the analytic stand-in for the real VEEN −1.17 m overshoot).  After the clamp
+    every per-column body stack must be monotone (no negative-thickness inversion)
+    and no two bodies may overlap on a dense sample set, and every body must remain a
+    closed manifold.
+    """
+    field, order, domain = _bubbled_nested_field()
+    bodies = assemble_bodies(field, order, domain, grid_spacing_m=1.0)
+    assert bodies, "bubbled fixture produced no bodies"
+    # STRICT (TOL=1e-6): this would FAIL on the raw inverted heights pre-clamp.
+    assert_no_overlap_sampled(bodies, _grid_samples(domain, n=30))
+    for b in bodies:
+        assert b.is_flagged is False
+        assert_closed_manifold(b.vertices, b.triangles)

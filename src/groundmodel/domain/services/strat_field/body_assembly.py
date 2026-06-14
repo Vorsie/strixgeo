@@ -257,7 +257,12 @@ def _sample_height_fields(
     dict[int, numpy.ndarray]
         ``rank -> (nx, ny)`` float array of horizon elevations; ``NaN`` where the
         horizon's iso-value is not crossed at that node (absent contact) or the
-        node is outside the polygon.
+        node is outside the polygon.  The returned heights are MONOTONE
+        NON-INCREASING in ascending rank at every present node (a deeper contact
+        never sits higher than a shallower one): after the per-node crossing scan a
+        running per-node minimum over present ranks clamps any field-bubble
+        inversion to its neighbour's height, so the downstream body stack cannot
+        invert.  ``NaN`` (absent contact) is skipped by the clamp and preserved.
     """
     nx = len(gx)
     ny = len(gy)
@@ -302,6 +307,23 @@ def _sample_height_fields(
             z_cross = _contact_crossing(zcol, col, iso)
             if z_cross is not None:
                 heights[rank][i, j] = z_cross
+
+    # WHY: make the stack provably monotone — each contact sits no higher than the
+    # one above it.  A residual RBF bubble that inverted a contact (the deeper iso
+    # crossing ABOVE the shallower one at some node) is pinched to its neighbour
+    # height here, yielding a zero-thickness band there instead of an overshoot.
+    # That makes per-body non-overlap a construction theorem rather than relying on
+    # the field being monotone everywhere (math review 2026-06-14; also removes the
+    # real-data VEEN −1.17 m overshoot).  A monotone stack is already a fixed point
+    # of this clamp, so well-behaved fields are unchanged.  NaN (the contact is
+    # absent / not crossed at this node) is skipped, so a pinch-out stays a pinch-
+    # out and does not pull its neighbours down.
+    running = np.full((nx, ny), np.inf)
+    for rank in interior_ranks:  # ascending rank == top → bottom
+        layer = heights[rank]
+        present = ~np.isnan(layer)
+        running[present] = np.minimum(running[present], layer[present])
+        layer[present] = running[present]
     return heights
 
 
