@@ -124,9 +124,10 @@ def _section(
 async def built_solid_scene(db_session: AsyncSession) -> dict:
     """Project + litho model + 6 tests on 2 parallel sections, solids BUILT.
 
-    Same layout as ``test_recompute_litho_solids_loft.loft_scene``; after the
-    rows are committed ``RecomputeLithoSolids`` is run so the project carries
-    real ``litho_body_solid`` rows ready to ride in the bundle.
+    The six boreholes carry an INTERBEDDED ZAND/KLEI/ZAND stack on a compact
+    (~8 m) grid so the implicit strat field fits cleanly; after the rows are
+    committed ``RecomputeLithoSolids`` is run so the project carries real
+    ``litho_body_solid`` rows ready to ride in the bundle.
     """
     proj = ProjectOrm(id=uuid7(), name="Solid bundle source", status="active")
     db_session.add(proj)
@@ -143,7 +144,11 @@ async def built_solid_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([geo, litho])
     await db_session.flush()
 
-    formation = GeologicalFormationOrm(
+    # Two formations for an INTERBEDDED ZAND/KLEI/ZAND stack — the implicit strat
+    # field needs ≥1 internal contact to interpolate, so a single-formation column
+    # has nothing to build.  Two formations + the repeated ZAND gives three
+    # stratigraphic instances (top ZAND, KLEI, bottom ZAND) → real solids.
+    zand = GeologicalFormationOrm(
         id=uuid7(),
         app_project_id=proj.id,
         name="ZAND",
@@ -151,37 +156,56 @@ async def built_solid_scene(db_session: AsyncSession) -> dict:
         display_order=1,
         litho_main_soil_code="ZAND",
     )
-    db_session.add(formation)
+    klei = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="KLEI",
+        color="#a0785a",
+        display_order=2,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add_all([zand, klei])
     await db_session.flush()
 
-    s1 = _section(proj.id, name="S1", sx=149900.0, sy=200000.0, ex=150300.0, ey=200000.0)
-    s2 = _section(proj.id, name="S2", sx=149900.0, sy=200100.0, ex=150300.0, ey=200100.0)
+    # Sections + boreholes are spaced ~8 m apart: the v1 RBF is well-constrained
+    # between closely-spaced columns (widely-spaced picks make the field bubble —
+    # the documented Stage-3 limitation).
+    s1 = _section(proj.id, name="S1", sx=149996.0, sy=200000.0, ex=150012.0, ey=200000.0)
+    s2 = _section(proj.id, name="S2", sx=149996.0, sy=200008.0, ex=150012.0, ey=200008.0)
     db_session.add_all([s1, s2])
     await db_session.flush()
 
     bh = {
         "A": _borehole(proj.id, suffix="A", x=150000.0, y=200000.0, elev=5.0),
-        "B": _borehole(proj.id, suffix="B", x=150100.0, y=200000.0, elev=4.9),
-        "C": _borehole(proj.id, suffix="C", x=150200.0, y=200000.0, elev=5.1),
-        "D": _borehole(proj.id, suffix="D", x=150000.0, y=200100.0, elev=5.0),
-        "E": _borehole(proj.id, suffix="E", x=150100.0, y=200100.0, elev=4.8),
-        "F": _borehole(proj.id, suffix="F", x=150200.0, y=200100.0, elev=5.2),
+        "B": _borehole(proj.id, suffix="B", x=150004.0, y=200000.0, elev=4.9),
+        "C": _borehole(proj.id, suffix="C", x=150008.0, y=200000.0, elev=5.1),
+        "D": _borehole(proj.id, suffix="D", x=150000.0, y=200008.0, elev=5.0),
+        "E": _borehole(proj.id, suffix="E", x=150004.0, y=200008.0, elev=4.8),
+        "F": _borehole(proj.id, suffix="F", x=150008.0, y=200008.0, elev=5.2),
     }
+    # total_depth_m=6 so the FC↔LL trigger sets the LAST layer's base to 6.
+    for v in bh.values():
+        v.total_depth_m = 6.0
     db_session.add_all(list(bh.values()))
     await db_session.flush()
 
-    layers = {k: _layer(litho, formation, v, top=2.0, base=8.0) for k, v in bh.items()}
-    db_session.add_all(list(layers.values()))
+    # Three layers per borehole: ZAND 0-2, KLEI 2-4, ZAND 4-6.
+    top_layers = {k: _layer(litho, zand, v, top=0.0, base=2.0) for k, v in bh.items()}
+    mid_layers = {k: _layer(litho, klei, v, top=2.0, base=4.0) for k, v in bh.items()}
+    bot_layers = {k: _layer(litho, zand, v, top=4.0, base=6.0) for k, v in bh.items()}
+    db_session.add_all(
+        list(top_layers.values()) + list(mid_layers.values()) + list(bot_layers.values())
+    )
     await db_session.flush()
 
-    db_session.add_all(
-        [
-            _edge(litho, layers["A"], layers["B"], s1.id),
-            _edge(litho, layers["B"], layers["C"], s1.id),
-            _edge(litho, layers["D"], layers["E"], s2.id),
-            _edge(litho, layers["E"], layers["F"], s2.id),
-        ]
-    )
+    # Correlate each level along each section so the resolver makes multi-test bodies.
+    edges = []
+    for level in (top_layers, mid_layers, bot_layers):
+        edges.append(_edge(litho, level["A"], level["B"], s1.id))
+        edges.append(_edge(litho, level["B"], level["C"], s1.id))
+        edges.append(_edge(litho, level["D"], level["E"], s2.id))
+        edges.append(_edge(litho, level["E"], level["F"], s2.id))
+    db_session.add_all(edges)
     await db_session.commit()
 
     # Build the solids so the project carries real litho_body_solid rows.
