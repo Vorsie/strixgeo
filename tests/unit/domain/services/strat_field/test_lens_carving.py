@@ -262,17 +262,24 @@ def test_lens_in_lens_carves_recursively() -> None:
     assert_model_matches_columns(bodies, _lens_in_lens_columns(), tol_m=0.5)
 
 
-def test_unknown_host_body_id_raises_value_error() -> None:
-    """A lens naming a host not in the working set raises ValueError, not KeyError."""
-    # Build the shared grid + the matrix host meshes exactly as the happy-path
-    # test does, then a lens whose host_body_id matches no matrix mesh body_id.
+def test_unresolvable_host_raises_value_error() -> None:
+    """A lens whose host resolves by NEITHER id NOR geometry raises ValueError.
+
+    The carve resolves a host first by direct body_id, then geometrically (a
+    matrix prism of the host's lithology that brackets the lens — the application
+    wiring names the resolver UUID, not the matrix ``strat:`` token).  A lens whose
+    host_body_id is unknown AND whose host_formation_id matches no matrix band has
+    no host at all, so the explicit ValueError fires (not a KeyError / shape error).
+    """
     gx, gy, node_inside = build_shared_grid(_domain(), _GRID_SPACING_M)
     nx, ny = len(gx), len(gy)
-    matrix = _host_matrix_meshes(gx, gy, node_inside)
+    matrix = _host_matrix_meshes(gx, gy, node_inside)  # only KLEI bands present
 
     bad_lens = LensCarveInput(
         host_body_id="strat:does-not-exist",
-        host_formation_id="KLEI",
+        # No matrix band carries this lithology, so the geometric fallback also
+        # finds no host — the lens is genuinely un-carvable.
+        host_formation_id="GRAVEL-no-such-band",
         lens_body_id="silt-lens-0001",
         lens_formation_id="SILT",
         z_top=_flat(_LENS_TOP_Z, nx, ny),
@@ -281,10 +288,40 @@ def test_unknown_host_body_id_raises_value_error() -> None:
         nesting_depth=1,
     )
 
-    # The unknown host id must hit the explicit ValueError branch in carve_lenses,
-    # not a downstream KeyError or array-shape error.
     with pytest.raises(ValueError, match="not in the carve working set"):
         carve_lenses([bad_lens], matrix, gx, gy, node_inside)
+
+
+def test_depth1_lens_host_resolves_by_formation_and_containment() -> None:
+    """A depth-1 lens naming a RESOLVER id (not the matrix token) resolves by geometry.
+
+    The application wiring sets a depth-1 lens's ``host_body_id`` to the matrix
+    host's resolver ``instance_key`` (a body UUID), but the matrix MESHES carry
+    synthetic ``strat:…`` tokens — so the direct-key lookup misses and the carve
+    must resolve the host by lithology + vertical containment.  Here the host id is
+    a fabricated UUID-shaped string that is NOT a mesh key, yet the KLEI host band
+    brackets the lens, so the carve still produces KLEI / SILT / KLEI.
+    """
+    gx, gy, node_inside = build_shared_grid(_domain(), _GRID_SPACING_M)
+    nx, ny = len(gx), len(gy)
+    matrix = _host_matrix_meshes(gx, gy, node_inside)
+
+    lens = LensCarveInput(
+        host_body_id="resolver-uuid-not-a-mesh-key",  # not in the working set
+        host_formation_id="KLEI",  # but the KLEI band brackets the lens
+        lens_body_id="silt-lens-0001",
+        lens_formation_id="SILT",
+        z_top=_flat(_LENS_TOP_Z, nx, ny),
+        z_base=_flat(_LENS_BASE_Z, nx, ny),
+        footprint=_footprint_mask(gx, gy, _LENS_X_LO, _LENS_X_HI, _LENS_Y_LO, _LENS_Y_HI),
+        nesting_depth=1,
+    )
+    bodies = carve_lenses([lens], matrix, gx, gy, node_inside)
+    for b in bodies:
+        assert b.is_flagged is False
+        assert_closed_manifold(b.vertices, b.triangles)
+    assert_no_overlap_sampled(bodies, _grid_samples(_domain(), n=30))
+    assert_model_matches_columns(bodies, _enclosed_lens_columns(), tol_m=0.5)
 
 
 def test_lens_surfaces_poking_outside_host_are_clamped_strictly_interior() -> None:
