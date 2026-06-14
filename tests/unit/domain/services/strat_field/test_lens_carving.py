@@ -385,6 +385,129 @@ def test_lens_surfaces_poking_outside_host_are_clamped_strictly_interior() -> No
     assert_model_matches_columns(bodies, columns, tol_m=0.5)
 
 
+# ---------------------------------------------------------------------------
+# Bracket-first host selection (A/B/A interbedding discriminator)
+# ---------------------------------------------------------------------------
+
+# A taller domain carrying two SAME-formation (ZAND) bands at different depths with
+# a KLEI between them (the A/B/A signature) and a non-ZAND band below.  A SILT lens
+# sits inside the UPPER ZAND band, near its BASE — deliberately positioned so the
+# lens mid-elevation is CLOSER to the LOWER ZAND band's mid than to the upper's
+# mid, while being vertically BRACKETED only by the upper band.  The old
+# closest-mid host selection (no bracketing) mis-picks the lower band and carves
+# the lens into the wrong depth; the bracket-first rule picks the band that
+# actually encloses the lens.
+_AB_Z_MIN = -20.0
+_AB_Z_MAX = 20.0
+
+# Same-formation ZAND bands.  Upper is LARGE (mid far from the lens), lower is small
+# (mid close to the lens), so proximity-by-mid alone favours the WRONG (lower) band.
+_AB_UPPER_ZAND_TOP = 20.0
+_AB_UPPER_ZAND_BASE = -2.0  # upper ZAND z-range [-2, 20], mid = 9.0
+_AB_KLEI_TOP = -2.0
+_AB_KLEI_BASE = -8.0  # KLEI z-range [-8, -2], mid = -5.0
+_AB_LOWER_ZAND_TOP = -8.0
+_AB_LOWER_ZAND_BASE = -12.0  # lower ZAND z-range [-12, -8], mid = -10.0
+_AB_GRIND_TOP = -12.0
+_AB_GRIND_BASE = -20.0  # non-ZAND substrate, never a host candidate
+
+# SILT lens inside the UPPER ZAND, just below z = 0.  mid = -1.0 → distance to upper
+# ZAND mid (9.0) is 10.0, to lower ZAND mid (-10.0) is 9.0: closest-mid prefers the
+# LOWER band, but only the upper band's interval [-2, 20] BRACKETS the lens.
+_AB_LENS_TOP_Z = -0.5
+_AB_LENS_BASE_Z = -1.5
+
+
+def _ab_domain() -> Block:
+    """Return the 30 m square / 40 m tall A/B/A interbedding domain block."""
+    polygon = (
+        (_X_MIN, _Y_MIN),
+        (_X_MAX, _Y_MIN),
+        (_X_MAX, _Y_MAX),
+        (_X_MIN, _Y_MAX),
+    )
+    return Block(polygon=polygon, z_min=_AB_Z_MIN, z_max=_AB_Z_MAX)
+
+
+def _ab_matrix_meshes(
+    gx: np.ndarray, gy: np.ndarray, node_inside: np.ndarray
+) -> list[LithoBodyMesh]:
+    """Build the ZAND / KLEI / ZAND / GRIND interbedded matrix over the whole domain."""
+    nx, ny = len(gx), len(gy)
+
+    def band(top_z: float, base_z: float, formation: str, body_id: str) -> list[LithoBodyMesh]:
+        return emit_prism_bodies(
+            top=_flat(top_z, nx, ny),
+            bottom=_flat(base_z, nx, ny),
+            formation_id=formation,
+            body_id=body_id,
+            gx=gx,
+            gy=gy,
+            node_inside=node_inside,
+        )
+
+    meshes: list[LithoBodyMesh] = []
+    meshes += band(_AB_UPPER_ZAND_TOP, _AB_UPPER_ZAND_BASE, "ZAND", "strat:0-1")
+    meshes += band(_AB_KLEI_TOP, _AB_KLEI_BASE, "KLEI", "strat:1-2")
+    meshes += band(_AB_LOWER_ZAND_TOP, _AB_LOWER_ZAND_BASE, "ZAND", "strat:2-3")
+    meshes += band(_AB_GRIND_TOP, _AB_GRIND_BASE, "GRIND", "strat:3-4")
+    return meshes
+
+
+def test_lens_carves_into_bracketing_band_not_closest_mid() -> None:
+    """An A/B/A lens carves into the band that BRACKETS it, not the closest-mid band.
+
+    Two ZAND bands (upper large, lower small) with a KLEI between; a SILT lens sits
+    inside the UPPER ZAND near its base.  The lens mid-elevation is CLOSER to the
+    lower ZAND band's mid (the old closest-mid selection would mis-pick the lower
+    band and carve the SILT down at ~-8..-12), but only the upper band's vertical
+    interval brackets the lens.  The bracket-first rule must place the SILT inside
+    the UPPER ZAND, so a column through the lens reads
+    ZAND / SILT / ZAND / KLEI / ZAND / GRIND — with the SILT at its authored depth.
+    """
+    gx, gy, node_inside = build_shared_grid(_ab_domain(), _GRID_SPACING_M)
+    nx, ny = len(gx), len(gy)
+    matrix = _ab_matrix_meshes(gx, gy, node_inside)
+
+    lens = LensCarveInput(
+        # A resolver-shaped id that is NOT a mesh key → geometric host resolution.
+        host_body_id="resolver-uuid-not-a-mesh-key",
+        host_formation_id="ZAND",  # matches BOTH ZAND bands → bracketing must decide
+        lens_body_id="silt-lens-0001",
+        lens_formation_id="SILT",
+        z_top=_flat(_AB_LENS_TOP_Z, nx, ny),
+        z_base=_flat(_AB_LENS_BASE_Z, nx, ny),
+        footprint=_footprint_mask(gx, gy, _LENS_X_LO, _LENS_X_HI, _LENS_Y_LO, _LENS_Y_HI),
+        nesting_depth=1,
+    )
+    bodies = carve_lenses([lens], matrix, gx, gy, node_inside)
+
+    for b in bodies:
+        assert b.is_flagged is False
+        assert_closed_manifold(b.vertices, b.triangles)
+    assert_no_overlap_sampled(bodies, _grid_samples(_ab_domain(), n=30))
+
+    cx = (_LENS_X_LO + _LENS_X_HI) / 2.0
+    cy = (_LENS_Y_LO + _LENS_Y_HI) / 2.0
+    columns = [
+        AuthoredColumn(
+            x=cx,
+            y=cy,
+            units=(
+                AuthoredUnit("ZAND", top_elev_m=_AB_UPPER_ZAND_TOP, base_elev_m=_AB_LENS_TOP_Z),
+                AuthoredUnit("SILT", top_elev_m=_AB_LENS_TOP_Z, base_elev_m=_AB_LENS_BASE_Z),
+                AuthoredUnit("ZAND", top_elev_m=_AB_LENS_BASE_Z, base_elev_m=_AB_UPPER_ZAND_BASE),
+                AuthoredUnit("KLEI", top_elev_m=_AB_KLEI_TOP, base_elev_m=_AB_KLEI_BASE),
+                AuthoredUnit(
+                    "ZAND", top_elev_m=_AB_LOWER_ZAND_TOP, base_elev_m=_AB_LOWER_ZAND_BASE
+                ),
+                AuthoredUnit("GRIND", top_elev_m=_AB_GRIND_TOP, base_elev_m=_AB_GRIND_BASE),
+            ),
+        )
+    ]
+    assert_model_matches_columns(bodies, columns, tol_m=0.5)
+
+
 def test_merge_meshes_by_body_id_concatenates_host_pieces() -> None:
     """The two carved host pieces (one body_id) merge into ONE valid closed mesh.
 

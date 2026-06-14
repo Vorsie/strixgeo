@@ -76,7 +76,7 @@ What it does NOT do
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -193,6 +193,45 @@ class _Prism:
     footprint: np.ndarray
 
 
+@dataclass(frozen=True)
+class _Candidate:
+    """A matrix mesh as a host CANDIDATE — cheap vertex metadata, no height field.
+
+    Host resolution must NOT reconstruct a candidate's full height field (an
+    O(grid_nodes × triangles) vertical ray-cast): on a real model there are
+    hundreds of matrix meshes and a handful of lenses, so reconstructing every
+    candidate is astronomically slow.  Instead a candidate carries only its mesh,
+    formation, and the vertical z-range read directly from its vertices (an
+    O(vertices) bounding-box) — enough to decide bracketing.  The chosen host's
+    height field is reconstructed LAZILY (once, in :func:`carve_lenses`) only when
+    it is actually carved.
+
+    Parameters
+    ----------
+    mesh : LithoBodyMesh
+        The matrix body mesh this candidate wraps (the carve passes it through
+        untouched if no lens selects it).
+    z_lo, z_hi : float
+        The vertical extent of the mesh, ``min`` / ``max`` over its vertex
+        elevations.  ``[z_lo, z_hi]`` brackets a lens mid-elevation when it
+        contains it; the bracket WIDTH ``z_hi - z_lo`` ranks tightness.
+    """
+
+    mesh: LithoBodyMesh
+    z_lo: float
+    z_hi: float
+
+    @property
+    def body_id(self) -> str:
+        """str: The candidate mesh's body id."""
+        return self.mesh.body_id
+
+    @property
+    def formation_id(self) -> str:
+        """str: The candidate mesh's lithology."""
+        return self.mesh.formation_id
+
+
 def carve_lenses(
     lenses: Sequence[LensCarveInput],
     matrix_meshes: list[LithoBodyMesh],
@@ -202,12 +241,20 @@ def carve_lenses(
 ) -> list[LithoBodyMesh]:
     """Carve each enclosed lens into its host prism, returning watertight meshes.
 
-    Reconstructs each matrix mesh's single-valued top / base height fields from its
-    geometry (one prism per ``body_id``), carves the lenses shallowest-nesting-first
-    (a lens-in-lens carves its enclosing lens prism, not the matrix, so the parent
-    must be carved before the child), then emits
-    every resulting prism — carved host pieces + lens prisms — with the shared
-    watertight emitter over the SAME grid the matrix meshes were built on.
+    Indexes the matrix meshes as CHEAP host candidates (a vertex z-range bounding
+    box per mesh, no height-field reconstruction), carves the lenses
+    shallowest-nesting-first (a lens-in-lens carves its enclosing lens prism, not
+    the matrix, so the parent must be carved before the child), and reconstructs a
+    single-valued top / base height field ONLY for a candidate a lens actually
+    carves (lazily, once per host).  The carved host pieces + lens prisms are
+    emitted with the shared watertight emitter over the SAME grid the matrix meshes
+    were built on; UNTOUCHED matrix meshes pass through unchanged (no round-trip
+    reconstruction — they are already watertight meshes from that same emitter).
+
+    Reconstructing every matrix mesh's height field up front (an
+    O(grid_nodes × triangles) ray-cast per mesh × hundreds of meshes) is what hung
+    the real-data carve; deferring it to the handful of hosts a lens selects keeps
+    the carve fast.
 
     The returned list contains: the un-touched matrix meshes (those no lens
     carved), the carved host pieces (host-upper-plus-outer + host-lower per
@@ -224,8 +271,8 @@ def carve_lenses(
     matrix_meshes : list[LithoBodyMesh]
         The assembled matrix body meshes (the Stage-5 output, from
         :func:`~groundmodel.domain.services.strat_field.body_assembly.assemble_bodies`).
-        Each is a single-valued prism over the shared grid; its top/base fields
-        are reconstructed by vertical ray-cast at every grid node.
+        Each is a single-valued prism over the shared grid; a mesh's height field
+        is reconstructed by vertical ray-cast only if a lens carves it.
     gx, gy : numpy.ndarray
         The shared grid node coordinates — MUST be the same grid the matrix meshes
         were assembled on (rebuild via
@@ -252,28 +299,57 @@ def carve_lenses(
     nx, ny = len(gx), len(gy)
 
     # ------------------------------------------------------------------
-    # Step 1: reconstruct each matrix mesh as a height-field prism.
+    # Step 1: index the matrix meshes as CHEAP host candidates.
     #
-    # A matrix mesh is a single-valued prism, so a vertical ray at each grid node
-    # hits it in exactly one (base, top) interval (or none, outside the body
-    # footprint).  Recovering top/base/footprint as arrays lets the carve be pure
-    # array math regardless of whether the host is a matrix band or a prior lens.
+    # A candidate carries only its mesh + a vertex z-range (an O(vertices)
+    # bounding box) — NOT a reconstructed height field.  Host resolution needs
+    # only the z-range to decide bracketing, and the per-mesh ray-cast that
+    # reconstructs a height field is O(grid_nodes × triangles); doing it for every
+    # candidate (hundreds of matrix meshes × tens of thousands of grid nodes)
+    # is the cost that hung the real-data carve.  The height field is built LAZILY
+    # below, once, only for a candidate a lens actually carves.
     # ------------------------------------------------------------------
-    prisms: list[_Prism] = []
-    prism_by_body_id: dict[str, _Prism] = {}
+    candidate_by_body_id: dict[str, _Candidate] = {}
     for mesh in matrix_meshes:
-        top, bottom, footprint = _prism_height_fields(mesh, gx, gy)
+        z_lo, z_hi = _mesh_vertex_z_range(mesh)
+        # A matrix split would yield duplicate body_ids (``id#0``/``id#1``); the
+        # mesh ids already carry that suffix, so each mesh maps to a distinct key.
+        candidate_by_body_id[mesh.body_id] = _Candidate(mesh=mesh, z_lo=z_lo, z_hi=z_hi)
+
+    # ``prism_by_body_id`` holds only the prisms a lens has materialised + carved
+    # (the chosen matrix host reconstructed lazily, plus emitted lens prisms a
+    # deeper lens may carve).  A depth-2 lens names its parent lens's emitted id,
+    # which lives here, so it stays the fast direct-key path.
+    prism_by_body_id: dict[str, _Prism] = {}
+    # Carved pieces accumulate here (host pieces + lens prisms) for emission;
+    # untouched matrix meshes pass through unchanged (see Step 3).
+    carved_prisms: list[_Prism] = []
+    # The body_ids of matrix candidates a lens carved — emitted from their
+    # materialised prism, NOT passed through as the original mesh.
+    carved_matrix_ids: set[str] = set()
+
+    def materialise(candidate: _Candidate) -> _Prism:
+        """Reconstruct a candidate's height field ONCE; reuse it for further lenses.
+
+        A second lens on the same host (or a deeper lens on a lens) must carve the
+        SAME mutable prism, so the first carve registers it under its body_id and
+        subsequent lookups reuse it.
+        """
+        existing = prism_by_body_id.get(candidate.body_id)
+        if existing is not None:
+            return existing
+        top, bottom, footprint = _prism_height_fields(candidate.mesh, gx, gy)
         prism = _Prism(
-            body_id=mesh.body_id,
-            formation_id=mesh.formation_id,
+            body_id=candidate.body_id,
+            formation_id=candidate.formation_id,
             top=top,
             bottom=bottom,
             footprint=footprint,
         )
-        prisms.append(prism)
-        # A matrix split would yield duplicate body_ids (``id#0``/``id#1``); the
-        # mesh ids already carry that suffix, so each mesh maps to a distinct key.
-        prism_by_body_id[mesh.body_id] = prism
+        prism_by_body_id[candidate.body_id] = prism
+        carved_prisms.append(prism)  # the host-upper-plus-outer piece
+        carved_matrix_ids.add(candidate.body_id)
+        return prism
 
     # ------------------------------------------------------------------
     # Step 2: carve each lens, SHALLOWEST nesting first.
@@ -289,27 +365,33 @@ def carve_lenses(
     # ------------------------------------------------------------------
     ordered = sorted(lenses, key=lambda lc: (lc.nesting_depth, lc.emitted_body_id))
     for lens in ordered:
-        host = _resolve_host(lens, prism_by_body_id)
+        host = _resolve_host(lens, prism_by_body_id, candidate_by_body_id, materialise)
         if host is None:
             raise ValueError(
                 f"lens {lens.emitted_body_id!r} names host body "
                 f"{lens.host_body_id!r}, which is not in the carve working set "
-                f"(present: {sorted(prism_by_body_id)!r})"
+                f"(present: {sorted(set(candidate_by_body_id) | set(prism_by_body_id))!r})"
             )
         lens_prism, host_lower = _carve_one(lens, host, nx, ny)
         # host-lower keeps the host body_id; it does NOT replace the host in the
         # lookup (the host object — now the upper-plus-outer piece — must stay the
         # carve target for any further lens on the same host).  The lens prism IS
         # added to the lookup so a deeper lens can carve it.
-        prisms.append(host_lower)
-        prisms.append(lens_prism)
+        carved_prisms.append(host_lower)
+        carved_prisms.append(lens_prism)
         prism_by_body_id[lens_prism.body_id] = lens_prism
 
     # ------------------------------------------------------------------
-    # Step 3: emit every prism with the shared watertight emitter.
+    # Step 3: emit.  Untouched matrix meshes pass through UNCHANGED (no round-trip
+    # through a height-field reconstruction — they are already watertight meshes
+    # from the same emitter); carved pieces (materialised host pieces + lens
+    # prisms) are emitted from their height fields with the shared emitter.
     # ------------------------------------------------------------------
     out: list[LithoBodyMesh] = []
-    for prism in prisms:
+    for mesh in matrix_meshes:
+        if mesh.body_id not in carved_matrix_ids:
+            out.append(mesh)
+    for prism in carved_prisms:
         out.extend(
             emit_prism_bodies(
                 top=prism.top,
@@ -324,70 +406,138 @@ def carve_lenses(
     return out
 
 
-def _resolve_host(lens: LensCarveInput, prism_by_body_id: dict[str, _Prism]) -> _Prism | None:
-    """Find the working-set prism a lens carves into.
+def _resolve_host(
+    lens: LensCarveInput,
+    prism_by_body_id: dict[str, _Prism],
+    candidate_by_body_id: dict[str, _Candidate],
+    materialise: Callable[[_Candidate], _Prism],
+) -> _Prism | None:
+    """Find the working-set prism a lens carves into — CHEAPLY, bracket-first.
 
-    Two id schemes reach the carve:
+    Resolution is two-tiered by id, then (when geometric) two-tiered by bracketing:
 
-    * A **depth-2** lens (lens-in-lens) names its parent lens's EMITTED prism id
-      (``lens:{host}:{tail}``), which IS a working-set key — a direct hit.  The
-      analytic carve tests also name a matrix mesh's ``strat:…`` / synthetic id
-      directly, so the direct-key path stays the fast common case.
-    * A **depth-1** lens built by the application wiring
+    Id tiers
+    --------
+    * **Direct key (fast path, FIRST).**  A **depth-2** lens (lens-in-lens) names
+      its parent lens's EMITTED prism id (``lens:{host}:{tail}``), which is a
+      working-set key — a direct hit on ``prism_by_body_id``.  A second lens on the
+      SAME matrix host also hits here, because the first carve materialised that
+      host under its body_id.  The analytic carve tests likewise name a matrix
+      mesh's ``strat:…`` token directly, so the direct path stays the common case.
+    * **Geometric fallback.**  A **depth-1** lens built by the application wiring
       (:func:`~groundmodel.domain.services.strat_field.lens_geometry.build_lens_carve_inputs`)
       names its matrix host's RESOLVER ``instance_key`` (a body UUID), but the
-      matrix MESHES are emitted with synthetic ``strat:{rank_top}-{rank_bot}`` band
-      tokens — the resolver id is NOT a mesh key.  In that case the host is resolved
-      GEOMETRICALLY: the matrix prism whose lithology matches ``host_formation_id``
-      AND whose reconstructed vertical interval BRACKETS the lens over the lens
-      footprint.  This is exact for an enclosed lens (it sits vertically inside
-      exactly one same-lithology band by definition); when several same-lithology
-      bands bracket it (degenerate), the one with the smallest bracketing interval
-      (the tightest enclosure) wins, deterministically.
+      matrix MESHES carry synthetic ``strat:{rank_top}-{rank_bot}`` band tokens —
+      the resolver id is NOT a mesh key.  The host is then resolved among the
+      same-lithology matrix CANDIDATES below.
+
+    Cheap selection (WHY no ray-cast)
+    ---------------------------------
+    Each candidate's vertical extent ``[z_lo, z_hi]`` is read directly from its
+    mesh VERTICES (an O(vertices) bounding box) — NOT from a reconstructed height
+    field.  Reconstructing a candidate's height field is an
+    O(grid_nodes × triangles) vertical ray-cast; doing it for every same-lithology
+    candidate across hundreds of meshes is what hung the real-data carve.  The
+    z-range alone decides bracketing, so only the CHOSEN host is ever materialised
+    (via ``materialise``), keeping selection O(candidates × vertices).
+
+    Bracket-first rule (WHY)
+    ------------------------
+    The host is the band that vertically ENCLOSES the lens — the lens sits inside
+    exactly one same-lithology band by definition.  In an A/B/A interbedding
+    (e.g. a SILT lens inside the UPPER of two ZAND bands), proximity-by-mid alone
+    can pick the WRONG band: if the lens sits near a large host band's edge, a
+    smaller same-lithology band on the other side may have a closer mid yet not
+    contain the lens at all.  So we FIRST take candidates whose ``[z_lo, z_hi]``
+    CONTAINS the lens mid-elevation and, among them, pick the TIGHTEST bracket
+    (smallest ``z_hi - z_lo`` — the most specific enclosing band), breaking ties on
+    the lexicographically smallest body_id for a stable result.  Only if NONE
+    brackets (the sparse RBF dipped the host's bounding contact a few metres past
+    the lens mid) do we fall back to the closest-mid candidate, so a distorted-field
+    case still carves robustly rather than failing.  ``_carve_one``'s strict-interior
+    clamp then pulls the lens inside whichever host is chosen, keeping the tiling
+    watertight.
 
     Parameters
     ----------
     lens : LensCarveInput
         The lens whose host prism is sought.
     prism_by_body_id : dict[str, _Prism]
-        The current carve working set (matrix prisms + already-carved lens prisms),
-        keyed by emitted body id.
+        Already-materialised prisms (carved matrix hosts + emitted lens prisms),
+        keyed by emitted body id — the direct-key fast path.
+    candidate_by_body_id : dict[str, _Candidate]
+        The matrix host candidates (cheap vertex z-range, no height field), keyed
+        by mesh body id — searched by the geometric fallback.
+    materialise : Callable[[_Candidate], _Prism]
+        Reconstructs the chosen candidate's height field ONCE and registers it in
+        the working set; called only for the single selected host.
 
     Returns
     -------
     _Prism or None
-        The host prism, or ``None`` when no working-set prism matches by id or by
-        formation + vertical containment (an un-carvable lens — the caller raises).
+        The host prism, or ``None`` when no prism matches by id and no candidate
+        matches by formation + vertical proximity (an un-carvable lens — the caller
+        raises).
     """
     direct = prism_by_body_id.get(lens.host_body_id)
     if direct is not None:
         return direct
 
-    # Geometric fallback: the matrix prism of the host's LITHOLOGY closest to the
-    # lens over its footprint.  The host is the band whose lithology equals
-    # ``host_formation_id`` (the over-merged host that brackets the lens in the
-    # AUTHORED column); the sparse RBF can dip the band's bounding contact a few
-    # metres off the picks, so we do NOT require strict bracketing (that would
-    # reject the true host where the field distorted).  Among same-lithology
-    # candidates the one whose vertical interval is CLOSEST to the lens centre at
-    # the footprint wins; ``_carve_one``'s strict-interior clamp then pulls the
-    # lens inside whichever host is chosen, keeping the tiling watertight.
     lens_mid = _lens_mid_elevation(lens)
-    best: _Prism | None = None
-    best_distance = float("inf")
-    for body_id in sorted(prism_by_body_id):  # deterministic tiebreak
-        prism = prism_by_body_id[body_id]
-        if prism.formation_id != lens.host_formation_id:
+
+    # Tier 1 — strict bracketing: same-lithology candidates whose vertical interval
+    # CONTAINS the lens mid; tightest bracket (then smallest body_id) wins.
+    best_bracket: _Candidate | None = None
+    best_bracket_width = float("inf")
+    # Tier 2 — closest-mid fallback over the same-lithology candidates.
+    best_close: _Candidate | None = None
+    best_close_distance = float("inf")
+
+    for body_id in sorted(candidate_by_body_id):  # deterministic tiebreak
+        candidate = candidate_by_body_id[body_id]
+        if candidate.formation_id != lens.host_formation_id:
             continue
-        cover = lens.footprint & prism.footprint
-        if not cover.any():
-            continue
-        host_mid = float(np.mean((prism.top[cover] + prism.bottom[cover]) / 2.0))
+        if candidate.z_lo <= lens_mid <= candidate.z_hi:
+            width = candidate.z_hi - candidate.z_lo
+            # Strictly-less keeps the FIRST (smallest body_id, since sorted) on a
+            # width tie → deterministic for the bundle checksum.
+            if width < best_bracket_width:
+                best_bracket_width = width
+                best_bracket = candidate
+        host_mid = (candidate.z_lo + candidate.z_hi) / 2.0
         distance = abs(host_mid - lens_mid)
-        if distance < best_distance:
-            best_distance = distance
-            best = prism
-    return best
+        if distance < best_close_distance:
+            best_close_distance = distance
+            best_close = candidate
+
+    chosen = best_bracket if best_bracket is not None else best_close
+    if chosen is None:
+        return None
+    return materialise(chosen)
+
+
+def _mesh_vertex_z_range(mesh: LithoBodyMesh) -> tuple[float, float]:
+    """Return a mesh's vertical extent ``(z_lo, z_hi)`` from its vertices (O(vertices)).
+
+    The cheap bounding box host resolution uses to decide bracketing — read
+    straight off the vertex elevations, with no ray-cast / height-field
+    reconstruction.
+
+    Parameters
+    ----------
+    mesh : LithoBodyMesh
+        The candidate body mesh.
+
+    Returns
+    -------
+    (float, float)
+        ``(min, max)`` of the mesh vertex elevations.  ``(inf, -inf)`` for an
+        empty mesh (which never brackets and ranks worst on proximity).
+    """
+    if not mesh.vertices:
+        return float("inf"), float("-inf")
+    zs = [v[2] for v in mesh.vertices]
+    return min(zs), max(zs)
 
 
 def _lens_mid_elevation(lens: LensCarveInput) -> float:
