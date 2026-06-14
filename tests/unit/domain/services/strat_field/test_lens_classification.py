@@ -15,7 +15,12 @@ from __future__ import annotations
 import graphlib
 from collections.abc import Sequence
 
-from groundmodel.domain.services.strat_field.lens_classification import classify_lenses
+import pytest
+
+from groundmodel.domain.services.strat_field.lens_classification import (
+    LensClassificationError,
+    classify_lenses,
+)
 from groundmodel.domain.services.strat_field.lens_types import Lens, LensPartition
 from groundmodel.domain.services.strat_field.stratigraphic_order import OrderInputUnit
 from tests.unit.domain.services.strat_field.fixtures import (
@@ -104,3 +109,24 @@ def test_true_reversal_is_not_a_lens():
     # M/B/M sandwich) -> genuine interfingering, NOT classified as a lens.
     part = classify_lenses(reversed_pair_columns())
     assert part.lenses == ()  # nothing enclosed; the cycle stays (Stage 1 will raise)
+
+
+def test_residual_matrix_cycle_raises():
+    """A lens found, but the matrix still cycles (true reversal co-exists) -> error."""
+    # B is enclosed by A: column [A, B, A] -> B classified as lens.
+    # C and D form a genuine reversal: [C, D] and [D, C] -> matrix {A, C, D} stays cyclic.
+    enclosed = (
+        OrderInputUnit("a_body", "KLEI", "e-a-top"),
+        OrderInputUnit("b_body", "SILT", "e-b-top"),
+        OrderInputUnit("a_body", "KLEI", "e-a-base"),
+    )
+    reversal_1 = (
+        OrderInputUnit("c_body", "ZAND", "r1-c-top"),
+        OrderInputUnit("d_body", "VEEN", "r1-d-top"),
+    )
+    reversal_2 = (
+        OrderInputUnit("d_body", "VEEN", "r2-d-top"),
+        OrderInputUnit("c_body", "ZAND", "r2-c-top"),
+    )
+    with pytest.raises(LensClassificationError):
+        classify_lenses([enclosed, reversal_1, reversal_2])

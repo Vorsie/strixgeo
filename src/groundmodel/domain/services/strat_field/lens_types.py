@@ -9,9 +9,11 @@ matrix body).
 
 Notes
 -----
-The approved exception to "one class per file" applies here (the same grouping
-rationale as ``strat_types.py``): :class:`Lens` and :class:`LensPartition` form a
-single small cohesive vocabulary, so they live together in this module.
+Following the ``strat_types.py`` precedent, this module groups the small, cohesive
+lens value-object vocabulary (:class:`Lens` and :class:`LensPartition`) in one file
+rather than one-class-per-file.  (The only "one class per file" exception named in
+CLAUDE.md is ``shared/exceptions.py``; this is a project precedent for small
+cohesive value-object vocabularies, not that documented exception.)
 """
 
 from __future__ import annotations

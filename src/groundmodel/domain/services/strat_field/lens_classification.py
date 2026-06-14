@@ -175,12 +175,35 @@ NonConformableError`.
     depth_of_lens: dict[str, int] = {}
 
     def _depth(key: str) -> int:
-        if key in depth_of_lens:
-            return depth_of_lens[key]
-        host = host_of_lens[key]
-        d = 1 if host in matrix_body_ids else _depth(host) + 1
-        depth_of_lens[key] = d
-        return d
+        # Walk the immediate-host chain iteratively, guarding against a cyclic
+        # chain (mutually-enclosing bodies from a malformed input) with a visited
+        # set.  A valid chain is acyclic and ends at a matrix body; a cycle would
+        # otherwise recurse forever → RecursionError.  Surfacing it as a
+        # LensClassificationError that names the offending bodies is the
+        # actionable failure.
+        chain: list[str] = []
+        seen: set[str] = set()
+        cur = key
+        while cur not in matrix_body_ids:
+            if cur in depth_of_lens:
+                break
+            if cur in seen:
+                raise LensClassificationError(
+                    "cyclic host chain among lens instance_keys "
+                    f"{sorted(seen | {cur})!r} — a body's enclosing-host chain "
+                    "loops back on itself (mutually-enclosing bodies), which is a "
+                    "malformed classification that cannot be assigned a finite "
+                    "nesting depth"
+                )
+            seen.add(cur)
+            chain.append(cur)
+            cur = host_of_lens[cur]
+        # ``cur`` is now either a matrix body (depth-0 anchor) or a lens whose
+        # depth is already memoised; unwind the visited chain deepest-host first.
+        base = depth_of_lens[cur] if cur in depth_of_lens else 0
+        for offset, link in enumerate(reversed(chain), start=1):
+            depth_of_lens[link] = base + offset
+        return depth_of_lens[key]
 
     for key in is_lens:
         _depth(key)
