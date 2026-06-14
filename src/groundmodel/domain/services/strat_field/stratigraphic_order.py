@@ -111,6 +111,7 @@ class NonConformableError(Exception):
 
 def build_stratigraphic_order(
     columns: Sequence[Sequence[OrderInputUnit]],
+    matrix_body_ids: frozenset[str] | None = None,
 ) -> StratColumn:
     """Derive the global stratigraphic column from per-investigation unit sequences.
 
@@ -122,12 +123,30 @@ def build_stratigraphic_order(
     N+1 :class:`~groundmodel.domain.services.strat_field.strat_types.Horizon`
     objects are emitted for N ordered instances.
 
+    When ``matrix_body_ids`` is given, only the MATRIX backbone is ordered:
+    enclosed-lens bodies (a recurring host recorded both above AND below a
+    minority, which the resolver over-merges into one ``instance_key``) are
+    dropped before the DAG is built, so they are not horizons.  This is what
+    turns a non-conformable single-field order (the lens host above AND below
+    itself is a 2-cycle) into a conformable backbone — the lens is carved back
+    into its host by a later stage.
+
     Parameters
     ----------
     columns : Sequence of Sequence of OrderInputUnit
         One inner sequence per investigation location, each ordered top (index 0)
         to bottom (last index).  A single-investigation, single-unit column is
         valid but produces no internal horizons.
+    matrix_body_ids : frozenset of str, optional
+        When ``None`` (default) every body is ordered — the original behaviour.
+        When given, each column is filtered to ONLY the units whose
+        ``instance_key`` is in this set (preserving order) before the DAG is
+        built; lens bodies are excluded.  After filtering, two occurrences of
+        the SAME matrix body that were separated only by a now-removed lens
+        become ADJACENT — those consecutive duplicates are COLLAPSED to a single
+        unit (a matrix body bracketing a removed lens is one unit, not two) so
+        the self-consecutive ``ValueError`` does not fire on a legitimate
+        host-brackets-lens column.
 
     Returns
     -------
@@ -143,13 +162,43 @@ def build_stratigraphic_order(
         If the same ``instance_key`` maps to two different ``formation_id`` values
         across the input columns, or if a single column lists the same
         ``instance_key`` in two consecutive positions (a body directly above
-        itself).  The message contains the substring ``instance_key`` so callers
-        can identify this error class programmatically.
+        itself) — but NOT when those duplicates arose from collapsing out a lens
+        under ``matrix_body_ids`` (those are collapsed, not rejected).  The
+        message contains the substring ``instance_key`` so callers can identify
+        this error class programmatically.
     NonConformableError
         If the aggregate DAG contains a directed cycle (a non-conformable boundary,
         fault, or unconformity).  The message names every ``formation_id`` involved
-        in the cycle to help the engineer locate the conflicting data.
+        in the cycle to help the engineer locate the conflicting data.  A residual
+        cycle on the filtered matrix backbone is a TRUE non-conformable matrix
+        (genuine interfingering reversal), so the error remains the correct
+        outcome there.
     """
+    # ------------------------------------------------------------------
+    # Step 0: matrix-backbone filter (optional).
+    #
+    # When matrix_body_ids is given, restrict every column to its matrix units
+    # (preserving top→bottom order) and collapse consecutive duplicate
+    # instance_keys.  WHY collapse: removing an enclosed lens makes the two
+    # occurrences of its bracketing host adjacent (KLEI/SILT/KLEI → KLEI/KLEI);
+    # a host bracketing a removed lens is ONE matrix unit, so the duplicate
+    # position is dropped here rather than tripping the self-consecutive guard
+    # below.  Dropping the duplicate position is safe — the body still
+    # contributes its top-contact id from its surviving (first) occurrence and
+    # from its picks in other columns via the per-key contact accumulation.
+    # ------------------------------------------------------------------
+    if matrix_body_ids is not None:
+        filtered: list[list[OrderInputUnit]] = []
+        for column in columns:
+            kept: list[OrderInputUnit] = []
+            for unit in column:
+                if unit.instance_key not in matrix_body_ids:
+                    continue
+                if kept and kept[-1].instance_key == unit.instance_key:
+                    continue
+                kept.append(unit)
+            filtered.append(kept)
+        columns = filtered
     # ------------------------------------------------------------------
     # Step 1: collect formation_id and contact_ids per instance_key.
     #

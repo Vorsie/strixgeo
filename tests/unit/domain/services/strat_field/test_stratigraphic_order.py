@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import pytest
 
+from groundmodel.domain.services.strat_field.lens_classification import classify_lenses
 from groundmodel.domain.services.strat_field.stratigraphic_order import (
     NonConformableError,
     build_stratigraphic_order,
 )
 
-from .fixtures import conflicting_columns, interbedded_columns, pinch_columns
+from .fixtures import (
+    conflicting_columns,
+    interbedded_columns,
+    klei_silt_klei_columns,
+    pinch_columns,
+)
 
 # ---------------------------------------------------------------------------
 # SO-1: interbedded sequence
@@ -190,3 +196,78 @@ def test_same_instance_key_twice_in_one_column_raises_value_error():
                 )
             ]
         )
+
+
+# ---------------------------------------------------------------------------
+# SO-5: matrix-backbone-only ordering (lenses excluded)
+# ---------------------------------------------------------------------------
+
+
+def test_enclosed_lens_without_matrix_filter_is_non_conformable():
+    """The KLEI/SILT/KLEI over-merge cycles when every body is ordered.
+
+    The two bracketing KLEI units share one body identity, so the single column
+    KLEI/SILT/KLEI places that body both above AND below the SILT — a directed
+    cycle.  Ordering ALL bodies (no matrix filter) must surface this as a
+    non-conformable boundary.  This is the RED-justifying negative case: it
+    proves the lens genuinely cycles, so excluding it is what removes the cycle.
+    """
+    with pytest.raises(NonConformableError):
+        build_stratigraphic_order(klei_silt_klei_columns())
+
+
+def test_order_excludes_lenses_and_is_conformable():
+    """Ordering ONLY the matrix backbone drops the enclosed lens and stays acyclic.
+
+    With the lens (SILT) excluded, the KLEI host that bracketed it becomes the
+    single matrix unit and the order builds with no cycle.  The lens lithology
+    must NOT appear as an internal horizon's below-formation, and the column
+    must carry exactly the matrix instances (here a single KLEI body → surface +
+    floor = two horizons).
+    """
+    cols = klei_silt_klei_columns()
+    part = classify_lenses(cols)
+
+    # 1) it did not raise — the matrix backbone is conformable
+    col = build_stratigraphic_order(cols, matrix_body_ids=part.matrix_body_ids)
+
+    # 2) no horizon names the lens body's lithology as an internal interface
+    below_formations = {h.below_formation for h in col.horizons if h.below_formation is not None}
+    assert "SILT" not in below_formations
+
+    # 3) the column carries exactly the matrix instances: N_matrix + 1 horizons.
+    #    Here the single shared KLEI body is the only matrix instance → 2 horizons
+    #    (surface + floor), and KLEI is the single below-formation.
+    n_matrix = len(part.matrix_body_ids)
+    assert n_matrix == 1
+    assert len(col.horizons) == n_matrix + 1
+    assert below_formations == {"KLEI"}
+
+
+def test_matrix_filter_collapses_host_brackets_to_one_unit():
+    """A host bracketing a removed lens collapses to a SINGLE matrix unit, not a ValueError.
+
+    Filtering the KLEI/SILT/KLEI column to matrix bodies leaves [KLEI, KLEI] —
+    the two occurrences of the SAME host body, now adjacent because the SILT
+    between them was removed.  A body bracketing a removed lens is ONE matrix
+    unit, so the filter must collapse the consecutive duplicate rather than
+    raising the "body directly above itself" ValueError.
+    """
+    cols = klei_silt_klei_columns()
+    part = classify_lenses(cols)
+    # klei_body is the lone matrix backbone unit; silt_body is the lens.
+    assert part.matrix_body_ids == frozenset({"klei_body"})
+    col = build_stratigraphic_order(cols, matrix_body_ids=part.matrix_body_ids)
+    # One matrix instance → surface + floor = 2 horizons; no ValueError raised.
+    assert len(col.horizons) == 2
+
+
+def test_matrix_body_ids_none_equals_no_arg_default():
+    """Passing ``matrix_body_ids=None`` is identical to the no-argument call.
+
+    The new parameter must be a pure addition: the default path (None) orders
+    every body exactly as before, so an existing fixture produces the same
+    StratColumn whether or not the parameter is supplied.
+    """
+    cols = interbedded_columns()
+    assert build_stratigraphic_order(cols, matrix_body_ids=None) == build_stratigraphic_order(cols)
