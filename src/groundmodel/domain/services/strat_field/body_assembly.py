@@ -156,23 +156,8 @@ def assemble_bodies(
     # ------------------------------------------------------------------
     # Step 1: the shared regular grid (NODES at x[i], y[j]; CELLS between them).
     # ------------------------------------------------------------------
-    xs = [vx for vx, _ in domain.polygon]
-    ys = [vy for _, vy in domain.polygon]
-    x_min, x_max = min(xs), max(xs)
-    y_min, y_max = min(ys), max(ys)
-
-    nx = max(2, int(round((x_max - x_min) / grid_spacing_m)) + 1)
-    ny = max(2, int(round((y_max - y_min) / grid_spacing_m)) + 1)
-    gx = np.linspace(x_min, x_max, nx)
-    gy = np.linspace(y_min, y_max, ny)
-
-    # A node is "inside" iff its (x, y) is within the domain polygon.  A grid CELL
-    # is present only if ALL FOUR of its corner nodes are inside, so the solid
-    # never pokes outside the hull.
-    node_inside = np.zeros((nx, ny), dtype=bool)
-    for i in range(nx):
-        for j in range(ny):
-            node_inside[i, j] = point_in_polygon(float(gx[i]), float(gy[j]), domain.polygon)
+    gx, gy, node_inside = build_shared_grid(domain, grid_spacing_m)
+    nx, ny = len(gx), len(gy)
 
     # ------------------------------------------------------------------
     # Step 2: per-interior-horizon single-valued height field z_k(x, y).
@@ -216,6 +201,60 @@ def assemble_bodies(
             )
         )
     return bodies
+
+
+# ---------------------------------------------------------------------------
+# Shared grid construction
+# ---------------------------------------------------------------------------
+
+
+def build_shared_grid(
+    domain: Block,
+    grid_spacing_m: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build the regular xy node grid + inside-polygon mask for a domain block.
+
+    The grid is the single source of truth that makes the cell-complex boundary
+    watertight: every body (and every carved lens) is emitted over the SAME node
+    grid, so a face shared by two bodies references bit-identical node positions.
+    The lens-carving stage (Task 4) must rebuild this grid identically to align
+    its lens prisms to the host body's nodes, so the grid construction is exposed
+    as a shared helper rather than living inline in :func:`assemble_bodies`.
+
+    Parameters
+    ----------
+    domain : Block
+        The model block.  Its polygon's xy bounding box sets the grid extent and
+        ``point_in_polygon`` against the polygon sets the inside mask, so the
+        solid honours the hull rather than the bounding rectangle.
+    grid_spacing_m : float
+        Target grid spacing in metres.  ``numpy.linspace`` hits the block extents
+        exactly, so the per-axis step differs from this by at most one cell.
+
+    Returns
+    -------
+    (numpy.ndarray, numpy.ndarray, numpy.ndarray)
+        ``gx`` (shape ``(nx,)``) and ``gy`` (shape ``(ny,)``) node coordinates,
+        and ``node_inside`` (shape ``(nx, ny)``) the inside-polygon bool mask.
+    """
+    xs = [vx for vx, _ in domain.polygon]
+    ys = [vy for _, vy in domain.polygon]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+
+    nx = max(2, int(round((x_max - x_min) / grid_spacing_m)) + 1)
+    ny = max(2, int(round((y_max - y_min) / grid_spacing_m)) + 1)
+    gx = np.linspace(x_min, x_max, nx)
+    gy = np.linspace(y_min, y_max, ny)
+
+    # A node is "inside" iff its (x, y) is within the domain polygon.  A grid CELL
+    # is present only if ALL FOUR of its corner nodes are inside, so the solid
+    # never pokes outside the hull.
+    node_inside = np.zeros((nx, ny), dtype=bool)
+    for i in range(nx):
+        for j in range(ny):
+            node_inside[i, j] = point_in_polygon(float(gx[i]), float(gy[j]), domain.polygon)
+    return gx, gy, node_inside
 
 
 # ---------------------------------------------------------------------------
@@ -555,11 +594,8 @@ def _emit_band_bodies(
 ) -> list[LithoBodyMesh]:
     """Emit one closed-manifold mesh per connected component of a band.
 
-    A grid CELL ``(i, j)`` (spanning nodes ``i..i+1`` × ``j..j+1``) is PRESENT in
-    the band iff all four corners have a finite top and bottom AND the cell's mean
-    thickness exceeds :data:`_MIN_BAND_THICKNESS_M`.  Present cells are grouped
-    into 4-connected components; each component becomes one body, whose surface is
-    the boundary of its cell complex (see the module docstring).
+    Thin adapter over :func:`emit_prism_bodies` that unpacks the band's per-node
+    top / bottom arrays, lithology, and synthetic body id.
 
     Parameters
     ----------
@@ -576,23 +612,82 @@ def _emit_band_bodies(
         One mesh per connected component, in raster (row-major) component order.
         Empty when the band has no present cell anywhere.
     """
+    return emit_prism_bodies(
+        top=band.top,
+        bottom=band.bottom,
+        formation_id=band.formation_id,
+        body_id=band.body_id,
+        gx=gx,
+        gy=gy,
+        node_inside=node_inside,
+    )
+
+
+def emit_prism_bodies(
+    top: np.ndarray,
+    bottom: np.ndarray,
+    formation_id: str,
+    body_id: str,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    node_inside: np.ndarray,
+) -> list[LithoBodyMesh]:
+    """Emit one closed-manifold prism mesh per connected component of a height band.
+
+    A grid CELL ``(i, j)`` (spanning nodes ``i..i+1`` × ``j..j+1``) is PRESENT
+    iff all four corner nodes are inside the polygon AND have a finite ``top`` and
+    ``bottom`` AND the cell's mean thickness exceeds :data:`_MIN_BAND_THICKNESS_M`.
+    Present cells are grouped into 4-connected components; each component becomes
+    one body, whose surface is the boundary of its cell complex (the watertight
+    mechanism — see the module docstring).
+
+    This is the shared prism emitter reused by both :func:`assemble_bodies` (via
+    :func:`_emit_band_bodies`) and the lens-carving stage (Task 4): a lens, a
+    host-upper-plus-outer piece, and a host-lower piece are all single-valued
+    height-field prisms, so each is emitted by THIS function over the SAME grid —
+    which is why adjacent pieces share node heights exactly (no overlap, no gap)
+    and each is closed by construction.
+
+    Parameters
+    ----------
+    top, bottom : numpy.ndarray
+        ``(nx, ny)`` per-node top / base elevations; ``NaN`` in either marks the
+        prism absent at that node (a pinch-out / outside the footprint).
+    formation_id : str
+        The prism's lithology (drives colour on every emitted component).
+    body_id : str
+        The base body id stamped on each component; when the band splits into
+        multiple disconnected components a ``#<idx>`` suffix is appended so the
+        ids stay distinct (matching the existing band-split convention).
+    gx, gy : numpy.ndarray
+        Grid node coordinates.
+    node_inside : numpy.ndarray
+        ``(nx, ny)`` inside-polygon mask.
+
+    Returns
+    -------
+    list of LithoBodyMesh
+        One mesh per connected component, in raster (row-major) component order.
+        Empty when no cell is present anywhere.  Every mesh is ``is_flagged=False``
+        and passes ``assert_closed_manifold`` by construction.
+    """
     nx = len(gx)
     ny = len(gy)
-    present = _present_cells(band, node_inside, nx, ny)
+    present = _present_cells(top, bottom, node_inside, nx, ny)
     if not present.any():
         return []
 
     components = _label_components(present)
     bodies: list[LithoBodyMesh] = []
     for comp_idx, cell_set in enumerate(components):
-        verts, tris = _build_component_mesh(band, gx, gy, cell_set)
+        verts, tris = _build_component_mesh(top, bottom, gx, gy, cell_set)
         if not tris:
             continue
-        body_id = band.body_id if len(components) == 1 else f"{band.body_id}#{comp_idx}"
+        component_body_id = body_id if len(components) == 1 else f"{body_id}#{comp_idx}"
         bodies.append(
             LithoBodyMesh(
-                body_id=body_id,
-                formation_id=band.formation_id,
+                body_id=component_body_id,
+                formation_id=formation_id,
                 vertices=verts,
                 triangles=tris,
                 is_flagged=False,
@@ -602,12 +697,13 @@ def _emit_band_bodies(
 
 
 def _present_cells(
-    band: _Band,
+    top: np.ndarray,
+    bottom: np.ndarray,
     node_inside: np.ndarray,
     nx: int,
     ny: int,
 ) -> np.ndarray:
-    """Return the ``(nx-1, ny-1)`` bool mask of cells present in the band.
+    """Return the ``(nx-1, ny-1)`` bool mask of cells present in a height band.
 
     A cell is present iff all four corner nodes are inside the polygon and have
     finite top + bottom heights, and the band's mean thickness across the four
@@ -616,8 +712,8 @@ def _present_cells(
 
     Parameters
     ----------
-    band : _Band
-        The band whose top/bottom arrays gate presence.
+    top, bottom : numpy.ndarray
+        The per-node top / base elevation arrays that gate presence.
     node_inside : numpy.ndarray
         ``(nx, ny)`` inside-polygon mask.
     nx, ny : int
@@ -634,8 +730,8 @@ def _present_cells(
             corners = ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))
             if not all(node_inside[ci, cj] for ci, cj in corners):
                 continue
-            tops = [band.top[ci, cj] for ci, cj in corners]
-            bots = [band.bottom[ci, cj] for ci, cj in corners]
+            tops = [top[ci, cj] for ci, cj in corners]
+            bots = [bottom[ci, cj] for ci, cj in corners]
             if any(np.isnan(t) for t in tops) or any(np.isnan(b) for b in bots):
                 continue
             thickness = sum(t - b for t, b in zip(tops, bots, strict=True)) / 4.0
@@ -683,7 +779,8 @@ def _label_components(present: np.ndarray) -> list[set[tuple[int, int]]]:
 
 
 def _build_component_mesh(
-    band: _Band,
+    top: np.ndarray,
+    bottom: np.ndarray,
     gx: np.ndarray,
     gy: np.ndarray,
     cells: set[tuple[int, int]],
@@ -699,8 +796,8 @@ def _build_component_mesh(
 
     Parameters
     ----------
-    band : _Band
-        The band supplying per-corner top / bottom elevations.
+    top, bottom : numpy.ndarray
+        The per-node top / base elevation arrays supplying each corner's z.
     gx, gy : numpy.ndarray
         Grid node coordinates.
     cells : set of (int, int)
@@ -714,8 +811,8 @@ def _build_component_mesh(
     # A vertex is identified by (node_i, node_j, layer) where layer 0 = bottom,
     # 1 = top.  Dedup so a face shared by two cells (and the four side quads
     # around a shared edge) references the SAME vertex index — the watertight
-    # weld.  Heights are taken from the band's per-NODE arrays so the top of one
-    # cell and the bottom of the cell above are exactly the same z at that node.
+    # weld.  Heights are taken from the per-NODE arrays so the top of one cell and
+    # the bottom of the cell above are exactly the same z at that node.
     vert_index: dict[tuple[int, int, int], int] = {}
     vertices: list[tuple[float, float, float]] = []
 
@@ -723,7 +820,7 @@ def _build_component_mesh(
         key = (ni, nj, layer)
         idx = vert_index.get(key)
         if idx is None:
-            z = band.bottom[ni, nj] if layer == 0 else band.top[ni, nj]
+            z = bottom[ni, nj] if layer == 0 else top[ni, nj]
             idx = len(vertices)
             vertices.append((float(gx[ni]), float(gy[nj]), float(z)))
             vert_index[key] = idx
