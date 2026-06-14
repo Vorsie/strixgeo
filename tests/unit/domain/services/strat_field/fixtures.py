@@ -1391,3 +1391,220 @@ def reversed_pair_columns() -> list[tuple[OrderInputUnit, ...]]:
         OrderInputUnit(instance_key="a_body", formation_id="ZAND", contact_id="r2-a-top"),
     )
     return [col_1, col_2]
+
+
+# ---------------------------------------------------------------------------
+# Lens-carve benchmark fixture — widely-spaced enclosed-lens model (real-data shape)
+# ---------------------------------------------------------------------------
+#
+# The lens carve (``carve_lenses``) is the CPU surface the lens-carve benchmark
+# measures.  Its real-data hotspot is reconstructing each carved host's height
+# field; the optimised path reuses the per-node ``(top, base)`` arrays
+# ``build_strat_model_with_fields`` already computed.  To benchmark BOTH the fast
+# path and the slow ray-cast fallback on a real-data-shaped input, the bench needs
+# a model that (a) has a conformable matrix backbone that builds, and (b) carries
+# a GENUINE enclosed lens (a host body recorded above AND below a minority, the
+# ``test.strix`` over-merge signature) so ``classify_lenses`` yields ≥ 1 lens.
+#
+# This fixture reuses the ``_WIDE_SPECS`` Lambert-72 footprint (seven irregularly
+# spaced investigations over ~680 m × ~700 m) but layers a KLEI / SILT / KLEI
+# sandwich into it: the SAME ``klei_host`` instance_key brackets a ``silt_lens``
+# minority above and below, so SILT is a depth-1 lens inside KLEI.  The matrix
+# backbone is ZAND_top / KLEI_host / ZAND_base (conformable), and the SILT lens is
+# carved back in — exactly the shape the production wiring builds, at the real
+# coordinate magnitude that the carve's per-host field reconstruction scales with.
+
+# Per-column contact depths (positive-down) for the enclosed-lens stack, indexed
+# the same as ``_WIDE_SPECS`` (one tuple per investigation, deepening with the
+# borehole order so every internal contact dips unambiguously).  Order top→bottom:
+#   zand_top  surface → d_klei_host_top
+#   klei_host d_klei_host_top → d_silt_top      (host, upper half)
+#   silt_lens d_silt_top → d_silt_base          (the enclosed lens)
+#   klei_host d_silt_base → d_zand_base_top      (host, lower half, SAME instance)
+#   zand_base d_zand_base_top → model base
+_ENCLOSED_LENS_DEPTHS: tuple[tuple[float, float, float, float], ...] = (
+    # (d_klei_host_top, d_silt_top, d_silt_base, d_zand_base_top)
+    (2.0, 3.4, 4.2, 6.1),
+    (2.3, 3.7, 4.6, 6.5),
+    (2.6, 4.0, 5.0, 7.0),
+    (3.1, 4.6, 5.6, 7.8),
+    (2.8, 4.2, 5.1, 7.2),
+    (3.4, 5.0, 6.0, 8.3),
+    (3.7, 5.3, 6.4, 8.9),
+)
+
+
+def _enclosed_lens_order_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Stage-1 order columns for the enclosed-lens fixture (KLEI brackets SILT).
+
+    Seven investigations, each carrying ZAND / KLEI / SILT / KLEI / ZAND top →
+    bottom where the two KLEI units share one ``instance_key`` (``klei_host``) —
+    the over-merge signature that makes SILT a depth-1 lens inside KLEI.
+
+    Returns
+    -------
+    list of tuple of OrderInputUnit
+        Seven columns, each five units ordered top → bottom (the middle KLEI
+        repeats the upper KLEI's ``instance_key``).
+    """
+    out: list[tuple[OrderInputUnit, ...]] = []
+    for tag, *_ in _WIDE_SPECS:
+        out.append(
+            (
+                OrderInputUnit("zand_top", "ZAND", f"el{tag}-zand-top"),
+                OrderInputUnit("klei_host", "KLEI", f"el{tag}-klei-top"),
+                OrderInputUnit("silt_lens", "SILT", f"el{tag}-silt-top"),
+                # SAME instance_key as the upper KLEI — this bracketing is the lens.
+                OrderInputUnit("klei_host", "KLEI", f"el{tag}-klei-base"),
+                OrderInputUnit("zand_base", "ZAND", f"el{tag}-zand-base"),
+            )
+        )
+    return out
+
+
+def _enclosed_lens_columns_with_xyz() -> list[InvestigationColumn]:
+    """Seven ``InvestigationColumn`` objects for the enclosed-lens fixture.
+
+    Lambert-72 magnitude positions from ``_WIDE_SPECS`` with the KLEI/SILT/KLEI
+    sandwich depths from ``_ENCLOSED_LENS_DEPTHS``.  The two KLEI observations
+    share ``klei_host`` (distinct contact_ids) so the column reproduces the
+    enclosed-lens over-merge; the contact_ids mirror
+    :func:`_enclosed_lens_order_columns` so the two compose.
+
+    Returns
+    -------
+    list of InvestigationColumn
+        Seven columns, each five units ordered top → bottom.
+    """
+    cols: list[InvestigationColumn] = []
+    for (tag, x, y, surf, _), (d_klei, d_silt_top, d_silt_base, d_zand_base) in zip(
+        _WIDE_SPECS, _ENCLOSED_LENS_DEPTHS, strict=True
+    ):
+        cols.append(
+            InvestigationColumn(
+                investigation_id=f"enclosed-{tag.upper()}",
+                x=x,
+                y=y,
+                surface_elev_m=surf,
+                units=(
+                    # rank 0 (surface) — top of zand_top at ground → SKIP in control
+                    ContactObservation("zand_top", "ZAND", f"el{tag}-zand-top", top_depth_m=0.0),
+                    ContactObservation(
+                        "klei_host", "KLEI", f"el{tag}-klei-top", top_depth_m=d_klei
+                    ),
+                    ContactObservation(
+                        "silt_lens", "SILT", f"el{tag}-silt-top", top_depth_m=d_silt_top
+                    ),
+                    ContactObservation(
+                        "klei_host", "KLEI", f"el{tag}-klei-base", top_depth_m=d_silt_base
+                    ),
+                    ContactObservation(
+                        "zand_base", "ZAND", f"el{tag}-zand-base", top_depth_m=d_zand_base
+                    ),
+                ),
+            )
+        )
+    return cols
+
+
+def _enclosed_lens_picks_by_body(
+    columns: list[InvestigationColumn],
+) -> dict[str, list]:
+    """Build the ``picks_by_body`` map the lens carve-input builder consumes.
+
+    Mirrors the application wiring (``assemble_strat_inputs``): every body's
+    member-layer picks keyed by ``body_id`` (the ``instance_key``).  Only the
+    lens body's picks (``silt_lens``) and its host's picks (``klei_host``, for
+    the host lithology) are strictly needed by ``build_lens_carve_inputs``, but
+    the full map is built so the fixture matches production exactly.  Each pick's
+    base depth is the next-deeper contact's top depth in the same column.
+
+    Parameters
+    ----------
+    columns : list of InvestigationColumn
+        The enclosed-lens xyz columns.
+
+    Returns
+    -------
+    dict of str to list of BodyLayerPick
+        Member-layer picks keyed by body ``instance_key``.
+    """
+    from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+
+    picks_by_body: dict[str, list] = {}
+    for col in columns:
+        units = col.units
+        for idx, unit in enumerate(units):
+            # Base depth = next unit's top depth; the deepest unit's base is left
+            # one metre below its own top (a nominal substrate thickness — the
+            # lens carve only reads the SILT + KLEI picks, whose bases are real).
+            if idx + 1 < len(units):
+                base_depth = units[idx + 1].top_depth_m
+            else:
+                base_depth = unit.top_depth_m + 1.0
+            picks_by_body.setdefault(unit.instance_key, []).append(
+                BodyLayerPick(
+                    investigation_id=col.investigation_id,
+                    x_m=col.x,
+                    y_m=col.y,
+                    surface_elev_m=col.surface_elev_m,
+                    body_id=unit.instance_key,
+                    formation_id=unit.formation_id,
+                    top_depth_m=unit.top_depth_m,
+                    base_depth_m=base_depth,
+                )
+            )
+    return picks_by_body
+
+
+def widely_spaced_enclosed_lens_carve_fixture() -> tuple:
+    """Real-data-shaped enclosed-lens fixture for the lens-carve benchmark.
+
+    Composes the seven Lambert-72-magnitude widely-spaced investigations with a
+    KLEI / SILT / KLEI enclosed-lens sandwich (the ``test.strix`` over-merge
+    signature) into everything the lens carve needs, mirroring the production
+    wiring (``classify_lenses`` → matrix-only ``build_stratigraphic_order`` →
+    ``build_control_data`` → ``build_lens_carve_inputs``):
+
+    1. ``control`` — the matrix-backbone control data (Stage 2 output) the field
+       fit consumes.  Only ZAND_top / KLEI_host / ZAND_base are ordered; the SILT
+       lens is excluded from the matrix and carved back in.
+    2. ``domain`` — the solid-extent block bracketing the seven columns.
+    3. ``partition`` — the ``LensPartition`` from ``classify_lenses`` (one SILT
+       lens, three matrix bodies).
+    4. ``picks_by_body`` — every body's picks, for ``build_lens_carve_inputs``.
+
+    The bench then runs ``build_strat_model_with_fields`` (matrix meshes + host
+    height fields), ``build_lens_carve_inputs`` (the ``LensCarveInput`` list), and
+    ``build_shared_grid`` OUTSIDE the timing loop, and times ``carve_lenses``.
+
+    Returns
+    -------
+    tuple
+        ``(StratControlData, Block, LensPartition, dict[str, list[BodyLayerPick]])``.
+
+    Raises
+    ------
+    AssertionError
+        If the classifier does not find exactly the expected one SILT lens — a
+        guard so a future change to the enclosure criterion cannot silently make
+        the bench measure a no-lens (empty-carve) path.
+    """
+    from groundmodel.domain.services.strat_field.lens_classification import classify_lenses
+
+    order_columns = _enclosed_lens_order_columns()
+    xyz_columns = _enclosed_lens_columns_with_xyz()
+
+    partition = classify_lenses(order_columns)
+    # Guard: the fixture's whole purpose is a genuine enclosed lens — fail loudly
+    # rather than benchmark an empty carve if the classifier ever stops finding it.
+    assert len(partition.lenses) == 1, (
+        f"enclosed-lens fixture must classify exactly one lens, got {len(partition.lenses)}"
+    )
+    assert partition.lenses[0].body_id == "silt_lens"
+
+    order = build_stratigraphic_order(order_columns, matrix_body_ids=partition.matrix_body_ids)
+    control = build_control_data(xyz_columns, [], order)
+    domain = _block_from_columns(xyz_columns, xy_margin_m=50.0, z_margin_m=6.0)
+    picks_by_body = _enclosed_lens_picks_by_body(xyz_columns)
+    return control, domain, partition, picks_by_body
