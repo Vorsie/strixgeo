@@ -194,6 +194,14 @@ def build_stratigraphic_order(
             for unit in column:
                 if unit.instance_key not in matrix_body_ids:
                     continue
+                # Only CONSECUTIVE duplicates are collapsed — they are the two halves of
+                # one host bracketing a removed lens (KLEI/SILT/KLEI -> KLEI/KLEI -> KLEI).
+                # A body recurring at NON-adjacent positions after filtering
+                # (KLEI/ZAND/KLEI where ZAND is matrix → [KLEI, ZAND, KLEI]) is a genuine
+                # structural reversal, NOT a collapse case: the DAG below surfaces it as
+                # NonConformableError (KLEI above ZAND and ZAND above KLEI is a true
+                # 2-cycle), which is the correct outcome — a real non-conformable matrix,
+                # not a collapse miss.
                 if kept and kept[-1].instance_key == unit.instance_key:
                     continue
                 kept.append(unit)

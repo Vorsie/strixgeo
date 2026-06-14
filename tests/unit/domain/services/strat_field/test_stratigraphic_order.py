@@ -262,6 +262,34 @@ def test_matrix_filter_collapses_host_brackets_to_one_unit():
     assert len(col.horizons) == 2
 
 
+def test_matrix_collapse_keeps_first_host_contact_drops_reentry():
+    """The collapse keeps the host's TOP contact and drops the lens re-entry (base) contact.
+
+    The matrix horizon is anchored at the host's top contact; the re-entry contact at
+    the BASE of the bracketing host (the contact below the removed lens) is a lens-level
+    detail and must NOT become a second matrix control point at the wrong depth.
+
+    In ``klei_silt_klei_columns()`` the two KLEI occurrences carry DISTINCT contact_ids:
+    the first (top) is ``"k-klei-top"`` and the re-entry (base) is ``"k-klei-base"``.
+    Collapsing the consecutive duplicate keeps the first occurrence, so the surviving
+    surface horizon must reference ``"k-klei-top"`` and never ``"k-klei-base"``.
+    """
+    cols = klei_silt_klei_columns()
+    part = classify_lenses(cols)
+    col = build_stratigraphic_order(cols, matrix_body_ids=part.matrix_body_ids)
+
+    # Single matrix instance (KLEI) → surface (rank 0) + floor (rank 1).
+    # The surface horizon carries the host's top-contact id.
+    all_contact_ids = {cid for h in col.horizons for cid in h.contact_ids}
+    assert "k-klei-top" in all_contact_ids, (
+        f"Expected the host's TOP contact id to survive but got {all_contact_ids}"
+    )
+    assert "k-klei-base" not in all_contact_ids, (
+        "The dropped lens re-entry (base) contact must NOT become a matrix control point "
+        f"but it appears in {all_contact_ids}"
+    )
+
+
 def test_matrix_body_ids_none_equals_no_arg_default():
     """Passing ``matrix_body_ids=None`` is identical to the no-argument call.
 
