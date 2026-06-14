@@ -383,6 +383,30 @@ class AuthoredColumn:
 # ---------------------------------------------------------------------------
 
 
+def _is_subsequence(sub: Sequence[str], full: Sequence[str]) -> bool:
+    """Return whether ``sub`` is a subsequence of ``full`` (order-preserving).
+
+    ``sub`` is a subsequence of ``full`` iff ``full`` can be reduced to ``sub``
+    by deleting zero or more elements WITHOUT reordering the rest.  Used to test
+    that the model's formation order matches the authored order up to pinch-outs
+    (deletions) but never a reordering or a spurious formation.
+
+    Parameters
+    ----------
+    sub : Sequence[str]
+        The candidate subsequence (the model formation order).
+    full : Sequence[str]
+        The reference sequence (the authored formation order).
+
+    Returns
+    -------
+    bool
+        ``True`` if every element of ``sub`` can be matched in ``full`` in order.
+    """
+    it = iter(full)
+    return all(any(s == f for f in it) for s in sub)
+
+
 def assert_model_matches_columns(
     bodies: Sequence[object],
     columns: Sequence[AuthoredColumn],
@@ -421,12 +445,14 @@ def assert_model_matches_columns(
        boundary is an internal seam.  What matters is the ORDER of distinct
        soil types, not the exact slice count.
 
-       After collapsing, the sequence of formation_ids in the model must equal
-       the sequence in the authored column.  A model that is missing a unit
-       (the mesh for that body does not reach this column at all — the body
-       pinches out before this test) is treated as matching the authored units
-       that DO have mesh coverage; the author says what is there, not what is
-       absent.
+       After collapsing, the model formation sequence must be a SUBSEQUENCE of
+       the authored sequence: every model formation appears, in order, after
+       deleting zero or more authored units (the units that pinched out before
+       this column).  A reordering or a spurious formation breaks the
+       subsequence and fires.  For an interbedded authored stack almost any
+       order is a valid subsequence, so this check is intentionally weak there —
+       the per-position base-elevation check below is the real discriminator for
+       an interbedded reordering (a swapped interbed lands at the wrong base).
 
     4. **Checks base elevations**: for each authored unit whose ``formation_id``
        appears in the collapsed model stack, the model's interval base elevation
@@ -501,7 +527,14 @@ def assert_model_matches_columns(
         # formation SEQUENCE (the distinct soil-type order) is compared.
         collapsed: list[tuple[str, float, float]] = []  # (formation_id, base, top)
         for _, fid, base, top in raw:
-            if collapsed and collapsed[-1][0] == fid and base <= collapsed[-1][1] + TOL:
+            # Merge ONLY when this interval actually TOUCHES the previous one of
+            # the same formation: sorted top→bottom, the previous entry is
+            # shallower, so they touch iff this interval's TOP reaches up to the
+            # previous BASE (collapsed[-1][1]).  Comparing this base to the
+            # previous base would always be true for disjoint intervals and would
+            # silently swallow a real GAP between two same-formation bodies — a
+            # hole the diff must surface, not hide.
+            if collapsed and collapsed[-1][0] == fid and top >= collapsed[-1][1] - TOL:
                 # Extend the existing collapsed interval downward (base is lower).
                 prev_fid, prev_base, prev_top = collapsed[-1]
                 collapsed[-1] = (prev_fid, min(prev_base, base), max(prev_top, top))
@@ -511,34 +544,32 @@ def assert_model_matches_columns(
         model_sequence = [fid for fid, _b, _t in collapsed]
         authored_sequence = [u.formation_id for u in col.units]
 
-        # --- Step 4: Match authored units to model intervals -----------------
-        # A body may not reach every test column (the loft/strat builder only
-        # emits geometry where there is real mesh coverage).  We match the
-        # authored sequence as a SUBSEQUENCE of the model sequence: every
-        # authored formation_id must appear in order, but the model may have
-        # fewer entries (pinched-out bodies produce no interval at this column).
+        # --- Step 4: the model sequence must be a SUBSEQUENCE of the authored ---
+        # A body may not reach every test column (the strat builder only emits
+        # geometry where there is real mesh coverage), so the model may be MISSING
+        # authored units (pinch-outs) — but it must never REORDER them or invent a
+        # formation the authored stack does not have.  The exact rule: the model's
+        # top→bottom formation sequence must be a subsequence of the authored
+        # sequence (every model formation appears, in order, deleting zero or more
+        # authored units).  A reordering or a spurious formation breaks the
+        # subsequence and fires here.  A set-membership filter would instead
+        # MISFIRE on a repeated formation with a partial pinch-out (authored
+        # ZAND/SILT/ZAND, model ZAND/SILT) — a legal outcome — so it is wrong.
         #
-        # If the model has MORE distinct formation_ids than the authored stack,
-        # that is a sign of a wrong-order or spurious-body defect and also fires.
-        #
-        # The check is: if we extract the subsequence of model_sequence that
-        # appears in authored_sequence (intersection, in model order), it must
-        # equal authored_sequence filtered to formations that have model
-        # coverage.  In other words: the order of shared formations must agree.
-
-        authored_set = set(authored_sequence)
-        model_in_authored = [fid for fid in model_sequence if fid in authored_set]
-        authored_in_model = [fid for fid in authored_sequence if fid in set(model_sequence)]
-
-        if model_in_authored != authored_in_model:
+        # NOTE: for an interbedded authored stack almost any order is a valid
+        # subsequence, so this check is intentionally weak there; the per-position
+        # base-elevation check (Step 5) is the real discriminator for interbedded
+        # reordering (a swapped interbed lands at the wrong base elevation).
+        if not _is_subsequence(model_sequence, authored_sequence):
             authored_repr = " / ".join(
                 f"{u.formation_id}[{u.base_elev_m:.2f}, {u.top_elev_m:.2f}]" for u in col.units
             )
             model_repr = " / ".join(f"{fid}[{b:.2f}, {t:.2f}]" for fid, b, t in collapsed)
             raise AssertionError(
-                f"column ({x:.3f}, {y:.3f}): formation sequence mismatch.\n"
-                f"  authored sequence (shared):  {authored_in_model}\n"
-                f"  model sequence   (shared):   {model_in_authored}\n"
+                f"column ({x:.3f}, {y:.3f}): formation sequence mismatch — the "
+                f"model order is not a subsequence of the authored order.\n"
+                f"  authored sequence: {authored_sequence}\n"
+                f"  model sequence:    {model_sequence}\n"
                 f"  authored full: {authored_repr}\n"
                 f"  model full:    {model_repr}"
             )

@@ -355,15 +355,21 @@ def test_column_diff_fires_on_wrong_formation_order():
         assert_model_matches_columns([klei_wrong_pos, zand_wrong_pos], [col], tol_m=0.01)
 
 
-def test_column_diff_fires_on_interbedded_order_reversal():
-    """A reversed interbedded sequence (SILT/ZAND instead of ZAND/SILT) fires.
+def test_column_diff_fires_on_interbedded_reversal_via_base_elevation():
+    """A reversed interbedded sequence is caught by the BASE-ELEVATION check.
 
     Real-data-shaped: the authored interbedded column is ZAND/SILT/ZAND/SILT
-    (typical Holocene fill over Pleistocene sands).  Reversing the top two
-    bodies (SILT above ZAND instead of ZAND above SILT) must fire the sequence
-    check.
+    (typical Holocene fill over Pleistocene sands).  The WRONG model swaps the
+    top SILT and ZAND.  For an interbedded stack the formation order is almost
+    always a valid subsequence (SILT/ZAND/SILT *is* a subsequence of
+    ZAND/SILT/ZAND/SILT — it reads as a legal top-ZAND pinch-out), so the
+    sequence check is intentionally weak here.  The real discriminator is the
+    per-position base elevation: the model's first ZAND lands at -7 where the
+    authored top ZAND base is -2, a 5 m error that fires the base-elevation
+    check.  This documents that interbedded reordering is caught by ELEVATION,
+    not by the formation sequence.
     """
-    # Build the WRONG model: SILT above ZAND at the top.
+    # Build the WRONG model: SILT above ZAND at the top (interbedding swapped).
     s_top_wrong = _box_mesh("b-s1", "SILT", _X0, _X1, _Y0, _Y1, -2.0, 0.0)  # SILT on top
     z_top_wrong = _box_mesh("b-z1", "ZAND", _X0, _X1, _Y0, _Y1, -4.0, -2.0)  # ZAND below
     z_bot = _box_mesh("b-z2", "ZAND", _X0, _X1, _Y0, _Y1, -7.0, -4.0)
@@ -377,7 +383,7 @@ def test_column_diff_fires_on_interbedded_order_reversal():
         ("ZAND", -4.0, -7.0),
         ("SILT", -7.0, -10.0),
     )
-    with pytest.raises(AssertionError, match="sequence"):
+    with pytest.raises(AssertionError, match="base elevation"):
         assert_model_matches_columns([s_top_wrong, z_top_wrong, z_bot, s_bot], [col], tol_m=0.01)
 
 
@@ -408,3 +414,54 @@ def test_column_diff_passes_within_tolerance_on_base_elevation():
     klei = _box_mesh("b-klei", "KLEI", _X0, _X1, _Y0, _Y1, -10.0, -5.05)
     col = _col(_MID_X, _MID_Y, ("ZAND", 0.0, -5.0), ("KLEI", -5.0, -10.0))
     assert_model_matches_columns([zand, klei], [col], tol_m=0.1)  # must NOT raise
+
+
+# ---------------------------------------------------------------------------
+# assert_model_matches_columns — collapse / subsequence edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_collapse_does_not_merge_gapped_same_formation():
+    """Two same-formation bodies with a GAP between them must NOT collapse.
+
+    The authored column is a single solid ZAND from 0 to -5.  The model has two
+    ZAND boxes with a 1 m gap (0→-2 and -3→-5) — a hole in what should be solid
+    ZAND.  A buggy collapse that merged them by comparing the wrong elevation
+    would hide the gap and pass; the correct touching-check leaves them as two
+    intervals, so the model sequence [ZAND, ZAND] is NOT a subsequence of the
+    single-unit authored [ZAND] and the diff fires.
+    """
+    zand_upper = _box_mesh("b-zu", "ZAND", _X0, _X1, _Y0, _Y1, -2.0, 0.0)
+    zand_lower = _box_mesh("b-zl", "ZAND", _X0, _X1, _Y0, _Y1, -5.0, -3.0)  # 1 m gap [-3,-2]
+    col = _col(_MID_X, _MID_Y, ("ZAND", 0.0, -5.0))
+    with pytest.raises(AssertionError, match="sequence"):
+        assert_model_matches_columns([zand_upper, zand_lower], [col], tol_m=0.01)
+
+
+def test_column_diff_passes_on_repeated_formation_partial_pinch_out():
+    """A repeated formation with one copy pinched out is a LEGAL model, not a defect.
+
+    Authored interbedded ZAND/SILT/ZAND; at this column the LOWER ZAND body has
+    pinched out, so the model is ZAND/SILT only.  This is a real pinch-out — the
+    model formation order [ZAND, SILT] is a subsequence of the authored
+    [ZAND, SILT, ZAND], and every covered unit's base matches.  An earlier
+    set-membership sequence check wrongly fired here (it counted the absent lower
+    ZAND as a mismatch); the subsequence rule correctly passes it.
+    """
+    z_top = _box_mesh("b-z1", "ZAND", _X0, _X1, _Y0, _Y1, -2.0, 0.0)
+    silt = _box_mesh("b-s1", "SILT", _X0, _X1, _Y0, _Y1, -4.0, -2.0)
+    # The lower ZAND body is absent at this column (pinched out).
+    col = _col(_MID_X, _MID_Y, ("ZAND", 0.0, -2.0), ("SILT", -2.0, -4.0), ("ZAND", -4.0, -7.0))
+    assert_model_matches_columns([z_top, silt], [col], tol_m=0.01)  # must NOT raise
+
+
+def test_column_diff_passes_when_no_body_covers_the_column():
+    """A column outside every body footprint passes (nothing to contradict).
+
+    The diff is not a coverage oracle; a column where no mesh reaches has an
+    empty model stack and silently passes.  (Coverage — every authored column
+    getting a body — is asserted separately at the wiring/real-data stage.)
+    """
+    zand = _box_mesh("b-zand", "ZAND", _X0, _X1, _Y0, _Y1, -5.0, 0.0)
+    far_col = _col(1000.0, 1000.0, ("ZAND", 0.0, -5.0))  # far outside the box footprint
+    assert_model_matches_columns([zand], [far_col], tol_m=0.01)  # must NOT raise
