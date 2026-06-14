@@ -527,3 +527,212 @@ def test_component_height_field_vectorised_matches_scalar() -> None:
         assert np.array_equal(footprint_vec, footprint_scalar), (
             "vectorised _component_height_field footprint differs from scalar oracle"
         )
+
+
+# ---------------------------------------------------------------------------
+# Equivalence — vectorised _present_cells == scalar double-loop oracle
+# ---------------------------------------------------------------------------
+
+
+def _scalar_present_cells(
+    top: np.ndarray,
+    bottom: np.ndarray,
+    node_inside: np.ndarray,
+    nx: int,
+    ny: int,
+) -> np.ndarray:
+    """Scalar oracle for _present_cells: the original double-loop implementation.
+
+    Kept verbatim from the pre-vectorisation source so the equivalence test has
+    an independent reference that does not call the vectorised code under test.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _MIN_BAND_THICKNESS_M
+
+    present = np.zeros((nx - 1, ny - 1), dtype=bool)
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            corners = ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))
+            if not all(node_inside[ci, cj] for ci, cj in corners):
+                continue
+            tops = [top[ci, cj] for ci, cj in corners]
+            bots = [bottom[ci, cj] for ci, cj in corners]
+            if any(np.isnan(t) for t in tops) or any(np.isnan(b) for b in bots):
+                continue
+            thickness = sum(t - b for t, b in zip(tops, bots, strict=True)) / 4.0
+            if thickness > _MIN_BAND_THICKNESS_M:
+                present[i, j] = True
+    return present
+
+
+def test_present_cells_vectorised_matches_scalar_oracle() -> None:
+    """Vectorised _present_cells is array-equal to the scalar double-loop oracle.
+
+    Uses three real-data-shaped fixtures that exercise every code path:
+
+    * **nested** — all cells present, no NaN heights, interior polygon mask.
+      Exercises the all-inside + all-finite + thick gates together on a
+      continuously present band.
+    * **pinch** — the lens band has NaN heights on the left/right flanks where
+      the lens iso is not crossed.  Exercises the finite-top/bottom gate
+      (absent nodes → NaN → cell excluded) and the lateral taper that closes the
+      pinch body.
+    * **widely-spaced** — Lambert-72 magnitude coordinates, sparse investigations,
+      many NaN nodes from the sparse RBF.  Exercises large NaN regions + the
+      polygon-interior mask on a realistic project-scale grid.
+
+    The oracle is the verbatim pre-vectorisation scalar loop (above in this
+    module), kept independent of the implementation under test.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _present_cells
+    from groundmodel.domain.services.strat_field.control_data import build_control_data
+    from groundmodel.domain.services.strat_field.potential_field import fit_potential_field
+    from groundmodel.domain.services.strat_field.stratigraphic_order import (
+        build_stratigraphic_order,
+    )
+    from tests.unit.domain.services.strat_field.fixtures import (
+        widely_spaced_columns_with_xyz,
+        widely_spaced_order_columns,
+    )
+
+    cases = [
+        ("nested", *nested_field_and_domain(), _NESTED_SPACING_M),
+        ("pinch", *pinch_field_and_domain(), _PINCH_SPACING_M),
+    ]
+
+    # Widely-spaced real-data-shaped fixture — builds its own field.
+    ws_order = build_stratigraphic_order(widely_spaced_order_columns())
+    ws_cols = widely_spaced_columns_with_xyz()
+    ws_control = build_control_data(ws_cols, [], ws_order)
+    ws_domain = widely_spaced_build_fixture()[1]
+    ws_field = fit_potential_field(ws_control, [ws_domain])
+    cases.append(("widely-spaced", ws_field, ws_order, ws_domain, 20.0))
+
+    floor_rank_for = lambda order: max(h.rank for h in order.horizons)  # noqa: E731
+
+    for label, field, order, domain, spacing in cases:
+        gx, gy, node_inside = build_shared_grid(domain, spacing)
+        nx, ny = len(gx), len(gy)
+        floor_rank = floor_rank_for(order)
+        interior = [
+            h for h in sorted(order.horizons, key=lambda h: h.rank) if 1 <= h.rank < floor_rank
+        ]
+        heights = _sample_height_fields(field, interior, domain, gx, gy, node_inside)
+
+        # Test every band (top-cap band + each interior horizon band).
+        top_cap = np.full((nx, ny), domain.z_max)
+        bot_cap = np.full((nx, ny), domain.z_min)
+        levels = [top_cap] + [heights[h.rank] for h in interior] + [bot_cap]
+
+        for band_idx, (top_arr, bot_arr) in enumerate(zip(levels, levels[1:], strict=False)):
+            vec = _present_cells(top_arr, bot_arr, node_inside, nx, ny)
+            ref = _scalar_present_cells(top_arr, bot_arr, node_inside, nx, ny)
+            assert np.array_equal(vec, ref), (
+                f"fixture={label!r} band={band_idx}: vectorised _present_cells "
+                f"differs from scalar oracle — {int((vec != ref).sum())} cells differ"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Equivalence — vectorised _label_components == scalar BFS oracle (order incl.)
+# ---------------------------------------------------------------------------
+
+
+def _scalar_label_components(present: np.ndarray) -> list[set[tuple[int, int]]]:
+    """Scalar BFS oracle for _label_components: verbatim pre-vectorisation source.
+
+    Kept independent of the scipy.ndimage implementation under test so the
+    equivalence test does not compare the code to itself.
+    """
+    nci, ncj = present.shape
+    seen = np.zeros_like(present, dtype=bool)
+    components: list[set[tuple[int, int]]] = []
+    for i in range(nci):
+        for j in range(ncj):
+            if not present[i, j] or seen[i, j]:
+                continue
+            stack = [(i, j)]
+            seen[i, j] = True
+            cells: set[tuple[int, int]] = set()
+            while stack:
+                ci, cj = stack.pop()
+                cells.add((ci, cj))
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ni, nj = ci + di, cj + dj
+                    if 0 <= ni < nci and 0 <= nj < ncj and present[ni, nj] and not seen[ni, nj]:
+                        seen[ni, nj] = True
+                        stack.append((ni, nj))
+            components.append(cells)
+    return components
+
+
+def test_label_components_vectorised_matches_scalar_oracle() -> None:
+    """Vectorised _label_components matches the scalar BFS oracle — SET content AND order.
+
+    Three mask fixtures are tested:
+
+    * **single component** — the whole mask is True; both paths must return one
+      set containing every cell.
+    * **two disconnected blobs** — a top-left 2×2 block and a bottom-right 2×2
+      block separated by a gap.  The scalar BFS seeds the top-left blob first
+      (row-major), so the oracle returns it as component[0].  The scipy.ndimage
+      path assigns label 1 to the first C-order cell — which is also the
+      top-left corner — so the order must match.  This is the CRITICAL test of
+      the component-order equivalence argument documented in _label_components.
+    * **nested-fixture real mask** — the actual presence mask from the nested
+      analytic fixture's top band; exercises a non-trivial polygon-clipped shape
+      where component count and membership must match exactly.
+
+    Comparing as ORDERED lists of sets (not just unordered collections) pins the
+    component-index → body-id-suffix mapping that determines deterministic bundle
+    storage ids.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _label_components
+
+    # --- fixture 1: single fully-connected component ---
+    single = np.ones((4, 5), dtype=bool)
+    vec1 = _label_components(single)
+    ref1 = _scalar_label_components(single)
+    assert len(vec1) == len(ref1) == 1, "single-component count mismatch"
+    assert vec1[0] == ref1[0], "single-component cell set mismatch"
+
+    # --- fixture 2: two disconnected blobs, order is load-bearing ---
+    two_blobs = np.zeros((8, 8), dtype=bool)
+    # Blob A: top-left 2×2 — first in raster scan → must be component[0]
+    two_blobs[0, 0] = two_blobs[0, 1] = two_blobs[1, 0] = two_blobs[1, 1] = True
+    # Blob B: bottom-right 2×2 — second in raster scan → must be component[1]
+    two_blobs[6, 6] = two_blobs[6, 7] = two_blobs[7, 6] = two_blobs[7, 7] = True
+    vec2 = _label_components(two_blobs)
+    ref2 = _scalar_label_components(two_blobs)
+    assert len(vec2) == len(ref2) == 2, (
+        f"two-blob component count: vectorised={len(vec2)}, scalar={len(ref2)}"
+    )
+    # Order is the critical invariant: component[0] must be blob A, [1] blob B.
+    for comp_idx in range(2):
+        assert vec2[comp_idx] == ref2[comp_idx], (
+            f"two-blob component[{comp_idx}] cell set mismatch — "
+            "scipy.ndimage label order does not match scalar BFS raster order"
+        )
+
+    # --- fixture 3: real polygon-clipped mask from the nested analytic fixture ---
+    field, order, domain = nested_field_and_domain()
+    gx, gy, node_inside = build_shared_grid(domain, _NESTED_SPACING_M)
+    nx, ny = len(gx), len(gy)
+    floor_rank = max(h.rank for h in order.horizons)
+    interior = [h for h in sorted(order.horizons, key=lambda h: h.rank) if 1 <= h.rank < floor_rank]
+    heights = _sample_height_fields(field, interior, domain, gx, gy, node_inside)
+    top_cap = np.full((nx, ny), domain.z_max)
+    bot_first = heights[interior[0].rank]
+
+    from groundmodel.domain.services.strat_field.body_assembly import _present_cells
+
+    real_mask = _present_cells(top_cap, bot_first, node_inside, nx, ny)
+    vec3 = _label_components(real_mask)
+    ref3 = _scalar_label_components(real_mask)
+    assert len(vec3) == len(ref3), (
+        f"nested-fixture component count: vectorised={len(vec3)}, scalar={len(ref3)}"
+    )
+    for comp_idx, (v_set, r_set) in enumerate(zip(vec3, ref3, strict=True)):
+        assert v_set == r_set, (
+            f"nested-fixture component[{comp_idx}] cell set mismatch "
+            f"(vectorised {len(v_set)} cells vs scalar {len(r_set)} cells)"
+        )
