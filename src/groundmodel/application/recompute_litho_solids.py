@@ -83,7 +83,7 @@ from groundmodel.domain.services.strat_field.lens_carving import (
     merge_meshes_by_body_id,
 )
 from groundmodel.domain.services.strat_field.lens_classification import LensClassificationError
-from groundmodel.domain.services.strat_field.strat_builder import build_strat_model
+from groundmodel.domain.services.strat_field.strat_builder import build_strat_model_with_fields
 from groundmodel.domain.services.strat_field.stratigraphic_order import NonConformableError
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -313,7 +313,12 @@ class RecomputeLithoSolids(GroundModelLogger):
             return await self._handle_flag_all(model_id, formation_by_body)
 
         try:
-            meshes = build_strat_model(
+            # `_with_fields` also returns the per-node (top, base) height arrays the
+            # assembly already computed, keyed by body_id.  Threading them into the
+            # lens carve below lets it skip the O(grid_nodes × triangles) ray-cast
+            # reconstruction of each carved host — that ray-cast was ~72 % of the
+            # real-data build wall-clock (~410 s of ~573 s).
+            meshes, host_height_fields = build_strat_model_with_fields(
                 assembly.control,
                 assembly.domain,
                 blocks=[assembly.domain],
@@ -345,7 +350,17 @@ class RecomputeLithoSolids(GroundModelLogger):
             gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
             # carve_lenses returns the FULL updated mesh list (untouched matrix +
             # carved host pieces + lens prisms), so it replaces `meshes` wholesale.
-            meshes = carve_lenses(assembly.lens_carve_inputs, meshes, gx, gy, node_inside)
+            # Passing host_height_fields lets the carve reuse the assembly's per-node
+            # (top, base) arrays for each chosen host instead of ray-cast-reconstructing
+            # them — the optimisation that drops the carve from ~410 s to seconds.
+            meshes = carve_lenses(
+                assembly.lens_carve_inputs,
+                meshes,
+                gx,
+                gy,
+                node_inside,
+                host_height_fields=host_height_fields,
+            )
 
         # Merge same-body_id meshes into one row's geometry: the carve emits two
         # host pieces under one body_id, but persistence keys ONE row per body_id,

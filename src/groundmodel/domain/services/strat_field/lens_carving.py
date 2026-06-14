@@ -238,23 +238,31 @@ def carve_lenses(
     gx: np.ndarray,
     gy: np.ndarray,
     node_inside: np.ndarray,
+    host_height_fields: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> list[LithoBodyMesh]:
     """Carve each enclosed lens into its host prism, returning watertight meshes.
 
     Indexes the matrix meshes as CHEAP host candidates (a vertex z-range bounding
     box per mesh, no height-field reconstruction), carves the lenses
     shallowest-nesting-first (a lens-in-lens carves its enclosing lens prism, not
-    the matrix, so the parent must be carved before the child), and reconstructs a
+    the matrix, so the parent must be carved before the child), and obtains a
     single-valued top / base height field ONLY for a candidate a lens actually
-    carves (lazily, once per host).  The carved host pieces + lens prisms are
-    emitted with the shared watertight emitter over the SAME grid the matrix meshes
-    were built on; UNTOUCHED matrix meshes pass through unchanged (no round-trip
-    reconstruction — they are already watertight meshes from that same emitter).
+    carves.  The carved host pieces + lens prisms are emitted with the shared
+    watertight emitter over the SAME grid the matrix meshes were built on;
+    UNTOUCHED matrix meshes pass through unchanged (no round-trip reconstruction —
+    they are already watertight meshes from that same emitter).
 
-    Reconstructing every matrix mesh's height field up front (an
-    O(grid_nodes × triangles) ray-cast per mesh × hundreds of meshes) is what hung
-    the real-data carve; deferring it to the handful of hosts a lens selects keeps
-    the carve fast.
+    Where ``host_height_fields`` is supplied and carries a chosen host's
+    ``body_id``, the host's ``(top, base)`` arrays are READ from it (an O(nodes)
+    dict lookup) — these are the very arrays body assembly built the host mesh
+    from, exposed by
+    :func:`~groundmodel.domain.services.strat_field.body_assembly.assemble_bodies_with_fields`.
+    Reusing them KILLS the O(grid_nodes × triangles) vertical ray-cast that
+    :func:`_prism_height_fields` would otherwise run per carved host — the
+    dominant real-data build hotspot (the carve was ~72 % of the build).  When the
+    map is ``None`` or missing a host's key (the analytic unit tests that hand-build
+    matrix meshes without a field map), the carve FALLS BACK to reconstructing the
+    field by ray-cast, so behaviour is identical either way.
 
     The returned list contains: the un-touched matrix meshes (those no lens
     carved), the carved host pieces (host-upper-plus-outer + host-lower per
@@ -272,7 +280,8 @@ def carve_lenses(
         The assembled matrix body meshes (the Stage-5 output, from
         :func:`~groundmodel.domain.services.strat_field.body_assembly.assemble_bodies`).
         Each is a single-valued prism over the shared grid; a mesh's height field
-        is reconstructed by vertical ray-cast only if a lens carves it.
+        is reconstructed by vertical ray-cast only if a lens carves it AND it is
+        not in ``host_height_fields``.
     gx, gy : numpy.ndarray
         The shared grid node coordinates — MUST be the same grid the matrix meshes
         were assembled on (rebuild via
@@ -280,6 +289,14 @@ def carve_lenses(
         with the identical domain + spacing) so the lens prisms weld to the host.
     node_inside : numpy.ndarray
         ``(nx, ny)`` inside-polygon mask for the shared grid.
+    host_height_fields : dict[str, tuple[numpy.ndarray, numpy.ndarray]] | None, optional
+        Per-emitted-body ``(top, base)`` ``(nx, ny)`` height arrays keyed by mesh
+        ``body_id`` (from ``assemble_bodies_with_fields`` /
+        ``build_strat_model_with_fields``), ``NaN`` off each body's footprint.
+        When present for a carved host, its arrays are reused instead of a
+        ray-cast reconstruction (the host footprint is ``~numpy.isnan(top)``).
+        Defaults to ``None`` → every carved host is reconstructed by ray-cast (the
+        legacy path the analytic tests exercise).
 
     Returns
     -------
@@ -297,6 +314,7 @@ def carve_lenses(
         lens's parent lens id is wrong).
     """
     nx, ny = len(gx), len(gy)
+    fields_by_body_id = host_height_fields or {}
 
     # ------------------------------------------------------------------
     # Step 1: index the matrix meshes as CHEAP host candidates.
@@ -329,16 +347,32 @@ def carve_lenses(
     carved_matrix_ids: set[str] = set()
 
     def materialise(candidate: _Candidate) -> _Prism:
-        """Reconstruct a candidate's height field ONCE; reuse it for further lenses.
+        """Obtain a candidate's height field ONCE; reuse it for further lenses.
 
         A second lens on the same host (or a deeper lens on a lens) must carve the
         SAME mutable prism, so the first carve registers it under its body_id and
         subsequent lookups reuse it.
+
+        The height field is READ from ``host_height_fields`` when that map carries
+        this candidate's ``body_id`` (the fast production path — these are the
+        exact arrays body assembly built the host mesh from, so no ray-cast is
+        needed); otherwise it is reconstructed by the O(grid_nodes × triangles)
+        vertical ray-cast (the legacy / analytic-test fallback).
         """
         existing = prism_by_body_id.get(candidate.body_id)
         if existing is not None:
             return existing
-        top, bottom, footprint = _prism_height_fields(candidate.mesh, gx, gy)
+        threaded = fields_by_body_id.get(candidate.body_id)
+        if threaded is not None:
+            top, bottom = threaded
+            # Copy so the in-place host carve never mutates the caller's arrays
+            # (the same map may be reused across calls / consulted elsewhere); the
+            # footprint is exactly the field's finite nodes.
+            top = top.copy()
+            bottom = bottom.copy()
+            footprint = ~np.isnan(top)
+        else:
+            top, bottom, footprint = _prism_height_fields(candidate.mesh, gx, gy)
         prism = _Prism(
             body_id=candidate.body_id,
             formation_id=candidate.formation_id,
@@ -753,9 +787,11 @@ def _prism_height_fields(
     bottom = np.full((nx, ny), np.nan)
     footprint = np.zeros((nx, ny), dtype=bool)
 
-    # O(nx * ny * triangles) per mesh — acceptable for on-click Build at the grid
-    # sizes benchmarked in CLAUDE.local.md; profile if Build exceeds ~30 s on real
-    # data.  Task 5 may thread the height arrays directly from assemble_bodies instead.
+    # O(nx * ny * triangles) per mesh — the FALLBACK path only (the analytic unit
+    # tests that hand-build matrix meshes with no field map).  On a real build the
+    # ``host_height_fields`` map threaded from ``assemble_bodies_with_fields``
+    # supplies these arrays directly (an O(nodes) dict lookup), so this ray-cast
+    # never runs — it was the dominant real-data hotspot (~72 % of the build).
     for i in range(nx):
         for j in range(ny):
             intervals = _ray_intervals(mesh.vertices, mesh.triangles, float(gx[i]), float(gy[j]))

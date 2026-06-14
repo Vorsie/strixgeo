@@ -24,6 +24,7 @@ import pytest
 from groundmodel.domain.services.strat_field.body_assembly import (
     build_shared_grid,
     emit_prism_bodies,
+    emit_prism_bodies_with_fields,
 )
 from groundmodel.domain.services.strat_field.lens_carving import (
     LensCarveInput,
@@ -506,6 +507,110 @@ def test_lens_carves_into_bracketing_band_not_closest_mid() -> None:
         )
     ]
     assert_model_matches_columns(bodies, columns, tol_m=0.5)
+
+
+def _host_matrix_meshes_with_fields(
+    gx: np.ndarray, gy: np.ndarray, node_inside: np.ndarray
+) -> tuple[list[LithoBodyMesh], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Build the KLEI host band AND its per-body height-field map (the threaded input)."""
+    nx, ny = len(gx), len(gy)
+    return emit_prism_bodies_with_fields(
+        top=_flat(_Z_MAX, nx, ny),
+        bottom=_flat(_Z_MIN, nx, ny),
+        formation_id="KLEI",
+        body_id=_HOST_BODY_ID,
+        gx=gx,
+        gy=gy,
+        node_inside=node_inside,
+    )
+
+
+def _silt_lens(gx: np.ndarray, gy: np.ndarray) -> LensCarveInput:
+    """The standard central SILT lens enclosed in the KLEI host."""
+    nx, ny = len(gx), len(gy)
+    return LensCarveInput(
+        host_body_id=_HOST_BODY_ID,
+        host_formation_id="KLEI",
+        lens_body_id="silt-lens-0001",
+        lens_formation_id="SILT",
+        z_top=_flat(_LENS_TOP_Z, nx, ny),
+        z_base=_flat(_LENS_BASE_Z, nx, ny),
+        footprint=_footprint_mask(gx, gy, _LENS_X_LO, _LENS_X_HI, _LENS_Y_LO, _LENS_Y_HI),
+        nesting_depth=1,
+    )
+
+
+def test_threaded_host_fields_are_geometrically_identical_to_raycast() -> None:
+    """Carving WITH threaded host fields equals carving WITHOUT (ray-cast fallback).
+
+    The perf optimisation reuses the per-node ``(top, base)`` arrays that body
+    assembly already produced (exposed by ``emit_prism_bodies_with_fields``)
+    instead of reconstructing them with a vertical ray-cast.  Because the reused
+    arrays ARE the very arrays the ray-cast recovers, the carve output must be
+    GEOMETRICALLY IDENTICAL: same body_ids, same vertices (within 1e-9 m), same
+    triangles.  This test pins that the optimisation preserves geometry — if a
+    future change made the threaded fields diverge from the ray-cast, the meshes
+    would differ and this fires.
+    """
+    gx, gy, node_inside = build_shared_grid(_domain(), _GRID_SPACING_M)
+    matrix_no_fields = _host_matrix_meshes(gx, gy, node_inside)
+    matrix_with_fields, host_fields = _host_matrix_meshes_with_fields(gx, gy, node_inside)
+
+    lens = _silt_lens(gx, gy)
+
+    # Path A: legacy ray-cast reconstruction (host_height_fields=None).
+    bodies_raycast = carve_lenses([lens], matrix_no_fields, gx, gy, node_inside)
+    # Path B: reuse the threaded assembly fields.
+    bodies_threaded = carve_lenses(
+        [lens], matrix_with_fields, gx, gy, node_inside, host_height_fields=host_fields
+    )
+
+    # Both must produce a valid, watertight, non-overlapping, column-matching model.
+    for bodies in (bodies_raycast, bodies_threaded):
+        for b in bodies:
+            assert b.is_flagged is False
+            assert_closed_manifold(b.vertices, b.triangles)
+        assert_no_overlap_sampled(bodies, _grid_samples(_domain(), n=30))
+        assert_model_matches_columns(bodies, _enclosed_lens_columns(), tol_m=0.5)
+
+    # And they must be geometrically identical body-for-body.
+    assert len(bodies_raycast) == len(bodies_threaded)
+    by_pairs = zip(bodies_raycast, bodies_threaded, strict=True)
+    for rc, th in by_pairs:
+        assert rc.body_id == th.body_id, "body ordering / ids diverged"
+        assert rc.formation_id == th.formation_id
+        assert rc.triangles == th.triangles, f"triangles diverged for {rc.body_id}"
+        assert len(rc.vertices) == len(th.vertices), f"vertex count diverged for {rc.body_id}"
+        rc_v = np.asarray(rc.vertices)
+        th_v = np.asarray(th.vertices)
+        assert np.allclose(rc_v, th_v, atol=1e-9), f"vertices diverged for {rc.body_id}"
+
+
+def test_emit_prism_bodies_with_fields_keys_match_meshes() -> None:
+    """``emit_prism_bodies_with_fields`` returns a field per emitted mesh body_id.
+
+    The fields dict must be keyed by the emitted meshes' body_ids exactly, and
+    each array must carry the mesh's actual top/base at a sampled footprint node
+    (so the carve reads the right host surface).
+    """
+    gx, gy, node_inside = build_shared_grid(_domain(), _GRID_SPACING_M)
+    meshes, fields = _host_matrix_meshes_with_fields(gx, gy, node_inside)
+
+    # One field per emitted mesh, keys match exactly.
+    assert set(fields) == {m.body_id for m in meshes}
+
+    # The KLEI host spans the full block: top == z_max, base == z_min at every
+    # inside node (a flat host band).  Sample an interior node and confirm.
+    top, base = fields[_HOST_BODY_ID]
+    nx, ny = len(gx), len(gy)
+    # Pick a node that is inside the polygon (the central node).
+    ci, cj = nx // 2, ny // 2
+    assert node_inside[ci, cj]
+    assert np.isclose(top[ci, cj], _Z_MAX)
+    assert np.isclose(base[ci, cj], _Z_MIN)
+    # The footprint is recoverable as ~isnan(top); it must match the mesh coverage.
+    footprint = ~np.isnan(top)
+    assert footprint[ci, cj]
 
 
 def test_merge_meshes_by_body_id_concatenates_host_pieces() -> None:
