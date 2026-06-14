@@ -182,7 +182,18 @@ def test_enclosed_lens_assembles_without_cycle() -> None:
     assert assembly is not None
     # The matrix backbone (KLEI only) is one instance → two horizons (surface +
     # floor), no internal horizon, no cycle.
-    assert len(assembly.control.column.horizons) >= 1
+    horizons = assembly.control.column.horizons
+    assert len(horizons) >= 1
+
+    # The matrix filter dropped the SILT lens from the order entirely: its
+    # lithology (``f-silt``) must NOT name either side of any matrix horizon (a
+    # leak would mean the lens re-entered the single global iso-order — the cycle
+    # the filter exists to break).  Only the host KLEI lithology frames the
+    # matrix horizons.
+    lithos_in_order = {h.above_formation for h in horizons} | {h.below_formation for h in horizons}
+    assert "f-silt" not in lithos_in_order, (
+        f"SILT lens lithology leaked into the matrix order horizons: {lithos_in_order}"
+    )
 
     # The SILT lens is surfaced on the partition for the carve step.
     lens_bodies = {L.body_id for L in assembly.lens_partition.lenses}
