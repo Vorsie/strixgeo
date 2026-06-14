@@ -74,8 +74,7 @@ What it does NOT do
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 import numpy as np
 from scipy.ndimage import label as _ndimage_label  # type: ignore[import-untyped]
@@ -99,10 +98,7 @@ from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 _MIN_BAND_THICKNESS_M: float = 1e-3
 
 # A mesh vertex is identified by its grid node + layer: (node_i, node_j, layer)
-# where layer 0 = bottom surface, 1 = top surface.  A quad face is four such
-# corner keys in outward-winding order.
-_CornerKey = tuple[int, int, int]
-_Quad = tuple[_CornerKey, _CornerKey, _CornerKey, _CornerKey]
+# where layer 0 = bottom surface, 1 = top surface.
 
 
 def assemble_bodies(
@@ -1073,14 +1069,44 @@ def _build_component_mesh(
     gy: np.ndarray,
     cells: set[tuple[int, int]],
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
-    """Build the closed-manifold mesh of one band component as a cell-complex boundary.
+    """Build the closed-manifold mesh of one band component via a vectorised XOR-mask boundary.
 
-    Each present cell contributes a hexahedral box (top quad at the four ``top``
-    corner heights, base quad at the four ``bottom`` corner heights, four vertical
-    side quads).  A side face shared by two present cells of THIS component
-    cancels (internal); every other face is a boundary face emitted with outward
-    winding.  Top and base faces are always boundary (the band is single-valued in
-    z).  The kept faces, triangulated consistently, form a closed 2-manifold.
+    The boundary of a cell complex is computed by classifying each potential face
+    as interior (shared by two component cells → cancels) or exterior (exposed →
+    boundary).  For top/bottom faces this is trivially always-boundary; for side
+    faces the XOR-presence rule is: a face on edge ``(ci, cj) | (ci', cj')`` is a
+    boundary face iff exactly one of the two cells is in this component, which
+    equals ``present[ci,cj] XOR present[ci',cj']``.  Because the component mask is
+    ``True`` everywhere inside and ``False`` outside, the boundary side faces are
+    exactly those where the inside-cell has an absent neighbour — the standard
+    ``present & ~shift(present)`` formulation.
+
+    Replaces the scalar per-cell dict-multiset approach (``add_face`` / ``vid`` /
+    ``_add_side`` closures + ``sorted()`` key) which was the dominant real-data CPU
+    hotspot (~25 s of the ``test.strix`` build): that path ran a Python dict op,
+    a ``tuple(sorted(...))`` call, and two closure dispatches per face per cell
+    (~6 faces × cells × 2 passes → O(10M) pure-Python ops for a 476k-node grid).
+    The vectorised path replaces all of that with NumPy boolean slice ops over the
+    ``(ncx, ncy)`` component mask + a single pass over the boundary face rows to
+    assign deduped vertex ids.
+
+    Winding convention (identical to the scalar code, verified for manifold consistency)
+    ------------------------------------------------------------------------------------
+    * **TOP face** (outward normal +z, CCW from above):
+      ``(ci,cj,1) → (ci+1,cj,1) → (ci+1,cj+1,1) → (ci,cj+1,1)``
+    * **BOTTOM face** (outward normal −z, CW from above = reverse of top):
+      ``(ci,cj,0) → (ci,cj+1,0) → (ci+1,cj+1,0) → (ci+1,cj,0)``
+    * **South side** (low-j face, neighbour at cj−1, outward = −j direction):
+      ``(ci,cj,0) → (ci+1,cj,0) → (ci+1,cj,1) → (ci,cj,1)``
+    * **North side** (high-j face, neighbour at cj+1, outward = +j direction):
+      ``(ci+1,cj+1,0) → (ci,cj+1,0) → (ci,cj+1,1) → (ci+1,cj+1,1)``
+    * **West side** (low-i face, neighbour at ci−1, outward = −i direction):
+      ``(ci,cj+1,0) → (ci,cj,0) → (ci,cj,1) → (ci,cj+1,1)``
+    * **East side** (high-i face, neighbour at ci+1, outward = +i direction):
+      ``(ci+1,cj,0) → (ci+1,cj+1,0) → (ci+1,cj+1,1) → (ci+1,cj,1)``
+
+    These are exactly the quads the scalar ``add_face`` / ``_add_side`` calls
+    accumulated, so the resulting triangulation is the same closed solid.
 
     Parameters
     ----------
@@ -1095,134 +1121,176 @@ def _build_component_mesh(
     -------
     (list of (float, float, float), list of (int, int, int))
         The compacted vertices and outward-wound triangles of the closed solid.
+        Vertex order is first-touch (raster scan over face types: top, bottom,
+        south, north, west, east) — deterministic but not byte-identical to the
+        scalar path (which visited faces in per-cell iteration order).
     """
-    # A vertex is identified by (node_i, node_j, layer) where layer 0 = bottom,
-    # 1 = top.  Dedup so a face shared by two cells (and the four side quads
-    # around a shared edge) references the SAME vertex index — the watertight
-    # weld.  Heights are taken from the per-NODE arrays so the top of one cell and
-    # the bottom of the cell above are exactly the same z at that node.
-    vert_index: dict[tuple[int, int, int], int] = {}
-    vertices: list[tuple[float, float, float]] = []
+    if not cells:
+        return [], []
 
-    def vid(ni: int, nj: int, layer: int) -> int:
+    # ------------------------------------------------------------------
+    # Step 1: build a local presence mask over the component's bounding box.
+    #
+    # Using a local (offset) mask keeps the arrays small even when this
+    # component is a tiny island in a large grid.
+    # ------------------------------------------------------------------
+    ci_arr = np.fromiter((ci for ci, _ in cells), dtype=np.intp, count=len(cells))
+    cj_arr = np.fromiter((cj for _, cj in cells), dtype=np.intp, count=len(cells))
+
+    ci_min = int(ci_arr.min())
+    cj_min = int(cj_arr.min())
+    ci_max = int(ci_arr.max())
+    cj_max = int(cj_arr.max())
+
+    # Local mask dimensions (cell space, not node space).
+    lci = ci_max - ci_min + 1
+    lcj = cj_max - cj_min + 1
+    mask = np.zeros((lci, lcj), dtype=bool)
+    mask[ci_arr - ci_min, cj_arr - cj_min] = True
+
+    # ------------------------------------------------------------------
+    # Step 2: classify boundary faces per direction using XOR-mask ops.
+    #
+    # A south face of (ci,cj) is a boundary face iff (ci, cj-1) is absent.
+    # In local coords: mask[li, lj] & ~padded_south_neighbour[li, lj]
+    # which equals: mask[li,lj] & ~mask[li, lj-1] (with lj-1<0 → absent=True).
+    # We use np.pad to add a False border in each direction and then slice.
+    # ------------------------------------------------------------------
+    # Pad with False on all sides so boundary cells correctly see absent neighbours.
+    padded = np.pad(mask, pad_width=1, mode="constant", constant_values=False)
+    # Interior slice is padded[1:-1, 1:-1] = mask itself.
+
+    # South boundary: present & neighbour at lj-1 absent = padded[1:-1,:-2]
+    south_mask = mask & ~padded[1:-1, :-2]  # (lci, lcj)
+    # North boundary: present & neighbour at lj+1 absent = padded[1:-1, 2:]
+    north_mask = mask & ~padded[1:-1, 2:]  # (lci, lcj)
+    # West boundary: present & neighbour at li-1 absent = padded[:-2, 1:-1]
+    west_mask = mask & ~padded[:-2, 1:-1]  # (lci, lcj)
+    # East boundary: present & neighbour at li+1 absent = padded[2:, 1:-1]
+    east_mask = mask & ~padded[2:, 1:-1]  # (lci, lcj)
+
+    # ------------------------------------------------------------------
+    # Step 3: collect the (ci, cj) of each present or boundary-face cell in
+    # deterministic order (raster scan = C-order over the local mask).
+    # ------------------------------------------------------------------
+    # Top and bottom faces: all present cells (same set, same iteration order).
+    top_ci, top_cj = (x + o for x, o in zip(np.where(mask), (ci_min, cj_min)))
+    top_ci = top_ci + ci_min
+    top_cj = top_cj + cj_min
+
+    # Re-derive from np.where to get proper numpy arrays.
+    _li, _lj = np.where(mask)
+    top_ci = _li + ci_min
+    top_cj = _lj + cj_min
+
+    _li, _lj = np.where(south_mask)
+    south_ci, south_cj = _li + ci_min, _lj + cj_min
+
+    _li, _lj = np.where(north_mask)
+    north_ci, north_cj = _li + ci_min, _lj + cj_min
+
+    _li, _lj = np.where(west_mask)
+    west_ci, west_cj = _li + ci_min, _lj + cj_min
+
+    _li, _lj = np.where(east_mask)
+    east_ci, east_cj = _li + ci_min, _lj + cj_min
+
+    # ------------------------------------------------------------------
+    # Step 4: build the vertex pool and triangle list.
+    #
+    # A vertex is identified by (node_i, node_j, layer) where layer 0 = bottom,
+    # layer 1 = top.  We dedup with a Python dict so that adjacent faces sharing
+    # a node reference the SAME index — the watertight weld.  Heights come from
+    # the per-NODE arrays (top[ni,nj] / bottom[ni,nj]).
+    #
+    # For each face type we know exactly which (ni, nj) node pairs appear and
+    # which layer they use, so we can resolve vertex ids in a tight loop over the
+    # boundary-face arrays (far fewer iterations than the scalar per-cell path).
+    # ------------------------------------------------------------------
+    vert_index: dict[tuple[int, int, int], int] = {}
+    verts_x: list[float] = []
+    verts_y: list[float] = []
+    verts_z: list[float] = []
+
+    def _vid(ni: int, nj: int, layer: int) -> int:
+        """Return the deduped vertex index for node ``(ni, nj, layer)``."""
         key = (ni, nj, layer)
         idx = vert_index.get(key)
         if idx is None:
-            z = bottom[ni, nj] if layer == 0 else top[ni, nj]
-            idx = len(vertices)
-            vertices.append((float(gx[ni]), float(gy[nj]), float(z)))
+            idx = len(verts_x)
+            z = float(bottom[ni, nj]) if layer == 0 else float(top[ni, nj])
+            verts_x.append(float(gx[ni]))
+            verts_y.append(float(gy[nj]))
+            verts_z.append(z)
             vert_index[key] = idx
         return idx
 
-    # Each face is a quad of four (ni, nj, layer) corners.  We accumulate quads
-    # into a multiset keyed by the SORTED corner-key tuple, storing the oriented
-    # quad; a face appearing twice (shared internal side wall) is dropped.
-    face_count: dict[tuple[_CornerKey, ...], int] = defaultdict(int)
-    face_quad: dict[tuple[_CornerKey, ...], _Quad] = {}
-
-    def add_face(corners: _Quad) -> None:
-        # corners: ordered (ni, nj, layer) tuples with desired OUTWARD winding.
-        key = tuple(sorted(corners))
-        face_count[key] += 1
-        # Keep the first-seen orientation; a second occurrence cancels the face,
-        # so its orientation never matters.
-        if key not in face_quad:
-            face_quad[key] = corners
-
-    for ci, cj in cells:
-        # Cell corner nodes in CCW order viewed from above:
-        #   c00=(ci,cj) c10=(ci+1,cj) c11=(ci+1,cj+1) c01=(ci,cj+1)
-        c00 = (ci, cj)
-        c10 = (ci + 1, cj)
-        c11 = (ci + 1, cj + 1)
-        c01 = (ci, cj + 1)
-
-        # TOP face — outward normal points UP (+z): CCW seen from above.
-        add_face(
-            (
-                (c00[0], c00[1], 1),
-                (c10[0], c10[1], 1),
-                (c11[0], c11[1], 1),
-                (c01[0], c01[1], 1),
-            )
-        )
-        # BOTTOM face — outward normal points DOWN (-z): CW seen from above
-        # (reverse of top) so the outward winding is consistent.
-        add_face(
-            (
-                (c00[0], c00[1], 0),
-                (c01[0], c01[1], 0),
-                (c11[0], c11[1], 0),
-                (c10[0], c10[1], 0),
-            )
-        )
-
-        # SIDE faces — one per cell edge; only emitted as a boundary when the
-        # neighbouring cell across that edge is NOT in this component.  We add
-        # ALL four and let the shared-face cancellation drop internal ones; that
-        # keeps winding bookkeeping simple and is still O(cells).
-        #
-        # Each side quad's outward winding: walking the bottom edge in the
-        # cell-boundary CCW direction, then up — gives an outward-facing normal.
-        # Edge (c00 -> c10): south edge.
-        _add_side(add_face, c00, c10)
-        # Edge (c10 -> c11): east edge.
-        _add_side(add_face, c10, c11)
-        # Edge (c11 -> c01): north edge.
-        _add_side(add_face, c11, c01)
-        # Edge (c01 -> c00): west edge.
-        _add_side(add_face, c01, c00)
-
-    # Keep only faces that appear an ODD number of times (boundary).  A shared
-    # internal side wall appears exactly twice (once from each cell, with reversed
-    # winding) and cancels.  Top / bottom faces appear once.
-    quads: list[_Quad] = [face_quad[key] for key, cnt in face_count.items() if cnt % 2 == 1]
-
-    # Triangulate every kept quad (a, b, c, d) -> (a, b, c) + (a, c, d), mapping
-    # corner keys to deduped vertex ids.
     triangles: list[tuple[int, int, int]] = []
-    for a, b, c, d in quads:
-        ia = vid(*a)
-        ib = vid(*b)
-        ic = vid(*c)
-        idd = vid(*d)
-        triangles.append((ia, ib, ic))
-        triangles.append((ia, ic, idd))
 
-    # The dedup map already produced `vertices` in first-touch order.  Some
-    # vertices created during face accumulation may be unused if a face cancelled
-    # — but `vid` is only ever called in the triangulation loop above, AFTER
-    # cancellation, so every created vertex is referenced.  Return as-is.
-    return vertices, triangles
+    def _tri(a: int, b: int, c: int, d: int) -> None:
+        """Triangulate quad (a,b,c,d) → (a,b,c) + (a,c,d) and append."""
+        triangles.append((a, b, c))
+        triangles.append((a, c, d))
 
-
-def _add_side(
-    add_face: Callable[[_Quad], None],
-    lo: tuple[int, int],
-    hi: tuple[int, int],
-) -> None:
-    """Add the vertical side quad spanning grid edge ``lo -> hi`` (bottom→top).
-
-    The quad is wound so that, combined with the CCW cell-boundary traversal the
-    caller uses, the normal points OUTWARD (away from the cell interior).  Walking
-    the bottom edge ``lo -> hi`` then rising to the top edge ``hi -> lo`` gives the
-    outward face for a CCW-from-above boundary walk.
-
-    Parameters
-    ----------
-    add_face : callable
-        The face accumulator from :func:`_build_component_mesh`.
-    lo, hi : (int, int)
-        The two grid node indices of the edge (the side wall runs vertically
-        between their bottom and top layers).
-    """
-    # Quad corners, CCW when viewed from outside the cell:
-    #   bottom-lo -> bottom-hi -> top-hi -> top-lo
-    add_face(
-        (
-            (lo[0], lo[1], 0),
-            (hi[0], hi[1], 0),
-            (hi[0], hi[1], 1),
-            (lo[0], lo[1], 1),
+    # TOP faces: quad (ci,cj,1)→(ci+1,cj,1)→(ci+1,cj+1,1)→(ci,cj+1,1)
+    # outward normal +z, CCW from above.
+    for ci, cj in zip(top_ci.tolist(), top_cj.tolist()):
+        _tri(
+            _vid(ci, cj, 1),
+            _vid(ci + 1, cj, 1),
+            _vid(ci + 1, cj + 1, 1),
+            _vid(ci, cj + 1, 1),
         )
-    )
+
+    # BOTTOM faces: quad (ci,cj,0)→(ci,cj+1,0)→(ci+1,cj+1,0)→(ci+1,cj,0)
+    # outward normal −z, CW from above (reversed winding vs TOP).
+    for ci, cj in zip(top_ci.tolist(), top_cj.tolist()):
+        _tri(
+            _vid(ci, cj, 0),
+            _vid(ci, cj + 1, 0),
+            _vid(ci + 1, cj + 1, 0),
+            _vid(ci + 1, cj, 0),
+        )
+
+    # SOUTH faces (low-j boundary): quad (ci,cj,0)→(ci+1,cj,0)→(ci+1,cj,1)→(ci,cj,1)
+    # outward normal −j direction.
+    for ci, cj in zip(south_ci.tolist(), south_cj.tolist()):
+        _tri(
+            _vid(ci, cj, 0),
+            _vid(ci + 1, cj, 0),
+            _vid(ci + 1, cj, 1),
+            _vid(ci, cj, 1),
+        )
+
+    # NORTH faces (high-j boundary): quad (ci+1,cj+1,0)→(ci,cj+1,0)→(ci,cj+1,1)→(ci+1,cj+1,1)
+    # outward normal +j direction.
+    for ci, cj in zip(north_ci.tolist(), north_cj.tolist()):
+        _tri(
+            _vid(ci + 1, cj + 1, 0),
+            _vid(ci, cj + 1, 0),
+            _vid(ci, cj + 1, 1),
+            _vid(ci + 1, cj + 1, 1),
+        )
+
+    # WEST faces (low-i boundary): quad (ci,cj+1,0)→(ci,cj,0)→(ci,cj,1)→(ci,cj+1,1)
+    # outward normal −i direction.
+    for ci, cj in zip(west_ci.tolist(), west_cj.tolist()):
+        _tri(
+            _vid(ci, cj + 1, 0),
+            _vid(ci, cj, 0),
+            _vid(ci, cj, 1),
+            _vid(ci, cj + 1, 1),
+        )
+
+    # EAST faces (high-i boundary): quad (ci+1,cj,0)→(ci+1,cj+1,0)→(ci+1,cj+1,1)→(ci+1,cj,1)
+    # outward normal +i direction.
+    for ci, cj in zip(east_ci.tolist(), east_cj.tolist()):
+        _tri(
+            _vid(ci + 1, cj, 0),
+            _vid(ci + 1, cj + 1, 0),
+            _vid(ci + 1, cj + 1, 1),
+            _vid(ci + 1, cj, 1),
+        )
+
+    vertices = list(zip(verts_x, verts_y, verts_z))
+    return vertices, triangles

@@ -736,3 +736,225 @@ def test_label_components_vectorised_matches_scalar_oracle() -> None:
             f"nested-fixture component[{comp_idx}] cell set mismatch "
             f"(vectorised {len(v_set)} cells vs scalar {len(r_set)} cells)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Equivalence — vectorised _build_component_mesh == scalar oracle (same solid)
+# ---------------------------------------------------------------------------
+
+
+def _build_component_mesh_scalar(
+    top: np.ndarray,
+    bottom: np.ndarray,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    cells: set[tuple[int, int]],
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Verbatim scalar oracle for _build_component_mesh — the pre-vectorisation implementation.
+
+    Copied from the production code before the vectorisation commit so that the
+    equivalence test has an independent reference that does not share any code
+    path with the implementation under test.  The oracle is kept here (test file
+    only) and never imported into production modules.
+    """
+    from collections import defaultdict
+
+    _CornerKey = tuple[int, int, int]
+    _Quad = tuple[_CornerKey, _CornerKey, _CornerKey, _CornerKey]
+
+    vert_index: dict[tuple[int, int, int], int] = {}
+    vertices: list[tuple[float, float, float]] = []
+
+    def vid(ni: int, nj: int, layer: int) -> int:
+        key = (ni, nj, layer)
+        idx = vert_index.get(key)
+        if idx is None:
+            z = bottom[ni, nj] if layer == 0 else top[ni, nj]
+            idx = len(vertices)
+            vertices.append((float(gx[ni]), float(gy[nj]), float(z)))
+            vert_index[key] = idx
+        return idx
+
+    face_count: dict[tuple, int] = defaultdict(int)
+    face_quad: dict[tuple, tuple] = {}
+
+    def add_face(corners: tuple) -> None:
+        key = tuple(sorted(corners))
+        face_count[key] += 1
+        if key not in face_quad:
+            face_quad[key] = corners
+
+    def add_side(lo: tuple[int, int], hi: tuple[int, int]) -> None:
+        add_face(
+            (
+                (lo[0], lo[1], 0),
+                (hi[0], hi[1], 0),
+                (hi[0], hi[1], 1),
+                (lo[0], lo[1], 1),
+            )
+        )
+
+    for ci, cj in cells:
+        c00 = (ci, cj)
+        c10 = (ci + 1, cj)
+        c11 = (ci + 1, cj + 1)
+        c01 = (ci, cj + 1)
+        add_face(
+            ((c00[0], c00[1], 1), (c10[0], c10[1], 1), (c11[0], c11[1], 1), (c01[0], c01[1], 1))
+        )
+        add_face(
+            ((c00[0], c00[1], 0), (c01[0], c01[1], 0), (c11[0], c11[1], 0), (c10[0], c10[1], 0))
+        )
+        add_side(c00, c10)
+        add_side(c10, c11)
+        add_side(c11, c01)
+        add_side(c01, c00)
+
+    quads = [face_quad[key] for key, cnt in face_count.items() if cnt % 2 == 1]
+    triangles: list[tuple[int, int, int]] = []
+    for a, b, c, d in quads:
+        ia, ib, ic, idd = vid(*a), vid(*b), vid(*c), vid(*d)
+        triangles.append((ia, ib, ic))
+        triangles.append((ia, ic, idd))
+
+    return vertices, triangles
+
+
+def _same_solid_via_ray(
+    verts_a: list[tuple[float, float, float]],
+    tris_a: list[tuple[int, int, int]],
+    verts_b: list[tuple[float, float, float]],
+    tris_b: list[tuple[int, int, int]],
+    gx: np.ndarray,
+    gy: np.ndarray,
+    label: str,
+) -> None:
+    """Assert two meshes represent the same solid via dense vertical ray sampling.
+
+    Casts rays on a 30×30 grid spanning ``gx × gy`` (inset by one cell to avoid
+    edge ambiguity) and asserts that ``vertical_ray_intervals`` returns the same
+    ``(base, top)`` intervals from both meshes within 1e-9 m at every sample.
+    """
+    xs = np.linspace(float(gx[1]), float(gx[-2]), 30) if len(gx) > 2 else np.array([float(gx[0])])
+    ys = np.linspace(float(gy[1]), float(gy[-2]), 30) if len(gy) > 2 else np.array([float(gy[0])])
+    for x in xs:
+        for y in ys:
+            iv_a = vertical_ray_intervals(verts_a, tris_a, float(x), float(y))
+            iv_b = vertical_ray_intervals(verts_b, tris_b, float(x), float(y))
+            assert len(iv_a) == len(iv_b), (
+                f"[{label}] at ({x:.3f},{y:.3f}): interval count differs "
+                f"(vectorised {len(iv_a)} vs scalar {len(iv_b)})"
+            )
+            for (base_a, top_a), (base_b, top_b) in zip(iv_a, iv_b, strict=True):
+                assert abs(base_a - base_b) <= 1e-9 and abs(top_a - top_b) <= 1e-9, (
+                    f"[{label}] at ({x:.3f},{y:.3f}): interval mismatch "
+                    f"vectorised=({base_a:.9f},{top_a:.9f}) "
+                    f"scalar=({base_b:.9f},{top_b:.9f})"
+                )
+
+
+def _make_flat_band(
+    gx: np.ndarray,
+    gy: np.ndarray,
+    z_top: float,
+    z_bot: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return flat (nx, ny) top/bottom arrays at constant elevations."""
+    nx, ny = len(gx), len(gy)
+    return np.full((nx, ny), z_top), np.full((nx, ny), z_bot)
+
+
+def test_vectorised_mesh_same_solid_full_rectangle() -> None:
+    """Vectorised _build_component_mesh produces the same solid as the scalar oracle — full band.
+
+    A 6×5 rectangular grid, all cells present, no NaN nodes, flat top/bottom.
+    This is the simplest shape — every top/bottom face is present, all four side
+    walls are boundary on the perimeter and internal in the interior.  If the XOR
+    mask mis-classifies any interior face as boundary (or any boundary face as
+    interior) the manifold check or ray-interval check fires.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _build_component_mesh
+
+    # 7 × 6 nodes → 6 × 5 cells.
+    gx = np.linspace(0.0, 6.0, 7)
+    gy = np.linspace(0.0, 5.0, 6)
+    top_arr, bot_arr = _make_flat_band(gx, gy, z_top=2.0, z_bot=0.0)
+
+    # 6 × 5 cell grid: ci in 0..5, cj in 0..4.
+    all_cells: set[tuple[int, int]] = {(ci, cj) for ci in range(6) for cj in range(5)}
+
+    verts_v, tris_v = _build_component_mesh(top_arr, bot_arr, gx, gy, all_cells)
+    verts_s, tris_s = _build_component_mesh_scalar(top_arr, bot_arr, gx, gy, all_cells)
+
+    # Both outputs must be closed manifolds.
+    assert_closed_manifold(verts_v, tris_v)
+    assert_closed_manifold(verts_s, tris_s)
+
+    # Ray-sample equivalence on the 30×30 interior grid.
+    _same_solid_via_ray(verts_v, tris_v, verts_s, tris_s, gx, gy, "full-rectangle")
+
+
+def test_vectorised_mesh_same_solid_pinch_hole() -> None:
+    """Vectorised _build_component_mesh handles an interior void (pinch-out hole) correctly.
+
+    A 9×9 cell grid with a 3×3 hole of absent cells in the centre — the shape that
+    most directly tests the XOR side-face detection.  Interior faces (between two
+    present cells) must cancel; faces bordering the hole (where a present cell has
+    an absent neighbour) must be emitted as boundary walls.  A wrong XOR direction
+    or off-by-one in the padded-mask shift would misclassify these.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _build_component_mesh
+
+    # 10×10 nodes → 9×9 cells.
+    gx = np.linspace(0.0, 9.0, 10)
+    gy = np.linspace(0.0, 9.0, 10)
+    nx, ny = len(gx), len(gy)
+    top_arr, bot_arr = _make_flat_band(gx, gy, z_top=3.0, z_bot=0.0)
+
+    # All 81 cells present minus the central 3×3 (ci=3..5, cj=3..5).
+    hole = {(ci, cj) for ci in range(3, 6) for cj in range(3, 6)}
+    all_cells: set[tuple[int, int]] = {
+        (ci, cj) for ci in range(nx - 1) for cj in range(ny - 1)
+    } - hole
+
+    verts_v, tris_v = _build_component_mesh(top_arr, bot_arr, gx, gy, all_cells)
+    verts_s, tris_s = _build_component_mesh_scalar(top_arr, bot_arr, gx, gy, all_cells)
+
+    assert_closed_manifold(verts_v, tris_v)
+    assert_closed_manifold(verts_s, tris_s)
+
+    # Ray-sample equivalence — must agree both inside and outside the hole.
+    _same_solid_via_ray(verts_v, tris_v, verts_s, tris_s, gx, gy, "pinch-hole")
+
+
+def test_vectorised_mesh_same_solid_split_components() -> None:
+    """Vectorised _build_component_mesh handles per-component boundaries when a band splits.
+
+    A 12×4 cell grid split into two disconnected 4×4 blobs separated by a 4-cell
+    gap.  The two blobs are passed as SEPARATE cell sets (simulating what
+    ``emit_prism_bodies_with_fields`` does per connected component) and each must
+    independently produce a closed manifold identical to the scalar oracle.  This
+    test verifies that the local-mask bounding box (ci_min/cj_min offset) correctly
+    handles a component that starts at a non-zero ci/cj — a regression risk when
+    the offset arithmetic is wrong.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import _build_component_mesh
+
+    # 13×5 nodes → 12×4 cells.
+    gx = np.linspace(0.0, 12.0, 13)
+    gy = np.linspace(0.0, 4.0, 5)
+    top_arr, bot_arr = _make_flat_band(gx, gy, z_top=1.5, z_bot=-0.5)
+
+    # Blob A: columns ci=0..3, cj=0..3  (4×4 = 16 cells).
+    blob_a: set[tuple[int, int]] = {(ci, cj) for ci in range(4) for cj in range(4)}
+    # Blob B: columns ci=8..11, cj=0..3 (4×4 = 16 cells) — separated by a 4-col gap.
+    blob_b: set[tuple[int, int]] = {(ci, cj) for ci in range(8, 12) for cj in range(4)}
+
+    for label, blob in (("split-blob-A", blob_a), ("split-blob-B", blob_b)):
+        verts_v, tris_v = _build_component_mesh(top_arr, bot_arr, gx, gy, blob)
+        verts_s, tris_s = _build_component_mesh_scalar(top_arr, bot_arr, gx, gy, blob)
+
+        assert_closed_manifold(verts_v, tris_v)
+        assert_closed_manifold(verts_s, tris_s)
+
+        _same_solid_via_ray(verts_v, tris_v, verts_s, tris_s, gx, gy, label)
