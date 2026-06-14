@@ -163,10 +163,18 @@ async def scene(db_session: AsyncSession):
         display_order=1,
         litho_main_soil_code="KLEI",
     )
-    db_session.add_all([zand, klei])
+    silt = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="SILT",
+        color="#c2b280",
+        display_order=2,
+        litho_main_soil_code="SILT",
+    )
+    db_session.add_all([zand, klei, silt])
     await db_session.commit()
 
-    return {"project": proj, "litho": litho, "zand": zand, "klei": klei}
+    return {"project": proj, "litho": litho, "zand": zand, "klei": klei, "silt": silt}
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +240,102 @@ async def _seed_interbedded(db_session: AsyncSession, scene: dict):
                 AuthoredUnit(formation_id=str(zand.id), top_elev_m=0.0, base_elev_m=-3.0),
                 AuthoredUnit(formation_id=str(klei.id), top_elev_m=-3.0, base_elev_m=-6.0),
                 AuthoredUnit(formation_id=str(zand.id), top_elev_m=-6.0, base_elev_m=-9.0),
+            ),
+        )
+        for _s, x, y in coords
+    ]
+    return columns
+
+
+# ---------------------------------------------------------------------------
+# Enclosed-lens seed: KLEI / SILT / KLEI with both KLEIs in ONE body
+# ---------------------------------------------------------------------------
+
+
+async def _seed_enclosed_lens(db_session: AsyncSession, scene: dict):
+    """Seed a KLEI/SILT/KLEI enclosed-lens stack across 3 non-collinear boreholes.
+
+    The over-merge signature from ``test.strix``: the host KLEI is recorded BOTH
+    above AND below the SILT minority under ONE ``body_id``.  Achieved by
+    correlating each borehole's top KLEI directly to its OWN bottom KLEI (a
+    vertical same-lithology edge) PLUS the usual horizontal peer edges, so the
+    resolver's connected-components put all six KLEI layers in a single body that
+    brackets the SILT.  A single global iso-order cannot place the bracketed SILT
+    (``klei → silt`` above, ``silt → klei`` below = a 2-cycle), so the assembler
+    classifies the SILT as a lens, orders only the KLEI matrix, and the carve step
+    puts the SILT back as an enclosed lens prism.
+
+    The SILT layers are correlated A↔B↔C horizontally so they collapse to one lens
+    body (one ``lens:`` storage solid), not three.
+
+    A ZAND cap (0-2 m) tops the stack so the MATRIX backbone (after the SILT is
+    removed as a lens) has TWO instances — ZAND over KLEI — and therefore an
+    internal ZAND/KLEI contact.  Without it the matrix would be KLEI-only (one
+    instance, no internal horizon, no control point) and ``fit_potential_field``
+    has nothing to interpolate.  The real ``test.strix`` matrix has ~96 instances,
+    so an internal contact is the realistic case; the minimal seed mirrors it.
+
+    Returns the authored columns (for ``assert_model_matches_columns``).
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    zand = scene["zand"]
+    klei = scene["klei"]
+    silt = scene["silt"]
+    section_id = await _seed_section(db_session, proj.id)
+
+    # A TIGHT 4-hole cluster (4 m spacing) with a DEEP floor (12 m) — the sparse
+    # cubic RBF dips a flat contact several metres between widely-spaced holes (the
+    # documented Stage-3 limitation), which would swallow the 2 m lens band.  A
+    # tight cluster keeps the matrix contact near its picks AT the lens footprint so
+    # the lens carves cleanly; the deep KLEI floor leaves room below the lens for
+    # the host-lower piece.  (Elevations still drift a few metres off the picks — a
+    # pre-existing field-fit limit — so this case asserts ORDER + no-overlap +
+    # coverage, NOT exact elevations; see the test.)
+    coords = [("A", 0.0, 0.0), ("B", 4.0, 0.0), ("C", 0.0, 4.0), ("D", 4.0, 4.0)]
+    boreholes = [_borehole(proj.id, suffix=s, x=x, y=y, total_depth_m=12.0) for s, x, y in coords]
+    db_session.add_all(boreholes)
+    await db_session.flush()
+
+    # ZAND 0-2 (matrix cap), KLEI 2-4 (host above), SILT 4-6 (lens), KLEI 6-12
+    # (host below) per borehole.
+    cap_layers: list[LithoLayerOrm] = []
+    top_layers: list[LithoLayerOrm] = []
+    mid_layers: list[LithoLayerOrm] = []
+    bot_layers: list[LithoLayerOrm] = []
+    for bh in boreholes:
+        cap_layers.append(_layer(litho, zand, bh, top=0.0, base=2.0))
+        top_layers.append(_layer(litho, klei, bh, top=2.0, base=4.0))
+        mid_layers.append(_layer(litho, silt, bh, top=4.0, base=6.0))
+        bot_layers.append(_layer(litho, klei, bh, top=6.0, base=12.0))
+    db_session.add_all(cap_layers + top_layers + mid_layers + bot_layers)
+    await db_session.flush()
+
+    edges = []
+    # Horizontal peer edges chaining EVERY adjacent hole per level (A-B-C-D), so
+    # each level collapses to ONE body across all four holes.
+    for level in (cap_layers, top_layers, mid_layers, bot_layers):
+        for a, b in zip(level, level[1:], strict=False):
+            edges.append(_edge(litho, a, b, section_id))
+    # Vertical top-KLEI ↔ bottom-KLEI per borehole — the over-merge: both KLEIs
+    # join one resolver body that brackets the SILT (the test.strix signature).
+    for t, b in zip(top_layers, bot_layers, strict=True):
+        edges.append(_edge(litho, t, b, section_id))
+    db_session.add_all(edges)
+    await db_session.commit()
+
+    # Authored stack (top→bottom): ZAND / KLEI / SILT / KLEI.  Elevations are the
+    # AUTHORED ideal; the field-fit drifts them a few metres, so the test asserts
+    # the ORDER of these formations + coverage, not the exact base elevations.
+    columns = [
+        AuthoredColumn(
+            x=x,
+            y=y,
+            units=(
+                AuthoredUnit(formation_id=str(zand.id), top_elev_m=0.0, base_elev_m=-2.0),
+                AuthoredUnit(formation_id=str(klei.id), top_elev_m=-2.0, base_elev_m=-4.0),
+                AuthoredUnit(formation_id=str(silt.id), top_elev_m=-4.0, base_elev_m=-6.0),
+                AuthoredUnit(formation_id=str(klei.id), top_elev_m=-6.0, base_elev_m=-12.0),
             ),
         )
         for _s, x, y in coords
@@ -377,6 +481,171 @@ async def test_grid_pref_change_forces_rebuild(
     rebuilt = await RecomputeLithoSolids(db_session).execute(litho.id)
     assert rebuilt.bodies_built >= 1, (
         f"Grid-spacing change must force a rebuild; got bodies_built={rebuilt.bodies_built}"
+    )
+    assert rebuilt.bodies_skipped_checksum == 0, "A busted checksum must not skip any body"
+
+
+# ---------------------------------------------------------------------------
+# RSS-4: enclosed-lens model builds (matrix carved + lens prism present)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enclosed_lens_model_builds_with_lens_solid(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """A KLEI/SILT/KLEI over-merge builds: matrix carved, lens prism persisted.
+
+    The two KLEIs share one body that brackets the SILT (a 2-cycle on a single
+    global iso-order).  The assembler classifies the SILT as a lens and orders
+    only the KLEI matrix; Task 5b carves the SILT lens back into the host and
+    merges the two host pieces under one ``body_id``.  This pins the whole wired
+    path end to end: every solid real (not flagged), the lens body present with a
+    ``lens:`` storage id, NO inter-body overlap (the watertight tiling), full
+    coverage, the correct top→bottom formation ORDER (ZAND / KLEI / SILT / KLEI),
+    then checksum skip + a pick-mutation rebuild.
+
+    Why ORDER, not exact elevations: the sparse cubic RBF drifts the matrix
+    contacts a few metres off the picks (the documented Stage-3 limit), so this
+    case asserts the carved lens is present, enclosed (right order), and tiles
+    without overlap — NOT the absolute base elevations (RSS-1 pins those on a
+    conformable stack).
+    """
+    await _seed_enclosed_lens(db_session, scene)
+    proj = scene["project"]
+    litho = scene["litho"]
+
+    # A finer grid (0.5 m) keeps the matrix contact near its picks at the lens
+    # footprint so the 2 m lens carves cleanly (at 1 m the sparse-RBF dip can
+    # swallow it).  Set on the project view-state the recompute reads.
+    project = await db_session.get(ProjectOrm, proj.id)
+    assert project is not None
+    view_state = dict(project.view_state or {})
+    seg = dict(view_state.get("litho_segmenter") or {})
+    seg["strat_grid_spacing_m"] = 0.5
+    view_state["litho_segmenter"] = seg
+    project.view_state = view_state
+    await db_session.commit()
+
+    outcome = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
+
+    # The over-merge is now BUILDABLE (the old single-iso-order would flag all).
+    assert outcome.bodies_built >= 2, (
+        f"Expected ≥2 bodies (KLEI host + SILT lens); got {outcome.bodies_built}"
+    )
+    assert outcome.bodies_flagged == 0, (
+        f"Enclosed-lens model must build, not flag; got {outcome.bodies_flagged}"
+    )
+
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows, "Build must persist at least one solid row"
+    for solid in rows:
+        assert solid.is_flagged is False, f"Solid {solid.body_id} must not be flagged"
+        assert len(solid.vertices) > 0, f"Solid {solid.body_id} must have vertices"
+        assert len(solid.triangles) > 0, f"Solid {solid.body_id} must have triangles"
+
+    # The lens body has a solid: its synthetic ``lens:`` token maps to a storage
+    # UUID via uuid5 — recompute that id and assert a row carries it.  (The carve
+    # emits the lens prism with body_id ``lens:{host}:{tail}``.)
+    from groundmodel.application.recompute_litho_solids import _storage_body_id
+    from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
+        LithoLayerRepository,
+    )
+
+    picks = await LithoLayerRepository(db_session).load_body_picks(litho.id)
+    zand = scene["zand"]
+    klei = scene["klei"]
+    silt = scene["silt"]
+    klei_body_ids = {p.body_id for p in picks if p.formation_id == str(klei.id)}
+    silt_body_ids = {p.body_id for p in picks if p.formation_id == str(silt.id)}
+    # Over-merge: both KLEIs are ONE body; the SILT is ONE lens body.
+    assert len(klei_body_ids) == 1, f"Both KLEIs must share one body; got {klei_body_ids}"
+    assert len(silt_body_ids) == 1, f"SILT must be one correlated lens body; got {silt_body_ids}"
+    host_body_id = next(iter(klei_body_ids))
+    silt_body_id = next(iter(silt_body_ids))
+    lens_token = f"lens:{host_body_id}:{silt_body_id[-6:]}"
+    lens_storage_id = _storage_body_id(lens_token)
+    persisted_ids = {str(r.body_id) for r in rows}
+    assert str(lens_storage_id) in persisted_ids, (
+        f"Lens solid {lens_token} (→ {lens_storage_id}) not persisted; have {persisted_ids}"
+    )
+
+    meshes = [
+        _MeshView(
+            body_id=str(s.body_id),
+            formation_id=str(s.formation_id),
+            vertices=[tuple(v) for v in s.vertices],
+            triangles=[tuple(t) for t in s.triangles],
+        )
+        for s in rows
+    ]
+
+    from tests.unit.domain.services.strat_field.strat_invariants import (
+        _is_subsequence,
+        assert_no_overlap_sampled,
+        vertical_ray_intervals,
+    )
+
+    # (1) STRICT no inter-body overlap — the carve must tile host/lens with no
+    # interpenetration (the anti-loft invariant).  Sample a grid of interior points
+    # across the cluster footprint.
+    samples = [(float(x), float(y)) for x in (1.0, 2.0, 3.0) for y in (1.0, 2.0, 3.0)]
+    assert_no_overlap_sampled(meshes, samples)
+
+    # (2) The carved column reads the authored ORDER top→bottom: ZAND / KLEI / SILT
+    # / KLEI.  Recover the formation stack at the cluster centroid by ray-cast and
+    # assert the authored sequence is a subsequence (the field-fit may thin a band
+    # to nothing at a single column, but the lens must sit BETWEEN the two KLEIs).
+    cx, cy = 2.0, 2.0  # centroid of the 0..4 m cluster
+    stack: list[tuple[float, str]] = []
+    for m in meshes:
+        for base, top in vertical_ray_intervals(m.vertices, m.triangles, cx, cy):
+            stack.append((top, m.formation_id))
+    stack.sort(key=lambda e: -e[0])  # top → bottom
+    formation_order = [fm for _top, fm in stack]
+    authored = [str(zand.id), str(klei.id), str(silt.id), str(klei.id)]
+    assert _is_subsequence(authored, formation_order), (
+        f"Centroid stack {formation_order} is not the authored ZAND/KLEI/SILT/KLEI order; "
+        f"the lens must sit enclosed between the two KLEIs"
+    )
+
+    # (3) Coverage — every interior sample is covered by ≥1 body, so a "built
+    # nothing" outcome cannot read as a vacuous pass.  The authored columns sit on
+    # the hull corners (no interior grid cell there, by the all-corners-inside cell
+    # rule), so coverage is checked at the interior samples, not the corner holes.
+    for sx, sy in samples:
+        hit = any(vertical_ray_intervals(m.vertices, m.triangles, sx, sy) for m in meshes)
+        assert hit, f"Interior sample ({sx}, {sy}) is not covered by any built body"
+
+    # Unchanged picks → checksum skip.
+    skip = await RecomputeLithoSolids(db_session).execute(litho.id)
+    assert skip.bodies_built == 0, f"Unchanged picks must skip; got {skip.bodies_built}"
+    assert skip.bodies_skipped_checksum >= 1
+
+    # Mutate a pick's geometry (nudge borehole B's location) → the pick digest
+    # changes → a rebuild fires.  Nudging the x stays non-collinear with A and C
+    # so the domain is still buildable.  (Mutating a layer's depth_base directly
+    # would be re-derived by the FC↔LL contiguity trigger; moving the borehole is
+    # a clean pick-geometry change the trigger does not touch.)
+    bh_b = (
+        (await db_session.execute(select(BoreholeOrm).where(BoreholeOrm.name == "BH-RSS-B")))
+        .scalars()
+        .one()
+    )
+    bh_b.location_x = bh_b.location_x + 1.0
+    await db_session.commit()
+    rebuilt = await RecomputeLithoSolids(db_session).execute(litho.id)
+    assert rebuilt.bodies_built >= 1, (
+        f"A pick mutation must force a rebuild; got {rebuilt.bodies_built}"
     )
     assert rebuilt.bodies_skipped_checksum == 0, "A busted checksum must not skip any body"
 
