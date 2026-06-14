@@ -21,6 +21,83 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from groundmodel.domain.services.tin_surface import evaluate_tin_at
+from groundmodel.domain.value_objects.tin_surface import TinSurface
+
+
+@dataclass(frozen=True)
+class SurfaceBound:
+    """A curved (TIN) bound for a :class:`Block` — a geological band surface.
+
+    Wraps a triangulated surface's mesh and answers "what is the bounding
+    elevation at this (x, y)" queries.  Used as a :class:`Block`'s curved top
+    or base so the implicit field is confined to a single geological band:
+    the geological surfaces are the band's HARD top/base (owner directive
+    2026-06-11: "geology prevails — litho interfingers ONLY within each
+    geological unit").
+
+    Like :class:`ContactSurface`, this carries its mesh as ``list`` fields,
+    so it is NOT hashable and its lists are mutable — treat it as a frozen
+    *handle* to mesh data, not a value key.  The lists mirror the
+    :class:`~groundmodel.domain.value_objects.tin_surface.TinSurface`
+    convention so a band surface can be lifted straight from a cached
+    formation-surface TIN.
+
+    Parameters
+    ----------
+    vertices : list of (float, float, float)
+        ``(x_m, y_m, elevation_m)`` triples in project CRS + vertical datum.
+    triangles : list of (int, int, int)
+        Vertex-index triples (one Delaunay cell each).
+
+    Notes
+    -----
+    :meth:`evaluate` samples via
+    :func:`~groundmodel.domain.services.tin_surface.evaluate_tin_at`; a point
+    outside the TIN footprint falls back to the nearest vertex's elevation,
+    matching the band-assignment convention in
+    ``scripts/eval_geo_bounded_cycles.py``.
+    """
+
+    vertices: list[tuple[float, float, float]]
+    triangles: list[tuple[int, int, int]]
+
+    def evaluate(self, x: float, y: float) -> float:
+        """Return the bounding elevation at horizontal point ``(x, y)``.
+
+        Parameters
+        ----------
+        x : float
+            Easting in metres (project CRS).
+        y : float
+            Northing in metres (project CRS).
+
+        Returns
+        -------
+        float
+            Interpolated elevation inside the TIN footprint; the nearest
+            vertex's elevation when ``(x, y)`` falls outside every triangle
+            (or the surface has no triangles).
+
+        Raises
+        ------
+        ValueError
+            If the surface has no vertices (cannot supply a fallback).
+        """
+        # Build a TinSurface view over the same mesh lists so we reuse the
+        # established barycentric interpolation rather than re-deriving it.
+        elevation = evaluate_tin_at(
+            TinSurface(vertices=self.vertices, triangles=self.triangles), x, y
+        )
+        if elevation is not None:
+            return elevation
+        if not self.vertices:
+            raise ValueError("SurfaceBound has no vertices to sample")
+        # Off-footprint: nearest-vertex elevation (squared distance — no sqrt
+        # needed for the arg-min).  Matches eval_geo_bounded_cycles.band_index.
+        nearest = min(self.vertices, key=lambda v: (v[0] - x) ** 2 + (v[1] - y) ** 2)
+        return nearest[2]
+
 
 @dataclass(frozen=True)
 class Horizon:
@@ -216,15 +293,37 @@ class Block:
         Must have at least 3 vertices.
     z_min : float
         Bottom elevation of the prism in metres (project vertical datum).
-        Typically the deepest accepted pick minus a margin.
+        Typically the deepest accepted pick minus a margin.  When
+        ``base_surface`` is set this is the *flat fallback* for the outermost
+        (open) deepest band only.
     z_max : float
         Top elevation of the prism in metres (project vertical datum).
-        Typically the DEM surface elevation plus a margin.
+        Typically the DEM surface elevation plus a margin.  When
+        ``top_surface`` is set this is the *flat fallback* for the outermost
+        (open) shallowest band only.
+    top_surface : SurfaceBound or None, optional
+        Curved top bound (the geological surface above the band).  ``None``
+        (the default) → the flat ``z_max`` applies, preserving the v1
+        single-block behaviour unchanged.  The shallowest geological band's
+        top stays ``None`` (open above → DEM / ``z_max``).
+    base_surface : SurfaceBound or None, optional
+        Curved base bound (the geological surface below the band).  ``None``
+        (the default) → the flat ``z_min`` applies.  The deepest geological
+        band's base stays ``None`` (open below → ``z_min``).
+
+    Notes
+    -----
+    Adjacent geological bands SHARE their dividing surface: the
+    ``base_surface`` of band *k* and the ``top_surface`` of band *k+1* are the
+    same geological surface, so the surface-bounded caps assembled in the
+    per-band build loop stitch exactly.
     """
 
     polygon: tuple[tuple[float, float], ...]
     z_min: float
     z_max: float
+    top_surface: SurfaceBound | None = None
+    base_surface: SurfaceBound | None = None
 
 
 @dataclass(frozen=True)
