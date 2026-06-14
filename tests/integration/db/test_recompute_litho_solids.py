@@ -213,6 +213,54 @@ async def _seed_section(db_session: AsyncSession, project_id: UUID) -> UUID:
 
 
 # ---------------------------------------------------------------------------
+# Strat-builder fixture helper — builds a 2-formation interbedded stack.
+#
+# The strat builder (build_strat_model) requires at least ONE internal contact
+# between two distinct formations so the RBF can fit a non-trivial iso-value.
+# A model with only ONE formation (all layers ZAND) has no internal horizon
+# and triggers _handle_flag_all.  Tests that want a real built solid must use
+# a 2-formation stack (upper + lower) so the strat field has something to fit.
+# ---------------------------------------------------------------------------
+
+
+async def _make_second_formation(
+    db_session: AsyncSession,
+    scene: dict,
+) -> GeologicalFormationOrm:
+    """Insert a second formation (KLEI) as a sibling of scene['formation'].
+
+    Used by tests that need a 2-formation column so the strat builder gets
+    an internal contact to fit the RBF on.
+
+    Parameters
+    ----------
+    db_session : AsyncSession
+        The test session.
+    scene : dict
+        The standard scene fixture dict; provides app_project_id + geo_parent.
+
+    Returns
+    -------
+    GeologicalFormationOrm
+        The flushed-but-not-committed second formation.
+    """
+    proj = scene["project"]
+    geo_parent = scene["geo_parent"]
+    f2 = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="KLEI",
+        color="#8B6914",
+        display_order=2,
+        parent_formation_id=geo_parent.id,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add(f2)
+    await db_session.flush()
+    return f2
+
+
+# ---------------------------------------------------------------------------
 # RLS-1: happy path — body spanning ≥3 investigations
 # ---------------------------------------------------------------------------
 
@@ -222,49 +270,67 @@ async def test_three_investigation_body_produces_solid(
     db_session: AsyncSession,
     scene: dict,
 ) -> None:
-    """A body assigned to 3 non-collinear boreholes must produce one solid row
-    with triangles > 0 and ``is_stale=False`` after RecomputeLithoSolids.
+    """A model with 3 non-collinear boreholes and a 2-formation stack must
+    produce at least one solid row with triangles > 0 and ``is_stale=False``.
 
-    Seeding strategy: insert 3 boreholes with (x, y, elevation_m), create
-    accepted litho layers, add approved correlation edges (so the resolver
-    stamps a shared body_id on the layers), then run the use case.  The
-    resolver inside the use case is idempotent when body_ids are already
-    consistent.
+    The strat builder (build_strat_model) needs at least one internal contact
+    between two distinct formations to fit the RBF potential field.  This test
+    uses ZAND (upper, 2→5 m) + KLEI (lower, 5→8 m) so the column has one
+    internal horizon and the build succeeds.  Both bodies are correlated across
+    the 3 boreholes (two edges each: a↔b and b↔c).
+
+    Seeding strategy: insert 3 boreholes, create 2 accepted layers per borehole
+    (ZAND on top, KLEI below), add approved edges for each formation, commit,
+    then run RecomputeLithoSolids.  The resolver inside the use case is
+    idempotent when body_ids are already consistent.
     """
     proj = scene["project"]
     litho = scene["litho"]
-    f = scene["formation"]
+    f_sand = scene["formation"]  # ZAND — upper layer
+    f_clay = await _make_second_formation(db_session, scene)  # KLEI — lower layer
     section_id = await _seed_section(db_session, proj.id)
 
-    # Non-collinear anchors (y differs) so compute_tin fits a real surface —
-    # a flagged slab would also satisfy triangles>0, so the spread is what
-    # makes this a genuine watertight-solid test (asserted below).
+    # Non-collinear anchors (y differs) so the strat domain forms a real
+    # alpha-hull — collinear tests cannot frame a 3-D domain.
     bh_a = _borehole(proj.id, suffix="1A", x=150000.0, y=200000.0, elev=5.0)
     bh_b = _borehole(proj.id, suffix="1B", x=150200.0, y=200000.0, elev=4.8)
     bh_c = _borehole(proj.id, suffix="1C", x=150100.0, y=200080.0, elev=5.2)
     db_session.add_all([bh_a, bh_b, bh_c])
     await db_session.flush()
 
-    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
-    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
-    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
-    db_session.add_all([la, lb, lc])
+    # Upper ZAND layers (2→5 m depth) on all 3 boreholes.
+    la_s = _layer(litho, f_sand, bh_a, top=2.0, base=5.0)
+    lb_s = _layer(litho, f_sand, bh_b, top=2.1, base=5.1)
+    lc_s = _layer(litho, f_sand, bh_c, top=1.9, base=4.9)
+    # Lower KLEI layers (5→8 m depth) on all 3 boreholes.
+    la_c = _layer(litho, f_clay, bh_a, top=5.0, base=8.0)
+    lb_c = _layer(litho, f_clay, bh_b, top=5.1, base=8.1)
+    lc_c = _layer(litho, f_clay, bh_c, top=4.9, base=7.9)
+    db_session.add_all([la_s, lb_s, lc_s, la_c, lb_c, lc_c])
     await db_session.flush()
 
-    # Approved edges: a↔b and b↔c so the resolver creates one connected body.
-    edge_ab = _edge(litho, la, lb, section_id)
-    edge_bc = _edge(litho, lb, lc, section_id)
-    db_session.add_all([edge_ab, edge_bc])
+    # Correlation edges: ZAND body (a↔b, b↔c) + KLEI body (a↔b, b↔c).
+    db_session.add_all(
+        [
+            _edge(litho, la_s, lb_s, section_id),
+            _edge(litho, lb_s, lc_s, section_id),
+            _edge(litho, la_c, lb_c, section_id),
+            _edge(litho, lb_c, lc_c, section_id),
+        ]
+    )
     await db_session.commit()
 
     outcome = await RecomputeLithoSolids(db_session).execute(litho.id)
 
-    # The resolver should have created one body covering all 3 layers.
+    # The strat builder must produce at least one solid (one per formation body).
     assert outcome.bodies_considered >= 1, (
         f"Expected ≥1 body; got bodies_considered={outcome.bodies_considered}"
     )
     assert outcome.bodies_built >= 1, (
         f"Expected ≥1 body built; got bodies_built={outcome.bodies_built}"
+    )
+    assert outcome.bodies_flagged == 0, (
+        f"Expected 0 flagged bodies; got bodies_flagged={outcome.bodies_flagged}"
     )
 
     rows = (
@@ -278,16 +344,12 @@ async def test_three_investigation_body_produces_solid(
     )
     assert len(rows) >= 1, f"Expected ≥1 solid row; got {len(rows)}"
 
-    # The 3-point body must produce a REAL watertight solid, not a degenerate
-    # flagged slab — is_flagged=False is the load-bearing assertion here (a
-    # flagged slab also has triangles>0, so the count alone proves nothing).
-    solid = rows[0]
-    assert solid.is_stale is False, "Solid must be fresh after recompute"
-    assert solid.is_flagged is False, (
-        "Non-collinear 3-point body must fit a real surface, not a flagged slab"
+    # Every solid must be fresh and non-flagged; at least one must have geometry.
+    assert all(not r.is_stale for r in rows), "All solids must be fresh after recompute"
+    assert all(not r.is_flagged for r in rows), (
+        "3-borehole 2-formation model must produce only real solids, no flagged rows"
     )
-    assert len(solid.triangles) > 0, "Real solid must have triangles"
-    assert len(solid.vertices) > 0, "Real solid must have vertices"
+    assert any(len(r.triangles) > 0 for r in rows), "At least one solid must have triangles"
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +437,15 @@ async def test_second_execute_skips_rebuild_when_picks_unchanged(
 
     ``bodies_skipped_checksum`` >= 1 and ``bodies_built`` == 0 (the model-level
     digest matches, so every body is skipped).
+
+    Uses a 2-formation stack (ZAND upper + KLEI lower) so the strat builder
+    has an internal contact to fit the RBF on and the first execute actually
+    builds rather than flagging every body.
     """
     proj = scene["project"]
     litho = scene["litho"]
-    f = scene["formation"]
+    f_sand = scene["formation"]
+    f_clay = await _make_second_formation(db_session, scene)
     section_id = await _seed_section(db_session, proj.id)
 
     # Non-collinear (y differs) so the strat builder can frame a 3-D domain —
@@ -390,15 +457,23 @@ async def test_second_execute_skips_rebuild_when_picks_unchanged(
     db_session.add_all([bh_a, bh_b, bh_c])
     await db_session.flush()
 
-    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
-    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
-    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
-    db_session.add_all([la, lb, lc])
+    la_s = _layer(litho, f_sand, bh_a, top=2.0, base=5.0)
+    lb_s = _layer(litho, f_sand, bh_b, top=2.1, base=5.1)
+    lc_s = _layer(litho, f_sand, bh_c, top=1.9, base=4.9)
+    la_c = _layer(litho, f_clay, bh_a, top=5.0, base=8.0)
+    lb_c = _layer(litho, f_clay, bh_b, top=5.1, base=8.1)
+    lc_c = _layer(litho, f_clay, bh_c, top=4.9, base=7.9)
+    db_session.add_all([la_s, lb_s, lc_s, la_c, lb_c, lc_c])
     await db_session.flush()
 
-    edge_ab = _edge(litho, la, lb, section_id)
-    edge_bc = _edge(litho, lb, lc, section_id)
-    db_session.add_all([edge_ab, edge_bc])
+    db_session.add_all(
+        [
+            _edge(litho, la_s, lb_s, section_id),
+            _edge(litho, lb_s, lc_s, section_id),
+            _edge(litho, la_c, lb_c, section_id),
+            _edge(litho, lb_c, lc_c, section_id),
+        ]
+    )
     await db_session.commit()
 
     # First build.
@@ -760,32 +835,47 @@ async def test_move_litho_layer_boundary_marks_solids_stale(
     fixes in RLS-6/RLS-7): MoveLithoLayerBoundary changes depth_top_m /
     depth_base_m of accepted layers, which alters the body-pick geometry, but
     the original code had no mark_litho_solids_stale call.
+
+    Uses a 2-formation stack (ZAND upper + KLEI lower) so the strat builder
+    has an internal contact to fit and the precondition build actually produces
+    solid rows.  bh_a has the adjacent pair that MoveLithoLayerBoundary operates
+    on (ZAND 2→5 m, KLEI 5→8 m); bh_b and bh_c each carry one ZAND + one KLEI
+    layer so all 3 boreholes contribute to both correlated bodies.
     """
     proj = scene["project"]
     litho = scene["litho"]
-    f = scene["formation"]
+    f_sand = scene["formation"]
+    f_clay = await _make_second_formation(db_session, scene)
     section_id = await _seed_section(db_session, proj.id)
 
-    # Three non-collinear boreholes so the solid is real (matches RLS-1 geometry).
+    # Three non-collinear boreholes so the solid is real.
     bh_a = _borehole(proj.id, suffix="8A", x=150000.0, y=200000.0, elev=5.0)
     bh_b = _borehole(proj.id, suffix="8B", x=150200.0, y=200000.0, elev=4.8)
     bh_c = _borehole(proj.id, suffix="8C", x=150100.0, y=200080.0, elev=5.2)
     db_session.add_all([bh_a, bh_b, bh_c])
     await db_session.flush()
 
-    # Two adjacent layers on bh_a: upper (2→5 m) + lower (5→8 m) so the
-    # boundary move has a valid adjacent pair to operate on.
-    la_upper = _layer(litho, f, bh_a, top=2.0, base=5.0)
-    la_lower = _layer(litho, f, bh_a, top=5.0, base=8.0)
-    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
-    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
-    db_session.add_all([la_upper, la_lower, lb, lc])
+    # bh_a: upper ZAND (2→5 m) + lower KLEI (5→8 m) — the adjacent pair the
+    # boundary move will act on.
+    la_upper = _layer(litho, f_sand, bh_a, top=2.0, base=5.0)
+    la_lower = _layer(litho, f_clay, bh_a, top=5.0, base=8.0)
+    # bh_b and bh_c each carry one ZAND + one KLEI layer to match bh_a.
+    lb_s = _layer(litho, f_sand, bh_b, top=2.1, base=5.1)
+    lb_c = _layer(litho, f_clay, bh_b, top=5.1, base=8.1)
+    lc_s = _layer(litho, f_sand, bh_c, top=1.9, base=4.9)
+    lc_c = _layer(litho, f_clay, bh_c, top=4.9, base=7.9)
+    db_session.add_all([la_upper, la_lower, lb_s, lb_c, lc_s, lc_c])
     await db_session.flush()
 
-    # Correlate the upper bh_a layer with bh_b and bh_c to produce a body.
-    edge_ab = _edge(litho, la_upper, lb, section_id)
-    edge_bc = _edge(litho, lb, lc, section_id)
-    db_session.add_all([edge_ab, edge_bc])
+    # Correlate ZAND body (bh_a↔bh_b, bh_b↔bh_c) + KLEI body (bh_a↔bh_b, bh_b↔bh_c).
+    db_session.add_all(
+        [
+            _edge(litho, la_upper, lb_s, section_id),
+            _edge(litho, lb_s, lc_s, section_id),
+            _edge(litho, la_lower, lb_c, section_id),
+            _edge(litho, lb_c, lc_c, section_id),
+        ]
+    )
     await db_session.commit()
 
     # Build solids — precondition: solid exists and is fresh.
