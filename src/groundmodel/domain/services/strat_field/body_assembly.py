@@ -234,10 +234,10 @@ def _sample_height_fields(
     """Compute the single-valued height field of each interior horizon over the grid.
 
     For every inside node ``(i, j)`` the field is sampled on a dense vertical
-    column from ``z_max`` down to ``z_min``; each interior iso-value's crossing is
-    located by linear interpolation between the two bracketing samples.  Exactly
-    one crossing is taken per horizon (the first, scanning DOWNWARD from the top),
-    which makes the heights monotone in rank and dissolves any field bubble.
+    column from ``z_max`` down to ``z_min``; each interior iso-value's deepest
+    rising crossing is located by linear interpolation between bracketing samples.
+    A monotone height clamp is then applied over the returned stack so that no
+    contact sits above its immediate shallower neighbour (see Returns).
 
     Parameters
     ----------
@@ -317,9 +317,11 @@ def _sample_height_fields(
     # real-data VEEN −1.17 m overshoot).  A monotone stack is already a fixed point
     # of this clamp, so well-behaved fields are unchanged.  NaN (the contact is
     # absent / not crossed at this node) is skipped, so a pinch-out stays a pinch-
-    # out and does not pull its neighbours down.
+    # out and does not pull its neighbours down.  If a rank is absent at EVERY node
+    # (the whole layer is NaN), the running minimum is left unchanged and the next
+    # present rank clamps against the previous present rank, exactly as intended.
     running = np.full((nx, ny), np.inf)
-    for rank in interior_ranks:  # ascending rank == top → bottom
+    for rank in interior_ranks:  # same order as the scan above
         layer = heights[rank]
         present = ~np.isnan(layer)
         running[present] = np.minimum(running[present], layer[present])
