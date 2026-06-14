@@ -975,6 +975,129 @@ def pinch_field_and_domain() -> tuple[_AnalyticPinchField, StratColumn, Block]:
     return field, column, domain
 
 
+# ---------------------------------------------------------------------------
+# Stage 5 — end-to-end builder fixture (well-constrained, compact, monotone)
+# ---------------------------------------------------------------------------
+
+# The Stage-4 ``interbedded_extraction_block`` sits 5 m from a single column while
+# the control picks are 200 m apart, so the RBF extrapolates and bubbles there
+# (the documented Stage-3 limitation).  That is fine for the manifold / no-overlap
+# gates but defeats the column-DIFF gate, which needs the field to actually reach
+# every horizon's iso-value at the test columns.  So the full-pipeline test uses a
+# DENSE, COMPACT configuration: four columns ~8 m apart inside a ±20 m block, with
+# a clean KLEI/ZAND/VEEN stack whose contacts are flat-to-gently-dipping.  The RBF
+# is well-constrained everywhere between the columns, so it reproduces the authored
+# bases within a fraction of a cell and the column-diff passes.
+
+_BUILD_SURFACE_M = 0.0
+# Authored contact depths (positive-down) for the KLEI/ZAND/VEEN stack.
+_BUILD_ZAND_TOP_DEPTH = 4.0  # KLEI/ZAND contact (rank 1) — flat
+_BUILD_VEEN_TOP_DEPTH = 8.0  # ZAND/VEEN contact (rank 2) — flat
+
+
+def _build_strat_columns() -> list[InvestigationColumn]:
+    """Four densely-spaced columns with a clean flat KLEI/ZAND/VEEN stack.
+
+    Columns sit on an 8 m grid (a 2 × 2 block) so the RBF is well-constrained in
+    both map directions — the field is monotone-in-depth and reaches every interior
+    iso-value at every test column, so the column-diff gate is meaningful.
+
+    Returns
+    -------
+    list of InvestigationColumn
+        Four columns, each KLEI → ZAND → VEEN (3 instances → 4 horizons).
+    """
+    coords = [
+        ("bld-SW", 300_000.0, 300_000.0),
+        ("bld-SE", 300_008.0, 300_000.0),
+        ("bld-NW", 300_000.0, 300_008.0),
+        ("bld-NE", 300_008.0, 300_008.0),
+    ]
+    cols: list[InvestigationColumn] = []
+    for inv_id, x, y in coords:
+        suffix = inv_id.split("-")[1].lower()
+        cols.append(
+            InvestigationColumn(
+                investigation_id=inv_id,
+                x=x,
+                y=y,
+                surface_elev_m=_BUILD_SURFACE_M,
+                units=(
+                    ContactObservation("klei_top", "KLEI", f"bld-{suffix}-klei", top_depth_m=0.0),
+                    ContactObservation(
+                        "zand_mid", "ZAND", f"bld-{suffix}-zand", top_depth_m=_BUILD_ZAND_TOP_DEPTH
+                    ),
+                    ContactObservation(
+                        "veen_base", "VEEN", f"bld-{suffix}-veen", top_depth_m=_BUILD_VEEN_TOP_DEPTH
+                    ),
+                ),
+            )
+        )
+    return cols
+
+
+def _build_strat_order_columns() -> list[tuple[OrderInputUnit, ...]]:
+    """Stage-1 order input matching :func:`_build_strat_columns` (KLEI/ZAND/VEEN)."""
+    out: list[tuple[OrderInputUnit, ...]] = []
+    for inv_id in ("sw", "se", "nw", "ne"):
+        out.append(
+            (
+                OrderInputUnit("klei_top", "KLEI", f"bld-{inv_id}-klei"),
+                OrderInputUnit("zand_mid", "ZAND", f"bld-{inv_id}-zand"),
+                OrderInputUnit("veen_base", "VEEN", f"bld-{inv_id}-veen"),
+            )
+        )
+    return out
+
+
+def build_strat_fixture() -> tuple[StratControlData, Block, list]:
+    """End-to-end builder fixture: control data, a compact domain block, and authored columns.
+
+    Returns the inputs for ``build_strat_model`` (control + domain) together with
+    the authored :class:`AuthoredColumn` stacks (one per investigation) so the
+    full-pipeline test can assert the Task-7 column-diff invariant.
+
+    The stack is KLEI (surface → 4 m) / ZAND (4 → 8 m) / VEEN (8 m → base) with a
+    flat geometry; the domain spans the 8 m × 8 m footprint + 6 m margin and
+    z ∈ [-14, +2] so every interior contact sits comfortably inside.
+
+    Returns
+    -------
+    (StratControlData, Block, list of AuthoredColumn)
+        The control data + solid-extent block, and the authored columns.  The
+        AuthoredColumn import is local to keep ``strat_invariants`` (a test-only
+        module) out of this fixtures module's top-level imports.
+    """
+    from tests.unit.domain.services.strat_field.strat_invariants import (
+        AuthoredColumn,
+        AuthoredUnit,
+    )
+
+    order = build_stratigraphic_order(_build_strat_order_columns())
+    cols = _build_strat_columns()
+    control = build_control_data(cols, [], order)
+    domain = _block_from_columns(cols, xy_margin_m=6.0, z_margin_m=6.0)
+
+    authored: list = []
+    for col in cols:
+        surf = col.surface_elev_m
+        zand_base = surf - _BUILD_ZAND_TOP_DEPTH  # base of KLEI / top of ZAND
+        veen_top = zand_base
+        veen_base_top = surf - _BUILD_VEEN_TOP_DEPTH  # base of ZAND / top of VEEN
+        authored.append(
+            AuthoredColumn(
+                x=col.x,
+                y=col.y,
+                units=(
+                    AuthoredUnit("KLEI", top_elev_m=domain.z_max, base_elev_m=zand_base),
+                    AuthoredUnit("ZAND", top_elev_m=veen_top, base_elev_m=veen_base_top),
+                    AuthoredUnit("VEEN", top_elev_m=veen_base_top, base_elev_m=domain.z_min),
+                ),
+            )
+        )
+    return control, domain, authored
+
+
 def pinch_lens_rank() -> int:
     """Return the rank of the laterally-pinching lens horizon in the pinch fixture."""
     return _PINCH_LENS_RANK
