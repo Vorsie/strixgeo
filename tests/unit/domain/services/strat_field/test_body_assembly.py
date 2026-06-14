@@ -17,7 +17,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from groundmodel.domain.services.strat_field.body_assembly import assemble_bodies
+from groundmodel.domain.services.strat_field.body_assembly import (
+    _component_height_field,
+    _contact_crossing,
+    _sample_height_fields,
+    assemble_bodies,
+    build_shared_grid,
+)
 from groundmodel.domain.services.strat_field.strat_types import (
     Block,
     Horizon,
@@ -27,6 +33,7 @@ from tests.unit.domain.services.strat_field.fixtures import (
     nested_field_and_domain,
     pinch_field_and_domain,
     pinch_lens_rank,
+    widely_spaced_build_fixture,
 )
 from tests.unit.domain.services.strat_field.strat_invariants import (
     AuthoredColumn,
@@ -333,3 +340,190 @@ def test_bubbled_field_is_clamped_monotone() -> None:
     for b in bodies:
         assert b.is_flagged is False
         assert_closed_manifold(b.vertices, b.triangles)
+
+
+# ---------------------------------------------------------------------------
+# Equivalence — vectorised _sample_height_fields == scalar _contact_crossing
+# ---------------------------------------------------------------------------
+
+
+def _scalar_sample_height_fields(
+    field: object,
+    interior: list,
+    domain: object,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    node_inside: np.ndarray,
+) -> dict[int, np.ndarray]:
+    """Pure scalar reference implementation using _contact_crossing.
+
+    Mirrors the PRE-vectorisation loop in ``_sample_height_fields`` so the
+    equivalence test has an independent scalar oracle, not just the vectorised
+    code calling itself.  The monotone clamp is NOT applied here (it runs after
+    the crossing scan in both paths); only the raw crossing heights are compared.
+    """
+    nx, ny = len(gx), len(gy)
+    z_min, z_max = domain.z_min, domain.z_max
+    h_step = float(gx[1] - gx[0]) if nx > 1 else (z_max - z_min)
+    nz = int(np.ceil((z_max - z_min) / max(h_step * 0.5, 1e-6))) + 1
+    nz = min(max(nz, 64), 512)
+    zcol = np.linspace(z_max, z_min, nz)
+
+    iso_by_rank = {h.rank: h.iso_value for h in interior}
+    interior_ranks = [h.rank for h in interior]
+    heights: dict[int, np.ndarray] = {h.rank: np.full((nx, ny), np.nan) for h in interior}
+
+    inside_nodes = [(i, j) for i in range(nx) for j in range(ny) if node_inside[i, j]]
+    if not inside_nodes:
+        return heights
+
+    pts = np.empty((len(inside_nodes) * nz, 3), dtype=float)
+    for n, (i, j) in enumerate(inside_nodes):
+        base = n * nz
+        pts[base : base + nz, 0] = gx[i]
+        pts[base : base + nz, 1] = gy[j]
+        pts[base : base + nz, 2] = zcol
+
+    # reason: evaluate() accepts (N, 3) ndarray as the fast path.
+    import numpy as _np
+
+    fvals = _np.asarray(field.evaluate(pts)).reshape(len(inside_nodes), nz)  # type: ignore[arg-type]
+
+    for n, (i, j) in enumerate(inside_nodes):
+        col = fvals[n]
+        for rank in interior_ranks:
+            iso = iso_by_rank[rank]
+            z_cross = _contact_crossing(zcol, col, iso)
+            if z_cross is not None:
+                heights[rank][i, j] = z_cross
+
+    return heights
+
+
+def test_vectorised_height_fields_match_scalar_oracle() -> None:
+    """Vectorised _sample_height_fields is bit-equivalent to the scalar oracle.
+
+    Uses the widely-spaced real-data-shaped fixture (Lambert-72 magnitude,
+    irregularly spaced investigations, interbedded ZAND/KLEI/ZAND/KLEI) — the
+    same fixture that exposed the coordinate-spread RBF explosion.  At every
+    grid node and every interior rank the vectorised crossing height must agree
+    with the scalar _contact_crossing oracle within 1e-9 m, and NaN positions
+    must match exactly (no crossing in one path iff no crossing in the other).
+
+    This test is the safety net for the numpy-broadcasting refactor: a wrong
+    crossing predicate, an off-by-one interval index, or a broken tie-break
+    would break it immediately.
+    """
+    from groundmodel.domain.services.strat_field.control_data import build_control_data
+    from groundmodel.domain.services.strat_field.potential_field import fit_potential_field
+    from groundmodel.domain.services.strat_field.stratigraphic_order import (
+        build_stratigraphic_order,
+    )
+    from tests.unit.domain.services.strat_field.fixtures import (
+        widely_spaced_columns_with_xyz,
+        widely_spaced_order_columns,
+    )
+
+    order = build_stratigraphic_order(widely_spaced_order_columns())
+    cols = widely_spaced_columns_with_xyz()
+    control = build_control_data(cols, [], order)
+    domain = widely_spaced_build_fixture()[1]
+    field = fit_potential_field(control, [domain])
+
+    # Coarse grid — enough cells to exercise all interior ranks + NaN/present mix
+    # without slowing the unit suite.
+    grid_spacing_m = 20.0
+    gx, gy, node_inside = build_shared_grid(domain, grid_spacing_m)
+
+    floor_rank = max(h.rank for h in order.horizons)
+    interior = [h for h in sorted(order.horizons, key=lambda h: h.rank) if 1 <= h.rank < floor_rank]
+
+    # --- vectorised path (the implementation under test) ---
+    vec_heights = _sample_height_fields(field, interior, domain, gx, gy, node_inside)
+
+    # --- scalar oracle (the pre-vectorisation loop, independently coded above) ---
+    # The oracle computes RAW crossings only (no monotone clamp); apply the same
+    # clamp to the oracle so the comparison is against the same final output.
+    ref_heights = _scalar_sample_height_fields(field, interior, domain, gx, gy, node_inside)
+
+    # Apply the monotone clamp to the reference in the same way _sample_height_fields
+    # does — so we compare the full function output, not just the crossing layer.
+    nx, ny = len(gx), len(gy)
+    interior_ranks = [h.rank for h in interior]
+    running = np.full((nx, ny), np.inf)
+    for rank in interior_ranks:
+        layer = ref_heights[rank]
+        present = ~np.isnan(layer)
+        running[present] = np.minimum(running[present], layer[present])
+        layer[present] = running[present]
+
+    assert set(vec_heights.keys()) == set(ref_heights.keys()), "rank key sets differ"
+
+    for rank in interior_ranks:
+        vec = vec_heights[rank]
+        ref = ref_heights[rank]
+
+        # NaN positions must match exactly: no crossing in one iff no crossing in the other.
+        vec_nan = np.isnan(vec)
+        ref_nan = np.isnan(ref)
+        assert np.array_equal(vec_nan, ref_nan), (
+            f"rank {rank}: NaN mask mismatch — "
+            f"{int(vec_nan.sum())} NaN in vectorised vs {int(ref_nan.sum())} in scalar"
+        )
+
+        # Finite positions must agree within 1e-9 m (the interpolation uses the
+        # same formula; FP evaluation order can shift the last ULP but not more).
+        present = ~vec_nan
+        if present.any():
+            max_diff = float(np.abs(vec[present] - ref[present]).max())
+            assert max_diff <= 1e-9, (
+                f"rank {rank}: vectorised heights differ from scalar oracle by up to "
+                f"{max_diff:.3e} m (tolerance 1e-9 m) — crossing predicate or "
+                f"interpolation mismatch"
+            )
+
+
+def test_component_height_field_vectorised_matches_scalar() -> None:
+    """Vectorised _component_height_field produces the identical mask as the scalar loop.
+
+    The nested fixture has multiple bands; assemble the bodies to get real cell sets
+    and verify that the vectorised corner-write produces the same footprint as the
+    scalar per-cell Python loop on a representative component.
+    """
+    field, order, domain = nested_field_and_domain()
+    gx, gy, node_inside = build_shared_grid(domain, _NESTED_SPACING_M)
+    nx, ny = len(gx), len(gy)
+
+    floor_rank = max(h.rank for h in order.horizons)
+    interior = [h for h in sorted(order.horizons, key=lambda h: h.rank) if 1 <= h.rank < floor_rank]
+
+    # Compute heights so we have real top/bottom arrays to feed the helper.
+    from groundmodel.domain.services.strat_field.body_assembly import (
+        _label_components,
+        _present_cells,
+    )
+
+    heights = _sample_height_fields(field, interior, domain, gx, gy, node_inside)
+    top_cap = np.full((nx, ny), domain.z_max)
+    bot = heights[interior[0].rank]  # first interior horizon
+
+    present = _present_cells(top_cap, bot, node_inside, nx, ny)
+    components = _label_components(present)
+    assert components, "nested fixture produced no components for the top band"
+
+    for cell_set in components:
+        # Scalar oracle — the original per-cell loop.
+        footprint_scalar = np.zeros((nx, ny), dtype=bool)
+        for ci, cj in cell_set:
+            footprint_scalar[ci, cj] = True
+            footprint_scalar[ci + 1, cj] = True
+            footprint_scalar[ci + 1, cj + 1] = True
+            footprint_scalar[ci, cj + 1] = True
+
+        # Vectorised implementation.
+        comp_top, comp_base = _component_height_field(top_cap, bot, cell_set, nx, ny)
+        footprint_vec = ~np.isnan(comp_top)
+
+        assert np.array_equal(footprint_vec, footprint_scalar), (
+            "vectorised _component_height_field footprint differs from scalar oracle"
+        )
