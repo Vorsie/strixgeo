@@ -33,9 +33,24 @@ is a closed 2-manifold — exactly two triangles per undirected edge — that st
 sits exactly on the labels (every duplicate / midpoint is geometrically
 coincident), validated on real ``test.strix`` data.
 
-Triangle count is intentionally large (one face quad → two triangles per
-boundary voxel face); greedy meshing to reduce it is a separate task and is NOT
-done here.
+Triangle count is slashed by greedy meshing (Task 5): coplanar same-body
+boundary faces are collapsed into maximal rectangles per plane
+(:func:`~groundmodel.domain.services.voxel_litho.greedy_mesh.maximal_rectangles`),
+so a flat ``n x m`` face emits a handful of triangles instead of ``2 n m``.
+Because a merged rectangle is the exact union of the cell faces it replaces, no
+surface moves — watertightness and on-label fidelity are preserved.  Merging
+breaks the whole-edge-sharing the per-cell half-edge weld relies on, so the
+greedy path (Strategy A, T-junction-free by construction): collects all merged
+rectangles, subdivides each rectangle's perimeter at every node that is a corner
+of ANY rectangle (:func:`~groundmodel.domain.services.voxel_litho.greedy_mesh.subdivision_nodes`
+/ :func:`~groundmodel.domain.services.voxel_litho.greedy_mesh.triangulate_subdivided_rect`)
+so a perpendicular wall's corner on a merged edge becomes a shared vertex (no
+T-junction), welds by world position, then resolves the residual four-triangle
+diagonal pinches with :func:`_split_pinched_edges_by_midpoint` (the midpoint split
+ONLY — perimeter subdivision leaves no odd-multiplicity edges, so the sheet-re-key
+of ``_split_pinched_sheets`` is neither needed nor wanted on this path).
+``extract_body_solids(grid, greedy=False)`` keeps the un-merged per-cell baseline
+(one quad per boundary face) for the geometry-preservation regression test.
 
 Pure domain module — numpy only, no I/O, no logging, no framework imports.  The
 function computes; it does not act, so nothing inherits ``GroundModelLogger``.
@@ -45,6 +60,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from groundmodel.domain.services.voxel_litho.greedy_mesh import (
+    maximal_rectangles,
+    subdivision_nodes,
+    triangulate_subdivided_rect,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import LabelGrid
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 
@@ -81,11 +101,116 @@ def _corner_coords(g: np.ndarray) -> np.ndarray:
     return corners
 
 
+def _emit_merged_z_faces(
+    mask: np.ndarray,
+    faces: list[tuple[tuple[int, int, int], ...]],
+    face_cell: list[tuple[int, int, int]],
+    *,
+    top: bool,
+) -> None:
+    """Greedy-merge the ±z boundary faces plane-by-plane and append merged quads.
+
+    For each k-plane the boundary mask ``mask[:, :, k]`` is a 2-D ``(i, j)`` mask;
+    :func:`~groundmodel.domain.services.voxel_litho.greedy_mesh.maximal_rectangles`
+    collapses it to maximal ``(i0, j0, i1, j1)`` rectangles.  Each rectangle is
+    emitted as ONE quad spanning lattice nodes ``i in [i0, i1]`` x ``j in [j0, j1]``
+    at the plane node ``nk`` (``k+1`` for top, ``k`` for bottom), outward-wound.
+
+    Parameters
+    ----------
+    mask : numpy.ndarray
+        Shape ``(nx, ny, nz)`` bool: the ±z boundary faces of one body.
+    faces, face_cell : list
+        Accumulators appended in place (parallel): the merged quad's four lattice
+        nodes and a representative source cell (the rectangle's ``(i0, j0, k)``
+        anchor) for the diagonal-touch weld.
+    top : bool
+        ``True`` for the +z (top) face set, ``False`` for the -z (bottom) set.
+    """
+    nz = mask.shape[2]
+    for k in range(nz):
+        for i0, j0, i1, j1 in maximal_rectangles(mask[:, :, k]):
+            nk = k + 1 if top else k
+            if top:  # +z: outward +z, CCW from above.
+                faces.append(((i0, j0, nk), (i1, j0, nk), (i1, j1, nk), (i0, j1, nk)))
+            else:  # -z: outward -z, reverse of top.
+                faces.append(((i0, j0, nk), (i0, j1, nk), (i1, j1, nk), (i1, j0, nk)))
+            face_cell.append((i0, j0, k))
+
+
+def _emit_merged_y_faces(
+    mask: np.ndarray,
+    faces: list[tuple[tuple[int, int, int], ...]],
+    face_cell: list[tuple[int, int, int]],
+    *,
+    north: bool,
+) -> None:
+    """Greedy-merge the ±y boundary faces plane-by-plane and append merged quads.
+
+    For each j-plane the boundary mask ``mask[:, j, :]`` is a 2-D ``(i, k)`` mask
+    merged into ``(i0, k0, i1, k1)`` rectangles, each emitted as one outward-wound
+    quad at the plane node ``nj`` (``j+1`` for north, ``j`` for south).
+
+    Parameters
+    ----------
+    mask : numpy.ndarray
+        Shape ``(nx, ny, nz)`` bool: the ±y boundary faces of one body.
+    faces, face_cell : list
+        Accumulators appended in place (parallel).
+    north : bool
+        ``True`` for the +y (north) face set, ``False`` for the -y (south) set.
+    """
+    ny = mask.shape[1]
+    for j in range(ny):
+        for i0, k0, i1, k1 in maximal_rectangles(mask[:, j, :]):
+            nj = j + 1 if north else j
+            if north:  # +y: outward +y.
+                faces.append(((i1, nj, k0), (i0, nj, k0), (i0, nj, k1), (i1, nj, k1)))
+            else:  # -y: outward -y.
+                faces.append(((i0, nj, k0), (i1, nj, k0), (i1, nj, k1), (i0, nj, k1)))
+            face_cell.append((i0, j, k0))
+
+
+def _emit_merged_x_faces(
+    mask: np.ndarray,
+    faces: list[tuple[tuple[int, int, int], ...]],
+    face_cell: list[tuple[int, int, int]],
+    *,
+    east: bool,
+) -> None:
+    """Greedy-merge the ±x boundary faces plane-by-plane and append merged quads.
+
+    For each i-plane the boundary mask ``mask[i, :, :]`` is a 2-D ``(j, k)`` mask
+    merged into ``(j0, k0, j1, k1)`` rectangles, each emitted as one outward-wound
+    quad at the plane node ``ni`` (``i+1`` for east, ``i`` for west).
+
+    Parameters
+    ----------
+    mask : numpy.ndarray
+        Shape ``(nx, ny, nz)`` bool: the ±x boundary faces of one body.
+    faces, face_cell : list
+        Accumulators appended in place (parallel).
+    east : bool
+        ``True`` for the +x (east) face set, ``False`` for the -x (west) set.
+    """
+    nx = mask.shape[0]
+    for i in range(nx):
+        for j0, k0, j1, k1 in maximal_rectangles(mask[i, :, :]):
+            ni = i + 1 if east else i
+            if east:  # +x: outward +x.
+                faces.append(((ni, j0, k0), (ni, j1, k0), (ni, j1, k1), (ni, j0, k1)))
+            else:  # -x: outward -x.
+                faces.append(((ni, j1, k0), (ni, j0, k0), (ni, j0, k1), (ni, j1, k1)))
+            face_cell.append((i, j0, k0))
+
+
 def _build_body_mesh(
     present: np.ndarray,
     cx: np.ndarray,
     cy: np.ndarray,
     cz: np.ndarray,
+    *,
+    greedy: bool = True,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
     """Build the closed-manifold boundary mesh of one body's voxel set.
 
@@ -147,22 +272,144 @@ def _build_body_mesh(
     east_mask = interior & ~padded[2:, 1:-1, 1:-1]  # +x neighbour (i+1) absent
 
     # ------------------------------------------------------------------
-    # Step 1: emit every boundary quad as four lattice-node corners (outward-CCW).
+    # Step 1: emit the boundary quads as four lattice-node corners (outward-CCW),
+    # then weld + triangulate.  TWO welds, by path:
     #
-    # Each quad's corners are the lattice nodes (ni, nj, nk).  Vertex welding
-    # happens in step 2 (the half-edge orbit walk), NOT a naive global weld by
-    # (ni, nj, nk): a global weld would fuse a diagonal voxel touch into a
-    # four-face non-manifold edge.
+    # * ``greedy=False`` (per-cell baseline): every quad shares WHOLE lattice
+    #   edges with its neighbours, so the half-edge weld (``_weld_and_triangulate``)
+    #   pairs them edge-for-edge — and deliberately splits a diagonal voxel touch
+    #   so it never fuses into a four-face non-manifold edge.
+    #
+    # * ``greedy=True`` (production): coplanar same-body faces collapse into maximal
+    #   rectangles (the triangle-count win).  The merge moves no surface (a rectangle
+    #   is the exact union of the cell faces it replaces), so watertightness is
+    #   preserved — but a merged face's long edge no longer coincides whole-to-whole
+    #   with the shorter neighbour edges, so the half-edge weld cannot pair them.
+    #   Strategy A makes the result T-junction-free BY CONSTRUCTION: subdivide each
+    #   merged rectangle's perimeter at every node that is a corner of ANY rectangle
+    #   (so a perpendicular wall's corner on a merged edge becomes a shared vertex),
+    #   weld by world POSITION, then resolve the residual four-triangle diagonal
+    #   pinches with :func:`_split_pinched_edges_by_midpoint`.
     # ------------------------------------------------------------------
     faces: list[tuple[tuple[int, int, int], ...]] = []  # 4 lattice nodes per face
     face_cell: list[tuple[int, int, int]] = []  # source voxel cell (i, j, k) per face
 
-    # The face loops run in a fixed direction order; within each, ``np.where``
-    # yields C-order (raster-scan) indices, so the order is deterministic.  Each
-    # face records its source cell ``(i, j, k)`` for the diagonal-touch weld
-    # (top/north/east faces sit on the ``+1`` corner, so the cell is NOT the face's
-    # min corner — it is tracked explicitly here).
+    if greedy:
+        _emit_merged_z_faces(top_mask, faces, face_cell, top=True)
+        _emit_merged_z_faces(bottom_mask, faces, face_cell, top=False)
+        _emit_merged_y_faces(south_mask, faces, face_cell, north=False)
+        _emit_merged_y_faces(north_mask, faces, face_cell, north=True)
+        _emit_merged_x_faces(west_mask, faces, face_cell, east=False)
+        _emit_merged_x_faces(east_mask, faces, face_cell, east=True)
+        # Greedy faces no longer share WHOLE lattice edges (a merged face's long
+        # edge abuts several shorter perpendicular-wall edges), so the per-cell
+        # half-edge weld — which keys on whole-edge coincidence — cannot pair them.
+        # Strategy A: subdivide every rectangle's perimeter at the union of all
+        # rectangle-corner nodes, so any perpendicular wall corner that lands on a
+        # merged edge becomes a shared vertex and the merged edge is split into
+        # unit sub-edges that pair → no T-junction can survive.  Then weld by world
+        # POSITION (subdivided corners share exact lattice-node coordinates) and
+        # split the residual four-triangle diagonal pinches by midpoint.  The
+        # subdivided emission leaves NO odd-multiplicity edges, so the sheet-re-key
+        # pass of ``_split_pinched_sheets`` is not run here (it would perturb the
+        # already-correct topology); the midpoint split alone closes the manifold.
+        # Geometry is unchanged: every subdivision node and midpoint lies exactly
+        # on the boundary.
+        subdiv = subdivision_nodes(faces)
+        verts, triangles = _coord_weld_subdivided(faces, subdiv, cx, cy, cz)
+        verts, triangles = _split_pinched_edges_by_midpoint(verts, triangles)
+    else:
+        _emit_per_cell_faces(
+            top_mask, bottom_mask, south_mask, north_mask, west_mask, east_mask, faces, face_cell
+        )
+        verts, triangles = _weld_and_triangulate(faces, face_cell, cx, cy, cz)
+    return verts, triangles
 
+
+def _coord_weld_subdivided(
+    faces: list[tuple[tuple[int, int, int], ...]],
+    subdiv: set[tuple[int, int, int]],
+    cx: np.ndarray,
+    cy: np.ndarray,
+    cz: np.ndarray,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Subdivide each merged rectangle's perimeter, weld by world position, triangulate.
+
+    Greedy meshing collapses coplanar same-body cell faces into maximal
+    rectangles whose edges no longer coincide whole-to-whole with their
+    neighbours, so the per-cell half-edge weld in :func:`_weld_and_triangulate`
+    (which pairs only equal undirected lattice edges) cannot stitch them.  The
+    T-junction-free greedy path (Strategy A) therefore subdivides each rectangle's
+    perimeter at every node of ``subdiv`` (the union of all rectangle corners) that
+    lands on it — so a perpendicular wall's corner on a merged edge becomes a
+    shared vertex — then welds by world POSITION: each lattice node ``(ni, nj, nk)``
+    has world coordinate ``(cx[ni], cy[nj], cz[nk])`` bit-identical across faces
+    meeting there, so a dict keyed by the exact float triple reproduces the shared
+    vertices.  Any residual four-triangle diagonal pinch is split by the caller.
+
+    Parameters
+    ----------
+    faces : list of tuple of (int, int, int)
+        The merged boundary rectangles, four lattice nodes each, outward-CCW.
+    subdiv : set of (int, int, int)
+        The global subdivision lattice nodes (every rectangle corner); see
+        :func:`~groundmodel.domain.services.voxel_litho.greedy_mesh.subdivision_nodes`.
+    cx, cy, cz : numpy.ndarray
+        Corner-coordinate arrays (length ``nx+1`` / ``ny+1`` / ``nz+1``).
+
+    Returns
+    -------
+    (list of (float, float, float), list of (int, int, int))
+        The position-welded vertices (first-touch order → deterministic) and the
+        outward-wound triangles of the subdivided fans.
+    """
+    vid_by_pos: dict[tuple[float, float, float], int] = {}
+    verts: list[tuple[float, float, float]] = []
+
+    def _vid(node: tuple[int, int, int]) -> int:
+        """Return the shared vertex id of a lattice node, creating it on first touch."""
+        ni, nj, nk = node
+        pos = (float(cx[ni]), float(cy[nj]), float(cz[nk]))
+        vid = vid_by_pos.get(pos)
+        if vid is None:
+            vid = len(verts)
+            verts.append(pos)
+            vid_by_pos[pos] = vid
+        return vid
+
+    triangles: list[tuple[int, int, int]] = []
+    for face in faces:
+        for tri in triangulate_subdivided_rect(face, subdiv):
+            a, b, c = (_vid(node) for node in tri)
+            triangles.append((a, b, c))
+    return verts, triangles
+
+
+def _emit_per_cell_faces(
+    top_mask: np.ndarray,
+    bottom_mask: np.ndarray,
+    south_mask: np.ndarray,
+    north_mask: np.ndarray,
+    west_mask: np.ndarray,
+    east_mask: np.ndarray,
+    faces: list[tuple[tuple[int, int, int], ...]],
+    face_cell: list[tuple[int, int, int]],
+) -> None:
+    """Append one outward-CCW quad per boundary voxel face (the un-merged baseline).
+
+    The un-greedy path: each ``True`` cell of every direction mask emits its own
+    quad.  Within each direction ``np.where`` yields C-order (raster-scan) indices,
+    so the order is deterministic.  Each face records its source cell ``(i, j, k)``
+    for the diagonal-touch weld (top/north/east faces sit on the ``+1`` corner, so
+    the cell is NOT the face's min corner — it is tracked explicitly).
+
+    Parameters
+    ----------
+    top_mask, bottom_mask, south_mask, north_mask, west_mask, east_mask : numpy.ndarray
+        The ``(nx, ny, nz)`` boolean boundary-face masks per direction.
+    faces, face_cell : list
+        Accumulators appended in place (parallel).
+    """
     ti, tj, tk = (a.tolist() for a in np.where(top_mask))
     for i, j, k in zip(ti, tj, tk):  # +z (top): outward +z, CCW from above.
         faces.append(((i, j, k + 1), (i + 1, j, k + 1), (i + 1, j + 1, k + 1), (i, j + 1, k + 1)))
@@ -192,8 +439,6 @@ def _build_body_mesh(
     for i, j, k in zip(ei, ej, ek):  # +x (east): outward +x.
         faces.append(((i + 1, j, k), (i + 1, j + 1, k), (i + 1, j + 1, k + 1), (i + 1, j, k + 1)))
         face_cell.append((i, j, k))
-
-    return _weld_and_triangulate(faces, face_cell, cx, cy, cz)
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +750,7 @@ def _directed(tri: tuple[int, int, int], a: int, b: int) -> bool:
     return (tri[0], tri[1]) == (a, b) or (tri[1], tri[2]) == (a, b) or (tri[2], tri[0]) == (a, b)
 
 
-def extract_body_solids(grid: LabelGrid) -> list[LithoBodyMesh]:
+def extract_body_solids(grid: LabelGrid, *, greedy: bool = True) -> list[LithoBodyMesh]:
     """Extract a watertight triangle mesh for every body in a labelled grid.
 
     For each body index (in stable / sorted index order, skipping the ``-1``
@@ -526,6 +771,12 @@ def extract_body_solids(grid: LabelGrid) -> list[LithoBodyMesh]:
         regular axes ``gx`` / ``gy`` / ``gz``, the dense ``labels`` array (body
         index or ``-1``), the ``body_id_by_index`` map, and the
         ``formation_by_body`` lookup.
+    greedy : bool, default True
+        When ``True`` (production default), greedy-merge coplanar same-body
+        boundary faces into maximal rectangles before welding — far fewer
+        triangles, same surface.  When ``False`` emit one quad per boundary voxel
+        face (the un-merged baseline), used only by the geometry-preservation
+        regression test to prove the merge moves no surface.
 
     Returns
     -------
@@ -534,11 +785,6 @@ def extract_body_solids(grid: LabelGrid) -> list[LithoBodyMesh]:
         mesh carries its ``body_id`` (from ``body_id_by_index``), ``formation_id``
         (from ``formation_by_body``), welded ``vertices``, outward-wound
         ``triangles``, and ``is_flagged=False`` (these are real solids).
-
-    Notes
-    -----
-    The triangle count is intentionally un-optimised (per-voxel-face quads);
-    greedy meshing to merge coplanar faces is a separate task.
     """
     # Corner-lattice coordinates shared by all bodies — computed once.
     cx = _corner_coords(grid.gx)
@@ -551,7 +797,7 @@ def extract_body_solids(grid: LabelGrid) -> list[LithoBodyMesh]:
         present = grid.labels == index
         if not present.any():
             continue  # this body index labels no voxel — skip it
-        vertices, triangles = _build_body_mesh(present, cx, cy, cz)
+        vertices, triangles = _build_body_mesh(present, cx, cy, cz, greedy=greedy)
         body_id = grid.body_id_by_index[index]
         meshes.append(
             LithoBodyMesh(
