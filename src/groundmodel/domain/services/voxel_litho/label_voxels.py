@@ -53,6 +53,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from groundmodel.domain.services.model_domain import ModelDomain
+from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -636,6 +637,8 @@ def label_voxels(
     sections: list[SectionPartitionInput],
     *,
     investigation_columns: tuple[InvestigationColumn, ...] = (),
+    geo_surfaces: tuple[SurfaceBound, ...] = (),
+    litho_snap_tolerance_m: float = 0.20,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -667,6 +670,13 @@ def label_voxels(
         ``(x, y)``); above / below the log the blend still fills the column.
         Defaults to ``()`` — the pure section-blend path, byte-identical to the
         behaviour before this parameter existed.
+    geo_surfaces : tuple of SurfaceBound, optional
+        The parent geological model's built band surfaces.  Task 3 implements the
+        band-scoped branch; accepted here so the use case can wire them.  The
+        default ``()`` keeps labelling byte-identical to the un-bounded path.
+    litho_snap_tolerance_m : float, default 0.20
+        Snap tolerance for the geology-bounded branch (Task 3).  Accepted here so
+        the use case can wire it; ignored until Task 3 fills in the behaviour.
 
     Returns
     -------
@@ -696,6 +706,11 @@ def label_voxels(
     """
     if grid_spacing_m <= 0.0:
         raise ValueError(f"grid_spacing_m must be positive; got {grid_spacing_m}")
+
+    # Task 3 implements the band-scoped branch; ``geo_surfaces`` +
+    # ``litho_snap_tolerance_m`` are accepted here so the use case can wire them,
+    # but the default ``()`` keeps this labelling byte-identical to today.
+    _ = (geo_surfaces, litho_snap_tolerance_m)
 
     # --- horizontal extent: the domain's alpha-hull bounding box -----------
     ring = np.asarray(domain.polygon, dtype=float)

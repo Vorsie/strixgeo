@@ -64,14 +64,18 @@ import struct
 from collections import defaultdict
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.assemble_strat_inputs import _digest_surfaces
 from groundmodel.application.litho_solid_persistence import (
     LithoSolidPersistenceMixin,
     LithoSolidsOutcome,
     storage_body_id,
 )
+from groundmodel.application.load_geo_surfaces import load_geo_surfaces
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
     build_domain_from_sections,
 )
@@ -81,13 +85,21 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     SectionPartitionInput,
 )
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
+from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
+
+# Default litho↔geology snap tolerance (metres) when the project view-state does
+# not configure one — mirrors ``AssembleStratInputs._GEO_SNAP_TOLERANCE_M`` and the
+# section editor's ``view_state.litho_segmenter.litho_snap_tolerance_m`` default.
+_DEFAULT_LITHO_SNAP_TOLERANCE_M: float = 0.20
 
 
 def _partition_checksum(
     sections: list[SectionPartitionInput],
     grid_spacing_m: float,
     investigation_columns: tuple[InvestigationColumn, ...] = (),
+    geo_surfaces: tuple[SurfaceBound, ...] = (),
 ) -> bytes:
     """Model-wide BLAKE2b-16 digest over the voxel build inputs.
 
@@ -108,7 +120,10 @@ def _partition_checksum(
       gap index + every polygon ``(fraction, elevation)`` point,
     * each honored investigation column's id + world position + observed
       intervals (so a pick change rebuilds — see
-      :func:`_investigation_columns_checksum`).
+      :func:`_investigation_columns_checksum`),
+    * the parent geological model's band-surface geometry digest (so a geo
+      rebuild that moves a band busts the voxel cache — see
+      :func:`~groundmodel.application.assemble_strat_inputs._digest_surfaces`).
 
     Parameters
     ----------
@@ -120,6 +135,11 @@ def _partition_checksum(
         The honored per-investigation observed columns (loaded from the DB
         picks); defaults to ``()`` (no honoring → digest unchanged from the
         section-only form for that case).
+    geo_surfaces : tuple of SurfaceBound, optional
+        The parent geological model's built band surfaces.  Folded in (via
+        ``_digest_surfaces``) after a domain-separator byte so a geo-surface
+        change forces a rebuild; defaults to ``()`` (un-bounded → digest
+        unchanged from the no-geo form, an empty digest appended).
 
     Returns
     -------
@@ -142,6 +162,10 @@ def _partition_checksum(
             for frac, elev in r.polygon:
                 h.update(struct.pack("<dd", frac, elev))
     _investigation_columns_checksum(h, investigation_columns)
+    # Domain-separator byte before the geo-surface digest so the surface block
+    # cannot collide with a trailing investigation-column block.
+    h.update(b"\x02")
+    h.update(_digest_surfaces(list(geo_surfaces)))
     return h.digest()
 
 
@@ -335,6 +359,27 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"{len(picks)} pick(s)"
         )
 
+        # --- Geo-bound the labelling by the parent geological model's bands ----
+        # The litho model is REFINED from a parent geological model; its band
+        # surfaces are HARD bounds (a litho body never crosses a geological
+        # boundary).  Load them so Task 3's band-scoped labelling can clip to
+        # them, and read the snap tolerance the section editor uses.  No parent
+        # model / no built surfaces → un-bounded build (the labeller's default).
+        parent_geo_model_id = await self._read_parent_geo_model_id(model_id)
+        geo_surfaces: tuple[SurfaceBound, ...] = ()
+        if parent_geo_model_id is not None:
+            geo_surfaces = await load_geo_surfaces(self._session, parent_geo_model_id, logger=self)
+        if not geo_surfaces:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — no parent geo model / "
+                "no built surfaces; building un-bounded"
+            )
+        snap_tol = await self._read_litho_snap_tolerance_m(model_id)
+        self.info(
+            f"BuildVoxelLithoModel: model={model_id} — {len(geo_surfaces)} geo "
+            f"surface(s), litho_snap_tolerance_m={snap_tol}"
+        )
+
         # --- Early checksum short-circuit (before the expensive Phase 2/3) ----
         # The digest covers the FULL section payload + grid spacing + the honored
         # investigation columns, and the pipeline is deterministic, so a digest
@@ -344,7 +389,9 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # (strat) digest, so the ``_digest_matches_all`` set/checksum check is
         # False → no early skip → the build proceeds and orphan-sweeps them in
         # Phase 5.
-        new_checksum = _partition_checksum(sections, grid_spacing_m, investigation_columns)
+        new_checksum = _partition_checksum(
+            sections, grid_spacing_m, investigation_columns, geo_surfaces
+        )
         existing_by_body = await self._load_existing(model_id)
         if (
             not force
@@ -376,6 +423,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 grid_spacing_m,
                 sections,
                 investigation_columns=investigation_columns,
+                geo_surfaces=geo_surfaces,
+                litho_snap_tolerance_m=snap_tol,
             )
         except ValueError as err:
             self.warning(
@@ -480,3 +529,56 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
         )
+
+    async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
+        """Read the lithostratigraphic model's parent geological model id.
+
+        Mirrors ``RecomputeLithoSolids._read_parent_geo_model_id``: a single
+        scalar SELECT of the self-FK column.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model id.
+
+        Returns
+        -------
+        UUID | None
+            The parent geological model id, or ``None`` when none is set.
+        """
+        stmt = select(GeologicalModelOrm.parent_geological_model_id).where(
+            GeologicalModelOrm.id == model_id
+        )
+        parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
+        return parent_id  # already a UUID | None (mapped column type)
+
+    async def _read_litho_snap_tolerance_m(self, model_id: UUID) -> float:
+        """Read the project's ``litho_snap_tolerance_m`` from its view-state.
+
+        The model's project owns the ``litho_segmenter`` view-state bag; the knob
+        is the litho↔geology snap tolerance the section editor defaults to (0.20
+        m).  Mirrors ``RecomputeLithoSolids._read_strat_grid_spacing_m``: get the
+        model → its project → read the JSON knob, guarding bad / non-positive
+        values back to the default.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model (to find its project).
+
+        Returns
+        -------
+        float
+            The configured snap tolerance, or the 0.20 m default.
+        """
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is None:
+            return _DEFAULT_LITHO_SNAP_TOLERANCE_M
+        project = await ProjectRepository(self._session).get_by_id(model.app_project_id)
+        view_state = project.view_state if project is not None else None
+        seg = (view_state or {}).get("litho_segmenter") or {}
+        try:
+            tol = float(seg.get("litho_snap_tolerance_m", _DEFAULT_LITHO_SNAP_TOLERANCE_M))
+            return tol if tol > 0 else _DEFAULT_LITHO_SNAP_TOLERANCE_M
+        except (TypeError, ValueError):
+            return _DEFAULT_LITHO_SNAP_TOLERANCE_M
