@@ -47,6 +47,31 @@ __all__ = ["LithoSolidsOutcome", "storage_body_id", "LithoSolidPersistenceMixin"
 
 
 @dataclass(frozen=True)
+class _SolidMeta:
+    """The three ``litho_body_solid`` columns the cache-validity helpers read.
+
+    ``_load_existing`` returns these instead of full ORM rows so the cache-skip
+    / orphan-sweep path never deserialises the large JSONB ``vertices`` /
+    ``triangles`` blobs (4.7 M+ verts on ``test.strix``) just to read a
+    checksum.  ``_digest_matches_all`` reads ``source_pick_checksum`` +
+    ``is_stale``; ``_delete_orphans`` reads only the dict KEY (``body_id``).
+
+    Attributes
+    ----------
+    body_id : str
+        The stored ``body_id`` as a string (the dict key in ``_load_existing``).
+    source_pick_checksum : bytes
+        The model-level digest stamped on the row.
+    is_stale : bool
+        Whether the row was marked stale (forces a rebuild).
+    """
+
+    body_id: str
+    source_pick_checksum: bytes
+    is_stale: bool
+
+
+@dataclass(frozen=True)
 class LithoSolidsOutcome:
     """Summary of one litho-solid (re)build pass.
 
@@ -126,8 +151,10 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
     # concrete use case binds it in ``__init__``.
     _session: AsyncSession
 
-    # ``method`` column value written on every row.  Subclasses override.
-    _solid_method: str = "tin"
+    # ``method`` column value written on every row.  Subclasses MUST override
+    # (asserted in ``_mesh_rows``); the empty default guards a future subclass
+    # that forgets to set it from silently writing a wrong / retired method.
+    _solid_method: str = ""
 
     # Maximum rows per VALUES clause in a batched upsert.  Each row carries
     # JSONB ``vertices`` + ``triangles`` that can be large; keeping the chunk
@@ -156,6 +183,7 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
         list[dict[str, Any]]
             Value dicts ready for :meth:`_batch_upsert`.
         """
+        assert self._solid_method, f"{type(self).__name__} must set _solid_method"
         return [
             dict(
                 id=uuid7(),
@@ -233,8 +261,15 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
             await self._session.execute(stmt)
         return len(chunks)
 
-    async def _load_existing(self, model_id: UUID) -> dict[str, LithoBodySolidOrm]:
-        """Load the model's stored solid rows keyed by ``str(body_id)``.
+    async def _load_existing(self, model_id: UUID) -> dict[str, _SolidMeta]:
+        """Load the model's stored solid metadata keyed by ``str(body_id)``.
+
+        Projects ONLY the three columns the cache-validity helpers read
+        (``body_id``, ``source_pick_checksum``, ``is_stale``) into a lightweight
+        :class:`_SolidMeta` — it does NOT select the large JSONB ``vertices`` /
+        ``triangles`` blobs.  On ``test.strix`` a full-row ``SELECT *`` here
+        deserialised ~4.7 M vertices on every build just to compare a checksum;
+        the column projection avoids that entirely.
 
         Loads EVERY row for the model, NOT just rows matching ``_solid_method``.
         This is deliberate: a model has exactly one active builder at a time, and
@@ -258,23 +293,28 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
 
         Returns
         -------
-        dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
+        dict[str, _SolidMeta]
+            Stored row metadata keyed by ``str(body_id)``.
         """
+        result = await self._session.execute(
+            select(
+                LithoBodySolidOrm.body_id,
+                LithoBodySolidOrm.source_pick_checksum,
+                LithoBodySolidOrm.is_stale,
+            ).where(LithoBodySolidOrm.model_id == model_id)
+        )
         return {
-            str(row.body_id): row
-            for row in (
-                await self._session.execute(
-                    select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
-                )
+            str(body_id): _SolidMeta(
+                body_id=str(body_id),
+                source_pick_checksum=source_pick_checksum,
+                is_stale=is_stale,
             )
-            .scalars()
-            .all()
+            for body_id, source_pick_checksum, is_stale in result.all()
         }
 
     def _digest_matches_all(
         self,
-        existing_by_body: dict[str, LithoBodySolidOrm],
+        existing_by_body: dict[str, _SolidMeta],
         wanted_storage_ids: set[str],
         new_checksum: bytes,
     ) -> bool:
@@ -285,8 +325,8 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
 
         Parameters
         ----------
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
+        existing_by_body : dict[str, _SolidMeta]
+            Stored row metadata keyed by ``str(body_id)``.
         wanted_storage_ids : set[str]
             The storage body ids this build wants to write.
         new_checksum : bytes
@@ -306,17 +346,20 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
     async def _delete_orphans(
         self,
         model_id: UUID,
-        existing_by_body: dict[str, LithoBodySolidOrm],
+        existing_by_body: dict[str, _SolidMeta],
         wanted_storage_ids: set[str],
     ) -> int:
         """Delete stored rows whose body is no longer built.
+
+        Only the dict KEYS (``str(body_id)``) are read here, so the lightweight
+        :class:`_SolidMeta` values carry everything this method needs.
 
         Parameters
         ----------
         model_id : UUID
             The model scope.
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
+        existing_by_body : dict[str, _SolidMeta]
+            Stored row metadata keyed by ``str(body_id)``.
         wanted_storage_ids : set[str]
             The storage body ids this build wrote.
 
