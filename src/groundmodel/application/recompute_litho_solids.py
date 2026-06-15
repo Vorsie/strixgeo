@@ -76,7 +76,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from sqlalchemy import CursorResult, delete, select, text
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -981,9 +981,8 @@ class RecomputeLithoSolids(GroundModelLogger):
         UUID | None
             The parent geological model id, or ``None`` when none is set.
         """
-        row = await self._session.execute(
-            text("SELECT parent_geological_model_id FROM geological_model WHERE id = :mid"),
-            {"mid": str(model_id)},
+        stmt = select(GeologicalModelOrm.parent_geological_model_id).where(
+            GeologicalModelOrm.id == model_id
         )
-        parent_id = row.scalar_one_or_none()
-        return UUID(str(parent_id)) if parent_id is not None else None
+        parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
+        return parent_id  # already a UUID | None (mapped column type)

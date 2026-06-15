@@ -33,6 +33,7 @@ Run via the wrapper:
 
 from __future__ import annotations
 
+import hashlib
 from uuid import UUID
 
 import pytest
@@ -839,8 +840,6 @@ def _flat_surface_orm(
         [x_min, y_max, elev_m],
     ]
     tris = [[0, 1, 2], [0, 2, 3]]
-    import hashlib
-
     chk = hashlib.blake2b(str(elev_m).encode(), digest_size=16).digest()
     return FormationSurfaceOrm(
         id=uuid7(),

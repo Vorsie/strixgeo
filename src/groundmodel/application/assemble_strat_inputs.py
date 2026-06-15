@@ -271,12 +271,17 @@ def _digest_surfaces(surfaces: list[SurfaceBound]) -> bytes:
     h = hashlib.blake2b(digest_size=16)
 
     # Sort surfaces by their vertex centroid for determinism across DB load orders.
-    def _surface_sort_key(s: SurfaceBound) -> tuple[float, float]:
+    # The Z centroid is the third key so two flat surfaces tiling the SAME hull
+    # (identical XY centroid) but at different elevations sort deterministically —
+    # without it the sort falls back to DB load order and the digest can drift
+    # across runs with no data change (false checksum-skip / false-rebuild).
+    def _surface_sort_key(s: SurfaceBound) -> tuple[float, float, float]:
         if not s.vertices:
-            return (0.0, 0.0)
+            return (0.0, 0.0, 0.0)
         return (
             sum(v[0] for v in s.vertices) / len(s.vertices),
             sum(v[1] for v in s.vertices) / len(s.vertices),
+            sum(v[2] for v in s.vertices) / len(s.vertices),
         )
 
     for s in sorted(surfaces, key=_surface_sort_key):
