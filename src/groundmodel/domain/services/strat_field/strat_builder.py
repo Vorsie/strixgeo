@@ -224,6 +224,20 @@ def build_strat_model_per_band(
         Propagated from ``fit_potential_field`` when a band's control data has
         no control points.
     """
+    # WHY: the watertight cross-band seam (band k's base == band k+1's top) holds
+    # ONLY because every band is built over the SAME grid, which requires the SAME
+    # block polygon (``build_shared_grid`` derives gx/gy from the polygon's bbox).
+    # A Task-8 wiring bug that handed each band a per-band-filtered alpha hull would
+    # silently gap the seam — the exact failure class that killed the loft builder.
+    # Reject it loudly here rather than emitting a quietly non-watertight model.
+    if len(bands) > 1:
+        polygons = {band["block"].polygon for band in bands}
+        if len(polygons) > 1:
+            raise ValueError(
+                f"all band polygons must be identical for a watertight seam "
+                f"({len(polygons)} distinct polygons found)"
+            )
+
     all_bodies: list[LithoBodyMesh] = []
 
     for band in bands:

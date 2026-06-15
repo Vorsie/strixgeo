@@ -26,6 +26,7 @@ from the loft builder: layer-cake-only testing hides the real bugs.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from groundmodel.domain.services.strat_field.body_assembly import (
     assemble_bodies,
@@ -270,9 +271,10 @@ def test_surface_cap_base_replaces_flat_zmin() -> None:
     klei_bodies = [b for b in bodies_a if b.formation_id == "KLEI"]
     assert klei_bodies, "KLEI body (base band-A unit) must be emitted"
 
+    gx, gy, _ = build_shared_grid(block_a, _SPACING_M)
     any_hit = False
-    for xi in build_shared_grid(block_a, _SPACING_M)[0][1:-1]:
-        for yj in build_shared_grid(block_a, _SPACING_M)[1][1:-1]:
+    for xi in gx[1:-1]:
+        for yj in gy[1:-1]:
             geo_z = geo.evaluate(float(xi), float(yj))
             for b in klei_bodies:
                 ivs = vertical_ray_intervals(b.vertices, b.triangles, float(xi), float(yj))
@@ -450,6 +452,12 @@ def test_interior_horizon_clamped_to_band_caps() -> None:
 
     field = _FieldAboveCap()
     bodies = assemble_bodies(field, col_b, block_b, _SPACING_M)
+
+    # The clamp collapses the SILT band to (near) zero thickness — the most
+    # adversarial cap path — so the surviving bodies must STILL each be a closed
+    # 2-manifold (a degenerate / open mesh from the collapse would fire here).
+    for b in bodies:
+        assert_closed_manifold(b.vertices, b.triangles)
 
     # With clamping: the band is still valid (if the iso crossing is above the top
     # cap, the contact is clamped to the cap, yielding a zero-thickness or absent
@@ -705,6 +713,185 @@ def test_per_band_loop_model_matches_columns() -> None:
     ]
     bodies = build_strat_model_per_band(bands, grid_spacing_m=_SPACING_M)
     assert_model_matches_columns(bodies, fix["authored_columns"], tol_m=1.5)
+
+
+# ---------------------------------------------------------------------------
+# Test 7b: per-band loop carves an enclosed lens in the LOWER band
+# ---------------------------------------------------------------------------
+
+
+def test_per_band_loop_carves_lens_in_lower_band() -> None:
+    """A genuine enclosed lens carried via lens_inputs is built within its band.
+
+    The lower band B carries a SILT lens strictly interior to its LEEM host.
+    This exercises the ``if lens_inputs:`` branch of build_strat_model_per_band —
+    the assemble_bodies_with_fields + carve_lenses path Task 8 relies on for the 6
+    real lenses on test.strix — which the all-``[]`` per-band tests never touch.
+
+    The lens surfaces are authored over the shared grid as a thin slab placed in
+    the MIDDLE THIRD of the LEEM host's OWN reconstructed thickness at each
+    footprint node (mirroring how Task-5 wiring authors a lens from real picks
+    that genuinely sit inside the host — robust to the band-B RBF field's dip
+    rather than a hand-picked flat elevation that the field would not honour).
+    Its host is resolved by lithology + vertical containment (the host_body_id is
+    a resolver-shaped string that is NOT a matrix mesh key — mirroring how the
+    application wiring names the host).
+
+    Asserts: the lens body (``lens:`` id) is present, every body is a closed
+    manifold, STRICT no-overlap across all bands (incl. the seam AND the carved
+    lens), and a column through the lens reads LEEM / SILT / LEEM (host / lens /
+    host) inside the lower band.
+    """
+    from groundmodel.domain.services.strat_field.body_assembly import (
+        assemble_bodies_with_fields,
+    )
+    from groundmodel.domain.services.strat_field.lens_carving import LensCarveInput
+    from groundmodel.domain.services.strat_field.potential_field import fit_potential_field
+    from groundmodel.domain.services.strat_field.strat_builder import (
+        build_strat_model_per_band,
+    )
+
+    fix = _two_band_control_fixture()
+
+    # The lens lives over the SHARED build grid — the same grid both bands are
+    # assembled on (same polygon → same gx/gy), so the lens prism welds to its host.
+    gx, gy, _ = build_shared_grid(fix["block_b"], _SPACING_M)
+    nx, ny = len(gx), len(gy)
+
+    # Reconstruct band B's LEEM host height field so the lens can be authored
+    # strictly inside it at every footprint node (the field dips, so a flat lens
+    # elevation would poke out of the host).  Find the LEEM body's (top, base).
+    field_b = fit_potential_field(fix["band_b_control"], [fix["block_b"]])
+    _meshes_b, fields_b = assemble_bodies_with_fields(
+        field_b, fix["band_b_control"].column, fix["block_b"], _SPACING_M
+    )
+    leem_id = next(m.body_id for m in _meshes_b if m.formation_id == "LEEM")
+    leem_top, leem_base = fields_b[leem_id]
+
+    # Central footprint, well inside the domain so LEEM surrounds it laterally.
+    lens_x_lo = _X0 + 120.0
+    lens_x_hi = _X1 - 120.0
+    lens_y_lo = _Y0 + 120.0
+    lens_y_hi = _Y1 - 120.0
+    footprint = np.zeros((nx, ny), dtype=bool)
+    for i in range(nx):
+        for j in range(ny):
+            in_box = lens_x_lo <= gx[i] <= lens_x_hi and lens_y_lo <= gy[j] <= lens_y_hi
+            # Only place the lens where the LEEM host is actually present.
+            if in_box and not np.isnan(leem_top[i, j]):
+                footprint[i, j] = True
+    assert footprint.any(), "lens footprint must cover at least one present LEEM node"
+
+    # Lens slab = the middle third of LEEM's local thickness (strictly interior).
+    z_top = np.full((nx, ny), np.nan)
+    z_base = np.full((nx, ny), np.nan)
+    thickness = leem_top - leem_base
+    z_top[footprint] = leem_base[footprint] + thickness[footprint] * (2.0 / 3.0)
+    z_base[footprint] = leem_base[footprint] + thickness[footprint] * (1.0 / 3.0)
+
+    lens = LensCarveInput(
+        # A resolver-shaped id that is NOT a matrix mesh key → geometric host
+        # resolution (lithology + vertical containment), matching the app wiring.
+        host_body_id="resolver-uuid-not-a-mesh-key",
+        host_formation_id="LEEM",  # the LEEM band brackets the lens in band B
+        lens_body_id="silt-lens-in-leem-0001",
+        lens_formation_id="SILT",
+        z_top=z_top,
+        z_base=z_base,
+        footprint=footprint,
+        nesting_depth=1,
+    )
+
+    bands = [
+        {"control": fix["band_a_control"], "block": fix["block_a"], "lens_inputs": []},
+        {
+            "control": fix["band_b_control"],
+            "block": fix["block_b"],
+            "lens_inputs": [lens],
+        },
+    ]
+    bodies = build_strat_model_per_band(bands, grid_spacing_m=_SPACING_M)
+
+    # The carved lens body is present (its emitted id carries the ``lens:`` scheme).
+    lens_bodies = [b for b in bodies if b.body_id.startswith("lens:")]
+    assert lens_bodies, "the enclosed lens body (lens: id) must be emitted"
+    assert any(b.formation_id == "SILT" for b in lens_bodies), "lens lithology must be SILT"
+
+    # Every body — matrix bands, carved host pieces, and the lens — is closed.
+    for b in bodies:
+        assert b.is_flagged is False
+        assert_closed_manifold(b.vertices, b.triangles)
+
+    # STRICT no-overlap across all bands incl. the seam and the carved lens.
+    assert_no_overlap_sampled(bodies, fix["samples"])
+
+    # A column through the lens centre reads LEEM / SILT / LEEM (host / lens /
+    # host) within the lower band.  Ray-cast the column directly and verify the
+    # SILT lens interval sits strictly BETWEEN two LEEM (host) intervals — the
+    # vertical-enclosure invariant — at the chosen footprint node.  (A full-stack
+    # column diff is avoided here: it would also have to author band A's six units
+    # at this (x, y) from band A's separate field; the local host/lens/host
+    # enclosure is the property this test exists to pin.)
+    ci = next(i for i in range(nx) if lens_x_lo <= gx[i] <= lens_x_hi and footprint[i].any())
+    cj = next(j for j in range(ny) if footprint[ci, j])
+    cx, cy = float(gx[ci]), float(gy[cj])
+    silt_iv = [
+        iv for b in lens_bodies for iv in vertical_ray_intervals(b.vertices, b.triangles, cx, cy)
+    ]
+    assert len(silt_iv) == 1, f"expected one SILT lens interval at the column, got {silt_iv}"
+    lens_base_elev, lens_top_elev = silt_iv[0]
+    leem_ivs = [
+        iv
+        for b in bodies
+        if b.formation_id == "LEEM"
+        for iv in vertical_ray_intervals(b.vertices, b.triangles, cx, cy)
+    ]
+    # A LEEM host piece must sit directly ABOVE the lens (its base == lens top) and
+    # another directly BELOW (its top == lens base): host / lens / host enclosure.
+    above = [iv for iv in leem_ivs if abs(iv[0] - lens_top_elev) <= 1.5]
+    below = [iv for iv in leem_ivs if abs(iv[1] - lens_base_elev) <= 1.5]
+    assert above, f"no LEEM host piece directly above the lens (LEEM ivs: {leem_ivs})"
+    assert below, f"no LEEM host piece directly below the lens (LEEM ivs: {leem_ivs})"
+
+
+# ---------------------------------------------------------------------------
+# Test 7c: polygon-equality guard protects the watertight seam
+# ---------------------------------------------------------------------------
+
+
+def test_per_band_loop_rejects_mismatched_band_polygons() -> None:
+    """build_strat_model_per_band raises when two bands carry different polygons.
+
+    The watertight seam REQUIRES all bands to share the SAME grid, which requires
+    the SAME block.polygon.  A Task-8 wiring bug that handed each band a
+    per-band-filtered alpha hull would silently GAP the seam (the exact class that
+    killed the loft builder).  The guard must catch a mismatched hull loudly.
+    """
+    from groundmodel.domain.services.strat_field.strat_builder import (
+        build_strat_model_per_band,
+    )
+
+    fix = _two_band_control_fixture()
+
+    # Band B gets a DIFFERENT (shrunk) polygon — a stand-in for a per-band-filtered
+    # alpha hull.  Same surfaces, same control, only the polygon diverges.
+    block_b = fix["block_b"]
+    shrunk_poly = ((_X0, _Y0), (_X1 - 50.0, _Y0), (_X1 - 50.0, _Y1), (_X0, _Y1))
+    mismatched_block_b = Block(
+        polygon=shrunk_poly,
+        z_min=block_b.z_min,
+        z_max=block_b.z_max,
+        top_surface=block_b.top_surface,
+        base_surface=block_b.base_surface,
+    )
+
+    bands = [
+        {"control": fix["band_a_control"], "block": fix["block_a"], "lens_inputs": []},
+        {"control": fix["band_b_control"], "block": mismatched_block_b, "lens_inputs": []},
+    ]
+
+    with pytest.raises(ValueError, match="band polygons must be identical"):
+        build_strat_model_per_band(bands, grid_spacing_m=_SPACING_M)
 
 
 # ---------------------------------------------------------------------------
