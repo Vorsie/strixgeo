@@ -29,6 +29,7 @@ import numpy as np
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
 from groundmodel.domain.services.voxel_litho.voxel_types import (
+    InvestigationColumn,
     RegionInput,
     SectionColumnInput,
     SectionPartitionInput,
@@ -273,3 +274,125 @@ def test_matched_body_blends_thickness_to_an_in_between_value_at_the_midline():
     # ... and the matched-body blend lands the midline thickness strictly
     # between the two sections (the conformable-interfingering behaviour).
     assert klei_on_d < klei_at_midline < klei_on_c
+
+
+# ---------------------------------------------------------------------------
+# Honor-borehole: an investigation's OWN observed log overrides the blend at
+# its true map location (within its logged depth range), falls back to the
+# section blend above/below the log so the column stays filled.
+# ---------------------------------------------------------------------------
+
+
+def _section_klei_all(y: float, id_prefix: str) -> SectionPartitionInput:
+    """A single KLEI body filling the whole +10 → -10 column, on the line at ``y``.
+
+    Used as the surrounding section context so the between-section blend reads
+    KLEI everywhere — the disagreeing background a borehole's own ZAND-on-top
+    log must override at its true location.  The KLEI body carries the SAME
+    ``body_id`` ('kleiAll') on both sections so it MATCHES across them and fills
+    the equidistance midline (a one-sided body would pinch to zero there).
+    """
+    columns = (
+        SectionColumnInput(f"{id_prefix}0", along_m=0.0, world_x=0.0, world_y=y),
+        SectionColumnInput(f"{id_prefix}1", along_m=80.0, world_x=80.0, world_y=y),
+    )
+    regions = (
+        RegionInput(_KLEI, "kleiAll", ((0.0, 10.0), (1.0, 10.0), (1.0, -10.0), (0.0, -10.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=y, end_x=80.0, end_y=y, columns=columns, regions=regions
+    )
+
+
+def test_honored_column_reproduces_its_own_log_then_falls_back_below():
+    """At a borehole's location the model reads its OWN log on top, blend below.
+
+    The surrounding sections (y=0 and y=40, KLEI top→down) make the between-
+    section blend read KLEI everywhere — so without honoring, a column at the
+    borehole's true location (the midline y=20) would be KLEI all the way down.
+    The borehole's OWN log is ZAND from surface (+10) down to 0 m, observed
+    only over [+10, 0].  Honoring it must reproduce ZAND on top within that
+    logged range, then fall back to the section blend (KLEI) BELOW the log —
+    so the column reads ZAND / KLEI top→down and stays filled to the base
+    (no hole below the log).
+    """
+    domain = _domain_for_two_sections()
+    # The borehole sits at the equidistance midline of the two KLEI sections,
+    # where (without honoring) the blend is pure KLEI top→down.
+    bh = InvestigationColumn(
+        investigation_id="BH-zand-on-top",
+        world_x=40.0,
+        world_y=20.0,
+        # observed ZAND from +10 down to 0; nothing logged below 0.
+        intervals=(("bodyZand", _SAND, 10.0, 0.0),),
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        [_section_klei_all(0.0, "P"), _section_klei_all(40.0, "Q")],
+        investigation_columns=(bh,),
+    )
+
+    # At the borehole's true (x, y): ZAND on top (its own log), KLEI below
+    # (the section blend filling past the log's bottom).
+    seq = _vertical_formation_sequence(grid, x=40.0, y=20.0)
+    assert seq == [_SAND, _KLEI]
+
+    # The ZAND is present only within the logged range — a non-trivial slab.
+    assert _sand_thickness(grid, x=40.0, y=20.0) > 6.0
+
+
+def test_shallow_honored_log_does_not_punch_a_hole_below_it():
+    """A SHALLOW borehole log keeps the column filled below via the blend.
+
+    The borehole logs only the top 4 m (ZAND from +10 to +6); everything below
+    +6 is unlogged.  Honoring must NOT truncate the column at +6 — below the
+    log the section blend (KLEI down to -10) still fills it.  So the column is
+    continuous from the surface to the global base with no void gap below the
+    shallow log.
+    """
+    domain = _domain_for_two_sections()
+    bh = InvestigationColumn(
+        investigation_id="BH-shallow",
+        world_x=40.0,
+        world_y=20.0,
+        intervals=(("bodyZandShallow", _SAND, 10.0, 6.0),),
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        [_section_klei_all(0.0, "P"), _section_klei_all(40.0, "Q")],
+        investigation_columns=(bh,),
+    )
+
+    # Walk the honored column: it must be filled (non-void) at every elevation
+    # from the surface down to the global base — a shallow log creates no hole.
+    i = int(np.argmin(np.abs(grid.gx - 40.0)))
+    j = int(np.argmin(np.abs(grid.gy - 20.0)))
+    column = grid.labels[i, j, :]
+    filled = column[column >= 0]
+    # The fill spans the full envelope: at least as many filled voxels as the
+    # surrounding pure-KLEI column at the same place would have had.
+    assert filled.size >= 9  # ~20 m / 2 m grid, minus the open-top voxel
+
+    # And the sequence is ZAND (the shallow log) over KLEI (the blend below).
+    seq = _vertical_formation_sequence(grid, x=40.0, y=20.0)
+    assert seq == [_SAND, _KLEI]
+
+
+def test_no_investigation_columns_keeps_the_section_blend_unchanged():
+    """The default (no honored columns) is byte-identical to the blend path.
+
+    Passing no ``investigation_columns`` must leave the labelling exactly as
+    the section-blend path produced it — the honor-borehole override is purely
+    additive.  Same two-section KLEI/SAND-lens fixture as the lens test, with
+    and without the (empty) keyword, must yield the identical label array.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_a(), _section_b()]
+
+    grid_default = label_voxels(domain, 2.0, sections)
+    grid_empty = label_voxels(domain, 2.0, sections, investigation_columns=())
+
+    assert np.array_equal(grid_default.labels, grid_empty.labels)
+    assert grid_default.body_id_by_index == grid_empty.body_id_by_index
