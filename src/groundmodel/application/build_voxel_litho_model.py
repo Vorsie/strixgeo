@@ -30,13 +30,27 @@ formation / body / polygon / gap + every column's world position) plus the grid
 spacing.  When the digest matches every stored row AND ``force`` is False the
 whole rebuild is skipped.  The on-click Build passes ``force=True``.
 
+Honor-borehole
+--------------
+The section blend at an investigation's TRUE map ``(x, y)`` can disagree with
+the investigation's own observed log, because a borehole feeds a section at its
+PROJECTED foot on the section line — usually metres off its true position.  So
+this use case ALSO loads the model's resolved picks
+(:meth:`LithoLayerRepository.load_body_picks`) and builds one
+:class:`~groundmodel.domain.services.voxel_litho.voxel_types.InvestigationColumn`
+per investigation; ``label_voxels`` then labels each investigation's own grid
+column from its OWN log within its observed depth range (the section blend still
+fills above the log's top / below its base, so a shallow log punches no hole).
+The picks' ``body_id`` is the resolved value, so the honored voxels group with
+the matching section-partition bodies.
+
 What this use case deliberately does NOT do
 ------------------------------------------
 * It does NOT run ``ResolveLithoInstances`` (unlike ``RecomputeLithoSolids``):
-  the payload's ``body_id`` values ALREADY reflect the resolved frontend state,
-  so re-resolving could desync the 3-D model from the 2-D partition the user
-  validated.  The frontend is the single source of body identity here.
-* It does NOT load picks for the build — the partition payload is the truth.
+  the payload's ``body_id`` values — and the picks' ``body_id`` (which
+  ``load_body_picks`` reflects from the resolver) — ALREADY reflect the resolved
+  state, so re-resolving could desync the 3-D model from the 2-D partition the
+  user validated.  The frontend is the single source of body identity here.
 
 Domain-layer purity is preserved: the API converts its Pydantic request into the
 frozen domain value objects (``SectionPartitionInput``) before calling
@@ -47,6 +61,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+from collections import defaultdict
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,31 +71,44 @@ from groundmodel.application.litho_solid_persistence import (
     LithoSolidsOutcome,
     storage_body_id,
 )
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
     build_domain_from_sections,
 )
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
-from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
+from groundmodel.domain.services.voxel_litho.voxel_types import (
+    InvestigationColumn,
+    SectionPartitionInput,
+)
+from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 
 
-def _partition_checksum(sections: list[SectionPartitionInput], grid_spacing_m: float) -> bytes:
-    """Model-wide BLAKE2b-16 digest over the voxel partition payload + grid spacing.
+def _partition_checksum(
+    sections: list[SectionPartitionInput],
+    grid_spacing_m: float,
+    investigation_columns: tuple[InvestigationColumn, ...] = (),
+) -> bytes:
+    """Model-wide BLAKE2b-16 digest over the voxel build inputs.
 
     The voxel build is a single global labelling of the grid, so the digest is
     model-level (not per-body): any change to a region's lithology / body /
-    polygon, a column's world position, the section line, or the grid spacing
-    moves the labelling and must bust the cache.
+    polygon, a column's world position, the section line, the grid spacing, OR
+    a honored investigation's observed log moves the labelling and must bust the
+    cache.
 
     The digest folds in, deterministically (sections in payload order, regions
     and columns in their payload order — both are stable for an unchanged
-    payload):
+    payload; investigation columns pre-sorted by ``investigation_id``):
 
     * the grid spacing,
     * each section's line endpoints,
     * each column's investigation id + world position,
     * each region's formation id + body id (the empty string for ``None``) +
-      gap index + every polygon ``(fraction, elevation)`` point.
+      gap index + every polygon ``(fraction, elevation)`` point,
+    * each honored investigation column's id + world position + observed
+      intervals (so a pick change rebuilds — see
+      :func:`_investigation_columns_checksum`).
 
     Parameters
     ----------
@@ -88,6 +116,10 @@ def _partition_checksum(sections: list[SectionPartitionInput], grid_spacing_m: f
         The section partitions (the build payload).
     grid_spacing_m : float
         The voxel grid spacing.
+    investigation_columns : tuple of InvestigationColumn, optional
+        The honored per-investigation observed columns (loaded from the DB
+        picks); defaults to ``()`` (no honoring → digest unchanged from the
+        section-only form for that case).
 
     Returns
     -------
@@ -109,7 +141,93 @@ def _partition_checksum(sections: list[SectionPartitionInput], grid_spacing_m: f
             h.update(struct.pack("<i", r.gap_index))
             for frac, elev in r.polygon:
                 h.update(struct.pack("<dd", frac, elev))
+    _investigation_columns_checksum(h, investigation_columns)
     return h.digest()
+
+
+def _investigation_columns_from_picks(
+    picks: list[BodyLayerPick],
+) -> tuple[InvestigationColumn, ...]:
+    """Group body-assigned picks into per-investigation observed columns.
+
+    Each pick is one member-layer at one investigation; grouped by
+    ``investigation_id``, converted from depth to absolute elevation
+    (``elevation = surface_elev_m - depth_m``), and ordered top → bottom.  The
+    pick's ``body_id`` is the resolver-assigned identity (``load_body_picks``
+    reflects the resolver), so the honored voxels group with the matching
+    section-partition bodies in the mesher.
+
+    Parameters
+    ----------
+    picks : list of BodyLayerPick
+        Accepted body-assigned picks from
+        :meth:`LithoLayerRepository.load_body_picks`.
+
+    Returns
+    -------
+    tuple of InvestigationColumn
+        One column per investigation, ordered by ``investigation_id`` for a
+        deterministic checksum, intervals ordered top → bottom.
+    """
+    by_inv: dict[str, list[BodyLayerPick]] = defaultdict(list)
+    for p in picks:
+        by_inv[p.investigation_id].append(p)
+
+    columns: list[InvestigationColumn] = []
+    for inv_id in sorted(by_inv):
+        inv_picks = by_inv[inv_id]
+        # Surface + world position are per-investigation constants on every pick.
+        first = inv_picks[0]
+        intervals = tuple(
+            sorted(
+                (
+                    (
+                        p.body_id,
+                        p.formation_id,
+                        p.surface_elev_m - p.top_depth_m,
+                        p.surface_elev_m - p.base_depth_m,
+                    )
+                    for p in inv_picks
+                ),
+                key=lambda iv: -iv[2],  # descending top elevation = top → bottom
+            )
+        )
+        columns.append(
+            InvestigationColumn(
+                investigation_id=inv_id,
+                world_x=first.x_m,
+                world_y=first.y_m,
+                intervals=intervals,
+            )
+        )
+    return tuple(columns)
+
+
+def _investigation_columns_checksum(
+    h: hashlib.blake2b, columns: tuple[InvestigationColumn, ...]
+) -> None:
+    """Fold the honored investigation columns into an open BLAKE2b digest.
+
+    A pick change (a moved contact, a re-assigned body, an added / removed
+    layer) must bust the model cache so the on-open / force=false path rebuilds.
+    Columns arrive already sorted by ``investigation_id`` (deterministic order);
+    each interval is folded in its top → bottom order.
+
+    Parameters
+    ----------
+    h : hashlib.blake2b
+        The open digest being accumulated (mutated in place).
+    columns : tuple of InvestigationColumn
+        The honored investigation columns to fold in.
+    """
+    for c in columns:
+        h.update(b"\x01")  # domain separator between sections + columns
+        h.update(c.investigation_id.encode("utf-8"))
+        h.update(struct.pack("<dd", c.world_x, c.world_y))
+        for body_id, formation_id, top, base in c.intervals:
+            h.update(body_id.encode("utf-8"))
+            h.update(formation_id.encode("utf-8"))
+            h.update(struct.pack("<dd", top, base))
 
 
 class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
@@ -202,15 +320,31 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"{len(domain.polygon)}-vertex hull"
         )
 
+        # --- Honor each investigation's OWN observed log at its true location --
+        # The section blend at a borehole's true (x, y) can disagree with the
+        # borehole's own log (it feeds a section at its projected foot, not its
+        # true map position).  Load the resolved DB picks and build the per-
+        # investigation observed columns so ``label_voxels`` labels those columns
+        # from the log itself (within its observed depth range).  ``load_body_picks``
+        # already reflects the resolver, so we do NOT run ResolveLithoInstances.
+        picks = await LithoLayerRepository(self._session).load_body_picks(model_id)
+        investigation_columns = _investigation_columns_from_picks(picks)
+        self.info(
+            f"BuildVoxelLithoModel: model={model_id} — honoring "
+            f"{len(investigation_columns)} investigation column(s) from "
+            f"{len(picks)} pick(s)"
+        )
+
         # --- Early checksum short-circuit (before the expensive Phase 2/3) ----
-        # The digest covers the FULL section payload + grid spacing and the
-        # pipeline is deterministic, so a digest match ⟹ identical body set —
-        # the same reasoning the strat builder relies on.  Skip labelling +
-        # extraction entirely when nothing changed.  ``_load_existing`` is
-        # cross-method: stale strat rows carry a different (strat) digest, so the
-        # ``_digest_matches_all`` set/checksum check is False → no early skip →
-        # the build proceeds and orphan-sweeps them in Phase 5.
-        new_checksum = _partition_checksum(sections, grid_spacing_m)
+        # The digest covers the FULL section payload + grid spacing + the honored
+        # investigation columns, and the pipeline is deterministic, so a digest
+        # match ⟹ identical body set — the same reasoning the strat builder
+        # relies on.  Skip labelling + extraction entirely when nothing changed.
+        # ``_load_existing`` is cross-method: stale strat rows carry a different
+        # (strat) digest, so the ``_digest_matches_all`` set/checksum check is
+        # False → no early skip → the build proceeds and orphan-sweeps them in
+        # Phase 5.
+        new_checksum = _partition_checksum(sections, grid_spacing_m, investigation_columns)
         existing_by_body = await self._load_existing(model_id)
         if (
             not force
@@ -237,7 +371,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
 
         # --- Phase 2: label the 3-D voxel grid --------------------------------
         try:
-            grid = label_voxels(domain, grid_spacing_m, sections)
+            grid = label_voxels(
+                domain,
+                grid_spacing_m,
+                sections,
+                investigation_columns=investigation_columns,
+            )
         except ValueError as err:
             self.warning(
                 f"BuildVoxelLithoModel: model={model_id} label_voxels failed — {err}; "
