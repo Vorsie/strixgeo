@@ -71,6 +71,42 @@ def _band_index(surfaces: list[SurfaceBound], x: float, y: float, mid_elev: floa
     return sum(1 for s in surfaces if s.evaluate(x, y) > mid_elev)
 
 
+def _ordering_anchor(
+    surface: SurfaceBound, hull: tuple[tuple[float, float], ...]
+) -> tuple[float, float]:
+    """Return a guaranteed-interior ``(x, y)`` for ordering surfaces by elevation.
+
+    Uses the centroid of ``surface``'s first triangle — a point known to lie
+    ON the TIN, so every band surface interpolates a real elevation there
+    (no nearest-vertex fallback that could misorder dipping surfaces).  Falls
+    back to the hull's vertex-mean centroid only when ``surface`` has no
+    triangles (a degenerate < 3-vertex mesh).
+
+    Parameters
+    ----------
+    surface : SurfaceBound
+        Any one band surface (the first, by convention) whose first triangle
+        supplies the interior anchor.
+    hull : tuple of (float, float)
+        The model footprint, used only for the degenerate fallback.
+
+    Returns
+    -------
+    tuple of (float, float)
+        The horizontal sample location for the ordering key.
+    """
+    if surface.triangles:
+        i, j, k = surface.triangles[0]
+        vs = surface.vertices
+        cx = (vs[i][0] + vs[j][0] + vs[k][0]) / 3.0
+        cy = (vs[i][1] + vs[j][1] + vs[k][1]) / 3.0
+        return cx, cy
+    return (
+        sum(v[0] for v in hull) / len(hull),
+        sum(v[1] for v in hull) / len(hull),
+    )
+
+
 def partition_picks_by_geology(
     picks: list[BodyLayerPick],
     surfaces: list[SurfaceBound],
@@ -131,10 +167,27 @@ def partition_picks_by_geology(
             (e for e in surf_elevs if base_e + snap_tolerance_m < e < top_e - snap_tolerance_m),
             reverse=True,
         )
-        edges = [top_e, *cuts, base_e]
+        # Collapse cuts that coincide within _EPS: two geological surfaces at
+        # the (near-)same elevation here would otherwise enter the cut list
+        # twice and emit a (e, e) zero-thickness segment → a degenerate control
+        # point downstream.  Cuts are descending, so a run of near-equal values
+        # collapses to its first element.
+        deduped_cuts: list[float] = []
+        for e in cuts:
+            if not deduped_cuts or deduped_cuts[-1] - e > _EPS:
+                deduped_cuts.append(e)
+        edges = [top_e, *deduped_cuts, base_e]
         for seg_top_e, seg_base_e in zip(edges, edges[1:]):
+            # Drop any segment thinner than the numeric guard so no zero- or
+            # negative-thickness pick is emitted (e.g. a cut within _EPS of the
+            # top or base that survived the snap-tolerance gate).
+            if seg_top_e - seg_base_e <= _EPS:
+                continue
             mid = 0.5 * (seg_top_e + seg_base_e)
-            bi = _band_index(surfaces, p.x_m, p.y_m, mid)
+            # Reuse the per-investigation surf_elevs cache rather than
+            # re-evaluating every surface (the standalone _band_index helper
+            # would double the TIN scans in this hot pre-pass).
+            bi = sum(1 for e in surf_elevs if e > mid)
             by_band[bi].append(
                 replace(
                     p,
@@ -182,12 +235,20 @@ def band_blocks(
     if not surfaces:
         return [Block(polygon=hull, z_min=z_min, z_max=z_max)]
 
-    # Order surfaces top → bottom by elevation at the hull centroid.  The
-    # centroid is a stable, footprint-interior sample (every surface covers it
-    # for a model whose bands share the hull); a tie-free, deterministic key.
-    cx = sum(v[0] for v in hull) / len(hull)
-    cy = sum(v[1] for v in hull) / len(hull)
-    ordered = sorted(surfaces, key=lambda s: s.evaluate(cx, cy), reverse=True)
+    # Order surfaces top → bottom by elevation at a guaranteed-interior anchor.
+    # The hull's vertex-mean centroid is NOT safe: for a non-convex / L-shaped
+    # hull it can fall OUTSIDE the footprint, where evaluate() takes the
+    # nearest-vertex fallback and may misorder two dipping surfaces.  Instead
+    # sample at the centroid of the first surface's first triangle — a point
+    # known to lie ON the TIN, so every surface interpolates a real elevation
+    # there.  Falls back to the hull centroid only for a degenerate (no-
+    # triangle) first surface.
+    # LIMITATION: a single anchor determines the global top→bottom order, which
+    # assumes geological surfaces do NOT cross within the hull.  A
+    # crossing-surfaces model is out of scope for v1 — the Belgian
+    # Quaternary/Tertiary contact does not cross within a typical project hull.
+    anchor = _ordering_anchor(surfaces[0], hull)
+    ordered = sorted(surfaces, key=lambda s: s.evaluate(*anchor), reverse=True)
 
     blocks: list[Block] = []
     n_bands = len(ordered) + 1

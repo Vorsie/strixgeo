@@ -127,7 +127,7 @@ def test_straddling_pick_divides_at_boundary():
     bands = partition_picks_by_geology(picks, _two_geo_surfaces(), snap_tolerance_m=0.2)
 
     assert 1 in bands and 2 in bands
-    upper = [p for p in bands[1] if p.body_id.startswith("body_straddle") or True]
+    upper = [p for p in bands[1] if p.body_id.startswith("body_straddle")]
     lower = bands[2]
     # The two parts meet exactly at the -20 m geological surface.
     upper_part = bands[1][0]
@@ -138,6 +138,33 @@ def test_straddling_pick_divides_at_boundary():
     assert upper_part.surface_elev_m - upper_part.top_depth_m == pytest.approx(-4.0)
     assert lower_part.surface_elev_m - lower_part.base_depth_m == pytest.approx(-30.0)
     assert upper  # band-1 part exists
+
+
+def test_coincident_geo_surfaces_emit_no_zero_thickness_segment():
+    """Two geological surfaces coincident at a pick's (x, y) emit no zero sliver.
+
+    When two surfaces sit at the (near-)same elevation under a pick, that
+    elevation enters the cut list twice; without a coincidence guard the
+    straddling span is divided AT IT TWICE, producing a degenerate part whose
+    top and base are the same — a zero-thickness pick that would become a
+    degenerate control point downstream.  Every emitted pick must have real
+    positive thickness (base_depth_m > top_depth_m by more than the numeric
+    guard; depths are positive-down, so thickness = base - top).
+    """
+    # Both surfaces at -10 m → coincident at every (x, y).  A pick spanning
+    # -4 m … -30 m crosses the coincident surfaces by ≫ tolerance, so each
+    # would be a cut → two identical cuts at -10 m without the dedup guard.
+    surfaces = [_flat_geo_surface("GEO_A", -10.0), _flat_geo_surface("GEO_B", -10.0)]
+    picks = [_pick("body_co", surface_elev_m=0.0, top_depth_m=4.0, base_depth_m=30.0)]
+
+    bands = partition_picks_by_geology(picks, surfaces, snap_tolerance_m=0.2)
+
+    emitted = [p for band in bands.values() for p in band]
+    assert emitted, "the pick must still be partitioned, not dropped entirely"
+    # No zero- or negative-thickness pick survived the partition.
+    for p in emitted:
+        thickness = p.base_depth_m - p.top_depth_m
+        assert thickness > 1e-6, f"degenerate zero-thickness pick emitted: {p!r}"
 
 
 def _hull() -> tuple[tuple[float, float], ...]:
