@@ -79,7 +79,10 @@ import { investigationsOnSection } from '../src/renderer/src/utils/sectionProjec
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_INPUTS = resolve(HERE, 'voxel_oracle_inputs.json')
-const OUTPUT = resolve(HERE, '..', 'tests', 'fixtures', 'voxel', 'teststrix_partitions.json')
+// Repo-root `tests/fixtures/` (HERE = desktop/scripts → '..','..' = repo root),
+// NOT desktop/tests — the backend (Python) voxel-litho tests + eval scripts load
+// this fixture from the repo-root tests tree.
+const OUTPUT = resolve(HERE, '..', '..', 'tests', 'fixtures', 'voxel', 'teststrix_partitions.json')
 
 /** One investigation (CPT or borehole) with its surface elevation. */
 interface RawInvestigation {
