@@ -19,8 +19,10 @@ re-pointed at the voxel-litho value objects:
 * ``_slice_region_intervals`` — adapted: our ``RegionInput.polygon`` is a
   ``tuple[(fraction, elevation), ...]`` of plain float pairs (``p[0]`` =
   fraction, ``p[1]`` = elevation), not objects with ``.fraction`` / ``.elevation``.
-* ``_section_stack_at`` — adapted to ``SectionColumnInput.along_m`` and
-  ``RegionInput.gap_index`` / ``.polygon``.
+* ``_section_stack_at`` — adapted to take the gap + fraction from
+  :func:`_project_to_section_fence` (projection onto the columns'
+  ``world_x`` / ``world_y`` fence), not a bisect over ``along_m``, and to
+  read ``RegionInput.gap_index`` / ``.polygon``.
 * ``_blend_stacks`` / ``_blended_top`` / ``_layout`` — the midline pinch:
   bodies present on BOTH sections (paired by ``body_id`` then elevation rank)
   blend thickness by weight; a body present on only ONE side pinches to zero
@@ -617,8 +619,10 @@ def label_voxels(
     # find that entry with one ``np.searchsorted`` over the ascending boundary
     # edges (deep → shallow) — O(nz log m) per column, m = stack height.  The
     # half-open convention assigns a shared contact elevation to the SHALLOWER
-    # body (the upper entry's base == the lower entry's top → the upper wins),
-    # except the global base, which the lowest entry owns (closed bottom).
+    # body (the upper entry's base == the lower entry's top → the upper wins).
+    # The base is closed (the lowest entry owns a voxel exactly on the global
+    # base) and the top is open (a voxel exactly on the global top is void) —
+    # a benign measure-zero asymmetry on the grid, not a deliberate clamp.
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
@@ -644,11 +648,14 @@ def label_voxels(
                 dtype=np.int32,
             )
             # ``searchsorted(side='right')`` maps z → its interval slot in
-            # ``edges``; slot 0 (z below the column) and slot len(edges) (z
-            # above the column) are void.  Clamp z onto the closed top/base so
-            # voxels exactly on the envelope boundary still land in-range.
+            # ``edges``; slot 0 (z below the column) and slot len(edges) (z at
+            # or above the column top) are void.  The slot bounds alone select
+            # the in-range voxels: any z that yields a valid slot is already
+            # below ``edges[-1]`` (the open top), so no separate top clamp is
+            # needed — the base is closed via slot >= 1, the top open via
+            # slot <= len(stack).
             slot = np.searchsorted(edges, gz, side="right")
-            inside = (slot >= 1) & (slot <= len(stack)) & (gz <= edges[-1] + _EPS)
+            inside = (slot >= 1) & (slot <= len(stack))
             sel = slot[inside] - 1
             col = np.full(nz, -1, dtype=np.int32)
             col[inside] = interval_idx[sel]
