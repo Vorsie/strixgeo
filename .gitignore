@@ -159,3 +159,4 @@ desktop/tests/e2e/_results/
 
 # brainstorm visual companion (local, never commit)
 .superpowers/
+desktop/scripts/voxel_oracle_inputs.json
