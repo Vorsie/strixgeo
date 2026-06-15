@@ -705,38 +705,52 @@ def _split_pinched_edges_by_midpoint(
         # Now a-b is the pinch edge; insert m between → triangles (a, m, c)+(m, b, c).
         return [(a, m, c), (m, b, c)]
 
-    # Each pass rebuilds ``edge_tris`` over ALL triangles but resolves only ONE
-    # pinch edge → O(P * T) for P residual pinches over T triangles.  Left as-is
-    # because P is empirically tiny (a handful per body at most) on real data;
-    # revisit (resolve all pinches per pass) only if a dense-pinch body appears.
-    for _ in range(256):
+    # Each pass rebuilds ``edge_tris`` over ALL triangles and resolves EVERY clean
+    # four-triangle pinch whose four triangles are still untouched this pass (a
+    # split mutates the four triangles' triples + the edge incidence around the two
+    # corners, so two pinches that share a triangle must be resolved in successive
+    # passes — hence the disjoint-this-pass guard + the outer loop to a fixed
+    # point).  Greedy meshing produces HUNDREDS of pinches on a fine-resolution
+    # body (real ``test.strix`` at 2 m: up to ~600 per body), so a one-pinch-per-
+    # iteration cap silently leaves most unresolved; resolving all disjoint pinches
+    # per pass converges in a handful of passes.  The pass cap is generous (every
+    # pass resolves ≥1 pinch when any clean one exists, so the count bounds the
+    # passes) and only trips on a pathological all-mutually-adjacent cluster, which
+    # the manifold assert would then surface.
+    for _ in range(100000):
         edge_tris: dict[frozenset[int], list[int]] = {}
         for ti, (a, b, c) in enumerate(triangles):
             for u, v in ((a, b), (b, c), (c, a)):
                 edge_tris.setdefault(frozenset((u, v)), []).append(ti)
-        pinched = [e for e, ts in edge_tris.items() if len(ts) == 4]
+        pinched = [(e, ts) for e, ts in edge_tris.items() if len(ts) == 4]
         if not pinched:
             break
-        edge = pinched[0]
-        u, v = tuple(edge)
-        tris = edge_tris[edge]
-        # Two dihedral pairs by directed edge (one u->v + one v->u each).
-        fwd = [ti for ti in tris if _directed(triangles[ti], u, v)]
-        rev = [ti for ti in tris if _directed(triangles[ti], v, u)]
-        if len(fwd) != 2 or len(rev) != 2:
-            break  # unexpected topology — leave for the manifold assert to surface
-        pairs = ((fwd[0], rev[0]), (fwd[1], rev[1]))
-        mx = (verts[u][0] + verts[v][0]) / 2.0
-        my = (verts[u][1] + verts[v][1]) / 2.0
-        mz = (verts[u][2] + verts[v][2]) / 2.0
-        # Replace each triangle by its midpoint-split pair; one midpoint per pair.
+        touched: set[int] = set()  # triangle indices edited this pass
         replacements: dict[int, list[tuple[int, int, int]]] = {}
-        for pair in pairs:
-            m = len(verts)
-            verts.append((mx, my, mz))
-            for ti in pair:
-                replacements[ti] = _split_one(triangles[ti], u, v, m)
-        # Rebuild the triangle list with the splits applied.
+        for edge, tris in pinched:
+            if any(ti in touched for ti in tris):
+                continue  # a sibling pinch already claimed one of these triangles
+            u, v = tuple(edge)
+            # Two dihedral pairs by directed edge (one u->v + one v->u each).
+            fwd = [ti for ti in tris if _directed(triangles[ti], u, v)]
+            rev = [ti for ti in tris if _directed(triangles[ti], v, u)]
+            if len(fwd) != 2 or len(rev) != 2:
+                continue  # not a clean 2+2 pinch — skip (manifold assert surfaces it)
+            mx = (verts[u][0] + verts[v][0]) / 2.0
+            my = (verts[u][1] + verts[v][1]) / 2.0
+            mz = (verts[u][2] + verts[v][2]) / 2.0
+            # One coincident midpoint per dihedral pair (the two are distinct
+            # vertices at the same point, so edge (u, v) ceases to exist as one
+            # shared edge → each sub-edge pairs with exactly two triangles).
+            for pair in ((fwd[0], rev[0]), (fwd[1], rev[1])):
+                m = len(verts)
+                verts.append((mx, my, mz))
+                for ti in pair:
+                    replacements[ti] = _split_one(triangles[ti], u, v, m)
+            touched.update(tris)
+        if not replacements:
+            break  # no clean pinch made progress — leave for the manifold assert
+        # Rebuild the triangle list with this pass's splits applied.
         rebuilt: list[tuple[int, int, int]] = []
         for ti, tri in enumerate(triangles):
             rebuilt.extend(replacements.get(ti, [tri]))
