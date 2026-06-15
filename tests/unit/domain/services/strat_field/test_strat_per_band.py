@@ -812,8 +812,10 @@ def test_per_band_loop_carves_lens_in_lower_band() -> None:
     ]
     bodies = build_strat_model_per_band(bands, grid_spacing_m=_SPACING_M)
 
-    # The carved lens body is present (its emitted id carries the ``lens:`` scheme).
-    lens_bodies = [b for b in bodies if b.body_id.startswith("lens:")]
+    # The carved lens body is present.  Its id is ``b{i}:lens:...`` (band-namespaced
+    # prefix added by ``build_strat_model_per_band`` so the same synthetic rank pair
+    # in two different bands does not collide).
+    lens_bodies = [b for b in bodies if "lens:" in b.body_id]
     assert lens_bodies, "the enclosed lens body (lens: id) must be emitted"
     assert any(b.formation_id == "SILT" for b in lens_bodies), "lens lithology must be SILT"
 

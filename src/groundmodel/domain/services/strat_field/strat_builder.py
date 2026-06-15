@@ -240,7 +240,7 @@ def build_strat_model_per_band(
 
     all_bodies: list[LithoBodyMesh] = []
 
-    for band in bands:
+    for band_idx, band in enumerate(bands):
         control: StratControlData = band["control"]
         block: Block = band["block"]
         lens_inputs: list[LensCarveInput] = band.get("lens_inputs") or []
@@ -265,6 +265,23 @@ def build_strat_model_per_band(
         else:
             band_bodies = assemble_bodies(field, control.column, block, grid_spacing_m)
 
-        all_bodies.extend(band_bodies)
+        # Prefix each body_id with the band index so that the same synthetic
+        # rank pair (e.g. ``strat:-1-1``) in two different bands produces two
+        # distinct body_ids.  The flat single-block path does NOT use this
+        # function and is unaffected.  ``merge_meshes_by_body_id`` relies on
+        # body_id uniqueness per body (it merges TWO pieces from the lens
+        # carver under ONE id, not bodies from different bands) — the prefix
+        # ensures that contract is preserved across bands.
+        namespaced: list[LithoBodyMesh] = [
+            LithoBodyMesh(
+                body_id=f"b{band_idx}:{m.body_id}",
+                formation_id=m.formation_id,
+                vertices=m.vertices,
+                triangles=m.triangles,
+                is_flagged=m.is_flagged,
+            )
+            for m in band_bodies
+        ]
+        all_bodies.extend(namespaced)
 
     return all_bodies
