@@ -23,8 +23,12 @@ Three checks (spec Task 4, Step 5):
     the boundary off the labels (it is NOT a re-check of label-vs-partition —
     that is ``eval_voxel_label.py``).
 
-The triangle count is intentionally LARGE (per-voxel-face quads); greedy meshing
-is a separate task, so this script does not gate triangle count.
+Greedy meshing (Task 5) collapses coplanar same-body faces into maximal
+rectangles, so the script also reports the triangle count BEFORE (``greedy=False``,
+one quad per voxel face) vs AFTER (``greedy=True``, the production default) the
+merge, and confirms that the merged solids still pass all three gates AND that
+the on-label match is unchanged vs the un-merged baseline (the merge moves no
+surface).  Pass ``--no-greedy`` to gate the un-merged baseline only.
 
 This script touches NO database — it reads only the JSON fixture — so it is
 read-only and self-contained by construction.
@@ -125,6 +129,13 @@ def main() -> int:
         default=_FIXTURE,
         help="Path to the section-partition fixture JSON.",
     )
+    parser.add_argument(
+        "--no-greedy",
+        dest="greedy",
+        action="store_false",
+        help="Gate the un-merged per-voxel-face baseline instead of greedy meshing.",
+    )
+    parser.set_defaults(greedy=True)
     args = parser.parse_args()
 
     sections, fixture_h = _load_sections(args.fixture)
@@ -138,10 +149,22 @@ def main() -> int:
         f"= {grid.labels.size:,} voxels; {len(grid.body_id_by_index)} body slots"
     )
 
-    bodies = extract_body_solids(grid)
+    bodies = extract_body_solids(grid, greedy=args.greedy)
     n_tris = sum(len(b.triangles) for b in bodies)
     n_verts = sum(len(b.vertices) for b in bodies)
-    print(f"Extracted {len(bodies)} body solids; {n_verts:,} verts, {n_tris:,} triangles")
+    label = "greedy-merged" if args.greedy else "un-merged (per-cell)"
+    print(f"Extracted {len(bodies)} body solids ({label}); {n_verts:,} verts, {n_tris:,} triangles")
+
+    # Report the triangle-count reduction vs the un-merged baseline so the perf
+    # win is recorded.  Only when greedy is on (the baseline IS the no-greedy run).
+    if args.greedy:
+        baseline = extract_body_solids(grid, greedy=False)
+        n_tris_base = sum(len(b.triangles) for b in baseline)
+        ratio = n_tris_base / n_tris if n_tris else float("inf")
+        print(
+            f"TRIANGLES: {n_tris_base:,} un-merged -> {n_tris:,} greedy "
+            f"({ratio:.1f}x fewer, {100.0 * (1.0 - n_tris / n_tris_base):.1f}% reduction)"
+        )
     print()
 
     # --- (a) MANIFOLD -------------------------------------------------------
@@ -230,9 +253,8 @@ def main() -> int:
     if ok:
         print(
             f"PASS — all {len(bodies)} bodies closed-manifold + non-overlapping, "
-            f"and the solids reproduce the grid labelling at 100% of samples. "
-            f"(Triangle count {n_tris:,} is un-optimised — greedy meshing is a "
-            f"separate task.)"
+            f"and the solids reproduce the grid labelling at 100% of samples "
+            f"({label}, {n_tris:,} triangles)."
         )
         return 0
     print(
