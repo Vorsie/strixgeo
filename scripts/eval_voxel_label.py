@@ -53,10 +53,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 import numpy as np  # noqa: E402
 
-from groundmodel.domain.services.model_domain import (  # noqa: E402
-    DomainTest,
-    ModelDomain,
-    build_model_domain,
+from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (  # noqa: E402
+    build_domain_from_sections,
 )
 from groundmodel.domain.services.voxel_litho.label_voxels import (  # noqa: E402
     _stack_at,
@@ -117,32 +115,6 @@ def _load_sections(path: Path) -> tuple[list[SectionPartitionInput], float]:
             )
         )
     return sections, float(raw.get("grid_spacing_m", 2.0))
-
-
-def _build_domain(sections: list[SectionPartitionInput]) -> ModelDomain:
-    """Build a ``ModelDomain`` from every column's world position.
-
-    Synthesises one ``DomainTest`` per unique investigation: the footprint is
-    the alpha hull of all column ``(world_x, world_y)``; the vertical extent is
-    the global max region top (surface) and min region base across all sections
-    (the columns carry no elevation).  This is the simplest path that frames a
-    grid covering the section data — the contract that matters is that the grid
-    covers the sections and the footprint gates labelling.
-    """
-    # Global elevation envelope from the region polygons.
-    all_elevs = [p[1] for s in sections for r in s.regions for p in r.polygon]
-    surf = max(all_elevs)
-    base = min(all_elevs)
-
-    seen: dict[str, tuple[float, float]] = {}
-    for s in sections:
-        for c in s.columns:
-            seen.setdefault(c.investigation_id, (c.world_x, c.world_y))
-    tests = [
-        DomainTest(test_id=tid, x_m=xy[0], y_m=xy[1], surface_elev_m=surf, base_elev_m=base)
-        for tid, xy in seen.items()
-    ]
-    return build_model_domain(tests)
 
 
 def _region_interior_samples(region: RegionInput, n: int) -> list[tuple[float, float]]:
@@ -274,7 +246,7 @@ def main() -> int:
     h = args.grid_spacing if args.grid_spacing is not None else fixture_h
     print(f"Loaded {len(sections)} sections from {args.fixture.name}; grid spacing {h} m")
 
-    domain = _build_domain(sections)
+    domain = build_domain_from_sections(sections)
     print(f"Domain footprint: {len(domain.polygon)}-vertex alpha hull")
 
     grid = label_voxels(domain, h, sections)

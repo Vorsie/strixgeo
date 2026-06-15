@@ -51,13 +51,15 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (  # noqa: E402
+    build_domain_from_sections,
+)
 from groundmodel.domain.services.voxel_litho.extract_body_solids import (  # noqa: E402
     extract_body_solids,
 )
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels  # noqa: E402
 from scripts.eval_voxel_label import (  # noqa: E402
     _FIXTURE,
-    _build_domain,
     _frac_gap_to_world,
     _label_at,
     _load_sections,
@@ -142,7 +144,7 @@ def main() -> int:
     h = args.grid_spacing if args.grid_spacing is not None else fixture_h
     print(f"Loaded {len(sections)} sections from {args.fixture.name}; grid spacing {h} m")
 
-    domain = _build_domain(sections)
+    domain = build_domain_from_sections(sections)
     grid = label_voxels(domain, h, sections)
     print(
         f"Labelled grid: {len(grid.gx)} x {len(grid.gy)} x {len(grid.gz)} "
