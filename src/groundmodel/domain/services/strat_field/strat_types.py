@@ -19,7 +19,7 @@ later) go in a sibling ``strat_constants.py``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from groundmodel.domain.services.tin_surface import evaluate_tin_at
 from groundmodel.domain.value_objects.tin_surface import TinSurface
@@ -61,6 +61,50 @@ class SurfaceBound:
 
     vertices: list[tuple[float, float, float]]
     triangles: list[tuple[int, int, int]]
+    #: Prebuilt TIN view over the mesh lists, set once in __post_init__ /
+    #: from_tin (init=False so it is not a constructor argument or value key).
+    _tin: TinSurface = field(init=False, repr=False, compare=False)
+
+    @classmethod
+    def from_tin(cls, tin: TinSurface) -> SurfaceBound:
+        """Lift a cached formation-surface :class:`TinSurface` into a bound.
+
+        Stage 8 lifts the parent geological model's formation-surface TINs
+        into :class:`SurfaceBound` band surfaces; this classmethod is the
+        single place that unpacks ``tin.vertices`` / ``tin.triangles`` so no
+        caller has to.
+
+        Parameters
+        ----------
+        tin : TinSurface
+            The cached interpolated surface to wrap.
+
+        Returns
+        -------
+        SurfaceBound
+            A bound over the same mesh lists (the prebuilt ``tin`` is reused
+            as the evaluation surface — no copy, no re-triangulation).
+        """
+        bound = cls(vertices=tin.vertices, triangles=tin.triangles)
+        # Reuse the caller's prebuilt TIN directly (identical mesh) instead of
+        # keeping the equivalent one __post_init__ already built.
+        object.__setattr__(bound, "_tin", tin)
+        return bound
+
+    def __post_init__(self) -> None:
+        """Build the :class:`TinSurface` view ONCE so :meth:`evaluate` reuses it.
+
+        The frozen dataclass stores the prebuilt TIN in a private ``_tin``
+        field via ``object.__setattr__`` (the only way to mutate a frozen
+        instance).  Before this cache, ``evaluate`` rebuilt a new
+        ``TinSurface`` on every call — wasteful in the band-assignment hot
+        loop where every surface is sampled per investigation.
+        """
+        object.__setattr__(
+            self,
+            "_tin",
+            TinSurface(vertices=self.vertices, triangles=self.triangles),
+        )
 
     def evaluate(self, x: float, y: float) -> float:
         """Return the bounding elevation at horizontal point ``(x, y)``.
@@ -84,11 +128,9 @@ class SurfaceBound:
         ValueError
             If the surface has no vertices (cannot supply a fallback).
         """
-        # Build a TinSurface view over the same mesh lists so we reuse the
-        # established barycentric interpolation rather than re-deriving it.
-        elevation = evaluate_tin_at(
-            TinSurface(vertices=self.vertices, triangles=self.triangles), x, y
-        )
+        # Reuse the TinSurface view built once in __post_init__ / from_tin so
+        # the established barycentric interpolation is not re-derived per call.
+        elevation = evaluate_tin_at(self._tin, x, y)
         if elevation is not None:
             return elevation
         if not self.vertices:
