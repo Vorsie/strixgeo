@@ -14,16 +14,21 @@ data, is retired):
    before any input is assembled (correlated layers share one body → one
    stratigraphic instance).
 2. Loads ``BodyLayerPick`` tuples (the no-picks short-circuit + the checksum).
-3. Assembles the strat builder inputs from the picks via ``AssembleStratInputs``:
+3. Reads the litho model's parent geological model id.  When a parent model
+   exists AND has built, non-stale formation surfaces, ``assemble_with_geo``
+   builds per geological band (Task 8 path: one field per band, geology-bounded).
+   When no parent model exists — or no surfaces are built — it falls back to the
+   single-flat-block path (``assemble``) unchanged.
+4. Assembles the strat builder inputs from the picks via ``AssembleStratInputs``:
    Stage-1 stratigraphic order (topo-sort over the per-investigation unit
    sequences) + Stage-2 control data (one elevation control point per contact)
    + the model domain block (alpha hull / DEM top / deep base).
-4. Builds the watertight meshes (pure domain ``build_strat_model``) over a
-   regular grid whose spacing comes from ``view_state.litho_segmenter`` (the
-   ``strat_grid_spacing_m`` pref, default 1 m).
-5. Upserts each mesh into ``litho_body_solid`` via
+5. Builds the watertight meshes (pure domain ``build_strat_model`` /
+   ``build_strat_model_per_band``) over a regular grid whose spacing comes from
+   ``view_state.litho_segmenter`` (the ``strat_grid_spacing_m`` pref, default 1 m).
+6. Upserts each mesh into ``litho_body_solid`` via
    ``ON CONFLICT (model_id, body_id) DO UPDATE``.
-6. Deletes orphan ``litho_body_solid`` rows whose ``body_id`` is no longer
+7. Deletes orphan ``litho_body_solid`` rows whose ``body_id`` is no longer
    among the built bodies.
 
 What changed vs. the loft path (the judgment calls — documented per spec Task 8)
@@ -35,12 +40,14 @@ What changed vs. the loft path (the judgment calls — documented per spec Task 
   section-less-body limitation.  ``bodies_flagged`` is therefore 0 on the happy
   path; a NON-zero value only appears when the WHOLE model is non-conformable or
   the domain is unbuildable (see below).
-* **Geology bounding dropped.**  ``mark_and_truncate_shallow_tests`` /
-  ``divide_picks_by_geology`` are GEOLOGY COUPLING, which the spec keeps OUT of
-  the litho model (owner directive 2026-06-13 — the litho model is pure litho;
-  geological bounding belongs in the not-yet-built geotech model).
-  ``marked_test_ids`` is therefore always empty.  ``build_model_domain`` (alpha
-  hull / deep base) is KEPT — that is geometric framing, not band coupling.
+* **Geology bounding.**  When the litho model has a parent geological model with
+  built surfaces, the build is GEOLOGY-BOUNDED: one implicit field per geological
+  band, bodies capped at the band's surfaces.  When no surfaces exist the flat
+  single-block path runs unchanged (``assemble``).  The *flat-path* geology
+  bounding dropped (``mark_and_truncate_shallow_tests`` /
+  ``divide_picks_by_geology``) stays OUT of the litho model (owner directive
+  2026-06-13 — the litho model is pure litho for the flat path; the *per-band*
+  path IS the geological bounding).
 * **Non-conformable handling.**  A directed cycle in the stratigraphic order
   (a fault / unconformity the v1 builder cannot model) raises
   ``NonConformableError`` from Stage 1.  Rather than crash, the use case logs a
@@ -51,9 +58,10 @@ Checksum (model-level, not per-body)
 -----------------------------------
 The strat field is GLOBAL: any pick change moves the whole field, so a per-body
 skip is unsound.  The checksum is a single model-wide digest over the sorted
-picks + the grid spacing.  When the digest matches every stored row AND ``force``
-is False the whole rebuild is skipped (``bodies_skipped_checksum``); otherwise all
-rows are rebuilt with the new digest.
+picks + the grid spacing + (on the per-band path) the geological surfaces'
+geometry.  When the digest matches every stored row AND ``force`` is False the
+whole rebuild is skipped (``bodies_skipped_checksum``); otherwise all rows are
+rebuilt with the new digest.
 
 On-click Build passes ``force=True`` so an explicit user action always rebuilds,
 even if the pick set hasn't changed (a builder-algorithm update would otherwise
@@ -68,8 +76,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from sqlalchemy import CursorResult, delete, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import CursorResult, delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -82,7 +89,10 @@ from groundmodel.domain.services.strat_field.lens_carving import (
     merge_meshes_by_body_id,
 )
 from groundmodel.domain.services.strat_field.lens_classification import LensClassificationError
-from groundmodel.domain.services.strat_field.strat_builder import build_strat_model_with_fields
+from groundmodel.domain.services.strat_field.strat_builder import (
+    build_strat_model_per_band,
+    build_strat_model_with_fields,
+)
 from groundmodel.domain.services.strat_field.stratigraphic_order import NonConformableError
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
@@ -162,20 +172,25 @@ def _storage_body_id(mesh_body_id: str) -> UUID:
 def _model_checksum(
     picks: list[BodyLayerPick],
     grid_spacing_m: float,
+    geo_surface_digest: bytes | None = None,
 ) -> bytes:
     """Model-wide BLAKE2b-16 digest over every strat-builder input.
 
-    Covers the sorted pick geometry + the grid-spacing knob.  The strat field is
-    global — any pick change moves the whole field — so the digest is model-level
-    (not per-body): the build cannot be skipped one body at a time.  The
-    stratigraphic order is a pure function of the picks' per-column unit
+    Covers the sorted pick geometry + the grid-spacing knob + (on the
+    geology-bounded per-band path) the geological surfaces' mesh geometry.
+    The strat field is global — any pick change moves the whole field — so the
+    digest is model-level (not per-body): the build cannot be skipped one body
+    at a time.
+
+    The stratigraphic order is a pure function of the picks' per-column unit
     sequences, so digesting the picks already captures any order change; the
-    order is not separately folded in.  The lens partition
-    (``classify_lenses``) and the lens carve surfaces are likewise PURE functions
-    of the picks (the matrix/lens split derives from the per-column sequences and
-    the lens surfaces from each lens body's picks), so a lens-classification
-    change cannot occur without a pick change — the pick digest captures it too,
-    and the partition is not separately folded in.
+    order is not separately folded in.  The lens partition and the lens carve
+    surfaces are likewise PURE functions of the picks, so a lens-classification
+    change cannot occur without a pick change — the pick digest captures it too.
+
+    When ``geo_surface_digest`` is provided (the per-band path) it is folded in
+    so a geological-surface rebuild (new TIN geometry) busts the checksum and
+    forces a litho rebuild even when the litho picks are unchanged.
 
     Parameters
     ----------
@@ -183,6 +198,10 @@ def _model_checksum(
         The model's accepted body-assigned picks.
     grid_spacing_m : float
         The field-sampling / prism-cell grid spacing.
+    geo_surface_digest : bytes or None, optional
+        BLAKE2b-16 digest of the parent geological model's surface geometry, as
+        returned by ``_digest_surfaces``.  ``None`` on the flat single-block path
+        (no geo coupling → not folded in).
 
     Returns
     -------
@@ -191,6 +210,9 @@ def _model_checksum(
     """
     h = hashlib.blake2b(digest_size=16)
     h.update(struct.pack("<d", grid_spacing_m))
+    # Fold in geo surfaces when present (per-band path only).
+    if geo_surface_digest is not None:
+        h.update(geo_surface_digest)
     # Sorted pick geometry (insertion order is not significant).
     for p in sorted(picks, key=lambda x: (x.body_id, x.investigation_id, x.top_depth_m)):
         h.update(p.body_id.encode("utf-8"))
@@ -236,6 +258,16 @@ class RecomputeLithoSolids(GroundModelLogger):
     ) -> RecomputeLithoSolidsOutcome:
         """Recompute and upsert the solid cache for every body in the model.
 
+        Chooses between the geology-bounded per-band path and the single-flat-block
+        path automatically:
+
+        * **Per-band path** — when the litho model has a parent geological model
+          with ≥1 built, non-stale formation surfaces.  Fits one implicit field per
+          geological band, bodies capped at the band's surfaces.  A geo-surface
+          change busts the checksum.
+        * **Single-flat-block path** — when no parent geo model / no surfaces.
+          Unchanged behaviour from the pre-Task-8 implementation.
+
         Parameters
         ----------
         model_id : UUID
@@ -276,27 +308,236 @@ class RecomputeLithoSolids(GroundModelLogger):
 
         grid_spacing_m = await self._read_strat_grid_spacing_m(model_id)
 
-        # Step 3 + 4: assemble strat inputs and build the watertight meshes.
-        #
-        # A NonConformableError (a directed cycle in the stratigraphic order — a
-        # fault / unconformity the v1 builder cannot model) is NOT a crash: the
-        # whole model is flagged so the UI surfaces the conflict.  A None
-        # assembly (domain unbuildable: < 3 non-collinear tests, or no
-        # deep-reaching test) flags every body the same way.
+        # Step 3: detect the parent geological model to choose the build path.
+        parent_geo_model_id = await self._read_parent_geo_model_id(model_id)
+
         formation_by_body = {p.body_id: p.formation_id for p in picks}
+        assembler = AssembleStratInputs(self._session)
+
+        if parent_geo_model_id is not None:
+            # --- Per-band (geology-bounded) path ---
+            self.info(
+                f"RecomputeLithoSolids: model={model_id} — "
+                f"parent geo model={parent_geo_model_id} → attempting per-band build"
+            )
+            return await self._execute_per_band(
+                model_id=model_id,
+                picks=picks,
+                grid_spacing_m=grid_spacing_m,
+                parent_geo_model_id=parent_geo_model_id,
+                formation_by_body=formation_by_body,
+                assembler=assembler,
+                force=force,
+            )
+
+        # --- Single flat-block path (no parent geo model) ---
+        self.info(
+            f"RecomputeLithoSolids: model={model_id} — no parent geo model, "
+            "using single-flat-block path"
+        )
+        return await self._execute_flat(
+            model_id=model_id,
+            picks=picks,
+            grid_spacing_m=grid_spacing_m,
+            formation_by_body=formation_by_body,
+            assembler=assembler,
+            force=force,
+        )
+
+    # -----------------------------------------------------------------
+    # Per-band (geology-bounded) build path
+    # -----------------------------------------------------------------
+
+    async def _execute_per_band(
+        self,
+        *,
+        model_id: UUID,
+        picks: list[BodyLayerPick],
+        grid_spacing_m: float,
+        parent_geo_model_id: UUID,
+        formation_by_body: dict[str, str],
+        assembler: AssembleStratInputs,
+        force: bool,
+    ) -> RecomputeLithoSolidsOutcome:
+        """Build the model geology-bounded: one field per geological band.
+
+        Calls ``AssembleStratInputs.assemble_with_geo``.  If it returns ``None``
+        (domain unbuildable) or an empty band list (every band too sparse), falls
+        back to the flat-block path.  A ``NonConformableError`` or
+        ``LensClassificationError`` within any band flags ALL bodies.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model.
+        picks : list[BodyLayerPick]
+            The model's accepted body-assigned picks.
+        grid_spacing_m : float
+            Build-grid spacing.
+        parent_geo_model_id : UUID
+            The parent geological model id.
+        formation_by_body : dict[str, str]
+            ``body_id → formation_id`` for every resolver body.
+        assembler : AssembleStratInputs
+            Shared assembler instance (holds the session).
+        force : bool
+            When ``True``, skip the checksum short-circuit.
+
+        Returns
+        -------
+        RecomputeLithoSolidsOutcome
+            Build outcome.
+        """
         try:
-            # Pass the runtime grid spacing so the lens carve inputs are sampled on
-            # the SAME grid the matrix build uses below — otherwise the lens prisms
-            # would weld to a mismatched grid and the watertight tiling breaks.
-            assembly = AssembleStratInputs(self._session).assemble(
-                picks, grid_spacing_m=grid_spacing_m
+            per_band = await assembler.assemble_with_geo(
+                picks, parent_geo_model_id, grid_spacing_m=grid_spacing_m
             )
         except (NonConformableError, LensClassificationError) as err:
-            # NonConformableError: the matrix backbone cycles (a fault the v1
-            # builder cannot model).  LensClassificationError: lenses were found yet
-            # the matrix STILL cycles (true residual interfingering the enclosure
-            # criterion does not cover).  Both flag every body — the model is
-            # unbuildable as a single global iso-order.
+            err_type = type(err).__name__
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} per-band assembly "
+                f"raised {err_type} — {err}; flagging every body"
+            )
+            return await self._handle_flag_all(model_id, formation_by_body)
+
+        if per_band is None:
+            # Domain unbuildable — fall through to the flat path.
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} per-band domain unbuildable — "
+                "falling back to single-flat-block path"
+            )
+            return await self._execute_flat(
+                model_id=model_id,
+                picks=picks,
+                grid_spacing_m=grid_spacing_m,
+                formation_by_body=formation_by_body,
+                assembler=assembler,
+                force=force,
+            )
+
+        if not per_band.bands:
+            # Every band was too sparse — fall through to the flat path.
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} — no buildable bands after partition; "
+                "falling back to single-flat-block path"
+            )
+            return await self._execute_flat(
+                model_id=model_id,
+                picks=picks,
+                grid_spacing_m=grid_spacing_m,
+                formation_by_body=formation_by_body,
+                assembler=assembler,
+                force=force,
+            )
+
+        # Checksum: picks + grid spacing + geo surfaces.
+        new_checksum = _model_checksum(picks, grid_spacing_m, per_band.geo_surface_digest)
+        existing_by_body = await self._load_existing(model_id)
+
+        # Build the per-band meshes.
+        try:
+            meshes = build_strat_model_per_band(per_band.bands, grid_spacing_m)
+        except ValueError as err:
+            self.warning(
+                f"RecomputeLithoSolids: model={model_id} per-band build failed — {err}; "
+                "flagging every body"
+            )
+            return await self._handle_flag_all(model_id, formation_by_body)
+
+        meshes = merge_meshes_by_body_id(meshes)
+        mesh_body_ids = {m.body_id for m in meshes}
+        self.info(
+            f"RecomputeLithoSolids: model={model_id} — per-band build produced "
+            f"{len(meshes)} mesh(es) over {len(per_band.bands)} band(s), "
+            f"grid_spacing={grid_spacing_m} m"
+        )
+
+        wanted_storage_ids = {str(_storage_body_id(b)) for b in mesh_body_ids}
+        bodies_considered = len(wanted_storage_ids)
+
+        if not force and self._digest_matches_all(
+            existing_by_body, wanted_storage_ids, new_checksum
+        ):
+            await self._session.commit()
+            self.success(
+                f"RecomputeLithoSolids: model={model_id} — checksum unchanged (per-band), "
+                f"skipped all {bodies_considered} body/bodies"
+            )
+            return RecomputeLithoSolidsOutcome(
+                bodies_considered=bodies_considered,
+                bodies_built=0,
+                bodies_skipped_checksum=bodies_considered,
+                bodies_flagged=0,
+                orphans_deleted=0,
+                marked_test_ids=[],
+            )
+
+        rows = self._mesh_rows(meshes, model_id, new_checksum)
+        bodies_built = len(rows)
+        chunks_written = await self._batch_upsert(rows)
+        self.info(
+            f"RecomputeLithoSolids: model={model_id} — "
+            f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s) (per-band)"
+        )
+
+        orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
+        await self._session.commit()
+        self.success(
+            f"RecomputeLithoSolids: model={model_id} — per-band "
+            f"considered={bodies_considered} built={bodies_built} "
+            f"orphans_deleted={orphans_deleted}"
+        )
+        return RecomputeLithoSolidsOutcome(
+            bodies_considered=bodies_considered,
+            bodies_built=bodies_built,
+            bodies_skipped_checksum=0,
+            bodies_flagged=0,
+            orphans_deleted=orphans_deleted,
+            marked_test_ids=[],
+        )
+
+    # -----------------------------------------------------------------
+    # Single flat-block path
+    # -----------------------------------------------------------------
+
+    async def _execute_flat(
+        self,
+        *,
+        model_id: UUID,
+        picks: list[BodyLayerPick],
+        grid_spacing_m: float,
+        formation_by_body: dict[str, str],
+        assembler: AssembleStratInputs,
+        force: bool,
+    ) -> RecomputeLithoSolidsOutcome:
+        """Build the model as a single flat block (no geology coupling).
+
+        This is the original ``execute`` path, extracted so both the no-parent-geo
+        and the per-band-fallback callers share the same code.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model.
+        picks : list[BodyLayerPick]
+            The model's accepted body-assigned picks.
+        grid_spacing_m : float
+            Build-grid spacing.
+        formation_by_body : dict[str, str]
+            ``body_id → formation_id`` for every resolver body.
+        assembler : AssembleStratInputs
+            Shared assembler instance.
+        force : bool
+            When ``True``, skip the checksum short-circuit.
+
+        Returns
+        -------
+        RecomputeLithoSolidsOutcome
+            Build outcome.
+        """
+        try:
+            assembly = assembler.assemble(picks, grid_spacing_m=grid_spacing_m)
+        except (NonConformableError, LensClassificationError) as err:
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} is non-conformable — {err}; "
                 "flagging every body (v1 cannot build a faulted/unconformable model)"
@@ -311,11 +552,6 @@ class RecomputeLithoSolids(GroundModelLogger):
             return await self._handle_flag_all(model_id, formation_by_body)
 
         try:
-            # `_with_fields` also returns the per-node (top, base) height arrays the
-            # assembly already computed, keyed by body_id.  Threading them into the
-            # lens carve below lets it skip the O(grid_nodes × triangles) ray-cast
-            # reconstruction of each carved host — that ray-cast was ~72 % of the
-            # real-data build wall-clock (~410 s of ~573 s).
             meshes, host_height_fields = build_strat_model_with_fields(
                 assembly.control,
                 assembly.domain,
@@ -323,34 +559,18 @@ class RecomputeLithoSolids(GroundModelLogger):
                 grid_spacing_m=grid_spacing_m,
             )
         except ValueError as err:
-            # The field fit needs ≥1 internal contact: a model whose every column
-            # is a SINGLE stratigraphic instance (no interbedding → no internal
-            # horizon → no control point) has nothing to interpolate.  Flag every
-            # body rather than crash — the UI surfaces "add a contact / correlate
-            # a second unit to build this model".
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} field unfittable — {err}; "
                 "flagging every body (no internal contact to interpolate)"
             )
             return await self._handle_flag_all(model_id, formation_by_body)
 
-        # --- Carve enclosed lenses back into the matrix meshes ----------------
-        # The matrix order excluded each enclosed lens (a single global iso-order
-        # cannot place it); carve_lenses puts it back by splitting its host into
-        # host-upper-plus-outer + host-lower around the lens prism, over the SAME
-        # grid the matrix was built on (byte-identical: same domain + spacing).  A
-        # conformable model with no lenses skips the carve entirely (clean no-op).
         if assembly.lens_carve_inputs:
             self.info(
                 f"RecomputeLithoSolids: model={model_id} — carving "
                 f"{len(assembly.lens_carve_inputs)} lens(es) into {len(meshes)} matrix mesh(es)"
             )
             gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
-            # carve_lenses returns the FULL updated mesh list (untouched matrix +
-            # carved host pieces + lens prisms), so it replaces `meshes` wholesale.
-            # Passing host_height_fields lets the carve reuse the assembly's per-node
-            # (top, base) arrays for each chosen host instead of ray-cast-reconstructing
-            # them — the optimisation that drops the carve from ~410 s to seconds.
             meshes = carve_lenses(
                 assembly.lens_carve_inputs,
                 meshes,
@@ -360,13 +580,7 @@ class RecomputeLithoSolids(GroundModelLogger):
                 host_height_fields=host_height_fields,
             )
 
-        # Merge same-body_id meshes into one row's geometry: the carve emits two
-        # host pieces under one body_id, but persistence keys ONE row per body_id,
-        # so without this merge the second piece would silently overwrite the first
-        # on upsert.  A no-op when no body_id repeats (the conformable / no-lens
-        # path), so non-lens models stay byte-identical to before.
         meshes = merge_meshes_by_body_id(meshes)
-
         mesh_body_ids = {m.body_id for m in meshes}
         self.info(
             f"RecomputeLithoSolids: model={model_id} — strat field produced "
@@ -374,16 +588,13 @@ class RecomputeLithoSolids(GroundModelLogger):
             f"over grid_spacing={grid_spacing_m} m"
         )
 
-        # --- Model-level checksum short-circuit ---
+        # Checksum: picks + grid spacing only (no geo surfaces on flat path).
         new_checksum = _model_checksum(picks, grid_spacing_m)
         existing_by_body = await self._load_existing(model_id)
 
         wanted_storage_ids = {str(_storage_body_id(b)) for b in mesh_body_ids}
         bodies_considered = len(wanted_storage_ids)
 
-        # Skip ALL rows only when the digest matches every stored row AND every
-        # wanted body already has a fresh row (the field is global — a partial
-        # skip would serve a mismatched field).
         if not force and self._digest_matches_all(
             existing_by_body, wanted_storage_ids, new_checksum
         ):
@@ -401,32 +612,7 @@ class RecomputeLithoSolids(GroundModelLogger):
                 marked_test_ids=[],
             )
 
-        # Step 5: batch-upsert all meshes in one (or a small number of chunked)
-        # multi-row statements.  Each chunk is a complete multi-row VALUES upsert;
-        # chunking bounds the statement size when vertices + triangles JSONB payloads
-        # are large (664 meshes × potentially large geometry arrays would produce a
-        # single enormous statement without chunking).
-        rows = [
-            dict(
-                id=uuid7(),  # always a fresh UUID; see _batch_upsert docstring
-                model_id=model_id,
-                body_id=_storage_body_id(mesh.body_id),
-                formation_id=UUID(mesh.formation_id),
-                method="strat",
-                # Pass the list-of-tuples directly: json.dumps (which asyncpg's JSONB
-                # binder uses) serialises Python tuples as JSON arrays — identical
-                # output to list-of-lists.  Eliminates the ~39.5 s per-vertex
-                # tuple→list churn that dominated the real-data build profile over
-                # 4.7 M vertices + 9.4 M triangles across 664 meshes.
-                vertices=mesh.vertices,
-                triangles=mesh.triangles,
-                source_pick_count=len(mesh.vertices),
-                source_pick_checksum=new_checksum,
-                is_flagged=mesh.is_flagged,
-                is_stale=False,
-            )
-            for mesh in meshes
-        ]
+        rows = self._mesh_rows(meshes, model_id, new_checksum)
         bodies_built = len(rows)
         chunks_written = await self._batch_upsert(rows)
         self.info(
@@ -434,11 +620,8 @@ class RecomputeLithoSolids(GroundModelLogger):
             f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
         )
 
-        # Step 6: delete orphan rows for bodies no longer built.
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
-
         await self._session.commit()
-
         self.success(
             f"RecomputeLithoSolids: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
@@ -464,6 +647,47 @@ class RecomputeLithoSolids(GroundModelLogger):
     # parameters well below the 65 535 PostgreSQL limit, while each chunk is
     # still a single network round-trip.
     _UPSERT_CHUNK_SIZE: int = 100
+
+    def _mesh_rows(
+        self, meshes: list[Any], model_id: UUID, checksum: bytes
+    ) -> list[dict[str, Any]]:
+        """Convert a list of :class:`LithoBodyMesh` objects to upsert-row dicts.
+
+        Parameters
+        ----------
+        meshes : list
+            The watertight body solids.
+        model_id : UUID
+            The model scope.
+        checksum : bytes
+            The model-level digest to stamp on every row.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Value dicts ready for ``_batch_upsert``.
+        """
+        return [
+            dict(
+                id=uuid7(),
+                model_id=model_id,
+                body_id=_storage_body_id(mesh.body_id),
+                formation_id=UUID(mesh.formation_id),
+                method="strat",
+                # Pass the list-of-tuples directly: json.dumps (which asyncpg's JSONB
+                # binder uses) serialises Python tuples as JSON arrays — identical
+                # output to list-of-lists.  Eliminates the ~39.5 s per-vertex
+                # tuple→list churn that dominated the real-data build profile over
+                # 4.7 M vertices + 9.4 M triangles across 664 meshes.
+                vertices=mesh.vertices,
+                triangles=mesh.triangles,
+                source_pick_count=len(mesh.vertices),
+                source_pick_checksum=checksum,
+                is_flagged=mesh.is_flagged,
+                is_stale=False,
+            )
+            for mesh in meshes
+        ]
 
     async def _batch_upsert(self, rows: list[dict[str, Any]]) -> int:
         """Upsert a list of solid-row dicts in chunked multi-row statements.
@@ -495,6 +719,8 @@ class RecomputeLithoSolids(GroundModelLogger):
         int
             Number of chunks executed (for the INFO log).
         """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         chunk_size = self._UPSERT_CHUNK_SIZE
         chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
         for chunk in chunks:
@@ -636,16 +862,9 @@ class RecomputeLithoSolids(GroundModelLogger):
         RecomputeLithoSolidsOutcome
             ``bodies_flagged`` == the body count; ``bodies_built`` == 0.
         """
-        # Flagged rows carry a sentinel digest.  This can never collide with a
-        # healthy row's digest in practice: the empty-picks case is intercepted
-        # by ``_handle_no_picks`` before this method is reachable, so a real
-        # build always digests a non-empty pick set with a positive grid spacing.
         new_checksum = _FLAGGED_SENTINEL_CHECKSUM
-
         wanted_storage_ids = {str(_storage_body_id(b)) for b in formation_by_body}
 
-        # Batch-upsert all flagged rows in one multi-row statement (same
-        # PK-stability contract as the normal build path via _batch_upsert).
         flagged_rows = [
             dict(
                 id=uuid7(),
@@ -745,7 +964,26 @@ class RecomputeLithoSolids(GroundModelLogger):
         seg = (view_state or {}).get("litho_segmenter") or {}
         try:
             spacing = float(seg.get("strat_grid_spacing_m", _DEFAULT_STRAT_GRID_SPACING_M))
-            # Guard against a zero/negative pref that would crash the grid linspace.
             return spacing if spacing > 0 else _DEFAULT_STRAT_GRID_SPACING_M
         except (TypeError, ValueError):
             return _DEFAULT_STRAT_GRID_SPACING_M
+
+    async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
+        """Read the lithostratigraphic model's parent geological model id.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model id.
+
+        Returns
+        -------
+        UUID | None
+            The parent geological model id, or ``None`` when none is set.
+        """
+        row = await self._session.execute(
+            text("SELECT parent_geological_model_id FROM geological_model WHERE id = :mid"),
+            {"mid": str(model_id)},
+        )
+        parent_id = row.scalar_one_or_none()
+        return UUID(str(parent_id)) if parent_id is not None else None
