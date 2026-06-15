@@ -87,6 +87,7 @@ from groundmodel.domain.services.strat_field.strat_types import (
     Block,
     Horizon,
     StratColumn,
+    SurfaceBound,
 )
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 
@@ -543,6 +544,52 @@ class _Band:
         return f"strat:{self.rank_top}-{self.rank_bot}"
 
 
+def _build_cap_array(
+    surface: SurfaceBound | None,
+    fallback_z: float,
+    nx: int,
+    ny: int,
+    gx: np.ndarray,
+    gy: np.ndarray,
+) -> np.ndarray:
+    """Build one band cap (top or base) over the shared grid.
+
+    When ``surface`` is set the cap follows the geological surface exactly:
+    each grid node's elevation is ``surface.evaluate(gx[i], gy[j])``.  This is the
+    mechanism that welds adjacent geological bands: the SAME
+    :class:`~groundmodel.domain.services.strat_field.strat_types.SurfaceBound`
+    object sits as the upper band's ``base_surface`` and the lower band's
+    ``top_surface``, so evaluating it at the SAME node positions yields
+    byte-identical cap elevations → the touching faces are the same quad → no gap,
+    no overlap at the seam.  When ``surface`` is ``None`` the cap is the flat
+    ``fallback_z`` (``z_max`` for the top, ``z_min`` for the base), preserving the
+    v1 single-block behaviour for the model's outermost (open) bands.
+
+    Parameters
+    ----------
+    surface : SurfaceBound or None
+        The curved cap surface, or ``None`` for the flat fallback.
+    fallback_z : float
+        The flat cap elevation used when ``surface`` is ``None``.
+    nx, ny : int
+        Grid node dimensions.
+    gx, gy : numpy.ndarray
+        Grid node coordinates (used to evaluate a curved surface per node).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(nx, ny)`` per-node cap elevation array.
+    """
+    if surface is None:
+        return np.full((nx, ny), fallback_z)
+    cap = np.empty((nx, ny), dtype=float)
+    for i in range(nx):
+        for j in range(ny):
+            cap[i, j] = surface.evaluate(float(gx[i]), float(gy[j]))
+    return cap
+
+
 def _iter_bands(
     order: StratColumn,
     interior: list[Horizon],
@@ -603,28 +650,13 @@ def _iter_bands(
     _Band
         Each non-cap-only band, with aligned top/bottom height arrays.
     """
-    # Build the top cap: curved if domain.top_surface is set, else flat z_max.
-    if domain.top_surface is not None:
-        # WHY: evaluate the surface at each grid node so the top cap follows the
-        # geological surface exactly, not the flat z_max fallback.  The SAME
-        # SurfaceBound object that sits as base_surface on the band ABOVE evaluates
-        # to the same z here (same object, same node positions) → byte-identical
-        # cap elevations → exact weld between adjacent bands.
-        top_cap = np.empty((nx, ny), dtype=float)
-        for i in range(nx):
-            for j in range(ny):
-                top_cap[i, j] = domain.top_surface.evaluate(float(gx[i]), float(gy[j]))
-    else:
-        top_cap = np.full((nx, ny), domain.z_max)
-
-    # Build the base cap: curved if domain.base_surface is set, else flat z_min.
-    if domain.base_surface is not None:
-        bot_cap = np.empty((nx, ny), dtype=float)
-        for i in range(nx):
-            for j in range(ny):
-                bot_cap[i, j] = domain.base_surface.evaluate(float(gx[i]), float(gy[j]))
-    else:
-        bot_cap = np.full((nx, ny), domain.z_min)
+    # Build the caps: curved (per-node SurfaceBound evaluation) if the domain block
+    # carries that surface, else the flat z_max / z_min fallback.  The SAME
+    # SurfaceBound object sits as base_surface on the band ABOVE and top_surface on
+    # the band BELOW, so both bands evaluate it at the SAME node positions →
+    # byte-identical cap elevations → exact weld between adjacent bands.
+    top_cap = _build_cap_array(domain.top_surface, domain.z_max, nx, ny, gx, gy)
+    bot_cap = _build_cap_array(domain.base_surface, domain.z_min, nx, ny, gx, gy)
 
     horizon_by_rank = {h.rank: h for h in order.horizons}
 
@@ -636,8 +668,8 @@ def _iter_bands(
     # AFTER the monotone clamp (_sample_height_fields) so the within-band
     # monotone stack is preserved (the two clamps compose correctly: monotone first,
     # then cap-bound).
-    for rank in [h.rank for h in interior]:
-        layer = heights[rank]
+    for h in interior:
+        layer = heights[h.rank]
         present = ~np.isnan(layer)
         if present.any():
             layer[present] = np.minimum(layer[present], top_cap[present])
