@@ -530,6 +530,13 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
         )
 
+    # WATCH-LIST (extract on the next copy): this method + ``_read_litho_snap_tolerance_m``
+    # below duplicate ``RecomputeLithoSolids._read_parent_geo_model_id`` /
+    # ``_read_strat_grid_spacing_m``.  Deliberately NOT extracted yet (a shared helper
+    # would touch the strat path + force an integration re-run).  When a third consumer
+    # appears, extract a shared ``litho_model_reads.py`` (parent-id read +
+    # ``read_litho_segmenter_float(session, model_id, key, default)`` knob reader) and
+    # promote ``_digest_surfaces`` to a public shared helper.
     async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
         """Read the lithostratigraphic model's parent geological model id.
 

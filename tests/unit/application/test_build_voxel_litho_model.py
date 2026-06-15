@@ -81,13 +81,13 @@ def _empty_grid() -> LabelGrid:
     )
 
 
-def _make_use_case(*, parent_id: Any, snap_tol: float | None) -> BuildVoxelLithoModel:
+def _make_use_case(*, parent_id: Any) -> BuildVoxelLithoModel:
     """A ``BuildVoxelLithoModel`` whose session answers the two Task-2 DB reads.
 
     ``session.execute`` returns a result whose ``scalar_one_or_none`` is the
     parent geological model id (mirrors ``_read_parent_geo_model_id``).  The
-    project's ``view_state`` carries the ``litho_snap_tolerance_m`` knob when
-    ``snap_tol`` is not ``None``.
+    ``litho_snap_tolerance_m`` knob is injected via the project ``view_state`` in
+    :func:`_run`, not here.
     """
     session = AsyncMock()
     session.commit = AsyncMock()
@@ -158,7 +158,7 @@ async def test_loaded_parent_surfaces_and_tolerance_reach_label_voxels() -> None
     parent_id = uuid4()
     surfaces = (_surface(),)
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id, snap_tol=0.35)
+    use_case = _make_use_case(parent_id=parent_id)
 
     await _run(use_case, captured, parent_id=parent_id, surfaces=surfaces, snap_tol=0.35)
 
@@ -183,7 +183,7 @@ async def test_no_parent_model_builds_unbounded_with_default_tolerance() -> None
     0.20 m default snap tolerance.
     """
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=None, snap_tol=None)
+    use_case = _make_use_case(parent_id=None)
 
     await _run(use_case, captured, parent_id=None, surfaces=(), snap_tol=None)
 
@@ -200,7 +200,7 @@ async def test_parent_with_no_built_surfaces_builds_unbounded() -> None:
     """A parent id but no built surfaces → un-bounded ``()`` (loader returns empty)."""
     parent_id = uuid4()
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id, snap_tol=0.20)
+    use_case = _make_use_case(parent_id=parent_id)
 
     await _run(use_case, captured, parent_id=parent_id, surfaces=(), snap_tol=0.20)
 
