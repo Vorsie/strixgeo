@@ -54,6 +54,7 @@ import numpy as np
 
 from groundmodel.domain.services.model_domain import ModelDomain
 from groundmodel.domain.services.voxel_litho.voxel_types import (
+    InvestigationColumn,
     LabelGrid,
     SectionPartitionInput,
 )
@@ -496,6 +497,135 @@ def _stack_at(sections: list[SectionPartitionInput], x: float, y: float) -> list
 
 
 # ---------------------------------------------------------------------------
+# Per-column voxel labelling (shared by the blend path and the honored path)
+# ---------------------------------------------------------------------------
+
+
+def _column_labels(
+    stack: list[_Entry],
+    gz: np.ndarray,
+    body_index: dict[str, int],
+    none_body_ids: dict[str, str],
+) -> np.ndarray:
+    """Label one voxel column's ``gz`` axis from a gap-free shallow→deep stack.
+
+    The stack is a gap-free partition ordered shallow → deep, so its entries'
+    contiguous ``[base, top]`` intervals share boundary elevations.  A voxel at
+    elevation ``z`` belongs to the entry whose interval contains it.  Found with
+    one ``np.searchsorted`` over the ascending boundary edges (deep → shallow) —
+    O(nz log m), ``m`` = stack height.  The half-open convention assigns a shared
+    contact elevation to the SHALLOWER body (the upper entry's base == the lower
+    entry's top → the upper wins).  The base is closed (the lowest entry owns a
+    voxel exactly on the global base) and the top is open (a voxel exactly on the
+    global top is void) — a benign measure-zero asymmetry on the grid.
+
+    Parameters
+    ----------
+    stack : list of _Entry
+        The vertical body intervals, shallow → deep (a gap-free partition).
+        An empty stack yields an all-void column.
+    gz : numpy.ndarray
+        The Z (elevation) grid-node coordinates, ascending.
+    body_index : dict of str to int
+        Maps a body_id (real or ``__none__:`` synthetic) to its label index.
+    none_body_ids : dict of str to str
+        Maps a ``formation_id`` to the synthetic body_id used for its
+        never-correlated (``None``-body) minorities.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(len(gz),)`` ``int32`` array of body indices; ``-1`` for void.
+    """
+    nz = len(gz)
+    col = np.full(nz, -1, dtype=np.int32)
+    if not stack:
+        return col
+    # Boundary edges ascending: [deepest base, ..., shallowest top].
+    edges = np.empty(len(stack) + 1, dtype=float)
+    edges[0] = stack[-1].base_elev
+    for k, e in enumerate(stack):
+        edges[len(stack) - k] = e.top_elev
+    # Body index per interval, deep → shallow (matches ``edges`` gaps).
+    interval_idx = np.array(
+        [
+            body_index[e.body_id if e.body_id is not None else none_body_ids[e.formation_id]]
+            for e in reversed(stack)
+        ],
+        dtype=np.int32,
+    )
+    # ``searchsorted(side='right')`` maps z → its interval slot in ``edges``;
+    # slot 0 (z below the column) and slot len(edges) (z at or above the column
+    # top) are void.  Any z that yields a valid slot is already below
+    # ``edges[-1]`` (the open top), so no separate top clamp is needed — the
+    # base is closed via slot >= 1, the top open via slot <= len(stack).
+    slot = np.searchsorted(edges, gz, side="right")
+    inside = (slot >= 1) & (slot <= len(stack))
+    sel = slot[inside] - 1
+    col[inside] = interval_idx[sel]
+    return col
+
+
+def _honored_column_labels(
+    blend_stack: list[_Entry],
+    inv: InvestigationColumn,
+    gz: np.ndarray,
+    body_index: dict[str, int],
+    none_body_ids: dict[str, str],
+) -> np.ndarray:
+    """Label a voxel column honoring the investigation's OWN log over the blend.
+
+    Within the investigation's observed elevation range
+    ``[min base_elev, max top_elev]`` each voxel takes the body of the
+    investigation's OWN interval covering its elevation (point-located in the
+    log).  ABOVE the observed top or BELOW the observed base the voxel falls
+    back to the section-blend label, so the column stays filled past the log
+    (a shallow log punches no hole below it).
+
+    Parameters
+    ----------
+    blend_stack : list of _Entry
+        The section-blend stack at the investigation's true ``(x, y)`` — the
+        fallback above / below the log.
+    inv : InvestigationColumn
+        The investigation whose observed log overrides the blend.  Its
+        ``intervals`` carry resolver body_ids already registered in
+        ``body_index`` / ``none_body_ids``.
+    gz : numpy.ndarray
+        The Z (elevation) grid-node coordinates, ascending.
+    body_index : dict of str to int
+        Body_id → label index (includes the investigation's body_ids).
+    none_body_ids : dict of str to str
+        ``formation_id`` → synthetic body_id for ``None``-body minorities.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(len(gz),)`` ``int32`` array of body indices; ``-1`` for void.
+    """
+    # Start from the blend so above-top / below-base voxels are already filled.
+    col = _column_labels(blend_stack, gz, body_index, none_body_ids)
+    if not inv.intervals:
+        return col
+
+    obs_top = max(top for _bid, _fid, top, _base in inv.intervals)
+    obs_base = min(base for _bid, _fid, _top, base in inv.intervals)
+    # Within the observed range, override each voxel with its OWN log interval.
+    # The log intervals are a contiguous partition top→bottom; reuse the same
+    # searchsorted scheme over the log's own boundary edges.
+    log_stack = [_Entry(bid, fid, top, base) for bid, fid, top, base in inv.intervals]
+    log_stack.sort(key=lambda e: -e.top_elev)
+    log_col = _column_labels(log_stack, gz, body_index, none_body_ids)
+
+    # Override only the voxels strictly within the observed depth range — the
+    # half-open ``[obs_base, obs_top)`` plus the inclusive base so the deepest
+    # logged voxel is honored; above obs_top and below obs_base keep the blend.
+    in_log = (gz >= obs_base - _EPS) & (gz < obs_top + _EPS) & (log_col >= 0)
+    col[in_log] = log_col[in_log]
+    return col
+
+
+# ---------------------------------------------------------------------------
 # The grid labeller
 # ---------------------------------------------------------------------------
 
@@ -504,6 +634,8 @@ def label_voxels(
     domain: ModelDomain,
     grid_spacing_m: float,
     sections: list[SectionPartitionInput],
+    *,
+    investigation_columns: tuple[InvestigationColumn, ...] = (),
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -526,6 +658,15 @@ def label_voxels(
         The voxel edge length in metres (same in x, y, z).  Must be positive.
     sections : list of SectionPartitionInput
         The project's cross-sections with their validated 2-D partitions.
+    investigation_columns : tuple of InvestigationColumn, optional
+        Per-investigation OWN observed pick stacks at their TRUE map
+        locations.  At each investigation's nearest grid column the voxels
+        within its observed depth range are labelled from its OWN log
+        (overriding the between-section blend, which may disagree because the
+        investigation feeds a section at its projected foot, not its true
+        ``(x, y)``); above / below the log the blend still fills the column.
+        Defaults to ``()`` — the pure section-blend path, byte-identical to the
+        behaviour before this parameter existed.
 
     Returns
     -------
@@ -546,6 +687,12 @@ def label_voxels(
     extrapolation within the hull, consistent with the
     litho-extrapolated-horizontally stance.  We deliberately do NOT reconstruct
     band/onlap/lens ramps (our ``RegionInput`` carries no ``kind``).
+
+    Honor-borehole: when two investigations map to the SAME grid column (sub-
+    voxel neighbours at the chosen spacing) the one with the lexicographically
+    smaller ``investigation_id`` is kept, deterministically.  Each honored
+    investigation's interval body_ids are registered in the body index +
+    formation lookup (a borehole-only body that no section carries still meshes).
     """
     if grid_spacing_m <= 0.0:
         raise ValueError(f"grid_spacing_m must be positive; got {grid_spacing_m}")
@@ -612,17 +759,44 @@ def label_voxels(
         if synth not in body_index:
             body_index[synth] = len(body_index)
 
+    # --- register honored-investigation bodies ----------------------------
+    # Each honored investigation's intervals carry resolver body_ids; register
+    # any not already seen on a section so a borehole-only body still meshes.
+    # Sorted by (body_id) for a deterministic index assignment after the
+    # section + None bodies.
+    inv_new_bodies: dict[str, str] = {}  # body_id → formation_id
+    for inv in investigation_columns:
+        for bid, fid, _top, _base in inv.intervals:
+            if bid not in body_index and bid not in inv_new_bodies:
+                inv_new_bodies[bid] = fid
+                formation_by_body[bid] = fid
+    for bid in sorted(inv_new_bodies):
+        if bid not in body_index:
+            body_index[bid] = len(body_index)
+
+    # --- map each honored investigation to its nearest grid column --------
+    # ``(i, j) = argmin |gx - world_x|, argmin |gy - world_y|``.  When two
+    # investigations land on the same (i, j) (sub-voxel neighbours) keep the one
+    # with the smaller investigation_id, deterministically.  Investigations
+    # whose true (x, y) falls outside the footprint are dropped (the column is
+    # void there anyway).
+    honored_by_cell: dict[tuple[int, int], InvestigationColumn] = {}
+    for inv in investigation_columns:
+        if not inv.intervals:
+            continue  # no observed log → nothing to honor
+        ci = int(np.argmin(np.abs(gx - inv.world_x)))
+        cj = int(np.argmin(np.abs(gy - inv.world_y)))
+        existing = honored_by_cell.get((ci, cj))
+        if existing is None or inv.investigation_id < existing.investigation_id:
+            honored_by_cell[(ci, cj)] = inv
+
     # --- label every voxel column -----------------------------------------
-    # The stack is a gap-free partition ordered shallow → deep, so its entries'
-    # contiguous ``[base, top]`` intervals share boundary elevations.  A voxel
-    # at elevation ``z`` belongs to the entry whose interval contains it.  We
-    # find that entry with one ``np.searchsorted`` over the ascending boundary
-    # edges (deep → shallow) — O(nz log m) per column, m = stack height.  The
-    # half-open convention assigns a shared contact elevation to the SHALLOWER
-    # body (the upper entry's base == the lower entry's top → the upper wins).
-    # The base is closed (the lowest entry owns a voxel exactly on the global
-    # base) and the top is open (a voxel exactly on the global top is void) —
-    # a benign measure-zero asymmetry on the grid, not a deliberate clamp.
+    # Each column is labelled from its section-blend stack via ``_column_labels``
+    # (a gap-free shallow→deep partition → one searchsorted over the boundary
+    # edges).  A column that hosts an honored investigation instead takes
+    # ``_honored_column_labels``: its OWN log within the observed depth range,
+    # the blend above / below — so every investigation is faithful to its log
+    # without punching a hole below a shallow log.
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
@@ -630,36 +804,13 @@ def label_voxels(
             if not domain.contains(x, y):
                 continue  # outside the footprint → void
             stack = _stack_at(sections, x, y)
-            if not stack:
-                continue
-            # Boundary edges ascending: [deepest base, ..., shallowest top].
-            edges = np.empty(len(stack) + 1, dtype=float)
-            edges[0] = stack[-1].base_elev
-            for k, e in enumerate(stack):
-                edges[len(stack) - k] = e.top_elev
-            # Body index per interval, deep → shallow (matches ``edges`` gaps).
-            interval_idx = np.array(
-                [
-                    body_index[
-                        e.body_id if e.body_id is not None else none_body_ids[e.formation_id]
-                    ]
-                    for e in reversed(stack)
-                ],
-                dtype=np.int32,
-            )
-            # ``searchsorted(side='right')`` maps z → its interval slot in
-            # ``edges``; slot 0 (z below the column) and slot len(edges) (z at
-            # or above the column top) are void.  The slot bounds alone select
-            # the in-range voxels: any z that yields a valid slot is already
-            # below ``edges[-1]`` (the open top), so no separate top clamp is
-            # needed — the base is closed via slot >= 1, the top open via
-            # slot <= len(stack).
-            slot = np.searchsorted(edges, gz, side="right")
-            inside = (slot >= 1) & (slot <= len(stack))
-            sel = slot[inside] - 1
-            col = np.full(nz, -1, dtype=np.int32)
-            col[inside] = interval_idx[sel]
-            labels[i, j, :] = col
+            honored = honored_by_cell.get((i, j))
+            if honored is not None:
+                labels[i, j, :] = _honored_column_labels(
+                    stack, honored, gz, body_index, none_body_ids
+                )
+            elif stack:
+                labels[i, j, :] = _column_labels(stack, gz, body_index, none_body_ids)
 
     body_id_by_index: tuple[str, ...] = tuple(
         bid for bid, _ in sorted(body_index.items(), key=lambda kv: kv[1])
