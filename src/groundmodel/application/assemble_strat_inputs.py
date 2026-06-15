@@ -66,6 +66,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.load_geo_surfaces import load_geo_surfaces
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
 from groundmodel.domain.services.strat_field.control_data import (
@@ -91,8 +92,6 @@ from groundmodel.domain.services.strat_field.stratigraphic_order import (
     OrderInputUnit,
     build_stratigraphic_order,
 )
-from groundmodel.domain.value_objects.tin_surface import TinSurface
-from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Default build-grid spacing (metres) the lens carve inputs are sampled on, used
@@ -725,10 +724,12 @@ class AssembleStratInputs(GroundModelLogger):
     async def _load_geo_surfaces(self, parent_geo_model_id: UUID) -> list[SurfaceBound]:
         """Load the parent geological model's built, non-stale surfaces as bounds.
 
-        Reads ``formation_surface`` rows for ``parent_geo_model_id``, skipping
-        rows that are stale (not yet rebuilt) or have empty geometry (no vertices).
-        Wraps each usable surface as a :class:`SurfaceBound` via
-        :meth:`SurfaceBound.from_tin`.
+        Thin wrapper around the shared
+        :func:`~groundmodel.application.load_geo_surfaces.load_geo_surfaces`
+        helper (extracted so the voxel builder can reuse it).  Passes ``self`` as
+        the logger to preserve the original per-surface DEBUG + summary INFO log
+        lines, and converts the helper's ``tuple`` back to a ``list`` so the
+        ``assemble_with_geo`` call site is byte-identical to before the extraction.
 
         Parameters
         ----------
@@ -740,25 +741,4 @@ class AssembleStratInputs(GroundModelLogger):
         list[SurfaceBound]
             Built, non-stale surfaces as band bounds.  Empty when none exist.
         """
-        surface_rows = await GeologyRepository(self._session).list_surfaces(parent_geo_model_id)
-        bounds: list[SurfaceBound] = []
-        for row in surface_rows:
-            if row.is_stale:
-                self.debug(f"  geo surface formation={row.formation_id} is_stale=True — skipping")
-                continue
-            if not row.vertices:
-                self.debug(f"  geo surface formation={row.formation_id} has no vertices — skipping")
-                continue
-            tin = TinSurface(
-                vertices=[tuple(v) for v in row.vertices],
-                triangles=[tuple(t) for t in row.triangles],
-            )
-            bounds.append(SurfaceBound.from_tin(tin))
-
-        skipped = len(surface_rows) - len(bounds)
-        if skipped:
-            self.info(
-                f"AssembleStratInputs._load_geo_surfaces: {len(bounds)} usable surface(s), "
-                f"{skipped} stale/empty skipped"
-            )
-        return bounds
+        return list(await load_geo_surfaces(self._session, parent_geo_model_id, logger=self))
