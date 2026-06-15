@@ -10,10 +10,13 @@
 //
 // The fixture is the frontend-truth oracle: the backend voxel builder is fed
 // this payload and its output is compared against the same partition the user
-// validated on screen. Because this harness reuses the production utilities
-// (`investigationsOnSection`, `assembleSectionPartitionInput`,
+// validated on screen. Because the harness routes through the production
+// utilities (`investigationsOnSection`, `assembleSectionPartitionInput`,
 // `computeSectionFill`, `computeCanonicalColumnWorldPositions` via
-// `buildVoxelRequest`), the fixture can never drift from what the app renders.
+// `buildVoxelRequest`), the PARTITION MATH can never drift from what the app
+// renders. The INPUT ASSEMBLY, however, is hand-mirrored from
+// `LithologyCanvas.tsx`'s `fenceSectionInputs` useMemo (see
+// `reconstructFenceSectionInputs` below) and CAN drift — keep the two in sync.
 //
 // ---------------------------------------------------------------------------
 // RAW-INPUTS JSON SHAPE (the controller produces this from the dev DB)
@@ -133,6 +136,11 @@ interface RawInputs {
  * inputs (anchored on ``cpt_id ?? borehole_id``), then per section project the
  * investigations onto the line, keep only approved edges, and assemble the
  * ``FenceSectionInput``.
+ *
+ * DRIFT NOTE: this hand-mirrors ``LithologyCanvas.tsx``'s ``fenceSectionInputs``
+ * useMemo — the anchor rule (``cpt_id ?? borehole_id``), the exclusion-id union
+ * (``excluded_cpt_ids`` ∪ ``excluded_borehole_ids``), and the approved-edge
+ * filter (``user_approved``). If that useMemo changes, this MUST change too.
  */
 function reconstructFenceSectionInputs(raw: RawInputs): FenceSectionInput[] {
   // Project-wide layer inputs, anchored on cpt_id ?? borehole_id (skip the

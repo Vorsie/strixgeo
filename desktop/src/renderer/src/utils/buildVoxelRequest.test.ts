@@ -7,7 +7,7 @@ import { computeSectionFill } from './partitionFill'
 
 // One horizontal section, two columns, one through-going ZAND body correlated
 // across them (shared bodyId ⇒ a band).
-const oneSection: FenceSectionInput[] = [
+const singleSection: FenceSectionInput[] = [
   {
     section: { start_x: 0, start_y: 0, end_x: 100, end_y: 0 },
     projectedColumns: [
@@ -26,11 +26,11 @@ describe('buildVoxelRequest', () => {
   // The payload must NOT alter the partition: its regions are exactly what
   // computeSectionFill produces on the same assembled columns + edges.
   it('reproduces computeSectionFill regions verbatim (formations, gaps, polygons)', () => {
-    const req = buildVoxelRequest(oneSection, 2.0)
+    const req = buildVoxelRequest(singleSection, 2.0)
     expect(req.sections).toHaveLength(1)
 
-    const { columns } = assembleSectionPartitionInput(oneSection[0].projectedColumns, oneSection[0].layers)
-    const expected = computeSectionFill(columns, oneSection[0].edges)
+    const { columns } = assembleSectionPartitionInput(singleSection[0].projectedColumns, singleSection[0].layers)
+    const expected = computeSectionFill(columns, singleSection[0].edges)
 
     const regions = req.sections[0].regions
     expect(regions).toHaveLength(expected.length)
@@ -48,8 +48,8 @@ describe('buildVoxelRequest', () => {
 
   // The grid spacing is passed straight through, untouched.
   it('passes grid_spacing_m through unchanged', () => {
-    expect(buildVoxelRequest(oneSection, 1.5).grid_spacing_m).toBe(1.5)
-    expect(buildVoxelRequest(oneSection, 2.0).grid_spacing_m).toBe(2.0)
+    expect(buildVoxelRequest(singleSection, 1.5).grid_spacing_m).toBe(1.5)
+    expect(buildVoxelRequest(singleSection, 2.0).grid_spacing_m).toBe(2.0)
   })
 
   // A project with no sections yields an empty payload (still carrying spacing).
@@ -59,7 +59,7 @@ describe('buildVoxelRequest', () => {
 
   // The section endpoints round-trip into the payload's start/end world coords.
   it('carries the section endpoints into the payload', () => {
-    const req = buildVoxelRequest(oneSection, 2.0)
+    const req = buildVoxelRequest(singleSection, 2.0)
     const s = req.sections[0]
     expect([s.start_x, s.start_y, s.end_x, s.end_y]).toEqual([0, 0, 100, 0])
   })

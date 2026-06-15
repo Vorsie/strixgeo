@@ -140,14 +140,23 @@ export function buildVoxelRequest(
   for (const { input, columns, orderedColumns } of assembled) {
     const payloadColumns: SectionColumnInput[] = orderedColumns.map((c) => {
       const w = canonical.get(c.investigationId);
+      // Unreachable invariant guard: every column of an assembled (>=2-column)
+      // section contributes a canonical entry, so a miss is impossible by
+      // construction. Fail loud naming the offending investigation rather than
+      // emitting Number.NaN — the payload's world_x/world_y are required numbers
+      // and JSON.stringify(NaN) === "null", so a NaN would surface as a baffling
+      // null at the Python backend, far from the real cause.
+      if (!w) {
+        throw new Error(
+          `buildVoxelRequest: no canonical world position for investigation ` +
+            `'${c.investigationId}' (expected one per assembled-section column)`,
+        );
+      }
       return {
         investigation_id: c.investigationId,
         along_m: c.alongM,
-        // Fall back to the section's own projection only if (defensively) the
-        // canonical map has no entry — every column with >=2 section columns
-        // contributes one, so the fallback should not trigger in practice.
-        world_x: w ? w.x : Number.NaN,
-        world_y: w ? w.y : Number.NaN,
+        world_x: w.x,
+        world_y: w.y,
       };
     });
 
