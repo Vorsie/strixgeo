@@ -202,6 +202,39 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"{len(domain.polygon)}-vertex hull"
         )
 
+        # --- Early checksum short-circuit (before the expensive Phase 2/3) ----
+        # The digest covers the FULL section payload + grid spacing and the
+        # pipeline is deterministic, so a digest match ⟹ identical body set —
+        # the same reasoning the strat builder relies on.  Skip labelling +
+        # extraction entirely when nothing changed.  ``_load_existing`` is
+        # cross-method: stale strat rows carry a different (strat) digest, so the
+        # ``_digest_matches_all`` set/checksum check is False → no early skip →
+        # the build proceeds and orphan-sweeps them in Phase 5.
+        new_checksum = _partition_checksum(sections, grid_spacing_m)
+        existing_by_body = await self._load_existing(model_id)
+        if (
+            not force
+            and existing_by_body
+            and all(
+                meta.source_pick_checksum == new_checksum and not meta.is_stale
+                for meta in existing_by_body.values()
+            )
+        ):
+            await self._session.commit()
+            skipped = len(existing_by_body)
+            self.success(
+                f"BuildVoxelLithoModel: model={model_id} — checksum unchanged, "
+                f"skipped all {skipped} body/bodies (no labelling)"
+            )
+            return LithoSolidsOutcome(
+                bodies_considered=skipped,
+                bodies_built=0,
+                bodies_skipped_checksum=skipped,
+                bodies_flagged=0,
+                orphans_deleted=0,
+                marked_test_ids=[],
+            )
+
         # --- Phase 2: label the 3-D voxel grid --------------------------------
         try:
             grid = label_voxels(domain, grid_spacing_m, sections)
@@ -223,37 +256,31 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         meshes = [m for m in meshes if m.vertices and m.triangles]
         self.info(f"BuildVoxelLithoModel: model={model_id} — extracted {len(meshes)} body solid(s)")
 
-        new_checksum = _partition_checksum(sections, grid_spacing_m)
-        existing_by_body = await self._load_existing(model_id)
-
         if not meshes:
             # The labelling produced no non-empty body (e.g. every voxel void).
             self.warning(
                 f"BuildVoxelLithoModel: model={model_id} — labelling produced no body; "
                 "clearing cache"
             )
-            return await self._handle_empty(model_id)
+            # Reuse the already-loaded existing rows — ``_delete_orphans`` only
+            # reads the keys, so no second read is needed for the empty path.
+            orphans_deleted = await self._delete_orphans(model_id, existing_by_body, set())
+            await self._session.commit()
+            self.success(
+                f"BuildVoxelLithoModel: model={model_id} — empty payload, "
+                f"{orphans_deleted} orphan(s) deleted"
+            )
+            return LithoSolidsOutcome(
+                bodies_considered=0,
+                bodies_built=0,
+                bodies_skipped_checksum=0,
+                bodies_flagged=0,
+                orphans_deleted=orphans_deleted,
+                marked_test_ids=[],
+            )
 
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
         bodies_considered = len(wanted_storage_ids)
-
-        # --- Phase 4: checksum short-circuit ----------------------------------
-        if not force and self._digest_matches_all(
-            existing_by_body, wanted_storage_ids, new_checksum
-        ):
-            await self._session.commit()
-            self.success(
-                f"BuildVoxelLithoModel: model={model_id} — checksum unchanged, "
-                f"skipped all {bodies_considered} body/bodies"
-            )
-            return LithoSolidsOutcome(
-                bodies_considered=bodies_considered,
-                bodies_built=0,
-                bodies_skipped_checksum=bodies_considered,
-                bodies_flagged=0,
-                orphans_deleted=0,
-                marked_test_ids=[],
-            )
 
         # --- Phase 5: upsert + orphan-delete + commit -------------------------
         rows = self._mesh_rows(meshes, model_id, new_checksum)
