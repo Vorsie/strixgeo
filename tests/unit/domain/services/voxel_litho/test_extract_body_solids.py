@@ -177,6 +177,102 @@ def test_vertical_interfingering_reads_two_intervals() -> None:
     assert fill_iv[0] == (0.5, 3.5), f"host fills between the two SAND spans; got {fill_iv[0]}"
 
 
+def test_diagonal_edge_touch_is_manifold() -> None:
+    """Two same-body voxels meeting ONLY along a lattice edge pinch apart cleanly.
+
+    Two cells of the SAME body sit diagonally adjacent in one z-layer — they
+    share neither a face nor any voxel between them, only the single vertical
+    lattice EDGE where their corners coincide (the classic "kissing" diagonal
+    touch a geologist sees where a body wedges out to a knife-edge and re-thickens
+    just past it).  A naive global weld by lattice node would fuse all four
+    boundary faces meeting at that edge into one shared edge → an edge incident to
+    four triangles, which is NOT a 2-manifold.  The mesher must instead let the
+    body's two boundary sheets pinch apart at the touch, so the result stays a
+    closed 2-manifold AND a vertical ray reads the body as TWO separate columns
+    (one per voxel), never one fused blob.
+
+    This is the path the two existing fixtures never reach (neither produces a
+    four-face XOR edge); it pins pass-1's diagonal-by-cell weld branch.
+    """
+    h = 1.0
+    # A 2x2 footprint, single z-layer.  Body B fills the (0, 0) and (1, 1)
+    # columns; the off-diagonal cells (1, 0) and (0, 1) are void.  The only
+    # shared lattice feature between the two body cells is the vertical edge at
+    # lattice node (1, 1) — a four-face diagonal touch.
+    gx = _regular_axes(2, 0.0, h)
+    gy = _regular_axes(2, 0.0, h)
+    gz = _regular_axes(1, 0.0, h)
+    labels = np.full((2, 2, 1), -1, dtype=np.int32)  # void everywhere
+    labels[0, 0, 0] = _HOST  # body B (index 0) at one corner column
+    labels[1, 1, 0] = _HOST  # ... and the diagonally-opposite corner column
+    grid = LabelGrid(
+        gx=gx,
+        gy=gy,
+        gz=gz,
+        labels=labels,
+        body_id_by_index=("diag",),
+        formation_by_body={"diag": "ZAND"},
+    )
+    bodies = extract_body_solids(grid)
+    assert [b.body_id for b in bodies] == ["diag"], "the single diagonal body meshes"
+    body = bodies[0]
+
+    # The pinch must leave a closed 2-manifold — no four-triangle edge survives.
+    assert_closed_manifold(body.vertices, body.triangles)
+
+    # The two voxels read as two SEPARATE solid columns (the pinch separated
+    # cleanly): each centre column carries exactly one interval; the void
+    # off-diagonal columns carry none.
+    iv_00 = vertical_ray_intervals(body.vertices, body.triangles, 0.0, 0.0)
+    iv_11 = vertical_ray_intervals(body.vertices, body.triangles, 1.0, 1.0)
+    assert len(iv_00) == 1 and iv_00[0] == (-0.5, 0.5), f"corner column (0,0); got {iv_00}"
+    assert len(iv_11) == 1 and iv_11[0] == (-0.5, 0.5), f"corner column (1,1); got {iv_11}"
+    iv_10 = vertical_ray_intervals(body.vertices, body.triangles, 1.0, 0.0)
+    iv_01 = vertical_ray_intervals(body.vertices, body.triangles, 0.0, 1.0)
+    assert iv_10 == [] and iv_01 == [], "the off-diagonal columns are void"
+
+
+def test_corner_touch_is_manifold() -> None:
+    """Two same-body voxels meeting ONLY at a lattice CORNER pinch apart cleanly.
+
+    The 3-D analogue of the diagonal edge touch: two cells of the SAME body sit
+    at opposite ends of the cube's body diagonal, sharing neither a face nor an
+    edge — only the single lattice CORNER node where their corners coincide.  The
+    two boundary sheets must fall into different welded components (they touch at
+    one point only), so the body stays a closed 2-manifold and reads as two
+    separate solid voxels rather than one fused mass.
+    """
+    h = 1.0
+    gx = _regular_axes(2, 0.0, h)
+    gy = _regular_axes(2, 0.0, h)
+    gz = _regular_axes(2, 0.0, h)
+    labels = np.full((2, 2, 2), -1, dtype=np.int32)  # void everywhere
+    labels[0, 0, 0] = _HOST  # body B at one end of the body diagonal
+    labels[1, 1, 1] = _HOST  # ... and the diagonally-opposite voxel
+    grid = LabelGrid(
+        gx=gx,
+        gy=gy,
+        gz=gz,
+        labels=labels,
+        body_id_by_index=("corner",),
+        formation_by_body={"corner": "ZAND"},
+    )
+    bodies = extract_body_solids(grid)
+    assert [b.body_id for b in bodies] == ["corner"], "the single corner-touch body meshes"
+    body = bodies[0]
+
+    # The two voxels meet at one lattice corner; the mesh must still be a closed
+    # 2-manifold (the two sheets separate at the shared point).
+    assert_closed_manifold(body.vertices, body.triangles)
+
+    # Each voxel column carries exactly one interval at its own z-span — voxel
+    # (0,0,0) spans [-0.5, 0.5], voxel (1,1,1) spans [0.5, 1.5].
+    iv_00 = vertical_ray_intervals(body.vertices, body.triangles, 0.0, 0.0)
+    iv_11 = vertical_ray_intervals(body.vertices, body.triangles, 1.0, 1.0)
+    assert len(iv_00) == 1 and iv_00[0] == (-0.5, 0.5), f"low voxel column; got {iv_00}"
+    assert len(iv_11) == 1 and iv_11[0] == (0.5, 1.5), f"high voxel column; got {iv_11}"
+
+
 def test_empty_body_is_skipped() -> None:
     """A body index that labels no voxel produces no mesh (skipped, not empty)."""
     h = 1.0
