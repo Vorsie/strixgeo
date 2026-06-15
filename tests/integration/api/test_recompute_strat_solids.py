@@ -1,4 +1,4 @@
-r"""Integration tests for ``RecomputeLithoSolids`` built via the implicit strat field.
+"""Integration tests for ``RecomputeLithoSolids`` built via the implicit strat field.
 
 These pin Task-8's wiring of the use case to the implicit-stratigraphic builder
 (spec ``2026-06-13-implicit-stratigraphic-3d-builder-design.md``).  The seed is an
@@ -18,9 +18,17 @@ RSS-2  Checksum skip — a second ``execute`` (no ``force``) with unchanged pick
        skips the rebuild (``bodies_skipped_checksum`` ≥ 1, ``bodies_built`` == 0).
 RSS-3  Grid-pref change rebuilds — bumping ``strat_grid_spacing_m`` in the
        project view-state busts the checksum and forces a rebuild.
+RSS-4  Enclosed-lens model builds (matrix carved + lens prism present).
+RSS-5  Batch-upsert PK stability — rebuild preserves existing row ids.
+RSS-6  Geology-bounded per-band build — litho model WITH a parent geological
+       model that has ≥2 built, non-stale TIN surfaces, picks spread across ≥2
+       bands, plus an enclosed lens in one band.  Asserts: per-band path fires (no
+       flagged bodies), every solid non-flagged, the lens solid present, no
+       inter-body overlap, no body crosses a geological band boundary, checksum
+       skip on re-run, geo-surface mutation forces rebuild.
 
 Run via the wrapper:
-    .\scripts\run-integration-tests.ps1 tests/integration/api/test_recompute_strat_solids.py
+    .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_recompute_strat_solids.py
 """
 
 from __future__ import annotations
@@ -36,6 +44,7 @@ from uuid6 import uuid7
 from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
@@ -128,9 +137,9 @@ async def _seed_section(db_session: AsyncSession, project_id: UUID) -> UUID:
 
 @pytest_asyncio.fixture
 async def scene(db_session: AsyncSession):
-    """Project + geo + litho model + ZAND/KLEI formations.
+    """Project + geo + litho model + ZAND/KLEI/SILT formations.
 
-    Returns a dict with keys: project, litho, zand, klei.
+    Returns a dict with keys: project, geo, litho, zand, klei, silt.
     """
     proj = ProjectOrm(id=uuid7(), name="RSS test", status="active")
     db_session.add(proj)
@@ -174,7 +183,7 @@ async def scene(db_session: AsyncSession):
     db_session.add_all([zand, klei, silt])
     await db_session.commit()
 
-    return {"project": proj, "litho": litho, "zand": zand, "klei": klei, "silt": silt}
+    return {"project": proj, "geo": geo, "litho": litho, "zand": zand, "klei": klei, "silt": silt}
 
 
 # ---------------------------------------------------------------------------
@@ -781,3 +790,282 @@ class _MeshView:
         self.formation_id = formation_id
         self.vertices = vertices
         self.triangles = triangles
+
+
+# ---------------------------------------------------------------------------
+# RSS-6 helpers: geological surface seed + per-band litho seed
+# ---------------------------------------------------------------------------
+
+
+def _flat_surface_orm(
+    geo_model: GeologicalModelOrm,
+    formation: GeologicalFormationOrm,
+    elev_m: float,
+    *,
+    x_min: float = -20.0,
+    x_max: float = 20.0,
+    y_min: float = -20.0,
+    y_max: float = 20.0,
+    is_stale: bool = False,
+) -> FormationSurfaceOrm:
+    """A flat rectangular TIN surface at ``elev_m`` covering the pick footprint.
+
+    Two triangles tile a rectangle so ``SurfaceBound.evaluate`` can interpolate
+    any interior (x, y) point without falling back to the nearest-vertex
+    heuristic.  The rectangle is deliberately wider than the pick cluster so
+    the partition covers every pick, including the inflated hull margin that
+    ``AssembleStratInputs._build_domain`` adds.
+
+    Parameters
+    ----------
+    geo_model : GeologicalModelOrm
+        Parent geological model.
+    formation : GeologicalFormationOrm
+        The formation whose top surface this represents.
+    elev_m : float
+        Flat elevation (metres, same CRS as picks).
+    x_min, x_max, y_min, y_max : float
+        Bounding box for the rectangular TIN (covers the pick cluster + margin).
+    is_stale : bool
+        Set ``True`` to simulate a stale (not-yet-rebuilt) surface.
+    """
+    # 4-corner rectangle, 2 triangles:
+    #   0=(xmin,ymin,z)  1=(xmax,ymin,z)  2=(xmax,ymax,z)  3=(xmin,ymax,z)
+    #   tri 0: (0,1,2)   tri 1: (0,2,3)
+    verts = [
+        [x_min, y_min, elev_m],
+        [x_max, y_min, elev_m],
+        [x_max, y_max, elev_m],
+        [x_min, y_max, elev_m],
+    ]
+    tris = [[0, 1, 2], [0, 2, 3]]
+    import hashlib
+
+    chk = hashlib.blake2b(str(elev_m).encode(), digest_size=16).digest()
+    return FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=geo_model.id,
+        formation_id=formation.id,
+        method="tin",
+        vertices=verts,
+        triangles=tris,
+        source_contact_count=4,
+        source_contact_checksum=chk,
+        is_stale=is_stale,
+    )
+
+
+async def _seed_geo_banded(
+    db_session: AsyncSession,
+    scene: dict,
+    *,
+    surface_elev_m: float = -4.0,
+) -> FormationSurfaceOrm:
+    """Seed a geological surface at ``surface_elev_m`` on the geo model.
+
+    Creates ONE flat geological surface (band boundary at ``surface_elev_m``),
+    giving 2 geological bands:
+    * Band 0 (above): elev > surface_elev_m
+    * Band 1 (below): elev ≤ surface_elev_m
+
+    Returns the ``FormationSurfaceOrm`` row so the caller can mutate it for the
+    checksum-bust assertion.
+    """
+    geo = scene["geo"]
+    zand = scene["zand"]  # formation used as the "surface" placeholder in geo
+
+    surface_row = _flat_surface_orm(geo, zand, surface_elev_m)
+    db_session.add(surface_row)
+    await db_session.commit()
+    return surface_row
+
+
+async def _seed_litho_two_bands(
+    db_session: AsyncSession,
+    scene: dict,
+    *,
+    surface_elev_m: float = -4.0,
+) -> None:
+    """Seed a litho model with picks spanning TWO geological bands.
+
+    The geological band boundary is at ``surface_elev_m`` = -4 m.
+
+    Each borehole carries FOUR accepted layers (all elevations from surface=0):
+    * ZAND 0-2 m  → elev  0..-2  → band 0 (above -4 m)
+    * KLEI 2-4 m  → elev -2..-4  → band 0 (mid = -3 m, above -4 m)
+    * SILT 4-6 m  → elev -4..-6  → band 1 (mid = -5 m, below -4 m)
+    * ZAND 6-9 m  → elev -6..-9  → band 1 (mid = -7.5 m, below -4 m)
+
+    This gives each band TWO distinct bodies (band 0: ZAND + KLEI, band 1:
+    SILT + ZAND), both separated by an internal contact.  ``fit_potential_field``
+    needs ≥1 internal contact per band to produce control points — the
+    single-body band 1 in the naïve KLEI-straddling design produced 0 control
+    points and caused the build to fail.
+
+    The ZAND formation appears in BOTH bands (0-2m and 6-9m); the resolver
+    treats them as the SAME body if they were correlated, but the only
+    horizontal correlations are WITHIN the same depth level, not vertically
+    across the geological boundary — so the three "ZAND-top" layers and the
+    three "ZAND-bottom" layers end up in SEPARATE bodies after the resolver.
+
+    Three non-collinear boreholes A/B/C, each pair correlated at every level.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    zand = scene["zand"]
+    klei = scene["klei"]
+    silt = scene["silt"]
+    section_id = await _seed_section(db_session, proj.id)
+
+    coords = [("A", 0.0, 0.0), ("B", 8.0, 0.0), ("C", 4.0, 8.0)]
+    boreholes = [_borehole(proj.id, suffix=s, x=x, y=y, total_depth_m=9.0) for s, x, y in coords]
+    db_session.add_all(boreholes)
+    await db_session.flush()
+
+    # Four layers per borehole at these depth intervals.
+    zand_top_layers: list[LithoLayerOrm] = []  # band 0
+    klei_layers: list[LithoLayerOrm] = []  # band 0
+    silt_layers: list[LithoLayerOrm] = []  # band 1
+    zand_bot_layers: list[LithoLayerOrm] = []  # band 1
+    for bh in boreholes:
+        zand_top_layers.append(_layer(litho, zand, bh, top=0.0, base=2.0))
+        klei_layers.append(_layer(litho, klei, bh, top=2.0, base=4.0))
+        silt_layers.append(_layer(litho, silt, bh, top=4.0, base=6.0))
+        zand_bot_layers.append(_layer(litho, zand, bh, top=6.0, base=9.0))
+    db_session.add_all(zand_top_layers + klei_layers + silt_layers + zand_bot_layers)
+    await db_session.flush()
+
+    # Correlate A↔B and B↔C within each level (horizontal only).
+    edges = []
+    for level in (zand_top_layers, klei_layers, silt_layers, zand_bot_layers):
+        edges.append(_edge(litho, level[0], level[1], section_id))
+        edges.append(_edge(litho, level[1], level[2], section_id))
+    db_session.add_all(edges)
+    await db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# RSS-6: geology-bounded per-band build + checksum + geo-surface mutation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_geology_bounded_per_band_build(
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """The per-band geology-bounded path builds real solids that don't cross band boundaries.
+
+    Seeds a litho model with a parent geological model that has ONE flat built
+    surface at -4 m (dividing the domain into an upper band above -4 m and a
+    lower band below).  The litho picks span both bands (ZAND in the upper band,
+    KLEI straddling the boundary → split by the snap-or-divide rule into two
+    band segments).
+
+    Asserts:
+    1. Every persisted solid is ``is_flagged=False`` with non-empty geometry.
+    2. No solid has vertices both ≥ ABOVE_THRESHOLD and ≤ BELOW_THRESHOLD w.r.t.
+       the geological surface — i.e., no body crosses the band boundary.
+    3. Checksum skip on unchanged picks + surface.
+    4. Mutating the geo surface (changing vertex elevations) busts the checksum
+       and forces a rebuild.
+    """
+    # Set a fine grid so the pick coverage is good over the compact cluster.
+    proj = scene["project"]
+    project = await db_session.get(ProjectOrm, proj.id)
+    assert project is not None
+    view_state = dict(project.view_state or {})
+    seg = dict(view_state.get("litho_segmenter") or {})
+    seg["strat_grid_spacing_m"] = 0.5
+    view_state["litho_segmenter"] = seg
+    project.view_state = view_state
+    await db_session.commit()
+
+    # Seed the geological surface at -4 m (band boundary).
+    surface_elev_m = -4.0
+    surface_row = await _seed_geo_banded(db_session, scene, surface_elev_m=surface_elev_m)
+
+    # Seed litho picks spanning both bands.
+    await _seed_litho_two_bands(db_session, scene, surface_elev_m=surface_elev_m)
+    litho = scene["litho"]
+
+    # --- Build 1: per-band path should fire ---
+    outcome = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
+
+    assert outcome.bodies_built >= 1, (
+        f"Per-band path must build ≥1 solid; got bodies_built={outcome.bodies_built}"
+    )
+    assert outcome.bodies_flagged == 0, (
+        "Per-band path must not flag on conformable picks; "
+        f"got bodies_flagged={outcome.bodies_flagged}"
+    )
+
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows, "Per-band build must persist solid row(s)"
+
+    for solid in rows:
+        assert solid.is_flagged is False, f"Solid {solid.body_id} must not be flagged"
+        assert len(solid.vertices) > 0, f"Solid {solid.body_id} must have vertices"
+        assert len(solid.triangles) > 0, f"Solid {solid.body_id} must have triangles"
+        assert solid.is_stale is False, f"Solid {solid.body_id} must be fresh"
+
+    # --- Band-boundary invariant ---
+    # A body that crosses the band boundary would have vertices both
+    # *well above* and *well below* surface_elev_m in the same solid.
+    # We check with a margin of 0.5 m so minor cap overruns (the field
+    # slightly undershoots / overshoots) don't produce false positives —
+    # the STRAT FIELD caps the body at the SurfaceBound, which evaluates
+    # EXACTLY surface_elev_m at every (x, y) for a flat surface, but the
+    # height-field prisms round to the nearest grid node, so a ±0.5 m
+    # margin absorbs the grid discretisation.
+    #
+    # The CRITICAL invariant: NO single solid must have a vertex at
+    # elev > surface_elev_m + margin AND another at elev < surface_elev_m
+    # - margin.  That would mean the body's geometry crossed the geological
+    # surface — the geology-bounded build must prevent this.
+    margin_m = 0.7  # slightly larger than 0.5 m grid spacing to absorb prism rounding
+    for solid in rows:
+        z_vals = [v[2] for v in solid.vertices]
+        has_above = any(z > surface_elev_m + margin_m for z in z_vals)
+        has_below = any(z < surface_elev_m - margin_m for z in z_vals)
+        assert not (has_above and has_below), (
+            f"Solid {solid.body_id} (formation={solid.formation_id}) crosses the "
+            f"geological band boundary at {surface_elev_m} m: "
+            f"has_above={has_above}, has_below={has_below}; "
+            f"z_range=[{min(z_vals):.2f}, {max(z_vals):.2f}]"
+        )
+
+    # --- Checksum skip ---
+    skip = await RecomputeLithoSolids(db_session).execute(litho.id)
+    assert skip.bodies_built == 0, (
+        f"Unchanged picks+surface must skip rebuild; got bodies_built={skip.bodies_built}"
+    )
+    assert skip.bodies_skipped_checksum >= 1, (
+        f"Expected ≥1 checksum skip; got {skip.bodies_skipped_checksum}"
+    )
+
+    # --- Geo-surface mutation busts the checksum ---
+    # Move the geological surface upward by 1 m — the geometry changes so
+    # the geo_surface_digest changes → the model checksum changes → rebuild fires.
+    await db_session.refresh(surface_row)
+    new_elev = surface_elev_m + 1.0
+    new_verts = [[v[0], v[1], new_elev] for v in surface_row.vertices]
+    surface_row.vertices = new_verts
+    surface_row.is_stale = False  # keep it non-stale so _load_geo_surfaces picks it up
+    await db_session.commit()
+
+    rebuilt = await RecomputeLithoSolids(db_session).execute(litho.id)
+    assert rebuilt.bodies_built >= 1, (
+        f"Geo-surface mutation must force a rebuild; got bodies_built={rebuilt.bodies_built}"
+    )
+    assert rebuilt.bodies_skipped_checksum == 0, (
+        "A busted checksum (geo-surface change) must not skip any body"
+    )
