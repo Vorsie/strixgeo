@@ -21,12 +21,18 @@ dependencies.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import NotRequired, TypedDict
 
 import numpy as np
 
 from groundmodel.domain.services.strat_field.body_assembly import (
     assemble_bodies,
     assemble_bodies_with_fields,
+    build_shared_grid,
+)
+from groundmodel.domain.services.strat_field.lens_carving import (
+    LensCarveInput,
+    carve_lenses,
 )
 from groundmodel.domain.services.strat_field.potential_field import fit_potential_field
 from groundmodel.domain.services.strat_field.strat_types import (
@@ -134,3 +140,117 @@ def build_strat_model_with_fields(
     """
     field = fit_potential_field(control, blocks)
     return assemble_bodies_with_fields(field, control.column, domain, grid_spacing_m)
+
+
+class BandBuildInput(TypedDict):
+    """One geological band's inputs for :func:`build_strat_model_per_band`.
+
+    Parameters
+    ----------
+    control : StratControlData
+        The Stage-2 control data for this band (its ``.column`` carries the
+        matrix-only stratigraphic order for the band's picks).
+    block : Block
+        The surface-bounded :class:`Block` for this band.  Its ``polygon`` must be
+        identical across all bands so ``build_shared_grid`` yields bit-identical
+        ``gx``/``gy`` and the cross-band caps weld exactly.
+    lens_inputs : list of LensCarveInput, optional
+        Enclosed lenses to carve within this band.  Omitted or empty when the
+        band has no lens.
+    """
+
+    control: StratControlData
+    block: Block
+    lens_inputs: NotRequired[list[LensCarveInput]]
+
+
+def build_strat_model_per_band(
+    bands: list[BandBuildInput],
+    grid_spacing_m: float,
+) -> list[LithoBodyMesh]:
+    """Build the 3-D litho model as a sequence of geology-bounded band solids.
+
+    Each geological band has its own :class:`StratControlData` (already partitioned
+    and ordered upstream by ``partition_picks_by_geology`` + Stage-1/2 per-band
+    pipeline) and a :class:`Block` whose ``top_surface`` / ``base_surface`` are
+    :class:`~groundmodel.domain.services.strat_field.strat_types.SurfaceBound`
+    objects shared with the adjacent band.
+
+    **Watertight seam guarantee**: adjacent bands share the SAME
+    ``SurfaceBound`` instance as band *k*'s ``base_surface`` and band *k+1*'s
+    ``top_surface``.  Both bands are built over a grid derived from the SAME
+    polygon (``band.block.polygon``; caller must ensure all bands share the same
+    hull polygon so ``build_shared_grid`` produces byte-identical ``gx/gy``
+    arrays for every band call).  Because ``SurfaceBound.evaluate`` is a pure
+    deterministic function and the grid nodes are bit-identical, the cap
+    elevation arrays for the two touching faces are byte-identical → exact weld →
+    no gap or overlap at the seam.
+
+    Each band entry may carry optional ``lens_inputs`` (a list of
+    :class:`~groundmodel.domain.services.strat_field.lens_carving.LensCarveInput`)
+    for enclosed lenses within that band.  When present, the band is assembled
+    with :func:`assemble_bodies_with_fields` (to obtain the host height fields)
+    and the lenses are carved on the same shared grid.
+
+    Parameters
+    ----------
+    bands : list[dict]
+        One dict per geological band, ordered shallowest → deepest.  Each dict
+        must carry:
+
+        ``"control"`` : :class:`StratControlData`
+            The Stage-2 control data for this band.
+        ``"block"`` : :class:`Block`
+            The surface-bounded block for this band.  Its ``polygon`` must be
+            identical across all bands so the grids are bit-consistent.
+        ``"lens_inputs"`` : list of :class:`LensCarveInput`
+            Enclosed lenses to carve within this band.  May be empty.
+
+    grid_spacing_m : float
+        Target grid spacing in metres, applied identically to every band (same
+        polygon → same grid → watertight cross-band stitch).
+
+    Returns
+    -------
+    list of LithoBodyMesh
+        All watertight body solids from all bands, concatenated in band order
+        (shallowest → deepest within each band, then the next band's bodies).
+        Every body passes ``assert_closed_manifold``; no two bodies from
+        different bands overlap at the seam (the shared-surface guarantee).
+
+    Raises
+    ------
+    ValueError
+        Propagated from ``fit_potential_field`` when a band's control data has
+        no control points.
+    """
+    all_bodies: list[LithoBodyMesh] = []
+
+    for band in bands:
+        control: StratControlData = band["control"]
+        block: Block = band["block"]
+        lens_inputs: list[LensCarveInput] = band.get("lens_inputs") or []
+
+        field = fit_potential_field(control, [block])
+
+        if lens_inputs:
+            # Need the host height fields to pass to the carver (avoids an
+            # O(grid_nodes × triangles) ray-cast reconstruction per carved host).
+            matrix_bodies, host_height_fields = assemble_bodies_with_fields(
+                field, control.column, block, grid_spacing_m
+            )
+            gx, gy, node_inside = build_shared_grid(block, grid_spacing_m)
+            band_bodies = carve_lenses(
+                lens_inputs,
+                matrix_bodies,
+                gx,
+                gy,
+                node_inside,
+                host_height_fields=host_height_fields,
+            )
+        else:
+            band_bodies = assemble_bodies(field, control.column, block, grid_spacing_m)
+
+        all_bodies.extend(band_bodies)
+
+    return all_bodies

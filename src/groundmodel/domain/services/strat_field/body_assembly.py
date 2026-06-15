@@ -231,7 +231,7 @@ def assemble_bodies_with_fields(
     # its lithology is the unit BELOW the upper bounding horizon == the unit ABOVE
     # the lower bounding horizon (asserted to agree).
     # ------------------------------------------------------------------
-    bands = list(_iter_bands(order, interior, floor_rank, heights, domain, nx, ny))
+    bands = list(_iter_bands(order, interior, floor_rank, heights, domain, nx, ny, gx, gy))
 
     # ------------------------------------------------------------------
     # Step 4: emit one closed-manifold mesh per band per connected component, and
@@ -551,13 +551,32 @@ def _iter_bands(
     domain: Block,
     nx: int,
     ny: int,
+    gx: np.ndarray,
+    gy: np.ndarray,
 ) -> Iterator[_Band]:
     """Yield each band (top cap → interior horizons → bottom cap) with its heights.
 
-    The level surfaces, top→bottom, are: the flat top cap at ``z_max``, then each
-    interior horizon's height field (descending rank), then the flat bottom cap at
-    ``z_min``.  Consecutive levels bound one band; its lithology is verified to be
-    consistent from both bounding horizons.
+    The level surfaces, top→bottom, are: the top cap (flat ``z_max`` or the
+    curved ``domain.top_surface`` if set), then each interior horizon's height
+    field (descending rank), then the bottom cap (flat ``z_min`` or the curved
+    ``domain.base_surface``).  Consecutive levels bound one band; its lithology is
+    verified to be consistent from both bounding horizons.
+
+    When a :class:`~strat_types.SurfaceBound` surface is set on the domain block,
+    the corresponding cap array is populated per-node by evaluating the surface at
+    ``(gx[i], gy[j])`` rather than at a flat elevation.  This is the mechanism by
+    which adjacent geological bands share the SAME cap elevation at each grid node:
+    both bands evaluate the SAME :class:`SurfaceBound` object at the SAME node
+    positions → byte-identical z per node → the bottom face of the upper band and
+    the top face of the lower band are the same quad → the cell complex welds
+    exactly (the watertight cross-band stitch, WHY this is correct).
+
+    Interior horizon heights are clamped into ``[bot_cap, top_cap]`` per node
+    AFTER the monotone clamp has already been applied (so the stack is first made
+    self-consistent, then pinned inside the geological band).  A horizon that the
+    implicit field placed outside the band (above ``top_cap`` or below ``bot_cap``
+    at a node) is pulled to the nearer cap, producing a zero-thickness or absent
+    cell there rather than a body that escapes the geological band.
 
     Parameters
     ----------
@@ -568,21 +587,61 @@ def _iter_bands(
     floor_rank : int
         The floor (bottom-cap) rank.
     heights : dict[int, numpy.ndarray]
-        Per-rank height field from :func:`_sample_height_fields`.
+        Per-rank height field from :func:`_sample_height_fields`.  Heights may
+        be outside ``[bot_cap, top_cap]`` (the field can extrapolate beyond the
+        band); they are clamped here before band construction.
     domain : Block
-        Supplies the flat cap elevations.
+        Supplies the flat or curved cap elevations via ``z_max``/``z_min`` and
+        the optional ``top_surface``/``base_surface``.
     nx, ny : int
         Grid dimensions (for the flat cap arrays).
+    gx, gy : numpy.ndarray
+        Grid node coordinates; used to evaluate curved cap surfaces per node.
 
     Yields
     ------
     _Band
         Each non-cap-only band, with aligned top/bottom height arrays.
     """
-    top_cap = np.full((nx, ny), domain.z_max)
-    bot_cap = np.full((nx, ny), domain.z_min)
+    # Build the top cap: curved if domain.top_surface is set, else flat z_max.
+    if domain.top_surface is not None:
+        # WHY: evaluate the surface at each grid node so the top cap follows the
+        # geological surface exactly, not the flat z_max fallback.  The SAME
+        # SurfaceBound object that sits as base_surface on the band ABOVE evaluates
+        # to the same z here (same object, same node positions) → byte-identical
+        # cap elevations → exact weld between adjacent bands.
+        top_cap = np.empty((nx, ny), dtype=float)
+        for i in range(nx):
+            for j in range(ny):
+                top_cap[i, j] = domain.top_surface.evaluate(float(gx[i]), float(gy[j]))
+    else:
+        top_cap = np.full((nx, ny), domain.z_max)
+
+    # Build the base cap: curved if domain.base_surface is set, else flat z_min.
+    if domain.base_surface is not None:
+        bot_cap = np.empty((nx, ny), dtype=float)
+        for i in range(nx):
+            for j in range(ny):
+                bot_cap[i, j] = domain.base_surface.evaluate(float(gx[i]), float(gy[j]))
+    else:
+        bot_cap = np.full((nx, ny), domain.z_min)
 
     horizon_by_rank = {h.rank: h for h in order.horizons}
+
+    # Clamp every interior horizon into [bot_cap, top_cap] per node.
+    # WHY: the implicit field fits globally and may extrapolate to crossings outside
+    # the band's geological bounds; clamping prevents a body escaping its band and
+    # eliminates cross-band overlaps.  NaN (absent contact) is skipped — a pinch-out
+    # stays a pinch-out and is not snapped to a cap.  The clamp is applied
+    # AFTER the monotone clamp (_sample_height_fields) so the within-band
+    # monotone stack is preserved (the two clamps compose correctly: monotone first,
+    # then cap-bound).
+    for rank in [h.rank for h in interior]:
+        layer = heights[rank]
+        present = ~np.isnan(layer)
+        if present.any():
+            layer[present] = np.minimum(layer[present], top_cap[present])
+            layer[present] = np.maximum(layer[present], bot_cap[present])
 
     # The ordered list of (rank, height-array) levels, top→bottom.
     levels: list[tuple[int, np.ndarray]] = [(-1, top_cap)]
@@ -592,9 +651,9 @@ def _iter_bands(
 
     for (rank_top, top_arr), (rank_bot, bot_arr) in zip(levels, levels[1:], strict=False):
         formation_id = _band_formation(order, horizon_by_rank, rank_top, rank_bot, floor_rank)
-        # Cap heights are flat; where an interior bounding height is NaN (the
-        # contact pinched out at that node) the band inherits the NaN so the cell
-        # there is absent — except a cap level is always present, so a band
+        # Cap heights are flat or curved; where an interior bounding height is NaN
+        # (the contact pinched out at that node) the band inherits the NaN so the
+        # cell there is absent.  A cap level is always present (no NaN), so a band
         # bounded by a cap on one side uses the cap there.
         yield _Band(
             rank_top=rank_top,
