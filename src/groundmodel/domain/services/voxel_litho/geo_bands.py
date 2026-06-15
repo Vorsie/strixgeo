@@ -28,6 +28,13 @@ Design notes
   Geological surfaces do not cross within a project hull (a documented
   assumption), so a local sort at the query point is well-defined.
 * **Pure module** — no I/O, no logging, no framework dependencies.
+* **``tuple`` vs ``list``** — all three functions take
+  ``tuple[SurfaceBound, ...]`` rather than the ``list[SurfaceBound]`` that
+  :func:`~groundmodel.domain.services.strat_field.geo_blocks._band_index`
+  accepts.  This is a deliberate match for the voxel builder's
+  frozen-dataclass style: callers assemble surface sets once at build time
+  and never mutate them, so the immutable tuple is the natural type at that
+  call site.
 
 All three functions share a small internal ``_EPS = 1e-6`` numeric guard,
 matching the style used in :mod:`~groundmodel.domain.services.strat_field.geo_blocks`.

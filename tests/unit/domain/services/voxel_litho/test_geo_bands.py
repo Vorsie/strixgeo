@@ -11,9 +11,14 @@ Fixture
 -------
 Two horizontal geological surfaces (flat TINs) define three bands:
 
-    Band 0  (above every surface)         —  z > −2 m
-    Band 1  (between the two surfaces)    —  −8 m < z ≤ −2 m
-    Band 2  (below every surface)         —  z ≤ −8 m
+    Band 0  (above every surface)         —  z ≥ −2 m
+    Band 1  (between the two surfaces)    —  −8 m ≤ z < −2 m
+    Band 2  (below every surface)         —  z < −8 m
+
+The band rule uses strict ``>`` (a surface at the SAME elevation as the query
+is NOT counted as above), so each band is a half-open interval
+``[base_elev, top_elev)`` — base INCLUSIVE, top EXCLUSIVE.  A point exactly
+on a surface belongs to the SHALLOWER band (not the deeper one).
 
 The surfaces are expressed as minimal flat TINs (two right-triangle faces per
 plane so ``SurfaceBound`` is valid) at fixed elevations −2 m and −8 m.
