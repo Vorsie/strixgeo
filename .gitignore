@@ -156,3 +156,6 @@ uploads/
 desktop/tests/e2e/_results/
 *.e2e-backend.err
 .e2e-backend.err
+
+# brainstorm visual companion (local, never commit)
+.superpowers/
