@@ -7,9 +7,20 @@
 // partitions. Field names are snake_case to match the Python value
 // objects so the payload round-trips the API unchanged.
 //
-// The `buildVoxelRequest()` function that assembles this payload from the
-// section partitions + project fence arrives in Task 2 — this file is the
-// type stub it will be defined in.
+// The `buildVoxelRequest()` function (below) assembles this payload from the
+// per-section fence inputs, reusing the exact same partition + canonical-world-
+// position passes as `buildProjectFence` so the voxel labelling sees the same
+// validated 2-D partition the user sees on screen.
+
+import type { FenceSectionInput } from "./buildProjectFence";
+import { computeSectionFill } from "./partitionFill";
+import {
+  assembleSectionPartitionInput,
+  computeCanonicalColumnWorldPositions,
+  type AssembledSection,
+} from "./sectionFenceData";
+import type { FenceColumn } from "./fencePanels";
+import type { PartitionColumn } from "./partitionFill";
 
 /** One filled region of a 2-D section partition (mirrors `SectionRegion`). */
 export interface RegionInput {
@@ -64,4 +75,102 @@ export interface VoxelBuildRequest {
   sections: SectionPartitionInput[];
   /** Voxel grid spacing in metres. */
   grid_spacing_m: number;
+}
+
+/**
+ * Assemble the voxel-builder payload from the project's per-section fence inputs.
+ *
+ * This is the partition-payload sibling of ``buildProjectFence``: for each
+ * section it assembles the partition columns (accepted layers + ordered
+ * columns), reuses the SAME canonical-world-position reconciliation so a tie
+ * column and a cross-section column for the same test agree at the crossing,
+ * runs ``computeSectionFill`` with that section's approved edges, and reshapes
+ * the result into a ``SectionPartitionInput``. The partition itself is never
+ * altered — the backend voxel labeller sees exactly the regions the user sees
+ * on screen.
+ *
+ * Sections whose assembled ``columns.length < 2`` (no fillable gap) are skipped,
+ * matching ``buildProjectFence``.
+ *
+ * Parameters
+ * ----------
+ * sections : readonly FenceSectionInput[]
+ *     One entry per section in the litho model (order is irrelevant — each
+ *     section is independent).
+ * gridSpacingM : number
+ *     Voxel grid spacing in metres, passed through to the request unchanged.
+ *
+ * Returns
+ * -------
+ * VoxelBuildRequest
+ *     ``{ sections, grid_spacing_m }`` ready to POST to the backend voxel
+ *     builder. Empty input yields ``{ sections: [], grid_spacing_m }``.
+ */
+export function buildVoxelRequest(
+  sections: readonly FenceSectionInput[],
+  gridSpacingM: number,
+): VoxelBuildRequest {
+  // Pass 1: assemble every section, keeping only those with a fillable gap
+  // (>=2 columns), then compute the canonical per-test world positions across
+  // all of them (shared with buildProjectFence so crossings agree).
+  const assembled: {
+    input: FenceSectionInput;
+    columns: PartitionColumn[];
+    orderedColumns: FenceColumn[];
+  }[] = [];
+  for (const input of sections) {
+    const { columns, orderedColumns } = assembleSectionPartitionInput(
+      input.projectedColumns,
+      input.layers,
+    );
+    if (columns.length < 2) continue;
+    assembled.push({ input, columns, orderedColumns });
+  }
+  const canonical = computeCanonicalColumnWorldPositions(
+    assembled.map<AssembledSection>(({ input, columns, orderedColumns }) => ({
+      section: input.section,
+      columns,
+      orderedColumns,
+    })),
+  );
+
+  // Pass 2: reshape each section's columns + regions into the payload, stamping
+  // each column's canonical world position.
+  const out: SectionPartitionInput[] = [];
+  for (const { input, columns, orderedColumns } of assembled) {
+    const payloadColumns: SectionColumnInput[] = orderedColumns.map((c) => {
+      const w = canonical.get(c.investigationId);
+      return {
+        investigation_id: c.investigationId,
+        along_m: c.alongM,
+        // Fall back to the section's own projection only if (defensively) the
+        // canonical map has no entry — every column with >=2 section columns
+        // contributes one, so the fallback should not trigger in practice.
+        world_x: w ? w.x : Number.NaN,
+        world_y: w ? w.y : Number.NaN,
+      };
+    });
+
+    const regions: RegionInput[] = computeSectionFill(columns, input.edges).map(
+      (r) => ({
+        formation_id: r.formationId,
+        body_id: r.bodyId,
+        polygon: r.polygon.map(
+          (p) => [p.fraction, p.elevation] as [number, number],
+        ),
+        gap_index: r.gapIndex,
+      }),
+    );
+
+    out.push({
+      start_x: input.section.start_x,
+      start_y: input.section.start_y,
+      end_x: input.section.end_x,
+      end_y: input.section.end_y,
+      columns: payloadColumns,
+      regions,
+    });
+  }
+
+  return { sections: out, grid_spacing_m: gridSpacingM };
 }
