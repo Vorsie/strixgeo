@@ -130,6 +130,47 @@ class SectionPartitionInput:
 
 
 @dataclass(frozen=True)
+class InvestigationColumn:
+    """One investigation's OWN observed pick stack at its true map location.
+
+    A borehole / CPT feeds a section at its PROJECTED foot on the section
+    line, but its true map ``(world_x, world_y)`` usually sits off to the
+    side.  The voxel labeller's between-section blend at that true location
+    can therefore disagree with the investigation's own observed log.  This
+    value object carries that observed log so the labeller can HONOR it at
+    the investigation's own grid column — labelling those voxels from the
+    log itself within its observed depth range, and falling back to the
+    section blend above its top / below its base (so a shallow log does not
+    punch a hole through the deep fill).
+
+    The ``intervals`` carry the resolver-assigned ``body_id`` (the same
+    identity the section partitions and the resolver use), so the honored
+    voxels group with the matching partition bodies in the mesher.
+
+    Parameters
+    ----------
+    investigation_id : str
+        Identifier of the CPT / borehole this column represents.
+    world_x : float
+        Easting of the investigation in metres (project CRS, e.g.
+        Lambert-72) — its TRUE map location, not a section projection.
+    world_y : float
+        Northing of the investigation in metres (project CRS).
+    intervals : tuple of (str, str, float, float)
+        The observed body intervals, ordered top → bottom, as
+        ``(body_id, formation_id, top_elev_m, base_elev_m)`` where the
+        elevations are ABSOLUTE (mTAW, positive up; ``top_elev_m`` above
+        ``base_elev_m``).  Empty when the investigation has no body-assigned
+        accepted picks (it then contributes no override).
+    """
+
+    investigation_id: str
+    world_x: float
+    world_y: float
+    intervals: tuple[tuple[str, str, float, float], ...]
+
+
+@dataclass(frozen=True)
 class LabelGrid:
     """A labelled 3-D voxel grid: every cell tagged with the body that fills it.
 
