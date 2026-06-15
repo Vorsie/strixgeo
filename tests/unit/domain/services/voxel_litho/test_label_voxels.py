@@ -27,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
+from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
@@ -393,6 +394,234 @@ def test_no_investigation_columns_keeps_the_section_blend_unchanged():
 
     grid_default = label_voxels(domain, 2.0, sections)
     grid_empty = label_voxels(domain, 2.0, sections, investigation_columns=())
+
+    assert np.array_equal(grid_default.labels, grid_empty.labels)
+    assert grid_default.body_id_by_index == grid_empty.body_id_by_index
+
+
+# ---------------------------------------------------------------------------
+# Geological-band-scoped fill (Task 3): a geological surface partitions space
+# into bands; a litho never crosses a band surface, and below a shallow test's
+# TD the band-scoped sideways fill draws the deeper band's lithology from the
+# nearest section that REACHES that band (not the shallow unit pushed down, not
+# void).
+# ---------------------------------------------------------------------------
+
+_ZAND = "ZAND"
+
+
+def _flat_geo_surface(elev: float) -> SurfaceBound:
+    """A flat geological band surface at constant elevation ``elev``.
+
+    Spans the whole two-section footprint (a large triangle well outside the
+    x∈[0,80], y∈[-5,45] partition extent) so every query ``(x, y)`` lands inside
+    the TIN footprint and interpolates exactly ``elev`` — a clean horizontal
+    geological boundary to test band membership against.
+    """
+    vertices = [
+        (-1000.0, -1000.0, elev),
+        (2000.0, -1000.0, elev),
+        (0.0, 2000.0, elev),
+    ]
+    triangles = [(0, 1, 2)]
+    return SurfaceBound(vertices=vertices, triangles=triangles)
+
+
+def _section_deep_zand_over_klei(y: float, id_prefix: str) -> SectionPartitionInput:
+    """A DEEP section: ZAND in the upper band over KLEI in the lower band.
+
+    The column spans the surface (+12) down to a deep base (-15).  With a
+    geological surface at -5, the ZAND fills the UPPER geological band
+    (+12 → -5) and the KLEI fills the LOWER band (-5 → -15) — the section
+    reaches BOTH bands.  The KLEI carries ``body_id='kleiDeep'`` so the lower
+    band has a stable deep-band identity to fill the shallow column's lower band
+    with (the sideways fill).
+    """
+    columns = (
+        SectionColumnInput(f"{id_prefix}0", along_m=0.0, world_x=0.0, world_y=y),
+        SectionColumnInput(f"{id_prefix}1", along_m=80.0, world_x=80.0, world_y=y),
+    )
+    regions = (
+        RegionInput(_ZAND, "zandDeep", ((0.0, 12.0), (1.0, 12.0), (1.0, -5.0), (0.0, -5.0)), 0),
+        RegionInput(_KLEI, "kleiDeep", ((0.0, -5.0), (1.0, -5.0), (1.0, -15.0), (0.0, -15.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=y, end_x=80.0, end_y=y, columns=columns, regions=regions
+    )
+
+
+def _section_shallow_zand_only(y: float, id_prefix: str, base_elev: float) -> SectionPartitionInput:
+    """A SHALLOW section: ZAND only, stopping at ``base_elev`` in the UPPER band.
+
+    The column spans the surface (+12) down to ``base_elev`` (e.g. -1, above the
+    geological surface at -5), so it reaches the UPPER geological band ONLY — it
+    never reaches the lower band.  Below its TD the column is unlogged, and the
+    band-scoped fill must draw the LOWER band's lithology from the deep section.
+    """
+    columns = (
+        SectionColumnInput(f"{id_prefix}0", along_m=0.0, world_x=0.0, world_y=y),
+        SectionColumnInput(f"{id_prefix}1", along_m=80.0, world_x=80.0, world_y=y),
+    )
+    regions = (
+        RegionInput(
+            _ZAND,
+            "zandShallow",
+            ((0.0, 12.0), (1.0, 12.0), (1.0, base_elev), (0.0, base_elev)),
+            0,
+        ),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=y, end_x=80.0, end_y=y, columns=columns, regions=regions
+    )
+
+
+def _formation_at(grid, x: float, y: float, elev: float) -> str | None:
+    """Resolve the labelled formation at the voxel nearest world ``(x, y, elev)``.
+
+    Returns ``None`` when the nearest voxel is void.
+    """
+    i = int(np.argmin(np.abs(grid.gx - x)))
+    j = int(np.argmin(np.abs(grid.gy - y)))
+    k = int(np.argmin(np.abs(grid.gz - elev)))
+    label = int(grid.labels[i, j, k])
+    if label < 0:
+        return None
+    return grid.formation_by_body[grid.body_id_by_index[label]]
+
+
+def test_lower_band_below_a_shallow_test_fills_with_the_deep_band_lithology():
+    """Below a shallow test's TD the LOWER geological band fills with deep KLEI.
+
+    Two parallel sections share a geological surface at -5 m.  The DEEP section
+    (y=0) carries ZAND in the upper band over KLEI in the lower band; the SHALLOW
+    section (y=40) carries ZAND only, stopping at -1 m — it never reaches the
+    lower geological band.  At the SHALLOW section's own line (y=40), the lower
+    band (below the -5 surface) has no local lithology, so the band-scoped
+    sideways fill must draw it from the nearest section that REACHES the lower
+    band — the deep section's KLEI.  Without geology this region would either be
+    void or wrongly carry the shallow ZAND pushed down; the geological-band fill
+    makes it KLEI.
+    """
+    domain = _domain_for_two_sections()
+    sections = [
+        _section_deep_zand_over_klei(0.0, "D"),
+        _section_shallow_zand_only(40.0, "S", base_elev=-1.0),
+    ]
+    surfaces = (_flat_geo_surface(-5.0),)
+    grid = label_voxels(domain, 2.0, sections, geo_surfaces=surfaces)
+
+    # Deep in the lower band, on the shallow section's line: the lower band's
+    # KLEI (the sideways fill), NOT void and NOT the shallow ZAND pushed down.
+    assert _formation_at(grid, x=40.0, y=40.0, elev=-10.0) == _KLEI
+
+
+def _section_upper_pinch_over_deep_klei(y: float, id_prefix: str) -> SectionPartitionInput:
+    """A section whose upper-band ZAND PINCHES at -2 over a lower-band KLEI.
+
+    The ZAND fills only +12 → -2 — it pinches out well ABOVE the -5 geological
+    surface, so the upper geological band (down to -5) is only PARTLY filled
+    (a genuine void gap -5 → -2 of pinched-out litho).  The KLEI fills the lower
+    band -5 → -15.  The lower band's KLEI must NOT bleed UP across the -5 surface
+    into the upper band's void gap — the geological boundary stops it.
+    """
+    columns = (
+        SectionColumnInput(f"{id_prefix}0", along_m=0.0, world_x=0.0, world_y=y),
+        SectionColumnInput(f"{id_prefix}1", along_m=80.0, world_x=80.0, world_y=y),
+    )
+    regions = (
+        RegionInput(_ZAND, "zandPinch", ((0.0, 12.0), (1.0, 12.0), (1.0, -2.0), (0.0, -2.0)), 0),
+        RegionInput(_KLEI, "kleiDeep", ((0.0, -5.0), (1.0, -5.0), (1.0, -15.0), (0.0, -15.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=y, end_x=80.0, end_y=y, columns=columns, regions=regions
+    )
+
+
+def test_lower_band_lithology_does_not_bleed_up_across_a_geo_surface():
+    """The lower band's KLEI does NOT bleed up across the -5 surface (no crossing).
+
+    Both sections carry a ZAND pinching out at -2 (above the -5 surface) over a
+    KLEI in the lower band (-5 → -15).  The upper geological band therefore has a
+    genuine void gap from -5 up to -2 (pinched-out litho).  The hard geological
+    boundary must stop the lower band's KLEI from filling that gap: just ABOVE the
+    -5 surface (-3.5, in the gap) must NOT read KLEI (the deeper band may not
+    cross up), while just BELOW the surface (-7) reads KLEI (the lower band).
+    This pins the gap-aware fill — a deeper band never bleeds across a geological
+    surface into a shallower band's pinch-out void.
+    """
+    domain = _domain_for_two_sections()
+    sections = [
+        _section_upper_pinch_over_deep_klei(0.0, "X"),
+        _section_upper_pinch_over_deep_klei(40.0, "Y"),
+    ]
+    surfaces = (_flat_geo_surface(-5.0),)
+    grid = label_voxels(domain, 2.0, sections, geo_surfaces=surfaces)
+
+    in_gap = _formation_at(grid, x=40.0, y=20.0, elev=-3.5)  # upper band, in the pinch gap
+    below = _formation_at(grid, x=40.0, y=20.0, elev=-7.0)  # lower band
+    assert in_gap != _KLEI  # the deeper KLEI did NOT bleed up across the surface
+    assert below == _KLEI  # the lower band is KLEI
+
+
+def test_a_litho_contact_within_tolerance_of_a_geo_surface_snaps_to_it():
+    """A litho contact near a geological surface SNAPS — no thin sliver across it.
+
+    The deep section's internal ZAND/KLEI contact sits at -4.9 m, only 0.1 m
+    above the geological surface at -5.0 m — within the 0.20 m snap tolerance.
+    The band-scoped clip must SNAP that contact to the surface (so the ZAND ends
+    exactly at the band boundary and the KLEI begins exactly there), rather than
+    leaving a thin 0.1 m sliver of KLEI in the UPPER band (above the surface) or
+    a sliver of ZAND in the LOWER band.  So just above the surface is ZAND only
+    and just below is KLEI only — the contact reads as coincident with the band.
+    """
+    domain = _domain_for_two_sections()
+
+    # Deep section whose ZAND/KLEI contact is at -4.9 (0.1 m above the -5 surface).
+    columns = (
+        SectionColumnInput("E0", along_m=0.0, world_x=0.0, world_y=0.0),
+        SectionColumnInput("E1", along_m=80.0, world_x=80.0, world_y=0.0),
+    )
+    regions = (
+        RegionInput(_ZAND, "zandDeep", ((0.0, 12.0), (1.0, 12.0), (1.0, -4.9), (0.0, -4.9)), 0),
+        RegionInput(_KLEI, "kleiDeep", ((0.0, -4.9), (1.0, -4.9), (1.0, -15.0), (0.0, -15.0)), 0),
+    )
+    deep = SectionPartitionInput(
+        start_x=0.0, start_y=0.0, end_x=80.0, end_y=0.0, columns=columns, regions=regions
+    )
+    shallow = _section_shallow_zand_only(40.0, "S", base_elev=-1.0)
+    surfaces = (_flat_geo_surface(-5.0),)
+    # A fine 0.1 m grid so the would-be 0.1 m KLEI sliver between the litho
+    # contact (-4.9) and the geological surface (-5.0) is a full voxel — visible
+    # ONLY if the contact failed to snap.
+    grid = label_voxels(
+        domain, 0.1, [deep, shallow], geo_surfaces=surfaces, litho_snap_tolerance_m=0.20
+    )
+
+    # The contact snaps DOWN to the -5 surface, so the [-5.0, -4.9] interval that
+    # would otherwise be a thin KLEI sliver IN THE UPPER BAND is ZAND (the
+    # contact reads as coincident with the band boundary — no sliver across it).
+    assert _formation_at(grid, x=40.0, y=0.0, elev=-4.95) == _ZAND
+    # Well below the surface stays KLEI (the lower band).
+    assert _formation_at(grid, x=40.0, y=0.0, elev=-5.5) == _KLEI
+
+
+def test_empty_geo_surfaces_is_byte_identical_to_the_unbounded_blend():
+    """``geo_surfaces=()`` leaves the labelling byte-identical to the blend path.
+
+    The geological-band branch is purely additive: with no geological surfaces
+    the labeller must reproduce EXACTLY the un-bounded section-blend labels.
+    Same DEEP/SHALLOW fixture run with the default (no surfaces) and with an
+    explicit empty tuple must yield the identical label array — the proof that
+    the band branch never perturbs the no-geology path.
+    """
+    domain = _domain_for_two_sections()
+    sections = [
+        _section_deep_zand_over_klei(0.0, "D"),
+        _section_shallow_zand_only(40.0, "S", base_elev=-1.0),
+    ]
+
+    grid_default = label_voxels(domain, 2.0, sections)
+    grid_empty = label_voxels(domain, 2.0, sections, geo_surfaces=())
 
     assert np.array_equal(grid_default.labels, grid_empty.labels)
     assert grid_default.body_id_by_index == grid_empty.body_id_by_index

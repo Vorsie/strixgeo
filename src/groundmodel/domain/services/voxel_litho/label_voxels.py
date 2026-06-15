@@ -48,12 +48,18 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 
 from groundmodel.domain.services.model_domain import ModelDomain
 from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.voxel_litho.geo_bands import (
+    band_extent,
+    band_of,
+    section_reaches_band,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -498,6 +504,323 @@ def _stack_at(sections: list[SectionPartitionInput], x: float, y: float) -> list
 
 
 # ---------------------------------------------------------------------------
+# Geological-band-scoped stack assembly (Task 3 — the band-aware path)
+# ---------------------------------------------------------------------------
+
+
+def _clip_stack_to_band(
+    stack: list[_Entry],
+    band_base: float | None,
+    band_top: float | None,
+    snap_tol: float,
+    snap_edges: bool = False,
+) -> list[_Entry]:
+    """Clip a section stack to a geological band's ``(base, top)`` extent.
+
+    A litho is confined to its geological band by the **snap-or-divide** rule,
+    mirroring
+    :func:`~groundmodel.domain.services.strat_field.geo_blocks.partition_picks_by_geology`:
+    a band surface is a genuine **cut** of an entry only when it crosses the
+    entry's span STRICTLY INSIDE it AND is farther than ``snap_tol`` from BOTH
+    the entry's top and base.  When a band surface is a cut, the entry is
+    DIVIDED at it and only the part inside this band survives.  When a band
+    surface is within ``snap_tol`` of an entry's top or base (or does not cross
+    the span at all), it **snaps** — the entry stays WHOLE and is kept iff its
+    MID-elevation lands in this band.  This is the key fix over a naive clip: a
+    thin entry that straddles a band edge but is too thin to be cut (within
+    ``snap_tol`` of the edge on both sides) is NOT collapsed to zero — it is kept
+    whole in its mid-elevation's band (a near-coincident litho contact reads as
+    coincident with the band boundary, no sliver, no vanished layer).
+    ``None`` band bounds are open (treated as ±∞) and never cut.
+
+    Parameters
+    ----------
+    stack : list of _Entry
+        The (already-blended) section stack, shallow → deep.
+    band_base : float or None
+        The band's base elevation (the geological surface below it), or ``None``
+        when the band is open below (the deepest band).
+    band_top : float or None
+        The band's top elevation (the geological surface above it), or ``None``
+        when the band is open above (the shallowest band).
+    snap_tol : float
+        A litho contact within this distance of a band surface snaps to it.
+    snap_edges : bool, default False
+        When True, the band's OUTERMOST contacts (the shallowest entry's top, the
+        deepest entry's base) snap to the band surfaces if within ``snap_tol`` —
+        closing a sub-tolerance void between the band's extreme litho and the
+        geological surface.  Applied ONLY on the FINAL assembled band stack (not
+        the per-section clips that feed the blend), so the blend thicknesses stay
+        faithful while the final band fills cleanly to its surfaces.
+
+    Returns
+    -------
+    list of _Entry
+        The entries' in-band segments, shallow → deep; entries whose segment is
+        thinner than ``_EPS`` or whose mid falls outside the band are dropped.
+    """
+    out: list[_Entry] = []
+    for e in stack:
+        top = e.top_elev
+        base = e.base_elev
+        # A band edge CUTS the entry only when it lies strictly inside the span,
+        # farther than snap_tol from BOTH ends (the geo_blocks cut rule).  A cut
+        # trims the entry to the band side; a non-cut edge leaves the entry whole.
+        seg_top = top
+        seg_base = base
+        if band_top is not None and base + snap_tol < band_top < top - snap_tol:
+            seg_top = band_top  # the surface above this band cuts → trim the top
+        if band_base is not None and base + snap_tol < band_base < top - snap_tol:
+            seg_base = band_base  # the surface below this band cuts → trim the base
+        if seg_top - seg_base <= _EPS:
+            continue
+        # Keep the segment iff its MID lands in this band.  For a whole (un-cut)
+        # entry this assigns it to exactly one band by its mid-elevation (a thin
+        # straddling entry goes to the band its centre is in — never collapsed).
+        # For a cut entry the trimmed segment's mid is unambiguously inside the
+        # band, so the test always passes.
+        mid = 0.5 * (seg_top + seg_base)
+        below_top = band_top is None or mid < band_top + _EPS
+        above_base = band_base is None or mid > band_base - _EPS
+        if below_top and above_base:
+            out.append(_Entry(e.body_id, e.formation_id, seg_top, seg_base))
+    if not out or not snap_edges:
+        return out
+    # Snap the band's EXTREME contacts to the band surfaces when within tolerance,
+    # closing a sub-tolerance void between the band's shallowest/deepest litho and
+    # the geological surface (a near-coincident litho↔geology contact reads as
+    # coincident — the litho fills the band to the surface).  Only the OUTERMOST
+    # contacts snap, so an interior thin layer is never collapsed.
+    out.sort(key=lambda e: -e.top_elev)  # shallow → deep
+    if band_top is not None and 0.0 < band_top - out[0].top_elev <= snap_tol:
+        out[0] = _Entry(out[0].body_id, out[0].formation_id, band_top, out[0].base_elev)
+    if band_base is not None and 0.0 < out[-1].base_elev - band_base <= snap_tol:
+        out[-1] = _Entry(out[-1].body_id, out[-1].formation_id, out[-1].top_elev, band_base)
+    return out
+
+
+def _fill_band_voids(
+    blended: list[_Entry],
+    fallbacks: list[list[_Entry]],
+    band_base: float | None,
+    band_top: float | None,
+) -> list[_Entry]:
+    """Fill the voids of ``blended`` (within the band) from the reaching sections.
+
+    The midline pinch can empty parts of a band that the contributing sections
+    actually fill (their litho is the same formation but uncorrelated, so it
+    matches as one-sided and pinches), and the two nearest sections can each
+    pinch in DIFFERENT parts of the band.  This back-fills every void the blend
+    left, walking the reaching sections' clipped stacks in NEAREST-FIRST order:
+    each section fills whatever void still remains, so a band that ANY reaching
+    section fills (even the 3rd-nearest, when the two nearest both pinch there) is
+    never left whole-void — horizontal extrapolation of the nearest section that
+    reaches that depth into the gap.  The ``blended`` entries WIN wherever they
+    exist (the pinch geometry is kept); only genuine voids are filled, and a
+    nearer section's fill wins over a farther one's in the same gap.
+
+    Parameters
+    ----------
+    blended : list of _Entry
+        The midline-blended band stack (may have pinch-induced voids).
+    fallbacks : list of list of _Entry
+        The reaching sections' clipped band stacks, NEAREST-FIRST (the void
+        fillers, applied in order so the nearest wins each gap).
+    band_base, band_top : float or None
+        The band's extent (``None`` = open); the fill is confined to it.
+
+    Returns
+    -------
+    list of _Entry
+        The blended stack with its in-band voids back-filled, shallow → deep.
+    """
+    lo = -math.inf if band_base is None else band_base
+    hi = math.inf if band_top is None else band_top
+    out: list[_Entry] = list(blended)
+    for fallback in fallbacks:
+        for f in fallback:
+            # Clip the fallback entry to the band, then subtract everything ALREADY
+            # placed (blend + earlier/nearer fills) so only the still-void parts
+            # remain — a nearer section's fill therefore wins each gap.
+            seg_base = max(f.base_elev, lo)
+            seg_top = min(f.top_elev, hi)
+            gaps: list[tuple[float, float]] = (
+                [(seg_base, seg_top)] if seg_top - seg_base > _EPS else []
+            )
+            covered = sorted(((e.base_elev, e.top_elev) for e in out), key=lambda iv: iv[0])
+            for cb, ct in covered:
+                new_gaps: list[tuple[float, float]] = []
+                for gb, gt in gaps:
+                    # Subtract [cb, ct] from [gb, gt].
+                    if ct <= gb + _EPS or cb >= gt - _EPS:
+                        new_gaps.append((gb, gt))  # no overlap
+                        continue
+                    if gb < cb - _EPS:
+                        new_gaps.append((gb, cb))  # piece below the covered span
+                    if gt > ct + _EPS:
+                        new_gaps.append((ct, gt))  # piece above the covered span
+                gaps = new_gaps
+            for gb, gt in gaps:
+                if gt - gb > _EPS:
+                    out.append(_Entry(f.body_id, f.formation_id, gt, gb))
+    out.sort(key=lambda e: -e.top_elev)
+    return out
+
+
+def _stack_at_band(
+    sections: list[SectionPartitionInput],
+    x: float,
+    y: float,
+    band: int,
+    geo_surfaces: tuple[SurfaceBound, ...],
+    snap_tol: float,
+) -> list[_Entry]:
+    """Return the band-clipped blended stack at ``(x, y)`` for one geological band.
+
+    The band analogue of :func:`_stack_at`: it projects ``(x, y)`` onto every
+    section, clips each section's stack to the band's extent (snap-or-divide),
+    drops sections whose clipped stack does NOT reach the band (the shallow
+    section that stops above it — its next-nearest REACHING neighbour fills the
+    band instead, the sideways fill), and blends the two nearest REACHING
+    sections with the SAME between/beyond midline-pinch rule as :func:`_stack_at`.
+
+    Parameters
+    ----------
+    sections : list of SectionPartitionInput
+        The project's cross-sections.
+    x, y : float
+        The map-plane query point.
+    band : int
+        The geological band index to fill (0 = shallowest).
+    geo_surfaces : tuple of SurfaceBound
+        The geological band surfaces (used for the band extent + reach test).
+    snap_tol : float
+        The snap-or-divide tolerance.
+
+    Returns
+    -------
+    list of _Entry
+        The band-clipped blended stack, shallow → deep; ``[]`` when no section
+        reaches the band here (the band is void at this column).
+    """
+    if not sections:
+        return []
+
+    band_base, band_top = band_extent(geo_surfaces, x, y, band)
+
+    # Project + clip + reach-filter: keep only sections whose clipped stack
+    # actually overlaps the band (a shallow section that stops above the band is
+    # dropped, so the next-nearest reaching section fills it — the sideways fill).
+    reaching: list[tuple[float, float, float, list[_Entry]]] = []  # (perp, foot_x, foot_y, clipped)
+    for s in sections:
+        gap, frac, perp, fx, fy = _project_to_section_fence(s, x, y)
+        full = _section_stack_at(s, gap, frac)
+        # Reach test on the UN-clipped stack (does the section's litho overlap
+        # the band at all here?) — the canonical geo_bands predicate.
+        reach_stack = tuple(
+            (e.body_id or "", e.formation_id, e.top_elev, e.base_elev) for e in full
+        )
+        if not section_reaches_band(reach_stack, geo_surfaces, x, y, band):
+            continue
+        clipped = _clip_stack_to_band(full, band_base, band_top, snap_tol)
+        if clipped:
+            reaching.append((perp, fx, fy, clipped))
+
+    if not reaching:
+        return []
+
+    reaching.sort(key=lambda r: r[0])  # by perpendicular distance
+    perp1, px1, py1, clipped1 = reaching[0]
+
+    between = False
+    if len(reaching) >= 2:
+        # Same BETWEEN test as ``_stack_at``: the node lies between the two
+        # nearest reaching sections when its projection onto the axis joining the
+        # two foot points has t in [0, 1].
+        _p2, px2, py2, _c2 = reaching[1]
+        dx, dy = px2 - px1, py2 - py1
+        axis2 = dx * dx + dy * dy
+        t = 0.0 if axis2 < _EPS else ((x - px1) * dx + (y - py1) * dy) / axis2
+        between = -_EPS <= t <= 1.0 + _EPS
+
+    if between:
+        perp2, _px2, _py2, clipped2 = reaching[1]
+        denom = perp1 + perp2
+        w1 = 0.5 if denom < _EPS else perp2 / denom
+        blended = _blend_stacks(clipped1, clipped2, w1)
+        # The midline pinch matches bodies by ``body_id``: two sections that BOTH
+        # fill the band but with DIFFERENT (uncorrelated) bodies are each treated
+        # as one-sided and pinch toward zero at the midline — which can empty a
+        # whole band even though sections carry litho there.  Fill any void the
+        # pinch left from the reaching sections' clipped stacks (nearest-first
+        # horizontal extrapolation into the gap), so a band any section reaches is
+        # never left whole-void.
+        fallbacks = [r[3] for r in reaching]
+        blended = _fill_band_voids(blended, fallbacks, band_base, band_top)
+        # Re-clip so the band invariant holds exactly + snap the extreme contacts
+        # to the band surfaces (the FINAL band stack).
+        return _clip_stack_to_band(blended, band_base, band_top, snap_tol, snap_edges=True)
+
+    # Beyond rule: horizontal extrapolation of the nearest reaching section, then
+    # fill any band void it leaves from the farther reaching sections (so a band
+    # a farther section fills is not left whole-void at a beyond-all-sections
+    # node).  Snap the extreme contacts to the band surfaces (the FINAL stack).
+    beyond = _fill_band_voids(list(clipped1), [r[3] for r in reaching[1:]], band_base, band_top)
+    return _clip_stack_to_band(beyond, band_base, band_top, snap_tol, snap_edges=True)
+
+
+def _column_stack_geo(
+    sections: list[SectionPartitionInput],
+    x: float,
+    y: float,
+    gz_min: float,
+    gz_max: float,
+    geo_surfaces: tuple[SurfaceBound, ...],
+    snap_tol: float,
+) -> list[_Entry]:
+    """Assemble one gap-free band-scoped column stack at ``(x, y)``.
+
+    The geological surfaces at ``(x, y)`` split the column's ``[gz_min, gz_max]``
+    elevation range into the bands it spans; each band is filled independently by
+    :func:`_stack_at_band` (so the band's lithology comes from the nearest
+    section that REACHES it — the sideways fill below a shallow test), and the
+    per-band stacks are concatenated shallow → deep into one stack.  Because each
+    band's clip snaps to the shared geological surface, adjacent bands abut
+    exactly, so the concatenation is a gap-free partition — exactly what
+    :func:`_column_labels` consumes.
+
+    Parameters
+    ----------
+    sections : list of SectionPartitionInput
+        The project's cross-sections.
+    x, y : float
+        The map-plane query point.
+    gz_min, gz_max : float
+        The grid's global elevation range (the column's vertical extent).
+    geo_surfaces : tuple of SurfaceBound
+        The geological band surfaces.
+    snap_tol : float
+        The snap-or-divide tolerance.
+
+    Returns
+    -------
+    list of _Entry
+        The band-concatenated column stack, shallow → deep.
+    """
+    # Which bands does this column's elevation range touch?  Band index is the
+    # count of surfaces above a given z, so the band at the column TOP (gz_max)
+    # is the shallowest band the column reaches and the band at the BOTTOM
+    # (gz_min) is the deepest — every integer between is also spanned (bands are
+    # contiguous in elevation).  Iterate shallow → deep (ascending band index).
+    band_top_idx = band_of(geo_surfaces, x, y, gz_max)
+    band_bot_idx = band_of(geo_surfaces, x, y, gz_min)
+    column: list[_Entry] = []
+    for band in range(band_top_idx, band_bot_idx + 1):
+        column.extend(_stack_at_band(sections, x, y, band, geo_surfaces, snap_tol))
+    return column
+
+
+# ---------------------------------------------------------------------------
 # Per-column voxel labelling (shared by the blend path and the honored path)
 # ---------------------------------------------------------------------------
 
@@ -567,12 +890,71 @@ def _column_labels(
     return col
 
 
+def _column_labels_gapped(
+    stack: list[_Entry],
+    gz: np.ndarray,
+    body_index: dict[str, int],
+    none_body_ids: dict[str, str],
+) -> np.ndarray:
+    """Label a voxel column from a stack that MAY contain gaps (the band path).
+
+    Unlike :func:`_column_labels`, this does NOT assume a gap-free partition.
+    The band-scoped column stack is the concatenation of independently filled
+    geological bands, so a band whose litho pinches out before reaching its
+    geological surface leaves a genuine VOID gap — and a deeper band's body must
+    NOT bleed up into it (which the gap-free searchsorted would wrongly do).
+
+    Each entry is point-located independently: a voxel ``z`` with
+    ``base_elev <= z < top_elev`` takes that entry's body.  Entries are applied
+    shallow → deep, and a voxel keeps the FIRST (shallowest) entry that claims it,
+    so a shared contact elevation goes to the shallower body (matching
+    :func:`_column_labels`' half-open convention).  Any voxel claimed by no entry
+    stays void — the faithful representation of a pinched-out litho between two
+    geological bands.
+
+    Parameters
+    ----------
+    stack : list of _Entry
+        The band-concatenated column intervals, shallow → deep; MAY have gaps.
+        An empty stack yields an all-void column.
+    gz : numpy.ndarray
+        The Z (elevation) grid-node coordinates, ascending.
+    body_index : dict of str to int
+        Maps a body_id (real or ``__none__:`` synthetic) to its label index.
+    none_body_ids : dict of str to str
+        Maps a ``formation_id`` to the synthetic body_id used for its
+        never-correlated (``None``-body) minorities.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(len(gz),)`` ``int32`` array of body indices; ``-1`` for void.
+    """
+    nz = len(gz)
+    col = np.full(nz, -1, dtype=np.int32)
+    if not stack:
+        return col
+    # Apply deep → shallow so the SHALLOWER entry overwrites on a shared contact
+    # (it is written last → it wins), reproducing ``_column_labels``' rule that a
+    # voxel exactly on a contact belongs to the upper body.  A voxel inside a gap
+    # is claimed by no entry and stays void.
+    for e in reversed(stack):
+        idx = body_index[e.body_id if e.body_id is not None else none_body_ids[e.formation_id]]
+        # Half-open ``[base, top)`` so the top contact goes to the body above.
+        covered = (gz >= e.base_elev - _EPS) & (gz < e.top_elev - _EPS)
+        col[covered] = idx
+    return col
+
+
 def _honored_column_labels(
     blend_stack: list[_Entry],
     inv: InvestigationColumn,
     gz: np.ndarray,
     body_index: dict[str, int],
     none_body_ids: dict[str, str],
+    fallback_labeller: Callable[
+        [list[_Entry], np.ndarray, dict[str, int], dict[str, str]], np.ndarray
+    ] = _column_labels,
 ) -> np.ndarray:
     """Label a voxel column honoring the investigation's OWN log over the blend.
 
@@ -587,7 +969,9 @@ def _honored_column_labels(
     ----------
     blend_stack : list of _Entry
         The section-blend stack at the investigation's true ``(x, y)`` — the
-        fallback above / below the log.
+        fallback above / below the log.  For the geology-bounded path this is the
+        BAND-SCOPED column stack (so the sideways fill applies below a shallow
+        log's TD), passed alongside ``fallback_labeller=_column_labels_gapped``.
     inv : InvestigationColumn
         The investigation whose observed log overrides the blend.  Its
         ``intervals`` carry resolver body_ids already registered in
@@ -598,6 +982,12 @@ def _honored_column_labels(
         Body_id → label index (includes the investigation's body_ids).
     none_body_ids : dict of str to str
         ``formation_id`` → synthetic body_id for ``None``-body minorities.
+    fallback_labeller : callable, optional
+        The labeller used for the above-log / below-log fallback fill.  Defaults
+        to :func:`_column_labels` (the gap-free no-geo path, byte-identical to
+        before this parameter existed); the band path passes
+        :func:`_column_labels_gapped` so an inter-band void gap below the log is
+        not bled over by a deeper band's body.
 
     Returns
     -------
@@ -605,7 +995,7 @@ def _honored_column_labels(
         Shape ``(len(gz),)`` ``int32`` array of body indices; ``-1`` for void.
     """
     # Start from the blend so above-top / below-base voxels are already filled.
-    col = _column_labels(blend_stack, gz, body_index, none_body_ids)
+    col = fallback_labeller(blend_stack, gz, body_index, none_body_ids)
     if not inv.intervals:
         return col
 
@@ -707,10 +1097,13 @@ def label_voxels(
     if grid_spacing_m <= 0.0:
         raise ValueError(f"grid_spacing_m must be positive; got {grid_spacing_m}")
 
-    # Task 3 implements the band-scoped branch; ``geo_surfaces`` +
-    # ``litho_snap_tolerance_m`` are accepted here so the use case can wire them,
-    # but the default ``()`` keeps this labelling byte-identical to today.
-    _ = (geo_surfaces, litho_snap_tolerance_m)
+    # When geological band surfaces are supplied, the per-column stack is
+    # assembled BAND-BY-BAND (each band filled by the nearest section that
+    # reaches it, clipped to the geological surface with snap-or-divide) instead
+    # of the single un-bounded blend.  An empty ``geo_surfaces`` keeps the
+    # labelling byte-identical to the un-bounded path (the ``geo_bounded`` flag
+    # gates the only divergence).
+    geo_bounded = len(geo_surfaces) > 0
 
     # --- horizontal extent: the domain's alpha-hull bounding box -----------
     ring = np.asarray(domain.polygon, dtype=float)
@@ -812,20 +1205,38 @@ def label_voxels(
     # ``_honored_column_labels``: its OWN log within the observed depth range,
     # the blend above / below — so every investigation is faithful to its log
     # without punching a hole below a shallow log.
+    gz_min = float(gz[0])
+    gz_max = float(gz[-1])
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
             y = float(gy[j])
             if not domain.contains(x, y):
                 continue  # outside the footprint → void
-            stack = _stack_at(sections, x, y)
+            # The band-scoped column (geology-bounded) vs the un-bounded blend.
+            # The band path fills each geological band from the nearest section
+            # that reaches it (so a deeper band below a shallow test draws its
+            # lithology sideways), clipped to the geological surfaces.
+            # The band path may produce inter-band void gaps (a litho pinches
+            # out before reaching its geological surface), so it labels with the
+            # gap-aware ``_column_labels_gapped`` (a deeper band must not bleed up
+            # into a shallower band's void); the no-geo path keeps the gap-free
+            # ``_column_labels`` so its output is byte-identical to before.
+            if geo_bounded:
+                stack = _column_stack_geo(
+                    sections, x, y, gz_min, gz_max, geo_surfaces, litho_snap_tolerance_m
+                )
+                labeller = _column_labels_gapped
+            else:
+                stack = _stack_at(sections, x, y)
+                labeller = _column_labels
             honored = honored_by_cell.get((i, j))
             if honored is not None:
                 labels[i, j, :] = _honored_column_labels(
-                    stack, honored, gz, body_index, none_body_ids
+                    stack, honored, gz, body_index, none_body_ids, labeller
                 )
             elif stack:
-                labels[i, j, :] = _column_labels(stack, gz, body_index, none_body_ids)
+                labels[i, j, :] = labeller(stack, gz, body_index, none_body_ids)
 
     body_id_by_index: tuple[str, ...] = tuple(
         bid for bid, _ in sorted(body_index.items(), key=lambda kv: kv[1])
