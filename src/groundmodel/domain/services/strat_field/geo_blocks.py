@@ -54,6 +54,12 @@ def _band_index(surfaces: list[SurfaceBound], x: float, y: float, mid_elev: floa
     Off-footprint sampling uses the surface's nearest-vertex fallback (handled
     inside :meth:`SurfaceBound.evaluate`).
 
+    NOTE: this is the canonical, single-pick reference for the band-index rule.
+    ``partition_picks_by_geology`` does NOT call it in its hot pre-pass — it
+    inlines the same count over a per-investigation ``surf_elevs`` cache to avoid
+    re-evaluating every surface per pick (see the comment there).  Kept as the
+    readable definition of the rule + for any future single-point caller.
+
     Parameters
     ----------
     surfaces : list of SurfaceBound
