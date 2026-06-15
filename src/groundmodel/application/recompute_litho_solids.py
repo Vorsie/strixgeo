@@ -620,6 +620,7 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
         RecomputeLithoSolidsOutcome
             ``bodies_flagged`` == the body count; ``bodies_built`` == 0.
         """
+        assert self._solid_method, f"{type(self).__name__} must set _solid_method"
         new_checksum = _FLAGGED_SENTINEL_CHECKSUM
         wanted_storage_ids = {str(_storage_body_id(b)) for b in formation_by_body}
 
@@ -629,7 +630,7 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 model_id=model_id,
                 body_id=_storage_body_id(bid),
                 formation_id=UUID(formation_by_body[bid]),
-                method="strat",
+                method=self._solid_method,
                 vertices=[],
                 triangles=[],
                 source_pick_count=0,
