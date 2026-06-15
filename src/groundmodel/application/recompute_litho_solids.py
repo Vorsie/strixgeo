@@ -72,15 +72,19 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from dataclasses import dataclass
 from typing import Any, cast
-from uuid import NAMESPACE_OID, UUID, uuid5
+from uuid import UUID
 
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.assemble_strat_inputs import AssembleStratInputs
+from groundmodel.application.litho_solid_persistence import (
+    LithoSolidPersistenceMixin,
+    LithoSolidsOutcome,
+    storage_body_id,
+)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.strat_field.body_assembly import build_shared_grid
@@ -98,75 +102,19 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
-from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Backwards-compatible aliases: the outcome dataclass + storage-id helper were
+# promoted to ``litho_solid_persistence`` when the voxel builder became a second
+# caller; existing imports of these names from this module (tests, the API
+# router) keep resolving.
+RecomputeLithoSolidsOutcome = LithoSolidsOutcome
+_storage_body_id = storage_body_id
+
 
 # Default grid spacing (m) for the strat field sampling + the prism cells, when
 # the project's view-state carries no override.  Finer spacing → smoother tapers
 # at O(1/h²) grid cost (see the litho-3D solid-builder benchmark).
 _DEFAULT_STRAT_GRID_SPACING_M: float = 1.0
-
-
-@dataclass(frozen=True)
-class RecomputeLithoSolidsOutcome:
-    """Summary of one recompute pass.
-
-    Attributes
-    ----------
-    bodies_considered : int
-        Total bodies found across the built meshes (+ any flagged rows).
-    bodies_built : int
-        Bodies whose solid was freshly (re-)built and upserted.
-    bodies_skipped_checksum : int
-        Bodies skipped because the model-level digest matched (all or none).
-    bodies_flagged : int
-        Bodies emitted as flagged empty rows.  ALWAYS 0 on the happy strat
-        path (the field is fit from all picks — there is no section-less-body
-        limitation).  Non-zero only when the whole model is non-conformable
-        (a fault / unconformity the v1 builder cannot model).
-    orphans_deleted : int
-        ``litho_body_solid`` rows removed because their ``body_id`` was no
-        longer among the built bodies.
-    marked_test_ids : list[str]
-        ALWAYS empty on the strat path — geology bounding (which produced the
-        marked-too-shallow list) is kept OUT of the litho model.  Retained on
-        the outcome for API-shape compatibility with the loft contract.
-    """
-
-    bodies_considered: int
-    bodies_built: int
-    bodies_skipped_checksum: int
-    bodies_flagged: int
-    orphans_deleted: int
-    marked_test_ids: list[str]
-
-
-def _storage_body_id(mesh_body_id: str) -> UUID:
-    """Map a mesh ``body_id`` string to the UUID stored in ``litho_body_solid``.
-
-    The strat builder emits a synthetic ``"strat:{rank_top}-{rank_bot}"`` id
-    per band (plus a ``"#<component>"`` suffix when a band splits into
-    disconnected regions) — these are real volumes that must render, but the
-    token is not a UUID and has no row in the ``body`` table.  ``body_id`` on
-    ``litho_body_solid`` is intentionally NOT an FK (see the ORM docstring), so
-    a deterministic ``uuid5`` over the token is a stable storage key that
-    survives rebuilds without churning the cache.  A real UUID id passes
-    through unchanged.
-
-    Parameters
-    ----------
-    mesh_body_id : str
-        The mesh's ``body_id`` — a real UUID string or a ``"strat:…"`` token.
-
-    Returns
-    -------
-    UUID
-        The id to store on the solid row.
-    """
-    try:
-        return UUID(mesh_body_id)
-    except ValueError:
-        # Synthetic strat band token — derive a stable UUID.
-        return uuid5(NAMESPACE_OID, mesh_body_id)
 
 
 def _model_checksum(
@@ -231,18 +179,24 @@ def _model_checksum(
 _FLAGGED_SENTINEL_CHECKSUM: bytes = _model_checksum([], 0.0)
 
 
-class RecomputeLithoSolids(GroundModelLogger):
+class RecomputeLithoSolids(LithoSolidPersistenceMixin):
     """Recompute and cache the 3-D solid for every body in a lithostratigraphic model.
 
     Builds via the implicit-stratigraphic field (spec
     ``2026-06-13-implicit-stratigraphic-3d-builder-design.md``).  The caller owns
-    the session; this use case commits once at the end.
+    the session; this use case commits once at the end.  The upsert / orphan /
+    checksum-compare persistence is inherited from
+    :class:`~groundmodel.application.litho_solid_persistence.LithoSolidPersistenceMixin`
+    (the ``method`` column is stamped ``"strat"`` via :attr:`_solid_method`).
 
     Parameters
     ----------
     session : AsyncSession
         Active SQLAlchemy async session.
     """
+
+    # Stamp ``method="strat"`` on every persisted solid row (the mixin reads it).
+    _solid_method: str = "strat"
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active ``AsyncSession``."""
@@ -637,205 +591,9 @@ class RecomputeLithoSolids(GroundModelLogger):
         )
 
     # -----------------------------------------------------------------
-    # Persistence helpers
+    # Flag-all / no-picks handlers (build-specific; persistence helpers are
+    # inherited from LithoSolidPersistenceMixin)
     # -----------------------------------------------------------------
-
-    # Maximum rows per VALUES clause in a batched upsert.  Each row carries
-    # JSONB ``vertices`` + ``triangles`` that can be large; keeping the chunk
-    # small avoids enormous single statements and bounds PostgreSQL's per-
-    # statement memory overhead.  100 rows × ~10 bound parameters = ~1 000
-    # parameters well below the 65 535 PostgreSQL limit, while each chunk is
-    # still a single network round-trip.
-    _UPSERT_CHUNK_SIZE: int = 100
-
-    def _mesh_rows(
-        self, meshes: list[Any], model_id: UUID, checksum: bytes
-    ) -> list[dict[str, Any]]:
-        """Convert a list of :class:`LithoBodyMesh` objects to upsert-row dicts.
-
-        Parameters
-        ----------
-        meshes : list
-            The watertight body solids.
-        model_id : UUID
-            The model scope.
-        checksum : bytes
-            The model-level digest to stamp on every row.
-
-        Returns
-        -------
-        list[dict[str, Any]]
-            Value dicts ready for ``_batch_upsert``.
-        """
-        return [
-            dict(
-                id=uuid7(),
-                model_id=model_id,
-                body_id=_storage_body_id(mesh.body_id),
-                formation_id=UUID(mesh.formation_id),
-                method="strat",
-                # Pass the list-of-tuples directly: json.dumps (which asyncpg's JSONB
-                # binder uses) serialises Python tuples as JSON arrays — identical
-                # output to list-of-lists.  Eliminates the ~39.5 s per-vertex
-                # tuple→list churn that dominated the real-data build profile over
-                # 4.7 M vertices + 9.4 M triangles across 664 meshes.
-                vertices=mesh.vertices,
-                triangles=mesh.triangles,
-                source_pick_count=len(mesh.vertices),
-                source_pick_checksum=checksum,
-                is_flagged=mesh.is_flagged,
-                is_stale=False,
-            )
-            for mesh in meshes
-        ]
-
-    async def _batch_upsert(self, rows: list[dict[str, Any]]) -> int:
-        """Upsert a list of solid-row dicts in chunked multi-row statements.
-
-        Each chunk is a single ``INSERT … ON CONFLICT (model_id, body_id) DO
-        UPDATE`` statement with up to ``_UPSERT_CHUNK_SIZE`` rows in its
-        ``VALUES`` clause.  Using ``stmt.excluded.<col>`` in the ``set_``
-        clause ensures every row's own proposed values are applied on conflict
-        (required for multi-row upserts; a closed-over per-row value would
-        apply the last row's values to every conflict).
-
-        PK stability: ``ON CONFLICT DO UPDATE`` on the unique constraint
-        ``uq_litho_body_solid_model_body`` leaves the existing row's ``id``
-        untouched — PostgreSQL applies the ``set_`` clause (which does NOT
-        include ``id``) and the proposed ``id`` from the ``VALUES`` clause is
-        discarded.  New rows are inserted with the freshly-minted ``uuid7()``
-        ``id`` from the caller.  This means there is no need to load existing
-        rows' PKs before the upsert: both the insert and the conflict-update
-        paths produce a stable PK.
-
-        Parameters
-        ----------
-        rows : list[dict[str, Any]]
-            Value dicts, each containing all ``LithoBodySolidOrm`` columns.
-            Must be non-empty; the caller guards against an empty mesh list.
-
-        Returns
-        -------
-        int
-            Number of chunks executed (for the INFO log).
-        """
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-        chunk_size = self._UPSERT_CHUNK_SIZE
-        chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
-        for chunk in chunks:
-            stmt = pg_insert(LithoBodySolidOrm).values(chunk)
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_litho_body_solid_model_body",
-                set_=dict(
-                    formation_id=stmt.excluded.formation_id,
-                    method=stmt.excluded.method,
-                    vertices=stmt.excluded.vertices,
-                    triangles=stmt.excluded.triangles,
-                    source_pick_count=stmt.excluded.source_pick_count,
-                    source_pick_checksum=stmt.excluded.source_pick_checksum,
-                    is_flagged=stmt.excluded.is_flagged,
-                    is_stale=stmt.excluded.is_stale,
-                ),
-            )
-            await self._session.execute(stmt)
-        return len(chunks)
-
-    async def _load_existing(self, model_id: UUID) -> dict[str, LithoBodySolidOrm]:
-        """Load the model's stored solid rows keyed by ``str(body_id)``.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The model scope.
-
-        Returns
-        -------
-        dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
-        """
-        return {
-            str(row.body_id): row
-            for row in (
-                await self._session.execute(
-                    select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
-                )
-            )
-            .scalars()
-            .all()
-        }
-
-    def _digest_matches_all(
-        self,
-        existing_by_body: dict[str, LithoBodySolidOrm],
-        wanted_storage_ids: set[str],
-        new_checksum: bytes,
-    ) -> bool:
-        """True when every wanted body has a fresh row carrying ``new_checksum``.
-
-        The field is global, so the skip is all-or-nothing: a single stale or
-        missing row (or a digest mismatch) forces a full rebuild.
-
-        Parameters
-        ----------
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
-        wanted_storage_ids : set[str]
-            The storage body ids this build wants to write.
-        new_checksum : bytes
-            The freshly-computed model digest.
-
-        Returns
-        -------
-        bool
-        """
-        if set(existing_by_body) != wanted_storage_ids:
-            return False
-        return all(
-            row.source_pick_checksum == new_checksum and not row.is_stale
-            for row in existing_by_body.values()
-        )
-
-    async def _delete_orphans(
-        self,
-        model_id: UUID,
-        existing_by_body: dict[str, LithoBodySolidOrm],
-        wanted_storage_ids: set[str],
-    ) -> int:
-        """Delete stored rows whose body is no longer built.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The model scope.
-        existing_by_body : dict[str, LithoBodySolidOrm]
-            Stored rows keyed by ``str(body_id)``.
-        wanted_storage_ids : set[str]
-            The storage body ids this build wrote.
-
-        Returns
-        -------
-        int
-            Number of orphan rows deleted.
-        """
-        orphan_ids = {UUID(bid) for bid in existing_by_body if bid not in wanted_storage_ids}
-        if not orphan_ids:
-            return 0
-        del_result = cast(
-            "CursorResult[Any]",
-            await self._session.execute(
-                delete(LithoBodySolidOrm).where(
-                    LithoBodySolidOrm.model_id == model_id,
-                    LithoBodySolidOrm.body_id.in_(orphan_ids),
-                )
-            ),
-        )
-        deleted = del_result.rowcount or 0
-        if deleted:
-            self.info(
-                f"RecomputeLithoSolids: deleted {deleted} orphan solid(s) for model={model_id}"
-            )
-        return deleted
 
     async def _handle_flag_all(
         self,
