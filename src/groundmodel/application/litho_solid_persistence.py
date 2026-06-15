@@ -169,6 +169,11 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
                 # tuple→list churn that dominated the real-data build profile.
                 vertices=mesh.vertices,
                 triangles=mesh.triangles,
+                # ``source_pick_count`` is INFORMATIONAL only — cache validity is
+                # decided solely by the model-level ``source_pick_checksum`` (the
+                # build is global, so a per-row count cannot gate the skip).  Both
+                # builders store the mesh vertex count here as a cheap size hint;
+                # it is never compared.
                 source_pick_count=len(mesh.vertices),
                 source_pick_checksum=checksum,
                 is_flagged=mesh.is_flagged,
@@ -230,6 +235,21 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
 
     async def _load_existing(self, model_id: UUID) -> dict[str, LithoBodySolidOrm]:
         """Load the model's stored solid rows keyed by ``str(body_id)``.
+
+        Loads EVERY row for the model, NOT just rows matching ``_solid_method``.
+        This is deliberate: a model has exactly one active builder at a time, and
+        switching builders (strat → voxel or back) must SWEEP the previous
+        builder's rows — the GET endpoint does not filter by ``method``, so a
+        leftover strat row would render alongside the voxel rows.  Combined with
+        :meth:`_delete_orphans` (which prunes every stored id not in the current
+        build's wanted set), a voxel build correctly clears the old strat solids
+        and vice-versa (observed on ``test.strix``: 1082 strat orphans swept).
+
+        ⚠ Do NOT add a ``method == self._solid_method`` filter here to "scope" the
+        load: it would leave the other builder's rows orphaned in the table.  If
+        concurrent builds ever become possible (an async ``TaskQueue`` replacing
+        ``SynchronousQueue``), serialise the two builders per model instead —
+        method-scoping the load would silently double-render, not fix the race.
 
         Parameters
         ----------
