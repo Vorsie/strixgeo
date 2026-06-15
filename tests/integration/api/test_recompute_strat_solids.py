@@ -590,7 +590,7 @@ async def test_enclosed_lens_model_builds_with_lens_solid(
     # The lens body has a solid: its synthetic ``lens:`` token maps to a storage
     # UUID via uuid5 — recompute that id and assert a row carries it.  (The carve
     # emits the lens prism with body_id ``lens:{host}:{tail}``.)
-    from groundmodel.application.recompute_litho_solids import _storage_body_id
+    from groundmodel.application.litho_solid_persistence import storage_body_id
     from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
         LithoLayerRepository,
     )
@@ -607,7 +607,7 @@ async def test_enclosed_lens_model_builds_with_lens_solid(
     host_body_id = next(iter(klei_body_ids))
     silt_body_id = next(iter(silt_body_ids))
     lens_token = f"lens:{host_body_id}:{silt_body_id[-6:]}"
-    lens_storage_id = _storage_body_id(lens_token)
+    lens_storage_id = storage_body_id(lens_token)
     persisted_ids = {str(r.body_id) for r in rows}
     assert str(lens_storage_id) in persisted_ids, (
         f"Lens solid {lens_token} (→ {lens_storage_id}) not persisted; have {persisted_ids}"
