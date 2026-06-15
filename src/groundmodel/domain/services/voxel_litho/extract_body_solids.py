@@ -460,6 +460,10 @@ def _split_pinched_edges_by_midpoint(
         # Now a-b is the pinch edge; insert m between → triangles (a, m, c)+(m, b, c).
         return [(a, m, c), (m, b, c)]
 
+    # Each pass rebuilds ``edge_tris`` over ALL triangles but resolves only ONE
+    # pinch edge → O(P * T) for P residual pinches over T triangles.  Left as-is
+    # because P is empirically tiny (a handful per body at most) on real data;
+    # revisit (resolve all pinches per pass) only if a dense-pinch body appears.
     for _ in range(256):
         edge_tris: dict[frozenset[int], list[int]] = {}
         for ti, (a, b, c) in enumerate(triangles):
