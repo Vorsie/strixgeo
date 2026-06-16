@@ -12,6 +12,8 @@ export interface TooltipProps {
   sticky?: boolean
   opacity?: number
   className?: string
+  /** Render the tooltip into this named Leaflet pane (flows through ...options into bindTooltip). */
+  pane?: string
 }
 
 /**
