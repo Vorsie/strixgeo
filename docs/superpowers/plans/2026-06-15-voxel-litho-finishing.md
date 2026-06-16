@@ -10,6 +10,20 @@
 
 ---
 
+## ✅ STATUS 2026-06-16 — Tasks 1–6 COMPLETE (Task 7 = this record). Owner dogfeed + merge pending.
+
+Executed via `superpowers:subagent-driven-development` (fresh subagent per task + spec-compliance then code-quality review). All on `feat-litho-3d-strat-field` (UNPUSHED, NOT merged).
+
+- **Task 1** geo-band helpers (`geo_bands.py`) ✅ · **Task 2** shared geo-surface loader + use-case wiring ✅ (strat regression green) · **Task 3** band-scoped voxel fill ✅ (real-data geo-band gate PASS, deepest-band fill 2.57×, given real teeth) · **Task 4** anisotropic voxels ✅ (a real on-seam *sampler* degeneracy surfaced + fixed + independently verified legitimate) · **Task 5** frontend Build wiring + Settings "Voxel size" knobs ✅ · **Task 6** honor-borehole retro-review + gapped-log fix + acceptance gate ✅.
+
+**FINAL acceptance (`test.strix`, dev model `019e934c…`, 2 m horizontal / 0.5 m vertical, PERSISTED):** watertight **89 bodies, 0 flagged, 0 overlap, 538,534 tris**; `eval_strat_fidelity.py` over 58 boreholes = **exact 35 · subsequence 6 · wrong 6 · uncovered 11**, contact-depth **median 0.13 m** (≤ 0.5 m vertical), mean 0.91 m. **0 GENUINE fidelity defects** (`diag_voxel_fidelity_categorize.py`: category-5 = 0, 0 interior uncovered). The 6 "wrong" = geo-band **sideways fill** continuing the deeper band below borehole TD (the feature) + 1–2 honor-cell **2 m collisions**; the 11 uncovered = alpha-hull **edge** no-data (pre-existing Stage-3 limit).
+
+**The load-bearing rule paid off:** the first acceptance run had **33 wrong**; a systematic diagnosis proved 0 genuine defects + pinpointed an **above-surface blend sliver**, and the fix (clamp a honored column to the borehole's own surface — void above `obs_top`) dropped **wrong 33→6, exact 11→35** while being more truthful.
+
+**Residual (owner judgment):** (a) the clamp dips the model top to each borehole's surface (truthful but slightly ragged); (b) 11 hull-edge boreholes get no body (pre-existing); (c) 1–2 honor-cell 2 m collisions (a centre-distance tie-break / finer horizontal would recover them — deferred as marginal); (d) literal "wrong→0" is unreachable because the geo-band sideways fill correctly extends the model below borehole TDs. Dogfeed via `voxel_viewer/` (regenerate `model.json` with `scripts/dump_voxel_viewer_model.py`).
+
+---
+
 ## ⚠ READ FIRST — context the fresh session needs
 
 **Branch:** `feat-litho-3d-strat-field` (UNPUSHED, off `develop`, NOT merged). Stay on it. Do NOT push (`memory/feedback_git_workflow`). Do NOT merge.
