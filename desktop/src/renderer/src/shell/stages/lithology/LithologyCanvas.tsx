@@ -306,6 +306,15 @@ export default function LithologyCanvas(): JSX.Element {
     }
   }, [projectId, lithoModelId, viewMode, visibleSections])
 
+  // Null the voxel-build ref on unmount.  Unlike the sibling reset callbacks
+  // (resetLithoCameraCallback) which are synchronous, the voxel builder is
+  // async (it fans out per-section edge fetches), so a stale callback could in
+  // principle be invoked after the canvas unmounts / the model switches —
+  // clearing it on unmount closes that async stale-fire window.
+  useEffect(() => () => {
+    lithoVoxelRequestCallback.current = null
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Fence inputs — assembled from shell-bus data + fetched edges.
   //
@@ -387,7 +396,9 @@ export default function LithologyCanvas(): JSX.Element {
     // Fetch each section's approved correlation edges fresh (section-scoped;
     // a failed fetch degrades to no edges for that section rather than aborting
     // the whole build — the partition still fills, just without that section's
-    // correlations).
+    // correlations).  ``failed`` flags a rejected fetch so the build log can
+    // report which sections came back empty due to error vs genuinely no edges.
+    const failedSectionIds: string[] = []
     const edgeResults = await Promise.all(
       visibleSections.map(section =>
         api.geology
@@ -401,10 +412,21 @@ export default function LithologyCanvas(): JSX.Element {
                   .map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
               ] as const,
           )
-          .catch(() => [section.id, [] as { a: string; b: string }[]] as const),
+          .catch(() => {
+            failedSectionIds.push(section.id)
+            return [section.id, [] as { a: string; b: string }[]] as const
+          }),
       ),
     )
     const edgesMap = new Map(edgeResults)
+    const totalApprovedEdges = edgeResults.reduce((sum, [, edges]) => sum + edges.length, 0)
+    log.debug(
+      'litho-voxel',
+      `assembled ${edgeResults.length} sections, ${totalApprovedEdges} approved edges` +
+        (failedSectionIds.length > 0
+          ? `; ${failedSectionIds.length} section(s) failed → empty: ${failedSectionIds.join(', ')}`
+          : ''),
+    )
 
     const sectionInputs = assembleLithoSectionInputs({
       visibleSections,
