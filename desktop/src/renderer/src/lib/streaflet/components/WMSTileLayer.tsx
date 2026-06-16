@@ -11,6 +11,8 @@ export interface WMSTileLayerProps extends EventedProps {
   attribution?: string
   opacity?: number
   zIndex?: number
+  /** Render into this named Leaflet pane (threaded conditionally at construction). */
+  pane?: string
 }
 
 /** OGC WMS tile layer (wraps L.tileLayer.wms). */
@@ -24,6 +26,9 @@ export const WMSTileLayer = createTileComponent<WMSTileLayerProps, L.TileLayer.W
       attribution: props.attribution,
       opacity: props.opacity,
       zIndex: props.zIndex,
+      // Only pass pane when explicitly provided; omitting lets Leaflet keep its
+      // default 'tilePane' rather than clobbering it with undefined.
+      ...(props.pane !== undefined ? { pane: props.pane } : {}),
     }),
   updateInstance: (layer, props, prev) => {
     if (props.opacity !== undefined && props.opacity !== prev.opacity) layer.setOpacity(props.opacity)
