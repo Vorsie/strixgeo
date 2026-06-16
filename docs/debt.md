@@ -87,7 +87,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #214, #215, #219
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #210, #211, #212, #216, #217, #218
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -5628,6 +5628,43 @@ starts to matter.
 * **`recomputeAllAbsences` UI-unreachable use case** (KISS-08) — needs a *product*
   decision (wire a visible verb vs delete 481 lines), not a code fix; raise with the
   owner before acting.
+
+## 220. Smooth (non-blocky) litho 3D model from the voxel model (Tier D — Phase 5 visual quality)
+
+**What.** The voxel litho builder is faithful + watertight by construction but
+**blocky**: body boundaries are axis-aligned voxel cell faces, so on a section the
+contacts read as a staircase and sit up to ±½·(vertical voxel) off the true contact
+depth (median 0.13 m at 0.5 m, tighter at 0.25 m). Add a **smoothing pass** that
+turns the blocky voxel boundaries into smooth surfaces/planes while keeping the
+voxel labelling as the watertight, interfingering-capable ground truth.
+
+**Owner's approach (2026-06-16):** start from the built voxel model; for each body
+boundary take the **midpoints between the two contacts a voxel face separates** —
+both the **horizontal** faces (top/base of a body, the vertical-direction contact)
+and the **vertical** faces (lateral body-to-body seams, the horizontal-direction
+contact) — and **fit/draw planes (or a smooth surface) through those midpoints**
+instead of the stepped cell faces. A face's midpoint is the best single estimate of
+where the real contact sits between the two labelled cells, so a surface through the
+midpoints removes the quantisation staircase without moving the contact off its
+~½-voxel-accurate estimate. Must stay watertight (shared midpoint surface between
+abutting bodies, like the voxel weld shares cell faces) and must not reintroduce the
+layer-cake / no-interfingering failure of the retired implicit field — the voxel
+labelling still decides WHICH body fills space; smoothing only refines the boundary
+GEOMETRY. Both the 3D solids and the 2D section fill (which samples/slices the
+solids) inherit the smoothing for free.
+
+**Why deferred.** The current blocky model is faithful and dogfeed-accepted; finer
+vertical voxel size already tightens the contacts enough for v1.0. Smoothing is a
+visual-quality polish, not a correctness gate, and the marching-cubes-style
+midpoint-surface extraction + watertight shared-surface weld is non-trivial
+geometry work. Out of scope for the Phase-4 MVP.
+
+**When to revisit.** Phase 5, alongside the other 3D-model-quality work — OR sooner
+if a coworker/customer demo flags the staircase as distracting. Profile the
+midpoint-surface extraction before adopting (it runs per-build, on the same
+on-click Build path the voxel extraction already pays for). Pairs with the voxel
+builder ([[project_voxel_litho_builder]]) and the model-from-solids fill
+([[project_litho_model_from_solids]]).
 
 ## (end)
 
