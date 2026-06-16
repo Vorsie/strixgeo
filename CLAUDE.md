@@ -226,7 +226,7 @@ See [docs/subagents.md](docs/subagents.md) — The 6 project-scoped subagents (s
 | Database | PostgreSQL + PostGIS | spatial queries, depth series |
 | ORM | SQLAlchemy + Alembic | migrations |
 | Data | Polars | fast series processing; PostGIS for spatial |
-| Performance | Rust / PyO3 | Phase 4 only |
+| Performance | Numba (`@njit`) | adopted Phase 4 for the voxel mesh hotspot; Cython / Rust+PyO3 still deferred |
 | Testing | pytest, pytest-asyncio, factory-boy | |
 | Frontend | Electron + React | desktop first, SaaS later |
 | 3D | CesiumJS | geographic context |
@@ -442,7 +442,7 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 
 ## Performance Escape Hatches
 
-See [docs/performance.md](docs/performance.md) — Phases 1–4 stay pure Python + Polars; Phase-5 escape order Numba → Cython → Rust+PyO3 (CUDA excluded); free-threaded-Python is tracked-not-adopted. Load only when profiling proves a hotspot.
+See [docs/performance.md](docs/performance.md) — escape order Numba → Cython → Rust+PyO3 (CUDA excluded); free-threaded-Python is tracked-not-adopted. Load only when profiling proves a hotspot. **Numba is now ADOPTED (2026-06-16, Phase 4):** `@njit(cache=True)` on `voxel_litho/greedy_mesh._maximal_rectangles_njit` — the profiled mesh-extraction hotspot (93.6 % of extraction; 38.6× on the real workload, byte-identical rectangles, voxel build 67 s → 37.5 s). It's a hard dependency now (+119 MB llvmlite/LLVM), justified by the on-click Build needing to run on lower-spec distribution machines. Cython / Rust+PyO3 stay deferred. The rest of the pipeline stays pure Python + Polars; reach for the next `@njit` only on a profiled hotspot (labelling is the next candidate).
 
 ---
 
