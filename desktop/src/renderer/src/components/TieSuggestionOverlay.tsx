@@ -15,7 +15,7 @@
 
 import { Fragment, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Polyline, Tooltip } from '@/lib/streaflet'
+import { Polyline, Tooltip } from '../lib/streaflet'
 import type { LeafletMouseEvent } from 'leaflet'
 import ContextMenu from './ui/ContextMenu'
 import { tieToLatLngLine } from '../utils/tieToLatLngLine'
