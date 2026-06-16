@@ -1,0 +1,60 @@
+import L from 'leaflet'
+import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { MapContext } from '../core/MapContext'
+import { useImperativeInstance } from '../core/lifecycle'
+
+/** Props for {@link MapContainer}; initial view + map options. */
+export interface MapContainerProps {
+  center?: L.LatLngExpression
+  zoom?: number
+  bounds?: L.LatLngBoundsExpression
+  minZoom?: number
+  maxZoom?: number
+  zoomControl?: boolean
+  attributionControl?: boolean
+  style?: CSSProperties
+  className?: string
+  children?: ReactNode
+  whenReady?: (map: L.Map) => void
+}
+
+/** Root component: creates the L.Map once, provides context, renders children when ready. */
+export const MapContainer = forwardRef<L.Map, MapContainerProps>(function MapContainer(props, ref) {
+  const divRef = useRef<HTMLDivElement>(null)
+  const [map, setMap] = useState<L.Map | null>(null)
+
+  useEffect(() => {
+    if (divRef.current === null) return
+    const created = L.map(divRef.current, {
+      center: props.center ?? [0, 0],
+      zoom: props.zoom ?? 1,
+      minZoom: props.minZoom,
+      maxZoom: props.maxZoom,
+      zoomControl: props.zoomControl ?? true,
+      attributionControl: props.attributionControl ?? true,
+    })
+    if (props.bounds) created.fitBounds(props.bounds)
+    setMap(created)
+    props.whenReady?.(created)
+    return () => {
+      created.remove()
+      setMap(null)
+    }
+    // reason: create the map once on mount from the initial view props; live
+    // view changes go through useMap()/imperative calls in consumers, matching
+    // react-leaflet semantics.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useImperativeInstance(ref, map)
+
+  return (
+    <div ref={divRef} style={props.style} className={props.className}>
+      {map !== null && (
+        <MapContext.Provider value={{ map, layerContainer: map }}>
+          {props.children}
+        </MapContext.Provider>
+      )}
+    </div>
+  )
+})
