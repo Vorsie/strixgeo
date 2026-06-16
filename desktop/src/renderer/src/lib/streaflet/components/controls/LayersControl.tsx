@@ -10,9 +10,12 @@ export interface LayersControlProps extends ControlProps {
 
 /** Layer switcher control (wraps L.control.layers). */
 export const LayersControl = createControlComponent<LayersControlProps, L.Control.Layers>({
+  // Only pass options that are explicitly provided; passing `position: undefined`
+  // clobbers Leaflet's prototype default and crashes Control.addTo on
+  // `undefined.indexOf`. Same conditional-spread convention as TileLayer.
   createInstance: (props) =>
     L.control.layers(props.baseLayers, props.overlays, {
-      position: props.position,
-      collapsed: props.collapsed,
+      ...(props.position !== undefined ? { position: props.position } : {}),
+      ...(props.collapsed !== undefined ? { collapsed: props.collapsed } : {}),
     }),
 })
