@@ -28,6 +28,7 @@
  */
 
 import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
+import { CONFIDENCE_FALLOFF_M, distanceAlphaMultiplier } from '../../utils/distanceConfidence'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -60,6 +61,17 @@ import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
  * @property testStripWidthPx - Mode A fallback: pixel width of the per-test
  *                             strip when no column layout is supplied. Defaults
  *                             to ``DEFAULT_TEST_STRIP_WIDTH_PX``.
+ * @property confidenceFade  - When true, each fill element's opacity is scaled
+ *                             by its along-section distance to the nearest
+ *                             investigation (``columnAlongMs``): full on top of a
+ *                             test, fading to the low-confidence alpha at
+ *                             ``confidenceFalloffM``. Mirrors the geology TIN
+ *                             confidence fade for the litho model. Mode-A strips
+ *                             sit on the test, so they never fade.
+ * @property columnAlongMs   - Along-section positions (m) of the section's
+ *                             investigations, the distance metric for the fade.
+ * @property confidenceFalloffM - Distance (m) at which the fade reaches the
+ *                             floor. Defaults to ``CONFIDENCE_FALLOFF_M``.
  */
 export interface ModelFillOverlayProps {
   columns?: SolidColumn[]
@@ -69,6 +81,28 @@ export interface ModelFillOverlayProps {
   opacity: number
   columnLayoutByTestId?: Record<string, { centerX: number; width: number }>
   testStripWidthPx?: number
+  confidenceFade?: boolean
+  columnAlongMs?: readonly number[]
+  confidenceFalloffM?: number
+}
+
+/**
+ * Opacity multiplier for one fill element at along-section position ``alongM``:
+ * 1 when fade is off, else scaled by the distance to the nearest investigation.
+ */
+function fadeMultiplier(
+  alongM: number,
+  confidenceFade: boolean,
+  columnAlongMs: readonly number[] | undefined,
+  falloffM: number,
+): number {
+  if (!confidenceFade || !columnAlongMs || columnAlongMs.length === 0) return 1
+  let nearest = Infinity
+  for (const a of columnAlongMs) {
+    const d = Math.abs(alongM - a)
+    if (d < nearest) nearest = d
+  }
+  return distanceAlphaMultiplier(nearest, falloffM)
 }
 
 /**
@@ -130,6 +164,9 @@ export default function ModelFillOverlay({
   opacity,
   columnLayoutByTestId,
   testStripWidthPx = DEFAULT_TEST_STRIP_WIDTH_PX,
+  confidenceFade = false,
+  columnAlongMs,
+  confidenceFalloffM = CONFIDENCE_FALLOFF_M,
 }: ModelFillOverlayProps): JSX.Element {
   // ── Mode B — plane-slice polygon fill ───────────────────────────────────────
   if (polys && polys.length > 0) {
@@ -138,6 +175,11 @@ export default function ModelFillOverlay({
         {polys.map((poly, i) => {
           const d = buildPolyPath(poly.points, alongMToScreenX, levelToScreen)
           if (!d) return null
+          // Fade by the poly's centroid distance to the nearest investigation:
+          // a poly spanning a wide data gap reads as interpolated.
+          const centroidAlong =
+            poly.points.reduce((s, p) => s + p.alongM, 0) / poly.points.length
+          const mult = fadeMultiplier(centroidAlong, confidenceFade, columnAlongMs, confidenceFalloffM)
           return (
             <path
               // WHY index in the key: one body can slice into MORE THAN ONE loop
@@ -149,7 +191,7 @@ export default function ModelFillOverlay({
               data-testid={`model-fill-${poly.bodyId}`}
               d={d}
               fill={poly.color}
-              fillOpacity={opacity}
+              fillOpacity={opacity * mult}
               // WHY nonzero: SectionPoly winding is not guaranteed — depends on
               // triangle order in the input mesh.  nonzero handles both CW and CCW
               // correctly for the convex slices we produce.
@@ -178,6 +220,9 @@ export default function ModelFillOverlay({
       const width = layout ? layout.width : testStripWidthPx
       const centerX = layout ? layout.centerX : alongMToScreenX(col.alongM)
       const xLeft = centerX - width / 2
+      // A strip sits ON its test, so the fade multiplier is ~1 (distance 0);
+      // computed for consistency so a test slightly off the column list still fades.
+      const mult = fadeMultiplier(col.alongM, confidenceFade, columnAlongMs, confidenceFalloffM)
       col.segments.forEach((seg, si) => {
         const yTop = levelToScreen(seg.topElev)
         const yBase = levelToScreen(seg.baseElev)
@@ -192,7 +237,7 @@ export default function ModelFillOverlay({
             width={width}
             height={height}
             fill={seg.color}
-            fillOpacity={opacity}
+            fillOpacity={opacity * mult}
             stroke="none"
             pointerEvents="none"
           />,

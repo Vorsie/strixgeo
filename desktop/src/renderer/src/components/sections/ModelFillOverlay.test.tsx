@@ -207,6 +207,62 @@ describe('Mode B', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Confidence fade — fade the fill by along-section distance to the nearest test.
+// ---------------------------------------------------------------------------
+
+describe('Confidence fade', () => {
+  const farPoly: SectionPoly[] = [
+    {
+      bodyId: 'p',
+      formationId: 'f',
+      color: '#abcdef',
+      // centroid alongM = 50 (midway between columns at 0 and 100)
+      points: [
+        { alongM: 40, elev: 0 },
+        { alongM: 60, elev: 0 },
+        { alongM: 60, elev: -5 },
+        { alongM: 40, elev: -5 },
+      ],
+    },
+  ]
+
+  it('CF1 a poly far from all tests fades to the low alpha', () => {
+    const { container } = renderOverlay({
+      polys: farPoly,
+      confidenceFade: true,
+      columnAlongMs: [0, 100],
+      confidenceFalloffM: 50,
+    })
+    const el = container.querySelector('[data-testid="model-fill-p"]') as SVGPathElement
+    // nearest column distance = 50 = falloff → low-confidence multiplier 0.25.
+    expect(Number(el.getAttribute('fill-opacity'))).toBeCloseTo(0.6 * 0.25, 5)
+  })
+
+  it('CF2 fade OFF → full opacity regardless of distance', () => {
+    const { container } = renderOverlay({
+      polys: farPoly,
+      confidenceFade: false,
+      columnAlongMs: [0, 100],
+      confidenceFalloffM: 50,
+    })
+    const el = container.querySelector('[data-testid="model-fill-p"]') as SVGPathElement
+    expect(Number(el.getAttribute('fill-opacity'))).toBeCloseTo(0.6, 6)
+  })
+
+  it('CF3 mode-A strips stay full opacity (they sit on the test)', () => {
+    const columns: SolidColumn[] = [col('T1', 0, [seg('b1', '#ff0000', 0, -4)])]
+    const { container } = renderOverlay({
+      columns,
+      confidenceFade: true,
+      columnAlongMs: [0, 100],
+      confidenceFalloffM: 50,
+    })
+    const el = container.querySelector('[data-testid="model-fill-b1"]') as SVGRectElement
+    expect(Number(el.getAttribute('fill-opacity'))).toBeCloseTo(0.6, 6)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // MFO5 — pointer-events none on all painted elements (shared requirement)
 // ---------------------------------------------------------------------------
 

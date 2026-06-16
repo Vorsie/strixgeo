@@ -2395,6 +2395,13 @@ export default function SectionPanel({
     return out
   }, [placedColumns])
 
+  // Along-section positions of every placed investigation — the distance metric
+  // for the model-fill confidence fade (fill far from any test reads faint).
+  const modelFillColumnAlongMs = useMemo<number[]>(
+    () => placedColumns.map(c => c.proj.along),
+    [placedColumns],
+  )
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -3097,6 +3104,8 @@ export default function SectionPanel({
                   columns={modelFillData.columns}
                   polys={modelFillData.polys}
                   columnLayoutByTestId={modelFillColumnLayout}
+                  confidenceFade={showConfidenceFade}
+                  columnAlongMs={modelFillColumnAlongMs}
                   alongMToScreenX={warpedXToScreen}
                   levelToScreen={levelToScreen}
                   opacity={0.55}
