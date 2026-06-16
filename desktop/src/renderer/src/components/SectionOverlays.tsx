@@ -23,7 +23,7 @@
  */
 
 import { Fragment, useMemo } from 'react'
-import { Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
+import { Pane, Polygon, Polyline, Tooltip } from '@/lib/streaflet'
 
 import type {
   BoreholeListItem,
@@ -103,16 +103,16 @@ export default function SectionOverlays({
           always visible over the Geopunt GRB hybrid and hillshade layers.
           Below investigation-markers (z=640) and tooltipPane (z=650) so
           marker clicks and tooltips still win. */}
-      <Pane name={SECTION_PANE} style={{ zIndex: SECTION_PANE_Z }} />
+      <Pane name={SECTION_PANE} zIndex={SECTION_PANE_Z} />
       {/* Custom pane so leaders sit BELOW the section overlay pane
           (z=420) — leader clicks must not obscure the section line. */}
-      <Pane name={LEADER_PANE} style={{ zIndex: LEADER_PANE_Z }} />
+      <Pane name={LEADER_PANE} zIndex={LEADER_PANE_Z} />
       {leaders.map(leader => (
         <Polyline
           key={leader.id}
           pane={LEADER_PANE}
           positions={[leader.fromLatLng, leader.toLatLng]}
-          pathOptions={{
+          style={{
             color: '#6b7280',
             weight: 1,
             opacity: 0.7,
@@ -139,7 +139,7 @@ export default function SectionOverlays({
             <Polygon
               pane={SECTION_PANE}
               positions={item.bufferLatLngs}
-              pathOptions={{
+              style={{
                 color: '#ffffff',
                 weight: selected ? 3 : 2,
                 opacity: selected ? 0.9 : 0.7,
@@ -154,14 +154,14 @@ export default function SectionOverlays({
               }}
             />
             {/* Dark-blue interior stroke rendered as a second polygon.
-                Leaflet does not support multi-stroke in a single pathOptions,
+                Leaflet does not support multi-stroke in a single style object,
                 so we layer two polygons: white casing first, navy accent
                 second. Both are non-interactive; the casing polygon carries
                 the event handlers and tooltip. */}
             <Polygon
               pane={SECTION_PANE}
               positions={item.bufferLatLngs}
-              pathOptions={{
+              style={{
                 color: selected ? '#1e3a8a' : '#1e40af',
                 weight: selected ? 2 : 1.25,
                 opacity: selected ? 0.95 : 0.8,
@@ -176,7 +176,7 @@ export default function SectionOverlays({
             <Polyline
               pane={SECTION_PANE}
               positions={item.lineLatLngs}
-              pathOptions={{
+              style={{
                 color: '#ffffff',
                 weight: selected ? 6 : 4.5,
                 opacity: 0.9,
@@ -186,7 +186,7 @@ export default function SectionOverlays({
             <Polyline
               pane={SECTION_PANE}
               positions={item.lineLatLngs}
-              pathOptions={{
+              style={{
                 color: selected ? '#2563eb' : '#1e3a8a',
                 weight: selected ? 3.5 : 2.5,
                 opacity: 0.98,
@@ -203,8 +203,8 @@ export default function SectionOverlays({
               // opacity 0.01, not 0: SVG ``pointer-events: visiblePainted`` only
               // fires on a painted stroke, so a zero-opacity band would not be
               // clickable. 0.01 is invisible yet painted → selection works.
-              pathOptions={{ color: '#ffffff', weight: 14, opacity: 0.01 }}
-              eventHandlers={{ click: () => onSelect(item.id) }}
+              style={{ color: '#ffffff', weight: 14, opacity: 0.01 }}
+              onClick={() => onSelect(item.id)}
             >
               <Tooltip pane="marker-tooltips" sticky direction="top" opacity={0.95}>
                 <strong>{item.name}</strong>
