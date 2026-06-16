@@ -169,19 +169,23 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
 
         # ------------------------------------------------------------------ #
         # 1. Scope guards + load model/formation metadata.                    #
-        # Failures here are warnings, not errors: the callers (CorrelateLitho,
-        # UncorrelateLitho, AcceptLithoSuggestions) already validated the inputs
-        # before calling this use case.  A missing session.get result typically
-        # means the row was just inserted and is not yet visible in the unit-test
-        # mock's return map (the row is added via session.add, not .get).
-        # We log the condition and return a no-op result rather than aborting
-        # the whole transaction.
+        #                                                                      #
+        # PROJECT MISMATCH → raises ValueError (debt #211-d): a row that      #
+        # exists but belongs to a different project is the real IDOR risk —   #
+        # the original silent-return made it indistinguishable from success.  #
+        #                                                                      #
+        # NOT FOUND → warning + early return (backwards-compatible):          #
+        # a None from session.get means the row was just inserted and is not  #
+        # yet visible in the unit-test mock's return map (the row is added     #
+        # via session.add, not .get).  The caller already validated the        #
+        # inputs; this is a defensive fallback for that test-mock scenario.   #
+        # In production the row is always found at this point.                #
         # ------------------------------------------------------------------ #
         model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
+        if model is None:
             self.warning(
-                f"MaterializeWedgeTipsForFormation: model {model_id} not found in project "
-                f"{project_id} — skipping wedge-tip materialisation"
+                f"MaterializeWedgeTipsForFormation: model {model_id} not found "
+                "— skipping (caller already validated; likely a test-mock gap)"
             )
             return WedgeTipMaterializationResult(
                 sections_processed=0,
@@ -189,18 +193,24 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                 new_contacts_created=0,
                 absences_skipped_no_geometry=0,
             )
+        if model.app_project_id != project_id:
+            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
 
         formation = await self._session.get(GeologicalFormationOrm, formation_id)
-        if formation is None or formation.app_project_id != project_id:
+        if formation is None:
             self.warning(
-                f"MaterializeWedgeTipsForFormation: formation {formation_id} not found in "
-                f"project {project_id} — skipping wedge-tip materialisation"
+                f"MaterializeWedgeTipsForFormation: formation {formation_id} not found "
+                "— skipping (caller already validated; likely a test-mock gap)"
             )
             return WedgeTipMaterializationResult(
                 sections_processed=0,
                 old_contacts_deleted=0,
                 new_contacts_created=0,
                 absences_skipped_no_geometry=0,
+            )
+        if formation.app_project_id != project_id:
+            raise ValueError(
+                f"GeologicalFormation {formation_id} not found in project {project_id}"
             )
 
         parent_model_id: UUID | None = model.parent_geological_model_id

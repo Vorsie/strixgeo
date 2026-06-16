@@ -295,7 +295,11 @@ class UpdateFormationContact(GroundModelLogger):
         # contacts in sync.  Only runs on the depth-only change path.
         if is_depth_only:
             new_depth = float(patch["depth_top_m"])
-            await self._propagate_coupled_depth(updated, new_depth)
+            # Pass the project_id from the already-loaded model so the
+            # propagation query can scope its children lookup to this
+            # project (defence-in-depth, debt #211-c).
+            model_project_id: UUID | None = getattr(model, "app_project_id", None)
+            await self._propagate_coupled_depth(updated, new_depth, project_id=model_project_id)
 
         # On-click build pivot: mark stale rather than recompute. The
         # post-update formation is always affected; the pre-update
@@ -330,6 +334,8 @@ class UpdateFormationContact(GroundModelLogger):
         self,
         updated_contact: FormationContactOrm,
         new_depth: float,
+        *,
+        project_id: UUID | None = None,
     ) -> None:
         """Propagate a depth change to the coupled partner contact.
 
@@ -352,6 +358,13 @@ class UpdateFormationContact(GroundModelLogger):
             The contact that was just written by ``update_contact``.
         new_depth : float
             The depth value that was applied to ``updated_contact``.
+        project_id : UUID | None
+            When provided, the geo→litho children query is scoped to models
+            that belong to this project (defence-in-depth, debt #211-c).
+            The FK already enforces referential integrity; this adds an
+            explicit scope filter matching every sibling query in the codebase.
+            When ``None`` the scope filter is omitted (backwards-compatible
+            with callers that do not supply a project — the FK saves it).
         """
         parent_id = getattr(updated_contact, "parent_geo_contact_id", None)
 
@@ -388,9 +401,21 @@ class UpdateFormationContact(GroundModelLogger):
                 # No id available — cannot look up children; skip propagation.
                 self.debug("propagate geo→litho: updated_contact has no id — skip")
                 return
-            children_stmt = select(FormationContactOrm).where(
-                FormationContactOrm.parent_geo_contact_id == contact_id
-            )
+            children_filters = [FormationContactOrm.parent_geo_contact_id == contact_id]
+            if project_id is not None:
+                # Defence-in-depth scope filter (debt #211-c): restrict the
+                # children lookup to litho contacts in models that belong to
+                # this project.  The FK on parent_geo_contact_id already
+                # enforces referential integrity; this explicit filter matches
+                # the pattern every sibling query in the codebase carries.
+                children_filters.append(
+                    FormationContactOrm.model_id.in_(
+                        select(GeologicalModelOrm.id).where(
+                            GeologicalModelOrm.app_project_id == project_id
+                        )
+                    )
+                )
+            children_stmt = select(FormationContactOrm).where(*children_filters)
             children = (await self._session.execute(children_stmt)).scalars().all()
             written = 0
             for child in children:

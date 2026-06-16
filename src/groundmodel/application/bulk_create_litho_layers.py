@@ -19,6 +19,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -53,6 +57,8 @@ class BulkCreateLithoLayers(GroundModelLogger):
         self,
         model_id: UUID,
         layers: list[LithoLayerCreateRequest],
+        *,
+        project_id: UUID | None = None,
     ) -> list[LithoLayerOrm]:
         """Persist every layer + commit atomically.
 
@@ -62,15 +68,51 @@ class BulkCreateLithoLayers(GroundModelLogger):
             Target litho model.
         layers : list[LithoLayerCreateRequest]
             Per-layer payloads. Empty list = no-op (returns []).
+        project_id : UUID | None
+            When provided, every ``formation_id`` in ``layers`` is checked
+            against the formation's ``app_project_id`` before any write.  A
+            mismatch (cross-project formation id) raises ``ValueError`` so
+            foreign-project formations are never silently accepted (debt #211-a).
+            When ``None`` the check is skipped for backwards compatibility with
+            existing callers that have not yet been updated to pass the project.
 
         Returns
         -------
         list[LithoLayerOrm]
             Persisted rows in input order.
+
+        Raises
+        ------
+        ValueError
+            When ``project_id`` is provided and any ``formation_id`` does not
+            exist or belongs to a different project.
         """
         self.debug(f"BulkCreateLithoLayers: model={model_id} count={len(layers)}")
         if not layers:
             return []
+
+        # ------------------------------------------------------------------ #
+        # Scope guard (debt #211-a) — verify every formation_id belongs to   #
+        # the caller's project before touching the DB.  Deduplicating the    #
+        # formation ids avoids redundant round-trips for the common case      #
+        # where many layers share the same formation.                         #
+        # ------------------------------------------------------------------ #
+        if project_id is not None:
+            seen_formation_ids: set[UUID] = set()
+            for payload in layers:
+                if payload.formation_id not in seen_formation_ids:
+                    await load_scoped_or_raise(
+                        self._session,
+                        GeologicalFormationOrm,
+                        payload.formation_id,
+                        project_id,
+                        label="Formation",
+                    )
+                    seen_formation_ids.add(payload.formation_id)
+            self.debug(
+                f"BulkCreateLithoLayers: scope guard passed for "
+                f"{len(seen_formation_ids)} unique formation(s)"
+            )
 
         rows: list[LithoLayerOrm] = []
         for payload in layers:

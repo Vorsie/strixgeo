@@ -159,7 +159,7 @@ async def bulk_create_layers(
         )
         for item in request.layers
     ]
-    created = await use_case.execute(model_id, payloads)
+    created = await use_case.execute(model_id, payloads, project_id=project_id)
     if request.section_id is not None and created:
         # The created layers' ids are valid contact ids by Shape A's
         # UUID-preservation rule (LL→FC trigger materialises accepted
