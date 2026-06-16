@@ -54,6 +54,11 @@ import {
   confidenceToAlphaMultiplier,
 } from '../../../utils/tinConfidence'
 import {
+  CONFIDENCE_FALLOFF_M,
+  distanceAlphaMultiplier,
+  nearestDistance2D,
+} from '../../../utils/distanceConfidence'
+import {
   buildCutFaceBands,
   computeBasemapBounds,
   computeSolidCapTriangles,
@@ -171,6 +176,14 @@ export interface Geology3DViewerProps {
    * are affected; formation TIN sheets, fence walls and cut-face caps are
    * unchanged.  Defaults to false (filled). */
   bodySolidsWireframe?: boolean
+  /**
+   * Investigation (borehole / CPT) positions in project CRS, as ``[x, y]``
+   * pairs.  When ``showConfidenceFade`` is on, body solids fade by horizontal
+   * distance to the nearest one — opaque on top of data, ghosted where the
+   * model is interpolated.  Only meaningful on the litho pane (which passes
+   * ``bodySolids``); the geology pane fades its TIN surfaces instead and can
+   * omit this. */
+  investigationXY?: readonly (readonly [number, number])[]
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,6 +1354,7 @@ function rebuildSurfacePrimitives(
   surfacesVisible: boolean = true,
   bodySolids?: LithoBodySolidResponse[],
   bodySolidsWireframe: boolean = false,
+  investigationXY?: readonly (readonly [number, number])[],
 ): void {
   scene.primitives.removeAll()
 
@@ -1653,16 +1667,80 @@ function rebuildSurfacePrimitives(
         }
       }
 
-      const prim = buildSolidPrimitive(
-        solid.vertices,
-        solid.triangles,
-        solidColor,
-        projectEpsg,
-        clip,
-        solid.is_flagged === true,
-        bodySolidsWireframe,
-      )
-      if (prim) scene.primitives.add(prim)
+      // Confidence fade: when on (and we have investigation positions), fade
+      // each body by horizontal distance to the nearest borehole/CPT — opaque
+      // on top of data, ghosted where the model is interpolated. Per-vertex RGBA
+      // via the same builder the surface fade uses (a solid is just verts+tris).
+      // Skipped for wireframe (no faces) + flagged marker disks (already faded).
+      const faded =
+        showConfidenceFade &&
+        investigationXY !== undefined &&
+        investigationXY.length > 0 &&
+        !bodySolidsWireframe &&
+        solid.is_flagged !== true
+      if (faded) {
+        const r = Math.round(solidColor.red * 255)
+        const g = Math.round(solidColor.green * 255)
+        const b = Math.round(solidColor.blue * 255)
+        const perVertexColors = new Uint8Array(solid.vertices.length * 4)
+        for (let i = 0; i < solid.vertices.length; i += 1) {
+          const [vx, vy] = solid.vertices[i]
+          const mult = distanceAlphaMultiplier(
+            nearestDistance2D(vx, vy, investigationXY),
+            CONFIDENCE_FALLOFF_M,
+          )
+          perVertexColors[i * 4 + 0] = r
+          perVertexColors[i * 4 + 1] = g
+          perVertexColors[i * 4 + 2] = b
+          perVertexColors[i * 4 + 3] = Math.round(mult * 255)
+        }
+        // Split path: per-triangle colour (the clipped soup loses vertex sharing).
+        let perTriangleColorsForClip: Uint8Array | undefined
+        if (clip) {
+          perTriangleColorsForClip = new Uint8Array(solid.triangles.length * 4)
+          for (let t = 0; t < solid.triangles.length; t += 1) {
+            const [va, vb, vc] = solid.triangles[t]
+            const avgMult =
+              (distanceAlphaMultiplier(
+                nearestDistance2D(solid.vertices[va][0], solid.vertices[va][1], investigationXY),
+                CONFIDENCE_FALLOFF_M,
+              ) +
+                distanceAlphaMultiplier(
+                  nearestDistance2D(solid.vertices[vb][0], solid.vertices[vb][1], investigationXY),
+                  CONFIDENCE_FALLOFF_M,
+                ) +
+                distanceAlphaMultiplier(
+                  nearestDistance2D(solid.vertices[vc][0], solid.vertices[vc][1], investigationXY),
+                  CONFIDENCE_FALLOFF_M,
+                )) /
+              3
+            perTriangleColorsForClip[t * 4 + 0] = r
+            perTriangleColorsForClip[t * 4 + 1] = g
+            perTriangleColorsForClip[t * 4 + 2] = b
+            perTriangleColorsForClip[t * 4 + 3] = Math.round(avgMult * 255)
+          }
+        }
+        const prim = buildTinPrimitiveWithVertexColor(
+          solid.vertices,
+          solid.triangles,
+          perVertexColors,
+          projectEpsg,
+          clip,
+          perTriangleColorsForClip,
+        )
+        if (prim) scene.primitives.add(prim)
+      } else {
+        const prim = buildSolidPrimitive(
+          solid.vertices,
+          solid.triangles,
+          solidColor,
+          projectEpsg,
+          clip,
+          solid.is_flagged === true,
+          bodySolidsWireframe,
+        )
+        if (prim) scene.primitives.add(prim)
+      }
     }
   }
 
@@ -1847,6 +1925,9 @@ interface CesiumViewportProps {
   /** When true, body solids render as wireframe (LINES) rather than filled
    * faces — threaded from Geology3DViewerProps. Default false. */
   bodySolidsWireframe?: boolean
+  /** Investigation (x, y) positions in project CRS — the distance metric for the
+   * confidence fade of body solids (threaded from Geology3DViewerProps). */
+  investigationXY?: readonly (readonly [number, number])[]
 }
 
 /**
@@ -1907,6 +1988,7 @@ function CesiumViewport({
   fencePanels,
   bodySolids,
   bodySolidsWireframe = false,
+  investigationXY,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -2033,6 +2115,7 @@ function CesiumViewport({
       surfacesVisible,
       bodySolids,
       bodySolidsWireframe,
+      investigationXY,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -2130,6 +2213,9 @@ function CesiumViewport({
     // Wireframe toggle: rebuild the body-solid primitives as LINES vs filled
     // faces when the user flips the in-app wireframe view toggle.
     bodySolidsWireframe,
+    // Investigation positions: rebuild so the confidence fade of body solids
+    // re-evaluates when the in-corridor investigation set changes.
+    investigationXY,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -2313,6 +2399,7 @@ export default function Geology3DViewer({
   fencePanels,
   bodySolids,
   bodySolidsWireframe = false,
+  investigationXY,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -2459,6 +2546,7 @@ export default function Geology3DViewer({
           fencePanels={fencePanels}
           bodySolids={bodySolids}
           bodySolidsWireframe={bodySolidsWireframe}
+          investigationXY={investigationXY}
         />
 
         {/* Debt #26 offline banner — overlays the primary viewport when
@@ -2653,6 +2741,7 @@ export default function Geology3DViewer({
               fencePanels={fencePanels}
               bodySolids={bodySolids}
               bodySolidsWireframe={bodySolidsWireframe}
+              investigationXY={investigationXY}
             />
           </div>
         </>

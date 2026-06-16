@@ -348,6 +348,13 @@ export default function LithologyCanvas(): JSX.Element {
     [visibleCpts, visibleBoreholes],
   )
 
+  // Investigation (x, y) positions — the distance metric for the body-solid
+  // confidence fade in the 3D viewer (opaque on data, ghosted far from it).
+  const investigationXY = useMemo<[number, number][]>(
+    () => investigations.map(i => [i.location_x, i.location_y]),
+    [investigations],
+  )
+
   // Approved edges per section (the band/onlap/lens classifier only consumes
   // user-approved edges).  Shared by the fence memo + the voxel-build callback.
   const approvedEdgesBySectionId = useMemo(() => {
@@ -578,6 +585,7 @@ export default function LithologyCanvas(): JSX.Element {
           fencePanels={fencePanels}
           bodySolids={visibleSolids}
           bodySolidsWireframe={wireframe}
+          investigationXY={investigationXY}
           onExitSplit={() => {
             setSplitMode('single')
             setSplitPlane(null)
