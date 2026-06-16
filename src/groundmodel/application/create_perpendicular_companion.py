@@ -53,6 +53,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import (
     BodyOrm as LithoLensOrm,
 )  # TODO: slice 2 — full rename
@@ -155,9 +156,13 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # ------------------------------------------------------------------
         # 2. Model scope guard.
         # ------------------------------------------------------------------
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None or model.app_project_id != project_id:
-            raise ValueError(f"Geological model {model_id} not found in project {project_id}")
+        await load_scoped_or_raise(
+            self._session,
+            GeologicalModelOrm,
+            model_id,
+            project_id,
+            label="Geological model",
+        )
 
         # ------------------------------------------------------------------
         # 3. Idempotency guard — at most one companion per body.
