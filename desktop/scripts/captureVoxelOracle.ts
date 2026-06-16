@@ -226,7 +226,10 @@ function main(): void {
     : (raw.grid_spacing_m ?? 2.0)
 
   const fenceSectionInputs = reconstructFenceSectionInputs(raw)
-  const request = buildVoxelRequest(fenceSectionInputs, gridSpacingM)
+  // The oracle compares against the backend at one fixed CUBIC spacing, so pass
+  // the same value for horizontal (X/Y) and vertical (Z) — the anisotropic
+  // emission collapses to a cubic grid (vertical === horizontal).
+  const request = buildVoxelRequest(fenceSectionInputs, gridSpacingM, gridSpacingM)
 
   mkdirSync(dirname(OUTPUT), { recursive: true })
   writeFileSync(OUTPUT, `${JSON.stringify(request, null, 2)}\n`, 'utf8')

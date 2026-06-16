@@ -73,8 +73,26 @@ export interface SectionPartitionInput {
 export interface VoxelBuildRequest {
   /** One partition per section in the litho model. */
   sections: SectionPartitionInput[];
-  /** Voxel grid spacing in metres. */
+  /**
+   * Cubic / fallback voxel grid spacing in metres. Kept set for backwards
+   * compatibility (a legacy payload carrying only this still builds a cubic
+   * grid) and as the per-axis fallback when an explicit axis spacing is absent.
+   */
   grid_spacing_m: number;
+  /**
+   * X/Y (map-plane) voxel spacing in metres. When present, takes precedence over
+   * ``grid_spacing_m`` for the horizontal axes. Always emitted by
+   * ``buildVoxelRequest`` so the backend's effective-spacing resolver gets an
+   * explicit value.
+   */
+  horizontal_spacing_m?: number;
+  /**
+   * Z (elevation) voxel spacing in metres. When present, takes precedence over
+   * ``grid_spacing_m`` for the vertical axis. A fine Z over a coarse X/Y catches
+   * thin layers without exploding the map-plane voxel count. The backend
+   * collapses ``vertical === horizontal`` to a cubic grid internally.
+   */
+  vertical_spacing_m?: number;
 }
 
 /**
@@ -97,18 +115,26 @@ export interface VoxelBuildRequest {
  * sections : readonly FenceSectionInput[]
  *     One entry per section in the litho model (order is irrelevant — each
  *     section is independent).
- * gridSpacingM : number
- *     Voxel grid spacing in metres, passed through to the request unchanged.
+ * horizontalM : number
+ *     X/Y (map-plane) voxel spacing in metres. Emitted as both
+ *     ``grid_spacing_m`` (cubic fallback / back-compat) and the explicit
+ *     ``horizontal_spacing_m``.
+ * verticalM : number
+ *     Z (elevation) voxel spacing in metres. Emitted as ``vertical_spacing_m``.
+ *     A finer value than ``horizontalM`` catches thin layers at the cost of more
+ *     voxels; the backend collapses ``verticalM === horizontalM`` to a cubic grid.
  *
  * Returns
  * -------
  * VoxelBuildRequest
- *     ``{ sections, grid_spacing_m }`` ready to POST to the backend voxel
- *     builder. Empty input yields ``{ sections: [], grid_spacing_m }``.
+ *     ``{ sections, grid_spacing_m, horizontal_spacing_m, vertical_spacing_m }``
+ *     ready to POST to the backend voxel builder. Empty input yields a payload
+ *     with ``sections: []`` and the same three spacing fields.
  */
 export function buildVoxelRequest(
   sections: readonly FenceSectionInput[],
-  gridSpacingM: number,
+  horizontalM: number,
+  verticalM: number,
 ): VoxelBuildRequest {
   // Pass 1: assemble every section, keeping only those with a fillable gap
   // (>=2 columns), then compute the canonical per-test world positions across
@@ -181,5 +207,13 @@ export function buildVoxelRequest(
     });
   }
 
-  return { sections: out, grid_spacing_m: gridSpacingM };
+  // grid_spacing_m is kept set to the horizontal spacing for back-compat / the
+  // cubic fallback; the explicit anisotropic fields let the backend's
+  // effective-spacing resolver pick the right per-axis values.
+  return {
+    sections: out,
+    grid_spacing_m: horizontalM,
+    horizontal_spacing_m: horizontalM,
+    vertical_spacing_m: verticalM,
+  };
 }

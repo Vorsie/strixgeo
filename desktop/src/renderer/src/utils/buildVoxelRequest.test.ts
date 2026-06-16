@@ -26,7 +26,7 @@ describe('buildVoxelRequest', () => {
   // The payload must NOT alter the partition: its regions are exactly what
   // computeSectionFill produces on the same assembled columns + edges.
   it('reproduces computeSectionFill regions verbatim (formations, gaps, polygons)', () => {
-    const req = buildVoxelRequest(singleSection, 2.0)
+    const req = buildVoxelRequest(singleSection, 2.0, 1.0)
     expect(req.sections).toHaveLength(1)
 
     const { columns } = assembleSectionPartitionInput(singleSection[0].projectedColumns, singleSection[0].layers)
@@ -46,20 +46,34 @@ describe('buildVoxelRequest', () => {
     })
   })
 
-  // The grid spacing is passed straight through, untouched.
-  it('passes grid_spacing_m through unchanged', () => {
-    expect(buildVoxelRequest(singleSection, 1.5).grid_spacing_m).toBe(1.5)
-    expect(buildVoxelRequest(singleSection, 2.0).grid_spacing_m).toBe(2.0)
+  // The horizontal spacing drives grid_spacing_m (cubic fallback / back-compat).
+  it('passes the horizontal spacing through as grid_spacing_m unchanged', () => {
+    expect(buildVoxelRequest(singleSection, 1.5, 1.0).grid_spacing_m).toBe(1.5)
+    expect(buildVoxelRequest(singleSection, 2.0, 1.0).grid_spacing_m).toBe(2.0)
+  })
+
+  // Anisotropic: the explicit X/Y + Z spacings are emitted so the backend's
+  // effective-spacing resolver gets explicit per-axis values.
+  it('emits explicit horizontal_spacing_m (=grid) and vertical_spacing_m', () => {
+    const req = buildVoxelRequest(singleSection, 2.0, 0.5)
+    expect(req.grid_spacing_m).toBe(2.0)
+    expect(req.horizontal_spacing_m).toBe(2.0)
+    expect(req.vertical_spacing_m).toBe(0.5)
   })
 
   // A project with no sections yields an empty payload (still carrying spacing).
-  it('returns { sections: [], grid_spacing_m } for no sections', () => {
-    expect(buildVoxelRequest([], 2.0)).toEqual({ sections: [], grid_spacing_m: 2.0 })
+  it('returns an empty-sections payload carrying all three spacing fields', () => {
+    expect(buildVoxelRequest([], 2.0, 1.0)).toEqual({
+      sections: [],
+      grid_spacing_m: 2.0,
+      horizontal_spacing_m: 2.0,
+      vertical_spacing_m: 1.0,
+    })
   })
 
   // The section endpoints round-trip into the payload's start/end world coords.
   it('carries the section endpoints into the payload', () => {
-    const req = buildVoxelRequest(singleSection, 2.0)
+    const req = buildVoxelRequest(singleSection, 2.0, 1.0)
     const s = req.sections[0]
     expect([s.start_x, s.start_y, s.end_x, s.end_y]).toEqual([0, 0, 100, 0])
   })
@@ -115,7 +129,7 @@ describe('buildVoxelRequest', () => {
         edges: [{ a: 'a2L', b: 'b2L' }],
       },
     ]
-    const req = buildVoxelRequest(sections, 2.0)
+    const req = buildVoxelRequest(sections, 2.0, 1.0)
     // The tie section is the one drawn on the x=0 line.
     const tie = req.sections.find((s) => s.start_x === 0 && s.end_x === 0 && s.end_y === 200)
     expect(tie).toBeDefined()
