@@ -86,7 +86,7 @@ subdivision is built on top of it. Priority order:
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #214, #215, #219
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #219 *(#214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4)*
 
@@ -5458,6 +5458,8 @@ pane can absorb the map role and drop Leaflet entirely.
 
 ## 214. Distribution robustness — crash visibility + log hygiene (Tier B — both, M)
 
+**RESOLVED 2026-06-16.** (a) Top-level React `ErrorBoundary` wraps `<App/>` (fallback shows the error + log path + Reload) plus `window.onerror` / `unhandledrejection` handlers in `main.tsx` that log and forward to the main log via IPC. (b) `process.on('uncaughtException')` (logs + `dialog.showErrorBox` + exit 1) and `unhandledRejection` (logs, non-fatal) in `main/index.ts`. (c) Size-based `backend.log` rotation (5 MB × 3) via a pure, unit-tested `logRotation.ts` helper — checked at startup before opening the stream (bounds across-session growth; a single long session can still exceed 5 MB until next launch). (d) New `app:backend-failed` IPC (sent from the `apiProcess` exit handler when the backend exits before `api:ready` succeeds) → `BackendFailedModal`; plus a Help → "Show log file…" menu item (`shell.openPath`). Defence-in-depth: the existing `apiError`→`AppBootError` path also renders the modal. tsc clean; 16 new vitest + full desktop suite green.
+
 *(audit: OBS-02/03/04 — High; SEC-09 — Medium)*
 
 **What.** Four gaps that make a coworker-binary failure undiagnosable from afar.
@@ -5481,6 +5483,8 @@ handlers; a rotating `backend.log` (5 MB × 3); an `app:backend-failed` IPC → 
 and a Help → "Show log file" item so users can find/attach it.
 
 ## 215. Postgres bound to 0.0.0.0 with default credentials (Tier B — pre-distribution, S)
+
+**RESOLVED 2026-06-16 (loopback bind).** `docker-compose.yml` now binds `127.0.0.1:5433:5432` so a shared office/lab machine no longer exposes Postgres to the LAN. The default-credentials half (random per-install password) intentionally folds into the bundled-Postgres plan (#2) and stays open there. Takes effect on the next `docker compose up -d`.
 
 *(audit: SEC-05 — Medium)*
 
