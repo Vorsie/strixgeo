@@ -1008,6 +1008,24 @@ def _honored_column_labels(
 
     obs_top = max(top for _bid, _fid, top, _base in inv.intervals)
     obs_base = min(base for _bid, _fid, _top, base in inv.intervals)
+
+    # A borehole defines its OWN ground surface — there is no material above its
+    # logged top.  The litho picks start at the surface, so ``obs_top`` ≈ the
+    # borehole's ground surface; when the interpolated section-blend surface at
+    # this (x, y) sits ABOVE ``obs_top`` (a neighbour with a higher surface), the
+    # fallback above filled the [obs_top, blend_top] band with that neighbour's
+    # blend lithology — a geologically wrong above-surface sliver.  Void it: the
+    # honored column's top becomes the borehole's own surface, not the blend's.
+    # (If a log genuinely started below the ground surface this would leave that
+    # gap to the blend — correct — but the litho picks start at the surface.)
+    #
+    # Void at and above ``obs_top`` (``gz > obs_top - _EPS``): the in-log override
+    # below re-fills the observed voxels using the half-open ``[base, top)`` log
+    # rule, which leaves the voxel exactly ON the top contact unclaimed (a contact
+    # belongs to the body above) — that voxel is now the surface, so it stays void
+    # rather than keeping a blend label.  The override fills the strictly-interior
+    # voxels (``gz < obs_top - _EPS``), so it is disjoint from this void.
+    col[gz > obs_top - _EPS] = -1
     # Within the observed range, override each voxel with its OWN log interval.
     # The log intervals need NOT be a contiguous partition: an unlogged interval
     # between two observed units (a body-unassigned / rejected layer that

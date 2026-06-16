@@ -400,6 +400,81 @@ def test_no_investigation_columns_keeps_the_section_blend_unchanged():
 
 
 # ---------------------------------------------------------------------------
+# Honor-borehole: a borehole defines its OWN ground surface — there is no
+# material above its logged top.  When the interpolated section-blend surface at
+# the borehole's (x, y) sits ABOVE the borehole's own logged top, the voxels
+# between the log top and the blend top must be VOID (the borehole's surface),
+# not filled with a neighbour's blend lithology (an above-surface sliver).
+# ---------------------------------------------------------------------------
+
+
+def _section_high_klei(y: float, id_prefix: str) -> SectionPartitionInput:
+    """A KLEI section whose surface is HIGH (+20) over the same base (-10).
+
+    Used as the surrounding section context so the between-section blend SURFACE
+    interpolates high (well above a borehole whose own log tops out lower).  A
+    single KLEI body fills +20 → -10; ``body_id='kleiHigh'`` so it matches across
+    the two surrounding sections and fills the midline (a one-sided body would
+    pinch to zero there).
+    """
+    columns = (
+        SectionColumnInput(f"{id_prefix}0", along_m=0.0, world_x=0.0, world_y=y),
+        SectionColumnInput(f"{id_prefix}1", along_m=80.0, world_x=80.0, world_y=y),
+    )
+    regions = (
+        RegionInput(_KLEI, "kleiHigh", ((0.0, 20.0), (1.0, 20.0), (1.0, -10.0), (0.0, -10.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=y, end_x=80.0, end_y=y, columns=columns, regions=regions
+    )
+
+
+def test_honored_column_voids_above_its_own_logged_surface():
+    """A honored borehole has NO material above its own logged top (its surface).
+
+    The surrounding sections (y=0 and y=40) have a HIGH KLEI surface at +20, so
+    the between-section blend at the borehole's location (the midline y=20) reads
+    KLEI from +20 down — a surface 10 m above the borehole's own logged top.  The
+    borehole's OWN log is SAND from its surface (+10) down to -4 (observed only
+    over [-4, +10]).  A borehole defines its own ground surface: there is no
+    material above +10 at its location, so the [+10, +20] band — where the naive
+    blend fallback would fill a KLEI sliver — must be VOID.
+
+    Within the log range [-4, +10] the column reads the OWN log (SAND); below the
+    log base (-4) the column still falls back to the section blend (KLEI down to
+    -10) so a shallow log punches no hole below it.
+    """
+    domain = _domain_for_two_sections()
+    bh = InvestigationColumn(
+        investigation_id="BH-own-surface",
+        world_x=40.0,
+        world_y=20.0,
+        # Observed SAND from the borehole's surface (+10) down to -4.
+        intervals=(("bodySandOwn", _SAND, 10.0, -4.0),),
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        [_section_high_klei(0.0, "P"), _section_high_klei(40.0, "Q")],
+        investigation_columns=(bh,),
+    )
+
+    # ABOVE the borehole's own logged top (+10), where the blend surface sits at
+    # +20: the column is VOID — the borehole's surface, no above-top blend sliver.
+    assert _formation_at(grid, x=40.0, y=20.0, elev=15.0) is None
+    # WITHIN the log range: the borehole's OWN SAND.
+    assert _formation_at(grid, x=40.0, y=20.0, elev=4.0) == _SAND
+    # BELOW the log base (-4): the section blend (KLEI) still fills past the log —
+    # the void above the surface did NOT punch a hole below the log.
+    assert _formation_at(grid, x=40.0, y=20.0, elev=-7.0) == _KLEI
+
+    # And the top→down sequence is exactly SAND (own log) over KLEI (blend below):
+    # no KLEI sliver above the SAND.
+    seq = _vertical_formation_sequence(grid, x=40.0, y=20.0)
+    assert seq == [_SAND, _KLEI]
+
+
+# ---------------------------------------------------------------------------
 # Geological-band-scoped fill (Task 3): a geological surface partitions space
 # into bands; a litho never crosses a band surface, and below a shallow test's
 # TD the band-scoped sideways fill draws the deeper band's lithology from the
