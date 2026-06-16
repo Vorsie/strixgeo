@@ -49,4 +49,36 @@ describe('useEventHandlers', () => {
     target.fire('click')
     expect(onClick).not.toHaveBeenCalled()
   })
+
+  // Compile-time proof: onClick and onContextMenu accept precisely-typed handlers
+  // whose params are L.LeafletMouseEvent (with .latlng and .originalEvent).
+  // If EventedProps degraded to the generic LeafletEventHandlerFn (param
+  // L.LeafletEvent, which lacks those fields), tsc would error here.
+  it('accepts precisely-typed LeafletMouseEvent handlers and fires them', () => {
+    const target = evented()
+    let capturedLatlng: L.LatLng | undefined
+    let capturedOriginalEvent: MouseEvent | undefined
+
+    // These handlers reference e.latlng and e.originalEvent — both are only
+    // available on L.LeafletMouseEvent, NOT on the generic L.LeafletEvent.
+    // This block proves the mapped type resolves to LeafletMouseEventHandlerFn.
+    const props: EventedProps = {
+      onClick: (e: L.LeafletMouseEvent) => {
+        capturedLatlng = e.latlng
+      },
+      onContextMenu: (e: L.LeafletMouseEvent) => {
+        capturedOriginalEvent = e.originalEvent
+      },
+    }
+
+    renderHook(() => useEventHandlers(target, props))
+
+    const fakeLatLng = L.latLng(51.5, 4.3)
+    const fakeMouseEvent = new MouseEvent('click')
+    target.fire('click', { latlng: fakeLatLng, originalEvent: fakeMouseEvent })
+    expect(capturedLatlng).toEqual(fakeLatLng)
+
+    target.fire('contextmenu', { latlng: fakeLatLng, originalEvent: fakeMouseEvent })
+    expect(capturedOriginalEvent).toBe(fakeMouseEvent)
+  })
 })
