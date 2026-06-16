@@ -393,7 +393,9 @@ async def build_voxel_litho_solids(
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/litho-solids/build-voxel "
-        f"sections={len(request.sections)} grid_spacing={request.grid_spacing_m} force={force}"
+        f"sections={len(request.sections)} "
+        f"horizontal_spacing={request.effective_horizontal_spacing_m} "
+        f"vertical_spacing={request.effective_vertical_spacing_m} force={force}"
     )
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -403,11 +405,19 @@ async def build_voxel_litho_solids(
 
     # Convert the Pydantic request → frozen domain value objects (the domain
     # layer takes value objects, not Pydantic — clean-architecture boundary).
+    # The effective spacings resolve the optional anisotropic fields against the
+    # cubic ``grid_spacing_m`` fallback: the horizontal spacing is passed as the
+    # use case's ``grid_spacing_m`` (the X/Y edge length), and the vertical
+    # spacing is passed only when it differs from the horizontal so a cubic
+    # payload keeps the byte-stable cubic checksum (``None`` → cubic).
     domain_sections = request.to_domain_sections()
+    horizontal_m = request.effective_horizontal_spacing_m
+    vertical_m = request.effective_vertical_spacing_m
     outcome = await BuildVoxelLithoModel(session).execute(
         model_id,
         domain_sections,
-        grid_spacing_m=request.grid_spacing_m,
+        grid_spacing_m=horizontal_m,
+        vertical_spacing_m=(None if vertical_m == horizontal_m else vertical_m),
         force=force,
     )
 

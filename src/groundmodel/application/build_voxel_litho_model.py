@@ -100,6 +100,8 @@ def _partition_checksum(
     grid_spacing_m: float,
     investigation_columns: tuple[InvestigationColumn, ...] = (),
     geo_surfaces: tuple[SurfaceBound, ...] = (),
+    *,
+    vertical_spacing_m: float | None = None,
 ) -> bytes:
     """Model-wide BLAKE2b-16 digest over the voxel build inputs.
 
@@ -113,7 +115,11 @@ def _partition_checksum(
     and columns in their payload order — both are stable for an unchanged
     payload; investigation columns pre-sorted by ``investigation_id``):
 
-    * the grid spacing,
+    * the (horizontal / cubic) grid spacing,
+    * the vertical spacing, ONLY when an anisotropic build is requested
+      (``vertical_spacing_m`` is not ``None``) — so a cubic build's digest is
+      byte-stable with the pre-anisotropy form (no one-time cache bust), while
+      switching the vertical spacing or toggling anisotropy busts the cache,
     * each section's line endpoints,
     * each column's investigation id + world position,
     * each region's formation id + body id (the empty string for ``None``) +
@@ -135,6 +141,11 @@ def _partition_checksum(
         The honored per-investigation observed columns (loaded from the DB
         picks); defaults to ``()`` (no honoring → digest unchanged from the
         section-only form for that case).
+    vertical_spacing_m : float or None, optional
+        The anisotropic Z spacing.  ``None`` (the cubic case) is NOT folded in,
+        so the cubic digest is byte-stable with the pre-anisotropy form; a set
+        value is folded after a domain-separator byte so an anisotropy change
+        rebuilds.
     geo_surfaces : tuple of SurfaceBound, optional
         The parent geological model's built band surfaces.  Folded in (via
         ``_digest_surfaces``) after a domain-separator byte so a geo-surface
@@ -148,6 +159,13 @@ def _partition_checksum(
     """
     h = hashlib.blake2b(digest_size=16)
     h.update(struct.pack("<d", grid_spacing_m))
+    # Anisotropy: fold the vertical spacing ONLY when set (after a domain
+    # separator), keeping the cubic digest byte-stable with the pre-anisotropy
+    # form — a cubic build never re-meshes spuriously, while switching the
+    # vertical spacing or toggling anisotropy busts the cache.
+    if vertical_spacing_m is not None:
+        h.update(b"\x03")
+        h.update(struct.pack("<d", vertical_spacing_m))
     for s in sections:
         h.update(struct.pack("<dddd", s.start_x, s.start_y, s.end_x, s.end_y))
         for c in s.columns:
@@ -287,6 +305,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         sections: list[SectionPartitionInput],
         *,
         grid_spacing_m: float,
+        vertical_spacing_m: float | None = None,
         force: bool = False,
     ) -> LithoSolidsOutcome:
         """Label a voxel grid from ``sections`` and upsert the watertight solids.
@@ -299,7 +318,16 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             The validated 2-D section partitions (the build payload, the source
             of truth for body identity + geometry).
         grid_spacing_m : float
-            The voxel edge length in metres (same in x, y, z).  Must be positive.
+            The HORIZONTAL (X/Y) voxel edge length in metres; also the Z edge
+            length when ``vertical_spacing_m`` is ``None`` (the cubic case).  Must
+            be positive.
+        vertical_spacing_m : float or None, optional
+            The Z (elevation) voxel edge length in metres.  ``None`` (the default)
+            → a cubic grid (Z uses ``grid_spacing_m``), byte-identical to the
+            pre-anisotropy build.  When set, the grid is anisotropic: X/Y step at
+            ``grid_spacing_m``, Z at ``vertical_spacing_m`` — a fine Z over a
+            coarse X/Y resolves thin geology layers without exploding the X/Y
+            voxel count.
         force : bool, default ``False``
             When ``True``, skip the model-level checksum short-circuit and always
             rebuild.  The on-click "Build 3-D model" path passes this so an
@@ -323,7 +351,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         """
         self.info(
             f"BuildVoxelLithoModel: model={model_id} sections={len(sections)} "
-            f"grid_spacing={grid_spacing_m} force={force}"
+            f"grid_spacing={grid_spacing_m} vertical_spacing={vertical_spacing_m} force={force}"
         )
 
         if not sections:
@@ -390,7 +418,11 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # False → no early skip → the build proceeds and orphan-sweeps them in
         # Phase 5.
         new_checksum = _partition_checksum(
-            sections, grid_spacing_m, investigation_columns, geo_surfaces
+            sections,
+            grid_spacing_m,
+            investigation_columns,
+            geo_surfaces,
+            vertical_spacing_m=vertical_spacing_m,
         )
         existing_by_body = await self._load_existing(model_id)
         if (
@@ -422,6 +454,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 domain,
                 grid_spacing_m,
                 sections,
+                vertical_spacing_m=vertical_spacing_m,
                 investigation_columns=investigation_columns,
                 geo_surfaces=geo_surfaces,
                 litho_snap_tolerance_m=snap_tol,

@@ -24,7 +24,10 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from groundmodel.application.build_voxel_litho_model import BuildVoxelLithoModel
+from groundmodel.application.build_voxel_litho_model import (
+    BuildVoxelLithoModel,
+    _partition_checksum,
+)
 from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     LabelGrid,
@@ -111,11 +114,14 @@ async def _run(
     parent_id: Any,
     surfaces: tuple[SurfaceBound, ...],
     snap_tol: float | None,
+    vertical_spacing_m: float | None = None,
 ) -> None:
     """Execute the use case with every heavy collaborator patched.
 
     Records the kwargs ``label_voxels`` was called with into ``captured`` so the
-    test can assert on the geo-surface + tolerance pass-through.
+    test can assert on the geo-surface + tolerance pass-through.  When
+    ``vertical_spacing_m`` is set, it is forwarded to ``execute`` so the
+    anisotropy pass-through can be asserted.
     """
     view_state = {"litho_segmenter": {"litho_snap_tolerance_m": snap_tol}} if snap_tol else {}
     project = SimpleNamespace(view_state=view_state)
@@ -143,7 +149,13 @@ async def _run(
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
-        await use_case.execute(uuid4(), [_section()], grid_spacing_m=1.0, force=True)
+        await use_case.execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            vertical_spacing_m=vertical_spacing_m,
+            force=True,
+        )
         captured["load_mock"] = load_mock
 
 
@@ -207,3 +219,79 @@ async def test_parent_with_no_built_surfaces_builds_unbounded() -> None:
     # The loader WAS called (parent id set) but returned no surfaces → un-bounded.
     assert captured["load_mock"].await_count == 1
     assert captured["kwargs"]["geo_surfaces"] == ()
+
+
+# ---------------------------------------------------------------------------
+# Anisotropic spacing (Task 4): the use case forwards the vertical spacing to
+# the labeller, and a vertical-spacing change busts the partition checksum.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_vertical_spacing_reaches_label_voxels() -> None:
+    """An anisotropic ``vertical_spacing_m`` reaches ``label_voxels`` unchanged.
+
+    The use case must thread the fine Z spacing through to the labeller (X/Y stay
+    at ``grid_spacing_m``), so a 0.5 m vertical spacing the endpoint resolved
+    arrives as the ``vertical_spacing_m`` keyword of ``label_voxels``.
+    """
+    parent_id = uuid4()
+    captured: dict[str, Any] = {}
+    use_case = _make_use_case(parent_id=parent_id)
+
+    await _run(
+        use_case,
+        captured,
+        parent_id=parent_id,
+        surfaces=(),
+        snap_tol=0.20,
+        vertical_spacing_m=0.5,
+    )
+
+    assert captured["kwargs"]["vertical_spacing_m"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_cubic_default_passes_no_vertical_spacing_to_label_voxels() -> None:
+    """No vertical spacing → the labeller receives ``vertical_spacing_m=None`` (cubic).
+
+    The cubic default must stay byte-identical: omitting the vertical spacing
+    forwards ``None``, so the labeller builds Z at ``grid_spacing_m`` exactly as
+    before anisotropy existed.
+    """
+    parent_id = uuid4()
+    captured: dict[str, Any] = {}
+    use_case = _make_use_case(parent_id=parent_id)
+
+    await _run(use_case, captured, parent_id=parent_id, surfaces=(), snap_tol=0.20)
+
+    assert captured["kwargs"]["vertical_spacing_m"] is None
+
+
+def test_cubic_checksum_is_byte_stable_with_pre_anisotropy_form() -> None:
+    """A cubic digest (``vertical_spacing_m=None``) equals the no-keyword digest.
+
+    The cubic case must NOT bust the cache: the digest with the vertical keyword
+    omitted and with it explicitly ``None`` must be identical, so an existing
+    cubic build is not spuriously re-meshed when the parameter is introduced.
+    """
+    sections = [_section()]
+    legacy = _partition_checksum(sections, 2.0)
+    explicit_none = _partition_checksum(sections, 2.0, vertical_spacing_m=None)
+    assert legacy == explicit_none
+
+
+def test_changing_vertical_spacing_busts_the_partition_checksum() -> None:
+    """Two different vertical spacings (and cubic vs anisotropic) hash differently.
+
+    Toggling anisotropy on (a non-``None`` vertical) or changing the vertical
+    spacing must produce a different digest so the on-open ``force=false`` path
+    rebuilds the model at the new resolution.
+    """
+    sections = [_section()]
+    cubic = _partition_checksum(sections, 2.0, vertical_spacing_m=None)
+    fine = _partition_checksum(sections, 2.0, vertical_spacing_m=0.5)
+    finer = _partition_checksum(sections, 2.0, vertical_spacing_m=0.25)
+
+    assert cubic != fine  # toggling anisotropy on busts the cache
+    assert fine != finer  # changing the vertical spacing busts the cache
