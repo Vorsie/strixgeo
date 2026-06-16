@@ -1,0 +1,105 @@
+{
+  "columns": [
+    {
+      "investigationId": "inv-A",
+      "surfaceElevM": 0,
+      "units": [
+        {
+          "baseDepthM": 5,
+          "bodyId": "body-1",
+          "formationId": "SAND",
+          "layerId": "layer-a0",
+          "topDepthM": 0
+        },
+        {
+          "baseDepthM": 10,
+          "bodyId": "body-2",
+          "formationId": "CLAY",
+          "layerId": "layer-a1",
+          "topDepthM": 5
+        }
+      ]
+    },
+    {
+      "investigationId": "inv-B",
+      "surfaceElevM": 0,
+      "units": [
+        {
+          "baseDepthM": 5,
+          "bodyId": "body-1",
+          "formationId": "SAND",
+          "layerId": "layer-b0",
+          "topDepthM": 0
+        },
+        {
+          "baseDepthM": 10,
+          "bodyId": "body-2",
+          "formationId": "CLAY",
+          "layerId": "layer-b1",
+          "topDepthM": 5
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "a": "layer-a0",
+      "b": "layer-b0"
+    },
+    {
+      "a": "layer-a1",
+      "b": "layer-b1"
+    }
+  ],
+  "name": "band_two_columns",
+  "regions": [
+    {
+      "bodyId": "body-1",
+      "formationId": "SAND",
+      "gapIndex": 0,
+      "kind": "quad",
+      "polygon": [
+        {
+          "elevation": 0,
+          "fraction": 0
+        },
+        {
+          "elevation": 0,
+          "fraction": 1
+        },
+        {
+          "elevation": -5,
+          "fraction": 1
+        },
+        {
+          "elevation": -5,
+          "fraction": 0
+        }
+      ]
+    },
+    {
+      "bodyId": "body-2",
+      "formationId": "CLAY",
+      "gapIndex": 0,
+      "kind": "quad",
+      "polygon": [
+        {
+          "elevation": -5,
+          "fraction": 0
+        },
+        {
+          "elevation": -5,
+          "fraction": 1
+        },
+        {
+          "elevation": -10,
+          "fraction": 1
+        },
+        {
+          "elevation": -10,
+          "fraction": 0
+        }
+      ]
+    }
+  ]
+}

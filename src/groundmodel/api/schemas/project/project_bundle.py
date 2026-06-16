@@ -137,6 +137,11 @@ _MAX_FORMATION_ABSENCES_PER_BUNDLE = 25_000
 # surface (#112) while staying far above any real project (#163f).
 _MAX_LITHO_LENS_SHAPES_PER_BUNDLE = 10_000
 _MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE = 200_000
+# One cached watertight solid per (model, body). A real model has O(100)
+# bodies (110 on the dogfeed test.strix); 50 000 is a generous ceiling well
+# above any plausible project while capping the DoS surface (#112). The mesh
+# arrays themselves are bounded by the restore-boundary TIN caps (_MAX_TIN_*).
+_MAX_LITHO_SOLIDS_PER_BUNDLE = 50_000
 
 # Per-item dict key/value length caps for body_boundary_shapes and
 # body_boundary_nodes. The ORM columns are short (UUID/float/int/String(16));
@@ -283,6 +288,14 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_LENS_BOUNDARY_NODES_PER_BUNDLE,
     )
+    # Cached watertight body solids (watertight-loft Task 9). Additive — absent
+    # in bundles saved before this field shipped; default_factory=list so older
+    # files open cleanly. Restore order: after geological_models (model_id FK)
+    # + formations (formation_id FK).
+    litho_solids: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_SOLIDS_PER_BUNDLE,
+    )
 
     @field_validator("body_boundary_shapes", "body_boundary_nodes", mode="after")
     @classmethod
@@ -341,6 +354,8 @@ class ProjectBundleResponse(BaseModel):
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive.
     body_boundary_shapes: list[dict[str, Any]] = Field(default_factory=list)
     body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    # Cached watertight body solids (watertight-loft Task 9).  Additive.
+    litho_solids: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None

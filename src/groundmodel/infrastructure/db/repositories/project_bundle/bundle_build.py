@@ -37,6 +37,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -223,6 +224,17 @@ async def _build_project_bundle_impl(
         .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
+    # Cached watertight body solids (watertight-loft builder Task 9, spec §7).
+    # Scoped through geological_model — the solid table has no direct
+    # app_project_id column (the model_id FK is the project anchor). Carrying
+    # the built meshes in the bundle lets a freshly-opened .strix export 3-D
+    # geometry without paying the on-click rebuild; staleness rides along so
+    # the UI still knows when a solid predates a contact edit.
+    litho_solids_stmt = (
+        select(LithoBodySolidOrm)
+        .join(GeologicalModelOrm, LithoBodySolidOrm.model_id == GeologicalModelOrm.id)
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
@@ -236,6 +248,7 @@ async def _build_project_bundle_impl(
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
+    litho_solids = (await session.execute(litho_solids_stmt)).scalars().all()
 
     # ---- Integrity check + auto-recovery (2026-05-31 dogfeed fix). ------
     # Collect every formation_id referenced by a contact / litho_layer /
@@ -331,12 +344,20 @@ async def _build_project_bundle_impl(
         # before these existed open cleanly via default_factory=list.
         "body_boundary_shapes": [_column_to_json(s, _SKIP_COLUMNS) for s in lens_shapes],
         "body_boundary_nodes": [_column_to_json(n, _SKIP_COLUMNS) for n in lens_boundary_nodes],
+        # Cached watertight body solids (watertight-loft Task 9). Every column
+        # rides along — id, model_id, body_id, formation_id, method, vertices,
+        # triangles, source_pick_count/checksum, is_stale, is_flagged — so a
+        # restore reproduces the row exactly (no rebuild needed). Additive:
+        # bundles saved before this field existed open cleanly via the schema's
+        # default_factory=list. Pre-ship amnesty — no format_version bump.
+        "litho_solids": [_column_to_json(s, _SKIP_COLUMNS) for s in litho_solids],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
         f"+ {len(formations)} formations + {len(units)} geotech units "
         f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews + {len(contact_edges)} litho contact correlation edges "
-        f"+ {len(lenses)} bodies + {len(absences)} formation absences"
+        f"+ {len(lenses)} bodies + {len(absences)} formation absences "
+        f"+ {len(litho_solids)} litho body solids"
     )
     return bundle

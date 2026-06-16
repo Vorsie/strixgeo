@@ -161,6 +161,7 @@ export type {
   LithoBodySolidResponse,
   RebuildLithoSolidsResponse,
   UpdateBodyColorResponse,
+  VoxelBuildRequest,
 } from './clients/geology'
 export { DuplicateContactError, ProvenanceViolationError } from './clients/geology'
 

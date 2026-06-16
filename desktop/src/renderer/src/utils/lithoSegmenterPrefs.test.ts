@@ -40,6 +40,8 @@ describe('readLithoSegmenterPrefs', () => {
       autoCorrelateDepthWindowM: 1.2,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
       sectionFillAtSectionLine: LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
+      voxelHorizontalSpacingM: LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM,
+      voxelVerticalSpacingM: LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM,
     })
   })
 
@@ -64,6 +66,8 @@ describe('readLithoSegmenterPrefs', () => {
       autoCorrelateDepthWindowM: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
       openExtentLengthM: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
       sectionFillAtSectionLine: LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
+      voxelHorizontalSpacingM: LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM,
+      voxelVerticalSpacingM: LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM,
     })
   })
 
@@ -120,6 +124,8 @@ describe('buildLithoSegmenterPatch', () => {
         autoCorrelateDepthWindowM: 0.8,
         openExtentLengthM: 5.0,
         sectionFillAtSectionLine: false,
+        voxelHorizontalSpacingM: 2.0,
+        voxelVerticalSpacingM: 1.0,
       }),
     ).toEqual({
       litho_segmenter: {
@@ -132,8 +138,74 @@ describe('buildLithoSegmenterPatch', () => {
         auto_correlate_depth_window_m: 0.8,
         open_extent_length_m: 5.0,
         section_fill_at_section_line: false,
+        voxel_horizontal_spacing_m: 2.0,
+        voxel_vertical_spacing_m: 1.0,
       },
     })
+  })
+})
+
+describe('readLithoSegmenterPrefs — voxel spacing fields', () => {
+  it('defaults voxelHorizontalSpacingM to 2.0 and voxelVerticalSpacingM to 1.0', () => {
+    const prefs = readLithoSegmenterPrefs({ litho_segmenter: {} })
+    expect(prefs.voxelHorizontalSpacingM).toBe(2.0)
+    expect(prefs.voxelVerticalSpacingM).toBe(1.0)
+  })
+
+  it('reads valid in-range stored values', () => {
+    const prefs = readLithoSegmenterPrefs({
+      litho_segmenter: {
+        voxel_horizontal_spacing_m: 3.0,
+        voxel_vertical_spacing_m: 0.5,
+      },
+    })
+    expect(prefs.voxelHorizontalSpacingM).toBe(3.0)
+    expect(prefs.voxelVerticalSpacingM).toBe(0.5)
+  })
+
+  it('falls back to default on out-of-range horizontal (too low / too high)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { voxel_horizontal_spacing_m: 0.1 },
+      }).voxelHorizontalSpacingM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM)
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { voxel_horizontal_spacing_m: 99 },
+      }).voxelHorizontalSpacingM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM)
+  })
+
+  it('falls back to default on out-of-range vertical (too low / too high)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { voxel_vertical_spacing_m: 0.1 },
+      }).voxelVerticalSpacingM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM)
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { voxel_vertical_spacing_m: 99 },
+      }).voxelVerticalSpacingM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM)
+  })
+
+  it('falls back to default for a non-numeric type', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { voxel_horizontal_spacing_m: 'wide' },
+      }).voxelHorizontalSpacingM,
+    ).toBe(LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM)
+  })
+
+  it('round-trips the voxel spacings through the patch', () => {
+    const prefs = {
+      ...LITHO_SEGMENTER_DEFAULTS,
+      voxelHorizontalSpacingM: 4.0,
+      voxelVerticalSpacingM: 0.75,
+    }
+    const roundTripped = readLithoSegmenterPrefs(buildLithoSegmenterPatch(prefs))
+    expect(roundTripped.voxelHorizontalSpacingM).toBe(4.0)
+    expect(roundTripped.voxelVerticalSpacingM).toBe(0.75)
   })
 })
 

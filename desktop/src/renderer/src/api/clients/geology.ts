@@ -20,6 +20,11 @@
 import { _base, del, get, patch, post, put } from './shared'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
+import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
+
+// Re-export so callers that build the voxel payload can reach the request type
+// through the geology client surface.
+export type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
 
 // Re-export so callers that only need geology still get the section type.
 export type { CrossSectionResponse } from './section'
@@ -1421,6 +1426,36 @@ export const geologyClient = {
     post(
       `/projects/${projectId}/geology/models/${modelId}/litho-solids/rebuild`,
       {},
+    ),
+
+  /**
+   * POST .../litho-solids/build-voxel — build the 3-D solids from the frontend's
+   * validated 2-D voxel partitions (the ``computeSectionFill`` source of truth).
+   *
+   * The voxel sibling of ``rebuildLithoSolids``: where ``rebuild`` fits an
+   * implicit field through the DB picks, this labels a 3-D voxel grid from the
+   * supplied per-section partitions and extracts each body's watertight mesh.
+   * Returns the SAME ``RebuildLithoSolidsResponse`` shape so both paths are
+   * consumed identically.  ``force`` defaults to true server-side (the on-click
+   * Build always re-meshes), so it is not passed here.
+   *
+   * Parameters
+   * ----------
+   * projectId
+   *     Project scope guard.
+   * modelId
+   *     The active lithostratigraphic model id.
+   * request
+   *     The assembled ``VoxelBuildRequest`` (per-section partitions + spacings).
+   */
+  buildVoxelLithoModel: (
+    projectId: string,
+    modelId: string,
+    request: VoxelBuildRequest,
+  ): Promise<RebuildLithoSolidsResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/litho-solids/build-voxel`,
+      request,
     ),
 
   /**

@@ -80,6 +80,16 @@ export interface LithoSegmenterPrefs {
    *  - ``true``: slice the body solids with the vertical section plane, giving a
    *    continuous cut between tests. */
   sectionFillAtSectionLine: boolean
+  /** Horizontal (X/Y, map-plane) voxel cell size in metres for the voxel litho
+   *  builder ("Build model"). Coarser X/Y keeps the voxel count down; geology is
+   *  thin-layered vertically so the X/Y axis can stay coarse. Range 0.5 – 20 m.
+   *  Default 2.0 m. */
+  voxelHorizontalSpacingM: number
+  /** Vertical (Z, elevation) voxel cell size in metres for the voxel litho
+   *  builder. Finer Z catches thin layers; 0.5 m is a fine setting at a steep
+   *  build-time cost (≈4× the voxels vs cubic 2 m). Range 0.25 – 10 m.
+   *  Default 1.0 m. */
+  voxelVerticalSpacingM: number
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
@@ -92,6 +102,8 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   autoCorrelateDepthWindowM: 0.5,
   openExtentLengthM: 3.0,
   sectionFillAtSectionLine: false,
+  voxelHorizontalSpacingM: 2.0,
+  voxelVerticalSpacingM: 1.0,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -101,6 +113,8 @@ export const LITHO_SEGMENTER_BOUNDS = {
   lithoSnapToleranceM: { min: 0.01, max: 5.0 },
   autoCorrelateDepthWindowM: { min: 0.05, max: 5.0 },
   openExtentLengthM: { min: 0.5, max: 50.0 },
+  voxelHorizontalSpacingM: { min: 0.5, max: 20.0 },
+  voxelVerticalSpacingM: { min: 0.25, max: 10.0 },
 } as const
 
 const VIEW_STATE_KEY = 'litho_segmenter'
@@ -183,6 +197,16 @@ export function readLithoSegmenterPrefs(
       typeof dict.section_fill_at_section_line === 'boolean'
         ? dict.section_fill_at_section_line
         : LITHO_SEGMENTER_DEFAULTS.sectionFillAtSectionLine,
+    voxelHorizontalSpacingM: readBoundedNumber(
+      dict.voxel_horizontal_spacing_m,
+      LITHO_SEGMENTER_BOUNDS.voxelHorizontalSpacingM,
+      LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM,
+    ),
+    voxelVerticalSpacingM: readBoundedNumber(
+      dict.voxel_vertical_spacing_m,
+      LITHO_SEGMENTER_BOUNDS.voxelVerticalSpacingM,
+      LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM,
+    ),
   }
 }
 
@@ -206,6 +230,8 @@ export function buildLithoSegmenterPatch(
       auto_correlate_depth_window_m: prefs.autoCorrelateDepthWindowM,
       open_extent_length_m: prefs.openExtentLengthM,
       section_fill_at_section_line: prefs.sectionFillAtSectionLine,
+      voxel_horizontal_spacing_m: prefs.voxelHorizontalSpacingM,
+      voxel_vertical_spacing_m: prefs.voxelVerticalSpacingM,
     },
   }
 }

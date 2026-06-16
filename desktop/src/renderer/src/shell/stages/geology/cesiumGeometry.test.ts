@@ -18,6 +18,7 @@ import {
   sampleTinZ,
   clipTrisToHalfSpace,
   clipTexTrisToHalfSpace,
+  trianglesToWireframeEdgeIndices,
   type CapPlane,
   type StationFormationZ,
   type TexVert,
@@ -512,5 +513,39 @@ describe('computeSolidCapTriangles', () => {
     // Expected area = 10 × 1 = 10. Allow 2% tolerance.
     expect(totalArea).toBeGreaterThan(9.8)
     expect(totalArea).toBeLessThan(10.2)
+  })
+})
+
+describe('trianglesToWireframeEdgeIndices', () => {
+  it('expands one triangle (0,1,2) into its three edge pairs', () => {
+    // i0,i1 i1,i2 i2,i0 — the wireframe of a single triangle.
+    expect(trianglesToWireframeEdgeIndices([[0, 1, 2]])).toEqual([0, 1, 1, 2, 2, 0])
+  })
+
+  it('emits 6 indices per triangle, preserving the source vertex indices', () => {
+    const triangles: [number, number, number][] = [
+      [0, 1, 2],
+      [2, 3, 4],
+    ]
+    const edges = trianglesToWireframeEdgeIndices(triangles)
+    expect(edges).toHaveLength(triangles.length * 6)
+    expect(edges).toEqual([0, 1, 1, 2, 2, 0, 2, 3, 3, 4, 4, 2])
+  })
+
+  it('returns an empty buffer for no triangles', () => {
+    expect(trianglesToWireframeEdgeIndices([])).toEqual([])
+  })
+
+  it('handles the per-triangle soup buffer (sequential indices) the clipped path produces', () => {
+    // The clipped path emits a 3-vertex block per triangle: indices
+    // 0,1,2 then 3,4,5. Each block must become its own three edges so the
+    // wireframe of a triangle soup is correct.
+    const soup: [number, number, number][] = [
+      [0, 1, 2],
+      [3, 4, 5],
+    ]
+    expect(trianglesToWireframeEdgeIndices(soup)).toEqual([
+      0, 1, 1, 2, 2, 0, 3, 4, 4, 5, 5, 3,
+    ])
   })
 })

@@ -1,8 +1,14 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
-import { computeSectionFill, type CorrelationEdge } from './partitionFill'
-import { assembleSectionPartitionInput, type FenceLayerInput, type FenceProjectedColumn } from './sectionFenceData'
-import { projectionFoot, type SectionEndpoints } from './sectionProjection'
+import { computeSectionFill, type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import {
+  assembleSectionPartitionInput,
+  computeCanonicalColumnWorldPositions,
+  type AssembledSection,
+  type FenceLayerInput,
+  type FenceProjectedColumn,
+} from './sectionFenceData'
+import { type SectionEndpoints } from './sectionProjection'
 
 /** Everything needed to fence one section. */
 export interface FenceSectionInput {
@@ -42,25 +48,23 @@ export interface FenceSectionInput {
  *     ``triangles``.
  */
 export function buildProjectFence(sections: readonly FenceSectionInput[]): FencePanel[] {
-  // Pass 1: assemble every section and record, per test id, the world position
-  // from the section with the MOST columns (the dense cross-section "owns" the
-  // canonical position; sparse ties inherit it).
-  const assembled: { input: FenceSectionInput; columns: ReturnType<typeof assembleSectionPartitionInput>['columns']; orderedColumns: FenceColumn[] }[] = []
-  const canonical = new Map<string, { x: number; y: number; count: number }>()
+  // Pass 1: assemble every section, keeping only those with a fillable gap
+  // (>=2 columns), then compute the canonical per-test world positions across
+  // all of them (the dense cross-section owns each position; sparse ties inherit
+  // it — see ``computeCanonicalColumnWorldPositions``).
+  const assembled: { input: FenceSectionInput; columns: PartitionColumn[]; orderedColumns: FenceColumn[] }[] = []
   for (const input of sections) {
     const { columns, orderedColumns } = assembleSectionPartitionInput(input.projectedColumns, input.layers)
     if (columns.length < 2) continue
-    const count = orderedColumns.length
-    for (const col of orderedColumns) {
-      const foot = projectionFoot(input.section, col.alongM)
-      if (!foot) continue
-      const prev = canonical.get(col.investigationId)
-      if (!prev || count > prev.count) {
-        canonical.set(col.investigationId, { x: foot.x, y: foot.y, count })
-      }
-    }
     assembled.push({ input, columns, orderedColumns })
   }
+  const canonical = computeCanonicalColumnWorldPositions(
+    assembled.map<AssembledSection>(({ input, columns, orderedColumns }) => ({
+      section: input.section,
+      columns,
+      orderedColumns,
+    })),
+  )
 
   // Pass 2: build panels, stamping each column's canonical world position.
   const all: FencePanel[] = []

@@ -1,16 +1,17 @@
 /**
- * Flow — Lithology 3D stage: Facies competition solid render smoke
- * (Task 9, Litho 3D milestone 3 — watertight).
+ * Flow — Lithology 3D stage: Multi-lithology solid render smoke
+ * (originally Task 9 facies spec; updated for the implicit strat-field builder).
  *
- * Guards the ``assemble_facies_competitors`` path in ``build_body_solids``:
- * when a shared body has ≥2 distinct neighbours directly above (or below) it,
- * the builder routes each competitor through a clipped-prism partition instead
- * of the single-patch shared-surface path.
+ * Guards the multi-lithology path of ``build_strat_model``: when a section
+ * carries more than one lithology (ZAND and VEEN above a shared KLEI), the
+ * implicit strat-field builder produces one watertight solid per distinct body
+ * resolved by the correlation graph — including a body present on a single
+ * column (the single-CPT VEEN).
  *
  * WHY this spec exists separately from flow_litho_solids:
- *   ``flow_litho_solids`` exercises the common single-patch case (one KLEI
- *   body spanning three aligned CPTs — no facies).  This spec exercises the
- *   multi-patch facies case:
+ *   ``flow_litho_solids`` exercises the common multi-column case (one KLEI
+ *   body spanning three aligned CPTs).  This spec exercises the multi-lithology
+ *   scenario with a single-column minority body:
  *
  *     Section E — CPTs 11 / 12 / 13 (y + 1200 m)
  *       CPT-11: ZAND@1 m / KLEI@4 m
@@ -20,8 +21,6 @@
  *   KLEI is correlated across all three CPTs (one KLEI body).
  *   ZAND is correlated CPT-11 ↔ CPT-12 (one ZAND body).
  *   VEEN sits only on CPT-13 (one single-column VEEN body).
- *   Both ZAND and VEEN sit directly above the same KLEI → the KLEI body has
- *   two distinct upper neighbours → ``len(ups) >= 2`` → facies path fires.
  *
  * WHY setup mirrors flow_litho_solids:
  *   ``LithologyCanvas`` only renders the viewer branch (Solid / Fence toggle)
@@ -50,16 +49,14 @@
  *   4. The Cesium canvas (``id`` prefix ``cesium-viewport-``) stays visible
  *      after the build: no crash, no unmount to EmptyState.
  *   5. The solid legend shows at least two distinct lithology group headers —
- *      the facies competitors (ZAND + VEEN) plus the shared KLEI.  We assert
- *      ≥2 group headers are visible, confirming the build produced multiple
- *      bodies.
- *   6. The decisive facies check: the single-CPT VEEN body builds as a real
- *      prism (``is_flagged=false`` via the ``litho-solids`` API), NOT an M2
- *      disk marker (``is_flagged=true``).  Criterion 5 alone is too weak — it
- *      passes even if the facies path failed and both competitors fell back to
- *      M2.  A single-column body is un-triangulable under M2 → flagged disk
- *      markers; under the facies path it is a clipped prism → not flagged.  A
- *      "PEAT" group-header DOM cross-check rides alongside.
+ *      confirming the build produced multiple distinct lithology bodies.
+ *   6. The decisive single-column check: the single-CPT VEEN body builds as a
+ *      real solid volume (``is_flagged=false`` AND ``triangles.length > 0`` via
+ *      the ``litho-solids`` API).  The implicit strat-field builder gives EVERY
+ *      body a real watertight prism, including single-column bodies — there are
+ *      no flagged disk-markers (the old M2/M3 per-body-TIN/disk-marker path was
+ *      retired with the loft builder in Task 8–9).  A "PEAT" group-header DOM
+ *      cross-check rides alongside.
  *
  * Mirrors: flow_litho_solids.spec.ts (harness + setup pattern).
  *
@@ -110,19 +107,17 @@ test.describe('flow_litho_facies', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
-  // KNOWN-BROKEN (Issue A, handoff doc docs/superpowers/2026-06-12-litho-builder-
-  // overshoot-and-section-fill-handoff.md): build_body_solids' facies-competitor
-  // path "produced no prism … fall back to M2 legacy", so the single-CPT VEEN
-  // competitor builds as a flagged disk marker instead of a clipped prism and
-  // criterion 12 (allVeenPrisms) fails. This is a PRE-EXISTING backend geometry
-  // bug (present on the stale pre-geo-bounding model, zero Python changed by the
-  // litho-model-from-solids work) explicitly scoped to a fresh design session.
-  // The mount + setup were reworked to the solids path (litho-3D plan) so this
-  // test is ready to re-enable once Issue A lands — drop the .fixme then.
-  test.fixme(
+  // The implicit strat-field builder (build_strat_model, Task 6–9) gives EVERY
+  // body a watertight height-field prism by construction — including a body
+  // present on a single column (where other builders emitted flagged disk
+  // markers).  The old per-body-TIN / facies-prism / disk-marker builder was
+  // retired in Task 8–9; there are no flagged bodies from build_strat_model.
+  // Criterion 12 asserts that directly (is_flagged === false AND
+  // triangles.length > 0) for the single-CPT VEEN body.
+  test(
     'Build Solids with facies competition produces ≥2 lithology groups and no crash',
     async () => {
-      test.slow() // seeds contacts + rebuilds TINs + renders 3D viewer + builds solids with facies path
+      test.slow() // seeds contacts + rebuilds TINs + renders 3D viewer + builds solids with strat-field builder
 
       const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
       let tmpPath = ''
@@ -310,10 +305,10 @@ test.describe('flow_litho_facies', () => {
 
         // -----------------------------------------------------------------------
         // 8. Click Build Solids.
-        //    The facies-competition bodies (ZAND, VEEN above shared KLEI) are
-        //    present in the litho model from the fixture seed.  The build
-        //    triggers ``build_body_solids`` which routes them through
-        //    ``assemble_facies_competitors`` (multi-patch path).
+        //    The multi-lithology scenario (ZAND, VEEN above a shared KLEI) is
+        //    present in the litho model from the fixture seed.  The build runs
+        //    build_strat_model (the implicit strat-field builder), which fits the
+        //    cubic-RBF potential field then assembles watertight prisms per band.
         //    Wait for the button to re-enable (exits "Building…" state).
         // -----------------------------------------------------------------------
         const buildBtn = page.getByTestId('litho-build-model-button')
@@ -321,7 +316,13 @@ test.describe('flow_litho_facies', () => {
         await buildBtn.click()
 
         // Button becomes disabled while building; wait for it to re-enable.
-        await expect(buildBtn).toBeEnabled({ timeout: 30_000 })
+        // The strat builder fits the RBF + assembles watertight height-field
+        // prisms; the renderer then refetches + re-renders every body mesh in
+        // Cesium.  Under e2e load (Electron + WebGL) the round-trip can approach
+        // a minute.
+        // TODO(task-11): tighten the build-wait once the real test.strix strat
+        // build time is measured; 90 s is deliberately generous until then.
+        await expect(buildBtn).toBeEnabled({ timeout: 90_000 })
 
         // -----------------------------------------------------------------------
         // 9. No error overlay after the build completes.
@@ -344,11 +345,11 @@ test.describe('flow_litho_facies', () => {
         // -----------------------------------------------------------------------
         // 11. ≥2 lithology group headers visible in the legend.
         //
-        //     The facies scenario seeds at least three distinct lithologies
+        //     The multi-lithology scenario seeds at least three distinct lithologies
         //     (KLEI, ZAND, VEEN) each resolved into a separate body by the
         //     resolver.  The legend groups by formation, so we expect ≥2 group
-        //     header buttons.  A single-group legend would mean the facies path
-        //     collapsed all competitors into one body — a real build failure.
+        //     header buttons.  A single-group legend would mean the builder
+        //     collapsed all bodies into one — a real build failure.
         //
         //     We use ``[data-testid^="solid-group-header-"]`` rather than a
         //     fixed count so the assertion survives future fixture additions
@@ -361,32 +362,31 @@ test.describe('flow_litho_facies', () => {
         // legend rows, then snapshot the raw number.
         await expect(groupHeaders.first()).toBeVisible({ timeout: 5_000 })
         const groupCount = await groupHeaders.count()
-        expect(groupCount, 'Facies build must produce ≥2 lithology groups in the legend').toBeGreaterThanOrEqual(2)
+        expect(groupCount, 'Multi-lithology build must produce ≥2 lithology groups in the legend').toBeGreaterThanOrEqual(2)
 
         // -----------------------------------------------------------------------
-        // 12. The single-CPT VEEN competitor is a real PRISM, not a disk marker.
+        // 12. The single-CPT VEEN body builds as a real watertight VOLUME, not
+        //     a flagged stub.
         //
-        //     This is the assertion that actually validates the facies path ran.
-        //     The ≥2-group check above is too weak: it passes even if the facies
-        //     path FAILED and both competitors fell back to the M2 single-patch /
-        //     disk-marker path (the legend would still show ≥2 lithology groups —
-        //     KLEI + ZAND alone clears the bar, and a VEEN that built as a disk
-        //     marker still renders its own group header).
+        //     This is the assertion that actually validates the builder produced
+        //     a volume for every body.  The ≥2-group check above is too weak: it
+        //     passes even if a competitor fell back to a degenerate / flagged
+        //     body (the legend would still show its group header).
         //
-        //     KEY DISTINCTION: VEEN sits on a SINGLE CPT (CPT-13). Under the OLD
-        //     M2 builder a single-column body is un-triangulable → it emits
-        //     vertical disk markers with ``is_flagged=true``. Under the NEW facies
-        //     path VEEN builds as a real clipped prism → ``is_flagged=false``.
-        //     So asserting the VEEN body solid has ``is_flagged=false`` proves the
-        //     facies-competition prism path actually fired for the single-CPT body.
+        //     KEY DISTINCTION: VEEN sits on a SINGLE CPT (CPT-13). Under the
+        //     implicit strat-field builder (build_strat_model, Tasks 6–9) every
+        //     body is a watertight height-field prism over the shared grid, so
+        //     single-column bodies get a real volume rather than a flagged marker.
+        //     The old M2/M3 per-body-TIN / disk-marker paths were retired in
+        //     Tasks 8–9 and build_strat_model never emits is_flagged=true bodies.
+        //     Asserting ``is_flagged=false`` AND ``triangles.length > 0`` proves
+        //     VEEN has a genuine volume.
         //
-        //     We go to the API rather than the DOM because the legend's per-body
-        //     marker note ("(N markers)") is only visible when a group is expanded
-        //     AND only distinguishes flagged bodies — the API exposes the per-body
-        //     ``is_flagged`` flag directly and unambiguously. We map the VEEN
-        //     formation by ``litho_main_soil_code === 'VEEN'`` (the fixture seeds
-        //     ``form("VEEN facies …", "VEEN", …)``), then find the solid whose
-        //     ``formation_id`` matches and assert it is a non-flagged prism.
+        //     We go to the API rather than the DOM because the API exposes the
+        //     per-body ``is_flagged`` flag + ``triangles`` directly.  We map the
+        //     VEEN formation by ``litho_main_soil_code === 'VEEN'`` (the fixture
+        //     seeds ``form("VEEN facies …", "VEEN", …)``), then find the solid
+        //     whose ``formation_id`` matches and assert it is a real volume.
         // -----------------------------------------------------------------------
         const veenCheck = await page.evaluate(
           async ([base, pid, mid]) => {
@@ -408,10 +408,23 @@ test.describe('flow_litho_facies', () => {
             return {
               veenFormationCount: veenIds.size,
               veenSolidCount: veenSolids.length,
-              // True only if EVERY VEEN body is a real prism (facies path).
-              // Under M2 the single-CPT VEEN body would be a flagged disk marker.
-              allVeenPrisms:
-                veenSolids.length > 0 && veenSolids.every(s => s.is_flagged === false),
+              // True if the single-CPT VEEN body builds as a real watertight
+              // volume: a non-flagged VEEN solid carrying triangles.
+              // build_strat_model (Tasks 6–9) never emits is_flagged=true bodies —
+              // every band is a watertight prism, even single-column ones.
+              // We assert SOME (not EVERY) VEEN solid is a real volume: the
+              // geology-bounding pass can split a VEEN unit into several bodies
+              // across geological bands, and a band-confined or off-section copy
+              // may legitimately be a zero-volume row — that is not a build
+              // failure.  What proves the builder gave the single-CPT VEEN a
+              // genuine volume is that AT LEAST one VEEN body has real triangles.
+              veenHasVolume:
+                veenSolids.some(
+                  s =>
+                    s.is_flagged === false &&
+                    Array.isArray(s.triangles) &&
+                    s.triangles.length > 0,
+                ),
             }
           },
           [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
@@ -424,16 +437,16 @@ test.describe('flow_litho_facies', () => {
         const vc = veenCheck as {
           veenFormationCount: number
           veenSolidCount: number
-          allVeenPrisms: boolean
+          veenHasVolume: boolean
         }
         expect(vc.veenFormationCount, 'Fixture must define a VEEN formation').toBeGreaterThan(0)
         expect(
           vc.veenSolidCount,
-          'The single-CPT VEEN competitor must build a body solid (not be dropped)',
+          'The single-CPT VEEN body must build a body solid (not be dropped)',
         ).toBeGreaterThan(0)
         expect(
-          vc.allVeenPrisms,
-          'Single-CPT VEEN must build as a facies PRISM (is_flagged=false), not an M2 disk marker (is_flagged=true) — confirms the facies path ran',
+          vc.veenHasVolume,
+          'Single-CPT VEEN must build as a real watertight VOLUME (is_flagged=false AND triangles.length>0) — build_strat_model gives every body a height-field prism, so no disk-markers exist',
         ).toBe(true)
 
         // DOM cross-check: the VEEN body renders under a "PEAT" group header

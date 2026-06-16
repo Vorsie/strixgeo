@@ -17,6 +17,38 @@ import { triangulatePolygon2D } from '../../../utils/polygonTriangulate'
 import type { FormationSurfaceResponse } from '../../../api/client'
 import { projectedToWgs84 } from '../../../hooks/useWgs84'
 
+/**
+ * Expand triangle index triples into wireframe LINE-edge index pairs.
+ *
+ * For each triangle ``(i0, i1, i2)`` the three boundary edges are emitted
+ * as the index pairs ``i0,i1``, ``i1,i2``, ``i2,i0`` — six indices total,
+ * which an index buffer feeds to ``Cesium.PrimitiveType.LINES``.  The
+ * positions/vertices are left untouched; only the index buffer differs
+ * between the filled (TRIANGLES) and wireframe (LINES) render of the same
+ * solid.  Pure (``number[]`` in, ``number[]`` out) so it is unit-testable
+ * without Cesium.
+ *
+ * Parameters
+ * ----------
+ * triangles
+ *     Vertex-index triples (the same buffer used for the TRIANGLES draw).
+ *
+ * Returns
+ * -------
+ * ``number[]``
+ *     Flat array of edge index pairs, length ``triangles.length * 6``.
+ *     Triangle ``(0, 1, 2)`` yields ``[0, 1, 1, 2, 2, 0]``.
+ */
+export function trianglesToWireframeEdgeIndices(
+  triangles: readonly (readonly [number, number, number])[],
+): number[] {
+  const edges: number[] = []
+  for (const [i0, i1, i2] of triangles) {
+    edges.push(i0, i1, i1, i2, i2, i0)
+  }
+  return edges
+}
+
 // WMTS over the whole Cesium ellipsoid (the GoogleMapsVL matrixset
 // never tiles right under Cesium → the 400-storm + smeared "wall").
 export const GEOPUNT_ORTHO_WMS = 'https://geo.api.vlaanderen.be/omwrgbmrvl/wms'

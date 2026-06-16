@@ -291,6 +291,7 @@ async def restore_project(
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
             body_boundary_shapes_payload=request.body_boundary_shapes,
             body_boundary_nodes_payload=request.body_boundary_nodes,
+            litho_solids_payload=request.litho_solids,
             replace=replace,
         )
     except BundleIntegrityError as err:

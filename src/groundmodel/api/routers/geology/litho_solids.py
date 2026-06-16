@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,9 @@ from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodyS
 from groundmodel.api.schemas.project.rebuild_litho_solids_response import (
     RebuildLithoSolidsResponse,
 )
+from groundmodel.api.schemas.project.voxel_build_request import VoxelBuildRequest
+from groundmodel.application.build_voxel_litho_model import BuildVoxelLithoModel
+from groundmodel.application.litho_solid_persistence import LithoSolidsOutcome
 from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -264,7 +267,45 @@ async def rebuild_litho_solids(
         model_id, force=True, litho_snap_tolerance_m=snap_tol
     )
 
-    # Load the rebuilt solid list for the bundled response.
+    return await _build_rebuild_response(
+        session, project_id, model_id, outcome, log_label="rebuild"
+    )
+
+
+async def _build_rebuild_response(
+    session: AsyncSession,
+    project_id: UUID,
+    model_id: UUID,
+    outcome: LithoSolidsOutcome,
+    *,
+    log_label: str,
+) -> RebuildLithoSolidsResponse:
+    """Load the rebuilt solid list + assemble the bundled rebuild response.
+
+    Shared tail of both the strat ``rebuild`` and the ``build-voxel`` endpoints:
+    after a build use case commits, both load the freshly persisted solid rows
+    (joining ``display_color`` / ``body_ordinal`` from ``BodyOrm``) and bundle
+    them with the outcome counts so the frontend updates its cache in one
+    round-trip.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope (for the log line only — the caller already guarded it).
+    model_id : UUID
+        The lithostratigraphic model whose solids were rebuilt.
+    outcome : LithoSolidsOutcome
+        The build outcome (both the strat and voxel use cases return this).
+    log_label : str
+        Short label distinguishing the two endpoints in the log line.
+
+    Returns
+    -------
+    RebuildLithoSolidsResponse
+        Outcome counts + the freshly rebuilt solid list.
+    """
     repo = LithoLayerRepository(session)
     solids = await repo.list_litho_solids(model_id)
     body_ids = [s.body_id for s in solids]
@@ -272,7 +313,7 @@ async def rebuild_litho_solids(
     solid_responses = [_to_solid_response(s, *body_attrs.get(s.body_id, (None, 0))) for s in solids]
 
     logger.info(
-        f"rebuild_litho_solids: project={project_id} model={model_id} "
+        f"{log_label}_litho_solids: project={project_id} model={model_id} "
         f"considered={outcome.bodies_considered} built={outcome.bodies_built} "
         f"skipped={outcome.bodies_skipped_checksum} flagged={outcome.bodies_flagged} "
         f"orphans_deleted={outcome.orphans_deleted} "
@@ -287,6 +328,101 @@ async def rebuild_litho_solids(
         orphans_deleted=outcome.orphans_deleted,
         solids=solid_responses,
         marked_test_ids=outcome.marked_test_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /models/{model_id}/litho-solids/build-voxel
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/litho-solids/build-voxel",
+    response_model=RebuildLithoSolidsResponse,
+)
+async def build_voxel_litho_solids(
+    project_id: UUID,
+    model_id: UUID,
+    request: VoxelBuildRequest,
+    force: bool = Query(
+        default=True,
+        description=(
+            "When true (the on-click Build default) always rebuild; when false "
+            "the model-level partition checksum short-circuits an unchanged payload."
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> RebuildLithoSolidsResponse:
+    """Build the 3-D litho-solid cache from the validated 2-D voxel partitions.
+
+    The voxel sibling of ``POST .../litho-solids/rebuild``.  Where ``rebuild``
+    fits an implicit field through the DB picks, this endpoint takes the
+    frontend's validated ``computeSectionFill`` partitions (the source of truth)
+    and labels a 3-D voxel grid from them, then extracts each body's watertight
+    greedy-meshed boundary — watertight AND faithful by construction (a labelling
+    of space is a partition, so interfingering / pinch-out is representable).
+
+    The Pydantic request is converted to the frozen domain value objects before
+    the use case runs (the clean-architecture boundary).  ``force`` defaults to
+    ``True`` (the on-click Build), so an explicit Build always re-meshes; pass
+    ``force=false`` to let the partition-payload checksum skip an unchanged build.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model — must belong to ``project_id``.
+    request : VoxelBuildRequest
+        The per-section 2-D partitions + grid spacing (the build payload).
+    force : bool, default ``True``
+        Skip the checksum short-circuit when ``True``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    RebuildLithoSolidsResponse
+        Outcome counts + the freshly built solid list (same shape as
+        ``rebuild`` so the frontend consumes both identically).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/litho-solids/build-voxel "
+        f"sections={len(request.sections)} "
+        f"horizontal_spacing={request.effective_horizontal_spacing_m} "
+        f"vertical_spacing={request.effective_vertical_spacing_m} force={force}"
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    # Convert the Pydantic request → frozen domain value objects (the domain
+    # layer takes value objects, not Pydantic — clean-architecture boundary).
+    # The effective spacings resolve the optional anisotropic fields against the
+    # cubic ``grid_spacing_m`` fallback: the horizontal spacing is passed as the
+    # use case's ``grid_spacing_m`` (the X/Y edge length), and the vertical
+    # spacing is passed only when it differs from the horizontal so a cubic
+    # payload keeps the byte-stable cubic checksum (``None`` → cubic).
+    domain_sections = request.to_domain_sections()
+    horizontal_m = request.effective_horizontal_spacing_m
+    vertical_m = request.effective_vertical_spacing_m
+    outcome = await BuildVoxelLithoModel(session).execute(
+        model_id,
+        domain_sections,
+        grid_spacing_m=horizontal_m,
+        vertical_spacing_m=(None if vertical_m == horizontal_m else vertical_m),
+        force=force,
+    )
+
+    return await _build_rebuild_response(
+        session, project_id, model_id, outcome, log_label="build_voxel"
     )
 
 

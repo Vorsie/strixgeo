@@ -1,6 +1,6 @@
 /**
  * Flow — Lithology 3D stage: Build Solids + Solid mode smoke (Task 10,
- * Litho 3D milestone 2).
+ * Litho 3D milestone 2 / strat-field builder).
  *
  * Guards the Build Solids button (``LithologyStage`` toolbar) + Solid-mode
  * render path — proves the complete loop (surface exists → viewer mounts →
@@ -238,7 +238,14 @@ test.describe('flow_litho_solids', () => {
 
       // Button becomes disabled while building; wait for it to re-enable.
       // Uses toBeEnabled (inverse of disabled) which Playwright auto-waits on.
-      await expect(buildBtn).toBeEnabled({ timeout: 30_000 })
+      // The implicit strat-field builder fits the cubic-RBF potential field over
+      // the control points then assembles watertight prisms over a regular grid.
+      // A real fixture-sized model can take several seconds on the backend; the
+      // renderer then refetches and re-renders every body mesh in Cesium.  Under
+      // e2e load (Electron + WebGL) the round-trip can approach a minute.
+      // TODO(task-11): tighten the build-wait once the real test.strix strat
+      // build time is measured; 90 s is deliberately generous until then.
+      await expect(buildBtn).toBeEnabled({ timeout: 90_000 })
 
       // -----------------------------------------------------------------------
       // 9. No error overlay after the build completes.
