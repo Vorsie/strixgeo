@@ -5,7 +5,7 @@
  * CorrelationEdgesOverlay).  No left-click action; no red reject dot.
  *
  * The context menu is rendered via ``createPortal`` into ``document.body`` so
- * it escapes the react-leaflet SVG element tree and appears at the correct
+ * it escapes the Leaflet SVG element tree and appears at the correct
  * viewport position.  ContextMenu's ``portal="fixed"`` variant positions the
  * panel at ``clientX / clientY`` viewport coordinates, which is exactly what
  * a Leaflet ``contextmenu`` event's ``originalEvent`` carries.
@@ -15,7 +15,7 @@
 
 import { Fragment, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Polyline, Tooltip } from 'react-leaflet'
+import { Polyline, Tooltip } from '@/lib/streaflet'
 import type { LeafletMouseEvent } from 'leaflet'
 import ContextMenu from './ui/ContextMenu'
 import { tieToLatLngLine } from '../utils/tieToLatLngLine'
@@ -171,7 +171,7 @@ export function TieSuggestionOverlay({
             <Polyline
               positions={line}
               pane="section-overlays"
-              pathOptions={{
+              style={{
                 color: '#22c55e',
                 weight: 3,
                 opacity: 0.75,
@@ -190,20 +190,18 @@ export function TieSuggestionOverlay({
               // opacity band would receive no clicks. 0.01 is invisible yet
               // painted → clickable. (The e2e targets this band by its 16px
               // stroke-width, the attribute Leaflet reliably emits.)
-              pathOptions={{ color: '#22c55e', weight: 16, opacity: 0.01 }}
-              eventHandlers={{
-                contextmenu: (e: LeafletMouseEvent) => {
-                  // Prevent the browser/Leaflet default context menu and stop
-                  // the event bubbling to the map (which would pan / open its
-                  // own menu).
-                  e.originalEvent.preventDefault()
-                  e.originalEvent.stopPropagation()
-                  setMenu({
-                    x: e.originalEvent.clientX,
-                    y: e.originalEvent.clientY,
-                    index: i,
-                  })
-                },
+              style={{ color: '#22c55e', weight: 16, opacity: 0.01 }}
+              onContextMenu={(e: LeafletMouseEvent) => {
+                // Prevent the browser/Leaflet default context menu and stop
+                // the event bubbling to the map (which would pan / open its
+                // own menu).
+                e.originalEvent.preventDefault()
+                e.originalEvent.stopPropagation()
+                setMenu({
+                  x: e.originalEvent.clientX,
+                  y: e.originalEvent.clientY,
+                  index: i,
+                })
               }}
             >
               {/* Discoverability: right-click is the first right-clickable thing
