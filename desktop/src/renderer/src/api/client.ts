@@ -163,7 +163,7 @@ export type {
   UpdateBodyColorResponse,
   VoxelBuildRequest,
 } from './clients/geology'
-export { DuplicateContactError, ProvenanceViolationError } from './clients/geology'
+export { DuplicateContactError } from './clients/geology'
 
 // ---------------------------------------------------------------------------
 // Codelist / Virtuele Boring domain

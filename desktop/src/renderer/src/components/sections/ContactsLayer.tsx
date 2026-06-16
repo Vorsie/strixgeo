@@ -156,30 +156,6 @@ interface Props {
    * anchorId
    *     Id of the CPT or borehole the contact is anchored to.
    */
-  /** Open-end this litho layer toward ``side`` — claims an ``open`` body
-   *  extent (the lens band runs to the section boundary), TIN-free. Replaces
-   *  the retired "Extrapolate pinch-out…" contact gesture (its backend tool
-   *  was removed in the body-with-extent refactor). ``formationId`` is the
-   *  right-clicked contact's litho formation; ``investigationId`` its CPT /
-   *  borehole anchor; ``contactId`` the right-clicked litho contact id (shares
-   *  the UUID of the litho layer at its top boundary — the caller resolves the
-   *  body via ``litho_layer.body_id``, disambiguating stacked same-formation
-   *  instances). Absent → the item is hidden. */
-  onOpenEndLayer?: (
-    contactId: string,
-    formationId: string,
-    investigationId: string,
-    side: 'left' | 'right',
-  ) => void
-  /** Fired when the user picks "Pinch out layer →/←" — claims a
-   *  ``pinch_out_halfway`` body extent toward ``side`` (the body wedges out to
-   *  the neighbouring column). When absent the items are hidden. */
-  onPinchOutLayer?: (
-    contactId: string,
-    formationId: string,
-    investigationId: string,
-    side: 'left' | 'right',
-  ) => void
   /** All-or-nothing batch UPDATE commit. Used for:
    *
    * * Same-column multi-drag (every selected contact's depth shifts
@@ -658,8 +634,6 @@ export default function ContactsLayer({
   onDeleteContact,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
-  onOpenEndLayer,
-  onPinchOutLayer,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   marquee,
@@ -3226,12 +3200,11 @@ export default function ContactsLayer({
               )}
             {/* Transparent hit-strip — wider than the visible line so
                 the user can grab without precision aiming. Rendered
-                whenever either an edit OR a delete OR a pinch-out
-                handler is wired so the lines participate in pointer
-                events; without all three they stay fully
-                non-interactive. */}
+                whenever an edit OR a delete handler is wired so the
+                lines participate in pointer events; without any they
+                stay fully non-interactive. */}
             {!correlateMode &&
-              (onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onOpenEndLayer) &&
+              (onUpdateContactDepth || onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -3247,7 +3220,7 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onOpenEndLayer || onEditInGeologyStage
+                    onDeleteContact || onUnlinkLithoFromGeo || onLinkLithoToGeo || onEditInGeologyStage
                       ? e => {
                           e.preventDefault()
                           // Resolve the parent geological contact id so the
@@ -3731,24 +3704,6 @@ export default function ContactsLayer({
                   const { contactId } = contactMenu
                   setContactMenu(null)
                   void onLinkLithoToGeo(contactId)
-                }
-              : undefined
-          }
-          onOpenEnd={
-            !contactMenu.isReferenceContact && onOpenEndLayer
-              ? side => {
-                  const { contactId, formationId, anchorId } = contactMenu
-                  setContactMenu(null)
-                  onOpenEndLayer(contactId, formationId, anchorId, side)
-                }
-              : undefined
-          }
-          onPinchOut={
-            !contactMenu.isReferenceContact && onPinchOutLayer
-              ? side => {
-                  const { contactId, formationId, anchorId } = contactMenu
-                  setContactMenu(null)
-                  onPinchOutLayer(contactId, formationId, anchorId, side)
                 }
               : undefined
           }

@@ -57,7 +57,6 @@ import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
 import { computeScrubBounds } from '../utils/scrubBounds'
-import { neighbourInvBeyondExtreme } from '../utils/bodyAnchor'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
@@ -712,26 +711,6 @@ interface Props {
    * when the user picks "Dissolve body".
    */
   onDissolveBody?: (bodyId: string) => void
-  /** Open-end a litho layer (right-click contact → "Open-end layer →/←").
-   *  Claims an ``open`` body extent, TIN-free. Passed only on the litho axis.
-   *  ``contactId`` resolves the body via ``litho_layer.body_id``. */
-  onOpenEndLayer?: (
-    contactId: string,
-    formationId: string,
-    investigationId: string,
-    side: 'left' | 'right',
-  ) => void
-  /** Pinch out a litho layer toward ``side`` from its contact menu. The
-   *  neighbour the body pinches toward is resolved here (this component holds
-   *  the placed columns) and passed on; ``null`` when the layer is at the
-   *  section edge (the handler should refuse / suggest open). */
-  onPinchOutLayer?: (
-    contactId: string,
-    formationId: string,
-    investigationId: string,
-    side: 'left' | 'right',
-    neighbourInvId: string | null,
-  ) => void
   /**
    * 3-D body solids from the litho model (already built + fetched by
    * ``useLithoSolids``).  When present on the litho axis, a
@@ -817,8 +796,6 @@ export default function SectionPanel({
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
-  onOpenEndLayer,
-  onPinchOutLayer,
   onNameBody,
   onDissolveBody,
   lithoSolids,
@@ -2835,22 +2812,6 @@ export default function SectionPanel({
               onDeleteContact={onDeleteContact}
               onUnlinkLithoFromGeo={onUnlinkLithoFromGeo}
               onLinkLithoToGeo={onLinkLithoToGeo}
-              onOpenEndLayer={onOpenEndLayer}
-              onPinchOutLayer={
-                onPinchOutLayer
-                  ? (contactId, formationId, investigationId, side) => {
-                      // Resolve the column the body pinches toward from the
-                      // clicked layer's body (this component holds the placed
-                      // columns the helper needs).
-                      const layer = (lithoLayers ?? []).find(l => l.id === contactId)
-                      const bodyId = layer?.body_id ?? null
-                      const neighbourInvId = bodyId
-                        ? neighbourInvBeyondExtreme(bodyId, side, lithoLayers ?? [], visibleColumns)
-                        : null
-                      onPinchOutLayer(contactId, formationId, investigationId, side, neighbourInvId)
-                    }
-                  : undefined
-              }
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}

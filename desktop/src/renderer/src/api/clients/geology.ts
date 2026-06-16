@@ -890,22 +890,6 @@ export interface BodyBoundaryResponse {
   lower_nodes: BodyBoundaryNode[]
 }
 
-/**
- * Thrown when ``POST /models/{mid}/bodies`` returns HTTP 409 (provenance rule §5.2).
- *
- * A detector-set ``to_target`` extent already occupies the requested side.
- * Carries the side + kind so ``ProvenanceConflictDialog`` can retry the claim.
- */
-export class ProvenanceViolationError extends Error {
-  side: 'left' | 'right'
-  kind: string
-  constructor(side: 'left' | 'right', kind: string, message?: string) {
-    super(message ?? `Provenance conflict on side=${side}`)
-    this.name = 'ProvenanceViolationError'
-    this.side = side
-    this.kind = kind
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Geotechnical-unit types
@@ -1666,14 +1650,6 @@ export const geologyClient = {
       body,
     ),
 
-  // Backwards-compat alias.
-  nameLensBody: (
-    projectId: string,
-    modelId: string,
-    body: NameBodyRequest,
-  ): Promise<NameBodyResponse> =>
-    post(`/projects/${projectId}/geology/models/${modelId}/bodies`, body),
-
   deleteBody: async (
     projectId: string,
     modelId: string,
@@ -1695,38 +1671,6 @@ export const geologyClient = {
       const detail = await res.json().catch(() => ({}))
       throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
     }
-  },
-
-  // Claim a user-extent on an existing body.
-  claimBodyExtent: async (
-    projectId: string,
-    modelId: string,
-    request: {
-      body_id: string
-      side: 'left' | 'right'
-      kind: 'pinch_out_halfway' | 'extrapolated' | 'open'
-      source_investigation_id?: string | null
-      neighbour_inv_id?: string | null
-      primary_section_id?: string | null
-      anchor_layer_id?: string | null
-    },
-  ): Promise<BodyListItem> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies`
-    const res = await fetch(`${_base}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      if (res.status === 409 && detail.detail?.code === 'provenance_violation') {
-        throw new ProvenanceViolationError(request.side, request.kind, detail.detail.message)
-      }
-      throw new Error(
-        detail.detail?.message ?? detail.detail ?? `POST ${path} → ${res.status}`,
-      )
-    }
-    return res.json() as Promise<BodyListItem>
   },
 
   updateBody: (

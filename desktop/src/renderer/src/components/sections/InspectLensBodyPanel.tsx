@@ -121,7 +121,7 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
  * existingLensName : string | null
  *     Pre-existing lens name, if any.
  * onLensNamed : (lensId: string, wasCreated: boolean) => void
- *     Fired after a successful nameLensBody call.
+ *     Fired after a successful nameBody call.
  * onOfferCompanion : (lensId: string, lensName: string | null) => void
  *     Fired when the user clicks "Create perpendicular companion".
  * onAbsenceUpdated : () => void
@@ -336,15 +336,22 @@ export default function InspectLensBodyPanel({
       setNameError('Name cannot be empty.')
       return
     }
+    if (!existingLensId) {
+      // The body row is always created by the resolver before the panel opens.
+      // A null existingLensId means the lens list fetch failed — the user
+      // should close and reopen the panel once the model is resolved.
+      setNameError('Body not yet resolved — close and reopen the panel.')
+      return
+    }
     setNameSaving(true)
     setNameError(null)
     log.info(
       'section',
-      `InspectLensBodyPanel: naming lens formation=${target.formationId} ` +
+      `InspectLensBodyPanel: naming body=${existingLensId} formation=${target.formationId} ` +
         `ordinal=${target.bodyOrdinal} name="${trimmed}"`,
     )
     try {
-      const result = await api.geology.nameLensBody(target.projectId, target.modelId, {
+      const result = await api.geology.nameBody(target.projectId, target.modelId, existingLensId, {
         formation_id: target.formationId,
         body_ordinal: target.bodyOrdinal,
         name: trimmed,
@@ -353,16 +360,16 @@ export default function InspectLensBodyPanel({
       onLensNamed(result.body_id, result.was_created)
       log.success(
         'section',
-        `InspectLensBodyPanel: lens ${result.body_id} ` +
+        `InspectLensBodyPanel: body ${result.body_id} ` +
           `${result.was_created ? 'created' : 'updated'} with name="${trimmed}"`,
       )
     } catch (err) {
-      log.warn('section', 'InspectLensBodyPanel: nameLensBody failed', err)
+      log.warn('section', 'InspectLensBodyPanel: nameBody failed', err)
       setNameError('Could not save name — try again.')
     } finally {
       setNameSaving(false)
     }
-  }, [target, lensName, onLensNamed])
+  }, [target, lensName, existingLensId, onLensNamed])
 
   const handleOfferCompanion = useCallback((): void => {
     if (target === null) return

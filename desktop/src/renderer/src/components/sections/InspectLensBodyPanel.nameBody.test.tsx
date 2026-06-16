@@ -1,6 +1,7 @@
-// Regression for audit #3: NameBodyResponse field is ``body_id`` on the
-// backend, but the client interface read ``lens_id`` — so onLensNamed fired
-// with ``undefined``. This pins that the callback receives the real id.
+// Regression for audit #3 / debt #207: nameBody (PATCH /bodies/{body_id}) is
+// the correct call; the old nameLensBody alias (POST /bodies) was removed when
+// the body-extent system was retired 2026-06-06.  This pins that the callback
+// receives the real id from nameBody and that existingLensId is required.
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,9 +10,13 @@ vi.mock('../../api/client', () => ({
   api: {
     geology: {
       listFormationAbsences: vi.fn().mockResolvedValue([]),
-      getLensBoundary: vi.fn(),
+      getLensBoundary: vi.fn().mockResolvedValue({
+        render_style: 'straight',
+        upper_nodes: [],
+        lower_nodes: [],
+      }),
       saveLensBoundary: vi.fn().mockResolvedValue({}),
-      nameLensBody: vi.fn(),
+      nameBody: vi.fn(),
     },
   },
 }))
@@ -27,7 +32,9 @@ const baseProps = {
   presentInvestigationIds: [],
   investigationLabels: new Map<string, string>(),
   existingLensName: '',
-  existingLensId: null,
+  // existingLensId is the body_id resolved from the lens list (always
+  // non-null after resolver runs — null only if listLenses failed).
+  existingLensId: 'BODY-REAL',
   onLensNamed: vi.fn(),
   onOfferCompanion: vi.fn(),
   onAbsenceUpdated: vi.fn(),
@@ -35,16 +42,16 @@ const baseProps = {
 }
 
 beforeEach(() => {
-  // Backend returns body_id, NOT lens_id (audit #3).
-  geo.nameLensBody.mockResolvedValue({ body_id: 'BODY-REAL', was_created: true })
+  // Backend returns body_id (audit #3 — was mistakenly lens_id before).
+  geo.nameBody.mockResolvedValue({ body_id: 'BODY-REAL', was_created: false })
 })
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
 })
 
-describe('InspectLensBodyPanel — name-body callback (audit #3)', () => {
-  it('passes the real body_id to onLensNamed, not undefined', async () => {
+describe('InspectLensBodyPanel — name-body callback (audit #3 / debt #207)', () => {
+  it('passes the real body_id to onLensNamed via nameBody (PATCH), not the retired POST', async () => {
     const onLensNamed = vi.fn()
     render(<InspectLensBodyPanel {...baseProps} target={target} onLensNamed={onLensNamed} />)
 
@@ -54,6 +61,21 @@ describe('InspectLensBodyPanel — name-body callback (audit #3)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
 
     await waitFor(() => expect(onLensNamed).toHaveBeenCalled())
-    expect(onLensNamed).toHaveBeenCalledWith('BODY-REAL', true)
+    expect(onLensNamed).toHaveBeenCalledWith('BODY-REAL', false)
+    // nameBody is called with the existingLensId as the body_id argument.
+    expect(geo.nameBody).toHaveBeenCalledWith('p1', 'm1', 'BODY-REAL', expect.objectContaining({ name: 'My lens' }))
+  })
+
+  it('shows an error when existingLensId is null (resolver not yet run)', async () => {
+    render(<InspectLensBodyPanel {...baseProps} existingLensId={null} target={target} />)
+    fireEvent.change(screen.getByPlaceholderText(/Boom Klei lens/i), {
+      target: { value: 'My lens' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Body not yet resolved/i)).toBeInTheDocument(),
+    )
+    expect(geo.nameBody).not.toHaveBeenCalled()
   })
 })

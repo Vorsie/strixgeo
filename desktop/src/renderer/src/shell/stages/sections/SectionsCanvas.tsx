@@ -44,7 +44,6 @@ import CompanionOfferDialog from '../../../components/sections/CompanionOfferDia
 import NameBodyDialog from '../../../components/sections/NameBodyDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
-import { ProvenanceViolationError } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -730,122 +729,6 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   // Body context menu handlers — wired from BodyContextMenu via SectionPanel.
-
-  // Open-end a litho LAYER from its contact right-click (replaces the retired
-  // TIN-gated "Extrapolate pinch-out"). Claims an ``open`` body extent on the
-  // body that frames this layer. The resolver owns body creation, so a body
-  // exists for every accepted unit.
-  //
-  // Site 788 fix: the right-clicked contact id shares the UUID of the litho
-  // layer at its top boundary (lithoLayerToContact — A2.5 UUID-preserving
-  // backfill), so we read litho_layer.body_id off that layer. This
-  // disambiguates two stacked same-formation instances on one column — the old
-  // (formation_id, source_investigation_id) match picked the first such body
-  // and could not tell stacked instances apart.
-  const handleOpenEndLayer = useCallback(
-    async (
-      contactId: string,
-      formationId: string,
-      investigationId: string,
-      side: 'left' | 'right',
-    ): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info(
-        'section',
-        `open-end-layer: contact=${contactId} formation=${formationId} inv=${investigationId} side=${side}`,
-      )
-      // The contact id == the litho layer id at its top boundary; read body_id
-      // off that layer (resolved by the resolver on every accept/rebuild).
-      const layer = lithoLayers.find(l => l.id === contactId)
-      const bodyId = layer?.body_id ?? null
-      if (!bodyId) {
-        log.warn(
-          'section',
-          `open-end-layer: no body_id on layer ${contactId} — resolve/rebuild first`,
-        )
-        toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
-        return
-      }
-      try {
-        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          body_id: bodyId,
-          side,
-          kind: 'open',
-          // The clicked contact id IS the litho layer id (A2.5 UUID-preserving
-          // backfill) — anchor the cap to exactly the layer the user
-          // open-ended, so the renderer frames it at THIS column + depths and
-          // it survives a resolver re-run (debt #195).
-          anchor_layer_id: contactId,
-        })
-        void refetchLensData()
-        toast('success', `Layer open-ended ${side === 'left' ? '←' : '→'}`)
-      } catch (err) {
-        if (err instanceof ProvenanceViolationError) {
-          toast('error', `That side already has an extent — clear it first.`)
-        } else {
-          toast('error', 'Failed to open-end layer.')
-        }
-        log.warn('section', 'handleOpenEndLayer: failed', err)
-      }
-    },
-    [activeLithoModel, project.id, lithoLayers, refetchLensData, toast],
-  )
-
-  // Pinch out a litho LAYER from its contact right-click — the body wedges out
-  // to the neighbouring column (claims a 'pinch_out_halfway' body extent).
-  // Parallel to handleOpenEndLayer, but pinch needs the neighbour the body
-  // pinches toward (resolved by SectionPanel, which holds the placed columns).
-  const handlePinchOutLayer = useCallback(
-    async (
-      contactId: string,
-      formationId: string,
-      investigationId: string,
-      side: 'left' | 'right',
-      neighbourInvId: string | null,
-    ): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info(
-        'section',
-        `pinch-out-layer: contact=${contactId} formation=${formationId} inv=${investigationId} side=${side} neighbour=${neighbourInvId ?? 'none'}`,
-      )
-      // A pinch-out needs a column to wedge out toward; at the section edge
-      // there is none — guide to open-end rather than failing with a 422.
-      if (!neighbourInvId) {
-        toast(
-          'error',
-          'No neighbouring column on this side to pinch out toward — use Open-end instead.',
-        )
-        return
-      }
-      const layer = lithoLayers.find(l => l.id === contactId)
-      const bodyId = layer?.body_id ?? null
-      if (!bodyId) {
-        toast('error', 'This unit has no resolved body yet — rebuild/resolve first.')
-        return
-      }
-      try {
-        await api.geology.claimBodyExtent(project.id, activeLithoModel.id, {
-          body_id: bodyId,
-          side,
-          kind: 'pinch_out_halfway',
-          // Anchor the cap to exactly the layer the user pinched (the clicked
-          // contact id IS the litho layer id), so it frames at THIS column.
-          anchor_layer_id: contactId,
-          neighbour_inv_id: neighbourInvId,
-        })
-        void refetchLensData()
-        toast('success', `Layer pinched out ${side === 'left' ? '←' : '→'}`)
-      } catch (err) {
-        if (err instanceof ProvenanceViolationError) {
-          toast('error', `That side already has an extent — clear it first.`)
-        } else {
-          toast('error', 'Failed to pinch out layer.')
-        }
-        log.warn('section', 'handlePinchOutLayer: failed', err)
-      }
-    },
-    [activeLithoModel, project.id, lithoLayers, refetchLensData, toast],
-  )
 
   // Name a body via a native prompt (quick path; full rename in the
   // InspectLensBodyPanel).
@@ -2150,10 +2033,6 @@ export default function SectionsCanvas(): JSX.Element {
           onDeleteContact={handleDeleteContact}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
-          // Open-end a litho layer (right-click contact → "Open-end layer →/←").
-          // Litho axis only — bodies are a litho primitive.
-          onOpenEndLayer={isLitho ? handleOpenEndLayer : undefined}
-          onPinchOutLayer={isLitho ? handlePinchOutLayer : undefined}
           onBatchUpdateContacts={handleBatchUpdateContacts}
           onBatchCreateContacts={sectionAwareBatchCreateContacts}
           // Seed from stratigraphy: only available on the geological axis

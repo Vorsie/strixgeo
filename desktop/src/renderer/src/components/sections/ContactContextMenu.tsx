@@ -26,8 +26,8 @@ import ContextMenu from '../ui/ContextMenu'
  * onEditInGeologyStage
  *     Fired when the user picks "Edit in Geology stage" — only wired for
  *     REFERENCE (geological backdrop) contacts on the litho axis.  When
- *     present, Delete and Pinch-out are suppressed (those belong on the
- *     geological axis).  When absent the item is hidden.
+ *     present, Delete is suppressed (those belong on the geological axis).
+ *     When absent the item is hidden.
  * onDelete
  *     Fired when the user picks "Delete contact".  When absent the item is
  *     hidden.  The handler must gate the irreversible action via a styled
@@ -43,13 +43,6 @@ import ContextMenu from '../ui/ContextMenu'
  *     contact is NOT coupled (``parent_geo_contact_id == null``).  Establishes
  *     the coupling to the nearest geological contact within snap tolerance.
  *     When absent the item is hidden.
- * onOpenEnd
- *     Fired when the user picks "Open-end layer →/←" — claims an ``open``
- *     body extent toward ``side`` (TIN-free).  When absent the items are hidden.
- * onPinchOut
- *     Fired when the user picks "Pinch out layer →/←" — claims a
- *     ``pinch_out_halfway`` body extent toward ``side``.  When absent the
- *     items are hidden.
  * onClose
  *     Fired on click-outside or Esc — closes the menu.
  */
@@ -61,8 +54,6 @@ export interface ContactContextMenuProps {
   onDelete?: () => void
   onUnlinkLithoFromGeo?: () => void
   onLinkLithoToGeo?: () => void
-  onOpenEnd?: (side: 'left' | 'right') => void
-  onPinchOut?: (side: 'left' | 'right') => void
   onClose: () => void
 }
 
@@ -81,13 +72,15 @@ export interface ContactContextMenuProps {
  *     Shown as the menu subtitle for unambiguous context.
  * onEditInGeologyStage
  *     Optional — shows the "Edit in Geology stage" item (reference
- *     contacts on the litho axis).  Suppresses Delete + Pinch-out
- *     when present.
+ *     contacts on the litho axis).  Suppresses Delete when present.
  * onDelete
  *     Optional — shows the "Delete contact" item.
- * onPinchOut
- *     Optional — shows the "Pinch out layer →/←" items (claims a
- *     ``pinch_out_halfway`` body extent toward the neighbouring column).
+ * onUnlinkLithoFromGeo
+ *     Optional — shows the "Unlink from geology" item when the contact
+ *     is coupled (``parent_geo_contact_id != null``).
+ * onLinkLithoToGeo
+ *     Optional — shows the "Link to geology" item when the contact is
+ *     NOT coupled (``parent_geo_contact_id == null``).
  * onClose
  *     Dismisses the menu on click-outside or Esc.
  *
@@ -104,8 +97,6 @@ export default function ContactContextMenu({
   onDelete,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
-  onOpenEnd,
-  onPinchOut,
   onClose,
 }: ContactContextMenuProps): JSX.Element {
   return (
@@ -122,26 +113,6 @@ export default function ContactContextMenu({
           label: 'Edit in Geology stage',
           onClick: onEditInGeologyStage,
           testid: 'geo-deep-link-menu-item',
-        },
-        onOpenEnd && {
-          label: 'Open-end layer →',
-          onClick: () => onOpenEnd('right'),
-          testid: 'open-end-layer-right',
-        },
-        onOpenEnd && {
-          label: 'Open-end layer ←',
-          onClick: () => onOpenEnd('left'),
-          testid: 'open-end-layer-left',
-        },
-        onPinchOut && {
-          label: 'Pinch out layer →',
-          onClick: () => onPinchOut('right'),
-          testid: 'pinch-out-layer-right',
-        },
-        onPinchOut && {
-          label: 'Pinch out layer ←',
-          onClick: () => onPinchOut('left'),
-          testid: 'pinch-out-layer-left',
         },
         onLinkLithoToGeo && {
           label: 'Link to geology',

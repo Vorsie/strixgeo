@@ -78,7 +78,6 @@ vi.mock('../../../api/client', async () => {
           skipped_unfinished_section: 0,
           errored: 0,
         }),
-        claimBodyExtent: vi.fn().mockResolvedValue({}),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),

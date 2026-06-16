@@ -534,7 +534,7 @@ describe('SectionPanel — lens gesture prop contract', () => {
   it('renders without error when activeLithoModelId is provided with empty contacts', () => {
     // Position 4: the lens gesture no longer uses onLensCreated (Approach-C).
     // activeLithoModelId is still threaded so context-menu items can scope
-    // the nameLensBody call correctly even when contacts is empty.
+    // the nameBody call correctly even when contacts is empty.
     expect(() =>
       render(
         <SectionPanel
