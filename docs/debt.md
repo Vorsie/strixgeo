@@ -86,7 +86,7 @@ subdivision is built on top of it. Priority order:
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #219 *(#214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2)*
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213 *(#214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4)*
 
@@ -5565,7 +5565,11 @@ termination, (b) risks duplicate layers the CHECK constraint won't catch.
 **When to revisit.** Quick win when either file is next touched. Use a half-mm epsilon
 (0.0005 m) / mm-rounded comparison / `BETWEEN ±ε`.
 
-## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S)
+## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S) — MOSTLY RESOLVED
+
+**RESOLVED 2026-06-16 (most items).** GitHub Actions SHA-pinned (checkout/setup-uv/setup-python/setup-node → full commit SHAs with `# vN` comments); `postgis/postgis:16-3.4` digest-pinned in `docker-compose.yml`; wide upper bounds added on polars/scipy/sqlalchemy (`<2`/`<2`/`<3`) so `uv lock --upgrade` can't pull a breaking major; a non-blocking `npm audit --audit-level=high` CI step added. **Verify-items closed:** `python-multipart>=0.0.27` is the CVE-fixed floor (fine); the flagged `lodash@4.18.1` is **legitimate** — verified against the npm registry it's a real new release by `jdalton` (the lodash author) with `dist-tags.latest`, not a typosquat (lodash's first publish since 4.17.21 in 2021, which is why the audit flagged it as "not in known history").
+
+**STILL OPEN (deferred):** the deprecated electron-builder transitives (`glob@7`/`rimraf@2`/`inflight@1`) — forcing `overrides` on a build tool's deps can break packaging and can't be verified without a full `electron-builder` run, so deferred to the installer work (#6) where a real package build validates it. The CI `pip-audit` + lockfile-drift check also deferred (needs a tooling decision: pip-audit isn't bundled with uv) and the future installer's `uv sync --no-group dev` is an #6 concern.
 
 *(audit: DEP-03/04/06/10/12, DEP-05/11 — Low/verify)*
 
