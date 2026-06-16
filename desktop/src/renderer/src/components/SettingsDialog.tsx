@@ -198,6 +198,8 @@ function LithoSection({
   const snapBounds = LITHO_SEGMENTER_BOUNDS.lithoSnapToleranceM
   const autoCorrBounds = LITHO_SEGMENTER_BOUNDS.autoCorrelateDepthWindowM
   const openLenBounds = LITHO_SEGMENTER_BOUNDS.openExtentLengthM
+  const voxelHBounds = LITHO_SEGMENTER_BOUNDS.voxelHorizontalSpacingM
+  const voxelVBounds = LITHO_SEGMENTER_BOUNDS.voxelVerticalSpacingM
 
   const thicknessValid =
     Number.isFinite(draft.minimumLayerThicknessM) &&
@@ -223,13 +225,23 @@ function LithoSection({
     Number.isFinite(draft.openExtentLengthM) &&
     draft.openExtentLengthM >= openLenBounds.min &&
     draft.openExtentLengthM <= openLenBounds.max
+  const voxelHValid =
+    Number.isFinite(draft.voxelHorizontalSpacingM) &&
+    draft.voxelHorizontalSpacingM >= voxelHBounds.min &&
+    draft.voxelHorizontalSpacingM <= voxelHBounds.max
+  const voxelVValid =
+    Number.isFinite(draft.voxelVerticalSpacingM) &&
+    draft.voxelVerticalSpacingM >= voxelVBounds.min &&
+    draft.voxelVerticalSpacingM <= voxelVBounds.max
   const allValid =
     thicknessValid &&
     gunsatValid &&
     drValid &&
     snapValid &&
     autoCorrValid &&
-    openLenValid
+    openLenValid &&
+    voxelHValid &&
+    voxelVValid
 
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
@@ -240,7 +252,9 @@ function LithoSection({
     draft.lithoSnapToleranceM !== initial.lithoSnapToleranceM ||
     draft.autoCorrelateDepthWindowM !== initial.autoCorrelateDepthWindowM ||
     draft.openExtentLengthM !== initial.openExtentLengthM ||
-    draft.sectionFillAtSectionLine !== initial.sectionFillAtSectionLine
+    draft.sectionFillAtSectionLine !== initial.sectionFillAtSectionLine ||
+    draft.voxelHorizontalSpacingM !== initial.voxelHorizontalSpacingM ||
+    draft.voxelVerticalSpacingM !== initial.voxelVerticalSpacingM
 
   return (
     <SectionShell
@@ -353,6 +367,48 @@ function LithoSection({
         unit="m"
         disabled={!hasProject}
         invalid={!openLenValid}
+      />
+
+      {/* Voxel size — the cell dimensions the "Build model" voxel builder labels
+          space at. A separate X/Y vs Z knob because geology is thin-layered
+          vertically: a fine Z over a coarse X/Y catches thin layers without
+          exploding the map-plane voxel count. */}
+      <div className="pt-1">
+        <h4 className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide">
+          Voxel size
+        </h4>
+        <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+          Cell dimensions used by the Lithology stage "Build model" button to
+          label 3-D space from the cross-section partitions.
+        </p>
+      </div>
+      <NumberRow
+        id="settings-voxel-horizontal"
+        label="Horizontal cell (X/Y) (m)"
+        hint={`Map-plane (easting/northing) voxel size. Geology varies slowly horizontally, so this can stay coarse. Smaller values sharpen lateral body edges at a quadratic cost in voxel count. Range ${voxelHBounds.min}–${voxelHBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM} m.`}
+        value={draft.voxelHorizontalSpacingM}
+        onChange={v => setDraft({ ...draft, voxelHorizontalSpacingM: v })}
+        bounds={voxelHBounds}
+        sliderMin={voxelHBounds.min}
+        sliderMax={voxelHBounds.max}
+        step={0.5}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!voxelHValid}
+      />
+      <NumberRow
+        id="settings-voxel-vertical"
+        label="Vertical cell (Z) (m)"
+        hint={`Elevation voxel size. Fine Z catches thin layers — a peat drape or sand lens — that a coarse grid would miss. But it multiplies build time: 0.5 m is roughly 4× the voxels (and minutes of build) versus a cubic 2 m grid, so reach for it only when thin layers matter. Range ${voxelVBounds.min}–${voxelVBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM} m.`}
+        value={draft.voxelVerticalSpacingM}
+        onChange={v => setDraft({ ...draft, voxelVerticalSpacingM: v })}
+        bounds={voxelVBounds}
+        sliderMin={voxelVBounds.min}
+        sliderMax={voxelVBounds.max}
+        step={0.25}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!voxelVValid}
       />
 
       <SectionFooter
