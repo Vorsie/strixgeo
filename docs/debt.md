@@ -78,9 +78,9 @@ subdivision is built on top of it. Priority order:
 
 * **#157** — thin slivers in accepted litho from straddle-split at geo boundaries (likely same root as #149; snap litho→geo + min-sliver-thickness guard — owner dogfeed 2026-05-28)
 * **#159** — drag-lock after deleting an accepted litho unit (can't drag the lower contact up into the freed space; #138/#99 family — owner dogfeed 2026-05-28)
-* **#207** — dead body-extent gestures ("Open end"/"Pinch out"/"Name body") 404 against the deleted endpoint (audit 2026-06-13, coworker-binary blocker — frontend, S)
-* **#208** — `seeded_formation_contact_ids` lost-update race on concurrent accept → accepted contacts silently vanish (audit 2026-06-13 — backend, M)
-* **#209** — section-fill geometry recomputes on every pan/zoom frame (audit 2026-06-13; write the regression test first — frontend, M)
+* **#207** — RESOLVED 2026-06-16 (rewired the lens-inspector "Name this body" save to PATCH `/bodies/{bodyId}` via `nameBody`; deleted the dead "Open end"/"Pinch out" gestures, `claimBodyExtent`, `ProvenanceViolationError`, and their prop chain through SectionPanel / ContactsLayer / context menu — all of which 404'd silently against the 2026-06-06-retired bodies POST)
+* **#208** — RESOLVED 2026-06-16 (`pg_advisory_xact_lock(hashtext(section_id))` across the read-union-write of `seeded_formation_contact_ids` in `CrossSectionRepository`, mirroring `SaveBodyBoundary`; concurrent-accept integration test pins no ids lost)
+* **#209** — RESOLVED 2026-06-16 (split `PartitionFillOverlay`'s single screenRegions memo into a data-keyed `computeSectionFill` memo + a cheap transform-keyed pixel-projection memo, so the LCS engine no longer re-runs on pan/zoom; TEST-04 call-count regression test written first, red→green)
 
 * **2026-05-29 dogfeed batch — RESOLVED (section rendering + auto-correlate + lens cleanup).** A long dogfeed thread; all shipped to `develop` on 2026-05-29. (a) **Section surface through picks** — `surfaceThroughPicks` on ContactsLayer draws the active formation surface as a chord through the user's *placed* contacts, not a TIN slice along the section line (which sat ~1 m below for off-line investigations because the slice samples at the line, not at the borehole); SectionPanel passes it for the active surface on all three views (backdrop already did this via `referenceContacts`). (b) **Section-order auto-correlate adjacency** — `AutoCorrelateContactEdges` gains `section_id`; adjacency = consecutive in-corridor columns along the section, not the model-wide map-plane relative-neighbourhood graph (which crossed intervening columns for off-line tests → "spaghetti" on the section). Domain `auto_correlate_contact_edges(adjacency=…)` override; the toolbar passes the active section; no section → RNG fallback. (c) **Lithology-only correlation grouping** — the grouping key dropped from `(parent, above, below)` to `litho_main_soil_code` alone; same-lithology contacts correlate in depth order via adjacency + depth-window + MNN. The old triple blocked obvious correlations whenever a column had a boundary-edge parent mis-assignment or one extra interbed (different below-code). (d) **Full-band correlate hit target + void-clear** — the correlate hit-rect is sized to the whole band (click the band body, not just the thin boundary line); a click in the void clears the armed source (reuses SectionPanel's pan-safe background-click hook). (e) **Lens degeneracy guard** — `detect_lenses_from_graph(max_lens_thickness_m)` rejects a lens body thicker than the cap (a near-whole-column "lens" born from a loose correlation); `DetectLithoLenses` reads it from `view_state.litho_segmenter.max_lens_thickness_m` (0 = off, default 5 m) — Settings → Litho segmenter → "Lens max thickness (m)". Existing spurious lenses reconcile away on the next correlate. (f) **Delete-lens gesture** — right-click a wedge → confirm → dissolves the lens by deleting its two defining edges (above↔target, below↔target); the detector then reconciles the row away (the metadata-only DELETE endpoint would have left the body in the graph). (g) **Lens-candidate marking** — an *enclosed* contact correlating to neither neighbour gets an amber diamond in correlate mode (the "no-target middle layer" → pinch out, don't correlate). **Interim:** marking only; a one-click candidate→pinch-out conversion + two-sided lens geometry stay future work (the latter is the Phase-5 #101 / interfingering carve-out). **Watch item:** lithology-only grouping can pair same-lithology beds across a formation boundary when depth coincides — bounded by adjacency + depth-window + MNN; revisit if a wrong correlation surfaces.
 
@@ -5288,6 +5288,8 @@ Numbering continues from #206. New items: **#207–#219**.
 
 ## 207. Dead body-extent gestures 404 against a deleted endpoint (Tier G — frontend, S)
 
+**RESOLVED 2026-06-16.** Rewired "Name this body" to `nameBody` → PATCH `/bodies/{bodyId}` (with a null-body guard); deleted `handleOpenEndLayer` / `handlePinchOutLayer` / `claimBodyExtent` / `ProvenanceViolationError` + their prop chain (SectionPanel / ContactsLayer / ContactContextMenu) and the stale test mock. tsc clean, 1733 vitest pass, zero dangling references.
+
 *(audit: DEAD-01/02/03, ARCH-01 — High; coworker-binary blocker)*
 
 **What.** The body-extent system was retired 2026-06-06, but three live frontend
@@ -5315,6 +5317,8 @@ dead-code sweep if not done sooner.)
 
 ## 208. `seeded_formation_contact_ids` lost-update race on concurrent accept (Tier G — backend, M)
 
+**RESOLVED 2026-06-16.** `CrossSectionRepository.union_seeded_contact_ids` now takes `pg_advisory_xact_lock(hashtext(str(section_id)))` before the read-union-write, serialising concurrent writers on the same section (releases at COMMIT/ROLLBACK; different sections never block; read paths untouched). Mirrors `SaveBodyBoundary`. New integration test (`test_seeded_contact_ids_race.py`) `asyncio.gather`s two accepts and asserts no ids lost — red→green confirmed against the live Docker DB.
+
 *(audit: COR-02 — High)*
 
 **What.** `CrossSectionRepository` (`cross_section_repository.py:177–180`) does a
@@ -5336,6 +5340,8 @@ read-modify-write. Gate with a concurrent-accept integration test (the COR-02 /
 TEST-05 pattern: two `asyncio.gather`'d accepts, assert no ids lost).
 
 ## 209. Section-fill geometry recomputes on every pan/zoom frame (Tier G — frontend, M)
+
+**RESOLVED 2026-06-16.** Split `PartitionFillOverlay.screenRegions` into a data-keyed `sectionFillData` memo (calls `computeSectionFill`, depends on partition data only — not the screen transform) + a cheap transform-keyed `screenRegions` memo that projects the cached geometry to pixels. A pan/zoom that changes only `levelToScreen`/`plotTop`/`plotBottom` no longer re-runs the LCS engine. Rendered geometry unchanged and still warp-aware (geometry-check exit 0). TEST-04 call-count regression test written first (red→green).
 
 *(audit: PERF-01 / ARCH-03 / TEST-04 — High)*
 
