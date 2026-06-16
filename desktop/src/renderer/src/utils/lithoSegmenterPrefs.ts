@@ -75,10 +75,11 @@ export interface LithoSegmenterPrefs {
   openExtentLengthM: number
   /** Sampling strategy for the cross-section model fill (both modes render the
    *  SAME built 3D body solids — see ``sectionFromSolids``):
-   *  - ``false`` (default): sample each body solid with a vertical ray at every
-   *    test's (x,y), so the fill is anchored to where the data actually is.
-   *  - ``true``: slice the body solids with the vertical section plane, giving a
-   *    continuous cut between tests. */
+   *  - ``true`` (default): slice the body solids with the vertical section
+   *    plane, giving a continuous cut of the model along the section line.
+   *  - ``false``: sample each body solid with a vertical ray at every test's
+   *    (x,y) and draw a fixed-width strip there — the model's ground truth AT
+   *    each data location (no between-test interpolation). */
   sectionFillAtSectionLine: boolean
   /** Horizontal (X/Y, map-plane) voxel cell size in metres for the voxel litho
    *  builder ("Build model"). Coarser X/Y keeps the voxel count down; geology is
@@ -101,7 +102,7 @@ export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   lithoSnapToleranceM: 0.20,
   autoCorrelateDepthWindowM: 0.5,
   openExtentLengthM: 3.0,
-  sectionFillAtSectionLine: false,
+  sectionFillAtSectionLine: true,
   voxelHorizontalSpacingM: 2.0,
   voxelVerticalSpacingM: 1.0,
 }
@@ -191,8 +192,8 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.openExtentLengthM,
       LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
     ),
-    // Boolean — missing/undefined defaults to false (sample at test locations).
-    // Only an explicit true selects the section-line slice of the body solids.
+    // Boolean — missing/undefined defaults to true (section-line slice of the
+    // body solids). Only an explicit false selects per-test ray sampling.
     sectionFillAtSectionLine:
       typeof dict.section_fill_at_section_line === 'boolean'
         ? dict.section_fill_at_section_line

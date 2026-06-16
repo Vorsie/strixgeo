@@ -390,16 +390,16 @@ describe('readLithoSegmenterPrefs — openExtentLengthM field', () => {
 })
 
 describe('readLithoSegmenterPrefs — sectionFillAtSectionLine field', () => {
-  it('defaults sectionFillAtSectionLine to false (test locations)', () => {
-    expect(readLithoSegmenterPrefs(null).sectionFillAtSectionLine).toBe(false)
+  it('defaults sectionFillAtSectionLine to true (section-plane slice)', () => {
+    expect(readLithoSegmenterPrefs(null).sectionFillAtSectionLine).toBe(true)
   })
-  it('reads explicit section_fill_at_section_line=true', () => {
-    const vs = { litho_segmenter: { section_fill_at_section_line: true } }
-    expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(true)
-  })
-  it('defaults sectionFillAtSectionLine to false when stored as a non-boolean', () => {
-    const vs = { litho_segmenter: { section_fill_at_section_line: 'yes' } }
+  it('reads explicit section_fill_at_section_line=false (per-test sampling)', () => {
+    const vs = { litho_segmenter: { section_fill_at_section_line: false } }
     expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(false)
+  })
+  it('defaults sectionFillAtSectionLine to true when stored as a non-boolean', () => {
+    const vs = { litho_segmenter: { section_fill_at_section_line: 'yes' } }
+    expect(readLithoSegmenterPrefs(vs).sectionFillAtSectionLine).toBe(true)
   })
   it('round-trips sectionFillAtSectionLine through the patch', () => {
     const prefs = { ...LITHO_SEGMENTER_DEFAULTS, sectionFillAtSectionLine: true }

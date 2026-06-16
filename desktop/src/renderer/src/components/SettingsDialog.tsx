@@ -321,7 +321,7 @@ function LithoSection({
       <CheckboxRow
         id="settings-section-fill-at-section-line"
         label="Section fill at section line"
-        hint="Off = sample at each test location (default); On = slice the body solids at the section line."
+        hint="On = slice the body solids at the section line (default, continuous); Off = sample the model at each test location (a strip per test, ground truth)."
         checked={draft.sectionFillAtSectionLine}
         onChange={v => setDraft({ ...draft, sectionFillAtSectionLine: v })}
         disabled={!hasProject}
