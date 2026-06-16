@@ -19,22 +19,32 @@ export interface PopupProps {
  * or, if there is no parent layer, open it standalone at `position` on the map.
  * React children render into the popup element through a portal.
  *
+ * Leaflet option props (position/maxWidth/minWidth/autoPan/closeButton/className)
+ * are read once at mount; changing them later does not rebind the popup — only
+ * the portalled children update, not the options — so a changed option requires
+ * remounting the component (e.g. via a `key` change).
+ *
  * @param props - Popup options, optional standalone `position`, and React children.
  * @returns A React portal rendering children into the Leaflet popup element.
  */
 export function Popup({ children, position, ...options }: PopupProps): ReactPortal {
   const ctx = useStreafletContext()
-  const elRef = useRef<HTMLDivElement>(document.createElement('div'))
+  // Lazy-init the portal div: allocate it on the first render only, not on every
+  // render (a plain `useRef(document.createElement('div'))` evaluates createElement
+  // each render and discards all but the first — needless DOM churn).
+  const elRef = useRef<HTMLDivElement | null>(null)
+  if (elRef.current === null) elRef.current = document.createElement('div')
+  const el = elRef.current
 
   useEffect(() => {
     const layer = ctx.parentLayer
     if (layer && typeof (layer as L.Marker).bindPopup === 'function') {
-      ;(layer as L.Marker).bindPopup(elRef.current, options)
+      ;(layer as L.Marker).bindPopup(el, options)
       return () => {
         ;(layer as L.Marker).unbindPopup()
       }
     }
-    const popup = L.popup(options).setContent(elRef.current)
+    const popup = L.popup(options).setContent(el)
     if (position) popup.setLatLng(position).openOn(ctx.map)
     return () => {
       ctx.map.closePopup(popup)
@@ -45,5 +55,5 @@ export function Popup({ children, position, ...options }: PopupProps): ReactPort
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.parentLayer])
 
-  return createPortal(children, elRef.current)
+  return createPortal(children, el)
 }
