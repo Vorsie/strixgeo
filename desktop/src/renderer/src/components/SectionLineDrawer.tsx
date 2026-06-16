@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useMap } from '@/lib/streaflet'
+import { useMap } from '../lib/streaflet'
 import L from 'leaflet'
 
 interface Props {
