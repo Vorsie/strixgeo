@@ -1009,15 +1009,27 @@ def _honored_column_labels(
     obs_top = max(top for _bid, _fid, top, _base in inv.intervals)
     obs_base = min(base for _bid, _fid, _top, base in inv.intervals)
     # Within the observed range, override each voxel with its OWN log interval.
-    # The log intervals are a contiguous partition top→bottom; reuse the same
-    # searchsorted scheme over the log's own boundary edges.
+    # The log intervals need NOT be a contiguous partition: an unlogged interval
+    # between two observed units (a body-unassigned / rejected layer that
+    # ``load_body_picks`` drops) leaves a genuine vertical gap.  Label with the
+    # gap-aware ``_column_labels_gapped`` so a gap voxel stays ``-1`` (it is
+    # claimed by no observed interval) and the ``log_col >= 0`` guard in the
+    # ``in_log`` mask leaves it to the blend — the unlogged depth defers to the
+    # section fill instead of one bounding unit bridging across it.  For a
+    # CONTIGUOUS log (the normal case) ``_column_labels_gapped`` is byte-
+    # identical to ``_column_labels`` (same half-open ``[base, top)`` contact
+    # rule), so the honor of an observed log is unchanged.
     log_stack = [_Entry(bid, fid, top, base) for bid, fid, top, base in inv.intervals]
     log_stack.sort(key=lambda e: -e.top_elev)
-    log_col = _column_labels(log_stack, gz, body_index, none_body_ids)
+    log_col = _column_labels_gapped(log_stack, gz, body_index, none_body_ids)
 
-    # Override only the voxels strictly within the observed depth range — the
-    # half-open ``[obs_base, obs_top)`` plus the inclusive base so the deepest
-    # logged voxel is honored; above obs_top and below obs_base keep the blend.
+    # Override only the voxels within the observed depth range that an observed
+    # interval actually claims.  The window is ``[obs_base, obs_top]`` — the log
+    # wins through ``obs_top`` inclusive (the ``+ _EPS`` is the grid-node guard
+    # so a node sitting exactly on the observed top is honored, not a half-open
+    # exclusion of it) and through ``obs_base`` inclusive (its ``- _EPS`` guard).
+    # The ``log_col >= 0`` guard excludes any voxel inside an unlogged gap, so a
+    # gap defers to the already-placed blend.
     in_log = (gz >= obs_base - _EPS) & (gz < obs_top + _EPS) & (log_col >= 0)
     col[in_log] = log_col[in_log]
     return col

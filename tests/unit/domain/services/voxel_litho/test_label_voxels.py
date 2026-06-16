@@ -677,3 +677,110 @@ def test_empty_geo_surfaces_is_byte_identical_to_the_unbounded_blend():
 
     assert np.array_equal(grid_default.labels, grid_empty.labels)
     assert grid_default.body_id_by_index == grid_empty.body_id_by_index
+
+
+# ---------------------------------------------------------------------------
+# Honor-borehole + gapped log: an investigation whose observed log has an
+# UNLOGGED interval between two observed units must defer that interval to the
+# section fill (the blend), NOT bridge it with one of the observed bodies.
+# ---------------------------------------------------------------------------
+
+
+def test_honored_gapped_log_defers_the_unlogged_interval_to_the_blend():
+    """An UNLOGGED interval between two observed units takes the blend, not a bridge.
+
+    A borehole observes ZAND from the surface (+10) down to +4, then nothing
+    from +4 down to -4 (an unlogged interval — the layer there was rejected /
+    body-unassigned, so it is absent from the log), then KLEI from -4 to -10.
+    The honored column must reproduce the OBSERVED units where they exist and
+    DEFER the unlogged middle interval to the section fill.  The surrounding
+    sections read SAND in that middle band (the lens fixture: KLEI / SAND /
+    KLEI on A), so the unlogged gap must read the blend's SAND there — NOT a
+    bridge of the borehole's own ZAND-on-top or KLEI-below across the gap.
+
+    Geologically: a borehole that did not observe the interfingered SAND
+    (because that interval was not accepted) should let the cross-section fill
+    speak for the unlogged depth, not stretch its own bounding units to cover
+    it.
+    """
+    domain = _domain_for_two_sections()
+    # Surrounding sections are the KLEI / SAND-lens / KLEI fixture: the blend at
+    # the midline (y=20) carries the one-sided SAND lens, which pinches toward
+    # zero AT the exact midline.  Put the borehole nearer A (y=8) where the SAND
+    # lens is genuinely present in the blend (the midline-pinch leaves it spanning
+    # roughly +6.4 → +1.6 there) — that is the litho the unlogged gap must defer
+    # to.  The borehole's unlogged interval +7 → +1 overlaps that blend SAND band,
+    # so an elevation inside it (+4) must read SAND, not a bridge of ZAND/KLEI.
+    bh = InvestigationColumn(
+        investigation_id="BH-gapped",
+        world_x=40.0,
+        world_y=8.0,
+        # ZAND +10 → +7, UNLOGGED +7 → +1, KLEI +1 → -10 (two non-adjacent units).
+        intervals=(
+            ("bodyZandTop", _ZAND, 10.0, 7.0),
+            ("bodyKleiBot", _KLEI, 1.0, -10.0),
+        ),
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        [_section_a(), _section_b()],
+        investigation_columns=(bh,),
+    )
+
+    # Inside the unlogged interval, where the blend carries the SAND lens (+4):
+    # must read the blend's SAND, proving the log did NOT bridge the gap with its
+    # own bounding ZAND/KLEI.
+    assert _formation_at(grid, x=40.0, y=8.0, elev=4.0) == _SAND
+    # The observed units are honored where they exist: ZAND on top, KLEI below.
+    assert _formation_at(grid, x=40.0, y=8.0, elev=8.0) == _ZAND
+    assert _formation_at(grid, x=40.0, y=8.0, elev=-7.0) == _KLEI
+
+
+def test_shallow_honored_log_over_a_geo_band_fills_below_td_with_band_litho():
+    """A shallow honored log over a geo-band reads OWN log on top, band fill below TD.
+
+    The combined honor + geology path: a SHALLOW borehole (logged only the top
+    band) sits at a column where the geology-bounded fill must draw the deeper
+    geological band's lithology sideways from the section that reaches it.
+
+    Two sections share a geological surface at -5 m.  The DEEP section (y=0)
+    carries ZAND over KLEI (reaching both bands); the SHALLOW section (y=40)
+    carries ZAND only, stopping above the surface.  A borehole at the midline
+    (y=20) observes ZAND only in the UPPER band (+12 → -1) — it never reaches
+    the lower band.  Honoring must:
+      (a) within the log range read the borehole's OWN ZAND, and
+      (b) BELOW the log's TD the LOWER geological band fills with the deep
+          section's KLEI (the band-scoped sideways fill) — NOT void, and NOT
+          the borehole's own deepest unit (ZAND) pushed down past its TD.
+
+    This exercises ``_column_labels_gapped`` as the honor fallback on the geo
+    path: the band-scoped column stack feeds the fallback, so the below-log
+    fill is the deeper band's litho, bounded by the geological surface.
+    """
+    domain = _domain_for_two_sections()
+    sections = [
+        _section_deep_zand_over_klei(0.0, "D"),
+        _section_shallow_zand_only(40.0, "S", base_elev=-1.0),
+    ]
+    surfaces = (_flat_geo_surface(-5.0),)
+    bh = InvestigationColumn(
+        investigation_id="BH-shallow-over-band",
+        world_x=40.0,
+        world_y=20.0,
+        # Observed ZAND only in the upper band (+12 down to -1); nothing below.
+        intervals=(("zandShallowOwn", _ZAND, 12.0, -1.0),),
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        sections,
+        geo_surfaces=surfaces,
+        investigation_columns=(bh,),
+    )
+
+    # (a) Within the log range: the borehole's OWN ZAND on top.
+    assert _formation_at(grid, x=40.0, y=20.0, elev=5.0) == _ZAND
+    # (b) Below the log's TD, in the LOWER geological band: the deep section's
+    #     KLEI drawn sideways — not void, not the borehole's ZAND pushed down.
+    assert _formation_at(grid, x=40.0, y=20.0, elev=-10.0) == _KLEI

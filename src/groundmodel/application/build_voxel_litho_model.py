@@ -218,6 +218,12 @@ def _investigation_columns_from_picks(
     columns: list[InvestigationColumn] = []
     for inv_id in sorted(by_inv):
         inv_picks = by_inv[inv_id]
+        # Picks at one investigation are assumed depth-ordered top < base (the
+        # upstream litho-layer constraint), and may have VERTICAL GAPS — a
+        # body-unassigned / rejected layer between two accepted ones is dropped
+        # by ``load_body_picks``, so the resulting intervals are not necessarily
+        # contiguous.  The honor labeller is gap-aware (an unlogged interval
+        # defers to the section blend), so a gap here is correct, not a defect.
         # Surface + world position are per-investigation constants on every pick.
         first = inv_picks[0]
         intervals = tuple(
