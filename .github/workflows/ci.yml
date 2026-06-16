@@ -62,10 +62,10 @@ jobs:
     name: Python unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3 (SHA-pinned, #219)
         with:
           # Pin uv major-minor so future breaking changes don't
           # surprise CI. Bump explicitly when the local dev env
@@ -85,17 +85,17 @@ jobs:
     name: Desktop eslint-reason + tsc + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
 
       - name: Set up Python 3.11
         # Needed for the eslint-reason script that runs first.
         # No deps beyond stdlib so no requirements install.
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (SHA-pinned, #219)
         with:
           python-version: "3.11"
 
       - name: Set up Node 22 LTS
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (SHA-pinned, #219)
         with:
           # Node 22 LTS is load-bearing — Node 24.15 segfaults on
           # the vite/vitest static-ESM resolver path. CLAUDE.md
@@ -118,3 +118,12 @@ jobs:
       - name: Run unit tests
         working-directory: desktop
         run: npm test --silent
+
+      # Supply-chain visibility (#219). Informational only — continue-on-error
+      # so a freshly-disclosed advisory in a transitive dep never blocks a
+      # release build; the signal surfaces in the log for triage. Promote to a
+      # blocking gate once the dependency surface is actively curated.
+      - name: Audit npm dependencies (informational)
+        working-directory: desktop
+        continue-on-error: true
+        run: npm audit --audit-level=high
