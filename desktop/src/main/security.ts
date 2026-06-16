@@ -100,7 +100,7 @@ export function buildContentSecurityPolicy(isDev: boolean): string {
     "default-src 'self'",
     `script-src ${scriptSrc}`,
     // Tailwind generates utility classes at build time, but a few
-    // third-party widgets (Leaflet attribution, react-leaflet) inline
+    // third-party widgets (Leaflet attribution, the streaflet map) inline
     // style attributes. ``'unsafe-inline'`` on style-src is the
     // standard escape valve for that.
     "style-src 'self' 'unsafe-inline'",
