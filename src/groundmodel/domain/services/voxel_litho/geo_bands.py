@@ -66,6 +66,12 @@ def band_of(
     :func:`~groundmodel.domain.services.strat_field.geo_blocks._band_index`
     and accepts a tuple so callers do not need to pass a mutable list.
 
+    It evaluates each surface's TIN at ``(x, y)`` once and delegates to
+    :func:`band_of_from_elevs`.  When a caller already holds the precomputed
+    surface elevations for this column (the voxel labeller computes them once
+    per column to avoid ~12.9 M redundant TIN scans), call
+    :func:`band_of_from_elevs` directly instead.
+
     Parameters
     ----------
     surfaces : tuple of SurfaceBound
@@ -84,7 +90,34 @@ def band_of(
     int
         Zero-based band index, 0 (shallowest) … ``len(surfaces)`` (deepest).
     """
-    return sum(1 for s in surfaces if s.evaluate(x, y) > z)
+    return band_of_from_elevs(tuple(s.evaluate(x, y) for s in surfaces), z)
+
+
+def band_of_from_elevs(surf_elevs: tuple[float, ...], z: float) -> int:
+    """Return the geological band index from PRECOMPUTED surface elevations.
+
+    The precomputed-elevation variant of :func:`band_of`: it takes the surfaces'
+    already-evaluated elevations at the query ``(x, y)`` (a tuple of floats,
+    one per surface, in the surfaces' input order) instead of re-scanning each
+    TIN.  Byte-identical to :func:`band_of` when ``surf_elevs`` is built with the
+    SAME ``surface.evaluate(x, y)`` call, because the band rule is purely the
+    count of elevations strictly above ``z`` — order-independent and using the
+    identical ``>`` comparison.
+
+    Parameters
+    ----------
+    surf_elevs : tuple of float
+        The geological surfaces' elevations at the query ``(x, y)``, one per
+        surface (order irrelevant — we count, not index).  Empty → band 0.
+    z : float
+        Elevation of the query point in metres (positive upward).
+
+    Returns
+    -------
+    int
+        Zero-based band index, 0 (shallowest) … ``len(surf_elevs)`` (deepest).
+    """
+    return sum(1 for e in surf_elevs if e > z)
 
 
 def band_extent(
@@ -136,16 +169,53 @@ def band_extent(
         * ``base_elev`` is the elevation of the surface that forms the BASE
           bound of this band, or ``None`` for the deepest (open-base) band.
     """
-    # Sort surfaces shallowest-first (descending elevation) at the query point.
-    # Geological surfaces don't cross within a project hull (documented assumption),
-    # so this local sort is well-defined.
-    ordered = sorted(surfaces, key=lambda s: s.evaluate(x, y), reverse=True)
+    # Evaluate each surface once at (x, y) and delegate to the precomputed
+    # variant.  Callers that already hold the per-column elevations should call
+    # band_extent_from_elevs directly to avoid re-scanning the TINs.
+    return band_extent_from_elevs(tuple(s.evaluate(x, y) for s in surfaces), band)
+
+
+def band_extent_from_elevs(
+    surf_elevs: tuple[float, ...],
+    band: int,
+) -> tuple[float | None, float | None]:
+    """Return a geological band's ``(base_elev, top_elev)`` from PRECOMPUTED elevs.
+
+    The precomputed-elevation variant of :func:`band_extent`: it takes the
+    surfaces' already-evaluated elevations at the query ``(x, y)`` instead of
+    re-scanning each TIN.  Byte-identical to :func:`band_extent` when
+    ``surf_elevs`` is built with the SAME ``surface.evaluate(x, y)`` call:
+
+    * The descending-elevation sort is preserved exactly — ``sorted(surf_elevs,
+      reverse=True)`` reproduces ``sorted(surfaces, key=evaluate, reverse=True)``
+      on the identical float values, and Python's stable sort keeps equal
+      elevations in input order in both paths, so the bounding-pair pick is the
+      same.
+    * The open-bound (``None``) rules and the ``band-1`` / ``band`` index picks
+      are identical.
+
+    Parameters
+    ----------
+    surf_elevs : tuple of float
+        The geological surfaces' elevations at the query ``(x, y)`` (input
+        order; sorted internally).  Need not be pre-sorted.
+    band : int
+        Zero-based band index (0 = shallowest, ``len(surf_elevs)`` = deepest).
+
+    Returns
+    -------
+    tuple of (float or None, float or None)
+        ``(base_elev, top_elev)`` — see :func:`band_extent` for the convention.
+    """
+    # Sort elevations shallowest-first (descending) — the same stable sort the
+    # TIN path applies to the surfaces, on the identical float values.
+    ordered = sorted(surf_elevs, reverse=True)
 
     # top_elev: the surface ABOVE this band (index band-1 in ordered), or None.
-    top_elev: float | None = ordered[band - 1].evaluate(x, y) if band > 0 else None
+    top_elev: float | None = ordered[band - 1] if band > 0 else None
 
     # base_elev: the surface BELOW this band (index band in ordered), or None.
-    base_elev: float | None = ordered[band].evaluate(x, y) if band < len(ordered) else None
+    base_elev: float | None = ordered[band] if band < len(ordered) else None
 
     return base_elev, top_elev
 
@@ -194,10 +264,44 @@ def section_reaches_band(
         band's extent by more than ``_EPS``; False if the stack is empty or all
         intervals only touch (not overlap) the band boundary.
     """
+    return section_reaches_band_from_elevs(stack, tuple(s.evaluate(x, y) for s in surfaces), band)
+
+
+def section_reaches_band_from_elevs(
+    stack: tuple[tuple[str, str, float, float], ...],
+    surf_elevs: tuple[float, ...],
+    band: int,
+) -> bool:
+    """Return whether any interval in ``stack`` reaches the band — PRECOMPUTED elevs.
+
+    The precomputed-elevation variant of :func:`section_reaches_band`: it takes
+    the surfaces' already-evaluated elevations at the query ``(x, y)`` instead of
+    re-scanning each TIN.  Byte-identical to :func:`section_reaches_band` when
+    ``surf_elevs`` is built with the SAME ``surface.evaluate(x, y)`` call,
+    because the band extent comes from :func:`band_extent_from_elevs` (itself
+    byte-identical) and the overlap arithmetic is unchanged.
+
+    Parameters
+    ----------
+    stack : tuple of (str, str, float, float)
+        The investigation's observed body intervals — see
+        :func:`section_reaches_band`.  May be empty.
+    surf_elevs : tuple of float
+        The geological surfaces' elevations at the query ``(x, y)`` (input
+        order; sorted internally by :func:`band_extent_from_elevs`).
+    band : int
+        Zero-based band index to test against.
+
+    Returns
+    -------
+    bool
+        True iff at least one interval overlaps the band's extent by more than
+        ``_EPS``; False if the stack is empty or all intervals only touch.
+    """
     if not stack:
         return False
 
-    band_base, band_top = band_extent(surfaces, x, y, band)
+    band_base, band_top = band_extent_from_elevs(surf_elevs, band)
 
     # Resolve None → ±∞ using float('inf') for the overlap arithmetic.
     b_top = float("inf") if band_top is None else band_top
