@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -167,6 +167,23 @@ class CrossSectionRepository(GroundModelLogger):
             router/use-case constructs the Pydantic response).
         """
         try:
+            # Serialise concurrent writers on the same section.
+            #
+            # Two concurrent accept requests both do: GET the current array →
+            # union in Python → UPDATE → COMMIT.  Without a lock both read the
+            # same snapshot and the second COMMIT silently clobbers the first
+            # write (debt #208, "lost-update race").
+            #
+            # ``pg_advisory_xact_lock`` queues concurrent transactions on the
+            # same integer key and releases automatically at COMMIT / ROLLBACK —
+            # no manual cleanup needed.  The key is derived from section_id so
+            # writes to different sections never block each other.  Read paths
+            # (``list_all``, ``get``) are untouched.  Mirrors the pattern used
+            # in ``SaveBodyBoundary`` (body_boundary.py).
+            await self._session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                {"k": str(section_id)},
+            )
             section = await self.get(section_id)
             if section is None or section.app_project_id != project_id:
                 self.warning(
