@@ -33,9 +33,19 @@ Order roughly by solo-dev ease — pick the lowest one that fits.
    lower-spec **distribution** machines. Cost: a hard dependency, +119 MB
    (llvmlite bundles LLVM); per-OS wheels + a PyInstaller hook at packaging
    time. Decorator-only; no separate toolchain, releases the GIL inside the
-   JIT'd function. Best fit for embarrassingly parallel numeric loops; the
-   labelling phase (now the dominant ~29 s) is the next candidate — profile
-   first.
+   JIT'd function. Best fit for embarrassingly parallel numeric loops with
+   HEAVY per-call work (`maximal_rectangles` does a full greedy raster-scan per
+   call). **Labelling — MEASURED, not worth per-function njit (2026-06-16).**
+   The now-dominant ~29 s labelling phase is "millions of TINY operations"
+   (`_slice_region_intervals` etc. — 19.9 M calls), where Numba's per-call
+   dispatch overhead dominates: a spike on its cleanest leaf got only **1.5×**
+   (byte-identical), and the heaviest leaves (`_fill_band_voids`,
+   `_clip_stack_to_band`) are `_Entry`-dataclass-based and not njit-able at all
+   without restructuring. The ONLY path to a big labelling win is rewriting the
+   whole per-column kernel to operate on numpy arrays in ONE `@njit` call (no
+   per-op dispatch) — a large, byte-identity-risky refactor, deferred until a
+   real lower-spec machine proves 37.5 s is too slow. Lesson: njit pays off for
+   FEW-heavy calls, not MANY-tiny ones.
 2. **Cython / mypyc**. Static compilation of Python-shaped code.
    Useful when the hot path is mostly Python control flow, not
    numeric loops. Adds a build step.
