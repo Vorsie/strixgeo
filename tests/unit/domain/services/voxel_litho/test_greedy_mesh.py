@@ -108,6 +108,131 @@ def test_single_row_grows_right() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (1c) Byte-identity pin: the vectorized `maximal_rectangles` must return the
+#      EXACT same rectangles (same tuples, same raster-scan order) as the
+#      original scalar greedy logic, over a large battery of masks.  The
+#      downstream weld + triangulation depend on this, so the mesh output must
+#      not change.  This is the strongest guard on the speed refactor.
+# ---------------------------------------------------------------------------
+
+
+def _reference_maximal_rectangles(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Reference: the ORIGINAL scalar greedy logic, verbatim.
+
+    Kept here as the oracle for the byte-identity property test below.  This is
+    the pre-vectorization implementation copied exactly (per-row ``.all()`` down-
+    growth + per-cell right-growth), so the vectorized production version is
+    compared cell-for-cell against the behaviour it must preserve.
+    """
+    remaining = np.array(mask, dtype=bool, copy=True)
+    nu, nv = remaining.shape
+    rectangles: list[tuple[int, int, int, int]] = []
+    for u0 in range(nu):
+        row = remaining[u0]
+        v0 = 0
+        while v0 < nv:
+            if not row[v0]:
+                v0 += 1
+                continue
+            v1 = v0
+            while v1 < nv and remaining[u0, v1]:
+                v1 += 1
+            u1 = u0 + 1
+            while u1 < nu and remaining[u1, v0:v1].all():
+                u1 += 1
+            rectangles.append((u0, v0, u1, v1))
+            remaining[u0:u1, v0:v1] = False
+            v0 = v1
+    return rectangles
+
+
+def _structured_masks() -> list[np.ndarray]:
+    """A battery of hand-built structured masks (edge shapes + degenerate cases)."""
+    masks: list[np.ndarray] = []
+    # All-True / all-False over varied shapes (incl. the real z-face aspect ratios).
+    for shape in [(1, 1), (1, 31), (31, 1), (5, 5), (297, 31), (31, 297), (97, 97)]:
+        masks.append(np.ones(shape, dtype=bool))
+        masks.append(np.zeros(shape, dtype=bool))
+    # Checkerboard (no merge possible) — even and odd parities.
+    cb = np.zeros((8, 8), dtype=bool)
+    cb[::2, ::2] = True
+    cb[1::2, 1::2] = True
+    masks.append(cb)
+    masks.append(~cb)
+    # L-shape, ring-with-hole, single cells, stripes.
+    el = np.ones((6, 6), dtype=bool)
+    el[:2, 3:] = False
+    masks.append(el)
+    ring = np.ones((7, 7), dtype=bool)
+    ring[2:5, 2:5] = False
+    masks.append(ring)
+    single = np.zeros((9, 9), dtype=bool)
+    single[4, 4] = True
+    masks.append(single)
+    hstripes = np.zeros((10, 10), dtype=bool)
+    hstripes[::2, :] = True  # full rows → wide rectangles, down-grow blocked
+    masks.append(hstripes)
+    vstripes = np.zeros((10, 10), dtype=bool)
+    vstripes[:, ::2] = True  # full columns → tall rectangles, right-grow blocked
+    masks.append(vstripes)
+    # A 1xN and Nx1 with interior gaps (multiple anchors per row / column).
+    gapped_row = np.zeros((3, 12), dtype=bool)
+    gapped_row[1, [0, 1, 2, 5, 6, 9, 10, 11]] = True
+    masks.append(gapped_row)
+    gapped_col = np.zeros((12, 3), dtype=bool)
+    gapped_col[[0, 1, 2, 5, 6, 9, 10, 11], 1] = True
+    masks.append(gapped_col)
+    return masks
+
+
+def test_maximal_rectangles_matches_reference_on_structured_masks() -> None:
+    """The vectorized cover equals the scalar reference on every structured case."""
+    for mask in _structured_masks():
+        got = maximal_rectangles(mask)
+        want = _reference_maximal_rectangles(mask)
+        assert got == want, f"diverged on {mask.shape} mask:\n got {got}\n want {want}"
+        assert _covers_exactly(mask, got)
+
+
+def test_maximal_rectangles_matches_reference_on_random_battery() -> None:
+    """The vectorized cover equals the scalar reference on a large random battery.
+
+    Hundreds of random boolean masks across varied shapes (tall, wide, square,
+    1xN, Nx1) and densities.  A fixed seed keeps the battery deterministic.  This
+    is the load-bearing byte-identity pin: if the vectorization changes ANY
+    rectangle or its order, this fails and the meshes would change downstream.
+    """
+    rng = np.random.default_rng(20260616)
+    shapes = [
+        (1, 1),
+        (1, 17),
+        (17, 1),
+        (3, 3),
+        (8, 8),
+        (12, 5),
+        (5, 12),
+        (31, 7),
+        (7, 31),
+        (40, 40),
+        (60, 13),
+        (13, 60),
+    ]
+    checked = 0
+    for shape in shapes:
+        for density in (0.15, 0.35, 0.5, 0.65, 0.85):
+            for _ in range(6):  # 12 shapes x 5 densities x 6 draws = 360 random masks
+                mask = rng.random(shape) < density
+                got = maximal_rectangles(mask)
+                want = _reference_maximal_rectangles(mask)
+                assert got == want, (
+                    f"diverged on {shape} mask (density {density}):\n got {got}\n want {want}"
+                )
+                assert _covers_exactly(mask, got)
+                checked += 1
+    assert checked == 360, f"expected 360 random masks checked; got {checked}"
+
+
+# ---------------------------------------------------------------------------
 # (1b) The Strategy-A perimeter-subdivision primitives, in isolation
 # ---------------------------------------------------------------------------
 

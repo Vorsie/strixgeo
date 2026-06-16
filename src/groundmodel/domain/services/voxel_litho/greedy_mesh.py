@@ -111,19 +111,38 @@ def maximal_rectangles(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
     # Anchor scan in C-order (row u, then column v) → deterministic output.
     for u0 in range(nu):
         row = remaining[u0]
+        # Skip whole empty rows in one test (every below-anchor row a consumed
+        # rectangle blanked is also empty; this is the common case at low density).
+        if not row.any():
+            continue
         v0 = 0
         while v0 < nv:
             if not row[v0]:
                 v0 += 1
                 continue
-            # Grow right along the anchor row while cells stay True.
-            v1 = v0
-            while v1 < nv and remaining[u0, v1]:
-                v1 += 1
-            # Grow down while every cell of the next row over [v0, v1) is True.
-            u1 = u0 + 1
-            while u1 < nu and remaining[u1, v0:v1].all():
-                u1 += 1
+            # Grow RIGHT along the anchor row: v1 is the first False at or after
+            # v0, else nv.  Vectorised first-False via argmin on the bool slice
+            # (argmin returns the first 0 == first False), identical to the old
+            # ``while v1 < nv and remaining[u0, v1]: v1 += 1`` run length.
+            rest = row[v0:]
+            if rest.all():
+                v1 = nv
+            else:
+                v1 = v0 + int(np.argmin(rest))
+            # Grow DOWN: for each row below u0, is the whole [v0, v1) span True?
+            # ``below_ok[r]`` is True iff row ``u0+1+r`` is all-True over the span;
+            # u1 is the first row that is NOT (the first False in below_ok), else
+            # nu.  One vectorised ``.all(axis=1)`` replaces the per-row ``.all()``
+            # while loop — same first-non-all-True stop.
+            below = remaining[u0 + 1 :, v0:v1]
+            if below.shape[0] == 0:
+                u1 = u0 + 1
+            else:
+                below_ok = below.all(axis=1)
+                if below_ok.all():
+                    u1 = nu
+                else:
+                    u1 = u0 + 1 + int(np.argmin(below_ok))
             rectangles.append((u0, v0, u1, v1))
             remaining[u0:u1, v0:v1] = False
             v0 = v1
