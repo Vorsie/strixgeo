@@ -207,19 +207,21 @@ export interface SectionPoly {
  *      alongM = dot(cross.xy - a, dHat)   where dHat = d / |d|
  *    Keep the z-coordinate as `elev`.  Each triangle cut by the plane yields
  *    exactly 2 crossing points → one cut segment.
- * 4. Chain all cut segments for the mesh into one ordered closed ring.  A
+ * 4. Chain the cut segments for the mesh into ordered closed rings.  A
  *    watertight manifold sliced by a plane produces a set of segments that
- *    form one or more closed loops.  We follow the loop by repeatedly finding
- *    the next segment whose start endpoint matches the current end endpoint
+ *    form one or more closed loops; `chainLoops` extracts EVERY loop (a body
+ *    that pinches out and reappears slices into >1 loop), following each by
+ *    repeatedly matching the next segment's endpoint to the current tail
  *    (within SLICE_EPS).
- * 5. Output the ordered ring as `SectionPoly.points`.  The closing edge is
+ * 5. Output each ring as a `SectionPoly.points`.  The closing edge is
  *    implicit (consumer connects last → first).
  *
  * @param meshes  - Watertight body meshes to slice.
  * @param line    - The 2D section line defining the vertical cutting plane.
- * @returns       One SectionPoly per body intersected by the plane, in the
- *                same order as `meshes`.  Bodies that the plane misses entirely
- *                are omitted.
+ * @returns       One SectionPoly per closed loop produced by the slice — a body
+ *                may contribute MORE THAN ONE poly (all sharing its bodyId) when
+ *                the plane cuts it into disjoint pieces.  Bodies the plane misses
+ *                entirely are omitted.
  */
 export function sliceSolidsAtPlane(
   meshes: SolidMesh[],
@@ -243,16 +245,18 @@ export function sliceSolidsAtPlane(
 
     if (segments.length === 0) continue
 
-    const ring = chainSegments(segments)
-
-    if (ring.length < 3) continue
-
-    result.push({
-      bodyId: mesh.bodyId,
-      formationId: mesh.formationId,
-      color: mesh.color,
-      points: ring,
-    })
+    // A body can be sliced into MORE THAN ONE closed loop (it pinches out and
+    // reappears — interfingering / a lens, common with voxel bodies). Emit one
+    // SectionPoly per loop; chaining only the first would silently drop the rest.
+    for (const ring of chainLoops(segments)) {
+      if (ring.length < 3) continue
+      result.push({
+        bodyId: mesh.bodyId,
+        formationId: mesh.formationId,
+        color: mesh.color,
+        points: ring,
+      })
+    }
   }
 
   return result
@@ -532,80 +536,91 @@ function collectCutSegments(
 }
 
 /**
- * Chain an unordered set of cut segments into one ordered closed ring.
+ * Chain an unordered set of cut segments into ALL their ordered closed rings.
  *
  * A watertight manifold sliced by a plane produces a set of line segments whose
- * endpoints form a closed loop.  We start from the first segment and repeatedly
- * find the next one whose start matches the current end (within SLICE_EPS in
- * both alongM and elev).  The result is the ordered list of ring vertices
- * (the closing edge is implicit — consumer connects last → first).
+ * endpoints form one or more closed loops (more than one when the body pinches
+ * out and reappears — interfingering / a lens).  We extract one loop at a time:
+ * start from the next remaining segment and repeatedly append the segment whose
+ * endpoint matches the current tail (within SLICE_EPS in both alongM and elev),
+ * closing the ring; then begin a fresh ring from whatever segments remain, until
+ * the pool is empty.  Each ring's closing edge is implicit (consumer connects
+ * last → first).
  *
  * Robustness notes:
  * - Each segment can be traversed in either direction (p0→p1 or p1→p0); we
  *   try both when looking for a match.
- * - Iteration is capped at `segments.length` steps to prevent an infinite loop
- *   on non-manifold input.
+ * - Each ring's inner iteration is capped at the remaining pool size to prevent
+ *   an infinite loop on non-manifold input.
  * - Once a segment is consumed it is removed from the pool so it can never be
- *   visited twice.
+ *   visited twice — which also guarantees the outer loop terminates.
  *
  * @param segments - Unordered cut segments from `collectCutSegments`.
- * @returns        Ordered ring of (alongM, elev) vertices (no duplicate close).
+ * @returns        One ordered ring of (alongM, elev) vertices per closed loop
+ *                 (no duplicate close); empty array when there are no segments.
  */
-function chainSegments(
+function chainLoops(
   segments: CutSegment[],
-): { alongM: number; elev: number }[] {
+): { alongM: number; elev: number }[][] {
   if (segments.length === 0) return []
 
-  // Work on a mutable copy so we can splice-out consumed segments.
+  // Work on a mutable copy so we can splice-out consumed segments. We extract
+  // ONE closed loop at a time and keep going until the pool is empty, so a body
+  // sliced into several disjoint loops yields every loop (not just the first).
   const pool = [...segments]
+  const loops: { alongM: number; elev: number }[][] = []
 
-  // Start the ring from the first segment's p0 → p1.
-  const first = pool.splice(0, 1)[0]
-  const ring: { alongM: number; elev: number }[] = [first.p0, first.p1]
-  let tail = first.p1
+  while (pool.length > 0) {
+    // Start a fresh ring from the next remaining segment's p0 → p1.
+    const first = pool.splice(0, 1)[0]
+    const ring: { alongM: number; elev: number }[] = [first.p0, first.p1]
+    let tail = first.p1
 
-  // Build the ring by greedily appending the segment whose nearer endpoint
-  // matches the current tail.
-  const maxIter = segments.length
-  for (let iter = 0; iter < maxIter && pool.length > 0; iter++) {
-    let found = false
-    for (let s = 0; s < pool.length; s++) {
-      const seg = pool[s]
-      // Try matching tail → seg.p0 (forward traversal).
-      if (
-        Math.abs(tail.alongM - seg.p0.alongM) < SLICE_EPS &&
-        Math.abs(tail.elev - seg.p0.elev) < SLICE_EPS
-      ) {
-        ring.push(seg.p1)
-        tail = seg.p1
-        pool.splice(s, 1)
-        found = true
-        break
+    // Build this ring by greedily appending the segment whose nearer endpoint
+    // matches the current tail. Bounded by the remaining pool size.
+    const maxIter = pool.length
+    for (let iter = 0; iter < maxIter && pool.length > 0; iter++) {
+      let found = false
+      for (let s = 0; s < pool.length; s++) {
+        const seg = pool[s]
+        // Try matching tail → seg.p0 (forward traversal).
+        if (
+          Math.abs(tail.alongM - seg.p0.alongM) < SLICE_EPS &&
+          Math.abs(tail.elev - seg.p0.elev) < SLICE_EPS
+        ) {
+          ring.push(seg.p1)
+          tail = seg.p1
+          pool.splice(s, 1)
+          found = true
+          break
+        }
+        // Try matching tail → seg.p1 (reverse traversal).
+        if (
+          Math.abs(tail.alongM - seg.p1.alongM) < SLICE_EPS &&
+          Math.abs(tail.elev - seg.p1.elev) < SLICE_EPS
+        ) {
+          ring.push(seg.p0)
+          tail = seg.p0
+          pool.splice(s, 1)
+          found = true
+          break
+        }
       }
-      // Try matching tail → seg.p1 (reverse traversal).
+      // Stop this ring if it is already closed (tail matches the first vertex)
+      // or if no matching segment was found (open / non-manifold remainder).
+      if (!found) break
       if (
-        Math.abs(tail.alongM - seg.p1.alongM) < SLICE_EPS &&
-        Math.abs(tail.elev - seg.p1.elev) < SLICE_EPS
+        Math.abs(tail.alongM - ring[0].alongM) < SLICE_EPS &&
+        Math.abs(tail.elev - ring[0].elev) < SLICE_EPS
       ) {
-        ring.push(seg.p0)
-        tail = seg.p0
-        pool.splice(s, 1)
-        found = true
+        // Remove the duplicate closing vertex — the ring is already complete.
+        ring.pop()
         break
       }
     }
-    // Stop early if the ring is already closed (tail matches the first vertex)
-    // or if no matching segment was found (non-manifold input).
-    if (!found) break
-    if (
-      Math.abs(tail.alongM - ring[0].alongM) < SLICE_EPS &&
-      Math.abs(tail.elev - ring[0].elev) < SLICE_EPS
-    ) {
-      // Remove the duplicate closing vertex — the ring is already complete.
-      ring.pop()
-      break
-    }
+
+    loops.push(ring)
   }
 
-  return ring
+  return loops
 }

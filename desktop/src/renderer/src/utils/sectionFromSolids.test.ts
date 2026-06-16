@@ -15,6 +15,29 @@ function box(bodyId: string, formationId: string, x0=0, x1=10, y0=0, y1=10, top=
   return { bodyId, formationId, color: '#fbbf24', vertices: v, triangles: t }
 }
 
+// One body whose mesh is TWO disjoint boxes (same bodyId): box A at x[0,10] and
+// box B at x[20,30], both y[0,10], top 0 / base -4. A plane crossing both must
+// produce two separate rings.
+function twoBoxBody(bodyId: string, formationId: string): SolidMesh {
+  const mk = (ox: number): [number, number, number][] => [
+    [ox, 0, 0], [ox + 10, 0, 0], [ox + 10, 10, 0], [ox, 10, 0],
+    [ox, 0, -4], [ox + 10, 0, -4], [ox + 10, 10, -4], [ox, 10, -4],
+  ]
+  const tri = (b: number): [number, number, number][] => [
+    [b + 0, b + 1, b + 2], [b + 0, b + 2, b + 3],
+    [b + 4, b + 6, b + 5], [b + 4, b + 7, b + 6],
+    [b + 0, b + 4, b + 5], [b + 0, b + 5, b + 1], [b + 1, b + 5, b + 6], [b + 1, b + 6, b + 2],
+    [b + 2, b + 6, b + 7], [b + 2, b + 7, b + 3], [b + 3, b + 7, b + 4], [b + 3, b + 4, b + 0],
+  ]
+  return {
+    bodyId,
+    formationId,
+    color: '#fbbf24',
+    vertices: [...mk(0), ...mk(20)],
+    triangles: [...tri(0), ...tri(8)],
+  }
+}
+
 describe('sampleSolidColumns (mode A)', () => {
   it('samples a body top/base at a test inside its footprint', () => {
     const cols = sampleSolidColumns([box('b1','SAND')], [{ id: 't1', x: 5, y: 5, alongM: 100 }])
@@ -76,5 +99,23 @@ describe('sliceSolidsAtPlane (mode B)', () => {
   it('returns nothing for a body the line misses', () => {
     const line = { ax: -5, ay: 50, bx: 15, by: 50 }
     expect(sliceSolidsAtPlane([box('b1','SAND',0,10,0,10)], line)).toHaveLength(0)
+  })
+
+  it('emits ALL closed loops when one body slices into two disjoint pieces', () => {
+    // One body (bodyId 'b1') made of two disjoint boxes — the 3-D shape of a
+    // body that pinches out and reappears (interfingering / lens). A section
+    // line crossing BOTH boxes must yield TWO filled rings, not one: chaining
+    // only the first loop would silently drop the second piece's fill (the
+    // mode-B gap the voxel builder exposes).
+    const line = { ax: -5, ay: 5, bx: 45, by: 5 }
+    const polys = sliceSolidsAtPlane([twoBoxBody('b1', 'SAND')], line)
+    expect(polys).toHaveLength(2)
+    // Both rings belong to the same body and carry its colour.
+    expect(polys.every((p) => p.bodyId === 'b1')).toBe(true)
+    // The two rings sit at different along-section positions (the two boxes).
+    const centres = polys
+      .map((p) => p.points.reduce((s, q) => s + q.alongM, 0) / p.points.length)
+      .sort((a, b) => a - b)
+    expect(centres[1] - centres[0]).toBeGreaterThan(15)
   })
 })
