@@ -191,6 +191,32 @@ def test_no_overlap_fires_on_interpenetrating_bodies():
         assert_no_overlap_sampled([a, b], [(_MID_X, _MID_Y)])
 
 
+def test_two_bodies_abutting_on_a_vertical_seam_do_not_overlap_when_sampled_on_the_seam():
+    """Two bodies that ABUT along a shared vertical face do not overlap on the seam.
+
+    The two bodies tile space side by side: a lens fills ``y in [-1, 1]`` and a
+    host fills ``y in [1, 3]`` at the SAME elevation slab, sharing the vertical
+    face at ``y = 1.0`` and nothing else — they touch but never interpenetrate.
+    A vertical ray cast EXACTLY on that shared seam (``y = 1.0``) must not read
+    the slab as belonging to BOTH bodies: a seam is a contact, not an overlap.
+
+    This is the anisotropic-voxel failure (``test_build_voxel_anisotropic_spacing_builds``):
+    a finer Z resolves a depth where a lens (one side of a Y cell seam) abuts its
+    host (the other side), and the integration's fixed sample points land exactly
+    on the cell seam — so a ray grazing both abutting bodies' coincident faces
+    spuriously reported a one-voxel inter-body overlap.  The geometry is a clean
+    partition; the ray-on-seam query must resolve to ONE side (the labeller's
+    half-open ``[base, top)`` convention generalised to the map plane), so the
+    no-overlap check sees no overlap.
+    """
+    # Both slabs span the same elevation [-4.75, -4.25] (one 0.5 m voxel) and the
+    # same x-extent; they meet only on the vertical face at y = 1.0.
+    lens = _box_mesh("lens", "SILT", 0.0, 4.0, -1.0, 1.0, -4.75, -4.25)
+    host = _box_mesh("host", "KLEI", 0.0, 4.0, 1.0, 3.0, -4.75, -4.25)
+    # Sample EXACTLY on the shared seam (y = 1.0) — the degenerate ray position.
+    assert_no_overlap_sampled([lens, host], [(2.0, 1.0)])  # must NOT raise
+
+
 # ---------------------------------------------------------------------------
 # _box_mesh winding sanity
 # ---------------------------------------------------------------------------

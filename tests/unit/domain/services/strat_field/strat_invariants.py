@@ -44,6 +44,21 @@ from dataclasses import dataclass
 # a sub-TOL overlap.
 TOL: float = 1e-6
 
+# Map-plane nudge applied to a ray's query point so it never lands EXACTLY on a
+# shared cell seam (a vertical face between two laterally-abutting bodies).  A
+# ray coplanar with such a seam grazes the coincident +z/-z faces of BOTH
+# abutting bodies (``_point_in_triangle_2d`` is edge-inclusive), so each body
+# spuriously reports the seam voxel — two abutting bodies read as a one-voxel
+# OVERLAP even though they only TOUCH.  Nudging the query a hair toward +x/+y
+# resolves the ray onto exactly one side of every seam — the map-plane analogue
+# of the labeller's half-open ``[base, top)`` convention (a point on a boundary
+# belongs to one cell, never both).  The shift is far below any real voxel size
+# (sub-µm at metre-scale grids) yet far above the ``1e-12`` barycentric epsilon
+# in ``_point_in_triangle_2d``, so it changes no non-degenerate query: a sample
+# at a voxel CENTRE stays in its voxel, a sample OUTSIDE the footprint stays
+# outside.  It only disambiguates the measure-zero on-seam case.
+_SEAM_NUDGE_M: float = 1e-9
+
 
 # ---------------------------------------------------------------------------
 # Manifold / winding
@@ -171,6 +186,21 @@ def vertical_ray_intervals(
     ``(crossings[2], crossings[3])``, … recovers the solid intervals.  This
     holds only for a CLOSED mesh — call :func:`assert_closed_manifold` first.
 
+    On-seam queries
+    ---------------
+    "Line in general position" is exactly what a query landing on a shared cell
+    seam is NOT: a ray coplanar with a vertical face between two laterally-
+    abutting bodies grazes the coincident top/bottom faces of BOTH bodies'
+    boundary cells (the edge-inclusive :func:`_point_in_triangle_2d`), so the
+    even-odd pairing splits the body into spurious one-voxel slivers AND each
+    abutting body reports the seam voxel — two bodies that only TOUCH read as an
+    OVERLAP.  The query is therefore nudged by :data:`_SEAM_NUDGE_M` toward
+    ``+x``/``+y`` so it resolves onto exactly one side of every seam (the map-
+    plane analogue of the labeller's half-open ``[base, top)`` convention).  The
+    shift is far below any real voxel size and far above the barycentric epsilon,
+    so it disambiguates ONLY the measure-zero on-seam case — a voxel-centre or
+    outside-footprint query is unaffected.
+
     Parameters
     ----------
     vertices : Sequence[tuple[float, float, float]]
@@ -186,6 +216,12 @@ def vertical_ray_intervals(
         ``(base, top)`` intervals (base below top).  Empty when the ray misses
         the mesh footprint.
     """
+    # Nudge off any shared cell seam so the ray resolves onto exactly one side
+    # (see "On-seam queries" above).  A horizontal face's interpolated z is
+    # constant across the face, so this sub-µm map-plane shift leaves every
+    # returned interval elevation bit-identical for a non-degenerate query.
+    x = x + _SEAM_NUDGE_M
+    y = y + _SEAM_NUDGE_M
     zs: list[float] = []
     for a, b, c in triangles:
         ax, ay, az = vertices[a]

@@ -31,8 +31,17 @@ from __future__ import annotations
 
 import numpy as np
 
+from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
+    build_domain_from_sections,
+)
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
-from groundmodel.domain.services.voxel_litho.voxel_types import LabelGrid
+from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
+from groundmodel.domain.services.voxel_litho.voxel_types import (
+    LabelGrid,
+    RegionInput,
+    SectionColumnInput,
+    SectionPartitionInput,
+)
 from tests.unit.domain.services.strat_field.strat_invariants import (
     assert_closed_manifold,
     assert_no_overlap_sampled,
@@ -311,3 +320,84 @@ def test_deterministic_output() -> None:
     for a, b in zip(first, second):
         assert a.vertices == b.vertices
         assert a.triangles == b.triangles
+
+
+def test_anisotropic_lens_abutting_its_host_does_not_overlap() -> None:
+    """The anisotropic interbedded-lens scene tiles with NO inter-body overlap.
+
+    This is the unit-level (no-DB) mirror of the integration regression
+    ``test_build_voxel_anisotropic_spacing_builds`` (BV-5).  The scene is two
+    cross-sections over three columns: a ZAND / KLEI / ZAND interbedded stack
+    with a SILT lens that pinches out inside the KLEI on one section.  Built at
+    an ANISOTROPIC grid (coarse 2 m X/Y, fine 0.5 m Z) the finer Z resolves a
+    depth where the SILT lens (one side of a Y cell seam) abuts its KLEI host
+    (the other side); the integration's fixed sample points land exactly on that
+    cell seam, where a ray grazing both abutting bodies' coincident faces
+    previously reported a spurious one-voxel inter-body overlap.
+
+    The lithology body ids are ordered so the lens lays out enclosed in the host
+    (the layout tie-break that the integration's random UUIDs happened to hit),
+    so this reproduces the exact failing geometry.  The build is a clean
+    partition; the assertion must see no overlap.
+    """
+    zand, klei, silt = "ZAND", "KLEI", "SILT"
+
+    def _full(fid: str, bid: str, top: float, base: float) -> RegionInput:
+        return RegionInput(fid, bid, ((0.0, top), (1.0, top), (1.0, base), (0.0, base)), 0)
+
+    def _lens(fid: str, bid: str, top: float, base: float) -> RegionInput:
+        # A trapezoid pinching to its apex at the right column edge (fraction 1).
+        return RegionInput(fid, bid, ((0.0, top), (1.0, (top + base) / 2.0), (0.0, base)), 0)
+
+    # Body ids ordered so the SILT lens sorts BEFORE the KLEI host in the layout
+    # tie-break (same ``-mid_elevation`` → ``str(body_id)`` decides), laying the
+    # lens out enclosed at the top of the KLEI band — the configuration that
+    # surfaced the seam-sampling overlap.
+    b_zand_top, b_klei, b_zand_bot, b_silt = "a_zt", "z_klei", "a_zb", "a_silt"
+
+    col_a = SectionColumnInput("A", along_m=0.0, world_x=0.0, world_y=0.0)
+    col_b = SectionColumnInput("B", along_m=20.0, world_x=20.0, world_y=0.0)
+    col_c = SectionColumnInput("C", along_m=22.4, world_x=10.0, world_y=20.0)
+
+    section0 = SectionPartitionInput(
+        start_x=0.0,
+        start_y=0.0,
+        end_x=20.0,
+        end_y=0.0,
+        columns=(col_a, col_b),
+        regions=(
+            _full(zand, b_zand_top, 0.0, -3.0),
+            _full(klei, b_klei, -3.0, -7.0),
+            _lens(silt, b_silt, -4.0, -6.0),
+            _full(zand, b_zand_bot, -7.0, -10.0),
+        ),
+    )
+    section1 = SectionPartitionInput(
+        start_x=20.0,
+        start_y=0.0,
+        end_x=10.0,
+        end_y=20.0,
+        columns=(col_b, col_c),
+        regions=(
+            _full(zand, b_zand_top, 0.0, -3.0),
+            _full(klei, b_klei, -3.0, -7.0),
+            _full(zand, b_zand_bot, -7.0, -10.0),
+        ),
+    )
+    sections = [section0, section1]
+
+    domain = build_domain_from_sections(sections)
+    # Anisotropic: coarse 2 m X/Y, fine 0.5 m Z (the thin-layer path).
+    grid = label_voxels(domain, 2.0, sections, vertical_spacing_m=0.5)
+    bodies = extract_body_solids(grid)
+
+    assert len(bodies) >= 2, f"the interbedded + lens scene meshes ≥2 bodies; got {len(bodies)}"
+    for body in bodies:
+        assert_closed_manifold(body.vertices, body.triangles)
+        assert body.is_flagged is False
+
+    # The integration's exact footprint sample points (x ∈ {2, 8, 14} are cell
+    # centres; y ∈ {1, 5} land exactly on Y cell seams) — no two bodies may
+    # share a vertical interval at any of them.
+    samples = [(float(x), float(y)) for x in (2.0, 8.0, 14.0) for y in (1.0, 5.0)]
+    assert_no_overlap_sampled(bodies, samples)
