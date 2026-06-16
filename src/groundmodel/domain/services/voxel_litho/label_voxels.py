@@ -56,9 +56,9 @@ import numpy as np
 from groundmodel.domain.services.model_domain import ModelDomain
 from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
 from groundmodel.domain.services.voxel_litho.geo_bands import (
-    band_extent,
-    band_of,
-    section_reaches_band,
+    band_extent_from_elevs,
+    band_of_from_elevs,
+    section_reaches_band_from_elevs,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
@@ -104,6 +104,39 @@ class _Entry:
     formation_id: str
     top_elev: float
     base_elev: float
+
+
+@dataclass(frozen=True)
+class _SectionProjection:
+    """One section's BAND-INVARIANT projection + full stack at a column ``(x, y)``.
+
+    The projection of ``(x, y)`` onto a section's column-world fence and the full
+    (un-clipped) section stack at that foot do NOT depend on the geological band —
+    they are the same for every band the column spans.  :func:`_column_stack_geo`
+    computes one of these per section ONCE per column and threads the list into
+    :func:`_stack_at_band` for every band, so the per-band loop never re-projects
+    or re-slices a section (the secondary hot path the profiler flagged).
+
+    Parameters
+    ----------
+    perp : float
+        Perpendicular distance of ``(x, y)`` to the section's nearest gap segment
+        (the 2-nearest-section blend weight).
+    foot_x, foot_y : float
+        The projected foot point on that gap segment (the between/beyond test).
+    full_stack : list of _Entry
+        The section's full un-clipped vertical stack at the foot, shallow → deep.
+    reach_stack : tuple of (str, str, float, float)
+        ``full_stack`` flattened to the ``section_reaches_band`` interval tuple
+        (``body_id or ""``, formation_id, top_elev, base_elev) — precomputed so
+        the per-band reach test does not rebuild it.
+    """
+
+    perp: float
+    foot_x: float
+    foot_y: float
+    full_stack: list[_Entry]
+    reach_stack: tuple[tuple[str, str, float, float], ...]
 
 
 def _th(e: _Entry) -> float:
@@ -673,32 +706,41 @@ def _fill_band_voids(
 
 
 def _stack_at_band(
-    sections: list[SectionPartitionInput],
+    projections: list[_SectionProjection],
     x: float,
     y: float,
     band: int,
-    geo_surfaces: tuple[SurfaceBound, ...],
+    surf_elevs: tuple[float, ...],
     snap_tol: float,
 ) -> list[_Entry]:
     """Return the band-clipped blended stack at ``(x, y)`` for one geological band.
 
-    The band analogue of :func:`_stack_at`: it projects ``(x, y)`` onto every
-    section, clips each section's stack to the band's extent (snap-or-divide),
-    drops sections whose clipped stack does NOT reach the band (the shallow
-    section that stops above it — its next-nearest REACHING neighbour fills the
-    band instead, the sideways fill), and blends the two nearest REACHING
-    sections with the SAME between/beyond midline-pinch rule as :func:`_stack_at`.
+    The band analogue of :func:`_stack_at`: for each section's PRECOMPUTED
+    column projection it clips the section's stack to the band's extent
+    (snap-or-divide), drops sections whose clipped stack does NOT reach the band
+    (the shallow section that stops above it — its next-nearest REACHING
+    neighbour fills the band instead, the sideways fill), and blends the two
+    nearest REACHING sections with the SAME between/beyond midline-pinch rule as
+    :func:`_stack_at`.
+
+    The section projection + full stack + reach-stack are BAND-INVARIANT, so the
+    caller (:func:`_column_stack_geo`) computes them once per column and passes
+    them in; this function only does the per-band band-extent + reach-filter +
+    clip + blend + void-fill.  The geological surface elevations at ``(x, y)``
+    are likewise precomputed (``surf_elevs``) so the band extent + reach test
+    never re-scan a TIN.
 
     Parameters
     ----------
-    sections : list of SectionPartitionInput
-        The project's cross-sections.
+    projections : list of _SectionProjection
+        The per-section precomputed projection + full stack at this column.
     x, y : float
-        The map-plane query point.
+        The map-plane query point (the between/beyond geometry still uses them).
     band : int
         The geological band index to fill (0 = shallowest).
-    geo_surfaces : tuple of SurfaceBound
-        The geological band surfaces (used for the band extent + reach test).
+    surf_elevs : tuple of float
+        The geological surfaces' elevations at ``(x, y)`` (precomputed once per
+        column; sorted internally by the ``_from_elevs`` band helpers).
     snap_tol : float
         The snap-or-divide tolerance.
 
@@ -708,28 +750,24 @@ def _stack_at_band(
         The band-clipped blended stack, shallow → deep; ``[]`` when no section
         reaches the band here (the band is void at this column).
     """
-    if not sections:
+    if not projections:
         return []
 
-    band_base, band_top = band_extent(geo_surfaces, x, y, band)
+    band_base, band_top = band_extent_from_elevs(surf_elevs, band)
 
-    # Project + clip + reach-filter: keep only sections whose clipped stack
-    # actually overlaps the band (a shallow section that stops above the band is
-    # dropped, so the next-nearest reaching section fills it — the sideways fill).
+    # Clip + reach-filter: keep only sections whose clipped stack actually
+    # overlaps the band (a shallow section that stops above the band is dropped,
+    # so the next-nearest reaching section fills it — the sideways fill).  The
+    # projection + full stack + reach-stack are precomputed (band-invariant).
     reaching: list[tuple[float, float, float, list[_Entry]]] = []  # (perp, foot_x, foot_y, clipped)
-    for s in sections:
-        gap, frac, perp, fx, fy = _project_to_section_fence(s, x, y)
-        full = _section_stack_at(s, gap, frac)
+    for proj in projections:
         # Reach test on the UN-clipped stack (does the section's litho overlap
         # the band at all here?) — the canonical geo_bands predicate.
-        reach_stack = tuple(
-            (e.body_id or "", e.formation_id, e.top_elev, e.base_elev) for e in full
-        )
-        if not section_reaches_band(reach_stack, geo_surfaces, x, y, band):
+        if not section_reaches_band_from_elevs(proj.reach_stack, surf_elevs, band):
             continue
-        clipped = _clip_stack_to_band(full, band_base, band_top, snap_tol)
+        clipped = _clip_stack_to_band(proj.full_stack, band_base, band_top, snap_tol)
         if clipped:
-            reaching.append((perp, fx, fy, clipped))
+            reaching.append((proj.perp, proj.foot_x, proj.foot_y, clipped))
 
     if not reaching:
         return []
@@ -814,16 +852,30 @@ def _column_stack_geo(
     list of _Entry
         The band-concatenated column stack, shallow → deep.
     """
+    # Evaluate every geological surface at this column ONCE (4 TIN scans) instead
+    # of re-scanning per band per section (~60-100x), and project each section
+    # onto the column-world fence + slice its full stack ONCE (band-invariant).
+    # The per-band loop then runs purely on the precomputed floats + stacks.
+    surf_elevs = tuple(s.evaluate(x, y) for s in geo_surfaces)
+    projections: list[_SectionProjection] = []
+    for s in sections:
+        gap, frac, perp, fx, fy = _project_to_section_fence(s, x, y)
+        full = _section_stack_at(s, gap, frac)
+        reach_stack = tuple(
+            (e.body_id or "", e.formation_id, e.top_elev, e.base_elev) for e in full
+        )
+        projections.append(_SectionProjection(perp, fx, fy, full, reach_stack))
+
     # Which bands does this column's elevation range touch?  Band index is the
     # count of surfaces above a given z, so the band at the column TOP (gz_max)
     # is the shallowest band the column reaches and the band at the BOTTOM
     # (gz_min) is the deepest — every integer between is also spanned (bands are
     # contiguous in elevation).  Iterate shallow → deep (ascending band index).
-    band_top_idx = band_of(geo_surfaces, x, y, gz_max)
-    band_bot_idx = band_of(geo_surfaces, x, y, gz_min)
+    band_top_idx = band_of_from_elevs(surf_elevs, gz_max)
+    band_bot_idx = band_of_from_elevs(surf_elevs, gz_min)
     column: list[_Entry] = []
     for band in range(band_top_idx, band_bot_idx + 1):
-        column.extend(_stack_at_band(sections, x, y, band, geo_surfaces, snap_tol))
+        column.extend(_stack_at_band(projections, x, y, band, surf_elevs, snap_tol))
     return column
 
 
