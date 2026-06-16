@@ -10,7 +10,7 @@ import {
   Tooltip,
   WMSTileLayer,
   useMap,
-} from '@/lib/streaflet'
+} from '../lib/streaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
