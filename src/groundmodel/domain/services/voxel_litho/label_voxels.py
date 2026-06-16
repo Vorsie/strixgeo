@@ -1033,6 +1033,7 @@ def label_voxels(
     grid_spacing_m: float,
     sections: list[SectionPartitionInput],
     *,
+    vertical_spacing_m: float | None = None,
     investigation_columns: tuple[InvestigationColumn, ...] = (),
     geo_surfaces: tuple[SurfaceBound, ...] = (),
     litho_snap_tolerance_m: float = 0.20,
@@ -1055,9 +1056,19 @@ def label_voxels(
         hull polygon) of the model.  Built by the caller (Task 6) from the
         investigation positions; constructed directly in tests / eval.
     grid_spacing_m : float
-        The voxel edge length in metres (same in x, y, z).  Must be positive.
+        The HORIZONTAL voxel edge length in metres (X and Y).  Also the Z edge
+        length when ``vertical_spacing_m`` is ``None`` (the cubic case).  Must be
+        positive.
     sections : list of SectionPartitionInput
         The project's cross-sections with their validated 2-D partitions.
+    vertical_spacing_m : float or None, optional
+        The Z (elevation) voxel edge length in metres.  ``None`` (the default) →
+        the grid is cubic: Z uses ``grid_spacing_m``, byte-identical to the
+        behaviour before this parameter existed.  When set, the grid is
+        ANISOTROPIC: X/Y step at ``grid_spacing_m`` (the horizontal spacing) and
+        Z steps at ``vertical_spacing_m``.  Geology is thin-layered vertically, so
+        a fine Z over a coarse X/Y resolves thin layers without exploding the X/Y
+        voxel count.  Must be positive when set.
     investigation_columns : tuple of InvestigationColumn, optional
         Per-investigation OWN observed pick stacks at their TRUE map
         locations.  At each investigation's nearest grid column the voxels
@@ -1091,8 +1102,9 @@ def label_voxels(
     Raises
     ------
     ValueError
-        If ``grid_spacing_m`` is not positive, or no section carries any region
-        (no elevation range to grid over).
+        If ``grid_spacing_m`` (or ``vertical_spacing_m`` when set) is not
+        positive, or no section carries any region (no elevation range to grid
+        over).
 
     Notes
     -----
@@ -1110,6 +1122,8 @@ def label_voxels(
     """
     if grid_spacing_m <= 0.0:
         raise ValueError(f"grid_spacing_m must be positive; got {grid_spacing_m}")
+    if vertical_spacing_m is not None and vertical_spacing_m <= 0.0:
+        raise ValueError(f"vertical_spacing_m must be positive; got {vertical_spacing_m}")
 
     # When geological band surfaces are supplied, the per-column stack is
     # assembled BAND-BY-BAND (each band filled by the nearest section that
@@ -1140,12 +1154,16 @@ def label_voxels(
     if not math.isfinite(zmin) or not math.isfinite(zmax) or zmax - zmin <= _EPS:
         raise ValueError("label_voxels: no section regions carry an elevation range to grid over")
 
+    # Horizontal spacing (X and Y) is ``grid_spacing_m``; the vertical (Z) spacing
+    # is ``vertical_spacing_m`` when set, else the same — the cubic case, in which
+    # ``v == h`` makes ``gz`` byte-identical to the pre-anisotropy build.
     h = grid_spacing_m
-    # ``+ h/2`` so the closed interval is fully covered even when the span is an
-    # exact multiple of h (numpy ``arange`` is half-open).
+    v = grid_spacing_m if vertical_spacing_m is None else vertical_spacing_m
+    # ``+ step/2`` so the closed interval is fully covered even when the span is an
+    # exact multiple of the step (numpy ``arange`` is half-open).
     gx = np.arange(xmin, xmax + h / 2.0, h)
     gy = np.arange(ymin, ymax + h / 2.0, h)
-    gz = np.arange(zmin, zmax + h / 2.0, h)
+    gz = np.arange(zmin, zmax + v / 2.0, v)
     nx, ny, nz = len(gx), len(gy), len(gz)
 
     labels = np.full((nx, ny, nz), -1, dtype=np.int32)

@@ -605,6 +605,58 @@ def test_a_litho_contact_within_tolerance_of_a_geo_surface_snaps_to_it():
     assert _formation_at(grid, x=40.0, y=0.0, elev=-5.5) == _KLEI
 
 
+# ---------------------------------------------------------------------------
+# Anisotropic spacing (Task 4): a single horizontal spacing for X/Y, a finer
+# vertical spacing for Z, so thin layers resolve without exploding the X/Y
+# voxel count.  Geology is thin-layered vertically — fine Z + coarse X/Y.
+# ---------------------------------------------------------------------------
+
+
+def test_anisotropic_spacing_steps_horizontal_in_xy_and_vertical_in_z():
+    """``gx``/``gy`` step at the horizontal spacing; ``gz`` steps at the vertical.
+
+    Splitting the cubic spacing into a coarse horizontal (X and Y) and a fine
+    vertical (Z) is the Task-4 contract: the grid samples thin geology layers
+    finely in elevation without paying the X/Y voxel-count cost.  With
+    ``grid_spacing_m=4.0`` (horizontal) and ``vertical_spacing_m=1.0`` the
+    consecutive node deltas must be 4 m along X and Y and 1 m along Z.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_a(), _section_b()]
+
+    grid = label_voxels(domain, 4.0, sections, vertical_spacing_m=1.0)
+
+    # X and Y step at the horizontal spacing (4 m).
+    assert np.allclose(np.diff(grid.gx), 4.0)
+    assert np.allclose(np.diff(grid.gy), 4.0)
+    # Z steps at the vertical spacing (1 m) — finer than X/Y.
+    assert np.allclose(np.diff(grid.gz), 1.0)
+
+
+def test_cubic_when_vertical_equals_horizontal_is_byte_identical_to_grid_spacing():
+    """``vertical_spacing_m`` omitted (or == horizontal) reproduces the cubic build.
+
+    The cubic-equals invariant is load-bearing: the anisotropy keyword must be
+    purely additive, so a build with no ``vertical_spacing_m`` and a build with
+    ``vertical_spacing_m`` set EQUAL to the horizontal spacing must both be
+    byte-identical to the original ``label_voxels(domain, 2.0, sections)`` cubic
+    output — same labels, same axes, same body ordering.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_a(), _section_b()]
+
+    cubic = label_voxels(domain, 2.0, sections)
+    omitted = label_voxels(domain, 2.0, sections, vertical_spacing_m=None)
+    equal = label_voxels(domain, 2.0, sections, vertical_spacing_m=2.0)
+
+    for other in (omitted, equal):
+        assert np.array_equal(cubic.labels, other.labels)
+        assert np.array_equal(cubic.gx, other.gx)
+        assert np.array_equal(cubic.gy, other.gy)
+        assert np.array_equal(cubic.gz, other.gz)
+        assert cubic.body_id_by_index == other.body_id_by_index
+
+
 def test_empty_geo_surfaces_is_byte_identical_to_the_unbounded_blend():
     """``geo_surfaces=()`` leaves the labelling byte-identical to the blend path.
 
