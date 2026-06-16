@@ -9,6 +9,8 @@ export interface MarkerProps extends EventedProps {
   draggable?: boolean
   zIndexOffset?: number
   opacity?: number
+  /** Render into this named Leaflet pane (threaded conditionally at construction). */
+  pane?: string
 }
 
 /** Point marker (wraps L.marker). */
@@ -22,6 +24,9 @@ export const Marker = createOverlayComponent<MarkerProps, L.Marker>({
       draggable: props.draggable,
       zIndexOffset: props.zIndexOffset,
       opacity: props.opacity,
+      // Only pass pane when explicitly provided; a pane: undefined clobbers the
+      // default 'markerPane' and crashes _initIcon (same class as the icon bug).
+      ...(props.pane !== undefined ? { pane: props.pane } : {}),
     }),
   updateInstance: (marker, props, prev) => {
     if (props.position !== prev.position) marker.setLatLng(props.position)
