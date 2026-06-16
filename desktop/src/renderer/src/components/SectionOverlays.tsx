@@ -23,7 +23,7 @@
  */
 
 import { Fragment, useMemo } from 'react'
-import { Pane, Polygon, Polyline, Tooltip } from '@/lib/streaflet'
+import { Pane, Polygon, Polyline, Tooltip } from '../lib/streaflet'
 
 import type {
   BoreholeListItem,
