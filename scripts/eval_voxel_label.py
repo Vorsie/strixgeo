@@ -36,7 +36,12 @@ Usage
 -----
     uv run python scripts/eval_voxel_label.py
     uv run python scripts/eval_voxel_label.py --grid-spacing 2.0
+    uv run python scripts/eval_voxel_label.py --grid-spacing 2 --vertical 0.5  # anisotropic
     uv run python scripts/eval_voxel_label.py --samples-per-region 3
+
+``--grid-spacing`` is the horizontal (X/Y) spacing; ``--vertical`` (optional)
+sets a finer Z spacing for the anisotropic thin-layer path and defaults to the
+horizontal spacing (a cubic grid) when omitted.
 """
 
 from __future__ import annotations
@@ -226,7 +231,13 @@ def main() -> int:
         "--grid-spacing",
         type=float,
         default=None,
-        help="Voxel edge length in metres (default: the fixture's grid_spacing_m).",
+        help="Horizontal (X/Y) voxel spacing in metres (default: the fixture's grid_spacing_m).",
+    )
+    parser.add_argument(
+        "--vertical",
+        type=float,
+        default=None,
+        help="Anisotropic Z spacing in metres (default: the horizontal spacing — cubic).",
     )
     parser.add_argument(
         "--samples-per-region",
@@ -244,12 +255,19 @@ def main() -> int:
 
     sections, fixture_h = _load_sections(args.fixture)
     h = args.grid_spacing if args.grid_spacing is not None else fixture_h
-    print(f"Loaded {len(sections)} sections from {args.fixture.name}; grid spacing {h} m")
+    # Anisotropic Z defaults to the horizontal spacing (cubic) when --vertical is
+    # omitted; pass None in that case so the build is byte-identical to cubic.
+    v = args.vertical if args.vertical is not None else h
+    vertical_arg = None if v == h else v
+    print(
+        f"Loaded {len(sections)} sections from {args.fixture.name}; "
+        f"horizontal {h} m, vertical {v} m"
+    )
 
     domain = build_domain_from_sections(sections)
     print(f"Domain footprint: {len(domain.polygon)}-vertex alpha hull")
 
-    grid = label_voxels(domain, h, sections)
+    grid = label_voxels(domain, h, sections, vertical_spacing_m=vertical_arg)
     print(
         f"Labelled grid: {len(grid.gx)} x {len(grid.gy)} x {len(grid.gz)} "
         f"= {grid.labels.size:,} voxels; {len(grid.body_id_by_index)} bodies"

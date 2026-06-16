@@ -26,6 +26,9 @@ BV-2  Checksum skip — a second build with ``force=false`` and the unchanged
 BV-3  Payload mutation rebuilds — changing a region's lithology (a real partition
       change) with ``force=false`` busts the checksum and forces a rebuild.
 BV-4  Scope guard — a model in another project 404s.
+BV-5  Anisotropic spacing — a payload with ``horizontal_spacing_m`` ≠
+      ``vertical_spacing_m`` (coarse X/Y, fine Z) builds real watertight,
+      non-flagged ``method='voxel'`` solids (the thin-layer path).
 
 Run via the wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_build_voxel.py
@@ -411,6 +414,69 @@ async def test_build_voxel_scope_guard_404(
     payload = _build_payload(scene, grid_spacing_m=1.0)
     resp = await async_client.post(_url(other.id, litho.id), json=payload)
     assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# BV-5: anisotropic spacing — coarse X/Y, fine Z (the thin-layer path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_voxel_anisotropic_spacing_builds(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    scene: dict,
+) -> None:
+    """An anisotropic payload (coarse X/Y, fine Z) builds watertight voxel solids.
+
+    The Task-4 thin-layer path: ``horizontal_spacing_m`` (2 m) ≠
+    ``vertical_spacing_m`` (0.5 m) samples the geology finely in elevation
+    without exploding the X/Y voxel count.  The build must still produce real,
+    non-flagged ``method='voxel'`` solids that reproduce the partition with no
+    inter-body overlap — exactly the cubic guarantees, at a non-cubic grid.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    payload = _build_payload(scene, grid_spacing_m=2.0)
+    # Override the cubic spacing with an anisotropic pair (fine Z, coarse X/Y).
+    payload["horizontal_spacing_m"] = 2.0
+    payload["vertical_spacing_m"] = 0.5
+
+    resp = await async_client.post(_url(proj.id, litho.id), json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["bodies_built"] >= 2, f"Expected ≥2 bodies built; got {body['bodies_built']}"
+    assert body["bodies_flagged"] == 0, f"Voxel build must not flag; got {body['bodies_flagged']}"
+    for solid in body["solids"]:
+        assert solid["is_flagged"] is False
+        assert solid["method"] == "voxel"
+        assert len(solid["vertices"]) > 0
+        assert len(solid["triangles"]) > 0
+
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == body["bodies_built"]
+    meshes = [
+        _MeshView(
+            body_id=str(r.body_id),
+            formation_id=str(r.formation_id),
+            vertices=[tuple(v) for v in r.vertices],
+            triangles=[tuple(t) for t in r.triangles],
+        )
+        for r in rows
+    ]
+    # No inter-body overlap over a footprint sample — the anti-overlap invariant
+    # must hold at an anisotropic grid as it does at the cubic one.
+    samples = [(float(x), float(y)) for x in (2.0, 8.0, 14.0) for y in (1.0, 5.0)]
+    assert_no_overlap_sampled(meshes, samples)
 
 
 # ---------------------------------------------------------------------------

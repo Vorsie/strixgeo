@@ -30,7 +30,15 @@ Usage
     uv run python scripts/eval_voxel_build.py
     uv run python scripts/eval_voxel_build.py --model-id <uuid>
     uv run python scripts/eval_voxel_build.py --grid-spacing 2.0
+    uv run python scripts/eval_voxel_build.py --horizontal 2 --vertical 0.5   # anisotropic
     uv run python scripts/eval_voxel_build.py --persist        # keep the build (Task 7)
+
+Spacing flags
+-------------
+``--grid-spacing`` sets a cubic grid (X = Y = Z).  ``--horizontal`` / ``--vertical``
+set an ANISOTROPIC grid (coarse X/Y + fine Z — the Task-4 thin-layer path); either
+defaults to the fixture's ``grid_spacing_m`` when omitted.  When ``--horizontal`` /
+``--vertical`` are given they take precedence over ``--grid-spacing``.
 """
 
 from __future__ import annotations
@@ -114,7 +122,19 @@ async def main() -> None:
         "--grid-spacing",
         type=float,
         default=None,
-        help="Voxel edge length in metres (default: the fixture's grid_spacing_m).",
+        help="Cubic voxel edge length in metres (default: the fixture's grid_spacing_m).",
+    )
+    ap.add_argument(
+        "--horizontal",
+        type=float,
+        default=None,
+        help="Anisotropic X/Y spacing in metres (default: --grid-spacing or the fixture's).",
+    )
+    ap.add_argument(
+        "--vertical",
+        type=float,
+        default=None,
+        help="Anisotropic Z spacing in metres (default: --grid-spacing or the fixture's).",
     )
     ap.add_argument(
         "--persist",
@@ -128,8 +148,19 @@ async def main() -> None:
     _confirm_db_target()
 
     sections, fixture_h = _load_sections(args.fixture)
-    h = args.grid_spacing if args.grid_spacing is not None else fixture_h
-    print(f"  fixture: {args.fixture.name} — {len(sections)} sections; grid spacing {h} m")
+    # Spacing precedence: --horizontal / --vertical (anisotropic) override
+    # --grid-spacing (cubic), which overrides the fixture's grid_spacing_m.  Each
+    # axis defaults independently, so --vertical alone fines only Z.
+    cubic_default = args.grid_spacing if args.grid_spacing is not None else fixture_h
+    horizontal_m = args.horizontal if args.horizontal is not None else cubic_default
+    vertical_m = args.vertical if args.vertical is not None else cubic_default
+    # Pass vertical=None for a cubic build (byte-stable checksum); a differing
+    # vertical triggers the anisotropic path.
+    vertical_arg = None if vertical_m == horizontal_m else vertical_m
+    print(
+        f"  fixture: {args.fixture.name} — {len(sections)} sections; "
+        f"horizontal {horizontal_m} m, vertical {vertical_m} m"
+    )
 
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -144,7 +175,11 @@ async def main() -> None:
             # untouched.  --persist replaces this with a real commit.
             t0 = time.perf_counter()
             outcome = await BuildVoxelLithoModel(session).execute(
-                model_id, sections, grid_spacing_m=h, force=True
+                model_id,
+                sections,
+                grid_spacing_m=horizontal_m,
+                vertical_spacing_m=vertical_arg,
+                force=True,
             )
             elapsed = time.perf_counter() - t0
 
