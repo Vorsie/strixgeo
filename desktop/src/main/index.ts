@@ -12,7 +12,10 @@ import {
   mkdirSync,
   createWriteStream,
   WriteStream,
+  appendFileSync,
 } from 'fs'
+
+import { rotateIfNeeded, realFsOps } from './logRotation'
 
 import {
   buildContentSecurityPolicy,
@@ -98,6 +101,10 @@ interface RecentProject {
 const API_PORT = 8765
 const API_BASE = `http://127.0.0.1:${API_PORT}`
 
+// Log rotation constants (#214c) — 5 MB max, 3 backup generations.
+const LOG_MAX_BYTES = 5 * 1024 * 1024
+const LOG_MAX_FILES = 3
+
 let apiProcess: ChildProcess | null = null
 
 // Single-window app today; we cache the main window so menu rebuilds (after
@@ -109,6 +116,16 @@ let mainWindow: BrowserWindow | null = null
 // programmatic ``app.quit()`` would re-trigger the close handler in a
 // loop because the BrowserWindow's close emits before the app's quit.
 let confirmedQuit = false
+
+// Absolute path to the main log file. Set once in startApi (packaged) or
+// left null in dev. Exposed to the main-process crash handlers so they can
+// write a timestamped crash line even when no stream is open.
+let mainLogPath: string | null = null
+
+// Set by startApi after the ChildProcess is spawned. Called by the
+// api:ready handler so the exit listener knows the backend started cleanly
+// and a subsequent exit is a normal shutdown, not a startup crash.
+let markBackendReady: (() => void) | null = null
 
 // ---------------------------------------------------------------------------
 // Backend lifecycle
@@ -141,11 +158,26 @@ function startApi(): void {
   // connection string to any user who opens DevTools (debt #200 F5). Route
   // them to a log file under the app's logs dir in production; keep the
   // console in dev for fast iteration.
+  //
+  // #214c — size-based log rotation: rotate the log file before opening it
+  // if it has grown past LOG_MAX_BYTES (5 MB). After rotation we open the
+  // (now-empty) primary path for appending; the old contents are in .1 / .2
+  // up to LOG_MAX_FILES generations. The stream is recreated after rotation
+  // so the same local variable is used throughout.
   let logStream: WriteStream | null = null
   if (app.isPackaged) {
     const logsDir = app.getPath('logs')
     mkdirSync(logsDir, { recursive: true })
-    logStream = createWriteStream(join(logsDir, 'backend.log'), { flags: 'a' })
+    const logPath = join(logsDir, 'backend.log')
+    mainLogPath = logPath
+    rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, realFsOps())
+    logStream = createWriteStream(logPath, { flags: 'a' })
+  }
+
+  // Helper to write a line to the log file (or console in dev).
+  function writeLog(line: string): void {
+    if (logStream) logStream.write(`${line}\n`)
+    else console.log(line)
   }
 
   apiProcess.stdout?.on('data', (d: Buffer) => {
@@ -157,12 +189,27 @@ function startApi(): void {
     else console.error('[api]', d.toString().trim())
   })
 
+  // Track whether the backend ever became ready so we can distinguish a
+  // startup crash (exit before ready) from a normal shutdown (exit after
+  // the user quit the app).
+  let backendBecameReady = false
+
   apiProcess.on('exit', (code) => {
-    const line = `[api] process exited with code ${code}`
-    if (logStream) logStream.write(`${line}\n`)
-    else console.log(line)
+    writeLog(`[api] process exited with code ${code}`)
+    if (!backendBecameReady) {
+      // Backend crashed before it answered /openapi.json — notify the
+      // renderer so it can surface BackendFailedModal (#214d).
+      writeLog('[main] backend exited before becoming ready — sending app:backend-failed')
+      mainWindow?.webContents.send('app:backend-failed')
+    }
     apiProcess = null
   })
+
+  // Expose a function the api:ready handler can call to mark the backend
+  // as having started successfully (so the exit handler knows it was normal).
+  markBackendReady = (): void => {
+    backendBecameReady = true
+  }
 }
 
 function stopApi(): void {
@@ -420,6 +467,17 @@ function buildMenu(win: BrowserWindow): void {
           // renderer owns the CheatsheetDialog open state.
           accelerator: 'F1',
           click: () => win.webContents.send('menu:open-cheatsheet'),
+        },
+        {
+          // #214d — show the logs directory so the user can find and
+          // attach backend.log when reporting a bug. Uses shell.openPath
+          // (not shell.openExternal) because it is a local filesystem
+          // path, not a URL. In dev the logs dir may be empty; that is fine.
+          label: 'Show log file…',
+          click: (): void => {
+            const logsDir = app.getPath('logs')
+            void shell.openPath(logsDir)
+          },
         },
         { type: 'separator' },
         { label: 'About Strix', click: () => {
@@ -714,13 +772,53 @@ ipcMain.handle('api:ready', async () => {
     if (i > 0 && apiProcess === null) return false  // process crashed
     try {
       const res = await fetch(`${API_BASE}/openapi.json`)
-      if (res.ok) return true
+      if (res.ok) {
+        // Backend is up — mark it so the exit handler knows this is a
+        // normal shutdown, not a startup crash (#214d).
+        markBackendReady?.()
+        return true
+      }
     } catch {
       // not ready yet
     }
     await new Promise(r => setTimeout(r, 500))
   }
   return false
+})
+
+// ---------------------------------------------------------------------------
+// #214 — distribution robustness IPC handlers
+// ---------------------------------------------------------------------------
+
+// Return the logs directory path so the renderer can display it in
+// ErrorBoundary and BackendFailedModal.
+ipcMain.handle('app:logs-path', (): string => app.getPath('logs'))
+
+// Forward a renderer render error to the main log file so it appears
+// alongside backend stack traces (useful when the packaged build sends
+// backend.log to support). Best-effort: failures are swallowed.
+ipcMain.handle(
+  'app:log-renderer-error',
+  (_event, message: string, componentStack: string): void => {
+    const ts = new Date().toISOString()
+    const line = `[${ts}] [main] renderer error: ${message}\n${componentStack}`
+    if (mainLogPath) {
+      try {
+        appendFileSync(mainLogPath, `${line}\n`)
+      } catch {
+        // Swallow — don't crash the main process on a log-write failure.
+      }
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[main] renderer error:', message, componentStack)
+    }
+  },
+)
+
+// Open the logs directory in the OS file explorer (Help → Show log file).
+ipcMain.handle('app:show-logs-folder', async (): Promise<void> => {
+  const logsDir = app.getPath('logs')
+  await shell.openPath(logsDir)
 })
 
 // ---------------------------------------------------------------------------
@@ -742,6 +840,51 @@ if (process.env.STRIX_DISABLE_GPU === '1') {
   // eslint-disable-next-line no-console
   console.warn('[main] STRIX_DISABLE_GPU=1 — hardware acceleration disabled')
 }
+
+// ---------------------------------------------------------------------------
+// #214b — main-process crash handlers
+//
+// Catchall for exceptions that escape all try/catch blocks in the main
+// process. Without these, a thrown error just kills the Electron main
+// process silently — the window goes blank and there is nothing in the
+// log to diagnose it from afar. We write a timestamped line to the log
+// file (or console in dev) and, for uncaughtException, show a dialog so
+// the user knows something went wrong before the app exits.
+// ---------------------------------------------------------------------------
+
+function writeMainCrashLine(label: string, err: unknown): void {
+  const ts = new Date().toISOString()
+  const msg = err instanceof Error ? err.stack ?? err.message : String(err)
+  const line = `[${ts}] [main] ${label}: ${msg}`
+  if (mainLogPath) {
+    try {
+      appendFileSync(mainLogPath, `${line}\n`)
+    } catch {
+      // If we can't write the log, at least try the console.
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.error(line)
+}
+
+process.on('uncaughtException', (err: Error): void => {
+  writeMainCrashLine('uncaughtException', err)
+  // Show a synchronous dialog — at this point the event loop may be
+  // in an unrecoverable state, so we use the blocking variant.
+  dialog.showErrorBox(
+    'Strix — unexpected error',
+    `An unexpected error occurred in the Strix main process:\n\n${err.message}\n\nStrix will now exit. Check the log file for details.`,
+  )
+  // Exit with a non-zero code so the OS knows it was a crash.
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason: unknown): void => {
+  // Unhandled promise rejections in the main process are usually non-fatal
+  // (e.g. a one-off fetch that was never awaited). Log the rejection but
+  // do not exit — the app may still be functional.
+  writeMainCrashLine('unhandledRejection', reason)
+})
 
 // Initialise Crashpad BEFORE app.whenReady() so the crashpad_handler
 // process is connected when renderer/utility processes spawn. Without

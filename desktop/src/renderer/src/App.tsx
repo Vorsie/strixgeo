@@ -20,6 +20,7 @@ import { idsOutsideBounds } from './utils/viewportFilter'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
+import BackendFailedModal from './components/BackendFailedModal'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
@@ -88,6 +89,11 @@ declare global {
       onMenuEditRedo: (cb: () => void) => () => void
       onMenuOpenSettings: (cb: () => void) => () => void
       onMenuOpenCheatsheet: (cb: () => void) => () => void
+      // #214 — distribution robustness
+      onAppBackendFailed: (cb: () => void) => () => void
+      getLogsPath: () => Promise<string>
+      logRendererError: (message: string, componentStack: string) => Promise<void>
+      showLogsFolder: () => Promise<void>
     }
   }
 }
@@ -218,6 +224,21 @@ export default function App() {
   useEffect(() => {
     const off = window.electron.onMenuOpenCheatsheet(() => setCheatsheetOpen(true))
     return off
+  }, [])
+
+  // Backend-failed signal (#214d). Shows BackendFailedModal when the main
+  // process reports that the Python backend exited before it was ready.
+  // The modal is non-dismissible — the app cannot function without the backend.
+  const [backendFailed, setBackendFailed] = useState(false)
+  const [logsPath, setLogsPath] = useState<string | null>(null)
+  useEffect(() => {
+    // Best-effort: fetch the logs path so the modal can display it.
+    void window.electron.getLogsPath().then(setLogsPath).catch(() => {})
+    const off = window.electron.onAppBackendFailed(() => setBackendFailed(true))
+    return off
+  // reason: empty dep array — subscribe once at mount; getLogsPath returns a
+  // constant from the main process (app.getPath('logs')) so no dep needed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // CPT and borehole selection + view tab — these are cross-cutting
@@ -977,8 +998,14 @@ export default function App() {
   // R5 (debt #12): gate GUARDS stay here (below all hooks — Rules of
   // Hooks); the screens are presentational components so App reads as
   // coordinator + a scannable render tree.
-  if (apiError) return <AppBootError />
-  if (!ready) return <AppLoading />
+  // Backend-failed modal (#214d) — rendered in every branch because it is
+  // a portal to document.body and must survive the early-return gates.
+  const backendFailedModal = (
+    <BackendFailedModal open={backendFailed} logsPath={logsPath} />
+  )
+
+  if (apiError) return <>{backendFailedModal}<AppBootError /></>
+  if (!ready) return <>{backendFailedModal}<AppLoading /></>
 
   if (!project) {
     return (
@@ -1025,6 +1052,8 @@ export default function App() {
         />
         {/* Help → Gesture cheatsheet — also reachable from the welcome screen. */}
         <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+        {/* Backend-failed modal — portal to body, safe in every branch. */}
+        {backendFailedModal}
       </>
     )
   }
@@ -1084,6 +1113,8 @@ export default function App() {
       />
       {/* Help → Gesture cheatsheet (F1). App-level overlay above the shell. */}
       <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+      {/* Backend-failed modal — portal to body, safe in every branch. */}
+      {backendFailedModal}
     </>
   )
 }

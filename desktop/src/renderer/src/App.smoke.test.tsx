@@ -239,6 +239,11 @@ function installElectronStub(): void {
     onMenuEditRedo: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenSettings: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenCheatsheet: vi.fn().mockReturnValue(noopUnsubscribe),
+    // #214 — distribution robustness stubs
+    onAppBackendFailed: vi.fn().mockReturnValue(noopUnsubscribe),
+    getLogsPath: vi.fn().mockResolvedValue('/tmp/strix-logs'),
+    logRendererError: vi.fn().mockResolvedValue(undefined),
+    showLogsFolder: vi.fn().mockResolvedValue(undefined),
   }
 }
 

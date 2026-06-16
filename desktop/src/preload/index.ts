@@ -110,4 +110,26 @@ contextBridge.exposeInMainWorld('electron', {
   // Help → Gesture cheatsheet… (F1). Same one-way fire — the renderer
   // owns the CheatsheetDialog open state.
   onMenuOpenCheatsheet: (cb: () => void) => onMenuEvent('menu:open-cheatsheet', cb),
+
+  // Backend-failed signal — fires when the Python backend process exits
+  // before the API becomes ready (startup crash). The renderer subscribes
+  // once and shows BackendFailedModal when it arrives.
+  onAppBackendFailed: (cb: () => void): (() => void) =>
+    onMenuEvent('app:backend-failed', cb),
+
+  // Logs directory path — used by ErrorBoundary and BackendFailedModal
+  // to show the user where to find backend.log.
+  getLogsPath: (): Promise<string> =>
+    ipcRenderer.invoke('app:logs-path'),
+
+  // Forward a renderer render error to the main-process log so it appears
+  // in backend.log alongside backend stack traces. Best-effort — the main
+  // process logs the line and continues.
+  logRendererError: (message: string, componentStack: string): Promise<void> =>
+    ipcRenderer.invoke('app:log-renderer-error', message, componentStack),
+
+  // Trigger the main process to open the logs directory in the OS file
+  // explorer. Used by Help → "Show log file" menu item.
+  showLogsFolder: (): Promise<void> =>
+    ipcRenderer.invoke('app:show-logs-folder'),
 })
