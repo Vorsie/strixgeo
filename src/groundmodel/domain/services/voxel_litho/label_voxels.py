@@ -591,6 +591,11 @@ def _clip_stack_to_band(
     # the geological surface (a near-coincident litho↔geology contact reads as
     # coincident — the litho fills the band to the surface).  Only the OUTERMOST
     # contacts snap, so an interior thin layer is never collapsed.
+    # NB: an un-cut entry whose far end pokes <= snap_tol INTO the adjacent band is
+    # intentionally left untrimmed here (the cut rule above only trims edges strictly
+    # interior to the span).  The gap-aware labeller (``_column_labels_gapped``,
+    # shallower-wins) resolves the resulting <=1-voxel overlap, so do NOT "fix" this
+    # into a hard trim — that would open a gap instead of letting the overlap absorb.
     out.sort(key=lambda e: -e.top_elev)  # shallow → deep
     if band_top is not None and 0.0 < band_top - out[0].top_elev <= snap_tol:
         out[0] = _Entry(out[0].body_id, out[0].formation_id, band_top, out[0].base_elev)
@@ -729,7 +734,9 @@ def _stack_at_band(
     if not reaching:
         return []
 
-    reaching.sort(key=lambda r: r[0])  # by perpendicular distance
+    # By perpendicular distance; exact-distance ties resolve by section input order
+    # (stable sort) → deterministic, matching the ported ``_stack_at`` behaviour.
+    reaching.sort(key=lambda r: r[0])
     perp1, px1, py1, clipped1 = reaching[0]
 
     between = False
@@ -1061,12 +1068,19 @@ def label_voxels(
         Defaults to ``()`` — the pure section-blend path, byte-identical to the
         behaviour before this parameter existed.
     geo_surfaces : tuple of SurfaceBound, optional
-        The parent geological model's built band surfaces.  Task 3 implements the
-        band-scoped branch; accepted here so the use case can wire them.  The
-        default ``()`` keeps labelling byte-identical to the un-bounded path.
+        The parent geological model's built band surfaces.  When non-empty, the
+        per-column stack is assembled band-by-band: each geological band is filled
+        by the nearest section reaching it, clipped to the band's bounding surfaces
+        with snap-or-divide, and the bands are concatenated into a gap-aware column
+        stack.  A litho body never crosses a geological surface.  The default ``()``
+        keeps labelling byte-identical to the un-bounded single-blend path.
     litho_snap_tolerance_m : float, default 0.20
-        Snap tolerance for the geology-bounded branch (Task 3).  Accepted here so
-        the use case can wire it; ignored until Task 3 fills in the behaviour.
+        The snap-or-divide tolerance for clipping a litho contact to a geological
+        band surface (geology-bounded branch only).  A litho contact within this
+        distance of a band surface snaps to it — the band's extreme litho fills
+        clean to the surface; a contact farther than this divides the interval at
+        the surface, so the litho is split across the two bands.  Ignored when
+        ``geo_surfaces`` is empty.
 
     Returns
     -------
