@@ -17,16 +17,25 @@ used only when benchmarks prove Python is the bottleneck for a
 real Phase 5 workload (the 2026-05-09 baseline retired all previously-
 flagged candidates).
 
-### Candidate technologies when a Phase 5 hotspot does emerge
+### Candidate technologies when a hotspot does emerge
 
 Order roughly by solo-dev ease — pick the lowest one that fits.
 
-1. **Numba** (`@njit(nogil=True, parallel=True)` + `prange`).
-   Decorator-only; no separate toolchain, ships as a wheel, releases
-   the GIL inside the JIT'd function. Best fit for embarrassingly
-   parallel numeric loops: per-row Ic across all CPTs in a project,
-   batch statistics. As of 2026-05 Numba 0.63 supports Python 3.14
-   and ships experimental free-threading.
+1. **Numba** (`@njit`) — **ADOPTED 2026-06-16 (Phase 4).** First real use:
+   `voxel_litho/greedy_mesh._maximal_rectangles_njit`, the profiled
+   mesh-extraction hotspot (93.6 % of extraction; cProfile pinned it, no
+   guessing). Measured 38.6× on the real `test.strix` workload (31.1 s →
+   0.81 s over 113,796 captured masks), **byte-identical rectangles** (pinned
+   by a 360-mask property test vs the scalar reference + the identical
+   317,182-tri build output), `cache=True` so only the first call per session
+   pays the ~0.6 s warm-up. Took the on-click voxel Build 67 s → 37.5 s.
+   Justified for Phase 4 (not deferred to 5) because the Build must run on
+   lower-spec **distribution** machines. Cost: a hard dependency, +119 MB
+   (llvmlite bundles LLVM); per-OS wheels + a PyInstaller hook at packaging
+   time. Decorator-only; no separate toolchain, releases the GIL inside the
+   JIT'd function. Best fit for embarrassingly parallel numeric loops; the
+   labelling phase (now the dominant ~29 s) is the next candidate — profile
+   first.
 2. **Cython / mypyc**. Static compilation of Python-shaped code.
    Useful when the hot path is mostly Python control flow, not
    numeric loops. Adds a build step.
