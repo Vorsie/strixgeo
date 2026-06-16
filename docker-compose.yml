@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    # Digest-pinned (#219) so the DB image is reproducible — a floating
+    # 16-3.4 tag can silently change under the project. Refresh the digest
+    # deliberately with: docker pull postgis/postgis:16-3.4 && docker
+    # inspect --format '{{index .RepoDigests 0}}' postgis/postgis:16-3.4
+    image: postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
     environment:
       POSTGRES_USER: groundmodel
       POSTGRES_PASSWORD: groundmodel
