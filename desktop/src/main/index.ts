@@ -196,13 +196,30 @@ function startApi(): void {
 
   apiProcess.on('exit', (code) => {
     writeLog(`[api] process exited with code ${code}`)
-    if (!backendBecameReady) {
-      // Backend crashed before it answered /openapi.json — notify the
-      // renderer so it can surface BackendFailedModal (#214d).
-      writeLog('[main] backend exited before becoming ready — sending app:backend-failed')
-      mainWindow?.webContents.send('app:backend-failed')
-    }
     apiProcess = null
+    if (backendBecameReady) return
+
+    // The app's spawned backend exited before we confirmed readiness — but an
+    // externally-run backend may still own :8765 (the dev session's own
+    // uvicorn, or the e2e harness which starts its own). In that case the
+    // app's child losing the port race is NOT a failure: the API is reachable.
+    // Only surface BackendFailedModal when :8765 is genuinely unreachable, so
+    // we don't false-positive over a live external backend (#214d — fixes the
+    // e2e regression where the modal blocked the welcome screen).
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/openapi.json`)
+        if (res.ok) {
+          writeLog('[main] backend child exited but :8765 is reachable — not signalling failure')
+          markBackendReady?.()
+          return
+        }
+      } catch {
+        // Unreachable — fall through to the failure signal.
+      }
+      writeLog('[main] backend exited before ready and :8765 unreachable — sending app:backend-failed')
+      mainWindow?.webContents.send('app:backend-failed')
+    })()
   })
 
   // Expose a function the api:ready handler can call to mark the backend
