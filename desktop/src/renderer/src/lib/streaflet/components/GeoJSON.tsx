@@ -24,5 +24,8 @@ export const GeoJSON = createLayerComponent<GeoJSONProps, L.GeoJSON>({
       gj.clearLayers()
       gj.addData(props.data)
     }
+    if (props.style !== prev.style) {
+      gj.setStyle(props.style ?? {})
+    }
   },
 })
