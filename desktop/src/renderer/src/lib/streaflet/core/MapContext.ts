@@ -7,6 +7,8 @@ export interface StreafletContextValue {
   readonly map: L.Map
   /** Nearest container layers attach to (a Pane/group), else the map itself. */
   readonly layerContainer: L.Map | L.LayerGroup
+  /** Nearest enclosing layer (Marker/Path/group) — the bind target for Tooltip/Popup. */
+  readonly parentLayer?: L.Layer
 }
 
 export const MapContext = createContext<StreafletContextValue | null>(null)
