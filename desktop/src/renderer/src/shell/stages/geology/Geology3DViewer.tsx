@@ -60,6 +60,7 @@ import {
   sampleTinZ,
   clipTrisToHalfSpace,
   clipTexTrisToHalfSpace,
+  trianglesToWireframeEdgeIndices,
   type CapPlane,
   type TexVert,
 } from './cesiumGeometry'
@@ -163,6 +164,13 @@ export interface Geology3DViewerProps {
    * re-runs every render.  The current caller satisfies this via useState.
    */
   bodySolids?: LithoBodySolidResponse[]
+  /**
+   * When true, the body solids render as WIREFRAME (Cesium LINES of each
+   * triangle's three edges) instead of filled faces — the in-app equivalent
+   * of the dev viewer's "wireframe" checkbox.  Only the body-solid primitives
+   * are affected; formation TIN sheets, fence walls and cut-face caps are
+   * unchanged.  Defaults to false (filled). */
+  bodySolidsWireframe?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -857,6 +865,14 @@ function buildFencePrimitive(
  *     When true, applies translucent appearance + ``FLAGGED_SOLID_ALPHA`` so
  *     the marker disk reads as "local, unconfirmed extent" rather than a solid
  *     body.  Defaults to false (opaque).
+ * wireframe
+ *     When true, the SAME positions are emitted as a LINES primitive whose
+ *     index buffer holds the three boundary edges of each triangle
+ *     (``i0,i1 i1,i2 i2,i0``) instead of filled faces — the in-app equivalent
+ *     of the dev viewer's "wireframe" checkbox.  A line primitive has no faces,
+ *     so back-face culling (``closed``) is irrelevant and is dropped for this
+ *     case.  Defaults to false (the filled TRIANGLES render is byte-identical
+ *     to the pre-wireframe behaviour).
  *
  * Returns
  * -------
@@ -870,6 +886,7 @@ function buildSolidPrimitive(
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
   isFlagged: boolean = false,
+  wireframe: boolean = false,
 ): Cesium.Primitive | null {
   if (triangles.length === 0) return null
 
@@ -881,6 +898,11 @@ function buildSolidPrimitive(
   let positionValues: Float64Array
   let indices: Uint32Array
 
+  // Triangle index triples (the TRIANGLES draw buffer). For wireframe we
+  // keep the SAME positions but re-expand these into edge pairs below, so
+  // the filled and wireframe renders of a body share identical geometry.
+  let triangleIndices: number[]
+
   if (!clip) {
     // No split — compact indexed geometry (the shared-vertex fast path).
     positionValues = new Float64Array(ecef.length * 3)
@@ -890,12 +912,12 @@ function buildSolidPrimitive(
       positionValues[i++] = v.y
       positionValues[i++] = v.z
     }
-    indices = new Uint32Array(triangles.length * 3)
+    triangleIndices = new Array(triangles.length * 3)
     let j = 0
     for (const [i0, i1, i2] of triangles) {
-      indices[j++] = i0
-      indices[j++] = i1
-      indices[j++] = i2
+      triangleIndices[j++] = i0
+      triangleIndices[j++] = i1
+      triangleIndices[j++] = i2
     }
   } else {
     // Split active — clip the solid to the half-space and emit a triangle
@@ -909,7 +931,7 @@ function buildSolidPrimitive(
     const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
     if (clipped.length === 0) return null
     positionValues = new Float64Array(clipped.length * 9)
-    indices = new Uint32Array(clipped.length * 3)
+    triangleIndices = new Array(clipped.length * 3)
     let pi = 0
     let ii = 0
     for (const t of clipped) {
@@ -917,10 +939,25 @@ function buildSolidPrimitive(
         positionValues[pi++] = v.x
         positionValues[pi++] = v.y
         positionValues[pi++] = v.z
-        indices[ii] = ii
+        triangleIndices[ii] = ii
         ii++
       }
     }
+  }
+
+  if (wireframe) {
+    // Re-key the triangle index buffer (triples) into LINE edge pairs so the
+    // body renders as a wireframe. Works for both the shared-vertex no-clip
+    // buffer and the per-triangle 3-vertex soup of the clipped path — each
+    // consecutive index triple (whether shared or soup) becomes its three
+    // boundary edges.
+    const triples: [number, number, number][] = []
+    for (let t = 0; t < triangleIndices.length; t += 3) {
+      triples.push([triangleIndices[t], triangleIndices[t + 1], triangleIndices[t + 2]])
+    }
+    indices = new Uint32Array(trianglesToWireframeEdgeIndices(triples))
+  } else {
+    indices = new Uint32Array(triangleIndices)
   }
 
   const geometry = new Cesium.Geometry({
@@ -933,7 +970,10 @@ function buildSolidPrimitive(
       }),
     } as unknown as Cesium.GeometryAttributes,
     indices,
-    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    // LINES for wireframe (edge index buffer), TRIANGLES for the filled body.
+    primitiveType: wireframe
+      ? Cesium.PrimitiveType.LINES
+      : Cesium.PrimitiveType.TRIANGLES,
     boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
   })
 
@@ -960,7 +1000,10 @@ function buildSolidPrimitive(
     appearance: new Cesium.PerInstanceColorAppearance({
       translucent: isFlagged,
       flat: true,
-      closed: true,
+      // closed: true enables back-face culling on the filled solid. A LINES
+      // primitive has no faces, so culling is irrelevant — drop it for the
+      // wireframe case (PerInstanceColorAppearance renders LINES fine).
+      closed: wireframe ? false : true,
     }),
     asynchronous: false,
   })
@@ -1297,6 +1340,7 @@ function rebuildSurfacePrimitives(
   groundSurfaceVisible: boolean = true,
   surfacesVisible: boolean = true,
   bodySolids?: LithoBodySolidResponse[],
+  bodySolidsWireframe: boolean = false,
 ): void {
   scene.primitives.removeAll()
 
@@ -1616,6 +1660,7 @@ function rebuildSurfacePrimitives(
         projectEpsg,
         clip,
         solid.is_flagged === true,
+        bodySolidsWireframe,
       )
       if (prim) scene.primitives.add(prim)
     }
@@ -1799,6 +1844,9 @@ interface CesiumViewportProps {
   fencePanels?: FencePanel[]
   /** Per-body closed opaque solids — threaded from Geology3DViewerProps. */
   bodySolids?: LithoBodySolidResponse[]
+  /** When true, body solids render as wireframe (LINES) rather than filled
+   * faces — threaded from Geology3DViewerProps. Default false. */
+  bodySolidsWireframe?: boolean
 }
 
 /**
@@ -1858,6 +1906,7 @@ function CesiumViewport({
   showConfidenceFade = true,
   fencePanels,
   bodySolids,
+  bodySolidsWireframe = false,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -1983,6 +2032,7 @@ function CesiumViewport({
       groundSurfaceVisible,
       surfacesVisible,
       bodySolids,
+      bodySolidsWireframe,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -2077,6 +2127,9 @@ function CesiumViewport({
     // value so the reference is stable — no useMemo needed; any new array literal
     // would re-trigger this effect every render (same dep-array rule as fencePanels).
     bodySolids,
+    // Wireframe toggle: rebuild the body-solid primitives as LINES vs filled
+    // faces when the user flips the in-app wireframe view toggle.
+    bodySolidsWireframe,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -2259,6 +2312,7 @@ export default function Geology3DViewer({
   showConfidenceFade = true,
   fencePanels,
   bodySolids,
+  bodySolidsWireframe = false,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -2404,6 +2458,7 @@ export default function Geology3DViewer({
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
           bodySolids={bodySolids}
+          bodySolidsWireframe={bodySolidsWireframe}
         />
 
         {/* Debt #26 offline banner — overlays the primary viewport when
@@ -2615,6 +2670,7 @@ export default function Geology3DViewer({
               showConfidenceFade={showConfidenceFade}
               fencePanels={fencePanels}
               bodySolids={bodySolids}
+              bodySolidsWireframe={bodySolidsWireframe}
             />
           </div>
         </>
