@@ -6,7 +6,13 @@ services:
       POSTGRES_PASSWORD: groundmodel
       POSTGRES_DB: groundmodel
     ports:
-      - "5433:5432"
+      # Loopback-only bind (debt #215). A bare "5433:5432" binds 0.0.0.0, so on
+      # a shared office/lab machine anyone on the LAN could reach Postgres with
+      # the default groundmodel:groundmodel credentials and read all project
+      # data. Random per-install password generation folds into the bundled-
+      # Postgres plan (#2). Recreate the container (docker compose up -d) for
+      # this to take effect.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
