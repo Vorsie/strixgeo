@@ -5,6 +5,8 @@ import type { EventedProps } from './events'
 /** Props common to vector (path) layers. `style` aliases Leaflet PathOptions. */
 export interface PathProps extends EventedProps {
   style?: L.PathOptions
+  /** Render into this named Leaflet pane (a PathOptions field, threaded at construction). */
+  pane?: string
 }
 
 /**
@@ -16,7 +18,13 @@ export function createPathComponent<P extends PathProps, I extends L.Path>(
 ) {
   return createLayerComponent<P, I>({
     createInstance: (props, ctx) => {
-      const instance = factory.createInstance(props, ctx)
+      // pane is construction-time only on a path; merge it into the style the
+      // inner factory uses to CONSTRUCT the Leaflet object. Only when defined —
+      // a pane: undefined would clobber Leaflet's default 'overlayPane'.
+      const instance = factory.createInstance(
+        props.pane !== undefined ? { ...props, style: { ...props.style, pane: props.pane } } : props,
+        ctx,
+      )
       if (props.style) instance.setStyle(props.style)
       return instance
     },
