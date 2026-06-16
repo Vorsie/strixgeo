@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #214, #215, #219
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #210, #211, #212, #216, #217, #218
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #211 (DRY-01 follow-up only; jobs-scope → #4), #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5364,6 +5364,8 @@ the call-count regression test (TEST-04) first, watch it fail, then split.
 
 ## 210. SSE progress sentinel can hang the import dialog forever (Tier E — backend, S)
 
+**RESOLVED 2026-06-16.** `JobRegistry.start` attaches a done-callback that logs the exception and enqueues the `None` sentinel when the background task raises, so `stream()` always terminates instead of blocking on `queue.get()`. `import_cpt_dov._fire_pins`'s silent `except Exception: pass` replaced with a logged warning; `import_borehole_dov` verified clean. Remaining sibling swallow `shared/progress.py:83` (module-level `fire_progress`, needs a logger param) left for a follow-up. Unit test pins no-hang-on-raise.
+
 *(audit: COR-01 — High; OBS-01/11 — Medium)*
 
 **What.** `job_registry.py:98` calls `asyncio.create_task(coro)` with no
@@ -5384,7 +5386,11 @@ sentinel on exception (or unconditional try/finally sentinel); replace the
 `_fire_pins` `pass` with `self.warning(...)`; grep `application/` for sibling
 `except Exception: pass` / `# noqa: BLE001` swallows.
 
-## 211. Cross-project id acceptance + missing scope guards (Tier E — backend, S)
+## 211. Cross-project id acceptance + missing scope guards (Tier E — backend, S) — MOSTLY RESOLVED
+
+**RESOLVED 2026-06-16 (a, c, silent-return).** (a) `BulkCreateLithoLayers` validates every `formation_id` against the project via `load_scoped_or_raise`, and the litho-layers router passes `project_id` so the guard is LIVE (not dormant). (c) `UpdateFormationContact._propagate_coupled_depth` gained the defence-in-depth `app_project_id` subquery filter. (silent-return) `MaterializeWedgeTipsForFormation` now raises on a found-but-foreign row; genuine not-found stays a warning+no-op for the test-mock path.
+
+**STILL OPEN:** (b) the `DELETE /jobs/{job_id}` scope guard is **deferred to #4** (auth on by-id endpoints) — the endpoint is not client-reachable and import project-scoping is optional, so a guard here would be dormant; it belongs with the coherent network-auth pass. (d) the DRY-01 migration of ≥7 hand-rolled `is None or app_project_id != project_id` checks to `load_scoped_or_raise` (cleanest single-commit targets: `create_perpendicular_companion.py`, `link_litho_to_geo.py`, `unlink_litho_from_geo.py`).
 
 *(audit: COR-03 — High; ARCH-09, COR-10, DRY-01 — Low/Medium)*
 
@@ -5411,6 +5417,8 @@ scope-guard the jobs DELETE, add the propagation scope filter, migrate the hand-
 checks to `load_scoped_or_raise`, and decide/document the silent-return site.
 
 ## 212. Per-item exception swallows commit partially-staged session state (Tier E — backend, M)
+
+**RESOLVED 2026-06-16.** `RecomputeAllAbsencesForModel` runs each formation inside an `async with session.begin_nested()` savepoint, so a per-formation `(ValueError, LookupError)` rolls back only that formation's staged writes while successful formations accumulate for the final commit. `MaterialiseBodyCompanions` — whose inner `CreatePerpendicularCompanion` commits per body, making a savepoint conflict with its `refresh()` — instead `await session.rollback()`s on a per-body exception to discard pre-commit staged rows (already-committed companions are durable). Skip-counter logging preserved. Integration tests RA5/MC5 pin the rollback. *(Minor known nit: in recompute the summary counters increment inside the savepoint, so a formation that succeeds at inference but fails at wedge-tip materialisation over-counts in the log — logging accuracy only, not the data invariant.)*
 
 *(audit: COR-04, COR-06 — Medium)*
 
