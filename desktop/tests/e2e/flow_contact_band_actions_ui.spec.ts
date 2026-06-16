@@ -7,8 +7,10 @@
  * bands):
  *   1. Contact → Delete contact — DESTRUCTIVE: drive to the confirm dialog and
  *      Cancel (order-independent; the body's contacts survive).
- *   2. Contact → Open-end layer → right — commits an open extent on the layer.
- *   3. Litho band → Remove this litho unit — DESTRUCTIVE: confirm dialog + Cancel.
+ *   2. Litho band → Remove this litho unit — DESTRUCTIVE: confirm dialog + Cancel.
+ *
+ * (The body-extent "Open-end layer" gesture was retired in debt #207 — the
+ * dead route 404'd silently — so its action test was removed with it.)
  *
  * Follows the action-coverage convention (debt #130): exercise the gesture to
  * its effect; for irreversible actions assert the confirmation fires and Cancel
@@ -76,28 +78,6 @@ test.describe('flow_contact_band_actions_ui', () => {
       await dialog.getByRole('button', { name: 'Cancel' }).click()
       await expect(dialog).toBeHidden({ timeout: 5_000 })
       // The contact survives.
-      await expect(page.locator('[data-testid="contact-drag-strip"]').first()).toBeVisible()
-    } finally {
-      await closeApp(app)
-      cleanupFixtureFile(tmpPath)
-    }
-  })
-
-  test('Contact → Open-end layer → right — commits an open extent', async () => {
-    test.slow()
-    const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
-    let tmpPath = ''
-    try {
-      tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await openContactSection(page)
-
-      const strip = page.locator('[data-testid="contact-drag-strip"]').first()
-      await rightClick(page, strip)
-      await expect(page.getByTestId('contact-context-menu')).toBeVisible({ timeout: 5_000 })
-
-      // Open-end → right commits directly (no dialog); the section stays healthy.
-      await page.getByTestId('open-end-layer-right').dispatchEvent('click')
-      await expect(page.getByTestId('contact-context-menu')).toBeHidden({ timeout: 5_000 })
       await expect(page.locator('[data-testid="contact-drag-strip"]').first()).toBeVisible()
     } finally {
       await closeApp(app)
