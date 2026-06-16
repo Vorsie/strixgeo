@@ -135,6 +135,23 @@ class VoxelBuildRequest(BaseModel):
     and fall back to ``grid_spacing_m`` when absent, so a legacy payload carrying
     only ``grid_spacing_m`` still builds a cubic grid (additive, backwards-safe).
 
+    Precedence — what wins when an explicit axis spacing AND ``grid_spacing_m``
+    are both present
+    ------------------------------------------------------------------------
+    Each axis resolves INDEPENDENTLY (see :attr:`effective_horizontal_spacing_m`
+    / :attr:`effective_vertical_spacing_m`):
+
+    * ``horizontal_spacing_m`` (when set) takes precedence over ``grid_spacing_m``
+      for the X/Y (map-plane) axes.
+    * ``vertical_spacing_m`` (when set) takes precedence over ``grid_spacing_m``
+      for the Z (elevation) axis.
+    * ``grid_spacing_m`` is the cubic fallback used only for whichever axis has
+      NO explicit override.
+
+    So ``{grid_spacing_m: 2, horizontal_spacing_m: 3}`` resolves to **3 m X/Y, 2 m
+    Z** — ``grid_spacing_m`` is ignored for X/Y (the explicit horizontal wins) and
+    serves only as the Z fallback (no explicit vertical given).
+
     Attributes
     ----------
     sections : list of SectionPartitionInputSchema
@@ -159,8 +176,10 @@ class VoxelBuildRequest(BaseModel):
     def effective_horizontal_spacing_m(self) -> float:
         """The X/Y spacing the use case should build with.
 
-        ``horizontal_spacing_m`` when explicitly set, else ``grid_spacing_m``
-        (the cubic / legacy fallback).
+        ``horizontal_spacing_m`` takes precedence when explicitly set; otherwise
+        falls back to ``grid_spacing_m`` (the cubic / legacy fallback).  This axis
+        resolves independently of Z, so ``grid_spacing_m`` is ignored here whenever
+        a horizontal override is present.
 
         Returns
         -------
@@ -177,8 +196,10 @@ class VoxelBuildRequest(BaseModel):
     def effective_vertical_spacing_m(self) -> float:
         """The Z spacing the use case should build with.
 
-        ``vertical_spacing_m`` when explicitly set, else ``grid_spacing_m`` (the
-        cubic / legacy fallback).
+        ``vertical_spacing_m`` takes precedence when explicitly set; otherwise
+        falls back to ``grid_spacing_m`` (the cubic / legacy fallback).  This axis
+        resolves independently of X/Y, so ``grid_spacing_m`` is ignored here
+        whenever a vertical override is present.
 
         Returns
         -------

@@ -53,6 +53,20 @@ def test_vertical_only_fines_z_while_horizontal_falls_back() -> None:
     assert req.effective_vertical_spacing_m == 1.0
 
 
+def test_horizontal_override_wins_over_grid_spacing_for_xy_only() -> None:
+    """An explicit ``horizontal_spacing_m`` takes precedence over ``grid_spacing_m``.
+
+    When both ``grid_spacing_m`` and ``horizontal_spacing_m`` are present (no
+    vertical), the X/Y axes resolve to the explicit horizontal value — the cubic
+    value loses for X/Y — while Z, having no override, falls back to the cubic
+    ``grid_spacing_m``.  So ``{grid_spacing_m: 2, horizontal_spacing_m: 3}`` is
+    3 m X/Y, 2 m Z.
+    """
+    req = VoxelBuildRequest(grid_spacing_m=2.0, horizontal_spacing_m=3.0)
+    assert req.effective_horizontal_spacing_m == 3.0
+    assert req.effective_vertical_spacing_m == 2.0
+
+
 def test_non_positive_anisotropic_spacing_is_rejected() -> None:
     """A non-positive ``vertical_spacing_m`` (or horizontal) fails validation.
 
