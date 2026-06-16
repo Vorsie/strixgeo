@@ -69,6 +69,7 @@ dependencies = [
     # more code for the same result.
     "matplotlib>=3.8",
     "scikit-image>=0.26.0",
+    "numba>=0.65.1",
 ]
 
 [dependency-groups]
@@ -114,3 +115,12 @@ unfixable = ["F401"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+# Numba ships no type stubs / py.typed marker. Ignore its missing imports
+# project-wide so every ``from numba import ...`` does not need a per-line
+# suppression (the JIT'd kernels themselves still carry a localised
+# ``# type: ignore[untyped-decorator]`` on the ``@njit`` decorator, which
+# strict mode flags because the decorator is untyped).
+[[tool.mypy.overrides]]
+module = ["numba.*"]
+ignore_missing_imports = true
