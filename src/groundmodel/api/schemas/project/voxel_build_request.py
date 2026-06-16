@@ -128,16 +128,66 @@ class VoxelBuildRequest(BaseModel):
     source of truth for the build (the backend never re-derives the partition);
     the use case labels a 3-D grid from it and extracts watertight body meshes.
 
+    The grid may be CUBIC (``grid_spacing_m`` only) or ANISOTROPIC
+    (``horizontal_spacing_m`` for X/Y + ``vertical_spacing_m`` for Z).  Geology
+    is thin-layered vertically, so a fine Z over a coarse X/Y catches thin layers
+    without exploding the X/Y voxel count.  Both anisotropic fields are optional
+    and fall back to ``grid_spacing_m`` when absent, so a legacy payload carrying
+    only ``grid_spacing_m`` still builds a cubic grid (additive, backwards-safe).
+
     Attributes
     ----------
     sections : list of SectionPartitionInputSchema
         One partition per section in the litho model.
     grid_spacing_m : float
-        Voxel grid spacing in metres (must be positive).
+        The cubic / fallback voxel grid spacing in metres (must be positive).
+        Used for any axis whose explicit spacing field is absent.
+    horizontal_spacing_m : float or None
+        The X/Y (map-plane) voxel spacing in metres.  ``None`` → fall back to
+        ``grid_spacing_m``.  Must be positive when set.
+    vertical_spacing_m : float or None
+        The Z (elevation) voxel spacing in metres.  ``None`` → fall back to
+        ``grid_spacing_m``.  Must be positive when set.
     """
 
     sections: list[SectionPartitionInputSchema] = Field(default_factory=list)
     grid_spacing_m: float = Field(gt=0.0)
+    horizontal_spacing_m: float | None = Field(default=None, gt=0.0)
+    vertical_spacing_m: float | None = Field(default=None, gt=0.0)
+
+    @property
+    def effective_horizontal_spacing_m(self) -> float:
+        """The X/Y spacing the use case should build with.
+
+        ``horizontal_spacing_m`` when explicitly set, else ``grid_spacing_m``
+        (the cubic / legacy fallback).
+
+        Returns
+        -------
+        float
+            The resolved horizontal voxel spacing in metres (always positive).
+        """
+        return (
+            self.horizontal_spacing_m
+            if self.horizontal_spacing_m is not None
+            else self.grid_spacing_m
+        )
+
+    @property
+    def effective_vertical_spacing_m(self) -> float:
+        """The Z spacing the use case should build with.
+
+        ``vertical_spacing_m`` when explicitly set, else ``grid_spacing_m`` (the
+        cubic / legacy fallback).
+
+        Returns
+        -------
+        float
+            The resolved vertical voxel spacing in metres (always positive).
+        """
+        return (
+            self.vertical_spacing_m if self.vertical_spacing_m is not None else self.grid_spacing_m
+        )
 
     def to_domain_sections(self) -> list[SectionPartitionInput]:
         """Convert every section to its frozen domain value object.
