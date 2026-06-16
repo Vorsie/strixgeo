@@ -11,6 +11,12 @@ export const AttributionControl = createControlComponent<
   AttributionControlProps,
   L.Control.Attribution
 >({
+  // Only pass options that are explicitly provided; passing `position: undefined`
+  // clobbers Leaflet's prototype default and crashes Control.addTo on
+  // `undefined.indexOf`. Same conditional-spread convention as TileLayer.
   createInstance: (props) =>
-    L.control.attribution({ position: props.position, prefix: props.prefix }),
+    L.control.attribution({
+      ...(props.position !== undefined ? { position: props.position } : {}),
+      ...(props.prefix !== undefined ? { prefix: props.prefix } : {}),
+    }),
 })
