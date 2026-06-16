@@ -10,7 +10,7 @@ import {
   Tooltip,
   WMSTileLayer,
   useMap,
-} from 'react-leaflet'
+} from '@/lib/streaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -386,7 +386,7 @@ function ShiftDragMarquee({
       // the marker panes), which hid the import draw box entirely.
       pane="draw-overlay"
       bounds={L.latLngBounds(dragRect.start, dragRect.end)}
-      pathOptions={{
+      style={{
         color: '#2563eb',
         weight: 1.5,
         opacity: 0.85,
@@ -578,7 +578,7 @@ export default function MapView({
       >
         {/* Basemap tile layer.
             ``key`` is set to ``basemap.id`` (the user's explicit choice)
-            so react-leaflet unmounts/remounts the TileLayer only when the
+            so streaflet unmounts/remounts the TileLayer only when the
             basemap ACTUALLY changes — not on every MapView re-render.
             Previously keyed on ``resolvedTheme``, which caused the layer
             to remount whenever the resolved theme was referenced anywhere
@@ -610,7 +610,7 @@ export default function MapView({
             base (tilePane z=200) but BELOW the DEM hillshade (z=250) so
             enabling hillshade does not hide the GRB-selectie reference
             lines, and well below the marker panes (z=400/600). */}
-        <Pane name="basemap-overlay" style={{ zIndex: 210 }} />
+        <Pane name="basemap-overlay" zIndex={210} />
         {basemap.overlay && (
           <TileLayer
             key={`${basemap.id}-overlay`}
@@ -627,7 +627,7 @@ export default function MapView({
             borehole markers always sit visually above the hillshade,
             regardless of opacity blending. Mounting order alone is
             insufficient — Leaflet's pane system decides final z-order. */}
-        <Pane name="dem-overlay" style={{ zIndex: 250 }} />
+        <Pane name="dem-overlay" zIndex={250} />
 
         {/* Investigation markers get their OWN explicit pane above every
             tile/overlay pane. Relying on Leaflet's default overlayPane
@@ -643,15 +643,15 @@ export default function MapView({
             Pin to an explicit pane at z=660: above the markers (640)
             and every basemap/DEM overlay, below popupPane (700) so
             popups still win. Both <Tooltip> elements set pane to this. */}
-        <Pane name="marker-tooltips" style={{ zIndex: 660 }} />
-        <Pane name="investigation-markers" style={{ zIndex: 640 }} />
+        <Pane name="marker-tooltips" zIndex={660} />
+        <Pane name="investigation-markers" zIndex={640} />
         {/* Bbox / section draw rectangle. Same documented problem as the
             markers above: Leaflet's default overlayPane (z=400) renders
             UNDER the Geopunt GRB-selectie overlay, so the import draw box
             was invisible over the Luchtfoto+GRB basemap. z=665: above all
             basemap/DEM panes + markers + tooltips, below popupPane (700).
             The draw <Rectangle> pins to this pane explicitly. */}
-        <Pane name="draw-overlay" style={{ zIndex: 665 }} />
+        <Pane name="draw-overlay" zIndex={665} />
         {demSource && demOverlay?.enabled && (
           <WMSTileLayer
             url={demSource.url}
@@ -743,13 +743,13 @@ export default function MapView({
               pane="investigation-markers"
               center={[m.lat, m.lng]}
               radius={selected || hovered ? RADIUS_SELECTED : RADIUS}
-              pathOptions={{
+              style={{
                 color: selected ? '#1e3a8a' : ringed ? '#2563eb' : '#1f2937',
                 weight: selected ? 2 : ringed ? 2 : 1,
                 fillColor: color,
                 fillOpacity: 0.85,
               }}
-              eventHandlers={{ click: () => onSelectCpt(m.id) }}
+              onClick={() => onSelectCpt(m.id)}
             >
               <Tooltip
                 pane="marker-tooltips"
@@ -785,7 +785,7 @@ export default function MapView({
               pane="investigation-markers"
               position={[m.lat, m.lng]}
               icon={squareDivIcon(color, selected, marqueeSelected || hovered)}
-              eventHandlers={{ click: () => onSelectBorehole(m.id) }}
+              onClick={() => onSelectBorehole(m.id)}
             >
               <Tooltip
                 pane="marker-tooltips"
@@ -818,7 +818,7 @@ export default function MapView({
               pane="investigation-markers"
               center={[lat, lng]}
               radius={RADIUS - 1}
-              pathOptions={{
+              style={{
                 color: '#92400e',
                 weight: 1,
                 fillColor: '#f59e0b',
