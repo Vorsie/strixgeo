@@ -42,8 +42,8 @@ export function createLayerComponent<P extends EventedProps, I extends L.Layer>(
 
     const childCtx: StreafletContextValue =
       'addLayer' in instance
-        ? { map: ctx.map, layerContainer: instance as unknown as L.LayerGroup }
-        : ctx
+        ? { map: ctx.map, layerContainer: instance as unknown as L.LayerGroup, parentLayer: instance }
+        : { map: ctx.map, layerContainer: ctx.layerContainer, parentLayer: instance }
     return <MapContext.Provider value={childCtx}>{props.children}</MapContext.Provider>
   })
 }
