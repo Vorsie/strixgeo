@@ -160,3 +160,8 @@ desktop/tests/e2e/_results/
 # brainstorm visual companion (local, never commit)
 .superpowers/
 desktop/scripts/voxel_oracle_inputs.json
+
+# Voxel-litho dev viewer — local dogfeed tool; model.json is a large (~19 MB)
+# regenerable artifact (scripts/dump_voxel_viewer_model.py rebuilds it from the
+# persisted solids). Never commit the viewer or its generated model/screenshots.
+voxel_viewer/
