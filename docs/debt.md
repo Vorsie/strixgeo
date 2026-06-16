@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #213, #214, #215, #219
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #211 (DRY-01 follow-up only; jobs-scope → #4), #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16)*
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5390,7 +5390,9 @@ sentinel on exception (or unconditional try/finally sentinel); replace the
 
 **RESOLVED 2026-06-16 (a, c, silent-return).** (a) `BulkCreateLithoLayers` validates every `formation_id` against the project via `load_scoped_or_raise`, and the litho-layers router passes `project_id` so the guard is LIVE (not dormant). (c) `UpdateFormationContact._propagate_coupled_depth` gained the defence-in-depth `app_project_id` subquery filter. (silent-return) `MaterializeWedgeTipsForFormation` now raises on a found-but-foreign row; genuine not-found stays a warning+no-op for the test-mock path.
 
-**STILL OPEN:** (b) the `DELETE /jobs/{job_id}` scope guard is **deferred to #4** (auth on by-id endpoints) — the endpoint is not client-reachable and import project-scoping is optional, so a guard here would be dormant; it belongs with the coherent network-auth pass. (d) the DRY-01 migration of ≥7 hand-rolled `is None or app_project_id != project_id` checks to `load_scoped_or_raise` (cleanest single-commit targets: `create_perpendicular_companion.py`, `link_litho_to_geo.py`, `unlink_litho_from_geo.py`).
+**STILL OPEN:** (b) the `DELETE /jobs/{job_id}` scope guard is **deferred to #4** (auth on by-id endpoints) — the endpoint is not client-reachable and import project-scoping is optional, so a guard here would be dormant; it belongs with the coherent network-auth pass.
+
+**DRY-01 (d) — RESOLVED 2026-06-16.** Examined all 8 hand-rolled scope sites; exactly one (`create_perpendicular_companion.py` model guard) was a clean one-hop swap and was migrated to `load_scoped_or_raise` + given a raise-path unit test. The other 7 stay hand-rolled **by design**, not omission: `body_boundary.py` and `create_perpendicular_companion.py`'s lens check also assert `model_id` (a dimension the one-hop helper can't express); `link_litho_to_geo.py` / `unlink_litho_from_geo.py` are two-hop (contact → its model → project) with a deliberate `contact_id` message the helper can't reproduce; `build_ground_model_snapshot.py` / `build_section_snapshot.py` (×2) raise `ParseError` and load via eager-loading repositories (a bare `session.get` swap would risk `MissingGreenlet` on the bundle/export path); `delete_body.py` returns `False` instead of raising. Forcing any of these into the helper would be behavior-changing — the counterweight to the DRY rule.
 
 *(audit: COR-03 — High; ARCH-09, COR-10, DRY-01 — Low/Medium)*
 
