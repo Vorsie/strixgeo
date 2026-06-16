@@ -29,11 +29,19 @@
 //   FD4  a lens with stored upper_nodes and lower_nodes renders a multi-point
 //        wedge (polygon vertex count > 3) and still excludes itself from the
 //        partition tiling.
+//
+// --- Performance regression (debt #209) -----------------------------------
+//   TEST-04  computeSectionFill is NOT called again when only the screen-
+//            transform props change (levelToScreen / plotTop / plotBottom) while
+//            contact/edge data stays identical. A pan or zoom that only moves
+//            the elevation-to-pixel mapping must not re-run the expensive LCS
+//            + polygon engine.
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { BodyBoundaryResponse, BodyListItem, LithoLayerResponse } from '../../api/client'
+import * as partitionFillModule from '../../utils/partitionFill'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
@@ -694,4 +702,51 @@ describe('PartitionFillOverlay', () => {
   // contact is an explicit engineer call, not a geometric inference. A
   // mismatched matrix now renders a straight midpoint seam (see partitionFill
   // MISMATCH test). The dead wavyPath render path is removed in the cleanup pass.
+
+  // --------------------------------------------------------------------------
+  // TEST-04: computeSectionFill must NOT re-run on transform-only re-renders.
+  //
+  // The bug (debt #209): the single screenRegions useMemo keys on levelToScreen,
+  // plotTop, and plotBottom — all recreated on every pan/zoom frame — so the
+  // expensive LCS + polygon engine runs on every scroll tick on a real section.
+  // The fix splits the memo into data-keyed (calls computeSectionFill) and
+  // transform-keyed (projects to pixels) halves, so a pan/zoom that only changes
+  // levelToScreen/plotTop/plotBottom skips computeSectionFill entirely.
+  // --------------------------------------------------------------------------
+  it('TEST-04 — computeSectionFill is NOT called again when only screen-transform props change', () => {
+    // Spy on computeSectionFill through its module binding. Vitest makes ES
+    // module exports mutable so spyOn wraps the real implementation while
+    // counting calls. We call through (no mockImplementation) so the overlay
+    // still renders correctly and the test only asserts call-count behaviour.
+    const spy = vi.spyOn(partitionFillModule, 'computeSectionFill')
+
+    const { rerender } = render(
+      <svg>
+        <PartitionFillOverlay {...base} />
+      </svg>,
+    )
+
+    // Exactly one call on initial render (the data memo runs once).
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    // Re-render with ONLY screen-transform props changed.
+    // levelToScreen shifts up 5 px, plotTop/plotBottom widen by 10 px.
+    // Contact data (lithoLayers, contactEdges, placedColumns) is identical.
+    rerender(
+      <svg>
+        <PartitionFillOverlay
+          {...base}
+          levelToScreen={(l: number) => 95 - l * 10}
+          plotTop={10}
+          plotBottom={410}
+        />
+      </svg>,
+    )
+
+    // computeSectionFill must still be at exactly 1 — the transform-only
+    // re-render must not have triggered the data memo again.
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    spy.mockRestore()
+  })
 })

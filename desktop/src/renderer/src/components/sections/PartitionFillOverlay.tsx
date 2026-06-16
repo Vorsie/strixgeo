@@ -602,32 +602,47 @@ export default function PartitionFillOverlay({
   const lensR = LENS_R * handleScale
   const lensHitR = LENS_HIT_R * handleScale
 
-  // ---- Compute every gap's partition once, mapped to screen polygons. ------
-  // (fraction 0..1 → x between the two columns' facing edges; elevation → y.)
+  // ---- DATA MEMO: call computeSectionFill only when partition inputs change. --
   //
-  // After the initial mapping, a POST-BEND pass inserts ALL N control points
-  // into each pair of consecutive MAIN (non-lens) regions that share an edge
-  // in the same gap.  Inserting the SAME points into BOTH polygons keeps the
-  // fill a true partition after the bend: the upper region's base edge and the
-  // lower region's top edge remain identical at every control point.
+  // Split from the screen-projection memo (below) so that pan/zoom events that
+  // only change levelToScreen / plotTop / plotBottom do NOT re-run the expensive
+  // LCS + polygon engine (debt #209).  This memo owns everything up to and
+  // including computeSectionFill; the screen memo owns the pixel projection.
   //
-  // Polygon edge conventions (from partitionFill.ts buildQuadPolygon):
-  //   Quad:  [topL, topR, baseR, baseL] — BASE = last two verts (idx n-2, n-1).
-  //   Pinch: last two verts are also the base.  TOP = first two verts (idx 0, 1).
+  // Deps that intentionally STAY here (they affect the domain geometry):
+  //   orderedInvs / colByInv / screenByInv — column identity + screen x-edges
+  //     used to decide node ownership (which gap each stored node belongs to).
+  //   contactEdges / showBands — the correlation signal + on/off gate.
+  //   boundariesByBodyId / alongToScreenX / screenToLevel / lensDrag — the
+  //     apex-override chain: stored nodes are converted from (along_m, elev_m)
+  //     to (fraction, elevation) using screenByInv x-edges + alongToScreenX;
+  //     lensDrag overrides one node's position during a live drag so the domain
+  //     rebuilds the lens shape in real time.
   //
-  // We identify the base edge as polygon[n-2] → polygon[n-1] and the top
-  // edge as polygon[0] → polygon[1].  Inserting control points BETWEEN those
-  // two verts (in sorted-by-x order) keeps the winding order correct.
-  const screenRegions = useMemo(() => {
-    if (!showBands) return [] as ScreenRegion[]
-    const out: ScreenRegion[] = []
+  // Deps intentionally ABSENT (they only affect pixel projection):
+  //   levelToScreen, plotTop, plotBottom — elevation → screen-y mapping.
+  const sectionFillData = useMemo((): {
+    sectionRegions: ReturnType<typeof computeSectionFill>
+    orderedColumns: PartitionColumn[]
+    gapXs: Array<{ leftX: number; rightX: number }>
+    // Keyed lens apex overrides so the screen memo can skip the legacy path.
+    apexOverrides: Map<string, LensApexOverride>
+  } => {
+    if (!showBands)
+      return { sectionRegions: [], orderedColumns: [], gapXs: [], apexOverrides: new Map() }
 
     // Valid columns in along-section order (have both unit data + screen edges).
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
-    if (orderedColumns.length < 2) return out
-    const gapLeftX = (i: number): number => (screenByInv.get(valid[i]) as ColumnScreen).rightX
-    const gapRightX = (i: number): number => (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX
+    if (orderedColumns.length < 2)
+      return { sectionRegions: [], orderedColumns, gapXs: [], apexOverrides: new Map() }
+
+    // Pre-compute gap x-extents from screenByInv so both memos share the same
+    // values without re-reading the map independently.
+    const gapXs = Array.from({ length: orderedColumns.length - 1 }, (_, i) => ({
+      leftX: (screenByInv.get(valid[i]) as ColumnScreen).rightX,
+      rightX: (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
+    }))
 
     // Lens shape overrides, keyed PER (body, gap). Each gap reads only the
     // boundary nodes it OWNS (their along-position falls inside the gap) and
@@ -639,8 +654,7 @@ export default function PartitionFillOverlay({
     // lens's apexes independent.
     const apexOverrides = new Map<string, LensApexOverride>()
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
-      const leftX = gapLeftX(i)
-      const rightX = gapRightX(i)
+      const { leftX, rightX } = gapXs[i]
       if (rightX <= leftX || !alongToScreenX) continue
       const gapW = rightX - leftX
       const left = orderedColumns[i]
@@ -654,7 +668,7 @@ export default function PartitionFillOverlay({
         bodyId: string,
         edge: 'upper' | 'lower',
       ): { fraction: number; elevation: number }[] => {
-        const out: { fraction: number; elevation: number }[] = []
+        const chainOut: { fraction: number; elevation: number }[] = []
         nodes.forEach((n, ni) => {
           const x = alongToScreenX!(n.along_m)
           if (x < leftX - NODE_OWN_EPS || x > rightX + NODE_OWN_EPS) return // neighbour gap's node
@@ -665,15 +679,15 @@ export default function PartitionFillOverlay({
             lensDrag.edge === edge &&
             lensDrag.nodeIndex === ni
           if (dragging) {
-            out.push({
+            chainOut.push({
               fraction: clamp01((lensDrag.x - leftX) / gapW),
               elevation: screenToLevel ? screenToLevel(lensDrag.y) : n.elevation_m,
             })
           } else {
-            out.push({ fraction: clamp01((x - leftX) / gapW), elevation: n.elevation_m })
+            chainOut.push({ fraction: clamp01((x - leftX) / gapW), elevation: n.elevation_m })
           }
         })
-        return out
+        return chainOut
       }
       const setShape = (bodyId: string): void => {
         const b = boundariesByBodyId?.get(bodyId)
@@ -705,9 +719,48 @@ export default function PartitionFillOverlay({
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
     const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides)
 
+    return { sectionRegions, orderedColumns, gapXs, apexOverrides }
+  }, [
+    orderedInvs,
+    colByInv,
+    screenByInv,
+    contactEdges,
+    showBands,
+    boundariesByBodyId,
+    alongToScreenX,
+    screenToLevel,
+    lensDrag,
+  ])
+
+  // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
+  //
+  // Depends on sectionFillData (the partition regions in fraction/elevation
+  // space) + the screen-transform props (levelToScreen, plotTop, plotBottom) +
+  // the live drag state that mutates already-projected coordinates.
+  //
+  // NOT in the dependency array: orderedInvs / colByInv / contactEdges / showBands
+  // — those are consumed by sectionFillData; this memo only projects the result.
+  //
+  // After the initial mapping, a POST-BEND pass inserts ALL N control points
+  // into each pair of consecutive MAIN (non-lens) regions that share an edge
+  // in the same gap.  Inserting the SAME points into BOTH polygons keeps the
+  // fill a true partition after the bend: the upper region's base edge and the
+  // lower region's top edge remain identical at every control point.
+  //
+  // Polygon edge conventions (from partitionFill.ts buildQuadPolygon):
+  //   Quad:  [topL, topR, baseR, baseL] — BASE = last two verts (idx n-2, n-1).
+  //   Pinch: last two verts are also the base.  TOP = first two verts (idx 0, 1).
+  //
+  // We identify the base edge as polygon[n-2] → polygon[n-1] and the top
+  // edge as polygon[0] → polygon[1].  Inserting control points BETWEEN those
+  // two verts (in sorted-by-x order) keeps the winding order correct.
+  const screenRegions = useMemo(() => {
+    const { sectionRegions, orderedColumns, gapXs, apexOverrides } = sectionFillData
+    if (orderedColumns.length < 2) return [] as ScreenRegion[]
+    const out: ScreenRegion[] = []
+
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
-      const leftX = gapLeftX(i)
-      const rightX = gapRightX(i)
+      const { leftX, rightX } = gapXs[i]
       if (rightX <= leftX) continue
 
       for (const region of sectionRegions.filter((r) => r.gapIndex === i)) {
@@ -926,11 +979,7 @@ export default function PartitionFillOverlay({
     }
     return out
   }, [
-    orderedInvs,
-    colByInv,
-    screenByInv,
-    contactEdges,
-    showBands,
+    sectionFillData,
     levelToScreen,
     plotTop,
     plotBottom,
