@@ -43,7 +43,7 @@
 
 import * as Cesium from 'cesium'
 import { useEffect, useMemo, useState } from 'react'
-import { Layers3, Loader2, Network } from 'lucide-react'
+import { Grid3x3, Layers3, Loader2, Network } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type {
@@ -195,6 +195,13 @@ export default function LithologyCanvas(): JSX.Element {
   // ---------------------------------------------------------------------------
 
   const [viewMode, setViewMode] = useState<'solid' | 'fence'>('solid')
+
+  // Wireframe view of the body solids — session-ephemeral, Solid mode only.
+  // The in-app equivalent of the dev viewer's "wireframe" checkbox: when on,
+  // each body renders as the LINE edges of its mesh instead of filled faces.
+  // Placed above every component-level early return so the hook order is
+  // stable (the hook-order rule).
+  const [wireframe, setWireframe] = useState(false)
 
   // True while the per-section edge fetches are in flight (Fence mode only).
   // Drives the loading spinner on the Fence button and the disabled state of
@@ -514,6 +521,29 @@ export default function LithologyCanvas(): JSX.Element {
               Fence
             </button>
           </div>
+
+          {/* Wireframe toggle — Solid mode only (wireframe applies to the
+              filled body-solid render, which Fence mode does not draw).
+              Matches the Fence/Solid pill styling so the two read as one
+              view-control cluster; aria-pressed mirrors the toggle state. */}
+          {viewMode === 'solid' && (
+            <button
+              type="button"
+              data-testid="litho-view-wireframe"
+              aria-pressed={wireframe}
+              title="Show the body model as wireframe"
+              onClick={() => setWireframe(w => !w)}
+              className={[
+                'px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1 rounded border border-border-default shadow-sm',
+                wireframe
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
+              ].join(' ')}
+            >
+              <Grid3x3 size={11} />
+              Wireframe
+            </button>
+          )}
         </div>
 
         {/* Empty-fence hint pill (Fix C) — rendered only when Fence mode is
@@ -547,6 +577,7 @@ export default function LithologyCanvas(): JSX.Element {
           showConfidenceFade={showConfidenceFade}
           fencePanels={fencePanels}
           bodySolids={visibleSolids}
+          bodySolidsWireframe={wireframe}
           onExitSplit={() => {
             setSplitMode('single')
             setSplitPlane(null)

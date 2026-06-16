@@ -46,8 +46,15 @@ import LithologyCanvas, {
 // ---------------------------------------------------------------------------
 
 // Geology3DViewer imports Cesium and WebGL â€” mock it as a sentinel div.
+// The div mirrors the bodySolidsWireframe prop into a data-attribute so the
+// wireframe-toggle test can assert the prop flips without a WebGL harness.
 vi.mock('../geology/Geology3DViewer', () => ({
-  default: () => <div data-testid="geology-3d-viewer" />,
+  default: (props: { bodySolidsWireframe?: boolean }) => (
+    <div
+      data-testid="geology-3d-viewer"
+      data-wireframe={String(props.bodySolidsWireframe ?? false)}
+    />
+  ),
 }))
 
 // api.geology stubs — resolve empty so the canvas never hangs on async effects.
@@ -583,6 +590,63 @@ describe('LithologyCanvas (Slice D, #55)', () => {
 
     expect(screen.queryByTestId('litho-view-mode-solid')).not.toBeInTheDocument()
     expect(screen.queryByTestId('litho-view-mode-fence')).not.toBeInTheDocument()
+  })
+
+  // CW1: The wireframe toggle is present in Solid mode (the default) and
+  //      starts un-pressed; the viewer receives bodySolidsWireframe=false.
+  it('CW1 -- wireframe toggle renders in Solid mode, starts off', () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({ lithoSolids: [solid], hasLithoSolids: true })
+    renderCanvas(ctx)
+
+    const toggle = screen.getByTestId('litho-view-wireframe')
+    expect(toggle).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('geology-3d-viewer')).toHaveAttribute(
+      'data-wireframe',
+      'false',
+    )
+  })
+
+  // CW2: Clicking the wireframe toggle flips aria-pressed AND forwards
+  //      bodySolidsWireframe=true to Geology3DViewer.
+  it('CW2 -- clicking wireframe flips the toggle and the viewer prop', async () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({ lithoSolids: [solid], hasLithoSolids: true })
+    renderCanvas(ctx)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-wireframe'))
+    })
+
+    expect(screen.getByTestId('litho-view-wireframe')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByTestId('geology-3d-viewer')).toHaveAttribute(
+      'data-wireframe',
+      'true',
+    )
+  })
+
+  // CW3: The wireframe toggle is hidden in Fence mode (wireframe applies to
+  //      the filled body-solid render, which Fence mode does not draw).
+  it('CW3 -- wireframe toggle is absent in Fence mode', async () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const ctx = makeCtx({
+      lithoSolids: [solid],
+      hasLithoSolids: true,
+      visibleSections: [makeSection('sec-1')],
+    })
+    renderCanvas(ctx)
+
+    expect(screen.getByTestId('litho-view-wireframe')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+
+    expect(screen.queryByTestId('litho-view-wireframe')).not.toBeInTheDocument()
   })
 
   // C6: Clicking Fence triggers the section-scoped correlations fetch.
