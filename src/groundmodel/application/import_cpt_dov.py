@@ -32,8 +32,16 @@ from groundmodel.shared.timing import ms_since
 PinsCallback = Callable[[list[WfsIndexEntry]], object]
 
 
-async def _fire_pins(cb: PinsCallback | None, index: list[WfsIndexEntry]) -> None:
+async def _fire_pins(
+    cb: PinsCallback | None,
+    index: list[WfsIndexEntry],
+    logger: GroundModelLogger,
+) -> None:
     """Invoke the pins callback when supplied; await it when async.
+
+    Callback errors are logged as warnings but do not abort the import —
+    a broken SSE connection (the most common cause) must not roll back
+    the download phase that follows.
 
     Parameters
     ----------
@@ -41,6 +49,9 @@ async def _fire_pins(cb: PinsCallback | None, index: list[WfsIndexEntry]) -> Non
         Callback receiving the full WFS index.  ``None`` is a no-op.
     index : list[WfsIndexEntry]
         The WFS index entries to pass to the callback.
+    logger : GroundModelLogger
+        Logger of the owning use-case instance, used to surface callback
+        failures without silently swallowing them.
     """
     if cb is None:
         return
@@ -48,8 +59,11 @@ async def _fire_pins(cb: PinsCallback | None, index: list[WfsIndexEntry]) -> Non
         result = cb(index)
         if inspect.isawaitable(result):
             await asyncio.ensure_future(result)  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001 — callback errors must not abort the import
-        pass
+    except Exception as exc:  # noqa: BLE001 — callback errors must not abort the import
+        logger.warning(
+            f"pins callback raised (SSE connection may be broken) — import continues: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 
 class ImportCptDov(GroundModelLogger):
@@ -167,7 +181,7 @@ class ImportCptDov(GroundModelLogger):
             # XML download starts.  The SSE router wires this callback to push
             # a structured "pins" event so the map renders all N pending markers
             # within ~1 s of the user drawing the bbox.
-            await _fire_pins(pins_cb, index)
+            await _fire_pins(pins_cb, index, self)
 
             if not index:
                 self.info("DOV import: no CPTs found in bbox — nothing to persist")

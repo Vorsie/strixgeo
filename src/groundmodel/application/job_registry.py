@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
 
 @dataclass
 class _JobEntry:
@@ -49,7 +51,7 @@ class _JobEntry:
     queue: asyncio.Queue[dict[str, Any] | None] = field(default_factory=asyncio.Queue)
 
 
-class JobRegistry:
+class JobRegistry(GroundModelLogger):
     """In-process registry for background import jobs.
 
     A singleton instance is held at module level so any router function
@@ -69,6 +71,7 @@ class JobRegistry:
     """
 
     def __init__(self) -> None:
+        super().__init__(__name__)
         self._jobs: dict[UUID, _JobEntry] = {}
 
     def start(
@@ -97,6 +100,27 @@ class JobRegistry:
         coro = coro_factory(queue)
         task = asyncio.create_task(coro)
         self._jobs[job_id] = _JobEntry(task=task, queue=queue)
+
+        # Guard against a background coroutine that raises before enqueuing the
+        # None sentinel: without this callback the SSE consumer would await
+        # queue.get() forever (frozen progress bar, no error feedback).
+        # The callback fires on the event loop after the task finishes, so it
+        # always runs after the coro body — it only puts the sentinel when the
+        # task raised (i.e. was not cancelled and did not finish cleanly).
+        def _sentinel_on_exception(t: asyncio.Task[None]) -> None:
+            if t.cancelled():
+                # CancelledError is expected; cancel() also removes the entry.
+                return
+            exc = t.exception()
+            if exc is not None:
+                self.error(
+                    f"background job {job_id} raised an unhandled exception — "
+                    f"enqueuing sentinel so the SSE consumer is not left hanging: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                queue.put_nowait(None)
+
+        task.add_done_callback(_sentinel_on_exception)
         return job_id
 
     async def stream(self, job_id: UUID) -> AsyncIterator[dict[str, Any]]:

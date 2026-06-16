@@ -137,3 +137,48 @@ async def test_multiple_jobs_are_independent() -> None:
     assert out1 == [{"n": 1}]
     assert out2 == [{"n": 2}, {"n": 3}]
     assert len(registry) == 0
+
+
+def _raising_factory(exc: Exception) -> callable:
+    """Return a factory whose coroutine raises *exc* without emitting a sentinel."""
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            # Intentionally raises without putting None on the queue.
+            raise exc
+
+        return run()
+
+    return factory
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_hang_when_background_coro_raises() -> None:
+    """A background coroutine that raises must still deliver the None sentinel.
+
+    If the task raises before enqueuing None, a consumer awaiting queue.get()
+    would block forever — the done-callback must guarantee sentinel delivery
+    regardless of whether the task succeeds or fails.
+
+    We assert "does not hang" by wrapping stream() in asyncio.wait_for with a
+    short timeout: if it does not complete within 1 second, the test fails with
+    TimeoutError rather than blocking the suite indefinitely.
+    """
+    registry = JobRegistry()
+    job_id = registry.start(_raising_factory(RuntimeError("boom")))
+
+    # Allow the task to run and raise before streaming.
+    await asyncio.sleep(0)
+
+    collected: list[dict] = []
+
+    async def drain() -> None:
+        async for ev in registry.stream(job_id):
+            collected.append(ev)
+
+    # Must resolve (sentinel received) within 1 second — hangs indefinitely
+    # without the done-callback fix.
+    await asyncio.wait_for(drain(), timeout=1.0)
+
+    # No events were emitted before the raise, so the stream is empty.
+    assert collected == []
