@@ -10,10 +10,10 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
-    "sqlalchemy[asyncio]>=2.0",
+    "sqlalchemy[asyncio]>=2.0,<3",  # cap major: a `uv lock --upgrade` must not pull v3 (#219)
     "alembic>=1.13",
     "asyncpg>=0.29",
-    "polars>=0.20",
+    "polars>=0.20,<2",  # cap major: pin below the next breaking Polars major (#219)
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "python-dotenv>=1.0",
@@ -53,7 +53,7 @@ dependencies = [
     # the interactive default because Delaunay on tens of points is
     # sub-millisecond, suitable for "drag a contact and see the
     # surface refresh" UX.
-    "scipy>=1.13",
+    "scipy>=1.13,<2",  # cap major: pin below the next breaking SciPy major (#219)
     # ReportLab — PDF page layout + text rendering for the project
     # report exports (debt #52). Pure Python, MIT-licensed, ships
     # pre-built wheels. Chosen over WeasyPrint (heavy Cairo/Pango
