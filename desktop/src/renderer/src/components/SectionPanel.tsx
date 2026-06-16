@@ -741,10 +741,10 @@ interface Props {
    */
   lithoSolids?: readonly LithoBodySolidResponse[]
   /**
-   * When ``true`` the model-fill overlay uses Mode B (section-plane slice
-   * of the body solids via ``sliceSolidsAtPlane``).  When ``false``
-   * (default) it uses Mode A (vertical ray sampling at each test's
-   * map position via ``sampleSolidColumns``).
+   * When ``true`` (default) the model-fill overlay uses Mode B (section-plane
+   * slice of the body solids via ``sliceSolidsAtPlane``).  When ``false`` it
+   * uses Mode A (per-test vertical strips sampled at each test's map position
+   * via ``sampleSolidColumns``).
    *
    * Read from ``view_state.litho_segmenter.section_fill_at_section_line``
    * by SectionsCanvas and passed in as a pre-resolved boolean to avoid
@@ -822,7 +822,7 @@ export default function SectionPanel({
   onNameBody,
   onDissolveBody,
   lithoSolids,
-  sectionFillAtSectionLine = false,
+  sectionFillAtSectionLine = true,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2383,6 +2383,18 @@ export default function SectionPanel({
     section.end_y,
   ])
 
+  // Mode-A column geometry: the rendered centre + width of every placed column,
+  // keyed by test id, so the per-test model fill spans the WHOLE investigation
+  // column and lands exactly on its litho band (uses ``nudgedX`` — the warped,
+  // spacing-aware screen x — never raw along).
+  const modelFillColumnLayout = useMemo<Record<string, { centerX: number; width: number }>>(() => {
+    const out: Record<string, { centerX: number; width: number }> = {}
+    for (const c of placedColumns) {
+      out[c.proj.item.id] = { centerX: c.nudgedX, width: c.width }
+    }
+    return out
+  }, [placedColumns])
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -3084,6 +3096,7 @@ export default function SectionPanel({
                 <ModelFillOverlay
                   columns={modelFillData.columns}
                   polys={modelFillData.polys}
+                  columnLayoutByTestId={modelFillColumnLayout}
                   alongMToScreenX={warpedXToScreen}
                   levelToScreen={levelToScreen}
                   opacity={0.55}

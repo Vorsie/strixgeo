@@ -49,6 +49,17 @@ import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
  *                             as coordinates.
  * @property levelToScreen   - Elevation (m, map CRS) → SVG screen y (px).
  * @property opacity         - Fill opacity applied to every body band (0–1).
+ * @property columnLayoutByTestId - Mode A only: the rendered column geometry
+ *                             (screen centre x + width px) keyed by test id, so
+ *                             each per-test strip spans the WHOLE investigation
+ *                             column and sits exactly on its litho band. Taken
+ *                             from the section's ``placedColumns`` (``nudgedX`` /
+ *                             ``width``). When a test has no entry, the strip
+ *                             falls back to ``testStripWidthPx`` centred on
+ *                             ``alongMToScreenX(alongM)``.
+ * @property testStripWidthPx - Mode A fallback: pixel width of the per-test
+ *                             strip when no column layout is supplied. Defaults
+ *                             to ``DEFAULT_TEST_STRIP_WIDTH_PX``.
  */
 export interface ModelFillOverlayProps {
   columns?: SolidColumn[]
@@ -56,49 +67,21 @@ export interface ModelFillOverlayProps {
   alongMToScreenX: (alongM: number) => number
   levelToScreen: (elev: number) => number
   opacity: number
+  columnLayoutByTestId?: Record<string, { centerX: number; width: number }>
+  testStripWidthPx?: number
 }
-
-// ─── Private helpers ──────────────────────────────────────────────────────────
 
 /**
- * Build an SVG path string for a body band.
+ * Default pixel width of a Mode-A per-test strip.
  *
- * The band is a closed polygon formed by:
- *   1. Top chain: each column's ``topElev`` mapped left→right.
- *   2. Base chain: each column's ``baseElev`` mapped right→left.
- * Closed with ``Z``.
- *
- * WHY ≥2 columns: a band spans BETWEEN columns — a single-column body is a
- * point measurement with no lateral extent, so there is nothing to fill.
- *
- * @param tops  - Ordered (screenX, screenY) pairs for the top of the body,
- *                left to right.
- * @param bases - Ordered (screenX, screenY) pairs for the base of the body,
- *                left to right (reversed when building the path).
- * @returns SVG path string ``"M ... Z"``, or ``''`` if either list is empty.
+ * The strip is a fixed-width marker centred on the test's screen x, so it
+ * reads as "the model sampled at THIS data location" rather than an
+ * interpolated band between tests.  A fixed px width (not a warped along-metre
+ * width) is correct: it is a point-sample marker, not a lateral extent.
  */
-function buildBandPath(
-  tops: { x: number; y: number }[],
-  bases: { x: number; y: number }[],
-): string {
-  if (tops.length === 0 || bases.length === 0) return ''
+const DEFAULT_TEST_STRIP_WIDTH_PX = 14
 
-  // Top chain left → right, then base chain right → left so the polygon
-  // winds consistently (clockwise in SVG coords where Y increases downward).
-  const pts: string[] = []
-
-  tops.forEach((p, i) => {
-    pts.push(`${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`)
-  })
-
-  for (let i = bases.length - 1; i >= 0; i--) {
-    const p = bases[i]
-    pts.push(`L ${p.x.toFixed(2)},${p.y.toFixed(2)}`)
-  }
-
-  pts.push('Z')
-  return pts.join(' ')
-}
+// ─── Private helpers ──────────────────────────────────────────────────────────
 
 /**
  * Build an SVG path string for a Mode B closed ring.
@@ -145,17 +128,24 @@ export default function ModelFillOverlay({
   alongMToScreenX,
   levelToScreen,
   opacity,
+  columnLayoutByTestId,
+  testStripWidthPx = DEFAULT_TEST_STRIP_WIDTH_PX,
 }: ModelFillOverlayProps): JSX.Element {
   // ── Mode B — plane-slice polygon fill ───────────────────────────────────────
   if (polys && polys.length > 0) {
     return (
       <g data-testid="model-fill-overlay">
-        {polys.map((poly) => {
+        {polys.map((poly, i) => {
           const d = buildPolyPath(poly.points, alongMToScreenX, levelToScreen)
           if (!d) return null
           return (
             <path
-              key={`mf-poly-${poly.bodyId}`}
+              // WHY index in the key: one body can slice into MORE THAN ONE loop
+              // (it pinches out and reappears), so the same bodyId arrives on
+              // several polys — the key must be unique per poly. The testid stays
+              // ``model-fill-<bodyId>`` (shared across a body's loops) so a body
+              // is addressable as a whole.
+              key={`mf-poly-${i}`}
               data-testid={`model-fill-${poly.bodyId}`}
               d={d}
               fill={poly.color}
@@ -173,93 +163,44 @@ export default function ModelFillOverlay({
     )
   }
 
-  // ── Mode A — column segment band fill ───────────────────────────────────────
-  if (columns && columns.length >= 2) {
-    // Sort columns by along-section position so the band polygon is built
-    // left→right regardless of the order the consumer passes them in.
-    const sorted = [...columns].sort((a, b) => a.alongM - b.alongM)
+  // ── Mode A — per-test column fill ────────────────────────────────────────────
+  // Each test's sampled stack is drawn as vertical rects spanning the WHOLE
+  // investigation column (centre + width from the section layout), so the model
+  // sits exactly on the borehole's litho band for a direct ground-truth check at
+  // the data location. EVERY segment renders (no between-test band interpolation,
+  // no ≥2-column rule) so a body seen at a single test is not dropped. A
+  // re-entrant body (two intervals at one column) simply draws two rects there.
+  if (columns && columns.length > 0) {
+    const rects: JSX.Element[] = []
 
-    // Group: (bodyId, track) → list of { screenX, topY, baseY } entries (one per
-    // column). We accumulate only the columns that carry each body, so a body
-    // absent on one column in the middle still connects its present neighbours.
-    //
-    // WHY a per-body "track": a re-entrant body (a matrix solid with an enclosed
-    // void/lens) returns TWO same-bodyId intervals at a column — one above the
-    // void, one below. ``sampleSolidColumns`` orders each column's segments
-    // topElev-descending, so the Nth occurrence of a bodyId in a column is its
-    // Nth interval from the top. Grouping by (bodyId, track) keeps those
-    // intervals on separate bands instead of merging them into one
-    // self-crossing polygon. Single-interval bodies are always track 0, so the
-    // common (and sparse-absent-middle) cases are unchanged.
-    const bodyEntries = new Map<
-      string,
-      {
-        bodyId: string
-        track: number
-        color: string
-        cols: { x: number; topY: number; baseY: number }[]
-      }
-    >()
-
-    for (const col of sorted) {
-      const screenX = alongMToScreenX(col.alongM)
-      // Per-column count of how many times each body has appeared so far → the
-      // interval track index for the current segment.
-      const trackByBody = new Map<string, number>()
-      for (const seg of col.segments) {
-        const track = trackByBody.get(seg.bodyId) ?? 0
-        trackByBody.set(seg.bodyId, track + 1)
-
-        const key = `${seg.bodyId}#${track}`
-        let entry = bodyEntries.get(key)
-        if (!entry) {
-          entry = { bodyId: seg.bodyId, track, color: seg.color, cols: [] }
-          bodyEntries.set(key, entry)
-        }
-        entry.cols.push({
-          x: screenX,
-          topY: levelToScreen(seg.topElev),
-          baseY: levelToScreen(seg.baseElev),
-        })
-      }
+    for (const col of columns) {
+      const layout = columnLayoutByTestId?.[col.testId]
+      const width = layout ? layout.width : testStripWidthPx
+      const centerX = layout ? layout.centerX : alongMToScreenX(col.alongM)
+      const xLeft = centerX - width / 2
+      col.segments.forEach((seg, si) => {
+        const yTop = levelToScreen(seg.topElev)
+        const yBase = levelToScreen(seg.baseElev)
+        const height = Math.abs(yBase - yTop)
+        if (height <= 0) return
+        rects.push(
+          <rect
+            key={`mf-strip-${col.testId}-${si}`}
+            data-testid={`model-fill-${seg.bodyId}`}
+            x={xLeft}
+            y={Math.min(yTop, yBase)}
+            width={width}
+            height={height}
+            fill={seg.color}
+            fillOpacity={opacity}
+            stroke="none"
+            pointerEvents="none"
+          />,
+        )
+      })
     }
 
-    const paths: JSX.Element[] = []
-
-    for (const [, entry] of bodyEntries) {
-      // WHY ≥2 columns required: a band is an area between two column positions.
-      // A body present at only one column has no lateral extent — nothing to fill.
-      if (entry.cols.length < 2) continue
-
-      const tops = entry.cols.map((c) => ({ x: c.x, y: c.topY }))
-      const bases = entry.cols.map((c) => ({ x: c.x, y: c.baseY }))
-      const d = buildBandPath(tops, bases)
-      if (!d) continue
-
-      // Track 0 keeps the plain testid (the common single-interval case); deeper
-      // tracks get a -t<n> suffix so every band element is uniquely addressable.
-      const testid =
-        entry.track === 0
-          ? `model-fill-${entry.bodyId}`
-          : `model-fill-${entry.bodyId}-t${entry.track}`
-
-      paths.push(
-        <path
-          key={`mf-col-${entry.bodyId}-${entry.track}`}
-          data-testid={testid}
-          d={d}
-          fill={entry.color}
-          fillOpacity={opacity}
-          // WHY nonzero (matching Mode B): a non-convex body top (e.g. a
-          // valley-shaped contact) could otherwise punch a hole under evenodd.
-          fillRule="nonzero"
-          stroke="none"
-          pointerEvents="none"
-        />,
-      )
-    }
-
-    return <g data-testid="model-fill-overlay">{paths}</g>
+    return <g data-testid="model-fill-overlay">{rects}</g>
   }
 
   // ── Empty / no data ─────────────────────────────────────────────────────────
