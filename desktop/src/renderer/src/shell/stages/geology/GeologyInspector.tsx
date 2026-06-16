@@ -49,6 +49,7 @@ import Modal from '../../../components/ui/Modal'
 import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
 import FormationDialog from '../../../components/interpretation/FormationDialog'
 import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import { useShell } from '../../ShellContext'
 
 // ---------------------------------------------------------------------------
@@ -422,7 +423,14 @@ export default function GeologyInspector(): JSX.Element {
   }, [isLithoAxis, lithoContacts])
 
   const filteredVisibleFormations = useMemo(() => {
-    if (lithoFormationIds === null) return visibleFormations
+    // Geological axis: show GEOLOGICAL formations only. Formations are a single
+    // project-wide vocabulary shared by the geological + litho + geotech models
+    // (no per-model column), so litho units (ZAND/KLEI/SILT/VEEN — those with a
+    // ``litho_main_soil_code``) live in the same list and would otherwise leak
+    // into the geology roster once the visibility manifest admits them (e.g.
+    // after "Fill from boreholes" or a .gmproj reload). The canvas already
+    // applies this filter (GeologyCanvas) — the roster must match.
+    if (lithoFormationIds === null) return visibleFormations.filter(isGeologicalFormation)
     return visibleFormations.filter(f => lithoFormationIds.has(f.id))
   }, [visibleFormations, lithoFormationIds])
 
