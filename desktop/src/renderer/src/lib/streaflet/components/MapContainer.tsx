@@ -45,7 +45,7 @@ export const MapContainer = forwardRef<L.Map, MapContainerProps>(function MapCon
     }
     // reason: create the map once on mount from the initial view props; live
     // view changes go through useMap()/imperative calls in consumers, matching
-    // react-leaflet semantics.
+    // Leaflet semantics.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
