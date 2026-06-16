@@ -11,7 +11,8 @@ export function useMapEvents(handlers: L.LeafletEventHandlerFnMap): L.Map {
       map.off(handlers)
     }
     // reason: handlers is typically an inline-stable object per render; rebinding
-    // every render would thrash — bind once on mount, matching react-leaflet.
+    // every render would thrash — bind once on mount (the conventional Leaflet
+    // hook contract; callers pass a stable handler map).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map])
   return map
