@@ -26,6 +26,7 @@ import { useShell } from '../../ShellContext'
 import LithologyCanvas, {
   resetLithoCameraCallback,
   resetLithoSplitViewportCallback,
+  lithoVoxelRequestCallback,
 } from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
@@ -79,7 +80,11 @@ function LithologyToolbar(): JSX.Element | null {
       <ToolbarButton
         icon={<Box size={13} />}
         label={buildModelLabel}
-        onClick={() => void buildLithoSolids()}
+        // Route Build through the VOXEL path: the canvas-populated module ref
+        // assembles the per-section partition payload (the source of truth);
+        // buildLithoSolids POSTs it to buildVoxelLithoModel.  The dormant
+        // implicit rebuildLithoSolids path is intentionally not called here.
+        onClick={() => void buildLithoSolids(lithoVoxelRequestCallback.current ?? undefined)}
         disabled={lithoSolidsBuilding || !hasLithoContacts}
         busy={lithoSolidsBuilding}
         amber={hasStaleLithoSolid && hasLithoContacts}

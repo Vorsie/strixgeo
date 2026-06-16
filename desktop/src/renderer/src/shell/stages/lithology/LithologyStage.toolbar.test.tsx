@@ -40,6 +40,7 @@ vi.mock('./LithologyCanvas', () => ({
   default: () => <div data-testid="litho-canvas-mock" />,
   resetLithoCameraCallback: { current: null },
   resetLithoSplitViewportCallback: { current: null },
+  lithoVoxelRequestCallback: { current: null },
 }))
 
 vi.mock('../geology/Geology3DViewer', () => ({

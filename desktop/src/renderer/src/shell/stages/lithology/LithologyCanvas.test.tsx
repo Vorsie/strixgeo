@@ -25,15 +25,21 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import { api } from '../../../api/client'
 import type {
+  BoreholeListItem,
+  CptListItem,
   CrossSectionResponse,
   FormationSurfaceResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
   LithoBodySolidResponse,
   LithoContactCorrelationEdge,
+  LithoLayerResponse,
   RebuildLithoSolidsResponse,
 } from '../../../api/client'
-import LithologyCanvas, { resetLithoSplitViewportCallback } from './LithologyCanvas'
+import LithologyCanvas, {
+  resetLithoSplitViewportCallback,
+  lithoVoxelRequestCallback,
+} from './LithologyCanvas'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -56,6 +62,14 @@ vi.mock('../../../api/client', async () => {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         listLithoSolids: vi.fn().mockResolvedValue([]),
+        buildVoxelLithoModel: vi.fn().mockResolvedValue({
+          bodies_considered: 0,
+          bodies_built: 0,
+          bodies_skipped_checksum: 0,
+          bodies_flagged: 0,
+          orphans_deleted: 0,
+          solids: [],
+        } satisfies RebuildLithoSolidsResponse),
         rebuildLithoSolids: vi.fn().mockResolvedValue({
           bodies_considered: 0,
           bodies_built: 0,
@@ -178,6 +192,10 @@ function makeCtx(overrides: {
   toast?: (type: 'success' | 'error' | 'warning', message: string) => void
   lithoSolids?: LithoBodySolidResponse[]
   hasLithoSolids?: boolean
+  lithoLayers?: LithoLayerResponse[]
+  visibleCpts?: CptListItem[]
+  visibleBoreholes?: BoreholeListItem[]
+  view_state?: Record<string, unknown>
 } = {}): ShellContextValue {
   return {
     project: {
@@ -192,7 +210,7 @@ function makeCtx(overrides: {
       default_vertical_epsg: 5710,
       phase: 'design',
       status: 'active',
-      view_state: {},
+      view_state: overrides.view_state ?? {},
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
       archived_at: null,
@@ -249,8 +267,8 @@ function makeCtx(overrides: {
       handleBboxDrawn: noopAsync,
       pendingCptPins: [],
     },
-    visibleCpts: [],
-    visibleBoreholes: [],
+    visibleCpts: overrides.visibleCpts ?? [],
+    visibleBoreholes: overrides.visibleBoreholes ?? [],
     geoModel: {
       activeGeologicalModel: null,
       models: [],
@@ -261,7 +279,7 @@ function makeCtx(overrides: {
       handleActivateLithoModel: noopAsync,
       handleDeleteLithoModel: noopAsync,
       lithoContacts: [],
-      lithoLayers: [],
+      lithoLayers: overrides.lithoLayers ?? [],
       lithoFormations: overrides.lithoFormations ?? [],
       lithoSurfacesByFormationId: overrides.lithoSurfacesByFormationId ?? new Map(),
       lithoStaleSurfaceCount: 0,
@@ -694,4 +712,129 @@ describe('LithologyCanvas (Slice D, #55)', () => {
     expect(screen.queryByTestId('litho-solid-legend')).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Voxel Build wiring (Task 5)
+// ---------------------------------------------------------------------------
+
+function makeCpt(id: string, x: number, y: number): CptListItem {
+  return {
+    id,
+    name: id,
+    cpt_type: 'CPTU',
+    max_depth_m: 20,
+    n_rows: 1000,
+    location_x: x,
+    location_y: y,
+    epsg: 31370,
+    elevation_m: 10,
+    z_epsg: 5710,
+    elevation_source: 'dov',
+    start_date: null,
+  }
+}
+
+function makeLithoLayer(
+  id: string,
+  cptId: string,
+  formationId: string,
+  bodyId: string,
+): LithoLayerResponse {
+  return {
+    id,
+    model_id: 'litho-1',
+    formation_id: formationId,
+    borehole_id: null,
+    cpt_id: cptId,
+    depth_top_m: 0,
+    depth_base_m: 5,
+    status: 'accepted',
+    source: 'manual',
+    confidence: 'high',
+    observation_id: null,
+    observation_layer_id: null,
+    parent_geo_contact_id: null,
+    body_id: bodyId,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+describe('LithologyCanvas voxel Build wiring (Task 5)', () => {
+  // V1: After the canvas mounts, lithoVoxelRequestCallback is populated and,
+  //     when invoked, fetches each section's edges fresh and returns a
+  //     VoxelBuildRequest carrying the partition + the anisotropic spacings
+  //     read from the project's litho_segmenter view-state.
+  it('V1 — the populated callback assembles a VoxelBuildRequest with view-state spacings', async () => {
+    const section = makeSection('sec-1')
+    const ctx = makeCtx({
+      hasLithoSolids: true,
+      lithoSolids: [makeSolid('b-1', 'ZAND')],
+      visibleSections: [section],
+      visibleCpts: [makeCpt('A', 200000, 200000), makeCpt('B', 201000, 200000)],
+      lithoLayers: [
+        makeLithoLayer('a1', 'A', 'ZAND', 'z'),
+        makeLithoLayer('b1', 'B', 'ZAND', 'z'),
+      ],
+      view_state: {
+        litho_segmenter: {
+          voxel_horizontal_spacing_m: 3.0,
+          voxel_vertical_spacing_m: 0.5,
+        },
+      },
+    })
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    expect(lithoVoxelRequestCallback.current).not.toBeNull()
+
+    let request: Awaited<ReturnType<NonNullable<typeof lithoVoxelRequestCallback.current>>> = null
+    await act(async () => {
+      request = await lithoVoxelRequestCallback.current!()
+    })
+
+    // Edges fetched fresh, once per visible section.
+    expect(vi.mocked(api.geology.listContactCorrelations)).toHaveBeenCalledWith(
+      'proj-1',
+      'litho-1',
+      'sec-1',
+    )
+
+    expect(request).not.toBeNull()
+    // Anisotropic spacings come from the view-state prefs.
+    expect(request!.grid_spacing_m).toBe(3.0)
+    expect(request!.horizontal_spacing_m).toBe(3.0)
+    expect(request!.vertical_spacing_m).toBe(0.5)
+    // One section assembled with both columns projected onto it.
+    expect(request!.sections).toHaveLength(1)
+    expect(request!.sections[0].columns.map(c => c.investigation_id).sort()).toEqual(['A', 'B'])
+  })
+
+  // V2: With no visible section there is nothing to project onto → the
+  //     callback resolves to null (the "nothing to build" no-op path).
+  it('V2 — the callback resolves to null when there are no visible sections', async () => {
+    const ctx = makeCtx({
+      hasLithoSolids: true,
+      lithoSolids: [makeSolid('b-1', 'ZAND')],
+      visibleSections: [],
+    })
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    let request: VoxelBuildRequestResult = undefined
+    await act(async () => {
+      request = await lithoVoxelRequestCallback.current!()
+    })
+    expect(request).toBeNull()
+  })
+})
+
+type VoxelBuildRequestResult =
+  | Awaited<ReturnType<NonNullable<typeof lithoVoxelRequestCallback.current>>>
+  | undefined
 

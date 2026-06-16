@@ -56,12 +56,13 @@ import Geology3DViewer, {
   type SplitMode,
   type SplitLine,
 } from '../geology/Geology3DViewer'
-import { investigationsOnSection } from '../../../utils/sectionProjection'
 import {
   buildProjectFence,
   type FenceSectionInput,
 } from '../../../utils/buildProjectFence'
-import type { FenceProjectedColumn, FenceLayerInput } from '../../../utils/sectionFenceData'
+import { assembleLithoSectionInputs } from '../../../utils/assembleLithoSectionInputs'
+import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
+import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,25 @@ export const resetLithoCameraCallback: React.MutableRefObject<(() => void) | nul
  */
 export const resetLithoSplitViewportCallback: React.MutableRefObject<
   (() => void) | null
+> = { current: null }
+
+/**
+ * Builds the voxel ``VoxelBuildRequest`` for the active litho model.
+ *
+ * Populated by ``LithologyCanvas`` while mounted; invoked by
+ * ``LithologyStage``'s "Build model" toolbar button so the Build path can reach
+ * the per-section partition data that lives in the canvas (the same module-ref
+ * bridge as ``resetLithoCameraCallback``).
+ *
+ * The builder is async because the correlation edges are section-scoped and
+ * fetched fresh at click time (Solid mode — the default — does not keep an
+ * edges cache, so the build cannot rely on the fence-mode state).  Resolves to
+ * ``null`` when there is nothing to build (no model / no sections / no
+ * accepted layers), which the Build handler surfaces as a "nothing to build"
+ * toast.
+ */
+export const lithoVoxelRequestCallback: React.MutableRefObject<
+  (() => Promise<VoxelBuildRequest | null>) | null
 > = { current: null }
 
 // ---------------------------------------------------------------------------
@@ -294,11 +314,8 @@ export default function LithologyCanvas(): JSX.Element {
   // to a FenceLayerInput keyed by investigationId = cpt_id ?? borehole_id.
   // ---------------------------------------------------------------------------
 
-  const fenceSectionInputs = useMemo<FenceSectionInput[]>(() => {
-    if (viewMode !== 'fence') return []
-    if (!lithoModelId) return []
-
-    const allItems = [
+  const investigations = useMemo(
+    () => [
       ...visibleCpts.map(c => ({
         id: c.id,
         location_x: c.location_x,
@@ -311,58 +328,33 @@ export default function LithologyCanvas(): JSX.Element {
         location_y: b.location_y,
         elevation_m: b.elevation_m,
       })),
-    ]
+    ],
+    [visibleCpts, visibleBoreholes],
+  )
 
-    // Skip layers that carry neither a cpt_id nor a borehole_id — they have
-    // no investigation anchor and cannot be projected onto a section column.
-    const layerInputs: FenceLayerInput[] = lithoLayers.flatMap(layer => {
-      const invId = layer.cpt_id ?? layer.borehole_id
-      if (!invId) return []
-      return [
-        {
-          investigationId: invId,
-          layerId: layer.id,
-          formationId: layer.formation_id,
-          bodyId: layer.body_id ?? null,
-          topDepthM: layer.depth_top_m,
-          baseDepthM: layer.depth_base_m,
-          accepted: layer.status === 'accepted',
-        },
-      ]
+  // Approved edges per section (the band/onlap/lens classifier only consumes
+  // user-approved edges).  Shared by the fence memo + the voxel-build callback.
+  const approvedEdgesBySectionId = useMemo(() => {
+    const out = new Map<string, { a: string; b: string }[]>()
+    for (const [sectionId, edges] of edgesBySectionId) {
+      out.set(
+        sectionId,
+        edges.filter(e => e.user_approved).map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
+      )
+    }
+    return out
+  }, [edgesBySectionId])
+
+  const fenceSectionInputs = useMemo<FenceSectionInput[]>(() => {
+    if (viewMode !== 'fence') return []
+    if (!lithoModelId) return []
+    return assembleLithoSectionInputs({
+      visibleSections,
+      investigations,
+      lithoLayers,
+      edgesBySectionId: approvedEdgesBySectionId,
     })
-
-    return visibleSections.map<FenceSectionInput>(section => {
-      const excludedIds = new Set([
-        ...(section.excluded_cpt_ids ?? []),
-        ...(section.excluded_borehole_ids ?? []),
-      ])
-      const projected = investigationsOnSection(section, allItems, excludedIds)
-
-      const projectedColumns: FenceProjectedColumn[] = projected.map(p => ({
-        investigationId: p.item.id,
-        alongM: p.along,
-        surfaceElevM: p.item.elevation_m,
-      }))
-
-      const rawEdges = edgesBySectionId.get(section.id) ?? []
-      // Only approved edges drive the band/onlap/lens classification.
-      const edges = rawEdges
-        .filter(e => e.user_approved)
-        .map(e => ({ a: e.contact_a_id, b: e.contact_b_id }))
-
-      return {
-        section: {
-          start_x: section.start_x,
-          start_y: section.start_y,
-          end_x: section.end_x,
-          end_y: section.end_y,
-        },
-        projectedColumns,
-        layers: layerInputs,
-        edges,
-      }
-    })
-  }, [viewMode, lithoModelId, visibleCpts, visibleBoreholes, visibleSections, lithoLayers, edgesBySectionId])
+  }, [viewMode, lithoModelId, visibleSections, investigations, lithoLayers, approvedEdgesBySectionId])
 
   // ---------------------------------------------------------------------------
   // Fence panels — built only in Fence mode to avoid the CPU cost in Solid mode.
@@ -372,6 +364,60 @@ export default function LithologyCanvas(): JSX.Element {
     () => (viewMode === 'fence' ? buildProjectFence(fenceSectionInputs) : undefined),
     [viewMode, fenceSectionInputs],
   )
+
+  // ---------------------------------------------------------------------------
+  // Voxel build payload — assembled on demand for the "Build model" toolbar
+  // button (module-ref bridge, same pattern as resetLithoCameraCallback).
+  //
+  // The toolbar lives in LithologyStage and has no access to the per-section
+  // partition data that lives here, so the canvas populates this ref every
+  // render; the toolbar's Build onClick invokes it.  The builder is async
+  // because the correlation edges are section-scoped and fetched fresh at click
+  // time — Solid mode (the default) keeps no edges cache, and the build must
+  // work regardless of which 3D view is showing.  Assigned ABOVE the early
+  // return so the ref is always populated while the canvas is mounted.
+  //
+  // Returns null (→ "nothing to build" toast) when there is no model or no
+  // visible section to project onto.
+  // ---------------------------------------------------------------------------
+
+  lithoVoxelRequestCallback.current = async (): Promise<VoxelBuildRequest | null> => {
+    if (!projectId || !lithoModelId || visibleSections.length === 0) return null
+
+    // Fetch each section's approved correlation edges fresh (section-scoped;
+    // a failed fetch degrades to no edges for that section rather than aborting
+    // the whole build — the partition still fills, just without that section's
+    // correlations).
+    const edgeResults = await Promise.all(
+      visibleSections.map(section =>
+        api.geology
+          .listContactCorrelations(projectId, lithoModelId, section.id)
+          .then(
+            edges =>
+              [
+                section.id,
+                edges
+                  .filter(e => e.user_approved)
+                  .map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
+              ] as const,
+          )
+          .catch(() => [section.id, [] as { a: string; b: string }[]] as const),
+      ),
+    )
+    const edgesMap = new Map(edgeResults)
+
+    const sectionInputs = assembleLithoSectionInputs({
+      visibleSections,
+      investigations,
+      lithoLayers,
+      edgesBySectionId: edgesMap,
+    })
+
+    const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(
+      project?.view_state,
+    )
+    return buildVoxelRequest(sectionInputs, voxelHorizontalSpacingM, voxelVerticalSpacingM)
+  }
 
   // ---------------------------------------------------------------------------
   // Solid-mode derived state

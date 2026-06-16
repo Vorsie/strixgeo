@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type { LithoBodySolidResponse } from '../api/client'
+import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import { log } from '../utils/log'
 
 // ---------------------------------------------------------------------------
@@ -38,8 +39,30 @@ export interface UseLithoSolidsResult {
    * tint on the toolbar Build Solids button.
    */
   hasStaleLithoSolid: boolean
-  /** Build / rebuild solids for the active litho model, toast the result. */
-  buildLithoSolids: () => Promise<void>
+  /**
+   * Build solids for the active litho model from the VOXEL partition payload,
+   * then toast the result.
+   *
+   * The Build path POSTs the frontend's validated ``computeSectionFill``
+   * partitions to ``buildVoxelLithoModel`` (the source-of-truth voxel build).
+   * The payload is assembled by the canvas (where the per-section partition data
+   * lives) and supplied via ``voxelRequestBuilder`` — an async builder that
+   * fetches the section-scoped correlation edges fresh and returns the request,
+   * or ``null`` when there is nothing to build.
+   *
+   * When ``voxelRequestBuilder`` is absent or resolves to ``null`` the build is
+   * a no-op with a "nothing to build" toast — the dormant implicit
+   * ``rebuildLithoSolids`` path is NOT called from here.
+   *
+   * Parameters
+   * ----------
+   * voxelRequestBuilder
+   *     Async builder for the ``VoxelBuildRequest``; resolves to ``null`` when
+   *     no payload is available (no sections / no model).
+   */
+  buildLithoSolids: (
+    voxelRequestBuilder?: () => Promise<VoxelBuildRequest | null>,
+  ) => Promise<void>
   /**
    * Set or clear a per-body display colour.
    *
@@ -156,38 +179,61 @@ export function useLithoSolids(
     buildingRef.current = building
   }, [building])
 
-  const buildLithoSolids = useCallback(async (): Promise<void> => {
-    if (!projectId || !lithoModelId || buildingRef.current) return
-    setBuilding(true)
-    log.info('useLithoSolids', `building body solids model=${lithoModelId}`)
-    try {
-      const result = await api.geology.rebuildLithoSolids(projectId, lithoModelId)
-      log.success(
-        'useLithoSolids',
-        `built ${result.bodies_built} body solid(s), flagged=${result.bodies_flagged}`,
-      )
-      // Build response already carries the updated solids list — apply
-      // directly.  No nonce bump needed: the fetch effect re-runs only when
-      // the nonce changes, and re-fetching here would overwrite identical data
-      // with an extra round-trip.
-      setSolids(result.solids)
+  const buildLithoSolids = useCallback(
+    async (
+      voxelRequestBuilder?: () => Promise<VoxelBuildRequest | null>,
+    ): Promise<void> => {
+      if (!projectId || !lithoModelId || buildingRef.current) return
 
-      const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
-      if (result.bodies_flagged > 0) {
-        toast(
-          'warning',
-          `${builtMsg} — ${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
-        )
-      } else {
-        toast('success', builtMsg)
+      // The voxel path needs the per-section partition payload, which the
+      // canvas assembles.  Without a builder there is nothing to build — the
+      // dormant implicit rebuildLithoSolids path is intentionally NOT called.
+      if (!voxelRequestBuilder) {
+        toast('warning', 'Nothing to build yet — open a cross-section on the litho axis first.')
+        return
       }
-    } catch (err) {
-      log.error('useLithoSolids', 'build solids failed', err)
-      toast('error', 'Could not build body solids — check the connection.')
-    } finally {
-      setBuilding(false)
-    }
-  }, [projectId, lithoModelId, toast])
+
+      setBuilding(true)
+      log.info('useLithoSolids', `building voxel body solids model=${lithoModelId}`)
+      try {
+        const request = await voxelRequestBuilder()
+        if (!request || request.sections.length === 0) {
+          toast(
+            'warning',
+            'Nothing to build — accept litho layers on a cross-section, then Build.',
+          )
+          return
+        }
+
+        const result = await api.geology.buildVoxelLithoModel(projectId, lithoModelId, request)
+        log.success(
+          'useLithoSolids',
+          `built ${result.bodies_built} voxel body solid(s), flagged=${result.bodies_flagged}`,
+        )
+        // Build response already carries the updated solids list — apply
+        // directly.  No nonce bump needed: the fetch effect re-runs only when
+        // the nonce changes, and re-fetching here would overwrite identical data
+        // with an extra round-trip.
+        setSolids(result.solids)
+
+        const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
+        if (result.bodies_flagged > 0) {
+          toast(
+            'warning',
+            `${builtMsg} — ${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
+          )
+        } else {
+          toast('success', builtMsg)
+        }
+      } catch (err) {
+        log.error('useLithoSolids', 'build voxel solids failed', err)
+        toast('error', 'Could not build body solids — check the connection.')
+      } finally {
+        setBuilding(false)
+      }
+    },
+    [projectId, lithoModelId, toast],
+  )
 
   // -------------------------------------------------------------------------
   // Per-body colour — optimistic + debounced
