@@ -35,7 +35,10 @@ export const MapContainer = forwardRef<L.Map, MapContainerProps>(function MapCon
     })
     if (props.bounds) created.fitBounds(props.bounds)
     setMap(created)
-    props.whenReady?.(created)
+    // Fire whenReady on Leaflet's own ready event (matches L.Map.whenReady
+    // semantics) — fires synchronously when a center/zoom is set, else after
+    // the initial view settles, so the map is genuinely ready for the callback.
+    if (props.whenReady) created.whenReady(() => props.whenReady?.(created))
     return () => {
       created.remove()
       setMap(null)
