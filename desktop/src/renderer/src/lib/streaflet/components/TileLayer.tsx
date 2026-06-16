@@ -10,6 +10,8 @@ export interface TileLayerProps extends EventedProps {
   maxZoom?: number
   minZoom?: number
   subdomains?: string | string[]
+  /** Render into this named Leaflet pane (threaded conditionally at construction). */
+  pane?: string
 }
 
 /** Raster XYZ tile layer (wraps L.tileLayer). */
@@ -25,6 +27,9 @@ export const TileLayer = createTileComponent<TileLayerProps, L.TileLayer>({
       // keep its built-in default ('abc'), which avoids a crash in jsdom where
       // _getSubdomain reads .length on the value before any tile is requested.
       ...(props.subdomains !== undefined ? { subdomains: props.subdomains } : {}),
+      // Only pass pane when explicitly provided; omitting lets Leaflet keep its
+      // default 'tilePane' rather than clobbering it with undefined.
+      ...(props.pane !== undefined ? { pane: props.pane } : {}),
     }),
   updateInstance: (layer, props, prev) => {
     if (props.url !== prev.url) layer.setUrl(props.url)
