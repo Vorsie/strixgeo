@@ -2537,28 +2537,10 @@ export default function Geology3DViewer({
                   </button>
                 </li>
               )}
-              {/* Formation surfaces (the "solid" TIN sheets) on/off — only shown
-                  when surfaces exist. Lets the user drop the sheets in Fence
-                  mode and keep only the section walls (dogfeed 2026-06-10). The
-                  per-formation rows below still toggle individual lithologies
-                  (walls + sheet); this hides ALL sheets at once. */}
-              {[...surfacesByFormationId.values()].some(s => s.vertices.length > 0) && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setSurfacesVisible(v => !v)}
-                    className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!surfacesVisible ? 'opacity-50' : ''}`}
-                    title={surfacesVisible ? 'Hide formation surfaces' : 'Show formation surfaces'}
-                  >
-                    <span className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default bg-text-secondary" />
-                    <span
-                      className={`truncate ${!surfacesVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
-                    >
-                      Surfaces
-                    </span>
-                  </button>
-                </li>
-              )}
+              {/* The master "Surfaces" toggle was removed from the legend
+                  (dogfeed 2026-06-16 — owner doesn't want it). ``surfacesVisible``
+                  is still driven by fence mode (auto-off in fence) + read by the
+                  render; per-formation rows below toggle individual sheets. */}
               {/* Youngest-first (surface at top) so the legend reads like the
                   GeologyInspector list / a borehole log. The TIN paint order
                   (ascending display_order) is unaffected — this reverses the
