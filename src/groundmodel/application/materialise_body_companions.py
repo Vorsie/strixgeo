@@ -19,8 +19,14 @@ Approved-edge set is loaded once (model-scoped) before the body loop,
 not per body — the set does not change during the pass.
 
 Per-body ``Exception`` is caught and counted as ``errored``; the loop
-continues so partial progress is retained (each body commits independently
-via ``CreatePerpendicularCompanion``'s internal commit).
+continues so partial progress is retained.  Each body's
+``CreatePerpendicularCompanion`` call owns its own ``session.commit()``,
+so the success path is already isolated.  On failure (#212) the session
+is explicitly rolled back to discard any writes staged before the
+exception (e.g. a ``flush()`` that ran before the inner commit could
+fire) — previously those dirty rows survived if the caller later
+committed the session.  Already-committed companions from earlier bodies
+are unaffected by the rollback.
 
 Originally named MaterialiseLensCompanions — Slice 2 rename.
 """
@@ -180,6 +186,14 @@ class MaterialiseBodyCompanions(GroundModelLogger):
             # contacts to violate the constraint.
 
             # 5. Create the companion section.
+            #    CreatePerpendicularCompanion owns its own session.commit() on
+            #    the success path, so each body is already isolated when it
+            #    succeeds.  On failure (#212) we explicitly roll back the
+            #    session to discard any writes staged before the exception
+            #    (e.g. a flush() that ran before the inner commit could fire).
+            #    Already-committed companions from earlier loop iterations are
+            #    unaffected — they are in the DB and a rollback only reverts
+            #    the current uncommitted state.
             try:
                 await CreatePerpendicularCompanion(self._session).execute(
                     project_id=project_id,
@@ -189,6 +203,7 @@ class MaterialiseBodyCompanions(GroundModelLogger):
                 created += 1
                 self.debug(f"{prefix} companion created")
             except Exception as exc:
+                await self._session.rollback()
                 self.warning(f"{prefix} errored: {exc}")
                 errored += 1
 

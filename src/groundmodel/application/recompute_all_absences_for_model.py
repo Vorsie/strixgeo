@@ -16,7 +16,11 @@ so the inference semantics are identical — just batched into one transaction.
 Atomicity
 ---------
 All formation deltas accumulate in a single session and are committed once at
-the end.  Either every formation is updated or none is (rollback on exception).
+the end.  Each per-formation body runs inside a PostgreSQL SAVEPOINT
+(``session.begin_nested()``) so a per-formation ``(ValueError, LookupError)``
+rolls back only that formation's staged writes; the savepoints from successful
+formations remain staged for the single final commit.  An unexpected
+``Exception`` triggers a full rollback and re-raises (unchanged behaviour).
 
 Guards
 ------
@@ -244,33 +248,43 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
                 f"[{i}/{total}] RecomputeAllAbsencesForModel: formation {fid} — inference pass"
             )
             try:
-                inf_result = await inference_uc.execute(
-                    project_id=project_id,
-                    model_id=model_id,
-                    formation_id=fid,
-                    commit=False,
-                    section_cache=section_cache,
-                )
-                total_written += inf_result.total_written
-                total_retracted += inf_result.total_retracted
+                # Each formation runs inside a PostgreSQL SAVEPOINT so that a
+                # per-formation (ValueError, LookupError) rolls back only that
+                # formation's staged writes.  Successful formations' savepoints
+                # are released and their writes accumulate for the final commit.
+                # (#212 — without this, partial ORM writes from the failing
+                # formation rode the single final commit.)
+                async with self._session.begin_nested():
+                    inf_result = await inference_uc.execute(
+                        project_id=project_id,
+                        model_id=model_id,
+                        formation_id=fid,
+                        commit=False,
+                        section_cache=section_cache,
+                    )
+                    total_written += inf_result.total_written
+                    total_retracted += inf_result.total_retracted
 
-                self.debug(
-                    f"[{i}/{total}] RecomputeAllAbsencesForModel: "
-                    f"formation {fid} — wedge-tip materialisation"
-                )
-                mat_result = await materialize_uc.execute(
-                    project_id=project_id,
-                    model_id=model_id,
-                    formation_id=fid,
-                    commit=False,
-                )
-                total_wedge_tips_created += mat_result.new_contacts_created
-                total_wedge_tips_deleted += mat_result.old_contacts_deleted
+                    self.debug(
+                        f"[{i}/{total}] RecomputeAllAbsencesForModel: "
+                        f"formation {fid} — wedge-tip materialisation"
+                    )
+                    mat_result = await materialize_uc.execute(
+                        project_id=project_id,
+                        model_id=model_id,
+                        formation_id=fid,
+                        commit=False,
+                    )
+                    total_wedge_tips_created += mat_result.new_contacts_created
+                    total_wedge_tips_deleted += mat_result.old_contacts_deleted
                 formations_processed += 1
             except (ValueError, LookupError) as exc:
                 # Expected per-formation failures (bad data / missing lookup):
                 # log and skip so one broken formation does not abort the entire
-                # batch.  Prior formations in this iteration remain staged.
+                # batch.  The begin_nested() context manager has already rolled
+                # back this formation's savepoint before we arrive here, so no
+                # partial writes from the failed formation survive to the final
+                # commit.
                 self.warning(
                     f"[{i}/{total}] RecomputeAllAbsencesForModel: "
                     f"formation {fid} failed — skipping: {exc}"

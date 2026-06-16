@@ -8,6 +8,10 @@ RA1  A formation present at one borehole and absent at another (where the
      absent borehole has an overlapping observation layer of a different
      lithology) produces one inferred ``formation_absence`` row.
 RA2  Re-running is idempotent — the batched UPSERT writes no duplicate row.
+RA5  (#212) A per-formation ``(ValueError, LookupError)`` rolls back only
+     that formation's staged writes (savepoint); successful formations'
+     writes ARE committed; the partial-write-survives-the-final-commit bug
+     is gone.
 """
 
 from __future__ import annotations
@@ -263,3 +267,152 @@ async def test_ra4_unexpected_error_propagates_and_rolls_back(
     assert commit_calls["n"] == 0, "must not commit a partial batch on an unexpected error"
     # Session is rolled back and usable; no absence rows were persisted.
     assert await _absence_count(db_session, scenario["formation_id"]) == 0
+
+
+async def test_ra5_per_formation_error_rolls_back_only_that_formation(
+    project: ProjectOrm,
+    scenario: dict,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    """RA5 (#212): a per-formation ``LookupError`` must NOT leak partial writes.
+
+    Rule: when formation A succeeds and formation B raises ``LookupError``
+    mid-write, the final commit must contain A's absence rows but NOT any
+    partially-staged rows from B.
+
+    Before the savepoint fix, the partial ORM write from the failing formation
+    rode the single final ``session.commit()`` — the absence table held state
+    the log said was skipped.  After the fix, ``session.begin_nested()`` per
+    item means only the failed item's savepoint is rolled back; A's rows
+    survive.
+    """
+    from uuid6 import uuid7 as _uuid7
+
+    import groundmodel.application.recompute_all_absences_for_model as mod
+
+    mid = scenario["litho_model_id"]
+    fid_good = scenario["formation_id"]  # the formation the scenario set up (ZAND, should succeed)
+
+    # We need a second formation so the loop has two items: one succeeds,
+    # one raises after staging a dirty row.
+    # Build a minimal extra formation with a contact so it is discovered.
+    from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+    from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    bh_extra = BoreholeOrm(
+        id=_uuid7(),
+        name="BH-extra",
+        app_project_id=project.id,
+        project_id="TEST",
+        test_id="RA5-extra",
+        location_x=500.0,
+        location_y=100.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    db_session.add(bh_extra)
+    await db_session.flush()
+
+    # A geological parent for the bad formation.
+    geo_parent = GeologicalFormationOrm(
+        id=_uuid7(),
+        app_project_id=project.id,
+        name="Geo-RA5-parent",
+        color="#cccccc",
+        display_order=99,
+    )
+    db_session.add(geo_parent)
+    await db_session.flush()
+
+    bad_formation = GeologicalFormationOrm(
+        id=_uuid7(),
+        app_project_id=project.id,
+        name="KLEI-bad-RA5",
+        color="#aabbcc",
+        display_order=100,
+        parent_formation_id=geo_parent.id,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add(bad_formation)
+    await db_session.flush()
+
+    # A contact for the bad formation so it is discovered in the model.
+    bad_contact = FormationContactOrm(
+        id=_uuid7(),
+        model_id=mid,
+        formation_id=bad_formation.id,
+        borehole_id=bh_extra.id,
+        depth_top_m=3.0,
+        source="borehole_observation",
+        confidence="medium",
+    )
+    db_session.add(bad_contact)
+    await db_session.commit()
+
+    # Track which formation ids were passed to the real execute.
+    seen_fids: list[str] = []
+
+    real_execute = mod.RecomputeFormationAbsencesForFormation.execute
+
+    async def _patched_execute(self, *, project_id, model_id, formation_id, **kwargs):  # noqa: ANN001
+        seen_fids.append(str(formation_id))
+        if str(formation_id) == str(bad_formation.id):
+            # Stage a dirty absence row for the bad formation, then raise
+            # a LookupError — simulating a partial write before exception.
+            partial_row = FormationAbsenceOrm(
+                id=_uuid7(),
+                formation_id=bad_formation.id,
+                investigation_id=bh_extra.id,
+                investigation_kind="borehole",
+                source="inferred",
+            )
+            self._session.add(partial_row)
+            await self._session.flush()  # staged but NOT committed
+            raise LookupError("simulated per-formation data error")
+        return await real_execute(
+            self,
+            project_id=project_id,
+            model_id=model_id,
+            formation_id=formation_id,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(mod.RecomputeFormationAbsencesForFormation, "execute", _patched_execute)
+
+    result = await RecomputeAllAbsencesForModel(db_session).execute(
+        project_id=project.id, model_id=mid
+    )
+
+    # The loop must have visited both formations.
+    assert str(bad_formation.id) in seen_fids, "bad formation must have been attempted"
+    assert str(fid_good) in seen_fids, "good formation must have been attempted"
+
+    # The bad formation was skipped — formations_processed excludes it.
+    assert result.formations_processed < len(seen_fids), (
+        "formations_processed must be < total attempted (bad one was skipped)"
+    )
+
+    # KEY ASSERTION (#212 fix): the partial write from the bad formation must
+    # NOT be in the DB — the savepoint rolled it back.
+    bad_absence_count = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(FormationAbsenceOrm)
+            .where(FormationAbsenceOrm.formation_id == bad_formation.id)
+        )
+    ).scalar_one()
+    assert bad_absence_count == 0, (
+        f"#212 regression: partial write from the failed formation survived the commit "
+        f"({bad_absence_count} row(s) found); expected 0 after savepoint rollback"
+    )
+
+    # The good formation's absences ARE written (the savepoint didn't wipe them).
+    good_absence_count = await _absence_count(db_session, fid_good)
+    assert good_absence_count >= 1, (
+        f"Good formation's absences must survive the bad formation's rollback; "
+        f"got {good_absence_count}"
+    )
