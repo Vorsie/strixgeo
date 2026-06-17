@@ -408,12 +408,19 @@ describe('computePartitionFill', () => {
     assertTiles(regions, left, right)
   })
 
-  // CT1 — a unit below a too-shallow neighbour's floor carries THROUGH at full
-  // width (fraction 0→1), not a pinch to the neighbour.
-  it('CT1: deep unit below a shallow neighbour carries through full-width', () => {
+  // CT1 — a deep unit below a too-shallow neighbour's floor that is UNCORRELATED
+  // (no reaching neighbour carries it) PINCHES OUT, it does NOT carry through
+  // full-width. (Owner directive 2026-06-16: band/lens follows correlation
+  // EVERYWHERE — the carry-through used to band this correlation-blind, which was
+  // the design flaw. With only one too-shallow neighbour there is no reaching
+  // neighbour at all → pinch out.) The correlated-across-the-void → BAND case is
+  // pinned by CASE 1 / CASE 5 in the reach-guard describe.
+  it('CT1: deep uncorrelated unit below a shallow neighbour PINCHES OUT (no reaching neighbour)', () => {
     // left reaches 23 m; right (a shallow borehole) stops at 17 m.
     // left:  Clay 0-10 | Sand 10-17 | Silt 17-23
     // right: Clay 0-10 | Sand 10-17           (no data below 17)
+    // The Silt is below the right's floor and uncorrelated → no reaching
+    // neighbour can carry it → it pinches out toward the shallow right.
     const left = col('L', 10, [
       { top: 0, base: 10, f: 'clay', b: 'clay' },
       { top: 10, base: 17, f: 'sand', b: 'sand' },
@@ -427,18 +434,25 @@ describe('computePartitionFill', () => {
 
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
-    // A full-width flat BAND reaches the unit's full depth on BOTH sides — i.e.
-    // it has all four corners, crucially (1, −13). A pinch to the shallow
-    // neighbour only reaches (1, −7) (it tapers), so the bottom-RIGHT corner is
-    // the discriminating fact: present for a carry-through, absent for a pinch.
-    const hasCorner = (frac: number, elev: number): boolean =>
-      silt[0].polygon.some(
-        (p) => Math.abs(p.fraction - frac) < 1e-6 && Math.abs(p.elevation - elev) < 1e-6,
-      )
-    expect(hasCorner(0, -7)).toBe(true)
-    expect(hasCorner(1, -7)).toBe(true)
-    expect(hasCorner(1, -13)).toBe(true) // ← fails for a pinch triangle
-    expect(hasCorner(0, -13)).toBe(true)
+    // It is the base truth, not deleted: the Silt is present near its OWN (left)
+    // column edge (fraction 0) at its mid-elevation (-20). But it does NOT carry
+    // through to the shallow right side — it is ABSENT at the right column edge.
+    const presentAt = (frac: number, elev: number): boolean => {
+      let inside = false
+      const poly = silt[0].polygon
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].fraction
+        const yi = poly[i].elevation
+        const xj = poly[j].fraction
+        const yj = poly[j].elevation
+        if (yi > elev !== yj > elev && frac < ((xj - xi) * (elev - yi)) / (yj - yi) + xi)
+          inside = !inside
+      }
+      return inside
+    }
+    // Silt is 17-23 m below surface 10 mTAW → elevations -7 to -13, mid -10.
+    expect(presentAt(0.05, -10)).toBe(true) // present near its own (left) edge
+    expect(presentAt(0.95, -10)).toBe(false) // pinched out — absent on the shallow side
   })
 
   // CT2 — a same-depth extra bed (NOT below the neighbour's floor) still pinches
@@ -459,24 +473,26 @@ describe('computePartitionFill', () => {
     expect(isFlat).toBe(false)
   })
 
-  // CT3 — a rest-pinch ABOVE a too-shallow carry-through band must not overlap
-  // it (the real CS1 gap-11 bug, traced 2026-06-09). R is deeper than L; below
-  // the matched SILT band, L has a KLEI that stays a pinch while R's deeper KLEI
-  // carries through as a full-width band. The rest-pinch's interval base was the
-  // DEEPEST floor, so it filled down INTO the carried band's space → two KLEI
-  // regions overlapping. The fix clamps the rest's base to the carried band top.
-  it('CT3: a rest-pinch above a carry-through band does not overlap it (tiles)', () => {
+  // CT3 — below the matched SILT band, L has a deep KLEI and R has an even deeper
+  // KLEI below L's floor. Neither is correlated and neither has a reaching
+  // neighbour to carry it (owner directive 2026-06-16: 0 correlations / no
+  // reaching neighbour → pinch out, NOT a correlation-blind carry-through band).
+  // Both fall into the floor interval; ``emitInterval``'s pre-existing
+  // same-lithology geometric matrix inference connects the two KLEIs into one
+  // matrix band. The load-bearing invariant — and the original CS1 gap-11 bug
+  // this test guards — is that NO TWO MAIN regions OVERLAP at any fraction.
+  it('CT3: deep uncorrelated KLEIs do not produce overlapping main regions (tiles)', () => {
     const left = col('L', 0, [
       { top: 0, base: 8, f: 'SILT', b: 'sb' }, // matched band
-      { top: 8, base: 10, f: 'KLEI', b: 'kl' }, // L's deepest → a rest-pinch
+      { top: 8, base: 10, f: 'KLEI', b: 'kl' }, // L's deepest → pinches out
     ])
     const right = col('R', 0, [
       { top: 0, base: 12, f: 'SILT', b: 'sb' }, // matched band
-      { top: 12, base: 18, f: 'KLEI', b: 'kr' }, // below L's floor → carries through
+      { top: 12, base: 18, f: 'KLEI', b: 'kr' }, // below L's floor → pinches out
     ])
     const regions = pf(left, right)
-    // Both KLEI regions present (the rest-pinch + the carry band).
-    expect(regions.filter((r) => r.formationId === 'KLEI').length).toBeGreaterThanOrEqual(2)
+    // The KLEI matrix is present (connected via the geometric inference).
+    expect(regions.some((r) => r.formationId === 'KLEI')).toBe(true)
     // No two MAIN (non-lens) regions overlap vertically at any fraction. (Not
     // assertTiles: a carry-through fills full-width to the DEEP floor, so the
     // interpolated-floor model assertTiles uses doesn't apply here — the bug we
@@ -1642,6 +1658,22 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
       .filter((r) => r.gapIndex === gapIndex && r.kind !== 'lens' && inPoly(r.polygon, f, e))
       .map((r) => r.formationId)
 
+  /**
+   * Like ``coverAt`` but INCLUDING lens/onlap overlays — used to assert a
+   * pinched-out unit still exists near its source column edge (a pinch-out is
+   * the base truth tapering out, whether it renders as a ``pinch`` tile or a
+   * ``lens`` overlay — this helper is agnostic to that implementation detail).
+   */
+  const coverAtAny = (
+    regions: ReturnType<typeof computeSectionFill>,
+    gapIndex: number,
+    f: number,
+    e: number,
+  ): string[] =>
+    regions
+      .filter((r) => r.gapIndex === gapIndex && inPoly(r.polygon, f, e))
+      .map((r) => r.formationId)
+
   // CASE 1 — the artifact. A deep SAND interbed, correlated L↔R across a shallow
   // 3.5 m MIDDLE column, must BAND (survive), NOT pinch to a lens with the CLAY
   // matrix flooding over it. The CLAY above + below the deep sand share the SAME
@@ -1704,15 +1736,17 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     assertTiles(regions, L, R)
   })
 
-  // CASE 3 — BOTH neighbours too shallow → the deep unit is kept on both sides,
-  // rendering as a flat carry / open band across both gaps (data-void behaviour),
-  // never a lens.
-  it('CASE 3 — both neighbours too shallow → deep unit kept on both sides, no flood', () => {
+  // CASE 3 — BOTH neighbours too shallow → NO REACHING NEIGHBOUR on either side,
+  // so there is no correlated continuity in any direction → the deep unit LENSES
+  // (pinches out) on BOTH sides. (Owner directive 2026-06-16: band/lens follows
+  // correlation EVERYWHERE; "no reaching neighbour on a side → pinch out". The
+  // carry-through used to band this correlation-blind — now corrected.)
+  it('CASE 3 — both neighbours too shallow (no reaching neighbour either side) → deep unit LENSES on both sides', () => {
     // The deep SAND on the MIDDLE column (8-12 m) is enclosed by CLAY/CLAY and
-    // lies ENTIRELY below the 3.5 m TD of both flanking columns (its enclosing
-    // matrix mMid starts at 4 m — also below the reach line — so the matrix
-    // itself is not a reaching band that could flood up). Neither neighbour
-    // reaches the sand → it must render as a band on BOTH sides, not flood.
+    // lies ENTIRELY below the 3.5 m TD of both flanking columns. Walking out from
+    // the middle column on EITHER side, every column is too shallow to reach the
+    // sand's depth → there is no reaching neighbour → no correlation can connect
+    // it → it must PINCH OUT (lens), not span the gap as a full-width band.
     const Lshallow = col('Ls', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
     const Mid = col('Mid', 0, [
       { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
@@ -1722,18 +1756,28 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     ])
     const Rshallow = col('Rs', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
     const regions = sf(Lshallow, Mid, Rshallow)
-    // At the deep sand's mid-elevation (8-12 m → elev -10), BOTH gaps render SAND
-    // (the data-void unit is kept + banded), not flooded CLAY.
-    expect(coverAt(regions, 0, 0.5, -10)).toEqual(['SAND'])
-    expect(coverAt(regions, 1, 0.5, -10)).toEqual(['SAND'])
+    // The deep SAND must NOT span the gap as a band — it pinches out. At mid-gap
+    // (fraction 0.5) and the sand's mid-elevation (-10), the SAND is gone (pinched
+    // away from the shallow side); the data-void below is filled by the matrix.
+    expect(coverAt(regions, 0, 0.5, -10)).not.toContain('SAND')
+    expect(coverAt(regions, 1, 0.5, -10)).not.toContain('SAND')
+    // It is the base truth, not deleted: the SAND survives near its OWN (Mid)
+    // column edge — present at gap 0's right edge and gap 1's left edge (Mid),
+    // tapering out toward the shallow side. The deep unit pinches; it does not
+    // band.
+    expect(coverAtAny(regions, 0, 0.98, -10)).toContain('SAND')
+    expect(coverAtAny(regions, 1, 0.02, -10)).toContain('SAND')
   })
 
-  // CASE 4 — section-edge column with a single neighbour that is the void side:
-  // the deep unit on the edge column is kept (its only neighbour cannot reach).
-  it('CASE 4 — section-edge column, single too-shallow neighbour → deep unit kept', () => {
+  // CASE 4 — section-edge column whose ONLY neighbour is the void side: there is
+  // no reaching neighbour on that side and no neighbour at all on the other →
+  // the deep unit LENSES (pinches out). (Owner directive 2026-06-16: "no reaching
+  // neighbour on a side → pinch out".)
+  it('CASE 4 — section-edge column, single too-shallow neighbour (no reaching neighbour) → deep unit LENSES', () => {
     // Edge column carries a deep SAND (8-12 m) below its only neighbour's 3.5 m
-    // TD (matrix mE also below the reach line). The void-side neighbour cannot
-    // pinch it out → it renders banded, not flooded.
+    // TD. The void-side neighbour cannot reach it and there is no further column
+    // beyond → no reaching neighbour either way → it pinches out (lens), it does
+    // NOT band the full gap width.
     const Edge = col('Edge', 0, [
       { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
       { top: 4, base: 8, f: 'CLAY', b: 'mE' },
@@ -1742,8 +1786,74 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     ])
     const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5 — void side
     const regions = computeSectionFill([Edge, Neighbour], edgesFromBodyId(Edge, Neighbour))
-    // The deep sand renders at the Edge column edge (fraction ≈ 0), not flooded
-    // away by the CLAY matrix.
-    expect(coverAt(regions, 0, 0.02, -10)).toEqual(['SAND'])
+    // The deep sand pinches out — present near its own (Edge, left) column edge,
+    // but NOT spanning to mid-gap.
+    expect(coverAt(regions, 0, 0.5, -10)).not.toContain('SAND')
+    expect(coverAtAny(regions, 0, 0.02, -10)).toContain('SAND')
+  })
+
+  // CASE 5 — correlated across a too-shallow neighbour to a REACHING neighbour →
+  // BANDS (the prior reach-guard win; owner directive 2026-06-16 must not regress
+  // it). A deep SAND on a section-edge column is uncorrelated to the adjacent
+  // shallow void column but CORRELATED (jump edge) to the reaching column beyond
+  // it → it bands across the whole way.
+  it('CASE 5 — correlated across a too-shallow neighbour to a reaching neighbour → BANDS (no regression)', () => {
+    // L0 (deep) carries SAND deep, uncorrelated to the shallow M1, but body
+    // "deep" is shared with the deep R2 beyond it (a jump edge). The nearest
+    // REACHING neighbour to the right (skip M1, reach R2) is correlated → BAND.
+    const L0 = col('L0', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' }, // correlated top band across all
+      { top: 2, base: 8, f: 'CLAY', b: 'mTop' }, // correlated upper clay
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep, correlated to R2 (jump)
+      { top: 12, base: 20, f: 'CLAY', b: 'deepC' }, // deep clay, also correlated
+    ])
+    const M1 = col('M1', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' },
+      { top: 2, base: 3.5, f: 'CLAY', b: 'mM1' }, // TD 3.5 — cannot reach the deep sand
+    ])
+    const R2 = col('R2', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' },
+      { top: 2, base: 8, f: 'CLAY', b: 'mTop' }, // correlated upper clay
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // same body as L0 → correlated
+      { top: 12, base: 20, f: 'CLAY', b: 'deepC' }, // same body as L0 → correlated
+    ])
+    const regions = sf(L0, M1, R2)
+    // In the L0→M1 gap (the void gap), the deep SAND must still BAND across it —
+    // present at mid-gap at the sand's mid-elevation (-10). (CASE 1 already pins
+    // the same band when the surrounding clays are uncorrelated.)
+    expect(coverAt(regions, 0, 0.5, -10)).toEqual(['SAND'])
+    // The deep CLAY below it bands too (also correlated to the reaching R2).
+    expect(coverAt(regions, 0, 0.5, -16)).toEqual(['CLAY'])
+  })
+
+  // CASE 6 — PER-SIDE: a deep unit correlated to a reaching neighbour on the LEFT
+  // but with only too-shallow data on the RIGHT → it BANDS LEFT and LENSES RIGHT
+  // (the real S6 shape; owner directive 2026-06-16: a unit can band one side,
+  // lens the other).
+  it('CASE 6 — deep unit: reaching+correlated LEFT, too-shallow RIGHT → BANDS left, LENSES right', () => {
+    // Section order: Lreach (deep, correlated) — Mid (deep, carries the unit) —
+    // Rsh (too shallow). The Mid deep CLAY correlates LEFT to Lreach (reaching) →
+    // bands the Lreach↔Mid gap. To the RIGHT, Rsh is a 3.5 m void with no further
+    // column → no reaching neighbour → the deep CLAY pinches out in the Mid↔Rsh
+    // gap.
+    const Lreach = col('Lr', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' },
+      { top: 2, base: 8, f: 'SILT', b: 'mLr' },
+      { top: 8, base: 16, f: 'CLAY', b: 'deepC' }, // deep CLAY, correlated to Mid
+    ])
+    const Mid = col('Md', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' },
+      { top: 2, base: 8, f: 'SILT', b: 'mMd' },
+      { top: 8, base: 16, f: 'CLAY', b: 'deepC' }, // same body as Lreach → correlated LEFT
+    ])
+    const Rsh = col('Rs', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'topA' },
+      { top: 2, base: 3.5, f: 'SILT', b: 'mRs' }, // TD 3.5 — cannot reach the deep CLAY
+    ])
+    const regions = sf(Lreach, Mid, Rsh)
+    // LEFT gap (gapIndex 0, Lreach↔Mid): the deep CLAY bands — present at mid-gap.
+    expect(coverAt(regions, 0, 0.5, -12)).toEqual(['CLAY'])
+    // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY pinches out — gone at mid-gap.
+    expect(coverAt(regions, 1, 0.5, -12)).not.toContain('CLAY')
   })
 })
