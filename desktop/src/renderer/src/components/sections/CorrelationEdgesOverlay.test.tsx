@@ -420,7 +420,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -444,7 +444,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -480,7 +480,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fSand, fClay],
@@ -505,7 +505,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fSand],
@@ -527,7 +527,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e3', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -554,7 +554,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e4', contact_a_id: 'ka', contact_b_id: 'sb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     const { container } = renderOverlay({
       contacts, formations: [fZand, fKlei, fSilt],
@@ -585,7 +585,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'e5', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     // Columns: centres 100 / 200, width 40 → inner edges at 120 (A right)
     // and 180 (B left). The ribbon must use the edges, not the centres.
@@ -615,7 +615,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'em', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     // Centres 100 / 145, width 40 → inner edges 120 / 125 → a 5 px gap. The
     // gap-bridging ribbon would be a 5 px sliver; the floor must widen it.
@@ -647,7 +647,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'eg', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -678,7 +678,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'ed', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -706,7 +706,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'eok', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -733,7 +733,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'epending', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -762,7 +762,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'eapproved', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -789,7 +789,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'eronly', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -815,7 +815,7 @@ describe('CorrelationEdgesOverlay', () => {
     const edge = {
       id: 'ez', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top', contact_b_side: 'top',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -1409,7 +1409,7 @@ describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)'
     makeContact('b-bot', 'f-a', 'inv-B', 'cpt', 9.0),
   ]
   const columns = [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)]
-  const mk = (id: string, a: string, b: string) => ({
+  const mk = (id: string, a: string, b: string): LithoContactCorrelationEdge => ({
     id,
     contact_a_id: a,
     contact_b_id: b,

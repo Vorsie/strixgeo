@@ -775,13 +775,13 @@ export interface LithoContactCorrelationEdge {
   contact_a_id: string
   contact_b_id: string
   /** Side of contact_a the edge joins — `'top'` (default) or `'base'`. */
-  contact_a_side: string
+  contact_a_side: 'top' | 'base'
   /**
    * Side of contact_b the edge joins. A `('base','base')` pair is a
    * **bottom-tie** (bottom-tie spec 2026-06-17): it correlates the deepest
    * layer's base so the deepest unit can band.
    */
-  contact_b_side: string
+  contact_b_side: 'top' | 'base'
   model_id: string
   section_id: string
   source: string
