@@ -3065,7 +3065,11 @@ export default function SectionPanel({
                   columns={modelFillData.columns}
                   polys={modelFillData.polys}
                   columnLayoutByTestId={modelFillColumnLayout}
-                  confidenceFade={showConfidenceFade}
+                  // Confidence fade is a 3D-only concern (owner directive
+                  // 2026-06-17): the 2D model fill renders solid, never dimmed by
+                  // distance-to-investigation. Fading it washed low-confidence
+                  // spans out to ~0.14 opacity and read as missing fill.
+                  confidenceFade={false}
                   columnAlongMs={modelFillColumnAlongMs}
                   alongMToScreenX={warpedXToScreen}
                   levelToScreen={levelToScreen}
