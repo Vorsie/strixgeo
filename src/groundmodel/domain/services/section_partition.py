@@ -23,6 +23,29 @@ fixtures in ``tests/unit/fixtures/partition_goldens/``.  Do not "improve"
 logic, deduplicate near-identical left/right builders, or normalise outputs —
 fix divergences in the port, never the fixtures.
 
+.. warning::
+
+   **KNOWN DIVERGENCE (2026-06-17, "Truthful 3D Litho Fill" work).** This port
+   currently LAGS ``partitionFill.ts`` by three changes and is NOT faithful for
+   those cases. It was deliberately not updated because this module has **no
+   production importer** -- the voxel build consumes the FRONTEND's
+   ``computeSectionFill`` output via the build-request payload, and the goldens
+   do not exercise the new cases (they stayed green). The missing changes:
+
+   1. ``_collapse_adjacent_same_formation`` must also gate on ``body_id`` so
+      non-adjacent same-lithology occurrences (distinct bodies) do not merge.
+   2. The **sideways default** -- an uncorrelated deep unit facing a shallower
+      un-reaching neighbour continues FLAT at its own elevation instead of being
+      dragged up (TS ``emitGap`` floor-walk ``sideways`` flag).
+   3. **Any-side ties** -- ``CorrelationEdge.a_side``/``b_side``; base-base and
+      top-base (mixed) ties drive continuation (TS edge-split into
+      top/base/mixed sets + the mixed-tie rising-triangle floor path).
+
+   **Before reactivating this port for any server-side partition, port these
+   three from ``partitionFill.ts`` first** (or the 3D model reproduces the
+   pre-fix climbing-sand behaviour). See
+   ``docs/superpowers/specs/2026-06-17-bottom-tie-correlation-design.md``.
+
 ``PartitionUnit``, ``PartitionRegion``, and ``_PinchUnit`` are intentionally
 **mutable** (not frozen) because the pipeline deep-copies its inputs and then
 mutates the copies in place — the same pattern as the TS pipeline.  The other
