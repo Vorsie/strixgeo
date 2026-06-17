@@ -1,144 +1,102 @@
-# Handoff — make voxel litho sections watertight across wide inter-investigation gaps (CS1 sideways-fill reach)
+# Handoff — make the voxel litho cross-section fill watertight (CS1 gap)
 
-**Date:** 2026-06-17
-**For:** a fresh session (this work was scoped + diagnosed but not implemented; the
-diagnosis corrected itself several times, so read the "what we already learned"
-section before touching code — do NOT re-derive from the original symptom).
+**Date:** 2026-06-17 (revised — the lever changed; see "Diagnosis journey")
+**Status:** ROOT CAUSE re-located to the **2D slicer** (`sectionFromSolids.ts`),
+NOT the labeller. A fix is in progress; this doc is the record + the brief if it
+needs a clean session.
 
 ---
 
 ## Goal (owner directive)
 
 The 2D cross-section litho fill (sliced from the built **voxel** 3D model) must be
-**watertight — no void space** across a section. Owner: *"the model is made to be
-watertight, there shouldn't be any void space."* Specifically the **lateral
-interior gaps between widely-spaced investigations** must fill (by extrapolation
-within each geological band), so a section line that runs through a long span with
-no borehole between two columns still shows continuous litho.
+**watertight — no void space** across a section. The motivating case: `test.strix`
+Cross-section 1 shows a gap across the ~73 m span between its first two columns
+(`GEO-22/115-S10` and the `GEO-10/170-S6`/`171-B6`/`126-B4` cluster).
 
-**Out of scope / deliberately KEEP as void** (do not "fill everything" — this is the
-tension to respect): (a) ABOVE a borehole's own observed ground surface
-(`obs_top`) — the owner's "don't fill what the borehole can't see" rule; (b)
-genuine hull-edge no-data beyond the data footprint; (c) true geological band
-PINCH-OUTS (a band that legitimately ends). The fill is about **lateral interior
-continuity within geo bands**, not vertical/edge voids.
+Deliberately KEEP as void (do NOT fill): above a borehole's observed surface
+`obs_top`, genuine hull-edge no-data, true geological band pinch-outs.
 
 ---
 
-## What we ALREADY learned (do not repeat these detours)
+## ⚠ Diagnosis journey — the lever moved THREE times; do not re-walk the dead ends
 
-The diagnosis flipped three times before landing. The settled facts:
+Real-data instrumentation overturned several confident inferences. The settled
+state:
 
-1. **Two distinct symptoms were conflated.** (a) Vertical **striping / on-edge
-   column drops** at a section that hugs the data-hull boundary — this was a
-   **boundary-parity bug** and is **ALREADY FIXED** (see "Already shipped"
-   below). (b) **Wide lateral interior gaps** between far-apart columns — this is
-   the REMAINING work and the subject of this handoff.
+1. **Labeling bug / inside-hull void** — WRONG (sampled out-of-footprint points).
+2. **"Widen the footprint" (raise alpha factor)** — DEAD LEVER. With ~58 widely-
+   spaced investigations the footprint is already the full convex hull (median
+   edge ~83 m → alpha ≈ 498 m keeps every triangle; `tin_surface_constants.py:73`).
+   Do NOT touch the alpha factor.
+3. **Boundary-parity gate** — REAL and **already FIXED** (see "Already shipped").
+   This healed an edge-hugging section's on-edge column drops, but not the CS1
+   wide-span gap.
+4. **Sideways-fill REACH in `label_voxels`** — WRONG (this doc's original premise).
+   Real-model instrumentation (model `019e934c…`, production 2 m/0.5 m spacing)
+   shows the **label grid is watertight along CS1**: the ~73 m gap span is
+   **59/61 voxels filled**, every geological band present at every fraction; the
+   only voids are the deliberate out-of-hull edge. The **extracted body meshes
+   also fully cover the span** (≥10 ray-crossings everywhere). CS1's columns are
+   **collinear with the slice chord** (0.0 m deviation). So there is NO labeller
+   void to fill, and it is not a chord-vs-fence mismatch.
+5. **The 2D SLICER / fill rendering** — the ACTUAL cause. The void appears
+   downstream of the (continuous) meshes, in how the section fill is sliced/drawn.
 
-2. **The footprint alpha factor is a DEAD lever — do not touch it.** With
-   `test.strix`'s 58 widely-spaced investigations the median Delaunay edge is
-   ~83 m, so `CONCAVE_HULL_ALPHA_FACTOR = 6.0` (`tin_surface_constants.py:73`)
-   gives alpha ≈ 498 m → it already keeps every triangle → the footprint is
-   effectively the **full convex hull**. Raising the alpha changes nothing. An
-   early "widen the footprint" plan was abandoned for exactly this reason. (And a
-   quick PostGIS check using the *all-investigations convex hull* was a RED
-   HERRING — the real build footprint is the alpha-shape of the
-   *litho-model-participating* columns; characterize THAT if you need the
-   footprint, via `build_domain_from_sections` → `ModelDomain`.)
-
-3. **The label grid is already watertight WHERE the labelling rule runs.** A
-   census of 30,145 in-hull voxel columns found **zero** genuine mid-column holes
-   (a `-1` run with fill above AND below). And the 2D slicer
-   (`sectionFromSolids.ts` `sliceSolidsAtPlane`) is faithful on continuous input
-   (no spurious gaps). So the remaining gaps are **genuine model void where the
-   labelling rule produced no stack**, not a render or extraction bug.
-
-4. **The remaining gaps are a sideways-fill REACH problem.** Concrete example on
-   `test.strix` Cross-section 1 (900 m, start SW corner (88018.6,164330.1)):
-   columns cluster near the section start — `GEO-22/115-S10` at along ~24 m, then
-   `GEO-10/170-S6` / `171-B6` / `126-B4` clustered at ~97–102 m. The **~73 m span
-   between S10 and that cluster has no investigation**, and the geo-band
-   sideways-fill does not extrapolate litho across it → void → the gap the owner
-   circled. (NB the boundary-parity fix only bridges ½ a voxel ≈ 1.4 m — it can't
-   and shouldn't close a 73 m span; that's this work.)
+NB an earlier check "cleared" the slicer by testing it on TOY BOXES ("faithful on
+continuous input"). The real voxel meshes are greedy-meshed multi-body solids —
+the bug only manifests on those. Do not re-clear the slicer with toy inputs.
 
 ---
 
 ## Already shipped (on `develop`, do NOT redo)
 
-The **boundary-parity fix** — voxel grid-node footprint gate was parity-unstable
-for nodes landing ON the hull boundary edge, dropping ~half the on-edge columns
-to void even though the labeller had a full stack:
-- `src/groundmodel/domain/services/model_domain.py` — `contains(x, y, tol=0.0)`
-  gained a boundary tolerance (admits a point within `tol` of any ring edge).
-- `src/groundmodel/domain/services/voxel_litho/label_voxels.py:1332` — the gate
-  now passes `tol = 0.5 · h · √2` (cell half-diagonal).
-- Validated: 263 false-dropped columns recovered (all had real labels),
-  watertightness preserved. Commits: `2fd8b9f0`, `8813b8c0`, `23fd8951`,
-  `848d7ea8`.
-
-The owner then **manually rebuilt `test.strix`** and confirmed CS1 is *improved
-but still has the wide lateral gaps* (this handoff's work).
+**Boundary-parity fix** — the voxel grid-node footprint gate was parity-unstable
+for nodes on the hull boundary edge, dropping ~half the on-edge columns to void
+despite real labels. `ModelDomain.contains(x, y, tol=0.0)` gained a boundary
+tolerance; `label_voxels.py:1332` passes `tol = 0.5·h·√2`. Validated: 263
+false-dropped columns recovered, watertightness preserved. Commits `2fd8b9f0`,
+`8813b8c0`, `23fd8951`, `848d7ea8`. The owner then rebuilt `test.strix` and
+confirmed CS1 *improved but still has the wide-span gap* (this doc's remaining
+work, now correctly located in the slicer).
 
 ---
 
-## The actual work
+## The actual work — fix the 2D slicer
 
-**Lever:** extend the geo-band sideways-fill in
-`src/groundmodel/domain/services/voxel_litho/label_voxels.py` to extrapolate a
-band's litho across wide lateral inter-investigation gaps:
-- `_stack_at_band` (~line 708) — assembles each band's stack by blending the
-  nearest *reaching* sections.
-- `_fill_band_voids` (~line 640) — fills band voids.
-- `_section_stack_at` / `_project_to_section_fence` / the BEYOND-rule
-  (`_stack_at` ~line 477, 809-814) — where a mid-gap (x,y) lands in a column-pair
-  gap with no reaching stack and currently returns `[]`.
+**Lever:** `desktop/src/renderer/src/utils/sectionFromSolids.ts`, Mode B path:
+- `sliceSolidsAtPlane` (~226-263) → `collectCutSegments` (~473-536) → `chainLoops`
+  (~562-626): intersects each body mesh with the vertical section plane and chains
+  cut segments into closed loops. A dropped/unclosed loop on a real multi-body
+  greedy mesh → no `<path>` for that body in that region → the visible gap.
+- Render: `components/sections/ModelFillOverlay.tsx` (Mode B ~171-206
+  `buildPolyPath`); mode selected in `SectionPanel.tsx:2313`; Mode B is the
+  default (`view_state.litho_segmenter.section_fill_at_section_line` defaults
+  `true`, `utils/lithoSegmenterPrefs.ts:105`). Mode A = `sampleSolidColumns`
+  (~103-141) ray-casts at test columns only.
 
-Find the exact branch where a band that *some* column carries is left whole-void
-across a wide gap, and extend it to extrapolate from the nearest reaching section
-(anywhere, not only the perpendicular-nearest two, which both pinch in a wide
-gap). The watertightness invariant (per-body closed mesh, 0 flagged, 0 inter-body
-overlap) MUST hold after the change.
+**Method (mandatory — instrument before fixing):** load the REAL CS1 meshes from
+the dev DB (`groundmodel` :5433, model `019e934c…`, table `litho_body_solid`:
+`vertices`/`triangles` JSONB) and run the actual `sliceSolidsAtPlane` along CS1
+(start (88018.6,164330.1) → end (88631.6,164989.7)). Identify WHICH body's loop is
+dropped/broken across the ~73 m gap and the exact failing mechanism
+(unclosed `chainLoops`, missed near-coplanar/degenerate plane-triangle
+intersection, segment-merge tolerance, non-abutting per-body loops). Pin it with
+evidence, then TDD the fix in `sectionFromSolids.ts` (a captured real problem-body
+or a greedy-meshed synthetic that reproduces the same failure → red → green). Keep
+the spacing-aware transform (`warpedXToScreen`) untouched — this is a slicer-
+geometry fix. Re-run the real-mesh harness after the fix to confirm the CS1 gap
+closes. Existing `sectionFromSolids`/`ModelFillOverlay` vitest stay green.
 
-**Open design decision (owner's geological call — confirm before/with implementation):**
-the **maximum lateral extrapolation distance**. Filling a band across an
-arbitrarily wide gap (e.g. 73 m, or the 172 m on another corridor) is a
-truthfulness tradeoff — drawing litho with no borehole between. Options: (a)
-uncapped (fill the whole convex footprint), (b) a configurable max-gap distance
-(a Settings → Litho segmenter knob, default tuned on `test.strix`). The owner
-leaned toward a **distance-capped** widen earlier (so a lone 500 m-distant
-investigation doesn't drag fill across the basin) — confirm the cap value /
-whether it's a setting.
+## Validation
+- Real meshes via the dev DB (above). `npx tsc --noEmit -p tsconfig.web.json` +
+  `npx vitest run` (from `desktop/`) green. Scratch harness deleted, not committed.
+- The owner re-Builds / re-opens CS1 in-app to eyeball it continuous (and that
+  sections 2/3, already good, are unaffected).
 
----
-
-## Validation (real data — this is non-negotiable; synthetic fixtures hid every
-prior misdiagnosis)
-
-- Dev DB `groundmodel` on **:5433** (dockerised `strix-db-1`). Project "test" =
-  `019e932e-30bb-7967-8dee-e6a4f1b25378`. Litho model
-  `019e934c-70fd-7d11-a44a-b2073f4063a2`, parent geo `019e932e…`.
-- Reconstruct the build inputs like `BuildVoxelLithoModel` does, run `label_voxels`
-  at COARSE spacing (5 m H / 2 m V) for fast iteration, and check the CS1 corridor
-  `115-S10 (along ~24 m) → S6/B6/B4 cluster (~100 m)` FILLS after the change.
-- Confirm watertightness: extract solids, assert 0 non-manifold / 0 inter-body
-  overlap. Confirm the DELIBERATE voids (above-surface, hull-edge) are STILL void.
-- Fidelity must not regress: `scripts/eval_strat_fidelity.py` /
-  `scripts/diag_voxel_fidelity_categorize.py`.
-- Final: a full production rebuild of `test.strix` (~350 s @ 2 m/0.5 m) so the
-  owner can dogfeed CS1 visually. Persisting to the dev DB is fine when the dev
-  app is closed.
-- TDD: a unit test in `tests/unit/domain/services/voxel_litho/` with a wide-gap
-  fixture that is void before / filled after, plus the watertightness assertions.
-  Re-baseline `test_label_voxels_byte_identical_geo.py` only with an explicit
-  documented reason if the change alters the snapshot.
-
-## Method discipline (the meta-lesson from this thread)
-
-- Trust the owner's intuition + verify directly against the REAL model — the
-  decisive checks (label-grid census, slicer-on-continuous-input, run the real
-  `label_voxels`) overturned two confident-but-wrong inferences from extracted
-  solids / the wrong hull.
-- Establish WHERE the void is (label grid vs extraction vs render) before
-  proposing HOW to fix — see `[[feedback_no_guessing_instrument_first]]`,
-  `[[feedback_trust_user_intuition]]`, `[[feedback_profile_before_optimizing]]`.
+## Method discipline (the meta-lesson — this dogfeed flipped its diagnosis 4×)
+Establish WHERE the void is (label grid vs extracted meshes vs slice/render) on the
+REAL model/data before proposing HOW to fix — toy/synthetic inputs hid every prior
+misdiagnosis, and a "decisive" check on the wrong artifact is worse than none.
+See `[[feedback_no_guessing_instrument_first]]`, `[[feedback_trust_user_intuition]]`
+(the owner's "isn't it just a rendering bug?" was right), `[[feedback_profile_before_optimizing]]`.
