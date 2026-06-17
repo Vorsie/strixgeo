@@ -279,6 +279,26 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
 }
 
 /**
+ * A column's total depth for partition purposes — its deepest accepted-layer
+ * base (the single source of truth for the reach guard: a facing neighbour can
+ * only pinch out a unit whose depth it actually reached). Units are sorted
+ * shallow→deep, but reduce over all bases so it is robust to any ordering.
+ *
+ * Parameters
+ * ----------
+ * units : readonly PartitionUnit[]
+ *     The column's units.
+ *
+ * Returns
+ * -------
+ * number
+ *     ``max(baseDepthM)``, or ``-Infinity`` for an empty stack.
+ */
+function columnTotalDepth(units: readonly { baseDepthM: number }[]): number {
+  return units.reduce((m, u) => Math.max(m, u.baseDepthM), -Infinity)
+}
+
+/**
  * Per-gap column reduction: pull the LENS units (those with 0 correlated
  * bounding contacts toward the facing neighbour — see ``classifyTermination``),
  * leaving the bands + onlaps for ``emitGap`` to shape.
@@ -294,6 +314,15 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
  * Called PER GAP against the SINGLE facing neighbour (its layer ids), so a unit
  * can be a lens toward one neighbour and a band/onlap toward the other.
  *
+ * REACH GUARD (a data void is not a pinch-out — owner directive 2026-06-16): a
+ * unit is pulled as a lens ONLY when the facing neighbour REACHES its depth
+ * (``neighbourTD >= unit.topDepthM``, the STRICT-TOP threshold). When the
+ * neighbour is too SHALLOW to reach the unit (``neighbourTD < unit.topDepthM``),
+ * the lack of correlation is a DATA VOID, not a geological pinch-out — the unit
+ * is KEPT so it bands toward the next REACHING neighbour via its existing
+ * correlation (the L↔R jump edge ``emitGap``/``matchColumns`` already carries).
+ * This is the INTERIOR straddled version of the floor-interval carry-through.
+ *
  * Parameters
  * ----------
  * units : PartitionUnit[]
@@ -302,6 +331,11 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
  *     Every ``layerId`` on the facing neighbour column (for the contact-correlation count).
  * correlated : Correlated
  *     Edge lookup (approved correlation between two ``layerId``s).
+ * neighbourTD : number
+ *     The facing neighbour's total depth for partition purposes — its deepest
+ *     accepted-layer base (``max(baseDepthM)`` over the neighbour's units). A unit
+ *     whose ``topDepthM`` is deeper than this lies in the neighbour's no-data zone
+ *     and is NOT pulled as a lens (the reach guard).
  *
  * Returns
  * -------
@@ -312,6 +346,7 @@ function reduceColumn(
   units: PartitionUnit[],
   neighbourLayerIds: ReadonlySet<string>,
   correlated: Correlated,
+  neighbourTD: number,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
   // A pulled lens records its ORIGINAL extent, not the live (possibly flood-
@@ -352,6 +387,11 @@ function reduceColumn(
         'lens'
       )
         continue
+      // Reach guard: a too-shallow neighbour cannot pinch out a unit it never
+      // reached. If the neighbour's TD is shallower than the unit's TOP, the
+      // missing correlation is a DATA VOID — keep the unit (it bands toward the
+      // next reaching neighbour via its jump edge), do not evict it as a lens.
+      if (neighbourTD < units[i].topDepthM - EPS) continue
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
@@ -422,6 +462,16 @@ interface ExtractedMinority {
  * extraction fire only when the matrix actually connects across — a one-sided
  * interval (empty other column) keeps its existing boundary-pinch behaviour.
  *
+ * REACH GUARD (a data void is not a pinch-out — owner directive 2026-06-16):
+ * an interior lens is extracted only when the OTHER column actually REACHES the
+ * minority's depth (``otherTD >= u.ownTopDepth``). When the other column is too
+ * SHALLOW to have logged anything at the minority's depth, its lithology is a
+ * DATA VOID — the apparent "matrix above + below + present on the other column"
+ * is an artefact of the other column ending shallow, NOT a real lateral matrix,
+ * so the minority is KEPT (it carries through as a band via the floor path or
+ * bands toward a reaching neighbour). This mirrors the ``reduceColumn`` guard
+ * for the interior-straddle case that survives into ``emitGap``.
+ *
  * Parameters
  * ----------
  * leftStack, rightStack : PinchUnit[]
@@ -430,6 +480,9 @@ interface ExtractedMinority {
  * aboveLith, belowLith : string | null
  *     The top / base bracket lithology (matched band above / below the
  *     interval), or ``null`` at the surface / floor (no bracket → no onlap).
+ * leftTD, rightTD : number
+ *     The FULL facing-column total depths (deepest accepted base) — the reach
+ *     guard for each side reads the OTHER column's TD (side ``left`` → ``rightTD``).
  *
  * Returns
  * -------
@@ -441,13 +494,16 @@ function extractIntervalMinorities(
   rightStack: PinchUnit[],
   aboveLith: string | null,
   belowLith: string | null,
+  leftTD: number,
+  rightTD: number,
 ): ExtractedMinority[] {
   const out: ExtractedMinority[] = []
-  const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[]]> = [
-    ['left', leftStack, rightStack],
-    ['right', rightStack, leftStack],
+  const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[], number]> = [
+    // The reach guard reads the OTHER column's TD (side 'left' → rightTD).
+    ['left', leftStack, rightStack, rightTD],
+    ['right', rightStack, leftStack, leftTD],
   ]
-  for (const [side, stack, other] of sides) {
+  for (const [side, stack, other, otherTD] of sides) {
     // `other` is read-only within this side's loop (only `stack` is spliced),
     // so the formation set is invariant across while-iterations — build it once
     // per side instead of every pass (perf: hot-loop allocation).
@@ -465,6 +521,11 @@ function extractIntervalMinorities(
         const m = above.formationId
         if (m === u.formationId) continue
         if (!otherFormations.has(m)) continue
+        // Reach guard: only a column that actually reaches the minority's depth
+        // can pinch it out. If the other column is too shallow to have logged
+        // anything at u's top, the apparent enclosing matrix is a DATA VOID, not
+        // a lateral matrix — keep u (it carries through / bands), do not extract.
+        if (otherTD < u.ownTopDepth - EPS) continue
         out.push({ unit: { ...u }, kind: 'lens' })
         stack.splice(i - 1, 3, {
           bodyId: above.bodyId,
@@ -1609,6 +1670,12 @@ function emitGap(
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
   const rightLenses: ExtractedLens[] = [...rightLensesIn]
 
+  // Each column's total depth — the reach guard for interval-minority
+  // extraction. reduceColumn only removes interior minorities (never the deepest
+  // floor unit), so this equals the pre-reduction TD.
+  const leftTD = columnTotalDepth(leftUnits)
+  const rightTD = columnTotalDepth(rightUnits)
+
   // -------------------------------------------------------------------------
   // Step 1: Edge-driven monotonic alignment (post-reduction units). An explicit
   // correlation edge bands a pair (at any elevation); geometric overlap is the
@@ -1742,6 +1809,8 @@ function emitGap(
       rightStack,
       aboveMatrix?.formationId ?? null,
       belowMatrix?.formationId ?? null,
+      leftTD,
+      rightTD,
     )) {
       if (min.kind === 'lens') {
         ;(min.unit.side === 'left' ? leftLenses : rightLenses).push({
@@ -2034,8 +2103,11 @@ export function computeSectionFill(
     const right = { surface: cols[i + 1].surface, units: cols[i + 1].units.map((u) => ({ ...u })) }
     const leftIds = new Set(left.units.map((u) => u.layerId))
     const rightIds = new Set(right.units.map((u) => u.layerId))
-    const lensesLeft = reduceColumn(left.units, rightIds, correlated)
-    const lensesRight = reduceColumn(right.units, leftIds, correlated)
+    // Each facing neighbour's TD for the reach guard (deepest accepted base).
+    const leftTD = columnTotalDepth(left.units)
+    const rightTD = columnTotalDepth(right.units)
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
     const gapRegions = emitGap(
