@@ -219,6 +219,13 @@ interface Interface {
 interface PinchUnit {
   bodyId: string | null
   formationId: string
+  /**
+   * The unit's ``litho_layer.id`` — carried so the floor-interval carry-through
+   * can ask whether this unit is correlated to a REACHING neighbour beyond the
+   * facing data-void column (the band-vs-lens decision, owner directive
+   * 2026-06-16). Set when the stack is built in ``emitGap``.
+   */
+  layerId: string
   side: 'left' | 'right'
   /** Depth span on the unit's own column. */
   ownTopDepth: number
@@ -296,6 +303,102 @@ function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
  */
 function columnTotalDepth(units: readonly { baseDepthM: number }[]): number {
   return units.reduce((m, u) => Math.max(m, u.baseDepthM), -Infinity)
+}
+
+/**
+ * A column as a band/lens DECISION sees it: just its total depth (the reach
+ * threshold) and the set of layer ids a correlation edge can land on.
+ *
+ * Used to thread the WHOLE-SECTION neighbour context into ``emitGap`` so the
+ * floor-interval carry-through can defer past too-shallow data-void columns to
+ * the nearest REACHING neighbour, exactly like the interior ``reduceColumn``
+ * reach guard (owner directive 2026-06-16).
+ */
+interface SideColumn {
+  /** ``max(baseDepthM)`` — the deepest the column logged. */
+  td: number
+  /** Every ``layerId`` on the column (a correlation-edge target). */
+  layerIds: ReadonlySet<string>
+}
+
+/**
+ * True iff a neighbour at total depth ``neighbourTD`` REACHES a unit whose top
+ * is at ``unitTopDepth``. The single source of truth for the reach threshold so
+ * every band/lens site agrees (``reduceColumn``'s interior guard, the
+ * interval-minority guard, and the floor-interval carry-through).
+ *
+ * STRICT-TOP semantics (the safe default, 2026-06-16): a neighbour reaches a
+ * unit when it logged at least to the unit's TOP. A neighbour shallower than the
+ * unit's top is a DATA VOID at that depth — it cannot witness a pinch-out, so
+ * the missing correlation toward it is not a geological termination.
+ *
+ * Parameters
+ * ----------
+ * neighbourTD : number
+ *     The neighbour's total depth (``max(baseDepthM)``).
+ * unitTopDepth : number
+ *     The unit's top depth below its own surface.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when the neighbour reaches the unit's depth.
+ */
+function neighbourReaches(neighbourTD: number, unitTopDepth: number): boolean {
+  return neighbourTD >= unitTopDepth - EPS
+}
+
+/**
+ * The UNIFIED band-vs-lens decision for ONE side of a unit (owner directive
+ * 2026-06-16: "lithos and correlations are the base truth; band/lens follows
+ * correlation; 0 correlations = a lens").
+ *
+ * Walk ``sideColumns`` (the columns on this side, NEAREST-FIRST), skipping every
+ * one too shallow to reach the unit (a DATA VOID is not a pinch-out — defer past
+ * it). At the first REACHING neighbour, the unit:
+ *
+ *   - **BANDS** that side iff an approved correlation edge connects the unit's
+ *     ``layerId`` to any layer on that reaching neighbour (lithology continues);
+ *   - **LENSES** (pinches out) iff it is NOT correlated to that reaching
+ *     neighbour (0 correlations → a lens).
+ *
+ * If NO column on this side reaches the unit (everything that way is too shallow
+ * or there is no column at all), there is no correlated continuity in this
+ * direction → the unit **LENSES** (pinches out).
+ *
+ * This is the same rule the interior ``reduceColumn`` / interval-minority guards
+ * apply per-facing-neighbour; here it sees the whole side so it can defer past a
+ * shallow void to the next reaching column (the jump-edge band).
+ *
+ * Parameters
+ * ----------
+ * unitLayerId : string
+ *     The unit's ``litho_layer.id`` (the correlation-edge endpoint).
+ * unitTopDepth : number
+ *     The unit's top depth below its own surface (the reach threshold).
+ * sideColumns : readonly SideColumn[]
+ *     The columns on this side of the unit, NEAREST-FIRST.
+ * correlated : Correlated
+ *     Approved-edge lookup between two ``layerId``s.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` → BAND this side; ``false`` → LENS (pinch out) this side.
+ */
+function bandsTowardSide(
+  unitLayerId: string,
+  unitTopDepth: number,
+  sideColumns: readonly SideColumn[],
+  correlated: Correlated,
+): boolean {
+  for (const c of sideColumns) {
+    if (!neighbourReaches(c.td, unitTopDepth)) continue // data void — defer past it
+    // First reaching neighbour decides: correlated → band, else → lens.
+    for (const v of c.layerIds) if (correlated(unitLayerId, v)) return true
+    return false
+  }
+  return false // no reaching neighbour on this side → pinch out
 }
 
 /**
@@ -388,10 +491,11 @@ function reduceColumn(
       )
         continue
       // Reach guard: a too-shallow neighbour cannot pinch out a unit it never
-      // reached. If the neighbour's TD is shallower than the unit's TOP, the
-      // missing correlation is a DATA VOID — keep the unit (it bands toward the
-      // next reaching neighbour via its jump edge), do not evict it as a lens.
-      if (neighbourTD < units[i].topDepthM - EPS) continue
+      // reached. If the neighbour does not reach the unit's TOP, the missing
+      // correlation is a DATA VOID — keep the unit (it bands toward the next
+      // reaching neighbour via its jump edge, or the floor-interval carry-through
+      // makes the final band-vs-lens call), do not evict it as a lens here.
+      if (!neighbourReaches(neighbourTD, units[i].topDepthM)) continue
       const u = units[i]
       const above = units[i - 1]
       const below = units[i + 1]
@@ -525,11 +629,12 @@ function extractIntervalMinorities(
         // can pinch it out. If the other column is too shallow to have logged
         // anything at u's top, the apparent enclosing matrix is a DATA VOID, not
         // a lateral matrix — keep u (it carries through / bands), do not extract.
-        if (otherTD < u.ownTopDepth - EPS) continue
+        if (!neighbourReaches(otherTD, u.ownTopDepth)) continue
         out.push({ unit: { ...u }, kind: 'lens' })
         stack.splice(i - 1, 3, {
           bodyId: above.bodyId,
           formationId: m,
+          layerId: above.layerId, // merged matrix inherits the above unit's correlatable id
           side,
           ownTopDepth: above.ownTopDepth,
           ownBaseDepth: below.ownBaseDepth,
@@ -1649,6 +1754,15 @@ function emitInterval(
  * leftLensesIn, rightLensesIn : readonly ExtractedLens[]
  *     The lenses pinched out of each column, rendered as LEFT / RIGHT overlays.
  * lensApexOverrides : optional per-body apex shaping.
+ * leftwardColumns : readonly SideColumn[]
+ *     The columns to the LEFT, NEAREST-FIRST, STARTING with this gap's left
+ *     column ([leftCol, col i-1, …]). The floor-interval carry-through reads
+ *     this to decide whether a carry unit on the RIGHT (deep) column bands toward
+ *     the nearest REACHING neighbour on its left, deferring past too-shallow void
+ *     columns (owner directive 2026-06-16). Empty → no reaching left neighbour.
+ * rightwardColumns : readonly SideColumn[]
+ *     The mirror — NEAREST-FIRST starting with this gap's right column
+ *     ([rightCol, col i+2, …]); read for a carry unit on the LEFT (deep) column.
  *
  * Returns
  * -------
@@ -1665,6 +1779,8 @@ function emitGap(
   correlated: Correlated,
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
   gapIndex = 0,
+  leftwardColumns: readonly SideColumn[] = [],
+  rightwardColumns: readonly SideColumn[] = [],
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -1756,6 +1872,7 @@ function emitGap(
       leftStack.push({
         bodyId: lu.bodyId,
         formationId: lu.formationId,
+        layerId: lu.layerId,
         side: 'left',
         ownTopDepth: lu.topDepthM,
         ownBaseDepth: lu.baseDepthM,
@@ -1768,6 +1885,7 @@ function emitGap(
       rightStack.push({
         bodyId: ru.bodyId,
         formationId: ru.formationId,
+        layerId: ru.layerId,
         side: 'right',
         ownTopDepth: ru.topDepthM,
         ownBaseDepth: ru.baseDepthM,
@@ -1831,101 +1949,139 @@ function emitGap(
 
     const pinches: PinchUnit[] = [...leftStack, ...rightStack]
 
-    let pinchPool = pinches
-    if (isFloor) {
-      // Too-shallow carry-through (Slice 2): a unit whose TOP is at/below the
-      // shallower column's deepest data lies entirely in "no-neighbour-data"
-      // depth — render it as a full-gap-width flat band (the deep data governs
-      // the whole gap below the shallow test) instead of pinching to the
-      // shallow neighbour. A data gap is not a pinch-out.
-      const shallowFloor = Math.min(leftFloor, rightFloor)
-      const carry: PinchUnit[] = []
-      const rest: PinchUnit[] = []
-      for (const p of pinches) {
-        if (p.ownTopDepth >= shallowFloor - EPS) carry.push(p)
-        else rest.push(p)
-      }
-      // The carry units all sit on the DEEPER column (they're below the shallow
-      // floor); the shallow column has no data there. The carried band must span
-      // from the SHALLOW column's floor (its data ends) down — its top SLOPES from
-      // the shallow floor (shallow side) to the carry unit's own top (deep side).
-      // A flat full-width top (the old behaviour) left a wedge between the shallow
-      // floor and a deeper carry top either uncovered (gap) or, with the deepest-
-      // floor interval base, filled by a rest-pinch dipping in (overlap — CS1
-      // gap-11). When the carry top equals the shallow floor (CT1) the slope is
-      // flat, so CT1 is unchanged.
-      carry.sort((a, b) => a.ownTopDepth - b.ownTopDepth) // shallowest carry first
-      const shallowIsLeft = leftFloor <= rightFloor
-      const shallowSurface = shallowIsLeft ? leftSurface : rightSurface
-      const shallowFloorElev = shallowSurface - shallowFloor
-      carry.forEach((p, ci) => {
-        const deepSurface = p.side === 'left' ? leftSurface : rightSurface
-        const deepTopElev = deepSurface - p.ownTopDepth
-        const deepBaseElev = deepSurface - p.ownBaseDepth
-        // Only the SHALLOWEST carry unit's top reaches the shallow floor; deeper
-        // carry units stack flat below it (a fine approximation for the rare
-        // multi-carry stack).
-        const shallowTopElev = ci === 0 ? shallowFloorElev : deepTopElev
-        // Fraction 0 = left column edge, 1 = right. Build the quad so the DEEP
-        // side carries the unit's own elevations and the SHALLOW side its top
-        // reaches the shallow floor (sloped top), with a flat full-width base.
-        const polygon: PartitionPoint[] =
-          p.side === 'left'
-            ? [
-                { fraction: 0, elevation: deepTopElev },
-                { fraction: 1, elevation: shallowTopElev },
-                { fraction: 1, elevation: deepBaseElev },
-                { fraction: 0, elevation: deepBaseElev },
-              ]
-            : [
-                { fraction: 0, elevation: shallowTopElev },
-                { fraction: 1, elevation: deepTopElev },
-                { fraction: 1, elevation: deepBaseElev },
-                { fraction: 0, elevation: deepBaseElev },
-              ]
-        regions.push({ formationId: p.formationId, bodyId: p.bodyId, kind: 'quad', polygon })
-      })
-      pinchPool = rest
-      // The remaining pinches tile ONLY above the carried bands — clamp their
-      // interval base to the carried band's (sloped) top so they meet it instead
-      // of filling down into it.
-      if (carry.length > 0 && rest.length > 0) {
-        const carryTop0 = carry[0]
-        intervalBase = clampIface(
-          shallowIsLeft
-            ? { leftDepth: shallowFloor, rightDepth: carryTop0.ownTopDepth }
-            : { leftDepth: carryTop0.ownTopDepth, rightDepth: shallowFloor },
-          intervalTop,
+    // Emit one run of pinch units that share a single [top, base] sub-interval.
+    // One-sided (all on the same column) → a single-apex matrix close; otherwise
+    // the thickness-weighted meeting fraction. Mirrors the generic interval path
+    // so the depth-ordered floor walk below reuses the same geometry per run.
+    const emitPinchRun = (
+      pool: PinchUnit[],
+      top: Interface,
+      base: Interface,
+      above: { formationId: string; bodyId: string | null } | null,
+      below: { formationId: string; bodyId: string | null } | null,
+    ): void => {
+      if (pool.length === 0) return
+      const sides = new Set(pool.map((p) => p.side))
+      const one = sides.size === 1 ? pool[0].side : null
+      if (one !== null && (above || below)) {
+        regions.push(
+          ...emitOneSidedPinch(
+            pool,
+            one,
+            top,
+            base,
+            above,
+            below,
+            leftSurface,
+            rightSurface,
+            INTERIOR_PINCH_FRACTION,
+          ),
         )
+      } else {
+        const bracketed = above !== null && below !== null
+        regions.push(...emitInterval(pool, top, base, leftSurface, rightSurface, bracketed))
       }
     }
 
-    // "One-sided" when every remaining pinch is on the same column — only then
-    // can the matrix close cleanly to a single apex.
-    const pinchSides = new Set(pinchPool.map((p) => p.side))
-    const oneSide = pinchSides.size === 1 ? pinchPool[0].side : null
-    if (pinchPool.length > 0 && oneSide !== null && (aboveMatrix || belowMatrix)) {
-      regions.push(
-        ...emitOneSidedPinch(
-          pinchPool,
-          oneSide,
-          intervalTop,
-          intervalBase,
-          aboveMatrix,
-          belowMatrix,
-          leftSurface,
-          rightSurface,
-          INTERIOR_PINCH_FRACTION,
-        ),
-      )
-    } else {
-      // ``bracketed`` (correlated bands above AND below) enables the
-      // mismatched-matrix facies seam; surface/floor intervals stay weighted.
-      const bracketed = aboveMatrix !== null && belowMatrix !== null
-      regions.push(
-        ...emitInterval(pinchPool, intervalTop, intervalBase, leftSurface, rightSurface, bracketed),
-      )
+    let pinchPool = pinches
+    // The interval top + above-matrix the FINAL (trailing) pinch run uses. The
+    // floor walk advances these past each band; non-floor intervals leave them
+    // at the interval's own values.
+    let finalTop = intervalTop
+    let finalAbove = aboveMatrix
+    if (isFloor) {
+      // Too-shallow carry-through: a unit whose TOP is at/below the shallower
+      // column's deepest data lies entirely below the facing column's data. The
+      // facing column is a DATA VOID there, so the band-vs-lens call DEFERS PAST
+      // it to the nearest REACHING neighbour on the unit's pinch-out side (owner
+      // directive 2026-06-16: band/lens follows correlation EVERYWHERE — the
+      // carry-through used to band these correlation-blind, the design flaw).
+      //
+      //   - CORRELATED to the nearest reaching neighbour on its pinch side →
+      //     BAND (a flat full-gap-width band at its OWN elevations: it is
+      //     genuinely continuous, the deep column governs, and the shallow column
+      //     has no data to interpolate against);
+      //   - 0 correlations / NO reaching neighbour on that side → PINCH OUT: the
+      //     unit stays a pinch (the enclosing matrix floods), exactly like an
+      //     interior 0-corr lens.
+      //
+      // A unit on the LEFT (deep) column pinches toward the RIGHT, so it reads
+      // ``rightwardColumns``; a unit on the RIGHT column reads ``leftwardColumns``.
+      //
+      // GEOMETRY: bands + pinches in the floor interval can INTERLEAVE in depth
+      // (a banded ZAND above an uncorrelated SILT pinch above a banded KLEI). A
+      // single shared interval would let the SILT pinch's apex shoot up into the
+      // ZAND band (a real CS1 gap-22 overlap). So the floor interval is walked in
+      // DEPTH ORDER on the deep column: each band emits a full-width flat quad,
+      // and each maximal run of consecutive pinches between two bands (or the
+      // interval edges) is emitted in its OWN sub-interval bounded by those bands.
+      const shallowFloor = Math.min(leftFloor, rightFloor)
+      type FloorItem = { unit: PinchUnit; band: boolean }
+      const items: FloorItem[] = pinches.map((p) => {
+        if (p.ownTopDepth < shallowFloor - EPS) return { unit: p, band: false }
+        const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
+        return {
+          unit: p,
+          band: bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated),
+        }
+      })
+      // Depth order on the deep column (the carry side). Pinch units that sit on
+      // the SHALLOW side (above the shallow floor) keep their own order; their
+      // own depth still orders them correctly relative to the deep stack.
+      items.sort((a, b) => a.unit.ownTopDepth - b.unit.ownTopDepth)
+
+      // Walk top→bottom: a band closes the current pinch run (emitting it in the
+      // sub-interval between the previous band's base and this band's top), then
+      // emits its own full-width quad. A trailing pinch run closes to the floor.
+      let runTop: Interface = intervalTop
+      let runAbove = aboveMatrix
+      let pendingPinches: PinchUnit[] = []
+      const elevToIface = (elev: number): Interface => ({
+        leftDepth: leftSurface - elev,
+        rightDepth: rightSurface - elev,
+      })
+      for (const it of items) {
+        if (!it.band) {
+          pendingPinches.push(it.unit)
+          continue
+        }
+        const p = it.unit
+        const deepSurface = p.side === 'left' ? leftSurface : rightSurface
+        const bandTopElev = deepSurface - p.ownTopDepth
+        const bandBaseElev = deepSurface - p.ownBaseDepth
+        // Close the pending pinch run in [runTop, this band's top].
+        if (pendingPinches.length > 0) {
+          const runBase = clampIface(elevToIface(bandTopElev), runTop)
+          emitPinchRun(pendingPinches, runTop, runBase, runAbove, {
+            formationId: p.formationId,
+            bodyId: p.bodyId,
+          })
+          pendingPinches = []
+        }
+        // Full-width flat band at the unit's own elevations.
+        regions.push({
+          formationId: p.formationId,
+          bodyId: p.bodyId,
+          kind: 'quad',
+          polygon: [
+            { fraction: 0, elevation: bandTopElev },
+            { fraction: 1, elevation: bandTopElev },
+            { fraction: 1, elevation: bandBaseElev },
+            { fraction: 0, elevation: bandBaseElev },
+          ],
+        })
+        runTop = clampIface(elevToIface(bandBaseElev), runTop)
+        runAbove = { formationId: p.formationId, bodyId: p.bodyId }
+      }
+      // Trailing pinch run (below the deepest band, or the whole floor when there
+      // is no band) closes down to the floor via the generic path below, using
+      // the run cursor advanced past the deepest band.
+      pinchPool = pendingPinches
+      finalTop = runTop
+      finalAbove = runAbove
     }
+
+    emitPinchRun(pinchPool, finalTop, intervalBase, finalAbove, belowMatrix)
 
     // Emit the quad (if not the floor sentinel).
     if (!isFloor) {
@@ -2097,6 +2253,15 @@ export function computeSectionFill(
   // shared per-column state carried between gaps. The reduce pulls only the
   // lenses (units uncorrelated to the facing neighbour on both contacts) and
   // merges the matrix around them; bands + onlaps are shaped by emitGap.
+  // Every column as the band/lens decision sees it (TD + layer-id set), in
+  // section order. The floor-interval carry-through reads NEAREST-FIRST slices
+  // of this so it can defer past too-shallow void columns to the nearest
+  // REACHING neighbour (owner directive 2026-06-16).
+  const sideColumns: SideColumn[] = cols.map((c) => ({
+    td: columnTotalDepth(c.units),
+    layerIds: new Set(c.units.map((u) => u.layerId)),
+  }))
+
   const out: SectionRegion[] = []
   for (let i = 0; i < cols.length - 1; i++) {
     const left = { surface: cols[i].surface, units: cols[i].units.map((u) => ({ ...u })) }
@@ -2110,6 +2275,14 @@ export function computeSectionFill(
     const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
+    // Side context for the carry-through, NEAREST-FIRST from each facing column
+    // outward: leftward starts with col i and walks toward index 0; rightward
+    // starts with col i+1 and walks toward the section end. The facing columns
+    // are included as the nearest candidate (a carry unit skips them when they
+    // are too shallow, which by definition they are — but the helper stays
+    // general).
+    const leftwardColumns = sideColumns.slice(0, i + 1).reverse()
+    const rightwardColumns = sideColumns.slice(i + 1)
     const gapRegions = emitGap(
       left.units,
       left.surface,
@@ -2120,6 +2293,8 @@ export function computeSectionFill(
       correlated,
       lensApexOverrides,
       i,
+      leftwardColumns,
+      rightwardColumns,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }
