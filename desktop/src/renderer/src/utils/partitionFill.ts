@@ -2174,7 +2174,9 @@ function emitGap(
         /** Non-null when a mixed top↔base tie names this unit's top toward the facing
          *  side: the tied test's TD elevation (spec §5 rule 2).  Overrides both the
          *  flat-sideways default AND a genuine pinch-out (a reaching uncorrelated
-         *  neighbour).  Priority order: mixed-tie > band > sideways > genuine-pinch. */
+         *  neighbour).  Priority order: band > mixed-tie > sideways > genuine-pinch
+         *  (a top↔top band is the more specific correlation; contradictory authoring
+         *  toward the same facing side resolves to the band). */
         mixedTiedFacingTopElev: number | null
       }
       const items: FloorItem[] = pinches.map((p) => {
