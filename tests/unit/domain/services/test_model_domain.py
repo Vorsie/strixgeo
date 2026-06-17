@@ -254,6 +254,67 @@ def test_model_domain_deep_base_nearest_vertex_fallback_outside_tin() -> None:
     assert result == result  # not NaN
 
 
+def _square_domain(side: float = 10.0) -> ModelDomain:
+    """Build a ModelDomain over an axis-aligned square via the public factory.
+
+    The ``contains`` boundary-tolerance tests only exercise ``self.polygon``,
+    so this gives a known square ring (corners at (0,0), (side,0), (side,side),
+    (0,side)) without depending on alpha-hull edge ordering.
+    """
+    tests = [
+        _dt("a", 0.0, 0.0),
+        _dt("b", side, 0.0),
+        _dt("c", side, side),
+        _dt("d", 0.0, side),
+    ]
+    return build_model_domain(tests)
+
+
+def test_contains_default_is_strict_point_in_polygon() -> None:
+    """With no tolerance, contains is the plain strict point-in-polygon test.
+
+    A clear interior point is True; a clear exterior point is False — the
+    pre-existing behaviour must be unchanged when ``tol`` is omitted.
+    """
+    dom = _square_domain(side=10.0)
+    assert dom.contains(5.0, 5.0), "interior point is inside"
+    assert not dom.contains(20.0, 5.0), "far exterior point is outside"
+
+
+def test_contains_boundary_node_is_included_within_tolerance() -> None:
+    """A grid node on or just outside the footprint boundary must count as
+    inside when within ``tol`` of the ring.
+
+    This is the dogfeed bug: grid cells whose centre lands on a hull edge get
+    voided by strict parity even though the labeller produces a full stack for
+    them, leaving the 2-D section fill discontinuous across that corridor.
+    """
+    dom = _square_domain(side=10.0)
+    tol = 1.5  # ≈ half a voxel diagonal in the validation
+
+    # A node EXACTLY on the right boundary edge (x == side) — strict parity
+    # is numerically unstable here; with tolerance it must be inside.
+    assert dom.contains(10.0, 5.0, tol=tol), "on-edge node is inside within tol"
+
+    # A node just OUTSIDE the edge but within tol — its cell overlaps the
+    # footprint, so it is inside.
+    assert dom.contains(10.0 + tol * 0.5, 5.0, tol=tol), "within-tol node is inside"
+
+
+def test_contains_far_outside_node_stays_void_with_tolerance() -> None:
+    """A node clearly beyond the tolerance band stays outside — the tolerance
+    must not over-include far cells."""
+    dom = _square_domain(side=10.0)
+    tol = 1.5
+    assert not dom.contains(10.0 + tol * 3.0, 5.0, tol=tol), "node beyond tol stays void"
+
+
+def test_contains_interior_node_unaffected_by_tolerance() -> None:
+    """An interior node is inside regardless of tolerance."""
+    dom = _square_domain(side=10.0)
+    assert dom.contains(5.0, 5.0, tol=1.5), "interior node is inside with tol"
+
+
 def test_build_model_domain_raises_on_fewer_than_three_tests() -> None:
     """Fewer than 3 tests — cannot triangulate; must raise ValueError."""
     with pytest.raises(ValueError, match="at least 3"):
