@@ -339,6 +339,11 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                 "section_id": section_id,
                 "contact_a_id": c.contact_a_id,
                 "contact_b_id": c.contact_b_id,
+                # auto-correlate always proposes top-ties; the side columns
+                # participate in uq_litho_contact_corr_triple, so set them
+                # explicitly rather than relying on the column default.
+                "contact_a_side": "top",
+                "contact_b_side": "top",
                 "source": AUTO_SOURCE,
                 "user_approved": False,
             }
