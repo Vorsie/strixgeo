@@ -1789,60 +1789,62 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     assertTiles(regions, L, R)
   })
 
-  // CASE 3 — BOTH neighbours too shallow → NO REACHING NEIGHBOUR on either side,
-  // so there is no correlated continuity in any direction → the deep unit LENSES
-  // (pinches out) on BOTH sides. (Owner directive 2026-06-16: band/lens follows
-  // correlation EVERYWHERE; "no reaching neighbour on a side → pinch out". The
-  // carry-through used to band this correlation-blind — now corrected.)
-  it('CASE 3 — both neighbours too shallow (no reaching neighbour either side) → deep unit LENSES on both sides', () => {
+  // CASE 3 — BOTH neighbours too shallow → sideways-default on BOTH sides.
+  //
+  // Sideways-default rule (spec §5 rule 1, 2026-06-17): when NO facing column
+  // reaches the unit's depth (a data void — no test ever observed that depth on
+  // the neighbouring side), the unit continues FLAT at its own elevation, passing
+  // UNDER the shallow neighbour. It does NOT pinch out; it does NOT climb to the
+  // neighbour's TD. This supersedes the 2026-06-16 directive ("no reaching
+  // neighbour → pinch out") which produced the visible up-drag in real CS1.
+  it('CASE 3 — both neighbours too shallow → deep unit continues sideways (flat) under both', () => {
     // The deep SAND on the MIDDLE column (8-12 m) is enclosed by CLAY/CLAY and
-    // lies ENTIRELY below the 3.5 m TD of both flanking columns. Walking out from
-    // the middle column on EITHER side, every column is too shallow to reach the
-    // sand's depth → there is no reaching neighbour → no correlation can connect
-    // it → it must PINCH OUT (lens), not span the gap as a full-width band.
+    // lies ENTIRELY below the 3.5 m TD of both flanking columns. No facing column
+    // reaches its depth on either side → sideways-default: the SAND continues flat
+    // as a full-width quad at its own elevation, passing under the shallow tests.
     const Lshallow = col('Ls', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
     const Mid = col('Mid', 0, [
       { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
       { top: 4, base: 8, f: 'CLAY', b: 'mMid' }, // top 4 m > 3.5 m TD → below the reach line
-      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep minority, both neighbours too shallow
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep unit, both neighbours too shallow
       { top: 12, base: 20, f: 'CLAY', b: 'botMid' },
     ])
     const Rshallow = col('Rs', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
     const regions = sf(Lshallow, Mid, Rshallow)
-    // The deep SAND must NOT span the gap as a band — it pinches out. At mid-gap
-    // (fraction 0.5) and the sand's mid-elevation (-10), the SAND is gone (pinched
-    // away from the shallow side); the data-void below is filled by the matrix.
-    expect(coverAt(regions, 0, 0.5, -10)).not.toContain('SAND')
-    expect(coverAt(regions, 1, 0.5, -10)).not.toContain('SAND')
-    // It is the base truth, not deleted: the SAND survives near its OWN (Mid)
-    // column edge — present at gap 0's right edge and gap 1's left edge (Mid),
-    // tapering out toward the shallow side. The deep unit pinches; it does not
-    // band.
-    expect(coverAtAny(regions, 0, 0.98, -10)).toContain('SAND')
-    expect(coverAtAny(regions, 1, 0.02, -10)).toContain('SAND')
+    // The SAND continues flat across BOTH gaps — present at mid-gap on each side
+    // at the sand's mid-elevation (-10). No neighbour reached that depth, so
+    // there is no geological evidence for a pinch-out: the unit continues sideways.
+    expect(coverAt(regions, 0, 0.5, -10)).toContain('SAND')
+    expect(coverAt(regions, 1, 0.5, -10)).toContain('SAND')
+    // Near the Mid column edge the SAND is also present (it is the base truth).
+    expect(coverAt(regions, 0, 0.98, -10)).toContain('SAND')
+    expect(coverAt(regions, 1, 0.02, -10)).toContain('SAND')
   })
 
-  // CASE 4 — section-edge column whose ONLY neighbour is the void side: there is
-  // no reaching neighbour on that side and no neighbour at all on the other →
-  // the deep unit LENSES (pinches out). (Owner directive 2026-06-16: "no reaching
-  // neighbour on a side → pinch out".)
-  it('CASE 4 — section-edge column, single too-shallow neighbour (no reaching neighbour) → deep unit LENSES', () => {
+  // CASE 4 — section-edge column, single too-shallow neighbour → sideways-default.
+  //
+  // Sideways-default rule (spec §5 rule 1, 2026-06-17): the only neighbour cannot
+  // reach the unit's depth → the unit continues FLAT (sideways) across the whole
+  // gap, passing under the shallow neighbour. The prior "pinch out" directive
+  // (2026-06-16) is superseded — no reaching neighbour = no evidence for a
+  // geological termination, so the unit should NOT be drawn as a pinch triangle.
+  it('CASE 4 — section-edge column, single too-shallow neighbour → deep unit continues sideways (flat)', () => {
     // Edge column carries a deep SAND (8-12 m) below its only neighbour's 3.5 m
-    // TD. The void-side neighbour cannot reach it and there is no further column
-    // beyond → no reaching neighbour either way → it pinches out (lens), it does
-    // NOT band the full gap width.
+    // TD. No column on the Neighbour side reaches depth 8 m → sideways-default:
+    // the SAND is a full-width flat quad, present across the full gap.
     const Edge = col('Edge', 0, [
       { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
       { top: 4, base: 8, f: 'CLAY', b: 'mE' },
-      { top: 8, base: 12, f: 'SAND', b: 'deepE' }, // deep minority below the neighbour's TD
+      { top: 8, base: 12, f: 'SAND', b: 'deepE' }, // deep unit, neighbour too shallow
       { top: 12, base: 20, f: 'CLAY', b: 'botE' },
     ])
-    const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5 — void side
+    const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
     const regions = computeSectionFill([Edge, Neighbour], edgesFromBodyId(Edge, Neighbour))
-    // The deep sand pinches out — present near its own (Edge, left) column edge,
-    // but NOT spanning to mid-gap.
-    expect(coverAt(regions, 0, 0.5, -10)).not.toContain('SAND')
-    expect(coverAtAny(regions, 0, 0.02, -10)).toContain('SAND')
+    // The deep SAND continues flat across the full gap — present at mid-gap and
+    // near the source column edge. No neighbour reached that depth, so the
+    // sideways-default applies (not a pinch-out).
+    expect(coverAt(regions, 0, 0.5, -10)).toContain('SAND')
+    expect(coverAt(regions, 0, 0.02, -10)).toContain('SAND')
   })
 
   // CASE 5 — correlated across a too-shallow neighbour to a REACHING neighbour →
@@ -1908,6 +1910,35 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     expect(coverAt(regions, 0, 0.5, -12)).toEqual(['CLAY'])
     // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY pinches out — gone at mid-gap.
     expect(coverAt(regions, 1, 0.5, -12)).not.toContain('CLAY')
+  })
+
+  // SW-1: uncorrelated deep unit facing a shallower un-reaching neighbour continues
+  // SIDEWAYS (flat) — its top is NOT dragged up to the neighbour's TD.
+  //
+  // Real CS1 measurement: B2 deep SAND (top elev +4.25 mTAW) → S7a (TD elev
+  // +10.42, never observed the sand). Today the sand's top ramps +4.25 → +10.42.
+  // Desired: the sand stays flat at its own elevation and passes UNDER S7a.
+  it('SW-1: uncorrelated deep unit continues sideways under a shallower neighbour (no climb)', () => {
+    // Mirrors the real B2 / S7a geometry (rounded to clean numbers).
+    // Surface 13.0 m on both; depths are below surface.
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' }, // top elev = 13 - 8.8 = +4.2
+    ])
+    const shallow = col('S7a', 13.0, [
+      { top: 0, base: 2.65, f: 'CLAY', b: 'c2' }, // TD = 13 - 2.65 = +10.35 — never reached the sand
+    ])
+    // No edges: the SAND is not correlated to anything on S7a.
+    const regions = computeSectionFill([deep, shallow], [])
+
+    // The sand continues flat at its own deep elevation — present at mid-gap
+    // at the sand's mid-elevation (+4.2 top, -4.5 base → mid ≈ -0.15).
+    expect(coverAt(regions, 0, 0.5, 0)).toEqual(['SAND'])
+
+    // The sand does NOT climb up to the shallow neighbour's TD elevation (+10.35).
+    // At fraction 0.9 (near the shallow column) and elevation +9 mTAW (well above
+    // the sand's real top +4.2, below S7a's TD +10.35), the fill must NOT be SAND.
+    expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
   })
 })
 

@@ -2112,14 +2112,21 @@ function emitGap(
       // and each maximal run of consecutive pinches between two bands (or the
       // interval edges) is emitted in its OWN sub-interval bounded by those bands.
       const shallowFloor = Math.min(leftFloor, rightFloor)
-      type FloorItem = { unit: PinchUnit; band: boolean }
+      type FloorItem = { unit: PinchUnit; band: boolean; sideways: boolean }
       const items: FloorItem[] = pinches.map((p) => {
-        if (p.ownTopDepth < shallowFloor - EPS) return { unit: p, band: false }
+        if (p.ownTopDepth < shallowFloor - EPS) return { unit: p, band: false, sideways: false }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
-        return {
-          unit: p,
-          band: bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated),
-        }
+        const bands = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
+        // Sideways default (spec §5 rule 1): when the unit is NOT correlated AND no
+        // reaching neighbour exists on the facing side (a data void, not a pinch-out),
+        // the unit continues FLAT at its own elevation. A genuine pinch-out requires a
+        // REACHING neighbour that is simply uncorrelated — that is a lens, not a sideways
+        // continuation. ``bandsTowardSide`` returns false for BOTH cases; we distinguish
+        // them by checking whether any facing column reaches the unit's depth.
+        const sideways =
+          !bands &&
+          !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
+        return { unit: p, band: bands, sideways }
       })
       // Depth order on the deep column (the carry side). Pinch units that sit on
       // the SHALLOW side (above the shallow floor) keep their own order; their
@@ -2137,7 +2144,7 @@ function emitGap(
         rightDepth: rightSurface - elev,
       })
       for (const it of items) {
-        if (!it.band) {
+        if (!it.band && !it.sideways) {
           pendingPinches.push(it.unit)
           continue
         }
@@ -2154,7 +2161,11 @@ function emitGap(
           })
           pendingPinches = []
         }
-        // Full-width flat band at the unit's own elevations.
+        // Full-width flat quad at the unit's own elevations — used both for
+        // correlated bands (``it.band``) and sideways-default continuations
+        // (``it.sideways``: a data-void gap where no facing column reaches the
+        // unit's depth, so the unit continues flat under the shallow neighbour
+        // rather than tapering toward it as a pinch triangle; spec §5 rule 1).
         regions.push({
           formationId: p.formationId,
           bodyId: p.bodyId,
