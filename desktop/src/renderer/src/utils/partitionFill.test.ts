@@ -2125,6 +2125,26 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // But the SAND IS still present at its real elevation (+ 0 mTAW) mid-gap.
     expect(coverAt(regions, 0, 0.5, 0)).toContain('SAND')
   })
+
+  // ---------------------------------------------------------------------------
+  // T-MIXED-RIGHTSIDE: deep unit on the RIGHT column (exercises the p.side==='right'
+  // quad path + the symmetric corner-collapse on the LEFT/facing side)
+  // ---------------------------------------------------------------------------
+  it('T-MIXED-RIGHTSIDE: mixed tie raises the deep unit top when the deep column is on the RIGHT', () => {
+    // Same geometry as T-MIXED but columns swapped so the deep SAND is the RIGHT
+    // column's unit; the rise happens toward the shallow LEFT column.
+    const shallow = col('S7a', 13.0, [{ top: 0, base: 2.65, f: 'CLAY', b: 'c2' }])
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' },
+    ])
+    const edges: CorrelationEdge[] = [{ a: 'B2#1', b: 'S7a#0', aSide: 'top', bSide: 'base' }]
+    const regions = computeSectionFill([shallow, deep], edges) // deep is RIGHT column now
+    // the sand rises toward S7a's TD near the shallow (LEFT) column edge:
+    expect(coverAt(regions, 0, 0.1, 9)).toContain('SAND')
+    // and is at its own deep level near the deep (RIGHT) column:
+    expect(coverAt(regions, 0, 0.9, 3)).toContain('SAND')
+  })
 })
 
 describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {

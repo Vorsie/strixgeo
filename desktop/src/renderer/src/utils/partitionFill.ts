@@ -106,10 +106,16 @@ export interface PartitionColumn {
  * over-lumped ``body_id``).
  *
  * ``aSide`` / ``bSide`` indicate which side of the layer's contact the edge joins:
- * ``'top'`` (default, omitted ⇒ ``'top'``) or ``'base'``. A **bottom-tie** is an
- * edge where both sides are ``'base'`` — it lets the deepest unit (which has no
- * layer below, so its base is normally unaddressable) band across a gap when two
- * tests' deepest layers are explicitly tied at their bases.
+ * ``'top'`` (default, omitted ⇒ ``'top'``) or ``'base'``. Three tie semantics:
+ *
+ * - **top tie** (both ``'top'``, the default) — the standard band: the two units'
+ *   tops correlate and the unit fills as a flat rectangle across the gap.
+ * - **base tie** (both ``'base'``) — lets the deepest unit (which has no layer
+ *   below, so its base is normally unaddressable) band across a gap when two tests'
+ *   deepest layers are explicitly tied at their bases.
+ * - **mixed tie** (one ``'top'``, one ``'base'``) — the top-side unit's TOP rises
+ *   toward the base-side unit's BASE (the facing column's TD); the unit fills as a
+ *   rising triangle, NOT a flat rectangle (spec §5 rule 2).
  */
 export interface CorrelationEdge {
   a: string
@@ -2175,6 +2181,9 @@ function emitGap(
         // base contact (column TD), the unit's top RISES to meet that TD elevation
         // on the facing side instead of staying flat. The tie supplies the facing-side
         // top elevation; the unit still continues all the way down to its own base.
+        // The gate is `sideways` (not `!band`): a full top↔top correlation already
+        // produces a flat rectangle — a stronger claim than the mixed tie's rising
+        // triangle. Authoring both for the same facing column is contradictory; band wins.
         const facingUnits = p.side === 'left' ? rightUnits : leftUnits
         const facingSurface = p.side === 'left' ? rightSurface : leftSurface
         const mixedFacingTop = sideways ? mixedTiedTopElev(p.layerId, facingUnits, facingSurface) : null
@@ -2254,11 +2263,19 @@ function emitGap(
           fraction: 0,
           elevation: quadLeft ? bandBaseElev : facingBaseElev,
         }
-        // Deduplicate consecutive coincident corners (the mixed-tie triangle has
-        // topRight === baseRight) before pushing so the polygon is minimal.
-        const polygon: PartitionPoint[] = [topLeft, topRight]
-        if (Math.abs(topRight.elevation - baseRight.elevation) > EPS) polygon.push(baseRight)
-        polygon.push(baseLeft)
+        // Emit at most 4 corners; collapse any corner coincident with its ring
+        // neighbour — a mixed-tie triangle collapses two adjacent corners to the
+        // single TD point (left-side deep: topRight===baseRight, an interior pair;
+        // right-side deep: topLeft===baseLeft, the closing wrap pair). A flat band /
+        // sideways unit keeps all four distinct corners. Coincident means same point
+        // (fraction AND elevation), not merely same elevation — a flat band's
+        // baseLeft/baseRight share an elevation but differ in fraction.
+        const coincident = (a: PartitionPoint, b: PartitionPoint): boolean =>
+          a.fraction === b.fraction && Math.abs(a.elevation - b.elevation) <= EPS
+        const ring = [topLeft, topRight, baseRight, baseLeft]
+        const polygon: PartitionPoint[] = ring.filter(
+          (pt, i) => !coincident(pt, ring[(i + ring.length - 1) % ring.length]),
+        )
         regions.push({
           formationId: p.formationId,
           bodyId: p.bodyId,
