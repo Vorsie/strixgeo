@@ -40,12 +40,15 @@ class LithoContactCorrelationEdgeOrm(Base):
     ------------------
     ``contact_a_id < contact_b_id`` is enforced by a DB CHECK constraint AND
     by every use-case caller before INSERT, matching the pattern from
-    ``litho_correlation_edge``.  The UNIQUE constraint on
-    ``(model_id, LEAST(contact_a_id, contact_b_id),
-    GREATEST(contact_a_id, contact_b_id))`` is expressed as a standard
-    ``UniqueConstraint`` on the canonically-ordered columns because
-    PostgreSQL cannot use ``LEAST``/``GREATEST`` in a UNIQUE constraint
-    directly — the CHECK + caller-normalisation is sufficient.
+    ``litho_correlation_edge``.  Uniqueness is a standard ``UniqueConstraint``
+    on the canonically-ordered columns
+    ``(model_id, section_id, contact_a_id, contact_b_id,
+    contact_a_side, contact_b_side)``; the CHECK + caller-normalisation make
+    the canonical order sufficient without a ``LEAST``/``GREATEST`` functional
+    index (which PostgreSQL cannot express in a UNIQUE constraint directly).
+    The ``contact_*_side`` columns are part of the key so a top↔top edge and a
+    base↔base **bottom-tie** between the SAME two layers on the SAME section can
+    coexist (bottom-tie spec 2026-06-17).
 
     Model-level scoping
     -------------------
@@ -84,7 +87,17 @@ class LithoContactCorrelationEdgeOrm(Base):
             "section_id",
             "contact_a_id",
             "contact_b_id",
+            "contact_a_side",
+            "contact_b_side",
             name="uq_litho_contact_corr_triple",
+        ),
+        # Each endpoint addresses either the layer's 'top' contact (the legacy
+        # default for every existing edge) or its 'base'. A base↔base edge is a
+        # bottom-tie (bottom-tie spec 2026-06-17). Defence in depth alongside
+        # the application-layer validation.
+        CheckConstraint(
+            "contact_a_side IN ('top','base') AND contact_b_side IN ('top','base')",
+            name="ck_litho_contact_corr_edge_side_enum",
         ),
         # Source must be one of the two accepted provenance tokens.
         CheckConstraint(
@@ -147,6 +160,18 @@ class LithoContactCorrelationEdgeOrm(Base):
         PG_UUID(as_uuid=True),
         ForeignKey("litho_layer.id", ondelete="CASCADE"),
         nullable=False,
+    )
+
+    # Which contact of each layer the edge joins: 'top' (the existing layer-top
+    # contact, the default for every legacy edge) or 'base' (the layer's BASE).
+    # A "bottom-tie" is an edge with side='base' on BOTH ends — it lets the
+    # DEEPEST layer (which has no layer below, so no top-keyed base contact) be
+    # correlated at its base so it can band. (bottom-tie spec 2026-06-17.)
+    contact_a_side: Mapped[str] = mapped_column(
+        String(4), nullable=False, server_default=text("'top'")
+    )
+    contact_b_side: Mapped[str] = mapped_column(
+        String(4), nullable=False, server_default=text("'top'")
     )
 
     # Provenance token.  'manual' = user boundary-click gesture in the section
