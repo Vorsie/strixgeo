@@ -35,11 +35,19 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     SectionPartitionInput,
 )
 
-# SHA-256 of ``labels.astype(int32).tobytes()`` captured from the pre-refactor
-# code on the fixture below.  Any drift breaks byte-identity.
-_BASELINE_LABELS_SHA256 = "e555533cf8beafc8f59c91d719b7e99ff2e97cc9d91d538372658516fee24081"
+# SHA-256 of ``labels.astype(int32).tobytes()`` captured on the fixture below.
+# Any drift breaks byte-identity.
+#
+# Re-baselined when the footprint gate became boundary-inclusive (a grid cell
+# whose centre sits on/near a hull edge now labels — see
+# ``ModelDomain.contains(..., tol=...)``): the rectangular fixture's edge
+# columns (x=0, x=80, and the y edges) previously got voided by strict
+# point-in-polygon parity even though the labeller produced a full stack for
+# them. The non-void count therefore rose (27000 → 28782 = the recovered
+# boundary corridor); the shape and body set are unchanged.
+_BASELINE_LABELS_SHA256 = "3c353d8b7219f510e85dcd76c2b5dabcd64af0945cd39221d65e5209f1d1ff71"
 _BASELINE_SHAPE = (41, 26, 28)
-_BASELINE_NONVOID = 27000
+_BASELINE_NONVOID = 28782
 _BASELINE_BODIES = ("kleiDeep", "zandDeep", "zandShallow")
 
 
