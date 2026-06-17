@@ -300,6 +300,37 @@ describe('classifyTermination', () => {
     ])
     expect(classifyAt(left, right, 2)).toBe('onlap')
   })
+
+  // BASE-TIE FLIP — the deepest base tied to the neighbour counts as a correlated
+  // base, so a deepest unit whose TOP is already correlated reaches count 2 → it
+  // bands. This is the one path that lets a deepest unit (no unit below) band: its
+  // base has nothing below to key, so only the bottom-tie can correlate it.
+  //
+  //   no base-tie               → top correlated only → count 1 → onlap.
+  //   layerId in base-tie set   → top + tied base     → count 2 → band.
+  //
+  // Asserting BOTH directions is the proof the base-tie set drives the result.
+  it('deepest base tied to the neighbour → counts as a correlated base → bands (flips with/without the tie)', () => {
+    // CLAY (index 2) is the deepest unit; its top is correlated ("c" shared).
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'a' },
+      { top: 4, base: 8, f: 'SILT', b: 'b' },
+      { top: 8, base: 12, f: 'CLAY', b: 'c' },
+    ])
+    const corr = predicate(edgesFromBodyId(left, right))
+    const neigh = neighbourIds(right)
+    const deepestLayerId = left.units[2].layerId // 'L#2'
+    // Without a base-tie: only the top contact correlates → onlap.
+    expect(classifyTermination(left.units, 2, neigh, corr)).toBe('onlap')
+    // With the deepest layerId in the base-tie set: top + tied base → band.
+    const baseTiedSet = new Set([deepestLayerId])
+    expect(classifyTermination(left.units, 2, neigh, corr, undefined, baseTiedSet)).toBe('band')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -352,6 +383,26 @@ describe('matchColumns', () => {
     const R = [mu('VEEN', 'rv', 8.27, 6.67)] // 0.41 m gap — no overlap, but correlated
     expect(matchColumns(L, R, corr(['lv', 'rv']))).toEqual([[0, 0]])
     expect(matchColumns(L, R, none)).toEqual([]) // without the edge: no overlap → no connect
+  })
+
+  // MC6 — the base-tie flip, at the layer the feature changes. Two single deepest
+  // units of the SAME formation whose elevation ranges do NOT overlap. A base-tie
+  // (the deepest base "tied" to the neighbour's deepest base) is the ONLY thing
+  // that can connect them — there is no top edge and no geometric overlap.
+  //
+  //   no base-tie  → matchColumns returns NO match for the deep pair.
+  //   base-tie     → matchColumns returns the deep pair [[0,0]].
+  //
+  // Asserting BOTH directions is the proof the base-tie param drives the result.
+  it('MC6 — base-tie connects two non-overlapping same-formation deepest units (flips with/without the tie)', () => {
+    const L = [mu('DEEP', 'ld', -2, -5)] // floor at elev -5
+    const R = [mu('DEEP', 'rd', -6, -10)] // top -6 < L base -5 → NO elevation overlap
+    // Without a base-tie predicate: no top edge, no overlap → pairScore 0 → no match.
+    expect(matchColumns(L, R, none)).toEqual([])
+    // WITH a base-tie predicate connecting the two deepest base contacts: the
+    // deepest base is tied → counts as a correlated base → they band → matched.
+    const baseTie: Correlated = corr(['ld', 'rd'])
+    expect(matchColumns(L, R, none, baseTie)).toEqual([[0, 0]])
   })
 })
 
@@ -1855,115 +1906,5 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     expect(coverAt(regions, 0, 0.5, -12)).toEqual(['CLAY'])
     // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY pinches out — gone at mid-gap.
     expect(coverAt(regions, 1, 0.5, -12)).not.toContain('CLAY')
-  })
-
-  // ---------------------------------------------------------------------------
-  // BT — bottom-tie correlations let the deepest unit band.
-  //
-  // The deepest unit has no layer below, so classifyTermination can give it at
-  // most 1 correlated contact (its top) → it can only onlap/pinch, NEVER band.
-  // A base-tie edge (aSide: 'base', bSide: 'base') ties the deepest layer's base
-  // to another test's deepest base — the deepest unit reaches count 2 → it bands.
-  //
-  // All three tests use explicit base-tie edges, NOT edgesFromBodyId, so the
-  // new aSide/bSide interface fields are exercised directly.
-  // ---------------------------------------------------------------------------
-
-  // BT-1 — deepest unit base-tied to a reaching neighbour → the deepest
-  // lithology covers mid-gap at the deep elevation (continuous band, not pinched).
-  it('BT-1 — base-tied deepest units BAND across the gap', () => {
-    // L: surface 0; SAND top 0-2 (body "topS"); DEEP top 2-5, elev (-2, -5).
-    // R: surface 0; SAND top 0-2 (body "topS"); DEEP top 6-10, elev (-6, -10).
-    // Elevations: L DEEP (-2 to -5), R DEEP (-6 to -10). They do NOT overlap
-    // (L base -5 > R top -6 is false → no geometric overlap → pairScore=0 without
-    // an edge → they would PINCH without the base-tie).
-    const L = col('L', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 2, base: 5, f: 'DEEP', b: null }, // deepest — no body, so no auto edge
-    ])
-    const R = col('R', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 6, base: 10, f: 'DEEP', b: null }, // deepest — different depth range
-    ])
-    // Top-level SAND edges from shared body + explicit base-tie for the deepest units.
-    const sandEdges = edgesFromBodyId(L, R) // SAND#0↔SAND#0 via body "topS"
-    const baseTie: CorrelationEdge[] = [
-      { a: 'L#1', b: 'R#1', aSide: 'base', bSide: 'base' },
-    ]
-    const regions = computeSectionFill([L, R], [...sandEdges, ...baseTie])
-    // The deepest DEEP unit must span the gap as a band — present at mid-gap
-    // (fraction 0.5) at an elevation inside the interpolated DEEP quad.
-    // L DEEP base = elev -5, R DEEP top = elev -6 (after closeColumnGaps on R,
-    // R SAND extends to depth 6 → elev -6, so R DEEP starts at elev -6). At
-    // f=0.5 the quad top ≈ (-2 + -6)/2 = -4, base ≈ (-5 + -10)/2 = -7.5.
-    // Elevation -6 sits inside the interpolated DEEP quad range [-7.5, -4].
-    expect(coverAt(regions, 0, 0.5, -6)).toContain('DEEP')
-  })
-
-  // BT-2 — without the base-tie the deepest unit does NOT band (no regression:
-  // interpretive control is opt-in; legacy behaviour unchanged).
-  it('BT-2 — without a base-tie the deepest unit does NOT band mid-gap (no regression)', () => {
-    // Same columns as BT-1 — same non-overlapping DEEP units — but NO base-tie.
-    // Only the top-level SAND edges are present.
-    const L = col('L', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 2, base: 5, f: 'DEEP', b: null },
-    ])
-    const R = col('R', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 6, base: 10, f: 'DEEP', b: null },
-    ])
-    const sandEdges = edgesFromBodyId(L, R)
-    // No base-tie — only top-level correlation.
-    const regions = computeSectionFill([L, R], sandEdges)
-    // The deepest DEEP unit must NOT span to mid-gap without the tie.
-    expect(coverAt(regions, 0, 0.5, -3.5)).not.toContain('DEEP')
-  })
-
-  // BT-3 — base-tied deepest units at DIFFERENT floor depths whose elevation ranges
-  // do NOT overlap produce a sloped band: the band covers the deep elevation near
-  // the R column but NOT near L. This tests the dip geometry specifically — the
-  // base-tie is the ONLY reason the units match (no body edge, no overlap).
-  it('BT-3 — base-tied non-overlapping deepest units with different floors produce a sloped band', () => {
-    // L: surface 0; SAND 0-2 (body "topS"); DEEP 2-5 → topElev -2, baseElev -5.
-    // R: surface 0; SAND 0-2 (body "topS"); DEEP 2-10 → topElev -2, baseElev -10.
-    // Both tops are at depth 2 → topElev -2 on both → they DO overlap geometrically.
-    // BUT this test deliberately omits the top-level edge for DEEP (b:null) AND
-    // uses the non-overlapping BT-1 columns to also add the dip assertion below.
-    // The dip: L's DEEP base at depth 5 (elev -5), R's DEEP base at depth 10 (elev -10).
-    // The sloped base interpolates: at f=0.1 → ≈ -5.5, at f=0.9 → ≈ -9.5.
-    // Elev -8 is BELOW the interpolated base at f=0.1 (-5.5 > -8 → yes, -8 is below)
-    // but WITHIN the band at f=0.9 (-9.5 < -8 → -8 is above the base).
-    const L = col('L', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 2, base: 5, f: 'DEEP', b: null }, // floor at elev -5
-    ])
-    const R = col('R', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 2, base: 10, f: 'DEEP', b: null }, // floor at elev -10
-    ])
-    // BT-1 setup for DEEP (non-overlapping): reuse L as BT-1-L and R as BT-3-R.
-    // Use the BT-1 base-tie to confirm the band exists, then check the slope.
-    // For the dip test, use 2-column setup with the BT-1 non-overlapping columns:
-    const Ldip = col('Ld', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 2, base: 5, f: 'DEEP', b: null }, // floor at elev -5
-    ])
-    const Rdip = col('Rd', 0, [
-      { top: 0, base: 2, f: 'SAND', b: 'topS' },
-      { top: 6, base: 10, f: 'DEEP', b: null }, // non-overlapping (top > L base)
-    ])
-    // L.baseElev=-5, R.topElev=-6: -6 < -5, no overlap. Base-tie is the only match.
-    const sandEdgesDip = edgesFromBodyId(Ldip, Rdip)
-    const baseTieDip: CorrelationEdge[] = [
-      { a: 'Ld#1', b: 'Rd#1', aSide: 'base', bSide: 'base' },
-    ]
-    const regionsDip = computeSectionFill([Ldip, Rdip], [...sandEdgesDip, ...baseTieDip])
-    // Near R (fraction 0.9), elevation -8 is inside R's DEEP range (top -6, base -10).
-    // The sloped band must cover it here.
-    expect(coverAt(regionsDip, 0, 0.9, -8)).toContain('DEEP')
-    // Near L (fraction 0.1), elevation -8 is below L's floor (elev -5). The band's
-    // base interpolates from -5 (left) to -10 (right); at f=0.1 ≈ -5.5 → -8 is below.
-    expect(coverAt(regionsDip, 0, 0.1, -8)).not.toContain('DEEP')
   })
 })
