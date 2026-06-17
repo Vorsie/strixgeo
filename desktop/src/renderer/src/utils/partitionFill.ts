@@ -104,10 +104,20 @@ export interface PartitionColumn {
  * explicitly correlated. Two units BAND across a gap iff such an edge connects
  * their ``layerId``s. This is the trustworthy band signal (vs the resolver's
  * over-lumped ``body_id``).
+ *
+ * ``aSide`` / ``bSide`` indicate which side of the layer's contact the edge joins:
+ * ``'top'`` (default, omitted ⇒ ``'top'``) or ``'base'``. A **bottom-tie** is an
+ * edge where both sides are ``'base'`` — it lets the deepest unit (which has no
+ * layer below, so its base is normally unaddressable) band across a gap when two
+ * tests' deepest layers are explicitly tied at their bases.
  */
 export interface CorrelationEdge {
   a: string
   b: string
+  /** Which side of layer ``a``'s contact this edge joins. Omitted ⇒ ``'top'``. */
+  aSide?: 'top' | 'base'
+  /** Which side of layer ``b``'s contact this edge joins. Omitted ⇒ ``'top'``. */
+  bSide?: 'top' | 'base'
 }
 
 const EPS = 1e-9
@@ -450,6 +460,7 @@ function reduceColumn(
   neighbourLayerIds: ReadonlySet<string>,
   correlated: Correlated,
   neighbourTD: number,
+  baseTied?: Correlated,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
   // A pulled lens records its ORIGINAL extent, not the live (possibly flood-
@@ -461,16 +472,27 @@ function reduceColumn(
   const origTop = new Map(units.map((u) => [u.layerId, u.topDepthM]))
   const origBase = new Map(units.map((u) => [u.layerId, u.baseDepthM]))
   const thick = (x: PartitionUnit): number => x.baseDepthM - x.topDepthM
-  // Precompute "is this unit's contact correlated to ANY neighbour" once for the
-  // column (perf): classifyTermination then does a Set lookup instead of
-  // re-scanning neighbourLayerIds on every while×for pass. Splices only remove
-  // units / mutate depths, never add new layer ids, so the set stays valid.
+  // Precompute which layer ids are correlated / base-tied to any neighbour (perf):
+  // classifyTermination does a Set lookup instead of re-scanning neighbourLayerIds.
+  // Splices only remove units / mutate depths, never add new layer ids, so the
+  // sets stay valid across while-loop iterations.
   const correlatedToNeighbour = new Set<string>()
   for (const u of units) {
     for (const v of neighbourLayerIds) {
       if (correlated(u.layerId, v)) {
         correlatedToNeighbour.add(u.layerId)
         break
+      }
+    }
+  }
+  const baseTiedToNeighbour = new Set<string>()
+  if (baseTied !== undefined) {
+    for (const u of units) {
+      for (const v of neighbourLayerIds) {
+        if (baseTied(u.layerId, v)) {
+          baseTiedToNeighbour.add(u.layerId)
+          break
+        }
       }
     }
   }
@@ -486,8 +508,14 @@ function reduceColumn(
       // correlated boundaries, the silt overlays). The matrix's INTERNAL boundary
       // (the lens contact) is uncorrelated; its outer boundaries carry the band.
       if (
-        classifyTermination(units, i, neighbourLayerIds, correlated, correlatedToNeighbour) !==
-        'lens'
+        classifyTermination(
+          units,
+          i,
+          neighbourLayerIds,
+          correlated,
+          correlatedToNeighbour,
+          baseTiedToNeighbour.size > 0 ? baseTiedToNeighbour : undefined,
+        ) !== 'lens'
       )
         continue
       // Reach guard: a too-shallow neighbour cannot pinch out a unit it never
@@ -715,10 +743,15 @@ export type ContactTermination = 'band' | 'onlap' | 'lens'
  * that neighbour:
  *
  *   - **top** contact  ⟺ an edge on THIS unit's ``layerId`` (a layer's id keys
- *     the contact at its top — see ``LithoContactCorrelationEdge``);
- *   - **base** contact ⟺ an edge on the layer immediately BELOW (its top contact
- *     IS this unit's base). The deepest unit has no unit below, so its base
- *     cannot correlate (counts as uncorrelated).
+ *     the contact at its top — see ``LithoContactCorrelationEdge``).  Only
+ *     top-keyed edges (``aSide`` / ``bSide`` = ``'top'`` or omitted) contribute
+ *     here — a base-tie must NOT make the top contact appear correlated.
+ *   - **base** contact ⟺ (a) an edge on the layer immediately BELOW (its top
+ *     contact IS this unit's base), OR (b) a bottom-tie edge on THIS unit's own
+ *     ``layerId`` (``aSide='base'`` / ``bSide='base'``), when provided via
+ *     ``baseTiedToNeighbour``.  The deepest unit has no unit below; the bottom-tie
+ *     is the only way its base can correlate.  With top + base both correlated,
+ *     the deepest unit reaches count 2 → ``band``.
  *
  * The count (0/1/2) maps directly to lens/onlap/band. This is per-SIDE: pass the
  * facing neighbour's layer ids, so the same unit can band toward one neighbour
@@ -733,7 +766,14 @@ export type ContactTermination = 'band' | 'onlap' | 'lens'
  * neighbourLayerIds : ReadonlySet<string>
  *     Every ``layerId`` on the facing neighbour column.
  * correlated : Correlated
- *     Approved-edge lookup between two ``layerId``s.
+ *     Top-keyed edge lookup (non-base-tie edges only).
+ * correlatedToNeighbour : ReadonlySet<string>, optional
+ *     Precomputed set of this column's layer ids that have a top-keyed edge to
+ *     any neighbour layer (hot-loop optimisation in ``reduceColumn``).
+ * baseTiedToNeighbour : ReadonlySet<string>, optional
+ *     Precomputed set of this column's layer ids that have a bottom-tie edge to
+ *     any neighbour layer.  When provided, a base-tie on the current unit's own
+ *     ``layerId`` counts as a correlated base contact.
  *
  * Returns
  * -------
@@ -746,6 +786,7 @@ export function classifyTermination(
   neighbourLayerIds: ReadonlySet<string>,
   correlated: Correlated,
   correlatedToNeighbour?: ReadonlySet<string>,
+  baseTiedToNeighbour?: ReadonlySet<string>,
 ): ContactTermination {
   // When the caller precomputed which layer ids are correlated to any neighbour
   // (a hot-loop optimisation — see reduceColumn), this is a Set lookup; else we
@@ -758,7 +799,13 @@ export function classifyTermination(
       }
   const below = units[index + 1]
   const topCorr = contactCorrelated(units[index].layerId)
-  const baseCorr = below !== undefined && contactCorrelated(below.layerId)
+  // Base contact is correlated when:
+  //   (a) the layer-below's top is top-keyed correlated to the neighbour (existing), OR
+  //   (b) THIS unit's own layerId has a bottom-tie to the neighbour (new).
+  // Case (b) is the only path for the deepest unit (below === undefined).
+  const baseTiedSelf =
+    baseTiedToNeighbour !== undefined && baseTiedToNeighbour.has(units[index].layerId)
+  const baseCorr = (below !== undefined && contactCorrelated(below.layerId)) || baseTiedSelf
   const count = (topCorr ? 1 : 0) + (baseCorr ? 1 : 0)
   return count === 2 ? 'band' : count === 1 ? 'onlap' : 'lens'
 }
@@ -779,11 +826,37 @@ export function classifyTermination(
  * ``body_id`` is deliberately NOT used — it is the resolver's over-lumped
  * transitive closure (one body spanning several lithologies/beds), which falsely
  * banded uncorrelated beds. Only the direct edges are trusted.
+ *
+ * ``baseTied`` is the separate predicate for bottom-tie edges (``aSide='base'`` +
+ * ``bSide='base'``). When present, a base-tied pair with no top-edge still scores
+ * as an explicit edge (3 or 4) so the deepest base-tied units band. The two
+ * predicates are kept separate so a base-tie never makes the unit's top contact
+ * appear correlated (which would affect ``classifyTermination``'s ``topCorr``
+ * check in ``reduceColumn``).
+ *
+ * Parameters
+ * ----------
+ * l, r : MatchUnit
+ *     The two candidate units.
+ * correlated : Correlated
+ *     Top-keyed edge lookup (non-base-tie edges only).
+ * baseTied : Correlated, optional
+ *     Base-tie edge lookup (``aSide='base'`` and ``bSide='base'`` edges only).
+ *
+ * Returns
+ * -------
+ * number
+ *     0 (no match), 1 (geometry only), 3 (edge, no overlap), or 4 (edge + overlap).
  */
-function pairScore(l: MatchUnit, r: MatchUnit, correlated: Correlated): number {
+function pairScore(
+  l: MatchUnit,
+  r: MatchUnit,
+  correlated: Correlated,
+  baseTied?: Correlated,
+): number {
   if (l.formationId !== r.formationId) return 0
   const overlap = l.topElev > r.baseElev + EPS && r.topElev > l.baseElev + EPS
-  const edge = correlated(l.layerId, r.layerId)
+  const edge = correlated(l.layerId, r.layerId) || (baseTied?.(l.layerId, r.layerId) ?? false)
   if (edge && overlap) return 4
   if (edge) return 3
   if (overlap) return 1
@@ -802,7 +875,13 @@ function pairScore(l: MatchUnit, r: MatchUnit, correlated: Correlated): number {
  * left, right : MatchUnit[]
  *     The two columns' units, sorted shallow→deep.
  * correlated : Correlated
- *     Edge lookup (approved correlation between two ``layerId``s).
+ *     Top-keyed edge lookup (approved non-base-tie correlations).
+ * baseTied : Correlated, optional
+ *     Base-tie edge lookup (``aSide='base'`` and ``bSide='base'`` edges only).
+ *     When present, base-tied pairs receive the same score as top-keyed pairs,
+ *     so the deepest base-tied units match and band. Kept separate from
+ *     ``correlated`` so a base-tie does not affect ``topCorr`` in
+ *     ``classifyTermination``.
  *
  * Returns
  * -------
@@ -813,13 +892,14 @@ export function matchColumns(
   left: MatchUnit[],
   right: MatchUnit[],
   correlated: Correlated,
+  baseTied?: Correlated,
 ): Array<[number, number]> {
   const n = left.length
   const m = right.length
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const s = pairScore(left[i - 1], right[j - 1], correlated)
+      const s = pairScore(left[i - 1], right[j - 1], correlated, baseTied)
       let best = Math.max(dp[i - 1][j], dp[i][j - 1])
       if (s > 0) best = Math.max(best, dp[i - 1][j - 1] + s)
       dp[i][j] = best
@@ -829,7 +909,7 @@ export function matchColumns(
   let i = n
   let j = m
   while (i > 0 && j > 0) {
-    const s = pairScore(left[i - 1], right[j - 1], correlated)
+    const s = pairScore(left[i - 1], right[j - 1], correlated, baseTied)
     if (s > 0 && dp[i][j] === dp[i - 1][j - 1] + s) {
       pairs.push([i - 1, j - 1])
       i--
@@ -1781,6 +1861,7 @@ function emitGap(
   gapIndex = 0,
   leftwardColumns: readonly SideColumn[] = [],
   rightwardColumns: readonly SideColumn[] = [],
+  baseTied?: Correlated,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -1808,6 +1889,7 @@ function emitGap(
     toMatchUnits(leftUnits, leftSurface),
     toMatchUnits(rightUnits, rightSurface),
     correlated,
+    baseTied,
   )
 
   const leftMatched = new Set(matchedPairs.map(([li]) => li))
@@ -2234,10 +2316,30 @@ export function computeSectionFill(
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): SectionRegion[] {
-  // Build the edge lookup once (order-independent layer-id pair key).
+  // Build two separate edge lookups (order-independent layer-id pair key):
+  //   correlated — top-keyed edges only (aSide='top' or omitted). Used by
+  //     classifyTermination and pairScore for the authoritative band signal.
+  //   baseTied   — bottom-tie edges only (both aSide='base' and bSide='base').
+  //     Used by pairScore/matchColumns so the deepest base-tied units can match.
+  //
+  // Keeping them separate ensures a base-tie never affects topCorr in
+  // classifyTermination — the separation is the entire correctness property.
+  // Mixed edges (top↔base) are excluded from both sets; they are an unusual case
+  // that Task 8 will normalise at the gesture layer.
   const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
-  const edgeSet = new Set(edges.map((e) => edgeKey(e.a, e.b)))
+  const edgeSet = new Set<string>()
+  const baseTiedSet = new Set<string>()
+  for (const e of edges) {
+    if (e.aSide === 'base' && e.bSide === 'base') {
+      baseTiedSet.add(edgeKey(e.a, e.b))
+    } else if ((e.aSide === 'top' || e.aSide == null) && (e.bSide === 'top' || e.bSide == null)) {
+      edgeSet.add(edgeKey(e.a, e.b))
+    }
+    // Mixed top↔base edges excluded from both (unusual; normalised by Task 8).
+  }
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
+  const baseTied: Correlated | undefined =
+    baseTiedSet.size > 0 ? (a, b) => baseTiedSet.has(edgeKey(a, b)) : undefined
 
   // Drop empty columns; a gap is between two consecutive non-empty columns.
   const cols = columns
@@ -2271,8 +2373,8 @@ export function computeSectionFill(
     // Each facing neighbour's TD for the reach guard (deepest accepted base).
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
-    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD)
-    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD)
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
     // Side context for the carry-through, NEAREST-FIRST from each facing column
@@ -2295,6 +2397,7 @@ export function computeSectionFill(
       i,
       leftwardColumns,
       rightwardColumns,
+      baseTied,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }
