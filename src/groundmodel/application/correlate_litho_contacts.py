@@ -163,7 +163,8 @@ class CorrelateLithoContacts(GroundModelLogger):
         """
         self.info(
             f"CorrelateLithoContacts: model={model_id} "
-            f"a={contact_a_id} b={contact_b_id} source={source!r}"
+            f"a={contact_a_id}({contact_a_side}) b={contact_b_id}({contact_b_side}) "
+            f"source={source!r}"
         )
 
         # ------------------------------------------------------------------ #
@@ -362,7 +363,10 @@ class UncorrelateLithoContacts(GroundModelLogger):
             When ``request_section_id`` is ``None`` (section-scoped invariant)
             or when the model does not belong to ``project_id``.
         """
-        self.info(f"UncorrelateLithoContacts: model={model_id} a={contact_a_id} b={contact_b_id}")
+        self.info(
+            f"UncorrelateLithoContacts: model={model_id} "
+            f"a={contact_a_id}({contact_a_side}) b={contact_b_id}({contact_b_side})"
+        )
 
         # ------------------------------------------------------------------ #
         # 0. Section-scoped guard (owner directive 2026-06-08).               #
