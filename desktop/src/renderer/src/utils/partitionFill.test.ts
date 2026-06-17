@@ -1931,14 +1931,95 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // No edges: the SAND is not correlated to anything on S7a.
     const regions = computeSectionFill([deep, shallow], [])
 
-    // The sand continues flat at its own deep elevation — present at mid-gap
-    // at the sand's mid-elevation (+4.2 top, -4.5 base → mid ≈ -0.15).
+    // The sand continues flat at its own deep elevation — present at mid-gap at
+    // elevation 0, well within the sand's +4.2 (top) → -4.5 (base) range.
     expect(coverAt(regions, 0, 0.5, 0)).toEqual(['SAND'])
 
     // The sand does NOT climb up to the shallow neighbour's TD elevation (+10.35).
     // At fraction 0.9 (near the shallow column) and elevation +9 mTAW (well above
     // the sand's real top +4.2, below S7a's TD +10.35), the fill must NOT be SAND.
     expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
+  })
+
+  // SW-2: a SIDEWAYS unit must NOT supply the matrix context for a sibling genuine
+  // pinch in the SAME floor walk. When the deepest unit on one column genuinely
+  // pinches out (a reaching neighbour logs a different lithology, uncorrelated) and
+  // the deepest unit on the OTHER column continues SIDEWAYS (no facing column
+  // reaches it), they land in one depth-ordered floor walk. The pinch's closing
+  // matrix must be the real matched band ABOVE the floor — NOT the sideways unit's
+  // formation (which is a data void carrying no matrix context). Mirrors the real
+  // CS1 floor where a deep KLEI sand pinches toward a reaching neighbour while a
+  // KLEI on the facing edge column passes sideways under a too-shallow test.
+  //
+  // NOTE: this is a DEFENSIVE invariant, not a RED→GREEN regression. The
+  // ``runAbove`` advancement guard it pins cannot be exercised into a wrong LABEL
+  // through the public API today: the reach rule (``neighbourReaches`` is column-
+  // TD based) makes it impossible for a SIDEWAYS unit (no facing column reaches it)
+  // to sit SHALLOWER than a reached unit on the same facing context — any column
+  // reaching the deeper unit also reaches the shallower one. So a sideways unit
+  // can never poison ``runAbove`` for a LATER genuine pinch. The guard is kept
+  // because (a) it is correct in principle and (b) it would catch a regression if
+  // the reach semantics ever change to make the ordering reachable. The OBSERVABLE
+  // half of the same defect — a sideways unit leaking in as the pinch run's
+  // BELOW-matrix — is pinned by SW-3.
+  it('SW-2: a sideways unit does not become the matrix above a sibling genuine pinch', () => {
+    // Matched SILT band on top. The LEFT deepest CLAY (8-10) genuinely pinches:
+    // the RIGHT reaches depth 8 (TD 18 >= 8) and logs ZAND there (uncorrelated). The
+    // RIGHT deepest ZAND (12-18) is SIDEWAYS: the LEFT (TD 10) never reached 12.
+    const left = col('L', 0, [
+      { top: 0, base: 8, f: 'SILT', b: 'band' }, // matched band (the only above-matrix)
+      { top: 8, base: 10, f: 'CLAY', b: 'pinch' }, // L deepest → genuine pinch toward R
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 12, f: 'SILT', b: 'band' }, // matched band
+      { top: 12, base: 18, f: 'ZAND', b: 'sideways' }, // R deepest → sideways (L TD 10 < 12)
+    ])
+    const regions = sf(left, right)
+    // The CLAY pinch's closing matrix region (the wedge filling beyond its apex,
+    // toward the right column) must be the matched SILT band ABOVE — the sideways
+    // ZAND must NOT have become the pinch's above/below matrix. So at a point just
+    // right of the pinch apex, at the pinch's depth, the fill is SILT (the real
+    // band), never ZAND (the sideways unit's formation leaking in).
+    expect(coverAt(regions, 0, 0.7, -9)).not.toContain('ZAND')
+    expect(coverAt(regions, 0, 0.7, -9)).toEqual(['SILT'])
+    // And the ZAND sideways genuinely continues flat at its own deep level — it is
+    // NOT pulled up to fill the pinch's matrix slot.
+    expect(coverAt(regions, 0, 0.5, -15)).toContain('ZAND')
+  })
+
+  // SW-3: a SIDEWAYS unit flushing a pinch run must NOT supply a below-matrix, or
+  // ``emitOneSidedPinch``'s ``isLens`` (above.formationId === below.formationId)
+  // fires spuriously when the sideways unit happens to share the matched band's
+  // formation — drawing a BOUNDARY pinch as a horizontal ENCLOSED-LENS apex. A
+  // boundary pinch tapers DOWN to its base interface (toward the floor); a lens
+  // tapers to its own enclosed mid-level. They must not be confused.
+  it('SW-3: a sideways unit flushing a pinch does not trigger a false enclosed-lens', () => {
+    // Matched KLEI band on top. The LEFT deepest SILT (8-10) genuinely pinches (R
+    // reaches 8, uncorrelated). The RIGHT deepest KLEI (12-18) is SIDEWAYS (L TD
+    // 10 < 12). The matched band (KLEI) and the sideways unit (KLEI) share a
+    // formation, so a leaked below-matrix would make isLens wrongly fire on the SILT.
+    const left = col('L', 0, [
+      { top: 0, base: 8, f: 'KLEI', b: 'band' }, // matched band (= above context, KLEI)
+      { top: 8, base: 10, f: 'SILT', b: 'pinch' }, // L deepest → genuine pinch toward R
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 12, f: 'KLEI', b: 'band' }, // matched band
+      { top: 12, base: 18, f: 'KLEI', b: 'sideways' }, // R deepest → sideways, SAME formation as the band
+    ])
+    const regions = sf(left, right)
+    const siltPinch = regions.find((r) => r.formationId === 'SILT' && r.kind === 'pinch')
+    expect(siltPinch).toBeDefined()
+    // The pinch apex (its sole fraction>0 vertex). A BOUNDARY pinch's apex sits on
+    // the BASE interface (≈ -12, the floor the wedge tapers to); the buggy LENS
+    // apex sits at the SILT's own enclosed mid (≈ -10). Assert the apex is the
+    // deeper boundary value, not the shallow lens value.
+    const apex = siltPinch!.polygon.reduce(
+      (m, p) => (p.fraction > m.fraction ? p : m),
+      siltPinch!.polygon[0],
+    )
+    // Behaviour: a boundary pinch tapers toward the base interface (deeper than the
+    // SILT's own base at -10). The lens bug would tip at the SILT's own mid (-10).
+    expect(apex.elevation).toBeLessThan(-11)
   })
 })
 

@@ -383,16 +383,30 @@ function neighbourReaches(neighbourTD: number, unitTopDepth: number): boolean {
  *
  *   - **BANDS** that side iff an approved correlation edge connects the unit's
  *     ``layerId`` to any layer on that reaching neighbour (lithology continues);
- *   - **LENSES** (pinches out) iff it is NOT correlated to that reaching
- *     neighbour (0 correlations → a lens).
+ *   - does NOT band (returns ``false``) iff it is NOT correlated to that reaching
+ *     neighbour — a GENUINE PINCH-OUT (a lens / boundary pinch: the neighbour saw
+ *     that depth and logs a different, uncorrelated lithology there).
  *
  * If NO column on this side reaches the unit (everything that way is too shallow
- * or there is no column at all), there is no correlated continuity in this
- * direction → the unit **LENSES** (pinches out).
+ * or there is no column at all), there is no observed evidence either way — this
+ * function ALSO returns ``false``, but the meaning is different: a DATA VOID, not
+ * a pinch-out.
  *
- * This is the same rule the interior ``reduceColumn`` / interval-minority guards
- * apply per-facing-neighbour; here it sees the whole side so it can defer past a
- * shallow void to the next reaching column (the jump-edge band).
+ * SCOPE: this rule is applied by the floor walk (the ``isFloor`` interval) only,
+ * NOT for interior intervals (those are shaped by ``reduceColumn`` /
+ * ``extractIntervalMinorities`` per facing neighbour). Here it sees the whole side
+ * so it can defer past a shallow void to the next reaching column (the jump-edge
+ * band).
+ *
+ * ⚠ ``false`` IS AMBIGUOUS BY DESIGN — it collapses two distinct sub-cases that
+ * the floor walk MUST distinguish itself:
+ *   - **reaching-but-uncorrelated** → a GENUINE PINCH (lens / boundary pinch);
+ *   - **no-reaching-neighbour** (data void) → a SIDEWAYS continuation (the unit
+ *     continues FLAT at its own elevation under the shallow neighbour; spec §5
+ *     rule 1).
+ * The caller therefore follows a ``false`` with the explicit
+ * ``pinchSideColumns.some((c) => neighbourReaches(c.td, ...))`` check: SOME
+ * reaching column → pinch; NONE → sideways. ``true`` is unambiguous (band).
  *
  * Parameters
  * ----------
@@ -408,7 +422,9 @@ function neighbourReaches(neighbourTD: number, unitTopDepth: number): boolean {
  * Returns
  * -------
  * boolean
- *     ``true`` → BAND this side; ``false`` → LENS (pinch out) this side.
+ *     ``true`` → BAND this side. ``false`` → does NOT band — EITHER a genuine
+ *     pinch (a reaching neighbour is uncorrelated) OR a sideways continuation (no
+ *     reaching neighbour); the caller disambiguates via a reach check.
  */
 function bandsTowardSide(
   unitLayerId: string,
@@ -418,11 +434,11 @@ function bandsTowardSide(
 ): boolean {
   for (const c of sideColumns) {
     if (!neighbourReaches(c.td, unitTopDepth)) continue // data void — defer past it
-    // First reaching neighbour decides: correlated → band, else → lens.
+    // First reaching neighbour decides: correlated → band, else → genuine pinch.
     for (const v of c.layerIds) if (correlated(unitLayerId, v)) return true
-    return false
+    return false // reaching neighbour, uncorrelated → GENUINE PINCH (caller's reach check confirms)
   }
-  return false // no reaching neighbour on this side → pinch out
+  return false // no reaching neighbour on this side → SIDEWAYS (caller's reach check: data void)
 }
 
 /**
@@ -2097,9 +2113,15 @@ function emitGap(
       //     BAND (a flat full-gap-width band at its OWN elevations: it is
       //     genuinely continuous, the deep column governs, and the shallow column
       //     has no data to interpolate against);
-      //   - 0 correlations / NO reaching neighbour on that side → PINCH OUT: the
-      //     unit stays a pinch (the enclosing matrix floods), exactly like an
-      //     interior 0-corr lens.
+      //   - 0 correlations toward a REACHING neighbour (the neighbour saw that
+      //     depth and logs an uncorrelated lithology) → PINCH OUT: the unit stays
+      //     a pinch (the enclosing matrix floods), exactly like an interior
+      //     0-corr lens;
+      //   - NO reaching neighbour on that side (a DATA VOID — no column ever
+      //     observed that depth) → SIDEWAYS (spec §5 rule 1): the unit continues
+      //     FLAT at its own elevation under the shallow neighbour. NOT a pinch —
+      //     there is no observed evidence for a geological termination, so it is
+      //     emitted as a full-width quad, never a tapering triangle.
       //
       // A unit on the LEFT (deep) column pinches toward the RIGHT, so it reads
       // ``rightwardColumns``; a unit on the RIGHT column reads ``leftwardColumns``.
@@ -2116,17 +2138,15 @@ function emitGap(
       const items: FloorItem[] = pinches.map((p) => {
         if (p.ownTopDepth < shallowFloor - EPS) return { unit: p, band: false, sideways: false }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
-        const bands = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
+        const band = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
         // Sideways default (spec §5 rule 1): when the unit is NOT correlated AND no
         // reaching neighbour exists on the facing side (a data void, not a pinch-out),
         // the unit continues FLAT at its own elevation. A genuine pinch-out requires a
         // REACHING neighbour that is simply uncorrelated — that is a lens, not a sideways
         // continuation. ``bandsTowardSide`` returns false for BOTH cases; we distinguish
         // them by checking whether any facing column reaches the unit's depth.
-        const sideways =
-          !bands &&
-          !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
-        return { unit: p, band: bands, sideways }
+        const sideways = !band && !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
+        return { unit: p, band, sideways }
       })
       // Depth order on the deep column (the carry side). Pinch units that sit on
       // the SHALLOW side (above the shallow floor) keep their own order; their
@@ -2155,10 +2175,21 @@ function emitGap(
         // Close the pending pinch run in [runTop, this band's top].
         if (pendingPinches.length > 0) {
           const runBase = clampIface(elevToIface(bandTopElev), runTop)
-          emitPinchRun(pendingPinches, runTop, runBase, runAbove, {
-            formationId: p.formationId,
-            bodyId: p.bodyId,
-          })
+          // ``below`` is the matrix the pinch run rests ON. Only a genuine BAND
+          // (a real, data-backed continuous unit) supplies a below-matrix; a
+          // SIDEWAYS continuation is a data void carrying no matrix context, so it
+          // must pass ``null``. Passing the sideways unit's formationId here would
+          // let ``emitOneSidedPinch``'s ``isLens`` (above.formationId ===
+          // below.formationId) fire spuriously when the sideways unit happens to
+          // match the matrix above — a boundary pinch would get a horizontal
+          // enclosed-lens apex instead (BLOCKER 2).
+          emitPinchRun(
+            pendingPinches,
+            runTop,
+            runBase,
+            runAbove,
+            it.band ? { formationId: p.formationId, bodyId: p.bodyId } : null,
+          )
           pendingPinches = []
         }
         // Full-width flat quad at the unit's own elevations — used both for
@@ -2178,7 +2209,16 @@ function emitGap(
           ],
         })
         runTop = clampIface(elevToIface(bandBaseElev), runTop)
-        runAbove = { formationId: p.formationId, bodyId: p.bodyId }
+        // Advance the above-matrix cursor ONLY past a genuine BAND — a band is a
+        // real, data-backed continuous unit that the deeper pinches legitimately
+        // rest under. A SIDEWAYS continuation is a data void (no facing column
+        // reached it); it carries no matrix context, so letting it become
+        // ``runAbove`` would mislabel a deeper genuine pinch's closing region with
+        // the sideways unit's formation (BLOCKER 1). Emit the sideways quad above
+        // but leave ``runAbove`` at its previous (real-band) value.
+        if (it.band) {
+          runAbove = { formationId: p.formationId, bodyId: p.bodyId }
+        }
       }
       // Trailing pinch run (below the deepest band, or the whole floor when there
       // is no band) closes down to the floor via the generic path below, using
