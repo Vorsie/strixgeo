@@ -95,8 +95,8 @@ class ContactCorrelationResponse(BaseModel):
     edge_id: UUID
     contact_a_id: UUID
     contact_b_id: UUID
-    contact_a_side: str
-    contact_b_side: str
+    contact_a_side: Literal["top", "base"]
+    contact_b_side: Literal["top", "base"]
     model_id: UUID
     source: str
     was_created: bool
@@ -139,8 +139,8 @@ class ContactCorrelationEdgeListItem(BaseModel):
     id: UUID
     contact_a_id: UUID
     contact_b_id: UUID
-    contact_a_side: str
-    contact_b_side: str
+    contact_a_side: Literal["top", "base"]
+    contact_b_side: Literal["top", "base"]
     model_id: UUID
     section_id: UUID
     source: str
