@@ -1892,6 +1892,7 @@ function emitGap(
   leftwardColumns: readonly SideColumn[] = [],
   rightwardColumns: readonly SideColumn[] = [],
   baseTied?: Correlated,
+  mixedTiedTopToBase: ReadonlyMap<string, string> = new Map(),
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2134,9 +2135,32 @@ function emitGap(
       // and each maximal run of consecutive pinches between two bands (or the
       // interval edges) is emitted in its OWN sub-interval bounded by those bands.
       const shallowFloor = Math.min(leftFloor, rightFloor)
-      type FloorItem = { unit: PinchUnit; band: boolean; sideways: boolean }
+      // For a mixed-tied unit, resolve the elevation the tie reaches on the facing
+      // column: the base-side layerId from ``mixedTiedTopToBase`` identifies the
+      // shallow unit whose baseDepthM (converted to elevation) is the TD the deep
+      // unit's top should rise toward (spec §5 rule 2). Returns null when the unit
+      // has no mixed tie toward the facing column.
+      const mixedTiedTopElev = (topLayerId: string, facingUnits: readonly PartitionUnit[], facingSurface: number): number | null => {
+        const baseLayerId = mixedTiedTopToBase.get(topLayerId)
+        if (baseLayerId === undefined) return null
+        const tiedUnit = facingUnits.find((u) => u.layerId === baseLayerId)
+        if (tiedUnit === undefined) return null
+        return facingSurface - tiedUnit.baseDepthM
+      }
+
+      type FloorItem = {
+        unit: PinchUnit
+        band: boolean
+        sideways: boolean
+        /** When the unit is a mixed-tied sideways continuation: the target top
+         *  elevation on the facing side (the tied test's TD). Non-null overrides the
+         *  flat sideways quad with a rising quad (spec §5 rule 2). */
+        mixedTiedFacingTopElev: number | null
+      }
       const items: FloorItem[] = pinches.map((p) => {
-        if (p.ownTopDepth < shallowFloor - EPS) return { unit: p, band: false, sideways: false }
+        if (p.ownTopDepth < shallowFloor - EPS) {
+          return { unit: p, band: false, sideways: false, mixedTiedFacingTopElev: null }
+        }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
         const band = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
         // Sideways default (spec §5 rule 1): when the unit is NOT correlated AND no
@@ -2146,7 +2170,15 @@ function emitGap(
         // continuation. ``bandsTowardSide`` returns false for BOTH cases; we distinguish
         // them by checking whether any facing column reaches the unit's depth.
         const sideways = !band && !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
-        return { unit: p, band, sideways }
+        // Mixed-tie override (spec §5 rule 2): when the unit is sideways but the
+        // engineer has explicitly tied this unit's top contact to a shallow test's
+        // base contact (column TD), the unit's top RISES to meet that TD elevation
+        // on the facing side instead of staying flat. The tie supplies the facing-side
+        // top elevation; the unit still continues all the way down to its own base.
+        const facingUnits = p.side === 'left' ? rightUnits : leftUnits
+        const facingSurface = p.side === 'left' ? rightSurface : leftSurface
+        const mixedFacingTop = sideways ? mixedTiedTopElev(p.layerId, facingUnits, facingSurface) : null
+        return { unit: p, band, sideways, mixedTiedFacingTopElev: mixedFacingTop }
       })
       // Depth order on the deep column (the carry side). Pinch units that sit on
       // the SHALLOW side (above the shallow floor) keep their own order; their
@@ -2192,21 +2224,46 @@ function emitGap(
           )
           pendingPinches = []
         }
-        // Full-width flat quad at the unit's own elevations — used both for
-        // correlated bands (``it.band``) and sideways-default continuations
-        // (``it.sideways``: a data-void gap where no facing column reaches the
-        // unit's depth, so the unit continues flat under the shallow neighbour
-        // rather than tapering toward it as a pinch triangle; spec §5 rule 1).
+        // Determine the top-right elevation for the quad. For a normal band or
+        // sideways continuation this is the unit's own top elevation (flat).
+        // For a mixed-tied unit (spec §5 rule 2) the top-right is the tied test's
+        // TD elevation — the explicitly declared "the unit reaches here" control.
+        const facingTopElev =
+          it.mixedTiedFacingTopElev !== null ? it.mixedTiedFacingTopElev : bandTopElev
+        const facingBaseElev =
+          it.mixedTiedFacingTopElev !== null ? it.mixedTiedFacingTopElev : bandBaseElev
+        // Build the quad polygon. For a mixed-tied unit the facing-side is collapsed
+        // to a single point (topElev === baseElev at the TD) — geometrically a
+        // triangle with the base edge on the deep column and the apex at the TD on
+        // the shallow column. For a flat band / sideways unit the polygon is a
+        // standard rectangle (all four corners distinct).
+        const quadLeft = p.side === 'left'
+        const topLeft: PartitionPoint = {
+          fraction: 0,
+          elevation: quadLeft ? bandTopElev : facingTopElev,
+        }
+        const topRight: PartitionPoint = {
+          fraction: 1,
+          elevation: quadLeft ? facingTopElev : bandTopElev,
+        }
+        const baseRight: PartitionPoint = {
+          fraction: 1,
+          elevation: quadLeft ? facingBaseElev : bandBaseElev,
+        }
+        const baseLeft: PartitionPoint = {
+          fraction: 0,
+          elevation: quadLeft ? bandBaseElev : facingBaseElev,
+        }
+        // Deduplicate consecutive coincident corners (the mixed-tie triangle has
+        // topRight === baseRight) before pushing so the polygon is minimal.
+        const polygon: PartitionPoint[] = [topLeft, topRight]
+        if (Math.abs(topRight.elevation - baseRight.elevation) > EPS) polygon.push(baseRight)
+        polygon.push(baseLeft)
         regions.push({
           formationId: p.formationId,
           bodyId: p.bodyId,
           kind: 'quad',
-          polygon: [
-            { fraction: 0, elevation: bandTopElev },
-            { fraction: 1, elevation: bandTopElev },
-            { fraction: 1, elevation: bandBaseElev },
-            { fraction: 0, elevation: bandBaseElev },
-          ],
+          polygon,
         })
         runTop = clampIface(elevToIface(bandBaseElev), runTop)
         // Advance the above-matrix cursor ONLY past a genuine BAND — a band is a
@@ -2381,26 +2438,44 @@ export function computeSectionFill(
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
 ): SectionRegion[] {
-  // Build two separate edge lookups (order-independent layer-id pair key):
-  //   correlated — top-keyed edges only (aSide='top' or omitted). Used by
-  //     classifyTermination and pairScore for the authoritative band signal.
-  //   baseTied   — bottom-tie edges only (both aSide='base' and bSide='base').
-  //     Used by pairScore/matchColumns so the deepest base-tied units can match.
+  // Build three separate edge lookups (order-independent layer-id pair key):
+  //   correlated        — top-keyed edges (aSide='top'/omitted, bSide='top'/omitted).
+  //                       Used by classifyTermination and pairScore: the authoritative
+  //                       top-contact band signal.
+  //   baseTied          — bottom-tie edges (both aSide='base' and bSide='base').
+  //                       Lets the deepest base-tied units match + band.
+  //   mixedTiedTopToBase — mixed (top↔base) edges: maps the TOP-side layerId to the
+  //                       BASE-side layerId. The top-side unit's top contact is being
+  //                       tied to the base-side unit's base contact (i.e. the TD of
+  //                       a shallow test). Stored directionally so ``emitGap`` can
+  //                       look up the exact tied-unit layerId and find its base depth
+  //                       in the facing column to emit a rising quad.
   //
-  // Keeping them separate ensures a base-tie never affects topCorr in
-  // classifyTermination — the separation is the entire correctness property.
-  // Mixed edges (top↔base) are excluded from both sets; they are an unusual case
-  // that Task 8 will normalise at the gesture layer.
+  // Keeping the three sets separate:
+  //   - a base-tie never makes topCorr fire in classifyTermination;
+  //   - a mixed tie never makes the deep unit look like a full top↔top band
+  //     (which would mean it was seen by both columns, not just one).
   const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
   const edgeSet = new Set<string>()
   const baseTiedSet = new Set<string>()
+  // topLayerId → baseLayerId (directional: the top-side is the one with aSide=top).
+  const mixedTiedTopToBase = new Map<string, string>()
   for (const e of edges) {
-    if (e.aSide === 'base' && e.bSide === 'base') {
-      baseTiedSet.add(edgeKey(e.a, e.b))
-    } else if ((e.aSide === 'top' || e.aSide == null) && (e.bSide === 'top' || e.bSide == null)) {
+    const aIsTop = e.aSide === 'top' || e.aSide == null
+    const bIsTop = e.bSide === 'top' || e.bSide == null
+    const aIsBase = e.aSide === 'base'
+    const bIsBase = e.bSide === 'base'
+    if (aIsTop && bIsTop) {
       edgeSet.add(edgeKey(e.a, e.b))
+    } else if (aIsBase && bIsBase) {
+      baseTiedSet.add(edgeKey(e.a, e.b))
+    } else if (aIsTop && bIsBase) {
+      // a is the top-side (deep unit top), b is the base-side (shallow test TD).
+      mixedTiedTopToBase.set(e.a, e.b)
+    } else if (aIsBase && bIsTop) {
+      // b is the top-side, a is the base-side.
+      mixedTiedTopToBase.set(e.b, e.a)
     }
-    // Mixed top↔base edges excluded from both (unusual; normalised by Task 8).
   }
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
   const baseTied: Correlated | undefined =
@@ -2463,6 +2538,7 @@ export function computeSectionFill(
       leftwardColumns,
       rightwardColumns,
       baseTied,
+      mixedTiedTopToBase,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }
