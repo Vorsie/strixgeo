@@ -14,7 +14,6 @@ Pins the contract:
 
 from __future__ import annotations
 
-import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -391,6 +390,67 @@ async def test_list_returns_created_edges(
     assert "source" in item
     assert item["source"] == "manual"
     assert "created_at" in item
+
+
+async def test_correlate_base_tie_persists_and_returns_sides(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    two_contacts_in_litho_model: tuple[str, str, str, str],
+) -> None:
+    """A base↔base bottom-tie persists, returns its sides, and coexists with a top-tie.
+
+    Bottom-tie spec 2026-06-17 (§10 rules 1+3):
+
+    * A POST with ``contact_a_side='base'``/``contact_b_side='base'`` creates a
+      bottom-tie (201) and the response carries both sides.
+    * A default POST (no sides) on the SAME pair/section yields ``('top','top')``
+      — and is a SEPARATE edge (the widened unique key includes the sides), so
+      it does not 200-as-existing against the base-tie.
+    * GET lists both edges with their respective sides.
+    """
+    litho_id, ca, cb, sid = two_contacts_in_litho_model
+    base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
+
+    # 1. Create the base↔base bottom-tie.
+    r_base = await async_client.post(
+        base,
+        json={
+            "contact_a_id": ca,
+            "contact_b_id": cb,
+            "request_section_id": sid,
+            "contact_a_side": "base",
+            "contact_b_side": "base",
+        },
+    )
+    assert r_base.status_code == 201, r_base.text
+    edge_base = r_base.json()
+    assert edge_base["was_created"] is True
+    assert edge_base["contact_a_side"] == "base"
+    assert edge_base["contact_b_side"] == "base"
+
+    # 2. A default (top↔top) edge on the SAME pair/section is a DISTINCT row —
+    #    the side columns are part of the unique key, so this is a fresh create,
+    #    NOT an idempotent 200 against the base-tie. (Defends the widened-key
+    #    coexistence + the side-filtered existing-check that prevents a
+    #    MultipleResultsFound 500.)
+    r_top = await async_client.post(
+        base,
+        json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid},
+    )
+    assert r_top.status_code == 201, r_top.text
+    edge_top = r_top.json()
+    assert edge_top["was_created"] is True
+    assert edge_top["contact_a_side"] == "top"
+    assert edge_top["contact_b_side"] == "top"
+    assert edge_top["edge_id"] != edge_base["edge_id"]
+
+    # 3. GET lists both, each with its own sides.
+    listed = await async_client.get(base)
+    assert listed.status_code == 200, listed.text
+    items = listed.json()
+    assert len(items) == 2
+    sides = {(it["contact_a_side"], it["contact_b_side"]) for it in items}
+    assert sides == {("base", "base"), ("top", "top")}
 
 
 async def test_list_empty_after_delete(
