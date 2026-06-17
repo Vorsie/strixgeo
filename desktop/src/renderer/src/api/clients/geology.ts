@@ -774,6 +774,14 @@ export interface LithoContactCorrelationEdge {
   id: string
   contact_a_id: string
   contact_b_id: string
+  /** Side of contact_a the edge joins — `'top'` (default) or `'base'`. */
+  contact_a_side: string
+  /**
+   * Side of contact_b the edge joins. A `('base','base')` pair is a
+   * **bottom-tie** (bottom-tie spec 2026-06-17): it correlates the deepest
+   * layer's base so the deepest unit can band.
+   */
+  contact_b_side: string
   model_id: string
   section_id: string
   source: string
@@ -1540,12 +1548,19 @@ export const geologyClient = {
     contactAId: string,
     contactBId: string,
     requestSectionId?: string | null,
+    // Per-endpoint side (bottom-tie spec 2026-06-17). Both 'base' = a
+    // bottom-tie. Default 'top' keeps every existing caller unchanged; the
+    // base-handle gesture (Task 8) passes 'base'/'base'.
+    contactASide: 'top' | 'base' = 'top',
+    contactBSide: 'top' | 'base' = 'top',
   ): Promise<{ edge_id: string; was_created: boolean }> =>
     post(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`, {
       contact_a_id: contactAId,
       contact_b_id: contactBId,
       source: 'manual',
       request_section_id: requestSectionId ?? null,
+      contact_a_side: contactASide,
+      contact_b_side: contactBSide,
     }),
 
   // DELETE with JSON body — the shared del() helper does not pass a body.
@@ -1555,6 +1570,10 @@ export const geologyClient = {
     contactAId: string,
     contactBId: string,
     requestSectionId?: string | null,
+    // Side must match the edge being deleted — a base-tie and a top-tie on the
+    // same pair are distinct rows (bottom-tie spec 2026-06-17). Default 'top'.
+    contactASide: 'top' | 'base' = 'top',
+    contactBSide: 'top' | 'base' = 'top',
   ): Promise<void> => {
     const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations`
     const res = await fetch(`${_base}${path}`, {
@@ -1564,6 +1583,8 @@ export const geologyClient = {
         contact_a_id: contactAId,
         contact_b_id: contactBId,
         request_section_id: requestSectionId ?? null,
+        contact_a_side: contactASide,
+        contact_b_side: contactBSide,
       }),
     })
     if (!res.ok) {

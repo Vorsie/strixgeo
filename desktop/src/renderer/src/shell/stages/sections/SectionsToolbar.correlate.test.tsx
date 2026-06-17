@@ -128,6 +128,8 @@ function makeAutoEdge(id: string): LithoContactCorrelationEdge {
     section_id: 's-1',
     source: 'auto',
     user_approved: false,
+    contact_a_side: 'top',
+    contact_b_side: 'top',
     created_at: '2026-01-01T00:00:00Z',
   }
 }
@@ -814,6 +816,8 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       section_id: 's-1',
       source: 'manual',
       user_approved: false,
+      contact_a_side: 'top',
+      contact_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([manualEdge])
@@ -849,6 +853,8 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       section_id: 's-1',
       source: 'auto',
       user_approved: true,
+      contact_a_side: 'top',
+      contact_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([acceptedAuto])
