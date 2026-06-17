@@ -114,6 +114,8 @@ class CorrelateLithoContacts(GroundModelLogger):
         contact_b_id: UUID,
         source: str = "manual",
         request_section_id: UUID | None = None,
+        contact_a_side: str = "top",
+        contact_b_side: str = "top",
     ) -> ContactCorrelateResult:
         """Insert a contact-level edge and return the result.
 
@@ -135,6 +137,15 @@ class CorrelateLithoContacts(GroundModelLogger):
             The section on which this correlation is authored (required —
             section-scoped, owner directive 2026-06-08).  Passing ``None``
             raises ``ValueError``; the router maps that to HTTP 422.
+        contact_a_side : str
+            Which contact of ``contact_a`` the edge joins — ``'top'`` (the
+            legacy default for every existing edge) or ``'base'``.  Travels
+            with ``contact_a_id`` through canonical ordering.
+        contact_b_side : str
+            The same for ``contact_b``.  An edge with ``'base'`` on BOTH ends
+            is a **bottom-tie** — it correlates the deepest layer's base (which
+            has no layer below, hence no top-keyed base contact) so that the
+            deepest unit can band (bottom-tie spec 2026-06-17).
 
         Returns
         -------
@@ -220,19 +231,27 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
 
         # ------------------------------------------------------------------ #
-        # 5. Canonical ordering: (min, max).                                   #
+        # 5. Canonical ordering: (min, max), sides paired with their ids.      #
         # ------------------------------------------------------------------ #
-        a_id = min(contact_a_id, contact_b_id)
-        b_id = max(contact_a_id, contact_b_id)
+        a_id, a_side, b_id, b_side = canonical_contact_order(
+            contact_a_id, contact_a_side, contact_b_id, contact_b_side
+        )
 
         # ------------------------------------------------------------------ #
         # 6. Idempotent upsert — check for an existing edge.                  #
+        #    The side columns are part of the widened unique key, so a top-tie #
+        #    and a base-tie between the SAME pair on the SAME section coexist.  #
+        #    Filtering on side here keeps the lookup at exactly one row —      #
+        #    without it ``.scalar_one_or_none()`` would raise                  #
+        #    ``MultipleResultsFound`` once both ties exist (bottom-tie spec).  #
         # ------------------------------------------------------------------ #
         existing_stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
             LithoContactCorrelationEdgeOrm.section_id == request_section_id,
             LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
             LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
+            LithoContactCorrelationEdgeOrm.contact_a_side == a_side,
+            LithoContactCorrelationEdgeOrm.contact_b_side == b_side,
         )
         existing = (await self._session.execute(existing_stmt)).scalar_one_or_none()
         if existing is not None:
@@ -253,6 +272,8 @@ class CorrelateLithoContacts(GroundModelLogger):
             section_id=request_section_id,
             contact_a_id=a_id,
             contact_b_id=b_id,
+            contact_a_side=a_side,
+            contact_b_side=b_side,
             source=source,
             user_approved=True,
         )
@@ -300,6 +321,8 @@ class UncorrelateLithoContacts(GroundModelLogger):
         contact_a_id: UUID,
         contact_b_id: UUID,
         request_section_id: UUID | None = None,
+        contact_a_side: str = "top",
+        contact_b_side: str = "top",
     ) -> None:
         """Delete the contact-level edge between two contacts.
 
@@ -320,6 +343,13 @@ class UncorrelateLithoContacts(GroundModelLogger):
             because the same contact pair may exist as edges on multiple
             sections (each section's edge is an independent row).  Passing
             ``None`` raises ``ValueError``; the router maps that to HTTP 422.
+        contact_a_side : str
+            Which contact of ``contact_a`` the edge to delete joins —
+            ``'top'`` (default) or ``'base'``.  Travels with ``contact_a_id``
+            through canonical ordering and scopes the delete: a top-tie and a
+            base-tie (bottom-tie) on the same pair are distinct rows.
+        contact_b_side : str
+            The same for ``contact_b``.
 
         Returns
         -------
@@ -353,15 +383,22 @@ class UncorrelateLithoContacts(GroundModelLogger):
             self._session, GeologicalModelOrm, model_id, project_id, label="Model"
         )
 
-        # Canonical ordering.
-        a_id = min(contact_a_id, contact_b_id)
-        b_id = max(contact_a_id, contact_b_id)
+        # Canonical ordering, sides paired with their ids.
+        a_id, a_side, b_id, b_side = canonical_contact_order(
+            contact_a_id, contact_a_side, contact_b_id, contact_b_side
+        )
 
+        # Side columns are part of the widened unique key — filter on them so a
+        # top-tie and a base-tie on the same pair stay distinct, and so the
+        # lookup matches at most one row (``.scalar_one_or_none()`` would raise
+        # ``MultipleResultsFound`` once both ties coexist). Bottom-tie spec.
         stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
             LithoContactCorrelationEdgeOrm.section_id == request_section_id,
             LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
             LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
+            LithoContactCorrelationEdgeOrm.contact_a_side == a_side,
+            LithoContactCorrelationEdgeOrm.contact_b_side == b_side,
         )
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
         if existing is None:
