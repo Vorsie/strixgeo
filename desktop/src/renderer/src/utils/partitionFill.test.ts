@@ -2021,6 +2021,110 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // SILT's own base at -10). The lens bug would tip at the SILT's own mid (-10).
     expect(apex.elevation).toBeLessThan(-11)
   })
+
+  // ---------------------------------------------------------------------------
+  // T-TOP: top↔top regression — existing band behaviour unchanged (Task 3)
+  // ---------------------------------------------------------------------------
+  // A top↔top edge is the standard correlation. It must still band exactly as
+  // before; Task 3 must not regress it.
+  it('T-TOP: top↔top edge still bands the top surface across the gap (regression)', () => {
+    // Mirrors the real B2/S7a geometry. The CLAY tops are explicitly correlated
+    // (top↔top, the default). The SAND on B2 is uncorrelated — it continues
+    // sideways (SW-1). Only the CLAY bands.
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' },
+    ])
+    const shallow = col('S7a', 13.0, [{ top: 0, base: 2.65, f: 'CLAY', b: 'c2' }])
+    // top↔top edge between the two CLAY units (standard)
+    const edges: CorrelationEdge[] = [{ a: 'B2#0', b: 'S7a#0' }] // aSide/bSide both default top
+    const regions = computeSectionFill([deep, shallow], edges)
+    // The CLAY bands — present at mid-gap at elevation +12 (shallow CLAY top area).
+    expect(coverAt(regions, 0, 0.5, 12)).toContain('CLAY')
+    // The SAND is not dragged to S7a's TD — it continues sideways at its own elevation.
+    expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
+  })
+
+  // ---------------------------------------------------------------------------
+  // T-BASE: base↔base tie continues the deepest unit's base across the gap
+  // ---------------------------------------------------------------------------
+  // A bottom-tie (both aSide='base') lets two deepest bases connect so the deepest
+  // unit bands across. This is the rule 3 case (spec §5 rule 3).
+  it('T-BASE: base↔base tie allows the deepest units to band across the gap', () => {
+    // Two deep units of the same lithology, non-overlapping in elevation (the right
+    // is shallower but they share a base-tie edge). Without the base-tie they cannot
+    // match (no top-overlap, no top-keyed edge) and the deep unit stays sideways.
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 4, f: 'CLAY', b: 'c1' }, // top band
+      { top: 4, base: 17.5, f: 'SAND', b: 'sandDeep' }, // deep SAND top +9.0 mTAW
+    ])
+    const shallow = col('S7a', 13.0, [
+      { top: 0, base: 4, f: 'CLAY', b: 'c1' }, // same top band
+      { top: 4, base: 8, f: 'SAND', b: 'sandShallow' }, // shallower SAND, different body
+    ])
+    // base↔base tie: B2 deepest SAND base ↔ S7a deepest SAND base
+    const edges: CorrelationEdge[] = [
+      { a: 'B2#0', b: 'S7a#0' }, // top CLAY band correlated (standard top↔top)
+      { a: 'B2#1', b: 'S7a#1', aSide: 'base', bSide: 'base' }, // base-tie on the deepest SAND
+    ]
+    const regions = computeSectionFill([deep, shallow], edges)
+    // The deep SAND from B2 should band toward S7a — present at mid-gap at
+    // an elevation within B2's SAND range (+9 mTAW, well within +9 to −4.5 mTAW).
+    expect(coverAt(regions, 0, 0.5, 6)).toContain('SAND')
+  })
+
+  // ---------------------------------------------------------------------------
+  // T-MIXED: top↔base mixed tie raises the deep unit's top toward the tied TD
+  // ---------------------------------------------------------------------------
+  // A top↔base edge: deep-unit-TOP tied to shallow-test-BOTTOM (the column TD).
+  // Spec §5 rule 2: the unit's top rises to meet the tied test's TD elevation and
+  // the unit continues below it (overrides the SW-1 sideways default).
+  it('T-MIXED: top↔base mixed tie raises the deep unit top toward the tied test TD', () => {
+    // Mirrors the real B2 / S7a geometry (rounded to clean numbers).
+    // B2: deep, surface +13.0; CLAY 0-8.8 m; SAND top at +4.2 mTAW (depth 8.8 m)
+    // S7a: shallow, surface +13.0; CLAY 0-2.65 m; TD at +10.35 mTAW (depth 2.65 m)
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' }, // SAND top elev = +4.2 mTAW
+    ])
+    const shallow = col('S7a', 13.0, [
+      { top: 0, base: 2.65, f: 'CLAY', b: 'c2' }, // TD = +10.35 mTAW
+    ])
+    // Mixed tie: B2's SAND top (B2#1, aSide='top') ↔ S7a's CLAY base / column TD
+    // (S7a#0, bSide='base').  "The sand reaches where S7a bottomed out."
+    const edges: CorrelationEdge[] = [
+      { a: 'B2#1', b: 'S7a#0', aSide: 'top', bSide: 'base' },
+    ]
+    const regions = computeSectionFill([deep, shallow], edges)
+    // WITH the mixed tie, the sand's top should be present near the shallow column
+    // at an elevation HIGHER than its B2 top (+4.2) — it has risen toward S7a's TD
+    // (+10.35). Fraction 0.9 (near S7a), elevation +9 is between +4.2 and +10.35:
+    // with the tie the SAND reaches there; without it (SW-1) it does not.
+    expect(coverAt(regions, 0, 0.9, 9)).toContain('SAND')
+    // The SAND is still present at its original deep level on the B2 side.
+    expect(coverAt(regions, 0, 0.1, 3)).toContain('SAND')
+  })
+
+  // ---------------------------------------------------------------------------
+  // T-MIXED-CONTRAST: same geometry WITHOUT the mixed tie stays flat (SW-1)
+  // ---------------------------------------------------------------------------
+  // Pins that the mixed tie is the CAUSE of the rise — without it, the sideways
+  // default holds and the sand does NOT climb to elevation +9.
+  it('T-MIXED-CONTRAST: without the mixed tie the deep unit stays flat (sideways default holds)', () => {
+    // Same columns as T-MIXED but NO edges.
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' },
+    ])
+    const shallow = col('S7a', 13.0, [{ top: 0, base: 2.65, f: 'CLAY', b: 'c2' }])
+    // No edges — no tie.
+    const regions = computeSectionFill([deep, shallow], [])
+    // Without the tie the SAND continues SIDEWAYS (flat at +4.2 mTAW). At fraction
+    // 0.9, elevation +9, the fill must NOT be SAND (the sand's top is still at +4.2).
+    expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
+    // But the SAND IS still present at its real elevation (+ 0 mTAW) mid-gap.
+    expect(coverAt(regions, 0, 0.5, 0)).toContain('SAND')
+  })
 })
 
 describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {
