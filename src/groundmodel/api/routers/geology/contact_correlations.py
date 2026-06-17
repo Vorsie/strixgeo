@@ -143,6 +143,8 @@ async def create_contact_correlation(
             contact_b_id=body.contact_b_id,
             source=body.source,
             request_section_id=body.request_section_id,
+            contact_a_side=body.contact_a_side,
+            contact_b_side=body.contact_b_side,
         )
     except ValueError as err:
         raise HTTPException(
@@ -154,6 +156,8 @@ async def create_contact_correlation(
         edge_id=result.edge.id,
         contact_a_id=result.edge.contact_a_id,
         contact_b_id=result.edge.contact_b_id,
+        contact_a_side=result.edge.contact_a_side,
+        contact_b_side=result.edge.contact_b_side,
         model_id=result.edge.model_id,
         source=result.edge.source,
         was_created=result.was_created,
@@ -215,6 +219,8 @@ async def delete_contact_correlation(
             contact_a_id=body.contact_a_id,
             contact_b_id=body.contact_b_id,
             request_section_id=body.request_section_id,
+            contact_a_side=body.contact_a_side,
+            contact_b_side=body.contact_b_side,
         )
     except ValueError as err:
         raise HTTPException(
