@@ -42,12 +42,22 @@ class ContactCorrelationRequest(BaseModel):
         ``ValueError`` (→ HTTP 422) when it is ``None``.  Declared optional
         here only so the validation error is raised by the use case with a
         clear message rather than by request parsing.
+    contact_a_side : Literal["top", "base"]
+        Which contact of ``contact_a`` the edge joins — ``'top'`` (default) or
+        ``'base'``.  An edge with ``'base'`` on BOTH ends is a **bottom-tie**
+        (bottom-tie spec 2026-06-17), correlating the deepest layer's base so
+        the deepest unit can band.  The side travels with its contact through
+        the use case's canonical ordering.
+    contact_b_side : Literal["top", "base"]
+        The same for ``contact_b``.
     """
 
     contact_a_id: UUID
     contact_b_id: UUID
     source: Literal["manual"] = "manual"
     request_section_id: UUID | None = None
+    contact_a_side: Literal["top", "base"] = "top"
+    contact_b_side: Literal["top", "base"] = "top"
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> ContactCorrelationRequest:
@@ -70,6 +80,11 @@ class ContactCorrelationResponse(BaseModel):
         Canonical greater endpoint.
     model_id : UUID
         The lithostratigraphic model this edge belongs to.
+    contact_a_side : str
+        The side (``'top'`` / ``'base'``) of the canonical lesser endpoint.
+    contact_b_side : str
+        The side of the canonical greater endpoint.  A ``('base', 'base')``
+        pair is a bottom-tie (bottom-tie spec 2026-06-17).
     source : str
         Provenance token ('manual' in Phase 1).
     was_created : bool
@@ -80,6 +95,8 @@ class ContactCorrelationResponse(BaseModel):
     edge_id: UUID
     contact_a_id: UUID
     contact_b_id: UUID
+    contact_a_side: str
+    contact_b_side: str
     model_id: UUID
     source: str
     was_created: bool
@@ -96,6 +113,12 @@ class ContactCorrelationEdgeListItem(BaseModel):
         Canonical lesser endpoint.
     contact_b_id : UUID
         Canonical greater endpoint.
+    contact_a_side : str
+        The side (``'top'`` / ``'base'``) of the lesser endpoint.  Maps from
+        the ORM column via ``from_attributes``.
+    contact_b_side : str
+        The side of the greater endpoint.  A ``('base', 'base')`` pair is a
+        bottom-tie (bottom-tie spec 2026-06-17).
     model_id : UUID
         The lithostratigraphic model.
     section_id : UUID
@@ -116,6 +139,8 @@ class ContactCorrelationEdgeListItem(BaseModel):
     id: UUID
     contact_a_id: UUID
     contact_b_id: UUID
+    contact_a_side: str
+    contact_b_side: str
     model_id: UUID
     section_id: UUID
     source: str
