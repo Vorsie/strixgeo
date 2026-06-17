@@ -30,6 +30,45 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
+def canonical_contact_order(
+    contact_a_id: UUID,
+    contact_a_side: str,
+    contact_b_id: UUID,
+    contact_b_side: str,
+) -> tuple[UUID, str, UUID, str]:
+    """Canonicalise an edge endpoint pair to ``a_id < b_id``, sides paired.
+
+    A contact-correlation edge is undirected, so it is stored with the two
+    endpoints in a fixed ``(min, max)`` order to make the pair unique
+    regardless of call order.  With the bottom-tie ``contact_side``
+    discriminator (spec 2026-06-17), each endpoint also carries a side
+    (``'top'`` / ``'base'``).  When the two ids are swapped to reach canonical
+    order, each side MUST travel WITH its own contact id — otherwise a swapped
+    base↔base edge would silently mix the sides.
+
+    Parameters
+    ----------
+    contact_a_id : UUID
+        One endpoint's contact (layer) id.
+    contact_a_side : str
+        That endpoint's side (``'top'`` or ``'base'``).
+    contact_b_id : UUID
+        The other endpoint's contact id.
+    contact_b_side : str
+        That endpoint's side.
+
+    Returns
+    -------
+    tuple[UUID, str, UUID, str]
+        ``(a_id, a_side, b_id, b_side)`` with ``a_id < b_id`` and each side
+        still paired with its original contact id.  A base↔base pair is a
+        bottom-tie; the pairing is preserved through the swap.
+    """
+    if contact_a_id <= contact_b_id:
+        return contact_a_id, contact_a_side, contact_b_id, contact_b_side
+    return contact_b_id, contact_b_side, contact_a_id, contact_a_side
+
+
 @dataclass
 class ContactCorrelateResult:
     """Output of ``CorrelateLithoContacts.execute``.
