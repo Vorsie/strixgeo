@@ -53,6 +53,8 @@ def test_non_adjacent_same_litho_layers_are_distinct_bodies():
 - [ ] **Step 4: Run → GREEN.** Full unit suite for the module green.
 - [ ] **Step 5: Commit** — `git commit -m "fix(litho): split non-adjacent same-lithology layers into distinct bodies"`.
 
+> **Carry-forward (review finding 2026-06-17, Task 1 `1604f09b`):** The Task 1 fix gated `collapseAdjacentSameFormation` on `body_id` — correct and safe. BUT a SECOND merge site, `reduceColumn` (~lines 550-552), merges the same-formation units flanking a pulled lens **unconditionally on body_id**. On the real S6 stack `[ZAND-sliver, KLEI, ZAND-deep, KLEI]`, if the intervening KLEI is pulled as a lens, `reduceColumn` re-fuses the two distinct-body ZANDs **before** `collapse` runs — re-creating the merge §9 wants to prevent. `reduceColumn:550` CANNOT simply take the same `body_id` gate: the legitimate enclosed-lens-split-matrix case there ALSO has different body_ids (tests MX2/PF7/PF-REAL-S1 rely on it), so the fix needs a rule that distinguishes a genuine thin enclosed-lens split (merge) from distinct same-lithology occurrences separated by a substantial unit (don't merge). **Task 3's real-data rebuild (Task 8 Step 3) MUST confirm the S6 deep-sand-top survives end-to-end; if it doesn't, a focused `reduceColumn:550` fix with that distinguishing rule is required before the S6 mixed tie works.**
+
 ---
 
 ## PHASE 2 — Partition: sideways default (the core climb fix)
