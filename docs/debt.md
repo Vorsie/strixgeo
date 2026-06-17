@@ -87,7 +87,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -5684,6 +5684,32 @@ vertical voxel size already tightens the contacts enough for v1.0. Smoothing is 
 visual-quality polish, not a correctness gate, and the marching-cubes-style
 midpoint-surface extraction + watertight shared-surface weld is non-trivial
 geometry work. Out of scope for the Phase-4 MVP.
+
+## 221. Automatic deepest-first lithology fill — correlation-free fill mode (Tier D — Phase 5, optional)
+
+**What.** An alternative litho-fill model that needs **only lithos, no
+correlations**: anchor on the deepest test, extrapolate each unit **flat outward**
+to the next test; if a test has no litho at that depth (too shallow / data void)
+keep going until one that reaches it; a shallower test's lens "pushes back" (it
+wins locally). Where the current model derives band/onlap/lens from the
+geologist's drawn correlations ("correlations are base truth"), this derives
+continuity **geometrically** from the lithology stacks alone. Ship it as an
+**opt-in fill mode** alongside the correlation-driven default, not a replacement.
+
+**Why deferred.** The owner's directive is correlation-driven ("lithos and
+correlations are the base truth; 0 correlations = a lens"), and the bottom-tie
+feature (`docs/superpowers/specs/2026-06-17-bottom-tie-correlation-design.md`)
+gives explicit continuity control within that model — which is the v1.0 path. A
+geometric deepest-first model is a **fundamental second fill paradigm**: it
+re-opens the whole 2D→voxel chain and partly contradicts the correlation-as-truth
+principle, so it's a large, risky rewrite that earns its keep only as a
+zero-correlation convenience mode. Runtime is NOT the concern (sections are
+~tens of columns); the cost is scope + paradigm conflict.
+
+**When to revisit.** Phase 5, or when a user wants a usable model with **no
+correlation effort at all** (e.g. a quick first-pass on a dense survey). Build it
+as a mode switch next to the correlation-driven partition; reuse the existing
+`computeSectionFill` → voxel payload contract so the voxel builder is unchanged.
 
 **When to revisit.** Phase 5, alongside the other 3D-model-quality work — OR sooner
 if a coworker/customer demo flags the staircase as distracting. Profile the
