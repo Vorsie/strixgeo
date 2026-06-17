@@ -1321,11 +1321,20 @@ def label_voxels(
     # without punching a hole below a shallow log.
     gz_min = float(gz[0])
     gz_max = float(gz[-1])
+    # Boundary-inclusive footprint tolerance: a grid cell whose centre sits on
+    # or near a hull edge still overlaps the data footprint, so it must label.
+    # Strict point-in-polygon parity is numerically unstable for cell centres
+    # coincident with a boundary edge (~half flip to "outside" and get voided
+    # even though the labeller produces a full stack), which left the 2-D
+    # section fill discontinuous across hull-edge corridors. The cell
+    # half-diagonal (½·h·√2) is the safe inclusion radius — any node whose cell
+    # touches the footprint is admitted; nodes farther than a full cell stay void.
+    footprint_tol = 0.5 * h * math.sqrt(2.0)
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
             y = float(gy[j])
-            if not domain.contains(x, y):
+            if not domain.contains(x, y, tol=footprint_tol):
                 continue  # outside the footprint → void
             # The band-scoped column (geology-bounded) vs the un-bounded blend.
             # The band path fills each geological band from the nearest section
