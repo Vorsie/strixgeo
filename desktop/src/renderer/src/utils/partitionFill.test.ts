@@ -1597,3 +1597,153 @@ describe('tie11 S34/B4 (real dogfeed 2026-06-10)', () => {
     assertTiles(regions, L, R)
   })
 })
+
+// ---------------------------------------------------------------------------
+// REACH — a data void is not a pinch-out (owner directive 2026-06-16)
+//
+// The bug: a laterally-continuous DEEP unit, correlated across two deep columns,
+// was wrongly pinched into a lens (and the surrounding matrix lithology flooded
+// across) when the IMMEDIATELY ADJACENT column is too SHALLOW to reach that
+// unit's depth. A 3.5 m CPT between two deep columns is a DATA VOID, not a
+// geological pinch-out — the deep unit must be KEPT (so it bands toward the next
+// REACHING neighbour via its existing correlation), never evicted.
+//
+// The fix (in reduceColumn): a unit is pulled as a lens only when its facing
+// neighbour REACHES its depth — neighbourTD (the neighbour's deepest base) >=
+// unit.topDepthM (STRICT-TOP threshold, the safe default). When the neighbour
+// does NOT reach, KEEP the unit.
+// ---------------------------------------------------------------------------
+describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a deep unit', () => {
+  /** Standard even-odd point-in-polygon test in (fraction, elevation) space. */
+  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+
+  /**
+   * The non-lens (tile) lithologies covering the point (fraction f, elevation e)
+   * in the given gap — what would actually render as the fill there.
+   */
+  const coverAt = (
+    regions: ReturnType<typeof computeSectionFill>,
+    gapIndex: number,
+    f: number,
+    e: number,
+  ): string[] =>
+    regions
+      .filter((r) => r.gapIndex === gapIndex && r.kind !== 'lens' && inPoly(r.polygon, f, e))
+      .map((r) => r.formationId)
+
+  // CASE 1 — the artifact. A deep SAND interbed, correlated L↔R across a shallow
+  // 3.5 m MIDDLE column, must BAND (survive), NOT pinch to a lens with the CLAY
+  // matrix flooding over it. The CLAY above + below the deep sand share the SAME
+  // formationId, so a wrong pull merges them into one flooded CLAY band.
+  it('CASE 1 — deep unit correlated across a too-shallow middle column BANDS; matrix does not flood', () => {
+    // L + R carry the deep sand (shared body "deep" → an L↔R jump edge). The
+    // sand sits between CLAY above (body "mX", formationId CLAY) and CLAY below
+    // (body "botX", formationId CLAY) — both CLAY, so a wrong lens pull merges
+    // them and the sand vanishes under flooded CLAY.
+    const L = col('L', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 8, f: 'CLAY', b: 'mL' },
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep interbed, correlated to R
+      { top: 12, base: 20, f: 'CLAY', b: 'botL' },
+    ])
+    const M = col('M', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 3.5, f: 'CLAY', b: 'mM' }, // TD = 3.5 m — cannot reach the deep sand at 8 m
+    ])
+    const R = col('R', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 8, f: 'CLAY', b: 'mR' },
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // same body as L → correlated
+      { top: 12, base: 20, f: 'CLAY', b: 'botR' },
+    ])
+    const regions = sf(L, M, R)
+    // In the L→M gap (gapIndex 0), at the LEFT column edge (fraction ≈ 0) and the
+    // mid-elevation of the deep sand (8-12 m → elev -10), the fill MUST be SAND
+    // (the deep sand survives + bands). Before the fix the CLAY matrix floods
+    // that band and the sand is evicted to a decorative overlay lens.
+    expect(coverAt(regions, 0, 0.02, -10)).toEqual(['SAND'])
+    // The genuine bottom CLAY (12-20 m → elev -16) is still CLAY (sanity).
+    expect(coverAt(regions, 0, 0.02, -16)).toEqual(['CLAY'])
+  })
+
+  // CASE 2 — a GENUINE pinch-out must still pinch. The facing neighbour REACHES
+  // the depth (its TD is below the unit's base) and logs a DIFFERENT lithology
+  // there (no correlation) → the deep SAND minority genuinely wedges out as a
+  // lens. The KLEI brackets are correlated; the deep thin SAND is an uncorrelated
+  // minority enclosed in an uncorrelated CLAY matrix that the neighbour reaches.
+  it('CASE 2 — genuine pinch-out (reaching neighbour, different lithology) STILL pinches', () => {
+    const L = col('L', 0, [
+      { top: 0, base: 2, f: 'KLEI', b: 'kt' }, // correlated bracket
+      { top: 2, base: 8, f: 'CLAY', b: 'mL' }, // uncorrelated matrix
+      { top: 8, base: 9, f: 'SAND', b: 'sL' }, // thin DEEP minority, uncorrelated
+      { top: 9, base: 15, f: 'CLAY', b: 'mL2' }, // uncorrelated matrix (same formationId)
+      { top: 15, base: 20, f: 'KLEI', b: 'kb' }, // correlated bracket
+    ])
+    const R = col('R', 0, [
+      { top: 0, base: 2, f: 'KLEI', b: 'kt' },
+      { top: 2, base: 9, f: 'CLAY', b: 'mR' },
+      { top: 9, base: 15, f: 'CLAY', b: 'mR2' }, // REACHES depth 8-9, no sand → genuine pinch
+      { top: 15, base: 20, f: 'KLEI', b: 'kb' },
+    ])
+    const regions = computePartitionFill(L, R, edgesFromBodyId(L, R))
+    // The deep sand wedges out as a lens (the neighbour reaches its depth and
+    // logs clay there, so it is a real geological pinch-out — must not regress).
+    const sandLenses = regions.filter((r) => r.formationId === 'SAND' && r.kind === 'lens')
+    expect(sandLenses.length).toBeGreaterThanOrEqual(1)
+    assertTiles(regions, L, R)
+  })
+
+  // CASE 3 — BOTH neighbours too shallow → the deep unit is kept on both sides,
+  // rendering as a flat carry / open band across both gaps (data-void behaviour),
+  // never a lens.
+  it('CASE 3 — both neighbours too shallow → deep unit kept on both sides, no flood', () => {
+    // The deep SAND on the MIDDLE column (8-12 m) is enclosed by CLAY/CLAY and
+    // lies ENTIRELY below the 3.5 m TD of both flanking columns (its enclosing
+    // matrix mMid starts at 4 m — also below the reach line — so the matrix
+    // itself is not a reaching band that could flood up). Neither neighbour
+    // reaches the sand → it must render as a band on BOTH sides, not flood.
+    const Lshallow = col('Ls', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
+    const Mid = col('Mid', 0, [
+      { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
+      { top: 4, base: 8, f: 'CLAY', b: 'mMid' }, // top 4 m > 3.5 m TD → below the reach line
+      { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep minority, both neighbours too shallow
+      { top: 12, base: 20, f: 'CLAY', b: 'botMid' },
+    ])
+    const Rshallow = col('Rs', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
+    const regions = sf(Lshallow, Mid, Rshallow)
+    // At the deep sand's mid-elevation (8-12 m → elev -10), BOTH gaps render SAND
+    // (the data-void unit is kept + banded), not flooded CLAY.
+    expect(coverAt(regions, 0, 0.5, -10)).toEqual(['SAND'])
+    expect(coverAt(regions, 1, 0.5, -10)).toEqual(['SAND'])
+  })
+
+  // CASE 4 — section-edge column with a single neighbour that is the void side:
+  // the deep unit on the edge column is kept (its only neighbour cannot reach).
+  it('CASE 4 — section-edge column, single too-shallow neighbour → deep unit kept', () => {
+    // Edge column carries a deep SAND (8-12 m) below its only neighbour's 3.5 m
+    // TD (matrix mE also below the reach line). The void-side neighbour cannot
+    // pinch it out → it renders banded, not flooded.
+    const Edge = col('Edge', 0, [
+      { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
+      { top: 4, base: 8, f: 'CLAY', b: 'mE' },
+      { top: 8, base: 12, f: 'SAND', b: 'deepE' }, // deep minority below the neighbour's TD
+      { top: 12, base: 20, f: 'CLAY', b: 'botE' },
+    ])
+    const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5 — void side
+    const regions = computeSectionFill([Edge, Neighbour], edgesFromBodyId(Edge, Neighbour))
+    // The deep sand renders at the Edge column edge (fraction ≈ 0), not flooded
+    // away by the CLAY matrix.
+    expect(coverAt(regions, 0, 0.02, -10)).toEqual(['SAND'])
+  })
+})
