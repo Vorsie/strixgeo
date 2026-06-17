@@ -285,10 +285,24 @@ function closeColumnGaps(units: PartitionUnit[]): void {
  * exposed by removing an interbedded lens), the matcher orphans the surplus
  * pieces into spurious pinches. Keeps the shallowest unit's ``bodyId`` as the
  * run's representative. Mutates in place.
+ *
+ * The merge is gated on ``bodyId`` AS WELL AS ``formationId`` — only adjacent
+ * units that share BOTH merge. WHY (spec §9 body-split, the S6 case): when
+ * ``reduceColumn`` pulls an intervening lens, two NON-ADJACENT occurrences of the
+ * same lithology that are DISTINCT bodies (e.g. a 0.3 m shallow ZAND sliver,
+ * body A, and the thick deep ZAND, body B, separated by a pulled SILT/KLEI) would
+ * otherwise become adjacent and merge into one body — erasing the deep-sand-top
+ * surface a correlation tie needs to attach to. Gating on ``bodyId`` keeps them
+ * distinct. ``null === null`` is true, so two uncorrelated (null-body)
+ * same-lithology matrix layers still collapse (intended); only genuinely
+ * different bodies of the same lithology are kept separate.
  */
-function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
+export function collapseAdjacentSameFormation(units: PartitionUnit[]): void {
   for (let i = units.length - 2; i >= 0; i--) {
-    if (units[i].formationId === units[i + 1].formationId) {
+    if (
+      units[i].formationId === units[i + 1].formationId &&
+      units[i].bodyId === units[i + 1].bodyId
+    ) {
       units[i].baseDepthM = units[i + 1].baseDepthM
       units.splice(i + 1, 1)
     }

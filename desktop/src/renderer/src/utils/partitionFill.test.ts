@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   classifyTermination,
+  collapseAdjacentSameFormation,
   computePartitionFill,
   computeSectionFill,
   LENS_PINCH_FRACTION,
@@ -20,6 +21,7 @@ import {
   type MatchUnit,
   type PartitionColumn,
   type PartitionRegion,
+  type PartitionUnit,
 } from './partitionFill'
 
 /** Build the edge-lookup predicate the production code uses (order-independent). */
@@ -1906,5 +1908,43 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     expect(coverAt(regions, 0, 0.5, -12)).toEqual(['CLAY'])
     // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY pinches out — gone at mid-gap.
     expect(coverAt(regions, 1, 0.5, -12)).not.toContain('CLAY')
+  })
+})
+
+describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {
+  /** Build a single PartitionUnit (depth-below-surface metres). */
+  function mkUnit(
+    f: string,
+    b: string | null,
+    top: number,
+    base: number,
+    layerId = `${f}#${top}`,
+  ): PartitionUnit {
+    return { topDepthM: top, baseDepthM: base, formationId: f, bodyId: b, layerId }
+  }
+
+  it('does not merge same-lithology units of distinct bodies', () => {
+    // S6-shaped: a shallow ZAND sliver (its own body) above the thick deep ZAND
+    // (a different body), made adjacent after the intervening SILT/KLEI were
+    // pulled as lenses. Distinct bodies must stay distinct so the deep-sand-top
+    // surface survives for a tie to attach to.
+    const units = [mkUnit('ZAND', 'bodyA', 1.6, 2.38), mkUnit('ZAND', 'bodyB', 2.38, 12.18)]
+    collapseAdjacentSameFormation(units)
+    expect(units).toHaveLength(2) // distinct bodies preserved
+  })
+
+  it('still merges same-lithology units of the same body', () => {
+    // A body genuinely split by a pulled internal lens → still one band.
+    const units = [mkUnit('ZAND', 'bodyA', 1.6, 2.38), mkUnit('ZAND', 'bodyA', 2.38, 5)]
+    collapseAdjacentSameFormation(units)
+    expect(units).toHaveLength(1)
+    expect(units[0].baseDepthM).toBe(5)
+  })
+
+  it('still merges adjacent uncorrelated (null-body) same-lithology units', () => {
+    // Two uncorrelated matrix layers (both null body) still collapse — null === null.
+    const units = [mkUnit('ZAND', null, 1.6, 2.38), mkUnit('ZAND', null, 2.38, 5)]
+    collapseAdjacentSameFormation(units)
+    expect(units).toHaveLength(1)
   })
 })
