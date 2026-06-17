@@ -1879,6 +1879,11 @@ function emitInterval(
  * rightwardColumns : readonly SideColumn[]
  *     The mirror — NEAREST-FIRST starting with this gap's right column
  *     ([rightCol, col i+2, …]); read for a carry unit on the LEFT (deep) column.
+ * layerBaseElevLookup : ReadonlyMap<string, number>
+ *     Section-wide map of layerId → base-contact elevation (mTAW), covering ALL
+ *     columns. Used by the mixed-tie resolver so a tie that names a unit on a
+ *     NON-ADJACENT column (e.g. B2-SAND-top ↔ S7a-CLAY-base when S6 sits between
+ *     B2 and S7a) still resolves the correct TD elevation.
  *
  * Returns
  * -------
@@ -1899,6 +1904,7 @@ function emitGap(
   rightwardColumns: readonly SideColumn[] = [],
   baseTied?: Correlated,
   mixedTiedTopToBase: ReadonlyMap<string, string> = new Map(),
+  layerBaseElevLookup: ReadonlyMap<string, number> = new Map(),
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2146,26 +2152,40 @@ function emitGap(
       // shallow unit whose baseDepthM (converted to elevation) is the TD the deep
       // unit's top should rise toward (spec §5 rule 2). Returns null when the unit
       // has no mixed tie toward the facing column.
-      const mixedTiedTopElev = (topLayerId: string, facingUnits: readonly PartitionUnit[], facingSurface: number): number | null => {
+      const mixedTiedTopElev = (topLayerId: string, _facingUnits: readonly PartitionUnit[], _facingSurface: number): number | null => {
         const baseLayerId = mixedTiedTopToBase.get(topLayerId)
         if (baseLayerId === undefined) return null
-        const tiedUnit = facingUnits.find((u) => u.layerId === baseLayerId)
+        // Prefer the section-wide lookup so a tie that names a unit on a
+        // non-adjacent column (e.g. B2-SAND-top ↔ S7a-CLAY-base when S6 sits
+        // between B2 and S7a) still resolves the correct TD elevation.
+        const elev = layerBaseElevLookup.get(baseLayerId)
+        if (elev !== undefined) return elev
+        // Fallback: if for any reason the lookup is absent (e.g. tests that don't
+        // pass the lookup), search the facing column directly (prior behaviour).
+        const tiedUnit = _facingUnits.find((u) => u.layerId === baseLayerId)
         if (tiedUnit === undefined) return null
-        return facingSurface - tiedUnit.baseDepthM
+        return _facingSurface - tiedUnit.baseDepthM
       }
 
       type FloorItem = {
         unit: PinchUnit
         band: boolean
         sideways: boolean
-        /** When the unit is a mixed-tied sideways continuation: the target top
-         *  elevation on the facing side (the tied test's TD). Non-null overrides the
-         *  flat sideways quad with a rising quad (spec §5 rule 2). */
+        /** Non-null when a mixed top↔base tie names this unit's top toward the facing
+         *  side: the tied test's TD elevation (spec §5 rule 2).  Overrides both the
+         *  flat-sideways default AND a genuine pinch-out (a reaching uncorrelated
+         *  neighbour).  Priority order: mixed-tie > band > sideways > genuine-pinch. */
         mixedTiedFacingTopElev: number | null
       }
       const items: FloorItem[] = pinches.map((p) => {
         if (p.ownTopDepth < shallowFloor - EPS) {
-          return { unit: p, band: false, sideways: false, mixedTiedFacingTopElev: null }
+          // Unit starts ABOVE the shallowFloor: straddles the shallow column's
+          // last data point. Check for a mixed tie first (spec §5 rule 2 — a tie
+          // overrides geometry unconditionally, including straddle cases).
+          const facingUnitsEarly = p.side === 'left' ? rightUnits : leftUnits
+          const facingSurfaceEarly = p.side === 'left' ? rightSurface : leftSurface
+          const mixedFacingTopEarly = mixedTiedTopElev(p.layerId, facingUnitsEarly, facingSurfaceEarly)
+          return { unit: p, band: false, sideways: false, mixedTiedFacingTopElev: mixedFacingTopEarly }
         }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
         const band = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
@@ -2176,17 +2196,18 @@ function emitGap(
         // continuation. ``bandsTowardSide`` returns false for BOTH cases; we distinguish
         // them by checking whether any facing column reaches the unit's depth.
         const sideways = !band && !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
-        // Mixed-tie override (spec §5 rule 2): when the unit is sideways but the
-        // engineer has explicitly tied this unit's top contact to a shallow test's
-        // base contact (column TD), the unit's top RISES to meet that TD elevation
-        // on the facing side instead of staying flat. The tie supplies the facing-side
-        // top elevation; the unit still continues all the way down to its own base.
-        // The gate is `sideways` (not `!band`): a full top↔top correlation already
-        // produces a flat rectangle — a stronger claim than the mixed tie's rising
-        // triangle. Authoring both for the same facing column is contradictory; band wins.
+        // Mixed-tie override (spec §5 rule 2): a top↔base edge is the engineer's
+        // explicit "this unit reaches here" declaration. It overrides geometry
+        // unconditionally — including when the unit is a genuine pinch (a reaching,
+        // uncorrelated neighbour exists on the facing side). The previous gate on
+        // `sideways` blocked the override for genuine pinches; dropped per spec:
+        // "a correlation tie ALWAYS overrides geometry — no proximity guard."
+        // Priority: band (top↔top correlation) > mixed-tie > sideways > genuine-pinch.
+        // When both a band AND a mixed tie point at the same facing column the band wins
+        // (top↔top alignment is a more specific instruction; contradictory authoring).
         const facingUnits = p.side === 'left' ? rightUnits : leftUnits
         const facingSurface = p.side === 'left' ? rightSurface : leftSurface
-        const mixedFacingTop = sideways ? mixedTiedTopElev(p.layerId, facingUnits, facingSurface) : null
+        const mixedFacingTop = band ? null : mixedTiedTopElev(p.layerId, facingUnits, facingSurface)
         return { unit: p, band, sideways, mixedTiedFacingTopElev: mixedFacingTop }
       })
       // Depth order on the deep column (the carry side). Pinch units that sit on
@@ -2205,7 +2226,10 @@ function emitGap(
         rightDepth: rightSurface - elev,
       })
       for (const it of items) {
-        if (!it.band && !it.sideways) {
+        // A mixed-tie override emits a rising quad (spec §5 rule 2) even when the
+        // unit is a genuine pinch (band=false, sideways=false). Fall through to the
+        // quad-emission path whenever mixedTiedFacingTopElev is non-null.
+        if (!it.band && !it.sideways && it.mixedTiedFacingTopElev === null) {
           pendingPinches.push(it.unit)
           continue
         }
@@ -2521,6 +2545,19 @@ export function computeSectionFill(
     layerIds: new Set(c.units.map((u) => u.layerId)),
   }))
 
+  // Section-wide layerId → base-contact elevation (mTAW). Lets mixedTiedTopElev
+  // resolve a tie that names a unit on a non-adjacent column (the tied unit is
+  // not in the immediate gap's facing units). Built BEFORE the gap loop because
+  // each gap operates on FRESH COPIES of its two columns (mutated by
+  // closeColumnGaps / collapseAdjacentSameFormation) — the pre-gap originals carry
+  // the unmodified layerIds.
+  const layerBaseElevLookup = new Map<string, number>()
+  for (const c of cols) {
+    for (const u of c.units) {
+      layerBaseElevLookup.set(u.layerId, c.surface - u.baseDepthM)
+    }
+  }
+
   const out: SectionRegion[] = []
   for (let i = 0; i < cols.length - 1; i++) {
     const left = { surface: cols[i].surface, units: cols[i].units.map((u) => ({ ...u })) }
@@ -2556,6 +2593,7 @@ export function computeSectionFill(
       rightwardColumns,
       baseTied,
       mixedTiedTopToBase,
+      layerBaseElevLookup,
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }

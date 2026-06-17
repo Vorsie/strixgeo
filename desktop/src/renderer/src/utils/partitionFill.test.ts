@@ -2145,6 +2145,54 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // and is at its own deep level near the deep (RIGHT) column:
     expect(coverAt(regions, 0, 0.9, 3)).toContain('SAND')
   })
+
+  // ---------------------------------------------------------------------------
+  // T-MIXED-OVER-PINCH: mixed tie overrides a genuine pinch (reaching uncorrelated
+  // neighbour). This is the regression that the real CS1 B2→S7a section exposed:
+  // the old `sideways`-only gate blocked the mixed-tie override when a third test
+  // (S6, TD 22.99 m) sat between B2 and S7a and REACHED the SAND's top depth,
+  // classifying the unit as a genuine pinch (sideways=false). The tie must fire
+  // regardless. Spec §5 rule 2: "a tie ALWAYS overrides geometry — no proximity guard."
+  // ---------------------------------------------------------------------------
+  it('T-MIXED-OVER-PINCH: mixed tie overrides even a genuine-pinch classification', () => {
+    // B2 (left, deep): CLAY 0–8.8 m + SAND 8.8–17.5 m. SAND top at +4.2 mTAW.
+    // MIDDLE (middle column): reaches to depth 12 m (TD = +1.0 mTAW) — past the SAND
+    //   top at 8.8 m. Its presence makes SAND a GENUINE PINCH toward the right.
+    // S7a (right, shallow): CLAY 0–2.65 m. TD at +10.35 mTAW.
+    // Without a tie: SAND is a genuine pinch (middle reaches its depth) → it pinches,
+    //   does NOT rise. In the B2→MIDDLE gap it pinches toward MIDDLE; in the
+    //   MIDDLE→S7a gap there is no SAND at all (MIDDLE is shallower than SAND top).
+    // With a mixed tie (B2-SAND-top ↔ S7a-CLAY-base): the tie fires in the
+    //   B2→MIDDLE gap and the SAND top rises toward S7a's TD (+10.35) near MIDDLE.
+    const deep = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' }, // SAND top elev = +4.2 mTAW
+    ])
+    const middle = col('MID', 13.0, [
+      { top: 0, base: 12.0, f: 'CLAY', b: 'c3' }, // TD = +1.0 mTAW — reaches past SAND top
+    ])
+    const shallow = col('S7a', 13.0, [
+      { top: 0, base: 2.65, f: 'CLAY', b: 'c2' }, // TD = +10.35 mTAW
+    ])
+    // Without tie: SAND is a genuine pinch in gap 0 (B2→MIDDLE). Does NOT rise.
+    const noTie = computeSectionFill([deep, middle, shallow], [])
+    // The SAND is present at its own depth near B2 (f=0.1, e=+3).
+    expect(coverAt(noTie, 0, 0.1, 3)).toContain('SAND')
+    // But it does NOT climb above its own top elevation (+4.2) near MIDDLE (f=0.9, e=+9).
+    expect(coverAt(noTie, 0, 0.9, 9)).not.toContain('SAND')
+
+    // With mixed tie: tie B2-SAND-top (aSide='top') to S7a-CLAY-base (bSide='base').
+    // The tie names the facing TD in the B2→MIDDLE gap: S7a's TD = +10.35 mTAW.
+    // The SAND top must rise to meet that TD elevation near MIDDLE (f≈0.9, e=+9).
+    const withTie = computeSectionFill(
+      [deep, middle, shallow],
+      [{ a: 'B2#1', b: 'S7a#0', aSide: 'top', bSide: 'base' }],
+    )
+    // The tie overrides the genuine-pinch classification. SAND rises toward +10.35.
+    expect(coverAt(withTie, 0, 0.9, 9)).toContain('SAND')
+    // SAND is still present at its own depth near B2 (the base is unchanged).
+    expect(coverAt(withTie, 0, 0.1, 3)).toContain('SAND')
+  })
 })
 
 describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {
