@@ -37,3 +37,10 @@ def test_canonical_order_base_base_bottom_tie_preserved() -> None:
     a_id, a_side, b_id, b_side = canonical_contact_order(BIG_UUID, "base", SMALL_UUID, "base")
     assert (a_id, a_side) == (SMALL_UUID, "base")
     assert (b_id, b_side) == (BIG_UUID, "base")
+
+
+def test_canonical_order_mixed_sides_preserved() -> None:
+    """A swap with asymmetric sides (top/base): each side follows its contact."""
+    a_id, a_side, b_id, b_side = canonical_contact_order(BIG_UUID, "top", SMALL_UUID, "base")
+    assert (a_id, a_side) == (SMALL_UUID, "base")
+    assert (b_id, b_side) == (BIG_UUID, "top")
