@@ -1,92 +1,120 @@
 /**
- * Flow — Lithology 3D stage: VOXEL build + Solid-mode mount smoke.
+ * Flow — Lithology 3D stage: deterministic VOXEL build regression gate.
  *
  * Guards the VOXEL litho-3D builder end-to-end — the path the in-app "Build
  * model" button now drives (``LithologyStage`` → ``buildVoxelLithoModel`` →
  * ``POST .../litho-solids/build-voxel``).  The retired implicit strat-field
  * ``POST .../litho-solids/rebuild`` endpoint is NO LONGER what Build calls; this
- * spec was repurposed accordingly (was: strat-field rebuild + 90 s wait).
+ * spec was repurposed accordingly (was: strat-field rebuild + a 90 s wait).
  *
- * Two-part shape:
+ * WHY this builds against a self-contained THROWAWAY model rather than the
+ * fixture's own litho model:
+ *   The voxel build bounds the labelling by the PARENT geological model's built
+ *   surfaces when they are usable (non-stale).  The fixture's litho model has a
+ *   parent geo model, and earlier specs in the suite (e.g. flow_crossing_validator
+ *   / flow_build_3d_model) rebuild those geo surfaces — so whether geo-bounding is
+ *   active by the time this spec runs is SUITE-ORDER-DEPENDENT.  Building a
+ *   hand-authored coarse payload at synthetic coordinates against bounded
+ *   surfaces that don't cover that footprint is a flake.  To make the voxel-path
+ *   gate deterministic regardless of order, we create a throwaway empty geological
+ *   model (no built surfaces → the build runs UN-BOUNDED, exactly like the
+ *   integration test BV-1's empty parent) + a litho model parented to it, build
+ *   the voxel payload against THAT, assert, and delete it in ``finally``.  This
+ *   isolates "does the voxel build produce watertight voxel solids" from the
+ *   shared fixture's mutable geo-surface state.
  *
- *   1. API-level voxel build (the robust, deterministic regression gate).
- *      POSTs a COARSE-spacing ``VoxelBuildRequest`` (mirrors integration test
- *      BV-1 in ``tests/integration/api/test_build_voxel.py``: a two-section L
- *      over three non-collinear columns carrying a ZAND / KLEI / ZAND
- *      interbedded stack plus a SILT lens that pinches inside the KLEI).  Tiny
- *      ~20×20 m footprint, ``grid_spacing_m: 2.0`` + ``vertical_spacing_m: 1.0``
- *      (NEVER the 0.5 m production vertical — that explodes the voxel count and
- *      makes the build slow).  Asserts: ``bodies_built > 0``; every returned
- *      solid is ``method === 'voxel'`` with non-empty vertices + triangles and
- *      ``is_flagged === false``; ``bodies_flagged === 0``.  The voxel build is
- *      labelling-from-partition, so it produces solids from the supplied payload
- *      alone — it does NOT require DB picks / correlation edges (per BV-1).
+ * Payload: mirrors integration test BV-1 (tests/integration/api/test_build_voxel.py)
+ *   — two cross-sections forming an L over three non-collinear columns carrying a
+ *   ZAND / KLEI / ZAND interbedded stack plus a SILT lens pinching inside the KLEI
+ *   on section 0.  Tiny ~20×20 m footprint, ``grid_spacing_m: 2.0`` +
+ *   ``vertical_spacing_m: 1.0`` (NEVER the 0.5 m production vertical — that
+ *   explodes the voxel count and makes the build slow).  The voxel build is
+ *   labelling-from-partition, so it produces solids from the supplied payload
+ *   alone — no DB picks / correlation edges needed (per BV-1).
  *
- *   2. UI smoke (mount + no-crash only — geometry correctness lives in the
- *      Vitest + integration layers).  Opens the project (the API build above
- *      already wrote ``method='voxel'`` rows, so ``hasLithoSolids`` is true on
- *      open → ``LithologyCanvas`` mounts the viewer), navigates to Litho, and
- *      asserts the Cesium canvas mounts + stays mounted and the solid legend is
- *      visible.
- *
- * WHY this spec asserts against API-built solids instead of clicking
- * ``litho-build-model-button``:
- *   The in-app Build button POSTs ``lithoVoxelRequestCallback.current`` — a
- *   payload the *canvas* assembles from an OPEN litho-axis cross-section (the
- *   live ``computeSectionFill`` partition).  Without an open section the ref is
- *   undefined and the click is a guarded no-op.  Driving that reliably in the
- *   harness means scripting a full section-open + Suggest + Accept flow, which
- *   is orthogonal to "does the voxel build path produce watertight solids".  So
- *   the deterministic voxel-path gate is the API build (part 1), and the button
- *   wiring itself is covered by the Vitest toolbar test
- *   (``LithologyStage.toolbar.test.tsx``) + the client-shape test
- *   (``geology.buildVoxel.test.ts``).  The UI smoke here proves the built voxel
- *   solids mount the 3-D pane without crashing.
+ * The viewer-mount UI smoke (Cesium canvas / Solid mode) is intentionally NOT
+ * here — it is suite-order-fragile (needs solids on the ACTIVE fixture litho
+ * model) and is already covered by flow_litho_fence_diagram.spec.ts.  This spec's
+ * job is the deterministic voxel-BUILD regression gate; the button→build wiring
+ * is covered by LithologyStage.toolbar.test.tsx + geology.buildVoxel.test.ts.
  *
  * Acceptance criteria:
- *   1. The API voxel build returns ``bodies_built > 0``, ``bodies_flagged === 0``,
- *      and every solid is ``method === 'voxel'`` with non-empty geometry.
- *   2. After opening the project, the Litho stage shows the viewer (not
- *      EmptyState): ``litho-view-mode-solid`` is visible + default-pressed.
- *   3. The Cesium canvas (``id`` prefix ``cesium-viewport-``) mounts + stays
- *      visible; ``litho-solid-legend`` is visible (solids exist).
- *
- * Mirrors: flow_litho_fence_diagram.spec.ts (surface-seed + viewer-mount
- * pattern), test_build_voxel.py BV-1 (the known-good coarse payload).
+ *   1. ``POST .../litho-solids/build-voxel`` returns 200 with ``bodies_built > 0``
+ *      and ``bodies_flagged === 0``.
+ *   2. Every returned solid is ``method === 'voxel'`` with ``is_flagged === false``
+ *      and non-empty vertices + triangles, and ``solids.length === bodies_built``.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
  */
 
+import { randomUUID } from 'node:crypto'
 import { test, expect } from '@playwright/test'
-import { launchApp, closeApp } from './helpers/electron_launch'
-import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
-import { getGeologicalModelId } from './helpers/db_helper'
 import { Client } from 'pg'
+import { launchApp, closeApp } from './helpers/electron_launch'
+
+/** Integration DB connection string (the e2e runner points DATABASE_URL here). */
+function dbUrl(): string {
+  return (
+    process.env.DATABASE_URL ??
+    'postgresql://groundmodel:groundmodel@localhost:5433/groundmodel_integration'
+  )
+}
 
 /**
- * Delete all ``litho_body_solid`` rows for a litho model.
- *
- * Called in the ``finally`` block to restore the no-solids state so
- * ``flow_lithology_stage_ui`` (which expects EmptyState) is not broken by this
- * spec's voxel build.  The Litho 3D pane mounts when built solids exist
- * (``hasLithoSolids``), so leftover ``method='voxel'`` rows would keep the
- * viewer mounted for downstream specs.  Direct SQL is used because there is no
- * public solid-delete endpoint.
+ * Create a self-contained throwaway model pair for a deterministic, un-bounded
+ * voxel build: an empty geological model (no built surfaces → no geo-band
+ * bounding) plus a lithostratigraphic model parented to it (a litho model
+ * requires a parent — a null parent violates the model-kind constraint).  Also
+ * returns three real ``geological_formation`` ids (``litho_body_solid.formation_id``
+ * is an FK; ``body_id`` is not, so payload body ids can be arbitrary UUIDs).
  *
  * Parameters
  * ----------
- * modelId
- *     UUID of the lithostratigraphic model whose solid rows should be removed.
+ * projectId
+ *     The fixture project to attach the throwaway models + reuse formations from.
+ *
+ * Returns
+ * -------
+ * geoId, lithoId, formationIds
+ *     The throwaway model ids (to build against + clean up) and ≥3 real
+ *     formation ids for the payload regions.
  */
-async function deleteLithoSolids(modelId: string): Promise<void> {
-  const dbUrl =
-    process.env.DATABASE_URL ??
-    'postgresql://groundmodel:groundmodel@localhost:5433/groundmodel_integration'
-  const client = new Client({ connectionString: dbUrl })
+async function createThrowawayModels(
+  projectId: string,
+): Promise<{ geoId: string; lithoId: string; formationIds: string[] }> {
+  const client = new Client({ connectionString: dbUrl() })
   await client.connect()
   try {
-    await client.query('DELETE FROM litho_body_solid WHERE model_id = $1', [modelId])
+    const geoId = randomUUID()
+    const lithoId = randomUUID()
+    await client.query(
+      `INSERT INTO geological_model (id, app_project_id, name, kind)
+       VALUES ($1, $2, '__e2e_voxel_geo', 'geological')`,
+      [geoId, projectId],
+    )
+    await client.query(
+      `INSERT INTO geological_model (id, app_project_id, name, kind, parent_geological_model_id)
+       VALUES ($1, $2, '__e2e_voxel_litho', 'lithostratigraphic', $3)`,
+      [lithoId, projectId, geoId],
+    )
+    const fr = await client.query(
+      `SELECT id FROM geological_formation WHERE app_project_id = $1 ORDER BY display_order LIMIT 3`,
+      [projectId],
+    )
+    return { geoId, lithoId, formationIds: fr.rows.map((r) => r.id as string) }
+  } finally {
+    await client.end()
+  }
+}
+
+/** Delete the throwaway models + any voxel solids they built (restores clean state). */
+async function deleteThrowawayModels(geoId: string, lithoId: string): Promise<void> {
+  const client = new Client({ connectionString: dbUrl() })
+  await client.connect()
+  try {
+    await client.query('DELETE FROM litho_body_solid WHERE model_id = $1', [lithoId])
+    await client.query('DELETE FROM geological_model WHERE id = ANY($1::uuid[])', [[lithoId, geoId]])
   } finally {
     await client.end()
   }
@@ -101,68 +129,34 @@ test.describe('flow_litho_solids', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
-  test('Voxel build produces watertight voxel solids and the Cesium canvas mounts', async () => {
-    test.slow() // API voxel build + 3D viewer mount under Electron + WebGL
+  test('Voxel build produces watertight voxel solids (method=voxel, 0 flagged)', async () => {
+    test.slow() // launches Electron for the renderer-side API call
 
+    // The build POST must originate from the renderer (port 8765 is reachable
+    // from the renderer context; a Node-side cross-origin fetch is blocked).
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
-    let tmpPath = ''
-    let lithoModelId: string | null = null
+    let throwaway: { geoId: string; lithoId: string; formationIds: string[] } | null = null
 
     try {
-      // -----------------------------------------------------------------------
-      // 1. Resolve the lithostratigraphic model id from the DB (Node helper).
-      // -----------------------------------------------------------------------
-      lithoModelId = await getGeologicalModelId(FIXTURE_PROJECT_ID, 'lithostratigraphic')
-      expect(lithoModelId, 'Fixture must have a lithostratigraphic model').not.toBeNull()
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      lithoModelId = lithoModelId!
-
-      // -----------------------------------------------------------------------
-      // 2. Wait for the Welcome screen so the backend is up and serving before
-      //    any API call from the renderer (port 8765 is only reachable inside
-      //    the renderer — the main-process CSP blocks cross-origin Node fetch).
-      // -----------------------------------------------------------------------
+      // Backend up + renderer ready before any API call.
       await page.waitForLoadState('domcontentloaded')
       await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
 
-      // -----------------------------------------------------------------------
-      // 3. API-level VOXEL build (the deterministic regression gate).
-      //
-      //    Build a COARSE, hand-authored VoxelBuildRequest mirroring BV-1: two
-      //    sections forming an L over three non-collinear columns (so the domain
-      //    hull builds), each gap carrying a ZAND / KLEI / ZAND interbedded stack
-      //    with a SILT lens pinching inside the KLEI on section 0.
-      //
-      //    Real formation_ids are required (litho_body_solid.formation_id is an
-      //    FK) — we derive them from the project's formations (the fixture's
-      //    geological + litho models share the project formation vocabulary).
-      //    body_id is NOT an FK so any UUID works.
-      //
-      //    Field names mirror VoxelBuildRequest EXACTLY:
-      //      sections[] { start_x, start_y, end_x, end_y, columns[], regions[] }
-      //      columns[]  { investigation_id, along_m, world_x, world_y }
-      //      regions[]  { formation_id, body_id, polygon: [[fraction, elev]], gap_index }
-      //      top-level  grid_spacing_m, vertical_spacing_m
-      //    Coarse spacing: grid_spacing_m 2.0 m, vertical_spacing_m 1.0 m
-      //    (NEVER 0.5 m — that is the production vertical and explodes the build).
-      // -----------------------------------------------------------------------
-      const buildResult = await page.evaluate(
-        async ([base, pid, mid]) => {
-          // Need >=3 distinct real formation ids (ZAND / KLEI / SILT analogues).
-          const fr = await fetch(`${base}/projects/${pid}/geology/formations`)
-          if (!fr.ok) return { error: `formations fetch: ${fr.status}` }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const formations: any[] = await fr.json()
-          if (formations.length < 3) {
-            return { error: `need >=3 formations for the payload; got ${formations.length}` }
-          }
-          const fZand = formations[0].id as string
-          const fKlei = formations[1].id as string
-          const fSilt = formations[2].id as string
+      // Self-contained, un-bounded target (order-independent — see file header).
+      throwaway = await createThrowawayModels(FIXTURE_PROJECT_ID)
+      expect(
+        throwaway.formationIds.length,
+        'fixture must expose ≥3 formations for the payload',
+      ).toBeGreaterThanOrEqual(3)
 
-          // Stable-enough body ids (any UUID — body_id is not an FK).  Generated
-          // inline so re-runs get fresh ids (the build upserts by body_id, and a
-          // prior run's rows are cleaned up in finally, but fresh ids are safest).
+      // --- API-level VOXEL build (the deterministic regression gate) ----------
+      // Coarse BV-1 payload: two sections (L) over three non-collinear columns;
+      // a ZAND / KLEI / ZAND stack with a SILT lens pinching inside the KLEI on
+      // section 0.  Field names mirror VoxelBuildRequest EXACTLY.  Coarse spacing
+      // (2.0 m horizontal, 1.0 m vertical — NEVER 0.5 m) keeps the build fast.
+      const buildResult = await page.evaluate(
+        async ([base, pid, mid, fIds]) => {
+          const [fZand, fKlei, fSilt] = fIds
           const uuid = (): string =>
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (crypto as any).randomUUID() as string
@@ -170,24 +164,10 @@ test.describe('flow_litho_solids', () => {
           const bKlei = uuid()
           const bZandBot = uuid()
           const bSiltLens = uuid()
-
-          // Three non-collinear columns A=(0,0) B=(20,0) C=(10,20).
           const colA = { investigation_id: uuid(), along_m: 0.0, world_x: 0.0, world_y: 0.0 }
           const colB = { investigation_id: uuid(), along_m: 20.0, world_x: 20.0, world_y: 0.0 }
           const colC = { investigation_id: uuid(), along_m: 22.4, world_x: 10.0, world_y: 20.0 }
-
-          // Full-width band [(0,top),(1,top),(1,base),(0,base)].
-          const band = (
-            formationId: string,
-            bodyId: string,
-            top: number,
-            base: number,
-          ): {
-            formation_id: string
-            body_id: string
-            polygon: number[][]
-            gap_index: number
-          } => ({
+          const band = (formationId: string, bodyId: string, top: number, base: number) => ({
             formation_id: formationId,
             body_id: bodyId,
             polygon: [
@@ -198,19 +178,7 @@ test.describe('flow_litho_solids', () => {
             ],
             gap_index: 0,
           })
-
-          // Lens: full thickness at the left column, pinches to a point at fraction 1.
-          const lens = (
-            formationId: string,
-            bodyId: string,
-            top: number,
-            base: number,
-          ): {
-            formation_id: string
-            body_id: string
-            polygon: number[][]
-            gap_index: number
-          } => ({
+          const lens = (formationId: string, bodyId: string, top: number, base: number) => ({
             formation_id: formationId,
             body_id: bodyId,
             polygon: [
@@ -220,7 +188,6 @@ test.describe('flow_litho_solids', () => {
             ],
             gap_index: 0,
           })
-
           const payload = {
             sections: [
               {
@@ -249,11 +216,9 @@ test.describe('flow_litho_solids', () => {
                 ],
               },
             ],
-            // Coarse cubic X/Y + a 1 m vertical (never 0.5 m) → fast, watertight.
             grid_spacing_m: 2.0,
             vertical_spacing_m: 1.0,
           }
-
           const r = await fetch(
             `${base}/projects/${pid}/geology/models/${mid}/litho-solids/build-voxel?force=true`,
             {
@@ -262,94 +227,40 @@ test.describe('flow_litho_solids', () => {
               body: JSON.stringify(payload),
             },
           )
-          const json = await r.json()
-          return { status: r.status, json }
+          // Status-safe: a 5xx returns a non-JSON body ("Internal Server Error")
+          // — read it as text so the assertion surfaces the real error instead of
+          // a JSON-parse SyntaxError.
+          if (!r.ok) return { status: r.status, body: await r.text() }
+          return { status: r.status, json: await r.json() }
         },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
+        [API_BASE, FIXTURE_PROJECT_ID, throwaway.lithoId, throwaway.formationIds] as const,
       )
 
-      expect((buildResult as { error?: string }).error, 'voxel build setup should not error').toBeUndefined()
-      const br = buildResult as {
-        status: number
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        json: any
-      }
-      expect(br.status, 'build-voxel should return 200').toBe(200)
-
-      // The voxel-path assertions (mirror BV-1).
-      expect(br.json.bodies_built, 'voxel build must produce at least one body').toBeGreaterThan(0)
-      expect(br.json.bodies_flagged, 'voxel build must not flag any body').toBe(0)
       expect(
-        br.json.solids.length,
-        'response solids must match bodies_built',
-      ).toBe(br.json.bodies_built)
+        buildResult.status,
+        `build-voxel should return 200; body: ${(buildResult as { body?: string }).body ?? ''}`,
+      ).toBe(200)
+      const json = (buildResult as { json: Record<string, unknown> }).json
+      expect(json.bodies_built as number, 'voxel build must produce ≥1 body').toBeGreaterThan(0)
+      expect(json.bodies_flagged as number, 'voxel build must flag no body').toBe(0)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const solid of br.json.solids as any[]) {
+      const solids = json.solids as any[]
+      expect(solids.length, 'response solids must match bodies_built').toBe(json.bodies_built)
+      for (const solid of solids) {
         expect(solid.method, 'every solid must be a voxel solid').toBe('voxel')
         expect(solid.is_flagged, 'no solid may be flagged').toBe(false)
         expect(solid.vertices.length, 'voxel solid must have vertices').toBeGreaterThan(0)
         expect(solid.triangles.length, 'voxel solid must have triangles').toBeGreaterThan(0)
       }
-
-      // -----------------------------------------------------------------------
-      // 4. Open the fixture project.  useLithoSolids fetches the now-existing
-      //    method='voxel' rows on open → hasLithoSolids is true when
-      //    LithologyCanvas mounts.
-      // -----------------------------------------------------------------------
-      tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-
-      // -----------------------------------------------------------------------
-      // 5. Navigate to the Litho stage.  LithologyCanvas renders the viewer
-      //    branch only when hasLithoSolids is true.
-      // -----------------------------------------------------------------------
-      await goToStage(page, 'Litho')
-
-      // The Solid button is the viewer-branch mount sentinel.
-      // Sane 30 s timeout: Cesium WebGL context initialisation is slow under
-      // Electron, but the voxel solids already exist (built in step 3) so there
-      // is no build wait here — only the WebGL mount.  (Was a stale 90 s wait
-      // that referenced the retired implicit strat-field builder's build time.)
-      const solidBtn = page.getByTestId('litho-view-mode-solid')
-      await expect(solidBtn).toBeVisible({ timeout: 30_000 })
-
-      // -----------------------------------------------------------------------
-      // 6. Solid mode is the default.
-      // -----------------------------------------------------------------------
-      await expect(solidBtn).toHaveAttribute('aria-pressed', 'true')
-      await expect(page.getByTestId('litho-view-mode-fence')).toHaveAttribute(
-        'aria-pressed',
-        'false',
-      )
-
-      // -----------------------------------------------------------------------
-      // 7. Cesium canvas mounts + stays visible (no crash, no unmount to
-      //    EmptyState).  The toggle buttons remaining attached proves the
-      //    hasLithoSolids branch did not flip back.
-      // -----------------------------------------------------------------------
-      await expect(page.locator('[id^="cesium-viewport-"]')).toBeVisible({ timeout: 10_000 })
-      await expect(solidBtn).toBeAttached()
-      await expect(page.getByTestId('litho-view-mode-fence')).toBeAttached()
-
-      // Solid legend should be present (the voxel solids built in step 3 exist).
-      await expect(page.getByTestId('litho-solid-legend')).toBeVisible({ timeout: 5_000 })
     } finally {
-      // -----------------------------------------------------------------------
-      // Cleanup: remove the litho_body_solid rows the voxel build created so the
-      // no-solids state that flow_lithology_stage_ui + flow_per_instance_body
-      // expect (EmptyState / no built solids) is restored.  No formation
-      // contacts were seeded here (the voxel build needs none), so only the
-      // solid rows need removing.
-      // -----------------------------------------------------------------------
       try {
-        if (lithoModelId) {
-          await deleteLithoSolids(lithoModelId)
+        if (throwaway) {
+          await deleteThrowawayModels(throwaway.geoId, throwaway.lithoId)
         }
       } catch {
-        /* non-fatal — next run's truncate cleans up */
+        /* non-fatal — the next run's TRUNCATE clears the integration DB */
       }
-
       await closeApp(app)
-      cleanupFixtureFile(tmpPath)
     }
   })
 })
