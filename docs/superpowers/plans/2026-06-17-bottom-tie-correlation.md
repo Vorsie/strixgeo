@@ -12,6 +12,27 @@
 
 **Already built (do NOT redo — committed `8726b356`…`ae88b497`):** the per-endpoint `contact_a_side`/`contact_b_side` schema + migration (both DBs), the correlate/uncorrelate/list use case + router + bundle round-trip threading the sides, the desktop `LithoContactCorrelationEdge` type, and the overlay edge→`CorrelationEdge` `aSide`/`bSide` wiring. **The earlier `classifyTermination` base↔base honouring (`d78414ab`) is a STARTING POINT that this plan GENERALISES (Task 3) — it currently handles only `base↔base` and must cover all sides + the sideways default.**
 
+---
+
+## ⏱ Overnight run status (2026-06-18) — partition CORE done + real-data-validated; UI + 2 owner decisions remain
+
+**DONE + reviewed (two-stage) + committed (unpushed):**
+- **Task 1** body-split (`collapseAdjacentSameFormation` body_id gate) — `1604f09b`. *Review note:* a second merge site (`reduceColumn:550`) could also re-fuse, but real-data check proved it does NOT bite at S6 (the intervening SILT/KLEI are correlated → not pulled).
+- **Task 2** sideways default (uncorrelated deep unit continues flat, no climb) — `a6c5edaf` + `de81e054` (fixed 2 review-found logic bugs: runAbove poison [defensive] + isLens false-trigger [real]).
+- **Task 3** any-side ties (top↔top / base↔base / top↔base mixed) — `fb5ca0c3` + `ef64557d` + `9721162e` + `8513585a` + `15d47e16`. *Key fix:* the mixed-tie override was gated on `sideways`, so it was IGNORED for genuine-pinch units (reaching neighbour) — real-data proved the reviewer's "no impact" assumption wrong; widened so a tie always overrides (band > mixed-tie > sideways > pinch), + section-wide `layerBaseElevLookup` for non-adjacent ties.
+- **Task 4** Python port (`section_partition.py`) — NOT mirrored (no production importer; documented divergence) — `bc117b7b`.
+- **Task 5** confidence exclusion — verified NO-OP (confidence consumes only distance-to-investigation + TIN-triangle length; a tie is neither). No commit.
+
+**REAL-DATA VALIDATION (CS1, dev model `019e934c…`, partition-level, autonomous):** the climb is KILLED — B2→S7a's +4.25→+10.42 band and S6→S5a's −5.87→+9.61 ramp are gone; an inserted mixed tie makes the sand reach S7a's TD (+10.42). Re-run with `scripts/throwaway_cs1_partition_extract.py` (untracked).
+
+**⚠ TWO OWNER DECISIONS before finishing:**
+1. **Un-tied geometry (geological judgment).** When a reaching uncorrelated neighbour exists *past* the shallow test, the un-tied deep sand is now a rising PINCH toward that neighbour (top rises +4.2→~+10.2 then tapers), NOT the flat-sideways you picked in the mockup (that applies only when NO neighbour reaches). The mixed tie lets you control it explicitly. Confirm the rising-pinch default is acceptable, or whether un-tied should stay flatter.
+2. **Gesture interaction model (UX).** The existing correlate gesture (`useCorrelate.ts`) arms a whole formation BAND by click — it has no top-vs-base-vs-column-bottom handle concept. Task 6 needs that distinction; band-click vs discrete grab-handles is a UX-design choice to make WITH you (per `mirror-peer-feature-ux`), not a silent default. Held for your input.
+
+**REMAINING:** Task 6 (gesture — held for the UX decision above), Task 7 (render ties dashed — depends on 6), Task 8 voxel rebuild + 3D-slice eyeball (needs the app/you). The partition that the 3D model inherits is fixed + validated; once you can draw ties, a re-Build makes the 3D model truthful.
+
+---
+
 **Standing rules:** commit per file/task (Conventional Commits); do NOT `git push`; desktop checks from `desktop/` (`npx tsc --noEmit -p tsconfig.web.json`, `npx vitest run`); backend `uv run pytest tests/unit -q` + integration via `.\scripts\run-integration-tests.ps1` (never the dev DB directly); every `react-hooks/exhaustive-deps` disable carries a `// reason:`; numpy docstrings on public Python, JSDoc on public TS; English only.
 
 ---
