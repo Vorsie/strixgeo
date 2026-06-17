@@ -350,13 +350,28 @@ class ModelDomain:
         self._top = TinSurface(vertices=top_surface_vertices, triangles=top_surface_triangles)
         self._base = TinSurface(vertices=base_surface_vertices, triangles=base_surface_triangles)
 
-    def contains(self, x: float, y: float) -> bool:
+    def contains(self, x: float, y: float, tol: float = 0.0) -> bool:
         """Return True when (x, y) is inside the alpha-hull polygon.
 
         Parameters
         ----------
         x, y : float
             Horizontal query coordinates.
+        tol : float, default 0.0
+            Boundary inclusion tolerance in metres. When > 0, a point that is
+            strictly outside the ring but within ``tol`` of any boundary edge
+            is treated as inside.
+
+            Why: the voxel labeller gates each grid column on
+            ``contains(cell_centre_x, cell_centre_y)``. Strict ray-casting
+            parity is numerically unstable for cell centres that land exactly
+            on (or a hair outside) a hull edge — roughly half of the
+            on-boundary nodes flip to "outside" and get voided, even though the
+            labeller produces a full body stack for them. That left the 2-D
+            section fill discontinuous across hull-edge corridors. Passing
+            ``tol ≈ half the cell diagonal`` makes a cell whose centre sits on
+            or near the boundary count as inside, because the cell itself
+            overlaps the data footprint.
 
         Returns
         -------
@@ -370,7 +385,47 @@ class ModelDomain:
             xj, yj = ring[(i + 1) % n]
             if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
                 inside = not inside
-        return inside
+        if inside or tol <= 0.0:
+            return inside
+        # Strict parity says outside — but a cell centre within ``tol`` of any
+        # boundary edge still overlaps the footprint, so include it.
+        return self._distance_to_boundary(x, y) <= tol
+
+    def _distance_to_boundary(self, x: float, y: float) -> float:
+        """Return the shortest distance from (x, y) to the polygon boundary.
+
+        Minimum over every ring edge of the point-to-segment distance. Used by
+        ``contains`` to admit boundary-coincident grid nodes within a tolerance.
+
+        Parameters
+        ----------
+        x, y : float
+            Horizontal query coordinates.
+
+        Returns
+        -------
+        float
+            Shortest Euclidean distance to the closed ring (metres).
+        """
+        ring = self.polygon
+        n = len(ring)
+        best = math.inf
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            dx, dy = bx - ax, by - ay
+            seg_len_sq = dx * dx + dy * dy
+            if seg_len_sq <= 0.0:
+                # Degenerate (repeated) vertex — distance to the point itself.
+                t = 0.0
+            else:
+                t = ((x - ax) * dx + (y - ay) * dy) / seg_len_sq
+                t = max(0.0, min(1.0, t))  # clamp to the segment
+            px, py = ax + t * dx, ay + t * dy
+            dist = math.hypot(x - px, y - py)
+            if dist < best:
+                best = dist
+        return best
 
     def top_at(self, x: float, y: float) -> float:
         """Return the ground-surface elevation at (x, y).
