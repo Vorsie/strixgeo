@@ -1,128 +1,133 @@
-# Bottom-tie correlation — correlate a test's deepest base (design)
+# Truthful 3D litho fill — sideways continuation + any-side correlation ties (design)
 
-**Date:** 2026-06-17
-**Status:** design approved (owner, 2026-06-17); ready for an implementation plan
-**Origin:** dogfeed of the litho cross-section fill — deep units that the geologist knows are continuous were pinching out, with no way to express the continuity.
+**Date:** 2026-06-17 (rewritten after real-data diagnosis on `test.strix` CS1)
+**Status:** design approved (owner, 2026-06-17); ready for an implementation-plan rewrite
+**Supersedes:** the earlier framing of this same file ("bottom-tie correlation — band the deepest unit"). That framing was derived from synthetic 2-unit fixtures and was wrong about both the mechanism and the primary use case. This rewrite is grounded in measured CS1 numbers (see §3).
 
 ---
 
 ## 1. Problem & goal
 
-A litho contact is shared **between two layers**: a unit's base contact is the *top* contact of the layer below it (`litho_contact_correlation_edge` references `litho_layer.id`, which keys the contact at that layer's **top**). The **deepest** layer of a test has no layer below it, so **its base is not an addressable contact** — it can never carry a correlation edge.
+When the built **3D voxel litho model** is sliced back along a cross-section, a deep unit's lithology **climbs upward** to fill **shallow neighbouring tests that never observed it** — the owner's "sand running up from B2 to S7a", and "left of S5a". The fill is *not sideways* where it should be.
 
-Consequence (under the now-governing rule "lithos and correlations are the base truth; band/onlap/lens = 2/1/0 correlated bounding contacts"): the deepest unit can reach **at most 1** correlated contact (its top) → it can only **onlap or pinch, never band**. So a deep substrate the geologist *knows* continues across the section cannot be expressed as continuous — it always pinches. The owner's words: *"if I could correlate the bottom of a test, I would have done that at the bottom of S7."*
+Diagnosis (real `test.strix` CS1, measured — §3) established two facts that redirect the whole feature:
 
-**Goal:** let the geologist **correlate the bottom (deepest base) of a test** to another test's bottom — a "bottom-tie" — so the deepest unit gains a correlated base contact and **bands**. It is an explicit, correlation-driven control consistent with the project's "correlations are base truth" model.
+1. **The 3D voxel labeller is faithful — it is NOT the cause.** Sampling the labelled stack on the section plane (`ONLINE`), the raw blend (`BLEND`), and the geo-bounded path (`GEO`) gave **identical** elevations. The climb is already present in the 2-D `computeSectionFill` partition; the voxel builder reproduces it exactly. **The fix belongs in the 2-D partition (`partitionFill.ts`); the 3-D model inherits it for free** — no labeller change.
+2. **The climb is a deep unit being dragged up to fill a shallow test.** S5a (TD +7.91 mTAW) and S7a (TD +10.42) are shallow tests that never reached the thick deep sand; the partition extends the sand's top up to their TDs (B2→S7a: sand top dragged +4.25 → +10.42 into a test that never saw sand).
 
-**Non-goals:** see §11. Notably this spec does **not** include the pinch-apex-cap geometry change (owner decision 2026-06-17 — out of scope), and does **not** build the automatic deepest-first geometric fill (deferred to Phase 5, logged in `docs/debt.md`).
+**Goal:** make the litho fill **truthful**: a unit observed at one test continues **sideways** (flat, at its observed elevation) under a shallower neighbour that never reached it, instead of climbing — *unless* the geologist explicitly **ties** it to say otherwise. Ties are correlations on **any contact side** (top, base, or the column bottom), which the per-endpoint side schema already supports.
+
+**Non-goals:** §11. No apex-cap. No change to the 3-D voxel labeller. No change to auto-correlate ("suggest correlations") behaviour. The 2-D "Fill bands" overlay and the 3-D model both read the same `computeSectionFill`, so the fix improves both at the climb spots (the 2-D Fill bands currently climbs there too — measured).
 
 ---
 
 ## 2. Decisions (owner-confirmed 2026-06-17)
 
-- A bottom-tie is a **correlation** (option (i)): an edge joining two tests' **deepest-layer bases**. Not a per-test "open base" flag, not a tie-to-geo-floor.
-- **Reuse the existing correlation gesture** — the deepest layer's base becomes a grabbable contact; you drag a correlation to another test's bottom. No new gesture/mode.
-- The bottom-tie renders **dashed / interpretive**, visually distinct from solid observed-contact correlations.
-- **Bottom-tie (base-side) contacts are excluded from the confidence/distance calc** — they are interpretive, not observed, and must never reduce the confidence fade.
-- **No apex-cap** in this work — un-tied deep units pinch as they do today.
-- The automatic **deepest-first lithology-only fill (model "B")** is deferred to **Phase 5** as an opt-in alternative; logged in `docs/debt.md`.
+- **Un-tied default = SIDEWAYS (flat).** A unit whose lithology is not correlated to a shallower neighbour continues laterally at its observed elevation, passing **under** the shallow test — it does **not** climb up to fill the shallow column.
+- **Ties are the explicit control, on ANY endpoint side.** A correlation edge joins two contacts; each endpoint independently carries a side:
+  - **top↔top** — existing (a unit's top surface continues across).
+  - **base↔base** — a "bottom-tie": the unit's BASE continues / the two deepest bases connect. *(Kept and fully supported — "tie the bottoms too".)*
+  - **top↔base (mixed)** — the primary new use case: **deep-unit-TOP ↔ shallow-test-BOTTOM (TD)**, meaning "the unit's top rises to meet where this shallower test bottomed out, and continues below it."
+- **Correlation always overrides geometry** — a tie bands/continues the unit no matter the elevation gap; no proximity guard.
+- **Body-split prerequisite (owner: fix it now).** Two **non-adjacent** occurrences of the same lithology at one test (e.g. a 0.3 m shallow sand sliver + the thick deep sand at S6) must be **distinct bodies**, not merged — otherwise there is no distinct deep-unit-top surface for a tie to attach to (this blocks the S6→S5a case today).
+- **Schema/backend already built** (per-endpoint `contact_a_side`/`contact_b_side`, widened uniqueness, migration, correlate/uncorrelate/list/bundle) — carries forward unchanged; all three side combinations are representable.
 
 ---
 
-## 3. Background / context
+## 3. Evidence (measured on `test.strix` CS1, dev model `019e934c…`)
 
-This builds directly on this session's correlation-aware partition work: the floor carry-through and reach guard were made correlation-aware (`a2cbeb5a`), so band-vs-lens now follows correlation everywhere and an uncorrelated deep unit pinches. The bottom-tie is the missing way to express continuity for the *deepest* unit, whose base the contact-correlation model currently cannot address. With the bottom-tie, "the deep substrate continues" becomes a correlation the geologist draws, exactly like every other band — no geometric heuristic.
+Tests on CS1: **B2** (`1411-GEO-23/126-B2`, deep, TD −4.45, deep-sand top +4.25), **S7a** (`GEO-23/125-S7A`, shallow, TD +10.42, **no deep sand**), **S6** (`GEO-23/125-S6`, deep, deep-sand top +7.03 **plus** a +11.43 shallow sliver — *merged into one body*), **S5a** (`GEO-23/125-S5A`, shallow, TD +7.91, only thin near-surface slivers).
+
+- **Gap B2→S7a:** the single ZAND region's top ramps **+4.25 → +10.42** straight to S7a's TD — a solid up-dragged band into a test that never observed sand. Should pinch/continue sideways instead.
+- **Gap S6→S5a:** the shallow sliver (+11.43) and deep body (+7.03) are fused into one body; its top pins at +11.4 and its base ramps −5.87 → +9.61. The deep-sand-top surface is erased.
+- **Labeller faithfulness:** at every sample `ONLINE == BLEND == GEO`. The 3-D model is innocent.
 
 ---
 
 ## 4. Scope / touched modules
 
-- **Schema / domain:** `litho_contact_correlation_edge` (ORM + migration), the edge value object / repository, the correlate use case validation.
-- **API:** the correlate endpoint + edge response schema (carry the new side discriminator).
-- **Frontend partition:** `desktop/src/renderer/src/utils/partitionFill.ts` (`classifyTermination` base-correlation lookup).
-- **Frontend section editor:** the contact-handle + correlate gesture (ContactsLayer / correlate mode) to expose the deepest-base handle; `CorrelationEdgesOverlay` for the dashed interpretive rendering.
-- **Confidence:** `utils/distanceConfidence.ts` / `tinConfidence.ts` / the confidence inputs — exclude base-side contacts.
-- **Voxel:** no change (consumes the partition payload).
+- **Frontend partition:** `desktop/src/renderer/src/utils/partitionFill.ts` — (a) the **sideways-default** for a unit facing a shallower neighbour that does not reach it; (b) honour **all** tie sides (top/base/mixed) in the band/continue decision, not just `base↔base`; (c) the existing per-gap classification consumes the per-endpoint sides on the `CorrelationEdge`.
+- **Body assignment / resolver:** wherever a test's same-lithology occurrences are grouped into a `body_id` — **split non-adjacent occurrences** (a shallow sliver and a deep body separated by other lithology are different bodies). Likely `ResolveLithoInstances` / the body-id assignment the partition reads. (Investigate exact site during planning.)
+- **Frontend section editor:** grab handles for a unit's **top**, its **base**, and a column's **bottom (TD)**; the correlate gesture creates an edge with the correct per-endpoint sides. `CorrelationEdgesOverlay` renders interpretive (base/mixed) ties dashed.
+- **Confidence:** interpretive (base-side) tie contacts excluded from the distance/confidence calc.
+- **Voxel:** **no change** — inherits the corrected partition on the next Build.
+- **Schema/backend:** none (already built).
 
 ---
 
-## 5. Schema — a `contact_side` discriminator on the edge endpoints
+## 5. Behaviour rules (each to be test-pinned)
 
-A correlation edge today joins two layers at their **top** contacts. Add an endpoint discriminator so an edge can address a layer's **base**:
-
-- Add `contact_a_side` and `contact_b_side` to `litho_contact_correlation_edge`, enum `'top' | 'base'`, **default `'top'`**. Existing edges are `('top','top')` — unchanged behaviour.
-- A **bottom-tie** is an edge with `side='base'` on **both** endpoints, referencing the two tests' deepest layers.
-- Backwards-compat is suspended pre-ship (per CLAUDE.md), so the additive migration is clean; the default keeps all existing rows correct.
-
-Rejected alternative: synthesising a phantom "substrate" layer below each test's deepest layer so the existing top-keyed edge could reference it. Rejected — it pollutes every column with phantom layers and complicates the resolver; the side discriminator is additive and local.
+1. **Sideways default.** A unit observed at test A, whose lithology is NOT correlated to a shallower neighbour B that bottoms out **above** the unit, continues **flat at its observed elevation** under B. Its top is **not** dragged up to B's TD. (B2→S7a: the deep sand stays ~+4.25, continues under S7a; it does not ramp to +10.42.)
+2. **Mixed tie (top↔base) reaches the TD.** When the geologist ties the deep-unit-TOP to the shallow-test-BOTTOM, the unit's top rises to meet that test's TD elevation at that test's position and continues below — the explicit "it reaches here" control.
+3. **base↔base tie.** Two deepest bases tied → the unit's base continues across (the bottom-tie); the deepest unit can band when both its top (top-tie) and base (base-tie) are correlated.
+4. **top↔top tie.** Unchanged from today.
+5. **Correlation overrides geometry.** A tie continues the unit regardless of elevation gap; no proximity guard.
+6. **Body-split.** Non-adjacent same-lithology occurrences at one test are distinct bodies, each with its own top/base surfaces; a tie attaches to the intended one.
+7. **No regression where already correct.** Sections/gaps that render correctly today (correlated bands, genuine pinch-outs) are unchanged.
+8. **3-D parity.** After a Build the voxel model reproduces the corrected partition (no labeller change).
 
 ---
 
 ## 6. Frontend — gesture + rendering
 
-- **Grabbable base handle:** the deepest layer of each test exposes a base contact handle in the section editor (in addition to the existing top/between-layer handles). It participates in the same correlate gesture (drag from one handle to another to create an edge).
-- An edge created from base handles is persisted with `side='base'` on both endpoints (a bottom-tie). The existing single-click / drag correlate ergonomics are unchanged.
-- **Rendering:** `CorrelationEdgesOverlay` draws a bottom-tie **dashed and in the interpretive style** (distinct from the solid observed-contact correlation ribbon), so it reads at a glance as an interpretation. The base handle is visually marked as a base/floor handle.
-- Deletion / re-grab follow the existing correlation-edge affordances.
+- Each unit exposes grab handles at its **top** and **base** contacts; each column additionally exposes a **bottom (TD)** handle (the deepest base, otherwise not an addressable contact). The existing correlate gesture connects any two handles → an edge stamped with each endpoint's side (`top`/`base`).
+- Mixed and base-side ties render **dashed / interpretive** (distinct from the solid observed top-correlation), so an interpretive continuation reads at a glance.
+- Deletion / re-grab follow the existing correlation-edge affordances. "Suggest correlations" (auto-correlate) is untouched and continues to produce top↔top suggestions only.
 
 ---
 
-## 7. Partition — honour the base-tie in `classifyTermination`
+## 7. Partition — how the sides drive continuation
 
-`classifyTermination` decides band/onlap/lens by counting a unit's two bounding contacts' correlations. Today a unit's **base** correlation is found via an edge on the **layer-below's** id (top-keyed). Extend the base lookup:
+`computeSectionFill` already decides a unit's shape per gap from its bounding contacts' correlations. Extend it so:
 
-> A unit's base contact counts as correlated if **either** (existing) an approved edge exists on the layer-below's contact toward the facing/reaching neighbour, **or** (new) an approved edge with `side='base'` exists on **this unit's own layer** toward that neighbour.
+- The `CorrelationEdge` carries `aSide`/`bSide` (`'top'|'base'`, default top) — already wired from the API rows.
+- **Sideways default:** when a unit on the deep side has no correlation to the facing shallow neighbour AND that neighbour's stack does not reach the unit's depth, the unit continues **flat** (a quad at its own top/base elevations extended under the neighbour), rather than its top being interpolated up toward the neighbour's shallow stack. This is the core change — the current up-drag must become a flat sideways continuation.
+- **Tie-driven continuation:** an edge on a unit's contact (matched by `layerId` + side) makes that contact "correlated" toward the neighbour. The band/onlap/pinch decision counts top + base correlations as today; a base side is supplied by a `base`-side edge on the unit's own layer (incl. the deepest unit's column-bottom). A mixed tie correlates the named side on each end independently.
 
-For the **deepest** layer (no layer below) the base correlation can come *only* from the new `side='base'` edge — the bottom-tie. With its top already correlated and its base now tied, the deepest unit reaches **2 → it bands**. All of this session's reach/defer-past-too-shallow logic stays unchanged; the bottom-tie simply supplies the previously-impossible base correlation.
-
----
-
-## 8. Confidence — exclude base-side contacts
-
-The confidence fade dims fill by distance to the nearest **observed** contact/investigation. A bottom-tie is interpretive (no data lives at that base), so:
-
-> Contacts/edges with `side='base'` are **excluded** from the confidence/distance inputs (`distanceConfidence.ts` / `tinConfidence.ts` and whatever feeds the per-element confidence). A bottom-tie never increases confidence anywhere.
-
-(Note: the 2D model-fill overlay already has confidence fade off — `7c08c315`. This requirement governs every *other* confidence consumer, e.g. contacts and the 3D path, so a base-tie can't inflate them.)
+*(Implementation note for the plan: the partition currently drags the deep unit up. The plan must locate that path — the per-gap matching / interface interpolation that raises the deep unit's top toward a shallow neighbour — and replace it with the flat continuation when uncorrelated + unreached. The base↔base honouring from the earlier partition work is a starting point but must be generalised to all sides + the sideways default.)*
 
 ---
 
-## 9. Voxel — inherits, no change
+## 8. Confidence — exclude interpretive ties
 
-The voxel build consumes the `computeSectionFill` partition as its payload. Once the partition bands the tied deep substrate, the voxel model inherits it on the next **Build** — no labeller/build change. The 2D PartitionFillOverlay reflects it live; the 3D model needs a re-Build.
+Interpretive (base-side / mixed) tie contacts carry no observed data, so they are **excluded** from the distance/confidence inputs (`distanceConfidence.ts` / `tinConfidence.ts`). A tie never inflates confidence. (The 2-D model-fill overlay already has confidence-fade off; this governs every other consumer.)
 
 ---
 
-## 10. Correctness rules (each test-pinned)
+## 9. Body-split — distinct bodies for non-adjacent same-lithology occurrences
 
-1. **Tie → band.** A deepest unit whose base is tied (`side='base'` edge) to a reaching neighbour bands across the gap (was onlap/lens before).
-2. **No tie → unchanged.** A deepest unit with no base-tie behaves exactly as today (onlap/lens per its top correlation) — no regression.
-3. **Default side.** Existing edges (`side='top'`) and all current partitions are byte-identical; the migration default preserves them.
-4. **Confidence ignores base.** Adding a bottom-tie does not change the confidence/fade anywhere.
-5. **Voxel parity.** After a Build, the voxel model reproduces the banded substrate (the partition is the source of truth).
+At a single test, two same-lithology layers separated by a different lithology (a shallow sand sliver above a thick clay above the deep sand) must NOT be one body. Split them so each occurrence has its own top/base surfaces. This is the prerequisite for the S6→S5a mixed tie (today the +11.43 sliver and +7.03 deep body are one body, erasing the deep-sand-top). Locate the grouping site (resolver / body-id assignment) during planning; pin with a unit test on the S6-shaped stack.
+
+---
+
+## 10. Voxel — inherits, no change
+
+The voxel build consumes the `computeSectionFill` partition. Once the partition continues sideways / honours ties, the voxel model reproduces it on the next **Build**. The 2-D Fill-bands overlay reflects it immediately; the 3-D model needs a re-Build. No labeller change — proven faithful (§3).
 
 ---
 
 ## 11. Out of scope
 
-- **Apex-cap / pinch geometry** for un-tied deep units — explicitly excluded (owner, 2026-06-17). Un-tied deep units pinch as they do today.
-- **Automatic deepest-first geometric fill ("B")** — Phase-5 debt; an opt-in mode needing only lithos, no correlations.
-- Tying a deep test's bottom to a *shallow* test whose own base is far above the deep unit's depth is not meaningful; the gesture targets bottoms at comparable/reaching depth. (Validation may warn, not block — implementation detail.)
+- Apex-cap / pinch geometry beyond the sideways default and tie-driven shapes.
+- Any change to the 3-D voxel labeller (`label_voxels.py`) — exonerated by measurement.
+- Any change to auto-correlate ("suggest correlations").
+- The Phase-5 automatic deepest-first geometric fill (`docs/debt.md` #221).
 
 ---
 
 ## 12. Testing strategy
 
-- **Partition unit tests** (`partitionFill.test.ts`, behaviour-shaped via `coverAt`): a deepest unit with a base-tie bands; without it, pinches/onlaps (unchanged); existing partitions byte-identical with default `'top'` edges.
-- **Schema / API / use-case tests:** the edge round-trips `contact_side`; a `('base','base')` edge is accepted and surfaced; default `'top'` on legacy rows.
-- **Confidence test:** a `side='base'` contact does not alter the confidence/distance result.
-- **Real-data validation:** reconstruct CS1 from the dev DB, tie S7's (or the relevant deep substrate's) bottom, confirm it bands; confirm un-tied deep units and CS2/CS3 are unchanged; golden / Python-port parity preserved (or the Python `section_partition` port updated in lockstep if the side lookup touches the golden paths — keep the layers in sync).
-- **Frontend gesture test:** the base handle creates a `side='base'` edge; it renders dashed/interpretive.
+- **Partition unit tests** (`partitionFill.test.ts`, behaviour-shaped via `coverAt`): (a) **sideways default** — a deep unit facing a shallower un-reaching neighbour continues flat at its observed elevation, its top NOT dragged to the neighbour TD; (b) **mixed tie** — top↔base tie raises the unit's top to the tied test's TD; (c) **base↔base tie** — bottom-tie continues the base; (d) **top↔top** unchanged; (e) existing correct gaps byte-identical.
+- **Body-split unit test:** an S6-shaped column (shallow sliver + clay + deep body) yields two distinct same-lithology bodies.
+- **Real-data validation (the load-bearing check):** reconstruct CS1, confirm the deep sand continues **sideways** under S5a/S7a (no climb) with no tie; confirm a mixed tie makes it reach a chosen TD; confirm the S6 sliver/deep-body split; **rebuild the voxel model and confirm the slice is truthful** (the owner's "rebuild and check" standard — do this, don't assert it).
+- **No-regression:** full `partitionFill` suite + the existing e2e correlate/section flows green; auto-correlate unaffected.
 
 ---
 
 ## 13. Risks & mitigations
 
-- **Python-port / golden desync:** the base-correlation lookup change must be mirrored in the backend `section_partition` port if it affects golden paths; tests pin parity.
-- **Gesture discoverability:** the base handle is a new grab target — mitigated by reusing the known correlate gesture + the distinct interpretive rendering. A first-use hint can follow (debt #93).
-- **Edge endpoint semantics:** `side` must be validated per endpoint (a top↔base mixed edge is unusual — decide allow/normalise during planning; the common case is base↔base).
+- **Changing the partition's up-drag may shift other gaps.** Mitigate with the byte-identical-where-correct regression (rule 7) + real-data CS2/CS3 spot checks.
+- **Body-split scope creep.** Keep it minimal: split only non-adjacent same-lithology occurrences; do not touch adjacent merging or the resolver's other duties.
+- **Sideways continuation must still respect geological bands** (the 3-D geo-band bounding) — verify the flat continuation does not cross a geological surface (the voxel geo-band clip already enforces this; confirm the 2-D partition's flat fill is consistent).
+- **Mixed-side semantics in the gesture** — validate each endpoint's side independently; a top↔base tie must persist both sides correctly (the schema supports it; pin with the gesture test).
+- **The earlier partition work (base↔base classifyTermination)** must be generalised, not just kept — its `base↔base`-only handling and the deleted MX1-masked tests are superseded by §7's sideways-default + all-sides design.
