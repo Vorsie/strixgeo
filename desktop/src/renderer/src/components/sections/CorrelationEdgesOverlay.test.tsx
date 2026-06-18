@@ -17,6 +17,10 @@
 //              collision: shallow contact's hit-rect drew at the deep
 //              contact's depth, so clicking the upper sand armed the lower).
 //   CC1..CC9  Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out).
+//   CC-BH1    Bottom handle renders in correlate mode.
+//   CC-BH2    Bottom handle absent when contactCorrelateMode=false.
+//   CC-BH3    Clicking bottom handle (nothing armed) arms with side='base'.
+//   CC-BH4    Clicking bottom handle (band armed) fires onContactCorrelate with sides.
 //   CC10..CC10b  Delete-contact right-click gesture.
 //   CC11..CC12  Drag-to-retarget unapproved edge (#133 Phase 2+3 Task 26).
 //   CE-D1  Enlarged endpoint grab target fires onUnapprovedDragStart (#163d).
@@ -1043,6 +1047,7 @@ function makeContactGestureState(
   return {
     contactCorrelateMode: true,
     armedContactId: null,
+    armedContactSide: 'top',
     lastTargetTestId: null,
     onArmContact: vi.fn(),
     onClearArmedContact: vi.fn(),
@@ -1078,7 +1083,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-ca'))
-    expect(gesture.onArmContact).toHaveBeenCalledWith('ca')
+    expect(gesture.onArmContact).toHaveBeenCalledWith('ca', 'top')
     expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
   })
 
@@ -1101,7 +1106,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     // legacy 12 px boundary strip.
     expect(Number(rect.getAttribute('height'))).toBeGreaterThan(12)
     fireEvent.click(rect)
-    expect(gesture.onArmContact).toHaveBeenCalledWith('cb1')
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cb1', 'top')
   })
 
   it('CE-HIT-LOW: clicking the lower half arms the boundary BELOW (next-deeper contact)', () => {
@@ -1119,7 +1124,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-cb1-low'))
-    expect(gesture.onArmContact).toHaveBeenCalledWith('cb2')
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cb2', 'top')
   })
 
   it('CE-HIT-DEEPEST-LOW: the deepest band’s lower zone is inert (no contact below)', () => {
@@ -1193,7 +1198,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-cb1'))
-    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb1')
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb1', 'top', 'top')
     expect(gesture.onArmContact).not.toHaveBeenCalled()
   })
 
@@ -1215,7 +1220,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-cb2'))
-    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb2')
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb2', 'top', 'top')
     expect(gesture.onArmContact).not.toHaveBeenCalled()
     expect(gesture.onClearArmedContact).not.toHaveBeenCalled()
   })
@@ -1240,7 +1245,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-ca-alt'))
-    expect(gesture.onArmContact).toHaveBeenCalledWith('ca-alt')
+    expect(gesture.onArmContact).toHaveBeenCalledWith('ca-alt', 'top')
     expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
   })
 
@@ -1262,7 +1267,7 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-cc'))
-    expect(gesture.onArmContact).toHaveBeenCalledWith('cc')
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cc', 'top')
     expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
   })
 
@@ -1285,7 +1290,83 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     fireEvent.click(screen.getByTestId('contact-hit-cb3'))
-    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb3')
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb3', 'top', 'top')
+  })
+
+  // -------------------------------------------------------------------
+  // CC-BH: bottom-of-test handle (base-side arm gesture)
+  // -------------------------------------------------------------------
+
+  it('CC-BH1: bottom handle renders in correlate mode', () => {
+    // The deepest contact on inv-A is 'ca' (only one contact at depth 2 m).
+    // A bottom handle should appear at the base of that column.
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    // The handle is keyed by investigation id ('inv-A'), not contact id.
+    expect(screen.getByTestId('correlate-bottom-handle-inv-A')).toBeTruthy()
+  })
+
+  it('CC-BH2: bottom handle does NOT render outside correlate mode', () => {
+    const gesture = makeContactGestureState({ contactCorrelateMode: false })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    expect(screen.queryByTestId('correlate-bottom-handle-inv-A')).toBeNull()
+  })
+
+  it('CC-BH3: clicking bottom handle when nothing armed → onArmContact with side="base"', () => {
+    // Nothing armed yet; clicking inv-B's bottom handle should arm cb2
+    // (the deepest contact on inv-B, at depth 5 m) with side='base'.
+    const gesture = makeContactGestureState({ armedContactId: null })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('correlate-bottom-handle-inv-B'))
+    // cb2 is the deepest on inv-B (depth 5 m > cb1 depth 2 m).
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cb2', 'base')
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
+  it('CC-BH4: clicking bottom handle when a band is armed → onContactCorrelate with correct sides', () => {
+    // ca (inv-A) is armed via a band click (side='top').
+    // Clicking inv-B's bottom handle fires a top↔base correlation.
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      armedContactSide: 'top',
+      lastTargetTestId: null,
+    })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('correlate-bottom-handle-inv-B'))
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb2', 'top', 'base')
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
   })
 
   it('CC10: right-click on contact hit-rect fires onRequestDeleteContact with the contact id', () => {

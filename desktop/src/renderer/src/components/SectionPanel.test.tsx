@@ -494,6 +494,7 @@ describe('SectionPanel — gesture hint pill', () => {
     const contactGestureState = {
       contactCorrelateMode: true,
       armedContactId: null,
+      armedContactSide: 'top' as const,
       lastTargetTestId: null,
       onArmContact: vi.fn(),
       onClearArmedContact: vi.fn(),
