@@ -2193,6 +2193,45 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // SAND is still present at its own depth near B2 (the base is unchanged).
     expect(coverAt(withTie, 0, 0.1, 3)).toContain('SAND')
   })
+
+  // ---------------------------------------------------------------------------
+  // FLAT-1: immediate neighbour too shallow, distant neighbour reaches →
+  // un-tied deep unit stays FLAT under the immediate neighbour (no climb).
+  //
+  // Real CS1 geometry: B2 (deep sand top +4.2 mTAW) → S7a (immediate, shallow,
+  // TD +10.42 — never reached the sand) → S6 (distant, TD −4.01 — reaches).
+  // Bug: the old `.some(c => neighbourReaches(...))` walked ALL facing columns,
+  // found S6, set sideways=false → the sand TOP dragged from +4.2 up to +10.42.
+  // Fix: gate on the IMMEDIATE facing column only (pinchSideColumns[0]).
+  // ---------------------------------------------------------------------------
+  it('FLAT-1: un-tied deep unit stays flat under a shallow immediate neighbour even when a distant neighbour reaches', () => {
+    // Mirrors the real B2 / S7a / S6 geometry (depths below surface = 13 m).
+    //   B2:  CLAY  0–8.8 m  (top +4.2)  +  SAND  8.8–17.5 m  (deep, top +4.2)
+    //   S7a: CLAY  0–2.65 m            TD = 13 − 2.65 = +10.35 — does NOT reach sand
+    //   S6:  CLAY  0–5 m               +  SAND  5–23 m  (TD = 13 − 23 = −10.0 — reaches)
+    const b2 = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 17.5, f: 'SAND', b: 'sandDeep' }, // SAND top elev = +4.2 mTAW
+    ])
+    const s7a = col('S7a', 13.0, [
+      { top: 0, base: 2.65, f: 'CLAY', b: 'c2' }, // TD +10.35 — too shallow
+    ])
+    const s6 = col('S6', 13.0, [
+      { top: 0, base: 5, f: 'CLAY', b: 'c3' },
+      { top: 5, base: 23, f: 'SAND', b: 'sandS6' }, // TD −10.0 — reaches
+    ])
+    // No edges: the SAND bodies are not correlated across the gaps.
+    const regions = computeSectionFill([b2, s7a, s6], [])
+
+    // In the B2→S7a gap (gapIndex 0), the sand stays FLAT at its own elevation.
+    // The sand's top is at +4.2 mTAW; elevation 0 is well within its range (+4.2 → −4.5).
+    expect(coverAt(regions, 0, 0.5, 0)).toContain('SAND')
+
+    // The sand must NOT climb to S7a's TD (+10.35). At fraction 0.9 (near S7a)
+    // and elevation +9 (between sand top +4.2 and S7a TD +10.35), the fill must
+    // NOT be SAND — the sand's top has not been dragged upward.
+    expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
+  })
 })
 
 describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {
