@@ -136,6 +136,14 @@ export interface ContactGestureState {
   /** Id of the currently armed source contact, null when nothing armed. */
   armedContactId: string | null
   /**
+   * Which side of the armed contact is being correlated.  ``'top'`` for a
+   * band-click arm (the upper boundary of a unit); ``'base'`` when the user
+   * clicks the bottom-of-test handle (the open base of the deepest unit on a
+   * column).  Resets to ``'top'`` when the armed source is cleared so a fresh
+   * arm-cycle always starts as top-by-default.
+   */
+  armedContactSide: 'top' | 'base'
+  /**
    * Investigation id of the most recent successful target while the same
    * source is still armed.  ``null`` when no edge has committed yet in the
    * current arm-cycle (or the source was just freshly armed).  Drives the
@@ -144,12 +152,26 @@ export interface ContactGestureState {
    * from the still-armed source instead of clearing.
    */
   lastTargetTestId: string | null
-  /** Arm a source contact by id. */
-  onArmContact: (contactId: string) => void
+  /**
+   * Arm a source contact by id, optionally specifying which side is being
+   * correlated.  Defaults to ``'top'`` so existing band-click call sites
+   * don't need to be updated.
+   */
+  onArmContact: (contactId: string, side?: 'top' | 'base') => void
   /** Clear armed state (stay in mode). */
   onClearArmedContact: () => void
-  /** Fired when a valid target contact is clicked — POST contact edge. */
-  onContactCorrelate: (contactAId: string, contactBId: string) => Promise<void>
+  /**
+   * Fired when a valid target contact is clicked — POST contact edge.
+   * ``contactASide`` / ``contactBSide`` carry which side each endpoint
+   * represents so the API can distinguish top↔top from base↔base or
+   * top↔base ties.
+   */
+  onContactCorrelate: (
+    contactAId: string,
+    contactBId: string,
+    contactASide: 'top' | 'base',
+    contactBSide: 'top' | 'base',
+  ) => Promise<void>
   /**
    * Fired when the user right-clicks a contact hit-rect — caller presents
    * a confirmation dialog and calls DELETE on the contact.  Optional so
@@ -931,6 +953,7 @@ export default function CorrelationEdgesOverlay({
   const {
     contactCorrelateMode,
     armedContactId,
+    armedContactSide,
     lastTargetTestId,
     onArmContact,
     onClearArmedContact,
@@ -939,10 +962,16 @@ export default function CorrelationEdgesOverlay({
   } = contactGestureState ?? {
     contactCorrelateMode: false,
     armedContactId: null,
+    armedContactSide: 'top' as const,
     lastTargetTestId: null,
-    onArmContact: (_: string) => {},
+    onArmContact: (_: string, _side?: 'top' | 'base') => {},
     onClearArmedContact: () => {},
-    onContactCorrelate: async (_a: string, _b: string) => {},
+    onContactCorrelate: async (
+      _a: string,
+      _b: string,
+      _aSide: 'top' | 'base',
+      _bSide: 'top' | 'base',
+    ) => {},
     onRequestDeleteContact: undefined,
   }
 
@@ -950,36 +979,43 @@ export default function CorrelationEdgesOverlay({
   // CLICKED contact so the upper/lower half-zones of a band can target
   // different boundaries (dogfeed 2026-05-29).  ``clickedTestId`` is the
   // clicked contact's investigation (same for both halves of a band).
-  const handleCorrelateClick = (clickedId: string, clickedTestId: string | null): void => {
-    if (armedContactId === clickedId) {
-      // a) Click on the armed boundary → disarm.
+  // ``clickedSide`` is which side of the clicked contact is being
+  // targeted — ``'top'`` for band-click arms, ``'base'`` for the
+  // bottom-of-test handle.
+  const handleCorrelateClick = (
+    clickedId: string,
+    clickedTestId: string | null,
+    clickedSide: 'top' | 'base' = 'top',
+  ): void => {
+    if (armedContactId === clickedId && armedContactSide === clickedSide) {
+      // a) Click on the exact same armed boundary+side → disarm.
       onClearArmedContact()
       return
     }
     if (armedContactId === null) {
       // b) Nothing armed → arm this boundary.
-      onArmContact(clickedId)
+      onArmContact(clickedId, clickedSide)
       return
     }
     const armedContact = contacts.find(x => x.id === armedContactId)
     const armedTestId = armedContact ? anchorId(armedContact) : null
     if (armedTestId !== null && clickedTestId === armedTestId) {
       // c) Click in the source's own investigation → re-arm here.
-      onArmContact(clickedId)
+      onArmContact(clickedId, clickedSide)
       return
     }
     if (lastTargetTestId !== null && clickedTestId !== null && clickedTestId === lastTargetTestId) {
       // d) Lens-pinch-out: another click in the same target investigation.
-      void onContactCorrelate(armedContactId, clickedId)
+      void onContactCorrelate(armedContactId, clickedId, armedContactSide, clickedSide)
       return
     }
     if (lastTargetTestId === null) {
       // e) First edge of this arm-cycle → fire correlation.
-      void onContactCorrelate(armedContactId, clickedId)
+      void onContactCorrelate(armedContactId, clickedId, armedContactSide, clickedSide)
       return
     }
     // f) Third unrelated investigation → conservative: re-arm here.
-    onArmContact(clickedId)
+    onArmContact(clickedId, clickedSide)
   }
 
   // Per-band chip data (debt #100). One chip per (investigation × formation)
@@ -1572,6 +1608,58 @@ export default function CorrelationEdgesOverlay({
                 />
               </g>
             )
+          })}
+        </g>
+      )}
+
+      {/* Bottom-of-test handles: one small interactive diamond per column in
+          correlate mode so the user can draw a base↔base (or base↔top) tie
+          from the open base of the deepest unit.  Only rendered in correlate
+          mode to avoid visual noise in the normal section view.
+
+          A column must have at least one contact to get a handle; columns
+          with no contacts are skipped (nothing to tie from).  The handle
+          targets the DEEPEST contact's id with side='base', which the API
+          distinguishes from the same contact with side='top'. */}
+      {contactCorrelateMode && (
+        <g data-testid="bottom-handles">
+          {placedColumns.flatMap(col => {
+            const invId = col.proj.item.id
+            const bands = bandMap.get(invId)
+            if (!bands || bands.size === 0) return []
+
+            // Find the deepest contact on this column (max depth_top_m).
+            const contactsOnCol = contacts.filter(c => anchorId(c) === invId)
+            if (contactsOnCol.length === 0) return []
+            const deepest = contactsOnCol.reduce((a, b) =>
+              b.depth_top_m > a.depth_top_m ? b : a,
+            )
+
+            // Column floor = botLevel of the deepest band entry, converted to
+            // screen y.  Fall back to plotBottom if the band is missing.
+            const deepestBand = bands.get(deepest.id)
+            const floorY = deepestBand ? levelToScreen(deepestBand.botLevel) : plotBottom
+
+            const colX = col.nudgedX
+            const isBottomArmed =
+              armedContactId === deepest.id && armedContactSide === 'base'
+
+            return [
+              <rect
+                key={`bottom-handle-${invId}`}
+                data-testid={`correlate-bottom-handle-${invId}`}
+                x={colX - 6}
+                y={floorY - 6}
+                width={12}
+                height={12}
+                rx={2}
+                fill={isBottomArmed ? CONTACT_ARM_COLOR : 'rgba(100,116,139,0.3)'}
+                stroke={CONTACT_ARM_COLOR}
+                strokeWidth={isBottomArmed ? 2 : 1}
+                style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                onClick={() => handleCorrelateClick(deepest.id, invId, 'base')}
+              />,
+            ]
           })}
         </g>
       )}
