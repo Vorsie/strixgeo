@@ -2191,13 +2191,24 @@ function emitGap(
         }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
         const band = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
-        // Sideways default (spec §5 rule 1): when the unit is NOT correlated AND no
-        // reaching neighbour exists on the facing side (a data void, not a pinch-out),
-        // the unit continues FLAT at its own elevation. A genuine pinch-out requires a
-        // REACHING neighbour that is simply uncorrelated — that is a lens, not a sideways
-        // continuation. ``bandsTowardSide`` returns false for BOTH cases; we distinguish
-        // them by checking whether any facing column reaches the unit's depth.
-        const sideways = !band && !pinchSideColumns.some((c) => neighbourReaches(c.td, p.ownTopDepth))
+        // Sideways default (spec §5 rule 1, revised 2026-06-18): when the unit is NOT
+        // correlated AND the IMMEDIATE facing neighbour (the gap's adjacent column,
+        // ``pinchSideColumns[0]``) does NOT reach the unit's depth, the unit continues
+        // FLAT at its own elevation under that shallow neighbour — it is a data void,
+        // not a geological termination.
+        //
+        // Gate on the IMMEDIATE neighbour only, NOT the whole carry-through list.
+        // A distant reaching column (e.g. S6 past a shallow S7a) cannot pin a
+        // pinch-out at S7a — S7a never observed that depth, so the missing
+        // correlation at S7a is a data void. Only the column the gap is actually
+        // BETWEEN is the arbiter of "reached or not reached" for that gap.
+        //
+        // Genuine pinch: the immediate neighbour REACHES the unit (drilled past it)
+        // but logs uncorrelated lithology → the neighbour disproves the unit there;
+        // ``bandsTowardSide`` already returned false for lack of a correlation edge,
+        // and here ``neighbourReaches`` is true → ``sideways=false`` → genuine pinch.
+        const sideways =
+          !band && !neighbourReaches(pinchSideColumns[0]?.td ?? -Infinity, p.ownTopDepth)
         // Mixed-tie override (spec §5 rule 2): a top↔base edge is the engineer's
         // explicit "this unit reaches here" declaration. It overrides geometry
         // unconditionally — including when the unit is a genuine pinch (a reaching,
