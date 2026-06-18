@@ -54,6 +54,17 @@ const CONTACT_EDGE_WIDTH = 1.8
 const UNAPPROVED_EDGE_COLOR = '#f59e0b'
 /** Dash pattern for unapproved edges — dashed to signal provisional state. */
 const UNAPPROVED_EDGE_DASH = '4 4'
+/**
+ * Stroke colour for interpretive (base-side or mixed top↔base) ties.
+ *
+ * Cyan-300 — visually distinct from the solid emerald top↔top seam so the
+ * geologist reads "interpretive continuation" vs "observed surface correlation"
+ * at a glance (spec §6).
+ */
+const BASE_TIE_COLOR = '#4fc3f7'
+/** Dash pattern for interpretive ties — distinguishes them from solid top↔top
+ *  ribbons (spec §6). */
+const BASE_TIE_DASH = '6 3'
 /** Half-height (px) of the seam ribbon above and below the boundary line
  *  (#131-c). Fixed regardless of zoom so the ribbon reads consistently.
  *  Kept slim so stacked correlations don't occlude each other (owner
@@ -472,8 +483,8 @@ export function buildContactScreenMap(
   columns: readonly PlacedColumn[],
   bandMap: BandMap,
   levelToScreen: (level: number) => number,
-): Map<string, { x: number; topY: number; halfWidth: number }> {
-  const result = new Map<string, { x: number; topY: number; halfWidth: number }>()
+): Map<string, { x: number; topY: number; botY: number; halfWidth: number }> {
+  const result = new Map<string, { x: number; topY: number; botY: number; halfWidth: number }>()
   for (const c of contacts) {
     const invId = anchorId(c)
     if (invId === null) continue
@@ -488,6 +499,10 @@ export function buildContactScreenMap(
     result.set(c.id, {
       x: col.nudgedX,
       topY: levelToScreen(band.topLevel),
+      // botY is the screen Y of the band's base — needed for base-side ties
+      // (spec §6 bug 1: a base-side endpoint must render at the band bottom,
+      // not its top).
+      botY: levelToScreen(band.botLevel),
       halfWidth: col.width / 2,
     })
   }
@@ -1219,6 +1234,20 @@ export default function CorrelationEdgesOverlay({
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
 
+            // Resolve Y for each endpoint based on the persisted side.
+            // A base-side endpoint anchors at the band's base (botY); a
+            // top-side endpoint anchors at the band's top (topY).
+            // Bug fix (spec §6): previously all edges used topY regardless
+            // of contact_a_side / contact_b_side, so base ties rendered
+            // from the wrong boundary.
+            const yA = ce.contact_a_side === 'base' ? ptA.botY : ptA.topY
+            const yB = ce.contact_b_side === 'base' ? ptB.botY : ptB.topY
+
+            // An edge is interpretive (base or mixed) when either endpoint
+            // is a base tie — renders dashed + cyan (spec §6).
+            const isInterpretive =
+              ce.contact_a_side === 'base' || ce.contact_b_side === 'base'
+
             // Cross-lithology edge → SURFACE TIE: draw the clean connecting
             // line only (no seam ribbon; a tie forms no body). The resolver
             // drops cross-lithology edges from body formation, so this is a
@@ -1226,7 +1255,18 @@ export default function CorrelationEdgesOverlay({
             const lithoA = lithoByContactId.get(ce.contact_a_id) ?? null
             const lithoB = lithoByContactId.get(ce.contact_b_id) ?? null
             if (lithoA !== null && lithoB !== null && lithoA !== lithoB) {
-              const tieColor = approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR
+              // Interpretive ties always use BASE_TIE_COLOR; approved top↔top
+              // use emerald; pending use amber.
+              const tieColor = isInterpretive
+                ? BASE_TIE_COLOR
+                : approved
+                  ? CONTACT_EDGE_COLOR
+                  : UNAPPROVED_EDGE_COLOR
+              const tieDash = isInterpretive
+                ? BASE_TIE_DASH
+                : approved
+                  ? undefined
+                  : UNAPPROVED_EDGE_DASH
               // Anchor at each column's INNER (facing) edge — same as the
               // ribbon — so the tie spans only the gap, not centre-to-centre
               // across the columns (dogfeed 2026-06-08).
@@ -1240,7 +1280,7 @@ export default function CorrelationEdgesOverlay({
                 const r = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
                 setEdgeContextMenu({
                   x: r ? e.clientX - r.left : (tieX1 + tieX2) / 2,
-                  y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
+                  y: r ? e.clientY - r.top : (yA + yB) / 2,
                   edge: ce,
                 })
               }
@@ -1251,9 +1291,9 @@ export default function CorrelationEdgesOverlay({
                   <line
                     data-testid={`tie-hit-${ce.id}`}
                     x1={tieX1}
-                    y1={ptA.topY}
+                    y1={yA}
                     x2={tieX2}
-                    y2={ptB.topY}
+                    y2={yB}
                     stroke="transparent"
                     strokeWidth={EDGE_DRAG_HIT_WIDTH}
                     style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
@@ -1262,13 +1302,14 @@ export default function CorrelationEdgesOverlay({
                   <line
                     data-testid={`tie-line-${ce.id}`}
                     data-approved={approved ? 'true' : 'false'}
+                    data-interpretive={isInterpretive ? 'true' : 'false'}
                     x1={tieX1}
-                    y1={ptA.topY}
+                    y1={yA}
                     x2={tieX2}
-                    y2={ptB.topY}
+                    y2={yB}
                     stroke={tieColor}
                     strokeWidth={CONTACT_EDGE_WIDTH}
-                    strokeDasharray={approved ? undefined : UNAPPROVED_EDGE_DASH}
+                    strokeDasharray={tieDash}
                     style={{ pointerEvents: 'none' }}
                   />
                 </g>
@@ -1279,8 +1320,8 @@ export default function CorrelationEdgesOverlay({
             // Anchor the ribbon at each column's INNER edge (the edge facing
             // the other column) so it bridges only the gap between columns
             // instead of running centre-to-centre over them (owner dogfeed
-            // 2026-05-28). topY is unchanged — the contact level is constant
-            // across the band, so the inner edge sits at the same depth.
+            // 2026-05-28). yA/yB already pick topY vs botY per endpoint
+            // side, so the seam tracks the correct boundary.
             const aLeftOfB = ptA.x <= ptB.x
             let xA = aLeftOfB ? ptA.x + ptA.halfWidth : ptA.x - ptA.halfWidth
             let xB = aLeftOfB ? ptB.x - ptB.halfWidth : ptB.x + ptB.halfWidth
@@ -1296,8 +1337,12 @@ export default function CorrelationEdgesOverlay({
               xA = mid - sign * half
               xB = mid + sign * half
             }
-            const stripesA = stripeColorsByContactId.get(ce.contact_a_id)
-            const stripesB = stripeColorsByContactId.get(ce.contact_b_id)
+            // Interpretive (base/mixed) ties: draw as a plain dashed line
+            // (no colour-stripe ribbon — there is no single "surface" to
+            // straddle). The seam + hit geometry below handles the
+            // right-click delete target.
+            const stripesA = isInterpretive ? null : stripeColorsByContactId.get(ce.contact_a_id)
+            const stripesB = isInterpretive ? null : stripeColorsByContactId.get(ce.contact_b_id)
             const aboveA = stripesA?.above ?? null
             const aboveB = stripesB?.above ?? null
             const belowA = stripesA?.below ?? null
@@ -1310,15 +1355,16 @@ export default function CorrelationEdgesOverlay({
             // Perimeter for the pending dashed outline — wraps whichever
             // stripes are present (top edge sits at −H only when the above
             // stripe shows, otherwise at the seam line).
-            const topY_A = showAbove ? ptA.topY - H : ptA.topY
-            const topY_B = showAbove ? ptB.topY - H : ptB.topY
-            const botY_A = showBelow ? ptA.topY + H : ptA.topY
-            const botY_B = showBelow ? ptB.topY + H : ptB.topY
+            const topY_A = showAbove ? yA - H : yA
+            const topY_B = showAbove ? yB - H : yB
+            const botY_A = showBelow ? yA + H : yA
+            const botY_B = showBelow ? yB + H : yB
             return (
               <g
                 key={`ribbon-${ce.id}`}
                 data-testid={`ribbon-${ce.id}`}
                 data-approved={approved ? 'true' : 'false'}
+                data-interpretive={isInterpretive ? 'true' : 'false'}
                 pointerEvents="none"
               >
                 <defs>
@@ -1346,7 +1392,7 @@ export default function CorrelationEdgesOverlay({
                 {showAbove && (
                   <polygon
                     data-testid={`ribbon-above-${ce.id}`}
-                    points={`${xA},${ptA.topY - H} ${xB},${ptB.topY - H} ${xB},${ptB.topY} ${xA},${ptA.topY}`}
+                    points={`${xA},${yA - H} ${xB},${yB - H} ${xB},${yB} ${xA},${yA}`}
                     fill={`url(#ribbon-above-grad-${ce.id})`}
                     fillOpacity={fillOpacity}
                   />
@@ -1354,15 +1400,25 @@ export default function CorrelationEdgesOverlay({
                 {showBelow && (
                   <polygon
                     data-testid={`ribbon-below-${ce.id}`}
-                    points={`${xA},${ptA.topY} ${xB},${ptB.topY} ${xB},${ptB.topY + H} ${xA},${ptA.topY + H}`}
+                    points={`${xA},${yA} ${xB},${yB} ${xB},${yB + H} ${xA},${yA + H}`}
                     fill={`url(#ribbon-below-grad-${ce.id})`}
                     fillOpacity={fillOpacity}
                   />
                 )}
-                {approved ? (
+                {isInterpretive ? (
+                  /* Interpretive tie: dashed cyan seam, no colour stripes. */
                   <line
                     data-testid={`ribbon-seam-${ce.id}`}
-                    x1={xA} y1={ptA.topY} x2={xB} y2={ptB.topY}
+                    x1={xA} y1={yA} x2={xB} y2={yB}
+                    stroke={BASE_TIE_COLOR}
+                    strokeWidth={CONTACT_EDGE_WIDTH}
+                    strokeDasharray={BASE_TIE_DASH}
+                    pointerEvents="none"
+                  />
+                ) : approved ? (
+                  <line
+                    data-testid={`ribbon-seam-${ce.id}`}
+                    x1={xA} y1={yA} x2={xB} y2={yB}
                     stroke={RIBBON_SEAM_COLOR}
                     strokeWidth={1.5}
                     pointerEvents="none"
@@ -1397,20 +1453,20 @@ export default function CorrelationEdgesOverlay({
                     const r = svg?.getBoundingClientRect()
                     setEdgeContextMenu({
                       x: r ? e.clientX - r.left : (xA + xB) / 2,
-                      y: r ? e.clientY - r.top : (ptA.topY + ptB.topY) / 2,
+                      y: r ? e.clientY - r.top : (yA + yB) / 2,
                       edge: ce,
                     })
                   }
                   const canDrag = !approved && onUnapprovedDragStart !== undefined
                   if (canDrag) {
                     const dir = Math.sign(xB - xA) || 1
-                    const slope = xB !== xA ? (ptB.topY - ptA.topY) / (xB - xA) : 0
+                    const slope = xB !== xA ? (yB - yA) / (xB - xA) : 0
                     const aX = xA + EDGE_HIT_END_INSET * dir
-                    const aY = ptA.topY + (aX - xA) * slope
+                    const aY = yA + (aX - xA) * slope
                     const bX = xB - EDGE_HIT_END_INSET * dir
-                    const bY = ptB.topY + (bX - xB) * slope
+                    const bY = yB + (bX - xB) * slope
                     const midX = (xA + xB) / 2
-                    const midY = (ptA.topY + ptB.topY) / 2
+                    const midY = (yA + yB) / 2
                     return (
                       <>
                         <line
@@ -1452,10 +1508,10 @@ export default function CorrelationEdgesOverlay({
                   }
                   if (!onRequestDeleteEdge) return null
                   const half = EDGE_HIT_STROKE_WIDTH / 2
-                  const hTopA = Math.min(topY_A, ptA.topY - half)
-                  const hBotA = Math.max(botY_A, ptA.topY + half)
-                  const hTopB = Math.min(topY_B, ptB.topY - half)
-                  const hBotB = Math.max(botY_B, ptB.topY + half)
+                  const hTopA = Math.min(topY_A, yA - half)
+                  const hBotA = Math.max(botY_A, yA + half)
+                  const hTopB = Math.min(topY_B, yB - half)
+                  const hBotB = Math.max(botY_B, yB + half)
                   const dir = Math.sign(xB - xA) || 1
                   const hxA = xA + EDGE_HIT_END_INSET * dir
                   const hxB = xB - EDGE_HIT_END_INSET * dir
