@@ -1547,3 +1547,187 @@ describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)'
     expect(queryByTestId('lens-candidate-a-mid')).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Base-side tie rendering + delete (spec §6 bug fixes 2026-06-18)
+//
+//   BT1  A base↔base edge renders its endpoints at botY (band bottom), not topY.
+//   BT2  A mixed (top↔base) edge: endpoint A at topY, endpoint B at botY.
+//   BT3  A top↔top edge still renders at topY (regression).
+//   BT4  A base/mixed edge carries stroke-dasharray (interpretive).
+//   BT5  A top↔top approved edge does NOT carry stroke-dasharray (regression).
+//   BT6  Right-click a base-side ribbon → onRequestDeleteEdge receives the full
+//        edge object with correct contact_a_side / contact_b_side.
+// ---------------------------------------------------------------------------
+
+describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () => {
+  // Setup: two columns, each with a single contact at depth 2 m.
+  // Surface elevation = 10 m, max_depth = 20 m.
+  // levelToScreen: plotTop=20, surfaceLevel=10, scale=10
+  //   → topY(contact at 2 m depth) = 20 + (10 − 8) * 10 = 40
+  //       where topLevel = 10 − 2 = 8
+  //   → botY (investigation bottom at 20 m depth) = 20 + (10 − −10) * 10 = 220
+  //       where botLevel = 10 − 20 = −10
+  const level2screen = makeLevelToScreen(10, 20, 10)
+  const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+  const contacts = [
+    makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+    makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+  ]
+  const columns = [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)]
+
+  function makeEdge(
+    id: string,
+    aSide: 'top' | 'base',
+    bSide: 'top' | 'base',
+    approved = true,
+  ): LithoContactCorrelationEdge {
+    return {
+      id,
+      contact_a_id: 'ca',
+      contact_b_id: 'cb',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: approved,
+      contact_a_side: aSide,
+      contact_b_side: bSide,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+  }
+
+  // BT1: a base↔base edge has both y-coords at the band bottom.
+  it('BT1: base↔base edge renders both endpoints at the band bottom Y', () => {
+    const edge = makeEdge('e-bb', 'base', 'base')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+    })
+    // The ribbon seam spans the gap between the columns' inner edges.
+    // inv-A: centre 100, width 40, inner right edge = 120.
+    // inv-B: centre 200, width 40, inner left  edge = 180.
+    // band: topLevel = 10 − 2 = 8 → topY = 20 + (10−8)*10 = 40.
+    // band: botLevel = 10 − 20 = −10 → botY = 20 + (10−(−10))*10 = 220.
+    const seam = screen.getByTestId('ribbon-seam-e-bb')
+    const y1 = Number(seam.getAttribute('y1'))
+    const y2 = Number(seam.getAttribute('y2'))
+    // Both ends should be at the botY (≈220), NOT the topY (≈40).
+    expect(y1).toBeCloseTo(220, 0)
+    expect(y2).toBeCloseTo(220, 0)
+  })
+
+  // BT2: mixed top↔base edge: A at topY, B at botY.
+  it('BT2: mixed top↔base edge — A endpoint at topY, B at botY', () => {
+    const edge = makeEdge('e-tb', 'top', 'base')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+    })
+    const seam = screen.getByTestId('ribbon-seam-e-tb')
+    const y1 = Number(seam.getAttribute('y1'))
+    const y2 = Number(seam.getAttribute('y2'))
+    // A is 'top' → topY ≈ 40; B is 'base' → botY ≈ 220.
+    expect(y1).toBeCloseTo(40, 0)
+    expect(y2).toBeCloseTo(220, 0)
+  })
+
+  // BT3: regression — a top↔top edge still anchors at topY.
+  it('BT3 (regression): top↔top edge still renders both endpoints at topY', () => {
+    const edge = makeEdge('e-tt', 'top', 'top')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+      onRequestDeleteEdge: vi.fn(),
+    })
+    const seam = screen.getByTestId('ribbon-seam-e-tt')
+    const y1 = Number(seam.getAttribute('y1'))
+    const y2 = Number(seam.getAttribute('y2'))
+    expect(y1).toBeCloseTo(40, 0)
+    expect(y2).toBeCloseTo(40, 0)
+  })
+
+  // BT4: base/mixed ties carry stroke-dasharray (interpretive signal).
+  it('BT4: base↔base edge carries stroke-dasharray on the seam', () => {
+    const edge = makeEdge('e-bb2', 'base', 'base')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+    })
+    const seam = screen.getByTestId('ribbon-seam-e-bb2')
+    const dash = seam.getAttribute('stroke-dasharray')
+    expect(dash).not.toBeNull()
+    expect(dash).not.toBe('')
+  })
+
+  it('BT4b: mixed top↔base edge carries stroke-dasharray', () => {
+    const edge = makeEdge('e-tb2', 'top', 'base')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+    })
+    const seam = screen.getByTestId('ribbon-seam-e-tb2')
+    const dash = seam.getAttribute('stroke-dasharray')
+    expect(dash).not.toBeNull()
+    expect(dash).not.toBe('')
+  })
+
+  // BT5: regression — an approved top↔top edge has NO stroke-dasharray.
+  it('BT5 (regression): approved top↔top edge seam has no stroke-dasharray', () => {
+    const edge = makeEdge('e-tt2', 'top', 'top', true)
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+    })
+    const seam = screen.getByTestId('ribbon-seam-e-tt2')
+    // An approved top↔top seam is a solid line — no dasharray attribute
+    // (or null / empty string).
+    const dash = seam.getAttribute('stroke-dasharray')
+    expect(!dash || dash === '').toBe(true)
+  })
+
+  // BT6: right-click delete on a base↔base ribbon passes the full edge
+  // object including contact_a_side / contact_b_side to onRequestDeleteEdge.
+  it('BT6: right-click base↔base ribbon → onRequestDeleteEdge receives edge with correct sides', () => {
+    const onRequestDeleteEdge = vi.fn()
+    const edge = makeEdge('e-bb3', 'base', 'base')
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: columns,
+      levelToScreen: level2screen,
+      plotTop: 20, plotBottom: 300,
+      contactEdges: [edge],
+      onRequestDeleteEdge,
+    })
+    // The approved base↔base ribbon has an edge-hit polygon for right-click.
+    const hitTarget = screen.getByTestId('edge-hit-e-bb3')
+    fireEvent.contextMenu(hitTarget)
+    // EdgeContextMenu should open with the delete option.
+    const deleteBtn = screen.getByText(/Delete correlation/i, { selector: 'button' })
+    fireEvent.click(deleteBtn)
+    expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
+    const receivedEdge = onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge
+    expect(receivedEdge.id).toBe('e-bb3')
+    expect(receivedEdge.contact_a_side).toBe('base')
+    expect(receivedEdge.contact_b_side).toBe('base')
+  })
+})
