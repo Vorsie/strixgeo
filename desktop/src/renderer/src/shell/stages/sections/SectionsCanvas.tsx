@@ -577,6 +577,8 @@ export default function SectionsCanvas(): JSX.Element {
               contactAId,
               contactBId,
               sectionIdAtPush,
+              contactASide,
+              contactBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -614,21 +616,37 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   const handleDeleteContactCorrelation = useCallback(
-    async (contactAId: string, contactBId: string): Promise<void> => {
+    async (
+      contactAId: string,
+      contactBId: string,
+      // Sides are required to distinguish a base-tie from a top-tie on the
+      // same contact pair — the backend uniqueness is (a_id, b_id, a_side,
+      // b_side), so deleting without sides silently matches nothing for a
+      // base tie (spec §6 bug 2).
+      contactASide: 'top' | 'base' = 'top',
+      contactBSide: 'top' | 'base' = 'top',
+    ): Promise<void> => {
       if (!activeLithoModel) return
       const modelId = activeLithoModel.id
       const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-uncorrelate: removing ${contactAId} ↔ ${contactBId} on model ${modelId}`,
+        `contact-uncorrelate: removing ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) on model ${modelId}`,
       )
-      // Optimistic removal.
+      // Optimistic removal — filter on sides too so a top-tie on the same
+      // pair is not accidentally removed when deleting a base-tie.
       setContactCorrelationEdges(prev =>
         prev.filter(
           e =>
             !(
-              (e.contact_a_id === contactAId && e.contact_b_id === contactBId) ||
-              (e.contact_a_id === contactBId && e.contact_b_id === contactAId)
+              (e.contact_a_id === contactAId &&
+                e.contact_b_id === contactBId &&
+                e.contact_a_side === contactASide &&
+                e.contact_b_side === contactBSide) ||
+              (e.contact_a_id === contactBId &&
+                e.contact_b_id === contactAId &&
+                e.contact_a_side === contactBSide &&
+                e.contact_b_side === contactASide)
             ),
         ),
       )
@@ -639,6 +657,8 @@ export default function SectionsCanvas(): JSX.Element {
           contactAId,
           contactBId,
           sectionIdAtPush,
+          contactASide,
+          contactBSide,
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
@@ -654,6 +674,8 @@ export default function SectionsCanvas(): JSX.Element {
               contactAId,
               contactBId,
               sectionIdAtPush,
+              contactASide,
+              contactBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -665,6 +687,8 @@ export default function SectionsCanvas(): JSX.Element {
               contactAId,
               contactBId,
               sectionIdAtPush,
+              contactASide,
+              contactBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -672,7 +696,7 @@ export default function SectionsCanvas(): JSX.Element {
         })
         log.success(
           'section',
-          `contact-uncorrelate: edge ${contactAId} ↔ ${contactBId} removed`,
+          `contact-uncorrelate: edge ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) removed`,
         )
       } catch (err) {
         log.warn(
@@ -1044,6 +1068,8 @@ export default function SectionsCanvas(): JSX.Element {
             capturedDrag.edge.contact_a_id,
             capturedDrag.edge.contact_b_id,
             selectedSectionId,
+            capturedDrag.edge.contact_a_side,
+            capturedDrag.edge.contact_b_side,
           )
           // Re-create the original (now approved) + the twin to the dropped
           // boundary. The second create completes the 1↔2 and triggers the
@@ -1090,6 +1116,8 @@ export default function SectionsCanvas(): JSX.Element {
           capturedDrag.edge.contact_a_id,
           capturedDrag.edge.contact_b_id,
           selectedSectionId,
+          capturedDrag.edge.contact_a_side,
+          capturedDrag.edge.contact_b_side,
         )
         // 2. Create the replacement edge (anchor + new target).
         //    source='manual' → server defaults user_approved=True (Option Y).
@@ -2154,7 +2182,13 @@ export default function SectionsCanvas(): JSX.Element {
           // Reuses the existing optimistic-remove + DELETE + refetch handler.
           onRequestDeleteEdge={
             isLitho
-              ? edge => void handleDeleteContactCorrelation(edge.contact_a_id, edge.contact_b_id)
+              ? edge =>
+                  void handleDeleteContactCorrelation(
+                    edge.contact_a_id,
+                    edge.contact_b_id,
+                    edge.contact_a_side,
+                    edge.contact_b_side,
+                  )
               : undefined
           }
           // Dogfeed 2026-05-31: right-click a pending edge → "Accept correlation".
