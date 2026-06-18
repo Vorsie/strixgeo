@@ -378,6 +378,10 @@ export default function SectionsCanvas(): JSX.Element {
   // Armed contact id — the source boundary the user clicked first.
   // Null = nothing armed (idle).
   const [armedContactId, setArmedContactId] = useState<string | null>(null)
+  // Which side of the armed contact is being correlated.  'top' = normal
+  // band-click; 'base' = bottom-of-test handle.  Resets to 'top' whenever
+  // the armed source is cleared so a fresh cycle starts top-by-default.
+  const [armedContactSide, setArmedContactSide] = useState<'top' | 'base'>('top')
   // Sticky lens-window (debt #135): investigation id of the most recent
   // successful target while the same source is still armed.  Null when no
   // edge has committed yet in the current arm-cycle.  A subsequent click on
@@ -517,13 +521,18 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   const handleCreateContactCorrelation = useCallback(
-    async (contactAId: string, contactBId: string): Promise<void> => {
+    async (
+      contactAId: string,
+      contactBId: string,
+      contactASide: 'top' | 'base' = 'top',
+      contactBSide: 'top' | 'base' = 'top',
+    ): Promise<void> => {
       if (!activeLithoModel) return
       const modelId = activeLithoModel.id
       const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-correlate: linking ${contactAId} ↔ ${contactBId} on model ${modelId}`,
+        `contact-correlate: linking ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) on model ${modelId}`,
       )
       try {
         await api.geology.createContactCorrelation(
@@ -532,6 +541,8 @@ export default function SectionsCanvas(): JSX.Element {
           contactAId,
           contactBId,
           sectionIdAtPush,
+          contactASide,
+          contactBSide,
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
@@ -543,6 +554,7 @@ export default function SectionsCanvas(): JSX.Element {
         const targetContact = lithoContacts.find(c => c.id === contactBId)
         const targetTestId = targetContact?.cpt_id ?? targetContact?.borehole_id ?? null
         setArmedContactId(null)
+        setArmedContactSide('top')
         setLastTargetTestId(null)
         // Amber pulse on both correlated bands — the immediate "your gesture
         // worked" cue before formations refetch (dogfeed 2026-05-23 #100).
@@ -576,6 +588,8 @@ export default function SectionsCanvas(): JSX.Element {
               contactAId,
               contactBId,
               sectionIdAtPush,
+              contactASide,
+              contactBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -584,13 +598,14 @@ export default function SectionsCanvas(): JSX.Element {
         toast('success', 'Boundary correlation added.')
         log.success(
           'section',
-          `contact-correlate: edge ${contactAId} ↔ ${contactBId} created` +
+          `contact-correlate: edge ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) created` +
             (targetTestId ? ` (sticky target=${targetTestId})` : ''),
         )
       } catch (err) {
         log.warn('section', 'handleCreateContactCorrelation: POST failed', err)
         // Reset the gesture so the user starts cleanly on the next click.
         setArmedContactId(null)
+        setArmedContactSide('top')
         setLastTargetTestId(null)
         toast('error', 'Could not create the boundary correlation — try again.')
       }
@@ -826,15 +841,20 @@ export default function SectionsCanvas(): JSX.Element {
     return {
       contactCorrelateMode,
       armedContactId,
+      armedContactSide,
       lastTargetTestId,
       // Arming a (new) source always resets the sticky lens window —
       // a fresh source starts a fresh arm-cycle (debt #135).
-      onArmContact: (id: string) => {
+      // The optional ``side`` parameter lets the bottom-of-test handle
+      // arm with side='base'; band clicks default to 'top'.
+      onArmContact: (id: string, side: 'top' | 'base' = 'top') => {
         setArmedContactId(id)
+        setArmedContactSide(side)
         setLastTargetTestId(null)
       },
       onClearArmedContact: () => {
         setArmedContactId(null)
+        setArmedContactSide('top')
         setLastTargetTestId(null)
       },
       onContactCorrelate: handleCreateContactCorrelation,
@@ -845,6 +865,7 @@ export default function SectionsCanvas(): JSX.Element {
     isLitho,
     contactCorrelateMode,
     armedContactId,
+    armedContactSide,
     lastTargetTestId,
     handleCreateContactCorrelation,
     handleDeleteContactCorrelation,
