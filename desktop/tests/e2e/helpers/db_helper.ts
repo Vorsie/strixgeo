@@ -121,6 +121,42 @@ export async function countCorrelationEdges(projectId: string): Promise<number> 
 }
 
 /**
+ * Count correlation edges that touch a BASE side for a project's
+ * lithostratigraphic models — i.e. rows where ``contact_a_side='base'`` OR
+ * ``contact_b_side='base'``.
+ *
+ * A base-side edge is the signature of the bottom-of-test correlation handle
+ * gesture: arming a unit band (side='top') and clicking another column's
+ * bottom handle (side='base') POSTs an edge with one endpoint's side stamped
+ * ``'base'``.  The default top↔top correlations never set ``'base'``, so this
+ * count isolates the gesture under test from any pre-existing edges.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count.
+ */
+export async function countBaseSideCorrelationEdges(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n
+         FROM litho_contact_correlation_edge lce
+         JOIN geological_model gm ON gm.id = lce.model_id
+        WHERE gm.app_project_id = $1
+          AND gm.kind = 'lithostratigraphic'
+          AND (lce.contact_a_side = 'base' OR lce.contact_b_side = 'base')`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
  * List formation-absence rows for a project.
  *
  * Each absence row represents a (formation, investigation) pair where the
