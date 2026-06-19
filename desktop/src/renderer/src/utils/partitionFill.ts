@@ -89,6 +89,16 @@ export interface PartitionUnit {
    * ``layerId``s (the trustworthy correlation signal, vs the over-lumped body_id).
    */
   layerId: string
+  /**
+   * True for units injected by ``injectVirtualUnits`` to fill the sub-TD void
+   * below a shallow neighbour.  Virtual units are geometry-only extensions of
+   * the deep column; they carry the same ``formationId`` / ``bodyId`` as the
+   * original but a ``'virtual:...'`` layerId prefix so no correlation edge can
+   * ever match them.  The reach guard (``neighbourReaches``) already returns
+   * ``false`` for any virtual unit whose top is below the real shallow TD, so
+   * ``reduceColumn`` will never try to evict them as lenses.
+   */
+  virtual?: true
 }
 
 /** One column's placement + its gap-free unit stack (sorted by ``topDepthM``). */
@@ -769,6 +779,14 @@ export interface MatchUnit {
   topElev: number
   /** Lower elevation — the unit's base. */
   baseElev: number
+  /**
+   * Set to ``true`` for units injected by ``injectVirtualUnits`` (i.e. flat
+   * continuations below a shallow column's TD).  Virtual units must NEVER form a
+   * matched pair — they carry no real correlation and their elevation ranges
+   * exactly mirror the deep column's real units, so a geometric-overlap score
+   * would create spurious bands that overlap with the floor-interval pinch emit.
+   */
+  virtual?: true
 }
 
 /** True iff an approved correlation edge directly connects layers ``a`` and ``b``. */
@@ -905,6 +923,11 @@ function pairScore(
   correlated: Correlated,
   baseTied?: Correlated,
 ): number {
+  // Virtual units (injected below a shallow column's TD by injectVirtualUnits)
+  // must never form a matched pair.  Their elevation ranges mirror the real deep
+  // units exactly, so a geometry-only overlap score would produce spurious band
+  // quads that overlap with the floor-interval pinch emit for those same units.
+  if (l.virtual || r.virtual) return 0
   if (l.formationId !== r.formationId) return 0
   const overlap = l.topElev > r.baseElev + EPS && r.topElev > l.baseElev + EPS
   const edge = correlated(l.layerId, r.layerId) || (baseTied?.(l.layerId, r.layerId) ?? false)
@@ -1942,6 +1965,9 @@ function emitGap(
       layerId: u.layerId,
       topElev: surface - u.topDepthM,
       baseElev: surface - u.baseDepthM,
+      // Carry the virtual flag so pairScore can zero-out virtual units: they must
+      // not form matched pairs (see MatchUnit.virtual).
+      ...(u.virtual ? { virtual: true as const } : {}),
     }))
   const matchedPairs = matchColumns(
     toMatchUnits(leftUnits, leftSurface),
@@ -2325,14 +2351,35 @@ function emitGap(
           // below.formationId) fire spuriously when the sideways unit happens to
           // match the matrix above — a boundary pinch would get a horizontal
           // enclosed-lens apex instead (BLOCKER 2).
+          //
+          // STRADDLE GUARD (BLOCKER-3): when ALL pending pinches are straddle units
+          // (ownTopDepth < shallowFloor) the deep column's sideways rectangle already
+          // covers the straddle zone at full width.  Supplying a ``below`` context from
+          // a band that arrives BELOW the straddle zone would cause ``emitOneSidedPinch``
+          // to produce a triangle whose apex sits inside that rectangle → overlap.
+          // Pass ``null`` unconditionally for all-straddle runs; a straddle genuine
+          // pinch has no below-matrix context (the shallow column has no data there).
+          const allStraddle = pendingPinches.every((pp) => pp.ownTopDepth < shallowFloor - EPS)
           emitPinchRun(
             pendingPinches,
             runTop,
             runBase,
             runAbove,
-            it.band ? { formationId: p.formationId, bodyId: p.bodyId } : null,
+            it.band && !allStraddle ? { formationId: p.formationId, bodyId: p.bodyId } : null,
           )
           pendingPinches = []
+          // After flushing a straddle-only pinch run, advance runTop to runBase so
+          // the subsequent sideways unit's facingRunTopElev is bounded by the
+          // straddle zone's base elevation.  The closing triangle from
+          // emitOneSidedPinch already covers [runTop … runBase] at full width on the
+          // straddle side; the next sideways quad must NOT raise its facing corner
+          // above runBase → Math.max(bandTopElev, facingRunTopElev) then returns
+          // bandTopElev (flat), preventing the overlap.
+          //
+          // Non-straddle flushes must NOT update runTop here: a Case-B sideways
+          // unit that follows a non-straddle flush needs the original intervalTop
+          // facingDepth to fill the void left by the slanted matched-pair base.
+          if (allStraddle) runTop = runBase
         }
         // Determine the top elevation on the facing side for this unit.
         // - Genuine BAND: flat at the unit's own top elevation.
@@ -2356,36 +2403,67 @@ function emitGap(
         //   gap between their apexes.  (The old code set facingBaseElev to the TD
         //   as well, collapsing both corners to one apex → triangle → GAP.)
         const quadLeft = p.side === 'left'
-        // Facing-side top elevation for a sideways unit.
-        //
-        // A sideways unit continues FLAT at its own top elevation on the OWN side.
-        // On the FACING side, the previous matched quad may have a DEEPER base than
-        // the unit's own top (because the facing column's CLAY extends further than
-        // the deep column's CLAY — an asymmetric pair created by ``closeColumnGaps``
-        // or a genuine straddle geometry).  When the previous quad's facing-side base
-        // (``runTop.facingDepth``) is DEEPER than the unit's own top, there is a gap
-        // on the facing side between the CLAY bottom and the unit's flat top — the unit
-        // must fill it by raising its facing-side top corner to ``runTop.facingDepth``
-        // elevation.
-        //
-        // When ``runTop.facingDepth < ownTopDepth`` (the facing side ended SHALLOWER
-        // than the unit's own top), there is no gap to fill on the facing side — the
-        // unit has already started deeper than the facing quad went.  In that case
-        // stay flat at ``bandTopElev``.  This is the SW-1 case: the shallow column
-        // ended at 2.65 m and the SAND starts at 8.8 m — do NOT drag the SAND top
-        // up to the shallow column's TD, as the SAND was never observed there.
         const runTopFacingDepth = quadLeft ? runTop.rightDepth : runTop.leftDepth
         const facingRunTopElev = quadLeft
           ? rightSurface - runTopFacingDepth
           : leftSurface - runTopFacingDepth
+        // Facing-side top elevation for band and sideways units.
+        //
+        // The OWN-side top is always flat at ``bandTopElev``.  The FACING side clamps
+        // to ``runTop`` (the previous quad's slanted base).  When the slanted base
+        // sits ABOVE the unit's own top (``facingRunTopElev > bandTopElev``), a
+        // triangular void would open between the slanted base and the flat unit top on
+        // the facing side.  That void is filled by a separate fill-triangle region
+        // of the matched band's formation (emitted just below, before the unit's own
+        // quad).  The unit itself therefore always stays FLAT on the facing side —
+        // ``Math.min`` ensures no climb, regardless of the slant direction.
+        //
+        //   SW-1 (no climb, data void above): CLAY(0-2m)↔CLAY(0-2.65m) where
+        //   2.65m = rightTD.  SAND below should NOT climb to +10.35.  The void
+        //   [4.2, 10.35] at the right edge is data-void (below shallow-column TD)
+        //   and is filled by a CLAY fill-triangle, not by the SAND rising.
+        //
+        //   GAP-22 (no climb, geometric void): b60f2e06 pair base {left=4.14m,
+        //   right=6.221m} leaves a triangular gap at f=0.  0a38d1bc stays flat at
+        //   6.739; the fill-triangle of b60f2e06 covers [6.739, 8.920] at f=0.
         const facingTopElev =
           it.mixedTiedFacingTopElev !== null
             ? it.mixedTiedFacingTopElev
-            : it.sideways && runTopFacingDepth > p.ownTopDepth + EPS
-              ? // Previous quad's facing-side base is DEEPER than this unit's top →
-                // fill the gap by raising the facing-side top corner to abut it.
-                facingRunTopElev
-              : bandTopElev
+            : Math.min(bandTopElev, facingRunTopElev)
+        // Fill-triangle: when the previous matched pair's base is slanted AND its
+        // facing-side corner is above this unit's flat top (``facingRunTopElev >
+        // bandTopElev + EPS``), a triangular void sits between the slanted base and
+        // the unit's flat top.  Emit a region of the matched band's formation
+        // (``runAbove``) to plug it before the unit's own quad.  The triangle has:
+        //   — own side (f=0 or 1): a single point at bandTopElev (no void there)
+        //   — facing side: two vertices spanning [bandTopElev, facingRunTopElev]
+        // This keeps the unit itself flat while still producing a gapless partition.
+        // Mixed-tied units already raise their facing top to the tie elevation, so
+        // they never leave a void of this kind — skip the fill for them.
+        if (
+          it.mixedTiedFacingTopElev === null &&
+          facingRunTopElev > bandTopElev + EPS &&
+          runAbove !== null
+        ) {
+          const ownFrac = quadLeft ? 0 : 1
+          const facingFrac = quadLeft ? 1 : 0
+          // Three vertices: own-side point + two facing-side points (bottom, top).
+          // One of the two facing-side points coincides with the own-side point
+          // at the lower elevation, so the degenerate-corner filter below would
+          // collapse it to a triangle automatically — but we build it explicitly
+          // as a triangle here to make the intent clear.
+          const fillPolygon: PartitionPoint[] = [
+            { fraction: ownFrac, elevation: bandTopElev },
+            { fraction: facingFrac, elevation: bandTopElev },
+            { fraction: facingFrac, elevation: facingRunTopElev },
+          ]
+          regions.push({
+            formationId: runAbove.formationId,
+            bodyId: runAbove.bodyId,
+            kind: 'quad',
+            polygon: fillPolygon,
+          })
+        }
         // The base on the facing side is always flat at the unit's own base —
         // whether band, sideways, or mixed-tied.  A mixed tie only shapes the TOP.
         const facingBaseElev = bandBaseElev
@@ -2569,6 +2647,59 @@ export interface SectionRegion extends PartitionRegion {
 }
 
 /**
+ * Inject virtual flat units from the DEEP column into the SHALLOW column so
+ * the sub-TD void below the shallow column is filled by geometry.
+ *
+ * When left.TD < right.TD (the right column is deeper), the region between
+ * left's deepest unit and right's deepest units has no data on the left side.
+ * Without intervention this space is a void — nothing matches and the floor
+ * carry-through has no shallow-column unit to pair against. Injecting virtual
+ * copies of the deep column's sub-TD units (those that START at or below the
+ * shallow TD) gives the geometry algorithm something to band/sideways against,
+ * filling the void as flat quads at the deep column's own elevations.
+ *
+ * Virtual units carry a ``'virtual:...'`` layerId prefix so:
+ *   1. No existing correlation edge can ever match them (``correlated()`` returns
+ *      false — edges reference real layerIds only).
+ *   2. The reach guard in ``reduceColumn`` returns false for them because their
+ *      top is below the real shallow TD, so they will never be evicted as lenses.
+ *
+ * The real (pre-injection) TDs are passed to ``reduceColumn`` unchanged, so the
+ * Fix-B merge gate (which uses neighbourTD) is preserved.
+ *
+ * Parameters
+ * ----------
+ * shallowUnits : PartitionUnit[]
+ *     The units of the SHALLOW column (mutable — virtual units are appended).
+ * deepUnits : readonly PartitionUnit[]
+ *     The units of the DEEP column (source for virtual copies).
+ * shallowTD : number
+ *     The real TD of the shallow column (depth in metres).
+ */
+function injectVirtualUnits(
+  shallowUnits: PartitionUnit[],
+  deepUnits: readonly PartitionUnit[],
+  shallowTD: number,
+): void {
+  for (const u of deepUnits) {
+    // Only inject units that START at or below the shallow column's TD.
+    // A unit that straddles the boundary (topDepthM < shallowTD <= baseDepthM)
+    // is clipped so it starts at shallowTD — the real units already handle the
+    // portion above, and the virtual copy covers the portion below.
+    if (u.baseDepthM <= shallowTD + EPS) continue
+    const topDepthM = Math.max(u.topDepthM, shallowTD)
+    shallowUnits.push({
+      topDepthM,
+      baseDepthM: u.baseDepthM,
+      formationId: u.formationId,
+      bodyId: u.bodyId,
+      layerId: `virtual:${u.layerId}`,
+      virtual: true,
+    })
+  }
+}
+
+/**
  * Resolve the WHOLE section at once: reduce each column ONCE against BOTH its
  * neighbours, then emit each gap from the shared reduced columns.
  *
@@ -2700,12 +2831,34 @@ export function computeSectionFill(
     const leftIds = new Set(left.units.map((u) => u.layerId))
     const rightIds = new Set(right.units.map((u) => u.layerId))
     // Each facing neighbour's TD for the reach guard (deepest accepted base).
+    // Captured BEFORE injection so virtual units do not inflate the reach threshold
+    // used by reduceColumn and the floor-interval carry-through.
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
     const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds)
     const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
+    // Sub-TD injection (spec §5 rule 1 / §7 sideways-default): when one column is
+    // shallower than the other, the region below the shallow column's TD is a DATA
+    // VOID — no observed data on the shallow side.  Inject virtual flat copies of
+    // the deep column's sub-TD units into the shallow column so the gap algorithm
+    // has something to tile against, producing flat quads at the deep column's own
+    // elevations (the sideways continuation) instead of leaving the space empty.
+    //
+    // Injected AFTER reduceColumn + collapseAdjacentSameFormation so virtual units
+    // cannot be pulled as lenses or merged with real units.  Virtual units carry a
+    // ``'virtual:...'`` layerId so no real correlation edge can match them; they
+    // appear in the floor interval of emitGap as uncorrelated sideways pinch units
+    // whose ``sideways`` flag fires (the immediate facing neighbour — the real
+    // shallow column — does not reach their depth).
+    // Virtual unit injection is NOT used: the facingTopElev max-clamp below
+    // (in emitGap's sideways path) fills the slanted-base voids directly.
+    // if (leftTD < rightTD - EPS) {
+    //   injectVirtualUnits(left.units, right.units, leftTD)
+    // } else if (rightTD < leftTD - EPS) {
+    //   injectVirtualUnits(right.units, left.units, rightTD)
+    // }
     // Side context for the carry-through, NEAREST-FIRST from each facing column
     // outward: leftward starts with col i and walks toward index 0; rightward
     // starts with col i+1 and walks toward the section end. The facing columns
