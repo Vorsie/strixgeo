@@ -1644,18 +1644,21 @@ export default function CorrelationEdgesOverlay({
                   />
                 )}
                 {/* Lower zone (near the BOTTOM boundary) → arms the next-deeper
-                    contact. INERT for the deepest band (no contact below it):
-                    clicking there does nothing rather than wrongly arming the
-                    band's own top. */}
+                    contact. For the DEEPEST band (no contact below it) this arms
+                    THIS unit's BASE (side='base') — the bottom-tie. (Was inert
+                    pre base-side support, to avoid wrongly grabbing the top;
+                    dogfeed 2026-06-19: a 12px floor marker was too small to hit,
+                    so the band's lower half is now the generous base hit-target —
+                    bottom↔bottom ties via two lower zones.) */}
                 <rect
                   data-testid={`contact-hit-${c.id}-low`}
-                  data-contact-id={lowerId ?? ''}
+                  data-contact-id={lowerId ?? c.id}
                   x={pt.x - hw}
                   y={botStart}
                   width={hw * 2}
                   height={Math.max(0, bot - botStart)}
                   fill="transparent"
-                  style={{ cursor: lowerId ? 'crosshair' : 'default', pointerEvents: 'all' }}
+                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
                   onContextMenu={
                     lowerId
                       ? e => {
@@ -1664,7 +1667,11 @@ export default function CorrelationEdgesOverlay({
                         }
                       : undefined
                   }
-                  onClick={lowerId ? () => handleCorrelateClick(lowerId, invId) : e => e.stopPropagation()}
+                  onClick={
+                    lowerId
+                      ? () => handleCorrelateClick(lowerId, invId)
+                      : () => handleCorrelateClick(c.id, invId, 'base')
+                  }
                 />
               </g>
             )
