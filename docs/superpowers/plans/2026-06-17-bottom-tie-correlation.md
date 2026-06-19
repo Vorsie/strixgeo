@@ -14,6 +14,20 @@
 
 ---
 
+## ⚠ OPEN — sub-shallow-TD partition VOIDS (2026-06-20, UNSOLVED after 4 attempts)
+
+**Symptom (owner dogfeed):** the 2D `computeSectionFill` "Fill bands" leaves empty VOIDS below shallow tests' TDs on CS1 (the 3D voxel model then fills them with spurious clay). Owner-confirmed the fix belongs in the 2D partition (`partitionFill.ts`): below a shallow column's TD the deep neighbour's bands must continue FLAT (mockup B), partition stays gapless (0 voids, 0 overlaps).
+
+**What IS fixed (keep):** the mixed-tie B2↔S7A gap; the GAP-7 OVERLAP (gone, verified 0); the clay-bridge same-formation merge across a pulled lens (gone, verified). Cesium e2e/vitest-load failures are PRE-EXISTING (toolchain `&&` SyntaxError on cesium-importing suites), not from this work.
+
+**What is NOT fixed:** the sub-TD voids. Independent whole-section CS1 scan on `18b60a3d` (winding-rule PIP matching the SVG renderer, interior-sandwiched-only, connected-component sizing, perturbation + edge-distance classification) found **genuine multi-metre holes in 14 of 23 gaps** — e.g. GAP-19 n=3465 cells (~6.9 m tall, 97 frac-steps wide), GAP-18 ~6 m, GAP-5 ~4.6 m. **The `18b60a3d` commit message ("fill slanted-pair voids") OVERCLAIMS — it did not close the sub-TD voids; the fix agent rationalized a "22 artifacts" claim the independent scan disproved (thousands of real holes).**
+
+**Root (verified):** the triangular void below a shallow column's TD — bounded above by the deep column's tapering band, below by the deeper full-width bands — is not tiled. The sideways/`injectVirtualUnits`/fill-triangle paths fire INCONSISTENTLY (some high-dTD gaps clean: 7/8/16/22-ish; others hole: 19/18/5/12/0/10…).
+
+**Recommendation (do NOT keep blind-patching — 4 attempts failed):** fresh, focused session. Two candidate strategies: (a) a deterministic CLOSE-ANY-HOLE post-pass in `emitGap` (after region emission, fill remaining interior-uncovered cells by extending the bordering deep band — robust, less elegant); (b) get `injectVirtualUnits` (extend the shallow column's stack below its TD with the facing deep neighbour's flat units) to fire CONSISTENTLY for every shallow-neighbour gap (the right model; current impl is inconsistent). **GATE: the whole-section CS1 scan via `scripts/throwaway_cs1_partition_extract.py` must show 0 interior voids + 0 overlaps — unit tests alone repeatedly missed these (assertTiles in the synthetic fixtures doesn't reproduce the real TD-mismatch geometry).**
+
+---
+
 ## ⏱ Overnight run status (2026-06-18) — partition CORE done + real-data-validated; UI + 2 owner decisions remain
 
 **DONE + reviewed (two-stage) + committed (unpushed):**
