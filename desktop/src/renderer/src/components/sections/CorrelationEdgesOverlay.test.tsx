@@ -1369,6 +1369,60 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).not.toHaveBeenCalled()
   })
 
+  it('CC-BH5: arming a contact BASE does not light its band top (dogfeed 2026-06-19)', () => {
+    // Arming the bottom-of-test handle (side='base') must NOT light the unit's
+    // TOP boundary — only the floor marker lights. Lighting the top made
+    // clicking the bottom marker look like it "selected the upper boundary".
+    const baseArmed = makeContactGestureState({ armedContactId: 'cb2', armedContactSide: 'base' })
+    const r1 = renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: baseArmed,
+    })
+    // The contact-hit rect stroke is 'transparent' when NOT armed-at-top.
+    expect(screen.getByTestId('contact-hit-cb2').getAttribute('stroke')).toBe('transparent')
+    r1.unmount()
+
+    // Arming the SAME contact's TOP DOES light its band top (unchanged).
+    const topArmed = makeContactGestureState({ armedContactId: 'cb2', armedContactSide: 'top' })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: topArmed,
+    })
+    expect(screen.getByTestId('contact-hit-cb2').getAttribute('stroke')).not.toBe('transparent')
+  })
+
+  it('CC-BH6: clicking two bottom handles fires a base↔base correlation (dogfeed 2026-06-19)', () => {
+    // cb2 (deepest on inv-B) armed at its base; clicking inv-C's bottom handle
+    // (deepest = cc) fires a base↔base tie — the bottom-to-bottom gesture.
+    const gesture = makeContactGestureState({
+      armedContactId: 'cb2',
+      armedContactSide: 'base',
+      lastTargetTestId: null,
+    })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('correlate-bottom-handle-inv-C'))
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('cb2', 'cc', 'base', 'base')
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
+  })
+
   it('CC10: right-click on contact hit-rect fires onRequestDeleteContact with the contact id', () => {
     // Confirms that the context-menu gesture on the hit-rect calls the
     // optional onRequestDeleteContact callback — the caller (SectionsCanvas)

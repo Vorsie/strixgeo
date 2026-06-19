@@ -169,6 +169,25 @@ describe('PartitionFillOverlay', () => {
     expect(onBodyContextMenu.mock.calls[0][0]).toMatchObject({ id: 'sand' })
   })
 
+  it('PFO-CORR — correlate mode drops interactive elements to pointer-events:none (dogfeed 2026-06-19)', () => {
+    // Default: an interactive region is clickable (pointer-events:auto).
+    const r1 = renderOverlay({
+      bodies: [{ id: 'sand' } as BodyListItem],
+      onBodyContextMenu: vi.fn(),
+    })
+    expect(r1.getAllByTestId('partition-region-sand')[0].style.pointerEvents).toBe('auto')
+    r1.unmount()
+    // Correlate mode: the SAME interactive region drops to pointer-events:none
+    // so clicks fall through to the bottom-of-test handles beneath (which render
+    // in CorrelationEdgesOverlay, earlier → lower z).
+    const r2 = renderOverlay({
+      bodies: [{ id: 'sand' } as BodyListItem],
+      onBodyContextMenu: vi.fn(),
+      correlateMode: true,
+    })
+    expect(r2.getAllByTestId('partition-region-sand')[0].style.pointerEvents).toBe('none')
+  })
+
   it('PFO4 — an interrupted body renders as TWO pieces, not one swept band', () => {
     const { queryAllByTestId } = renderOverlay({
       lithoLayers: [
