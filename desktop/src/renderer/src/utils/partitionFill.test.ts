@@ -209,8 +209,12 @@ function assertTiles(
     }
 
     // Verify bottom touches the column floor elevation.
+    // The lower bound (>=) is intentionally not checked: a flat SIDEWAYS unit in
+    // a data-void scenario legitimately extends to the deep column's floor, which
+    // is deeper (more negative elevation) than the interpolated floor near the
+    // shallow column side.  Only the upper bound (<=) is enforced to ensure the
+    // partition actually reaches the floor.
     const lowestBottom = intervals[intervals.length - 1][0]
-    expect(lowestBottom).toBeGreaterThanOrEqual(colFloorElev - EPS)
     expect(lowestBottom).toBeLessThanOrEqual(colFloorElev + EPS)
   }
 }
@@ -1789,6 +1793,62 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     assertTiles(regions, L, R)
   })
 
+  // VOID-A: a unit that STRADDLES the shallow column's floor (top above it, base
+  // below) must continue FLAT (sideways) at its own elevation, not be forced into a
+  // tapering pinch that leaves a void below the shallow TD.
+  //
+  // Mechanism: the straddle branch (ownTopDepth < shallowFloor) previously
+  // hard-coded band:false, sideways:false regardless of whether any facing neighbour
+  // reached below the shallow floor. Fix A: apply the same bandsTowardSide +
+  // neighbourReaches check as the non-straddle path.
+  it('VOID-A: straddle unit continues sideways with no void below shallow TD', () => {
+    const deep = col('Deep', 0, [
+      { top: 0, base: 2, f: 'CLAY', b: 'cA' },
+      { top: 2, base: 8, f: 'SAND', b: 'sandV' }, // topDepth=2 < shallowFloor=4, baseDepth=8 → STRADDLES
+    ])
+    const shallow = col('Sh', 0, [
+      { top: 0, base: 4, f: 'CLAY', b: 'cB' }, // TD = 4
+    ])
+    // No edges — SAND is uncorrelated; no facing neighbour reaches depth>4.
+    const regions = computeSectionFill([deep, shallow], [])
+    // 1. No void at any of the 24 sample fractions.
+    assertTiles(regions.filter((r) => r.gapIndex === 0), deep, shallow)
+    // 2. SAND present at mid-gap at elevation −5 (within SAND's range).
+    expect(coverAt(regions, 0, 0.5, -5)).toContain('SAND')
+    // 3. SAND still present near the shallow column BELOW its TD (elev −5 = depth 5 >
+    //    shallowTD 4): no void in the sub-shallow-TD region despite straddle geometry.
+    //    (SAND's top is slanted from −2 on the left to −4 on the right, following the
+    //    CLAY quad's slanted base; at f=0.9 the SAND top is at ~−3.8, so elevation −5
+    //    is well inside the SAND range and −3 is above the SAND's top → use −5.)
+    expect(coverAt(regions, 0, 0.9, -5)).toContain('SAND')
+  })
+
+  // VOID-B: when a lens is pulled and both its enclosing neighbours share the same
+  // formation, but the LOWER neighbour is entirely in the shallow side's data void,
+  // reduceColumn must NOT merge the two same-formation units across the void.
+  // The void-bridging merge creates a straddle unit that either tapes to a pinch
+  // (pre-Fix-A) or emits as an unnatural large rect; keeping them separate is
+  // geometrically correct and tiles cleanly.
+  //
+  // Mechanism: reduceColumn's same-formation merge previously fired unconditionally;
+  // Fix B gates it on neighbourReaches(neighbourTD, below.topDepthM).
+  it('VOID-B: same-formation units separated by a data void are not merged across it', () => {
+    const deep = col('D', 0, [
+      { top: 0, base: 1, f: 'KLEI', b: 'kTop' },
+      { top: 1, base: 6, f: 'ZAND', b: 'zLens' }, // 0-corr lens (neighbourReaches(4,1)=true)
+      { top: 6, base: 9.5, f: 'KLEI', b: 'kBot' }, // neighbourReaches(4,6)=false → no cross-void merge
+    ])
+    const shallow = col('S', 0, [
+      { top: 0, base: 4, f: 'SILT', b: 'sA' }, // TD = 4
+    ])
+    // No edges — ZAND is a lens; KLEIs are uncorrelated.
+    const regions = computeSectionFill([deep, shallow], [])
+    // 1. No void at any of the 24 sample fractions.
+    assertTiles(regions.filter((r) => r.gapIndex === 0), deep, shallow)
+    // 2. Deep KLEI continues sideways at elev −7 (within its −6→−9.5 range).
+    expect(coverAt(regions, 0, 0.5, -7)).toContain('KLEI')
+  })
+
   // CASE 3 — BOTH neighbours too shallow → sideways-default on BOTH sides.
   //
   // Sideways-default rule (spec §5 rule 1, 2026-06-17): when NO facing column
@@ -1819,6 +1879,9 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // Near the Mid column edge the SAND is also present (it is the base truth).
     expect(coverAt(regions, 0, 0.98, -10)).toContain('SAND')
     expect(coverAt(regions, 1, 0.02, -10)).toContain('SAND')
+    // No void in either gap.
+    assertTiles(regions.filter((r) => r.gapIndex === 0), Lshallow, Mid)
+    assertTiles(regions.filter((r) => r.gapIndex === 1), Mid, Rshallow)
   })
 
   // CASE 4 — section-edge column, single too-shallow neighbour → sideways-default.
@@ -1845,6 +1908,8 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // sideways-default applies (not a pinch-out).
     expect(coverAt(regions, 0, 0.5, -10)).toContain('SAND')
     expect(coverAt(regions, 0, 0.02, -10)).toContain('SAND')
+    // No void in the gap.
+    assertTiles(regions, Edge, Neighbour)
   })
 
   // CASE 5 — correlated across a too-shallow neighbour to a REACHING neighbour →
@@ -1882,15 +1947,19 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
   })
 
   // CASE 6 — PER-SIDE: a deep unit correlated to a reaching neighbour on the LEFT
-  // but with only too-shallow data on the RIGHT → it BANDS LEFT and LENSES RIGHT
-  // (the real S6 shape; owner directive 2026-06-16: a unit can band one side,
-  // lens the other).
-  it('CASE 6 — deep unit: reaching+correlated LEFT, too-shallow RIGHT → BANDS left, LENSES right', () => {
+  // but with only too-shallow data on the RIGHT → it BANDS LEFT and continues
+  // SIDEWAYS RIGHT (2026-06-17 sideways-default rule supersedes the old 2026-06-16
+  // "no reaching neighbour → pinch out" directive: when no column on the facing
+  // side reaches the unit's depth, there is no geological evidence for a pinch-out,
+  // so the unit continues flat at its own elevation — EVEN when the unit's top
+  // straddled above the shallowFloor due to matrix flooding).
+  it('CASE 6 — deep unit: reaching+correlated LEFT, too-shallow RIGHT → BANDS left, SIDEWAYS right', () => {
     // Section order: Lreach (deep, correlated) — Mid (deep, carries the unit) —
     // Rsh (too shallow). The Mid deep CLAY correlates LEFT to Lreach (reaching) →
-    // bands the Lreach↔Mid gap. To the RIGHT, Rsh is a 3.5 m void with no further
-    // column → no reaching neighbour → the deep CLAY pinches out in the Mid↔Rsh
-    // gap.
+    // bands the Lreach↔Mid gap. To the RIGHT, Rsh (TD 3.5) cannot reach the CLAY
+    // (natural top at depth 8; flooded to depth 2 after the SILT lens is pulled).
+    // The 2026-06-17 sideways-default applies: no facing column reaches the CLAY's
+    // base → DATA VOID → the CLAY continues FLAT at its own elevation.
     const Lreach = col('Lr', 0, [
       { top: 0, base: 2, f: 'SAND', b: 'topA' },
       { top: 2, base: 8, f: 'SILT', b: 'mLr' },
@@ -1908,8 +1977,10 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     const regions = sf(Lreach, Mid, Rsh)
     // LEFT gap (gapIndex 0, Lreach↔Mid): the deep CLAY bands — present at mid-gap.
     expect(coverAt(regions, 0, 0.5, -12)).toEqual(['CLAY'])
-    // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY pinches out — gone at mid-gap.
-    expect(coverAt(regions, 1, 0.5, -12)).not.toContain('CLAY')
+    // RIGHT gap (gapIndex 1, Mid↔Rsh): the deep CLAY continues SIDEWAYS (flat) —
+    // no facing column reaches depth 8 (the CLAY's natural top), so the
+    // 2026-06-17 sideways-default applies: CLAY is PRESENT at mid-gap.
+    expect(coverAt(regions, 1, 0.5, -12)).toContain('CLAY')
   })
 
   // SW-1: uncorrelated deep unit facing a shallower un-reaching neighbour continues
