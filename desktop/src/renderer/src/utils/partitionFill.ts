@@ -497,6 +497,7 @@ function reduceColumn(
   correlated: Correlated,
   neighbourTD: number,
   baseTied?: Correlated,
+  allEdgedLayerIds?: ReadonlySet<string>,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
   // A pulled lens records its ORIGINAL extent, not the live (possibly flood-
@@ -569,7 +570,21 @@ function reduceColumn(
         depthTopM: origTop.get(u.layerId) ?? u.topDepthM,
         depthBaseM: origBase.get(u.layerId) ?? u.baseDepthM,
       })
-      if (above.formationId === below.formationId) {
+      if (
+        above.formationId === below.formationId &&
+        !neighbourReaches(neighbourTD, below.topDepthM) &&
+        !(allEdgedLayerIds?.has(below.layerId) ?? false)
+      ) {
+        // The lower same-formation unit is ENTIRELY in the facing side's data void
+        // (neighbourTD < below.topDepthM) AND has no jump edge to any other column.
+        // Merging above+below would bridge two separate occurrences of the same
+        // lithology across a void whose stratigraphy is unresolved, creating an
+        // artificial straddle unit. Keep them separate: absorb only the vacated
+        // lens space, let the floor-interval carry-through decide the lower unit's
+        // shape via its own (sideways-default) path.
+        above.baseDepthM = u.baseDepthM // absorb only the vacated space
+        units.splice(i, 1) // remove u; keep below
+      } else if (above.formationId === below.formationId) {
         above.baseDepthM = below.baseDepthM // same matrix both sides → merge so it connects continuously
         units.splice(i, 2) // remove u + below (below folded into above)
       } else {
@@ -2207,12 +2222,36 @@ function emitGap(
       const items: FloorItem[] = pinches.map((p) => {
         if (p.ownTopDepth < shallowFloor - EPS) {
           // Unit starts ABOVE the shallowFloor: straddles the shallow column's
-          // last data point. Check for a mixed tie first (spec §5 rule 2 — a tie
-          // overrides geometry unconditionally, including straddle cases).
+          // last data point.  The band-vs-sideways-vs-pinch decision is IDENTICAL
+          // to the non-straddle path — a straddle is simply a unit whose top
+          // happens to be above the shallow floor; it still needs the same
+          // correlation + reach check to decide whether it bands, continues flat,
+          // or genuinely pinches out.  Hard-coding band:false, sideways:false was
+          // wrong: it always forced a tapering pinch that left a void below the
+          // shallow TD on the facing side.
+          const pinchSideColumnsEarly = p.side === 'left' ? rightwardColumns : leftwardColumns
+          const bandEarly = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumnsEarly, correlated)
+          // For a straddle unit the top is ABOVE the shallow floor so
+          // neighbourReaches(td, ownTopDepth) would be true even when no facing
+          // column reaches the PART of the unit that is BELOW the floor.  Use the
+          // unit's OWN BASE depth as the threshold: if the facing column doesn't
+          // reach the unit's base, it has no data for the DEEPER portion of the
+          // straddle → DATA VOID for that portion → the unit continues flat
+          // (sideways), not a genuine pinch.  When the facing column DOES reach the
+          // base it saw the full unit and can disprove its presence → genuine pinch.
+          const facingTDEarly = pinchSideColumnsEarly[0]?.td ?? -Infinity
+          const sidewaysEarly = !bandEarly && !neighbourReaches(facingTDEarly, p.ownBaseDepth)
           const facingUnitsEarly = p.side === 'left' ? rightUnits : leftUnits
           const facingSurfaceEarly = p.side === 'left' ? rightSurface : leftSurface
-          const mixedFacingTopEarly = mixedTiedTopElev(p.layerId, facingUnitsEarly, facingSurfaceEarly, p.ownTopDepth)
-          return { unit: p, band: false, sideways: false, mixedTiedFacingTopElev: mixedFacingTopEarly }
+          const mixedFacingTopEarly = bandEarly
+            ? null
+            : mixedTiedTopElev(p.layerId, facingUnitsEarly, facingSurfaceEarly, p.ownTopDepth)
+          return {
+            unit: p,
+            band: bandEarly,
+            sideways: sidewaysEarly,
+            mixedTiedFacingTopElev: mixedFacingTopEarly,
+          }
         }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
         const band = bandsTowardSide(p.layerId, p.ownTopDepth, pinchSideColumns, correlated)
@@ -2296,7 +2335,18 @@ function emitGap(
           pendingPinches = []
         }
         // Determine the top elevation on the facing side for this unit.
-        // - Normal band / sideways: the unit's own top elevation (flat quad).
+        // - Genuine BAND: flat at the unit's own top elevation.
+        // - SIDEWAYS (data-void continuation): the facing side's top is clamped to
+        //   ``runTop.facingDepth``.  A sideways unit continues flat at its own
+        //   depth on the deep side, but on the facing (shallow-data) side the
+        //   previous quad's slanted base may end DEEPER than the unit's flat top —
+        //   leaving a gap in the partition.  Using ``runTop`` on the facing side
+        //   makes the sideways quad's top-facing-corner abut the previous slanted
+        //   base exactly, preserving the tiling invariant.
+        //   Example: CLAY(0-2)↔CLAY(0-4) produces a slanted base {leftDepth:2,
+        //   rightDepth:4}; the SAND sideways below (ownTopDepth=2) would have
+        //   topRight at -2 (flat) while the CLAY base on the right is at -4 →
+        //   gap from -4 to -2 at the right edge.  With the clamp: topRight = -4.
         // - Mixed-tied (spec §5 rule 2): the tied test's TD elevation — the top
         //   RISES to meet the explicitly declared "the unit reaches here" point.
         //   The BASE remains at bandBaseElev — the unit CONTINUES below the tie
@@ -2305,18 +2355,47 @@ function emitGap(
         //   consecutive tied units each fill their portion instead of leaving a
         //   gap between their apexes.  (The old code set facingBaseElev to the TD
         //   as well, collapsing both corners to one apex → triangle → GAP.)
+        const quadLeft = p.side === 'left'
+        // Facing-side top elevation for a sideways unit.
+        //
+        // A sideways unit continues FLAT at its own top elevation on the OWN side.
+        // On the FACING side, the previous matched quad may have a DEEPER base than
+        // the unit's own top (because the facing column's CLAY extends further than
+        // the deep column's CLAY — an asymmetric pair created by ``closeColumnGaps``
+        // or a genuine straddle geometry).  When the previous quad's facing-side base
+        // (``runTop.facingDepth``) is DEEPER than the unit's own top, there is a gap
+        // on the facing side between the CLAY bottom and the unit's flat top — the unit
+        // must fill it by raising its facing-side top corner to ``runTop.facingDepth``
+        // elevation.
+        //
+        // When ``runTop.facingDepth < ownTopDepth`` (the facing side ended SHALLOWER
+        // than the unit's own top), there is no gap to fill on the facing side — the
+        // unit has already started deeper than the facing quad went.  In that case
+        // stay flat at ``bandTopElev``.  This is the SW-1 case: the shallow column
+        // ended at 2.65 m and the SAND starts at 8.8 m — do NOT drag the SAND top
+        // up to the shallow column's TD, as the SAND was never observed there.
+        const runTopFacingDepth = quadLeft ? runTop.rightDepth : runTop.leftDepth
+        const facingRunTopElev = quadLeft
+          ? rightSurface - runTopFacingDepth
+          : leftSurface - runTopFacingDepth
         const facingTopElev =
-          it.mixedTiedFacingTopElev !== null ? it.mixedTiedFacingTopElev : bandTopElev
+          it.mixedTiedFacingTopElev !== null
+            ? it.mixedTiedFacingTopElev
+            : it.sideways && runTopFacingDepth > p.ownTopDepth + EPS
+              ? // Previous quad's facing-side base is DEEPER than this unit's top →
+                // fill the gap by raising the facing-side top corner to abut it.
+                facingRunTopElev
+              : bandTopElev
         // The base on the facing side is always flat at the unit's own base —
         // whether band, sideways, or mixed-tied.  A mixed tie only shapes the TOP.
         const facingBaseElev = bandBaseElev
         // Build the quad polygon.  For a mixed-tied unit the TOP facing-side corner
         // rises to the TD while the BASE facing-side corner is flat — a trapezoid
-        // (rising-top quad), not a triangle.  For a flat band / sideways unit it is
-        // a standard rectangle (all four corners distinct).  The degenerate-corner
-        // collapse below still fires when topLeft===baseLeft or topRight===baseRight
-        // (e.g. the deepest-unit case), but a mixed-tie no longer triggers it.
-        const quadLeft = p.side === 'left'
+        // (rising-top quad), not a triangle.  For a flat sideways unit the top is
+        // also a slanted line (facing side clamped to ``runTop``), while the base
+        // remains flat.  The degenerate-corner collapse below still fires when
+        // topLeft===baseLeft or topRight===baseRight (e.g. the deepest-unit case),
+        // but a mixed-tie or sideways-clamp no longer triggers it.
         const topLeft: PartitionPoint = {
           fraction: 0,
           elevation: quadLeft ? bandTopElev : facingTopElev,
@@ -2567,6 +2646,16 @@ export function computeSectionFill(
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
   const baseTied: Correlated | undefined =
     baseTiedSet.size > 0 ? (a, b) => baseTiedSet.has(edgeKey(a, b)) : undefined
+  // Layer IDs that participate in at least one approved correlation edge (both
+  // top-top and top-base edges). Used by reduceColumn to distinguish a unit with
+  // a jump edge to a DISTANT column (which should be merged across a void so it
+  // can band via that edge) from a truly isolated unit with no edges anywhere
+  // (which should NOT be bridged across a void).
+  const allEdgedLayerIds = new Set<string>()
+  for (const e of edges) {
+    allEdgedLayerIds.add(e.a)
+    allEdgedLayerIds.add(e.b)
+  }
 
   // Drop empty columns; a gap is between two consecutive non-empty columns.
   const cols = columns
@@ -2613,8 +2702,8 @@ export function computeSectionFill(
     // Each facing neighbour's TD for the reach guard (deepest accepted base).
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
-    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied)
-    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied)
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
     // Side context for the carry-through, NEAREST-FIRST from each facing column
