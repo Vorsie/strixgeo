@@ -2151,20 +2151,45 @@ function emitGap(
       // column: the base-side layerId from ``mixedTiedTopToBase`` identifies the
       // shallow unit whose baseDepthM (converted to elevation) is the TD the deep
       // unit's top should rise toward (spec §5 rule 2). Returns null when the unit
-      // has no mixed tie toward the facing column.
-      const mixedTiedTopElev = (topLayerId: string, _facingUnits: readonly PartitionUnit[], _facingSurface: number): number | null => {
+      // has no mixed tie that applies to THIS gap.
+      //
+      // APPLY-IN-GAP rule (Defect 2 fix, 2026-06-19): a mixed tie applies in a gap
+      // iff EITHER the base-side target IS the facing column (unambiguous) OR the
+      // target is beyond the facing column but the facing column REACHES the unit
+      // (genuine-pinch override — spec §5 rule 2 "tie always overrides geometry").
+      // When the facing column is a DATA VOID (too shallow to reach the unit), the
+      // tie does NOT apply in that intervening gap: the unit continues sideways at
+      // its own elevation.
+      //
+      // WHY: real CS1 — tie is B2-ZAND ↔ S7-CLAY-base; columns [B2, S7A, S7].
+      // S7A is between B2 and S7 and is a DATA VOID (TD +10.42, never saw the sand).
+      // The section-wide lookup returned S7's TD and applied it in the B2→S7A gap,
+      // dragging the SAND top to +10.42 where S7A never drilled → bogus fill + GAP.
+      // The T-MIXED-OVER-PINCH test has MIDDLE reaching the sand (genuine pinch) and
+      // the tie correctly overrides it; that case is preserved.
+      const mixedTiedTopElev = (
+        topLayerId: string,
+        facingUnits: readonly PartitionUnit[],
+        facingSurface: number,
+        unitTopDepth: number,
+      ): number | null => {
         const baseLayerId = mixedTiedTopToBase.get(topLayerId)
         if (baseLayerId === undefined) return null
-        // Prefer the section-wide lookup so a tie that names a unit on a
-        // non-adjacent column (e.g. B2-SAND-top ↔ S7a-CLAY-base when S6 sits
-        // between B2 and S7a) still resolves the correct TD elevation.
+        // Case 1: the tied base-side unit IS on the facing column.  Always apply.
+        const tiedUnit = facingUnits.find((u) => u.layerId === baseLayerId)
+        if (tiedUnit !== undefined) {
+          // Prefer the pre-gap original (immune to closeColumnGaps mutations).
+          return layerBaseElevLookup.get(baseLayerId) ?? (facingSurface - tiedUnit.baseDepthM)
+        }
+        // Case 2: the tied unit is NOT on the facing column (non-adjacent target).
+        // Apply only when the facing column REACHES the unit (genuine-pinch context).
+        // When the facing column is a DATA VOID (too shallow), do NOT apply — the
+        // unit continues sideways in this intervening gap.
+        const facingTD = columnTotalDepth(facingUnits)
+        if (!neighbourReaches(facingTD, unitTopDepth)) return null
+        // Facing column reaches — apply the tie using the section-wide lookup.
         const elev = layerBaseElevLookup.get(baseLayerId)
-        if (elev !== undefined) return elev
-        // Fallback: if for any reason the lookup is absent (e.g. tests that don't
-        // pass the lookup), search the facing column directly (prior behaviour).
-        const tiedUnit = _facingUnits.find((u) => u.layerId === baseLayerId)
-        if (tiedUnit === undefined) return null
-        return _facingSurface - tiedUnit.baseDepthM
+        return elev ?? null
       }
 
       type FloorItem = {
@@ -2186,7 +2211,7 @@ function emitGap(
           // overrides geometry unconditionally, including straddle cases).
           const facingUnitsEarly = p.side === 'left' ? rightUnits : leftUnits
           const facingSurfaceEarly = p.side === 'left' ? rightSurface : leftSurface
-          const mixedFacingTopEarly = mixedTiedTopElev(p.layerId, facingUnitsEarly, facingSurfaceEarly)
+          const mixedFacingTopEarly = mixedTiedTopElev(p.layerId, facingUnitsEarly, facingSurfaceEarly, p.ownTopDepth)
           return { unit: p, band: false, sideways: false, mixedTiedFacingTopElev: mixedFacingTopEarly }
         }
         const pinchSideColumns = p.side === 'left' ? rightwardColumns : leftwardColumns
@@ -2220,7 +2245,7 @@ function emitGap(
         // (top↔top alignment is a more specific instruction; contradictory authoring).
         const facingUnits = p.side === 'left' ? rightUnits : leftUnits
         const facingSurface = p.side === 'left' ? rightSurface : leftSurface
-        const mixedFacingTop = band ? null : mixedTiedTopElev(p.layerId, facingUnits, facingSurface)
+        const mixedFacingTop = band ? null : mixedTiedTopElev(p.layerId, facingUnits, facingSurface, p.ownTopDepth)
         return { unit: p, band, sideways, mixedTiedFacingTopElev: mixedFacingTop }
       })
       // Depth order on the deep column (the carry side). Pinch units that sit on
@@ -2270,19 +2295,27 @@ function emitGap(
           )
           pendingPinches = []
         }
-        // Determine the top-right elevation for the quad. For a normal band or
-        // sideways continuation this is the unit's own top elevation (flat).
-        // For a mixed-tied unit (spec §5 rule 2) the top-right is the tied test's
-        // TD elevation — the explicitly declared "the unit reaches here" control.
+        // Determine the top elevation on the facing side for this unit.
+        // - Normal band / sideways: the unit's own top elevation (flat quad).
+        // - Mixed-tied (spec §5 rule 2): the tied test's TD elevation — the top
+        //   RISES to meet the explicitly declared "the unit reaches here" point.
+        //   The BASE remains at bandBaseElev — the unit CONTINUES below the tie
+        //   line (it does not collapse to a point).  This preserves the partition
+        //   invariant: the space below the tie line is covered by this unit, so
+        //   consecutive tied units each fill their portion instead of leaving a
+        //   gap between their apexes.  (The old code set facingBaseElev to the TD
+        //   as well, collapsing both corners to one apex → triangle → GAP.)
         const facingTopElev =
           it.mixedTiedFacingTopElev !== null ? it.mixedTiedFacingTopElev : bandTopElev
-        const facingBaseElev =
-          it.mixedTiedFacingTopElev !== null ? it.mixedTiedFacingTopElev : bandBaseElev
-        // Build the quad polygon. For a mixed-tied unit the facing-side is collapsed
-        // to a single point (topElev === baseElev at the TD) — geometrically a
-        // triangle with the base edge on the deep column and the apex at the TD on
-        // the shallow column. For a flat band / sideways unit the polygon is a
-        // standard rectangle (all four corners distinct).
+        // The base on the facing side is always flat at the unit's own base —
+        // whether band, sideways, or mixed-tied.  A mixed tie only shapes the TOP.
+        const facingBaseElev = bandBaseElev
+        // Build the quad polygon.  For a mixed-tied unit the TOP facing-side corner
+        // rises to the TD while the BASE facing-side corner is flat — a trapezoid
+        // (rising-top quad), not a triangle.  For a flat band / sideways unit it is
+        // a standard rectangle (all four corners distinct).  The degenerate-corner
+        // collapse below still fires when topLeft===baseLeft or topRight===baseRight
+        // (e.g. the deepest-unit case), but a mixed-tie no longer triggers it.
         const quadLeft = p.side === 'left'
         const topLeft: PartitionPoint = {
           fraction: 0,
