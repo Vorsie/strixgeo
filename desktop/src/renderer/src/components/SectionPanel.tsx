@@ -1042,9 +1042,17 @@ export default function SectionPanel({
     // onClick — neither triggers this clear path).
     if (start === null) return
     if (e.shiftKey) return
-    // A click that landed on a correlate band hit-rect arms/correlates via its
-    // own onClick — don't also reset selection or clear the armed source here.
-    if ((e.target as Element | null)?.closest?.('[data-testid="contact-gesture-rects"]')) {
+    // A click that landed on a correlate band hit-rect OR a bottom-of-test
+    // handle arms/correlates via its own onClick — don't also reset selection
+    // or clear the armed source here. (The bottom handles live in a SEPARATE
+    // group from the band hit-rects, so they need their own exemption — without
+    // it, clicking a bottom marker armed then immediately cleared the source,
+    // breaking base↔base ties; dogfeed 2026-06-19.)
+    if (
+      (e.target as Element | null)?.closest?.(
+        '[data-testid="contact-gesture-rects"], [data-testid="bottom-handles"]',
+      )
+    ) {
       return
     }
     const rect = e.currentTarget.getBoundingClientRect()
