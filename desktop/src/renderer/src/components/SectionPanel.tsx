@@ -954,6 +954,9 @@ export default function SectionPanel({
 
   const panStart = useRef<{ px: number; py: number; viewport: Viewport } | null>(null)
   const [isPanning, setIsPanning] = useState(false)
+  // Cursor elevation (mTAW) under the pointer for the bottom-right readout HUD;
+  // null when the cursor is outside the plot area (dogfeed 2026-06-19).
+  const [cursorLevelM, setCursorLevelM] = useState<number | null>(null)
   // True while a CAD-style both-buttons-held pan is active, so the
   // trailing right-button contextmenu is suppressed (see the SVG
   // onContextMenu wrapper). Reset on the next single-button mousedown.
@@ -1011,8 +1014,14 @@ export default function SectionPanel({
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>): void {
-    if (panStart.current === null) return
     const rect = e.currentTarget.getBoundingClientRect()
+    // Cursor elevation readout (dogfeed 2026-06-19): show the mTAW height under
+    // the cursor (bottom-right HUD) so the user can call out exact elevations.
+    // Computed on EVERY move (before the pan guard); null when outside the plot.
+    const svgY = e.clientY - rect.top
+    const inPlot = svgY >= MARGIN.top && svgY <= MARGIN.top + plotHeight
+    setCursorLevelM(inPlot ? screenToLevel(svgY) : null)
+    if (panStart.current === null) return
     const dx = e.clientX - rect.left - panStart.current.px
     const dy = e.clientY - rect.top - panStart.current.py
     // dx in pixels → world metres via scaleH. Drag right means the
@@ -2458,7 +2467,10 @@ export default function SectionPanel({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
+            onMouseLeave={e => {
+              handleMouseUp(e)
+              setCursorLevelM(null)
+            }}
             onContextMenu={e => {
               // Swallow the contextmenu that fires when the right
               // button is released at the end of a both-button pan.
@@ -3174,6 +3186,17 @@ export default function SectionPanel({
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
             Sizing canvas…
+          </div>
+        )}
+        {/* Cursor elevation readout (dogfeed 2026-06-19): the mTAW height under
+            the pointer, bottom-right, so the user can call out exact elevations.
+            pointer-events-none so it never intercepts canvas gestures. */}
+        {size && cursorLevelM !== null && (
+          <div
+            data-testid="cursor-elevation-readout"
+            className="absolute bottom-2 right-2 rounded bg-slate-800/90 px-2 py-1 text-xs font-mono text-slate-100 pointer-events-none select-none"
+          >
+            {cursorLevelM.toFixed(2)} mTAW
           </div>
         )}
         {contextMenu !== null && (
