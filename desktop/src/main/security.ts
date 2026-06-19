@@ -79,9 +79,16 @@ export function normalizePathForCompare(input: unknown): string | null {
  * users.
  */
 export function buildContentSecurityPolicy(isDev: boolean): string {
+  // Production allows ``'wasm-unsafe-eval'`` — CesiumJS (the 3D geo viewer)
+  // instantiates a WebAssembly module, which a bare ``script-src 'self'``
+  // blocks (``CompileError: ... violates ... script-src 'self'``). This token
+  // permits WASM compilation ONLY; it does NOT enable general JS eval (that is
+  // the separate, still-forbidden ``'unsafe-eval'``), so the XSS defence is
+  // intact. Dev additionally needs ``'unsafe-eval'`` + ``'unsafe-inline'`` for
+  // Vite's fast-refresh client.
   const scriptSrc = isDev
     ? "'self' 'unsafe-eval' 'unsafe-inline'"
-    : "'self'"
+    : "'self' 'wasm-unsafe-eval'"
   const connectSrc = [
     "'self'",
     `http://127.0.0.1:${API_PORT}`,

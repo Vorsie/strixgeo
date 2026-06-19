@@ -15,19 +15,24 @@ import {
 } from './security'
 
 describe('buildContentSecurityPolicy', () => {
-  it('production CSP forbids unsafe-eval + unsafe-inline on script-src', () => {
+  it('production CSP allows wasm-unsafe-eval (Cesium WASM) but forbids general unsafe-eval + unsafe-inline on script-src', () => {
     const csp = buildContentSecurityPolicy(false)
     expect(csp).toContain("script-src 'self'")
-    expect(csp).not.toContain("'unsafe-eval'")
-    // ``script-src 'self'`` in production must NOT include
-    // ``'unsafe-inline'``. style-src can carry it (Tailwind/Leaflet
-    // limitation), script-src never.
     const scriptDirective = csp
       .split(';')
       .map(d => d.trim())
       .find(d => d.startsWith('script-src'))
     expect(scriptDirective).toBeDefined()
-    expect(scriptDirective).not.toContain("'unsafe-inline'")
+    // Tokenize so a substring of ``'wasm-unsafe-eval'`` can't be confused with
+    // the standalone ``'unsafe-eval'`` token.
+    const tokens = scriptDirective!.replace('script-src', '').trim().split(/\s+/)
+    // CesiumJS needs WASM compilation — ``'wasm-unsafe-eval'`` permits ONLY that.
+    expect(tokens).toContain("'wasm-unsafe-eval'")
+    // The dangerous general-eval token must NOT be present in production.
+    expect(tokens).not.toContain("'unsafe-eval'")
+    // ``script-src`` in production must NOT include ``'unsafe-inline'``.
+    // style-src can carry it (Tailwind/Leaflet limitation), script-src never.
+    expect(tokens).not.toContain("'unsafe-inline'")
   })
 
   it('dev CSP relaxes script-src for Vite HMR fast-refresh', () => {
