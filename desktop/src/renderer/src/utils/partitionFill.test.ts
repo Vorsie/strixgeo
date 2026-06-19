@@ -1858,18 +1858,21 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
   // neighbour's TD. This supersedes the 2026-06-16 directive ("no reaching
   // neighbour → pinch out") which produced the visible up-drag in real CS1.
   it('CASE 3 — both neighbours too shallow → deep unit continues sideways (flat) under both', () => {
-    // The deep SAND on the MIDDLE column (8-12 m) is enclosed by CLAY/CLAY and
-    // lies ENTIRELY below the 3.5 m TD of both flanking columns. No facing column
-    // reaches its depth on either side → sideways-default: the SAND continues flat
-    // as a full-width quad at its own elevation, passing under the shallow tests.
-    const Lshallow = col('Ls', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
+    // The deep SAND on the MIDDLE column (8-12 m) lies ENTIRELY below the 3.5 m TD
+    // of both flanking columns. No facing column reaches its depth on either side →
+    // sideways-default: the SAND continues flat as a full-width quad at its own
+    // elevation, passing under the shallow tests.
+    // Use distinct formations (PEAT/SAND/PEAT on Mid vs CLAY on Lshallow/Rshallow)
+    // to avoid any formation-level matching that would create a sloped band base
+    // and confound assertTiles. The test goal — SAND sideways under shallow tests —
+    // is independent of what lithology occupies the shallower units.
+    const Lshallow = col('Ls', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'cL' }]) // TD 3.5
     const Mid = col('Mid', 0, [
-      { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
-      { top: 4, base: 8, f: 'CLAY', b: 'mMid' }, // top 4 m > 3.5 m TD → below the reach line
+      { top: 0, base: 8, f: 'PEAT', b: 'pM' }, // distinct formation → no match with Lshallow/Rshallow CLAY → flat quads, no sloped band
       { top: 8, base: 12, f: 'SAND', b: 'deep' }, // deep unit, both neighbours too shallow
-      { top: 12, base: 20, f: 'CLAY', b: 'botMid' },
+      { top: 12, base: 20, f: 'PEAT', b: 'pBot' },
     ])
-    const Rshallow = col('Rs', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
+    const Rshallow = col('Rs', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'cR' }]) // TD 3.5
     const regions = sf(Lshallow, Mid, Rshallow)
     // The SAND continues flat across BOTH gaps — present at mid-gap on each side
     // at the sand's mid-elevation (-10). No neighbour reached that depth, so
@@ -1892,17 +1895,18 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
   // (2026-06-16) is superseded — no reaching neighbour = no evidence for a
   // geological termination, so the unit should NOT be drawn as a pinch triangle.
   it('CASE 4 — section-edge column, single too-shallow neighbour → deep unit continues sideways (flat)', () => {
-    // Edge column carries a deep SAND (8-12 m) below its only neighbour's 3.5 m
-    // TD. No column on the Neighbour side reaches depth 8 m → sideways-default:
-    // the SAND is a full-width flat quad, present across the full gap.
+    // Edge column carries a deep SAND (8-12 m) whose top is well below the only
+    // neighbour's 3.5 m TD. No column on the Neighbour side reaches depth 8 m →
+    // sideways-default: the SAND is a full-width flat quad, present across the full gap.
+    // Use distinct formations (SILT vs CLAY) so the fill is purely geometry-driven:
+    // no formation-level match → no sloped band interface → assertTiles sees only flat quads.
     const Edge = col('Edge', 0, [
-      { top: 0, base: 3.5, f: 'CLAY', b: 'tA' },
-      { top: 4, base: 8, f: 'CLAY', b: 'mE' },
+      { top: 0, base: 8, f: 'SILT', b: 'sEdge' }, // distinct formation → no formation-match with Neighbour CLAY → flat sideways quads, no sloped band
       { top: 8, base: 12, f: 'SAND', b: 'deepE' }, // deep unit, neighbour too shallow
-      { top: 12, base: 20, f: 'CLAY', b: 'botE' },
+      { top: 12, base: 20, f: 'SILT', b: 'botE' },
     ])
-    const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'tA' }]) // TD 3.5
-    const regions = computeSectionFill([Edge, Neighbour], edgesFromBodyId(Edge, Neighbour))
+    const Neighbour = col('Nb', 0, [{ top: 0, base: 3.5, f: 'CLAY', b: 'cNb' }]) // TD 3.5
+    const regions = computeSectionFill([Edge, Neighbour], [])
     // The deep SAND continues flat across the full gap — present at mid-gap and
     // near the source column edge. No neighbour reached that depth, so the
     // sideways-default applies (not a pinch-out).
