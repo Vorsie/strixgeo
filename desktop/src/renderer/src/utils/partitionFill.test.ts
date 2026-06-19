@@ -2232,6 +2232,128 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // NOT be SAND — the sand's top has not been dragged upward.
     expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
   })
+
+  // ---------------------------------------------------------------------------
+  // GAP-1: a mixed tie must NOT create a gap in the partition.
+  //
+  // The bug (Defect 1): setting facingBaseElev = mixedTiedFacingTopElev collapses
+  // BOTH the top and base of the unit's facing side to the TD apex, producing a
+  // triangle.  Two consecutive mixed-tied units (e.g. CLAY apex at +10.42, SAND
+  // apex at +4.23) leave the space between their apexes unfilled — a HOLE in the
+  // partition that becomes spurious voxels in the 3D model.
+  //
+  // The fix: a mixed tie raises the unit's TOP to the TD, but its BASE must
+  // continue to bandBaseElev — the unit fills the deep space below the tie line,
+  // exactly like emitOneSidedPinch closes its wedge with a matrix extension.
+  // The region is a QUAD (rising top, flat base), not a triangle.
+  // ---------------------------------------------------------------------------
+  it('GAP-1: mixed tie creates no gap in the partition — SAND is covered between tied clay and floor', () => {
+    // Real CS1 geometry (distilled): B2 has CLAY 0–2.58 m + SAND 2.58–8.77 m.  Surface +13.
+    //   CLAY top elev = +10.42 mTAW.  SAND top elev = +4.23 mTAW.
+    // S7A has ONLY CLAY 0–2.58 m. TD = +10.42 mTAW.
+    // Mixed ties: B2-CLAY top ⇔ S7A-CLAY base (+10.42) and B2-SAND top ⇔ S7A-CLAY base (+10.42).
+    //
+    // DEFECT 1 (before fix): facingBaseElev = facingTopElev = +10.42 (the TD apex).
+    //   CLAY becomes a triangle tipping at +10.42.  SAND becomes a triangle with
+    //   TOP = +10.42 (the same apex) and no base coverage on the S7A side — the
+    //   space between +4.23 and +10.42 near S7A is UNFILLED (a partition hole).
+    //
+    // After fix: facingBaseElev = bandBaseElev (flat at its own base, not the apex).
+    //   SAND becomes a rising-top QUAD covering the full space from +4.23 to the
+    //   tied top (+10.42) on the S7A side — no hole.
+    //
+    // NOTE: assertTiles is omitted because the two columns have different floors
+    //   (B2 floor +4.23, S7A floor +10.42). The mixed-tie space coverage is
+    //   validated by specific coverAt checks instead.
+    const b2 = col('B2', 13.0, [
+      { top: 0, base: 2.58, f: 'CLAY', b: 'c1' }, // CLAY top = +10.42 mTAW
+      { top: 2.58, base: 8.77, f: 'SAND', b: 'sand1' }, // SAND top = +4.23 mTAW
+    ])
+    const s7a = col('S7A', 13.0, [
+      { top: 0, base: 2.58, f: 'CLAY', b: 'c2' }, // TD = +10.42 mTAW — the tie target
+    ])
+    const edges: CorrelationEdge[] = [
+      // B2-CLAY top tied to S7A-CLAY base: CLAY's top should rise to +10.42 near S7A.
+      { a: 'B2#0', b: 'S7A#0', aSide: 'top', bSide: 'base' },
+      // B2-SAND top also tied to S7A-CLAY base: SAND's top should rise to +10.42 near S7A.
+      { a: 'B2#1', b: 'S7A#0', aSide: 'top', bSide: 'base' },
+    ]
+    const regions = computeSectionFill([b2, s7a], edges)
+
+    // At f=0.9 (close to S7A), the SAND must cover elevation 9 mTAW — between SAND top
+    // (+4.23) and S7A-CLAY base (+10.42). Before the fix: SAND collapsed to a
+    // triangle ending at +10.42 with no base coverage → hole → 'SAND' absent.
+    expect(coverAt(regions, 0, 0.9, 9)).toContain('SAND')
+
+    // CLAY must cover elevation 11 mTAW near S7A (between CLAY top +10.42 and surface +13).
+    expect(coverAt(regions, 0, 0.9, 11)).toContain('CLAY')
+
+    // SAND is present at its own level near B2 (elevation 7 mTAW inside SAND range [+4.23, +10.42]).
+    expect(coverAt(regions, 0, 0.1, 7)).toContain('SAND')
+  })
+
+  // ---------------------------------------------------------------------------
+  // GAP-2: a mixed tie must NOT shape an INTERVENING gap whose facing column is
+  // NOT the tied target.
+  //
+  // The bug (Defect 2): layerBaseElevLookup is section-wide — it resolves any
+  // tied baseLayerId regardless of which gap is being emitted.  When the tie
+  // names a unit on a NON-ADJACENT column (e.g. B2-SAND-top ↔ S7-CLAY-base,
+  // with S7A as the INTERVENING column between B2 and S7), the lookup applies
+  // S7's TD elevation in the B2→S7A gap where S7A (not S7) is the facing column.
+  //
+  // Correct rule: a mixed tie shapes ONLY the gap whose facing column contains
+  // the base-side unit (the tie's target).  In an INTERVENING gap the unit must
+  // continue FLAT / sideways (its natural behaviour toward the shallow S7A), not
+  // dragged up to the distant target's TD.
+  // ---------------------------------------------------------------------------
+  it('GAP-2: mixed tie does not over-reach into an intervening gap — unit stays flat', () => {
+    // DEFECT 2 scenario: B2-SAND top is mixed-tied to S7-CLAY base.
+    // S7A is an INTERVENING (shallow) column between B2 and S7.
+    // S7A is a DATA VOID for SAND: S7A's TD (2.58 m) < SAND top (8.8 m).
+    //
+    // Before the fix: layerBaseElevLookup was section-wide. In the B2→S7A gap,
+    // mixedTiedTopElev returned S7-CLAY's base elevation (+10.42) and dragged
+    // B2-SAND's top up to +10.42 on the S7A side — even though S7A never
+    // reached the SAND (S7A's TD is above SAND's top). This produced a bogus
+    // rising quad that the partition could not tile (a hole or an overlap).
+    //
+    // After the fix: the apply-in-gap rule requires either (a) the facing column
+    // CONTAINS the tie target unit, or (b) the facing column REACHES the unit
+    // (genuine-pinch context). S7A satisfies neither — so the tie returns null
+    // and B2-SAND stays FLAT (sideways) at its own elevation (+4.2 mTAW) in the
+    // B2→S7A gap. No over-reach.
+    //
+    // This is a 3-column scenario. The same tie correctly fires in the B2→S7
+    // direction (a separate 2-col regression pinned by T-MIXED-OVER-PINCH).
+    const b2 = col('B2', 13.0, [
+      { top: 0, base: 8.8, f: 'CLAY', b: 'c1' },
+      { top: 8.8, base: 22.0, f: 'SAND', b: 'sand1' }, // SAND top = +4.2 mTAW
+    ])
+    const s7a = col('S7A', 13.0, [
+      { top: 0, base: 2.58, f: 'CLAY', b: 'c2' }, // TD = +10.42 mTAW, NOT the tie target
+    ])
+    const s7 = col('S7', 13.0, [
+      { top: 0, base: 2.58, f: 'CLAY', b: 'c3' }, // CLAY base = +10.42 — the tie target
+      { top: 8.8, base: 22.0, f: 'SAND', b: 'sand2' },
+    ])
+    const edges: CorrelationEdge[] = [
+      // B2-SAND top tied to S7-CLAY base.  S7A is in between and is a data void.
+      { a: 'B2#1', b: 'S7#0', aSide: 'top', bSide: 'base' },
+    ]
+    const regions = computeSectionFill([b2, s7a, s7], edges)
+
+    // In gap 0 (B2→S7A): S7A is NOT the tie target AND is a data void.
+    // B2-SAND must NOT be dragged up — it stays flat at +4.2 mTAW.
+    // At f=0.9 (near S7A), elevation +9 (between SAND top +4.2 and +10.42):
+    // Before the fix: dragged up to +10.42 → SAND covers elevation 9 (wrong).
+    // After the fix:  stays flat at +4.2 → elevation 9 not covered by SAND.
+    expect(coverAt(regions, 0, 0.9, 9)).not.toContain('SAND')
+
+    // B2-SAND IS present at its own flat elevation in gap 0.
+    // Elevation 0 mTAW is inside SAND's range [−9, +4.2] — confirm SAND is there.
+    expect(coverAt(regions, 0, 0.5, 0)).toContain('SAND')
+  })
 })
 
 describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)', () => {
