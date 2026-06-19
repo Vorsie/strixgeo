@@ -130,6 +130,17 @@ export interface Props {
   bodies?: readonly BodyListItem[]
   /** Right-click a pinch (lens) → open the body context menu (Dissolve / Name). */
   onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
+  /**
+   * When correlate mode is active, ALL of this overlay's interactive elements
+   * (body context menu, boundary add-strips + drag handles) drop to
+   * ``pointer-events: none`` so clicks fall through to the correlate gesture
+   * targets beneath (the contact hit-rects + the bottom-of-test handles in
+   * ``CorrelationEdgesOverlay``, which renders earlier → lower z). Without this
+   * the partition fill's floor handles intercepted bottom-marker clicks
+   * (dogfeed 2026-06-19: "can't connect two bottom markers"). The fill itself
+   * is always display-only (root is ``pointer-events: none``).
+   */
+  correlateMode?: boolean
 }
 
 const FILL_OPACITY = 0.62
@@ -387,8 +398,13 @@ export default function PartitionFillOverlay({
   openExtentLengthM,
   bodies,
   onBodyContextMenu,
+  correlateMode = false,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
+  // In correlate mode every interactive partition element drops its pointer
+  // events so the correlate gesture targets beneath receive the click. Use
+  // this in place of the literal ``'auto'`` at every interactive site.
+  const interactivePtr: 'auto' | 'none' = correlateMode ? 'none' : 'auto'
   const [boundaryDrag, setBoundaryDrag] = useState<BoundaryDrag | null>(null)
   const [lensDrag, setLensDrag] = useState<LensDrag | null>(null)
   // Owner directive 2026-06-05 (litho declutter, Task 2): single dot at the
@@ -1317,7 +1333,7 @@ export default function PartitionFillOverlay({
             stroke={color}
             strokeOpacity={STROKE_OPACITY}
             strokeWidth={0.75}
-            style={interactive ? { pointerEvents: 'auto', cursor: 'context-menu' } : undefined}
+            style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
             onContextMenu={
               interactive
                 ? (e) => {
@@ -1387,7 +1403,7 @@ export default function PartitionFillOverlay({
               y2={ne1.y}
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
-              style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
                 const { x, y } = svgCoordsFromEvent(e)
                 setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
@@ -1417,7 +1433,7 @@ export default function PartitionFillOverlay({
                   cy={y}
                   r={BOUNDARY_HIT_R}
                   fill="transparent"
-                  style={{ pointerEvents: 'auto', cursor: 'ns-resize' }}
+                  style={{ pointerEvents: interactivePtr, cursor: 'ns-resize' }}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -1509,7 +1525,7 @@ export default function PartitionFillOverlay({
               y2={upperStripEnd.y}
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
-              style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
                 const { x, y } = svgCoordsFromEvent(e)
                 setAddNodePreview({ x, y, color: LENS_COLOR })
@@ -1542,7 +1558,7 @@ export default function PartitionFillOverlay({
               y2={sl.sourceBasePt.y}
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
-              style={{ pointerEvents: 'auto', cursor: 'copy' }}
+              style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
                 const { x, y } = svgCoordsFromEvent(e)
                 setAddNodePreview({ x, y, color: LENS_COLOR })
@@ -1573,7 +1589,7 @@ export default function PartitionFillOverlay({
                   cy={y}
                   r={lensHitR}
                   fill="transparent"
-                  style={{ pointerEvents: 'auto', cursor: 'grab' }}
+                  style={{ pointerEvents: interactivePtr, cursor: 'grab' }}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -1618,7 +1634,7 @@ export default function PartitionFillOverlay({
                   cy={y}
                   r={lensHitR}
                   fill="transparent"
-                  style={{ pointerEvents: 'auto', cursor: 'grab' }}
+                  style={{ pointerEvents: interactivePtr, cursor: 'grab' }}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     e.stopPropagation()

@@ -3049,6 +3049,11 @@ export default function SectionPanel({
                     ? handleBodyContextMenu
                     : undefined
                 }
+                // In correlate mode, drop the partition fill's interactive
+                // handles so clicks reach the correlate gesture targets beneath
+                // (esp. the bottom-of-test handles at the floor) — dogfeed
+                // 2026-06-19: the floor add-strips intercepted bottom-marker clicks.
+                correlateMode={Boolean(contactGestureState?.contactCorrelateMode)}
               />
             )}
 

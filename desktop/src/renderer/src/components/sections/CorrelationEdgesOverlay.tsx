@@ -1551,7 +1551,11 @@ export default function CorrelationEdgesOverlay({
             })
             if (!col) return null
             const hw = col.width / 2
-            const isArmed = armedContactId === c.id
+            // Only light the band's TOP indicator when this contact's TOP is the
+            // armed endpoint. A base-side arm (the bottom-of-test handle) lights
+            // the floor marker instead — lighting the top here made clicking the
+            // bottom marker "select the upper boundary" (dogfeed 2026-06-19).
+            const isArmed = armedContactId === c.id && armedContactSide === 'top'
             // Full-band hit target (dogfeed 2026-05-29): clicking anywhere in a
             // band arms its TOP contact, so the band body — not just the thin
             // boundary line — is clickable.  Bands are contiguous and
