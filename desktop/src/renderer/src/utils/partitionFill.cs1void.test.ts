@@ -65,17 +65,26 @@ function inPolygon(px: number, py: number, poly: readonly { fraction: number; el
 }
 
 /** Largest connected (4-neighbour) component of interior-void cells in a gap. */
-function largestInteriorVoid(regions: readonly SectionRegion[]): { cells: number; topElev: number; baseElev: number } {
+function largestInteriorVoid(
+  regions: readonly SectionRegion[],
+  bottomOverride?: number,
+): { cells: number; topElev: number; baseElev: number } {
   if (regions.length === 0) return { cells: 0, topElev: 0, baseElev: 0 }
-  // Bounding elevation box from ALL region vertices.
-  let minE = Infinity
+  // Bounding elevation box. Top = highest region vertex. Bottom = the DEEP column's
+  // actual base (``bottomOverride``, the bottom-tie line the fill must reach) when
+  // given, else the lowest region vertex. Using the column base — not the deepest
+  // COVERED cell — is essential: a void at the very bottom (fill stops above the
+  // deep base) sits below "deepest covered" and a covered-cell bottom wrongly skips
+  // it (the under-measuring bug that hid the real voids).
   let maxE = -Infinity
+  let minVert = Infinity
   for (const r of regions) {
     for (const p of r.polygon) {
-      if (p.elevation < minE) minE = p.elevation
+      if (p.elevation < minVert) minVert = p.elevation
       if (p.elevation > maxE) maxE = p.elevation
     }
   }
+  const minE = bottomOverride ?? minVert
   if (!Number.isFinite(minE) || maxE - minE < 1e-6) return { cells: 0, topElev: 0, baseElev: 0 }
 
   const NX = 120 // fraction columns
@@ -104,16 +113,13 @@ function largestInteriorVoid(regions: readonly SectionRegion[]): { cells: number
   // sandwiched holes AND the bottom-region voids below a shallow test's TD (which a
   // "covered below" requirement wrongly skips — those voids extend down to the
   // bottom line with nothing covered beneath them).
-  let deepestCoveredRow = -1
-  for (let iy = NY - 1; iy >= 0; iy--) {
-    let any = false
-    for (let ix = 0; ix < NX; ix++) if (covered[iy * NX + ix]) { any = true; break }
-    if (any) { deepestCoveredRow = iy; break }
-  }
+  // A void is any uncovered cell that has coverage ABOVE it in its own fraction
+  // column, scanned over the FULL box down to the bottom boundary (the deep column
+  // base). No "deepest covered row" cap — that cap is exactly what hid bottom voids.
   const interior: boolean[] = new Array(NX * NY).fill(false)
   for (let ix = 0; ix < NX; ix++) {
     let seen = false
-    for (let iy = 0; iy <= deepestCoveredRow; iy++) {
+    for (let iy = 0; iy < NY; iy++) {
       const here = covered[iy * NX + ix]
       if (!here && seen) interior[iy * NX + ix] = true
       if (here) seen = true
@@ -180,6 +186,19 @@ describe('CS1 real-data partition void gate', () => {
     }))
   const regions = computeSectionFill(columns, raw.edges)
 
+  // Gap g is between cols[g] and cols[g+1] (computeSectionFill drops empty columns).
+  const cols = columns.filter((c) => c.units.length > 0)
+  const baseElevOf = (c: PartitionColumn): number =>
+    c.units.length === 0 ? Infinity : c.surfaceElevM - Math.max(...c.units.map((u) => u.baseDepthM))
+  // The bottom-tie line is a SECTION-WIDE lower boundary (the deepest test's
+  // substrate, extended flat across the whole section / the open-ended tie), NOT
+  // the per-gap deep neighbour. Below EVERY column — including runs of shallow
+  // columns with no deep neighbour — the fill must reach this line. Using the
+  // per-gap deep base hid the voids under shallow-shallow gaps (the false negative
+  // the owner caught). The global deepest base approximates the bottom-tie line.
+  const sectionBottom = Math.min(...cols.map(baseElevOf))
+  const gapBottom = (_g: number): number => sectionBottom
+
   // Group regions by gap.
   const byGap = new Map<number, SectionRegion[]>()
   for (const r of regions) {
@@ -195,7 +214,7 @@ describe('CS1 real-data partition void gate', () => {
   it('has no interior voids in any gap (each gap is a true partition)', () => {
     const offenders: string[] = []
     for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
-      const v = largestInteriorVoid(regs)
+      const v = largestInteriorVoid(regs, gapBottom(gap))
       if (v.cells >= CELL_THRESHOLD) {
         offenders.push(`GAP-${gap}: ${v.cells} cells, elev [${v.baseElev.toFixed(2)}..${v.topElev.toFixed(2)}]`)
       }
