@@ -59,6 +59,16 @@ void+overlap gate above → 0/0, (2) goldens regenerated + Python parity green,
 reproduce the real single-formation-different-body TD-mismatch, so the CS1 gate is
 mandatory.
 
+**Correction (2026-06-20):** the "pre-existing Cesium `&&` SyntaxError" noted above
+was NOT a toolchain limitation — it was a single CORRUPTED line in
+`node_modules/@cesium/engine/Source/Scene/createElevationBandMaterial.js:344`
+(`defined*prevEntpy)` instead of `defined(prevEntry)`; a stray one-off mangling, no
+patch-package re-applies it). It blocked `electron-vite dev` (build failed) AND made
+the Cesium-importing vitest suites fail to load. Fixed in place; a clean reinstall
+restores the same correct source. After the fix, `cesiumGeometry` + `AppShell` suites
+pass (33 tests). The GAP-19 conclusions are unaffected (goldens/partition suites
+don't import Cesium).
+
 **Everything else from this branch is solid + committed:** the bottom-tie gesture,
 cursor mTAW HUD, all 4 e2e reds fixed (suite green), CSP Cesium fix, clay-bridge
 removed, 0 overlaps. ~65 commits on develop, unpushed.
