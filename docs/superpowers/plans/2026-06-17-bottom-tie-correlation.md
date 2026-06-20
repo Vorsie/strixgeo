@@ -14,6 +14,43 @@
 
 ---
 
+## ✅ FIXED + ⚠ OPEN — under-column substrate (2026-06-21, latest)
+
+**Dogfeed "gap exactly below a test column" — FIXED.** The gap partition is built
+EDGE-TO-EDGE (`gapXs`: left col's right edge → right col's left edge) and
+`ContactsLayer`'s per-column litho bands stop at the test TD, so the column-width
+sliver BELOW each test's TD was filled by nothing. Both the CS1 void gate and the
+FILL-DIAG missed it — they only sample INSIDE gaps, never a column's own x-range
+(the verifier shared the renderer's blind spot). Fix (commits dc11f7b0, d383e623,
+30064556, 9011b32a): `computeUnderColumnSubstrate(columns, regions)` — pure +
+CI-tested (4 regression tests). Fills the column width below each TD from the
+matrix slices at the two flanking gap edges, SLOPING each band L→R contact;
+lens-spot gaps closed by extending the band below upward; contiguous TD→deepest by
+construction. Verified on real CS1: every shallow test fills TD → ~−10..−13 mTAW,
+gapless.
+
+**⚠ OPEN — blocky + "too much clay" at shallow columns (SAME root).** The slope
+only fires when the two flanking gap edges carry the SAME band stack. On the real
+shallow columns (8, 17, 18, 20, 22) the two edges carry GENUINELY DIFFERENT
+stratigraphy (different deep neighbours / facies — e.g. COL-18 left edge all KLEI,
+right edge ZAND/KLEI/ZAND/KLEI), so the fill falls back to FLAT (still blocky) and
+picks one side. This is ALSO the wrong-fill bug: diagnosed **COL-18 @ −2.7m fills
+KLEI but col19 (S6) has ZAND** (the B2→S7→S6 clay-over-sand wrongly rendered
+clay-on-clay); same at COL-17 @ −0.8m. Both symptoms come from the SAME gap: the
+substrate below shallow TDs is per-gap flat-carry / partial bridge injection, NOT a
+correlation-aware straight interpolation between consecutive DEEP tests.
+
+**Proper fix (owner directive, NOT done — needs owner's eye, not a blind 1am
+rewrite):** correlation-aware substrate lofting in `computeSectionFill` — between
+two consecutive deep tests, interpolate each deep band straight across the
+intervening shallow run (shallow tests transparent, real data overlaid), facies
+seam only where the deep tests genuinely differ; handles runs of 2+ consecutive
+shallow tests. The under-column fill above is the correct RENDER half; this is the
+missing DOMAIN half. computeSectionFill is ~3700 lines — the deep-band matching
+rules are the risky part and want owner review before implementation.
+
+---
+
 ## ✅ MOSTLY FIXED — systematic bottom voids closed (14/15); GAP-19 over-match remains (2026-06-20)
 
 **RESOLUTION (2026-06-20).** The systematic bottom-region voids are FIXED in
