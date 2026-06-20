@@ -53,6 +53,7 @@ import type {
 } from '../../api/client'
 import {
   computeSectionFill,
+  computeUnderColumnSubstrate,
   type CorrelationEdge,
   type LensApexOverride,
   type PartitionColumn,
@@ -1029,80 +1030,35 @@ export default function PartitionFillOverlay({
   // them contiguously from TD downward — closing any vertical gap (a lens spot) by
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
-    type Fill = { key: string; x: number; y: number; width: number; height: number; color: string }
-    const { sectionRegions } = sectionFillData
+    type Fill = { key: string; points: string; color: string }
+    const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
-    const nCol = valid.length
-    if (nCol < 2) return [] as Fill[]
-
-    // Elevation intervals where a vertical line at `frac` crosses a simple polygon
-    // (even-odd scanline). Skips vertical edges (fraction-equal endpoints).
-    const sliceAt = (
-      poly: readonly { fraction: number; elevation: number }[],
-      frac: number,
-    ): Array<[number, number]> => {
-      const ys: number[] = []
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i]
-        const b = poly[(i + 1) % poly.length]
-        if (a.fraction === b.fraction) continue
-        const lo = Math.min(a.fraction, b.fraction)
-        const hi = Math.max(a.fraction, b.fraction)
-        if (frac < lo || frac > hi) continue
-        const t = (frac - a.fraction) / (b.fraction - a.fraction)
-        ys.push(a.elevation + t * (b.elevation - a.elevation))
-      }
-      ys.sort((p, q) => p - q)
-      const out: Array<[number, number]> = []
-      for (let k = 0; k + 1 < ys.length; k += 2) out.push([ys[k], ys[k + 1]])
-      return out
-    }
-
+    // The pure domain pass (regression-tested in partitionFill.test.ts) returns
+    // sloped below-TD quads per column; here we only project them to screen.
+    const fills = computeUnderColumnSubstrate(orderedColumns, sectionRegions)
     const out: Fill[] = []
-    for (let ci = 0; ci < nCol; ci++) {
-      const id = valid[ci]
-      const col = colByInv.get(id) as PartitionColumn
-      const sc = screenByInv.get(id) as ColumnScreen
+    for (const f of fills) {
+      const sc = screenByInv.get(valid[f.columnIndex])
+      if (!sc) continue
       const leftX = sc.leftX
-      const width = sc.rightX - sc.leftX
-      if (width <= 0.5 || col.units.length === 0) continue
-      const tdElev = col.surfaceElevM - Math.max(...col.units.map((u) => u.baseDepthM))
-
-      // Adjacent gap + the fraction at THIS column's edge (lenses pinched there).
-      const useRight = ci < nCol - 1
-      const gapIdx = useRight ? ci : ci - 1
-      const frac = useRight ? 0.0015 : 0.9985
-
-      // Matrix (non-lens) intervals at the edge, clipped to strictly below TD.
-      const segs: Array<{ lo: number; hi: number; color: string }> = []
-      for (const r of sectionRegions) {
-        if (r.gapIndex !== gapIdx || r.kind === 'lens') continue
-        const color = formationColorById.get(r.formationId) ?? FALLBACK_COLOR
-        for (const [lo, hi] of sliceAt(r.polygon, frac)) {
-          const top = Math.min(hi, tdElev)
-          if (top - lo > 0.01) segs.push({ lo, hi: top, color })
-        }
-      }
-      if (segs.length === 0) continue
-
-      // Stack top→bottom, closing inter-segment gaps by extending the lower up.
-      segs.sort((a, b) => b.hi - a.hi)
-      let cursorTop = tdElev
-      for (const s of segs) {
-        if (cursorTop - s.lo <= 0.01) continue // already covered by a higher seg
-        const yT = clampY(levelToScreen(cursorTop))
-        const yB = clampY(levelToScreen(s.lo))
-        if (yB - yT > 0.5) {
-          out.push({
-            key: `uc-${ci}-${s.lo.toFixed(2)}`,
-            x: leftX,
-            y: yT,
-            width,
-            height: yB - yT,
-            color: s.color,
-          })
-        }
-        cursorTop = s.lo
+      const rightX = sc.rightX
+      if (rightX - leftX <= 0.5) continue
+      for (let qi = 0; qi < f.quads.length; qi++) {
+        const q = f.quads[qi]
+        const color = formationColorById.get(q.formationId) ?? FALLBACK_COLOR
+        const yTL = clampY(levelToScreen(q.topLeftElev))
+        const yTR = clampY(levelToScreen(q.topRightElev))
+        const yBL = clampY(levelToScreen(q.baseLeftElev))
+        const yBR = clampY(levelToScreen(q.baseRightElev))
+        // Skip a quad with no visible height on either edge.
+        if (yBL - yTL <= 0.5 && yBR - yTR <= 0.5) continue
+        // Ring: topL → topR → baseR → baseL.
+        const points =
+          `M ${leftX.toFixed(2)},${yTL.toFixed(2)} ` +
+          `L ${rightX.toFixed(2)},${yTR.toFixed(2)} ` +
+          `L ${rightX.toFixed(2)},${yBR.toFixed(2)} ` +
+          `L ${leftX.toFixed(2)},${yBL.toFixed(2)} Z`
+        out.push({ key: `uc-${f.columnIndex}-${qi}`, points, color })
       }
     }
     return out
@@ -1456,15 +1412,13 @@ export default function PartitionFillOverlay({
       })}
 
       {/* Under-column substrate fill: closes the gap exactly below each test's TD
-          (the column-width sliver the edge-to-edge gap partition never covered). */}
+          (the column-width sliver the edge-to-edge gap partition never covered),
+          sloped to continue the straight deep-test→deep-test bridge line. */}
       {underColumnFills.map((f) => (
-        <rect
+        <path
           key={f.key}
           data-testid="partition-undercol"
-          x={f.x}
-          y={f.y}
-          width={f.width}
-          height={f.height}
+          d={f.points}
           fill={f.color}
           fillOpacity={FILL_OPACITY}
           stroke={f.color}
