@@ -13,6 +13,7 @@ import {
   computeBottomTieLine,
   computePartitionFill,
   computeSectionFill,
+  computeUnderColumnSubstrate,
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
   matchColumns,
@@ -23,6 +24,7 @@ import {
   type PartitionColumn,
   type PartitionRegion,
   type PartitionUnit,
+  type SectionRegion,
 } from './partitionFill'
 
 /** Build the edge-lookup predicate the production code uses (order-independent). */
@@ -2668,5 +2670,128 @@ describe('computeBottomTieLine', () => {
     expect(result.tieElev).toHaveLength(0)
     expect(result.formationId).toHaveLength(0)
     expect(result.bodyId).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeUnderColumnSubstrate — fills the column-width sliver below each test's
+// TD (the "gap exactly below a test column" dogfeed). The gap partition is built
+// edge-to-edge, so a column's own x-range below its TD was never filled. The fill
+// must (a) close that gap, (b) SLOPE to continue the straight deep-test→deep-test
+// bridge line rather than render a flat blocky step, (c) leave the deepest column
+// alone, and (d) handle a run of 2+ consecutive shallow tests.
+// ---------------------------------------------------------------------------
+describe('computeUnderColumnSubstrate (under-column substrate fill)', () => {
+  /** Build a SectionRegion quad sloping top0→top1 / base0→base1 across the gap. */
+  function reg(
+    gapIndex: number,
+    formationId: string,
+    top0: number,
+    base0: number,
+    top1: number,
+    base1: number,
+    kind: 'quad' | 'pinch' | 'lens' = 'quad',
+  ): SectionRegion {
+    return {
+      formationId,
+      bodyId: null,
+      kind,
+      gapIndex,
+      polygon: [
+        { fraction: 0, elevation: top0 },
+        { fraction: 1, elevation: top1 },
+        { fraction: 1, elevation: base1 },
+        { fraction: 0, elevation: base0 },
+      ],
+    }
+  }
+  /** A column whose deepest base sits at ``tdElev`` (surface 10). */
+  function shallowCol(id: string, tdElev: number): PartitionColumn {
+    return col(id, 10, [{ top: 0, base: 10 - tdElev, f: 'X', b: null }])
+  }
+
+  it('slopes the band contacts across a shallow column (straight deep→deep, not flat)', () => {
+    // deepL — shallow (TD 8) — deepR. Below TD the bridge carries CLAY-over-SAND.
+    // The substrate reaches up to TD, so the TOP band's top is flat at TD (meets
+    // the real data base) — but the CLAY/SAND contact and the bases must SLOPE
+    // from the left deep test's contact to the right deep test's (the anti-blocky
+    // property): gap 0 right-edge CLAY[5..8]/SAND[0..5]; gap 1 left-edge
+    // CLAY[3..8]/SAND[-2..3].
+    const columns = [shallowCol('L', -2), shallowCol('S', 8), shallowCol('R', -2)]
+    const regions: SectionRegion[] = [
+      reg(0, 'CLAY', 8, 5, 8, 5),
+      reg(0, 'SAND', 5, 0, 5, 0),
+      reg(1, 'CLAY', 8, 3, 8, 3),
+      reg(1, 'SAND', 3, -2, 3, -2),
+    ]
+    const fills = computeUnderColumnSubstrate(columns, regions)
+    const mid = fills.find((f) => f.columnIndex === 1)
+    expect(mid).toBeDefined()
+    expect(mid!.quads).toHaveLength(2)
+    const [clay, sand] = mid!.quads
+    expect(clay.formationId).toBe('CLAY')
+    expect(sand.formationId).toBe('SAND')
+    // Top band meets the flat TD on both edges (real-data base).
+    expect(clay.topLeftElev).toBeCloseTo(8, 1)
+    expect(clay.topRightElev).toBeCloseTo(8, 1)
+    // CLAY/SAND contact SLOPES 5 → 3 (anti-blocky); SAND base slopes 0 → -2.
+    expect(clay.baseLeftElev).toBeCloseTo(5, 1)
+    expect(clay.baseRightElev).toBeCloseTo(3, 1)
+    expect(clay.baseLeftElev).not.toBeCloseTo(clay.baseRightElev, 1)
+    expect(sand.topLeftElev).toBeCloseTo(5, 1)
+    expect(sand.topRightElev).toBeCloseTo(3, 1)
+    expect(sand.baseLeftElev).toBeCloseTo(0, 1)
+    expect(sand.baseRightElev).toBeCloseTo(-2, 1)
+  })
+
+  it('leaves the deepest column unfilled (nothing below its TD)', () => {
+    // deepR is the deepest at its edge — its TD equals the gap base, so there is
+    // nothing to fill below it.
+    const columns = [shallowCol('S', 6), shallowCol('R', -2)]
+    const regions: SectionRegion[] = [reg(0, 'SAND', 5, -2, 5, -2)]
+    const fills = computeUnderColumnSubstrate(columns, regions)
+    expect(fills.find((f) => f.columnIndex === 1)).toBeUndefined()
+  })
+
+  it('closes a lens-spot gap by extending the band below it upward', () => {
+    // Edge column (only a right gap) with CLAY[4..8], a LENS SILT[2..4], SAND[-2..2]
+    // at the edge. The matrix alone leaves [2..4] uncovered (the lens); the fill
+    // must close it by extending SAND up to 4 — contiguous, no vertical gap.
+    const columns = [shallowCol('S', 9.5), shallowCol('R', -2)]
+    const regions: SectionRegion[] = [
+      reg(0, 'CLAY', 8, 4, 8, 4),
+      reg(0, 'SILT', 4, 2, 4, 2, 'lens'), // lens — excluded from coverage
+      reg(0, 'SAND', 2, -2, 2, -2),
+    ]
+    const fills = computeUnderColumnSubstrate(columns, regions)
+    const c0 = fills.find((f) => f.columnIndex === 0)
+    expect(c0).toBeDefined()
+    expect(c0!.quads).toHaveLength(2)
+    const [upper, lower] = c0!.quads
+    expect(upper.formationId).toBe('CLAY')
+    expect(lower.formationId).toBe('SAND')
+    // Contiguous: CLAY base meets SAND top (no vertical gap where the lens sat).
+    expect(upper.baseLeftElev).toBeCloseTo(lower.topLeftElev, 1)
+    // SAND extended UP to 4 (the lens spot), not left at its own top of 2.
+    expect(lower.topLeftElev).toBeCloseTo(4, 1)
+  })
+
+  it('fills a run of 2+ consecutive shallow tests', () => {
+    // deepL — shallowA (TD 6) — shallowB (TD 6) — deepR. Both interior shallow
+    // columns must get a sloped fill below their TD.
+    const columns = [
+      shallowCol('L', -2),
+      shallowCol('A', 6),
+      shallowCol('B', 6),
+      shallowCol('R', -2),
+    ]
+    const regions: SectionRegion[] = [
+      reg(0, 'SAND', 5, 0, 4, -1),
+      reg(1, 'SAND', 4, -1, 2, -1.5),
+      reg(2, 'SAND', 2, -1.5, 3, -2),
+    ]
+    const fills = computeUnderColumnSubstrate(columns, regions)
+    expect(fills.find((f) => f.columnIndex === 1)?.quads.length).toBeGreaterThan(0)
+    expect(fills.find((f) => f.columnIndex === 2)?.quads.length).toBeGreaterThan(0)
   })
 })
