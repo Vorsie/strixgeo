@@ -14,17 +14,34 @@
 
 ---
 
-## ⚠ OPEN — ONE remaining void: GAP-19 over-match (2026-06-20, root-caused; resists quick fixes)
+## ⚠ OPEN — SYSTEMATIC bottom-region voids below shallow tests (2026-06-20, NOT YET FIXED — owner deferred to next session)
 
-**The owner's bottom-tie work fixed 13 of 14 gaps.** A real-data gate
-(`desktop/src/renderer/src/utils/partitionFill.cs1void.test.ts` — regenerate input
-with `scripts/throwaway_cs1_partition_extract.py`, then
-`npx vitest run …partitionFill.cs1void.test.ts`; reads the dev-DB-derived CS1 input,
-rasterises every gap with winding-rule PIP, flags interior/sandwiched voids +
-quad-on-quad overlaps) reports against the owner's CURRENT correlations exactly
-**ONE void gap — GAP-19, ~3151 cells, elev +0.90..+7.79 — and ZERO overlaps.** The
-earlier "14 gaps" count was on the stale pre-rework correlations; tying the bottoms
-turned the rest into clean "color between the lines" fills.
+**⚠ SCOPE CORRECTION (2026-06-20, owner dogfeed).** An earlier note here claimed
+"13 of 14 gaps fixed, ONE void (GAP-19) remains." THAT WAS WRONG — an artifact of a
+BROKEN gate. The first gate only flagged voids SANDWICHED between coverage (covered
+above AND below). But the REAL voids are at the BOTTOM of the section — below each
+shallow test's TD, down to the bottom-tie line — with NOTHING covered below them, so
+the sandwiched-only check skipped every one. Owner confirmed in the app: "none of the
+voids are fixed." The corrected gate (`partitionFill.cs1void.test.ts`, bottom boundary
+= the gap's deepest filled extent ≈ the bottom-tie line) reports **15 of 23 gaps with
+voids** on the owner's CURRENT correlations: GAP-0/1/2/3 (elev −8..−4), GAP-5/6,
+GAP-9/10/11/12 (−10..−6), GAP-13, GAP-15, GAP-19 (+0.9..+7.8), GAP-20/21 (+7.9..+8.9).
+These match the owner's annotated screenshots (big dark void wedges below S8/S10/B2/
+S7A/S7/S5a, bounded below by the dashed light-blue bottom-tie line).
+
+**EXPECTED BEHAVIOR (owner's annotated images, 2026-06-20):** the bottom-tie line
+(teal, can be OPEN-ENDED past the last column) is the continuous LOWER boundary of the
+section. Below each shallow test's TD the deep neighbour's stratigraphy (sand etc.)
+CONTINUES and FANS OUT to fill the void down to that bottom-tie line (the owner drew
+the deep sand arcing across the dark wedges). So: below a shallow column, lay the deep
+column's sub-TD units flat/fanning down to the bottom-tie envelope — gapless to the
+bottom line, not just to the shallow TD.
+
+**This is a SYSTEMATIC fill rule, not a one-gap patch.** GAP-19 below is ONE concrete
+instance (the single-formation over-match); the other 14 gaps are the same class —
+the partition stops at the shallow column's data and never fills the wedge down to the
+bottom-tie line. The fix must make the floor walk fill every shallow column's sub-TD
+wedge down to the bottom-tie envelope (interpolated deep base / open-ended tie).
 
 **GAP-19 exact root cause (verified by instrumenting `emitGap` against real data):**
 S6 (deep, left, TD −9.96) ↔ S5a (shallow, right, TD +7.91), BOTH a single sand
