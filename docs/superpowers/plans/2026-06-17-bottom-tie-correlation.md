@@ -14,7 +14,38 @@
 
 ---
 
-## ⚠ OPEN — SYSTEMATIC bottom-region voids below shallow tests (2026-06-20, NOT YET FIXED — owner deferred to next session)
+## ✅ MOSTLY FIXED — systematic bottom voids closed (14/15); GAP-19 over-match remains (2026-06-20)
+
+**RESOLUTION (2026-06-20).** The systematic bottom-region voids are FIXED in
+`partitionFill.ts` (commit `51ea227c`, test `cc20d470`). Root cause: the deepest
+matched band slanted from the deep column's base UP to the shallow column's base,
+rendering the deep stratigraphy below the shallow TD only as the band's lower
+triangle — so the wedge down to the bottom-tie envelope was empty. Fix: when the
+deepest-on-BOTH-columns matched band's deep side dips below the shallow column's
+floor, end the band FLAT at the shallow base and lay the deep unit's tail FLAT
+full-width down to its own base ("color between the lines"). The CS1 gate now reports
+**0 voids in 14 of the 15 gaps + 0 overlaps**; partition unit suite 67 + goldens 4
+green. Two enabling findings: (1) the TS `computeSectionFill` is the SINGLE source of
+truth for BOTH the 2D fill AND the 3D voxel model (`buildVoxelRequest.ts` sends its
+regions to the backend), so this one fix corrects both; (2) the Python
+`section_partition.py` port is DEAD CODE (zero live imports — served the retired loft
+builder), so the goldens parity contract no longer constrains TS geometry changes.
+
+**STILL OPEN — GAP-19 only (the over-match).** S6(deep)↔S5a(shallow), one sand
+formation: `R0(11.4..9.6)` and `R1(9.6..7.9)` are the same sand but DIFFERENT bodies,
+so `collapseAdjacentSameFormation` (formationId AND bodyId gate) won't merge them; the
+matcher bands the 10.6 m `L0` to the thin `R0`, and the floor walk's fill-TRIANGLE is
+geometrically insufficient for the large resulting tail → a residual void at
++0.9..+7.8. The flat-tail fix is correctly guarded OFF here (L0 isn't L's deepest;
+forcing it on re-introduces the GAP-8/16/17 overlaps). Tried + reverted:
+collapse-regardless-of-body (broke 2 unit tests, didn't fix GAP-19 anyway). The clean
+GAP-19 fix needs EITHER an owner decision on merging same-formation different-body
+units in the 2D fill/3D voxel, OR replacing the floor-walk fill-triangle with a full
+wedge fill. Tracked as the residual; the gate stays RED on GAP-19 until then.
+
+---
+
+### (superseded) earlier scope note
 
 **⚠ SCOPE CORRECTION (2026-06-20, owner dogfeed).** An earlier note here claimed
 "13 of 14 gaps fixed, ONE void (GAP-19) remains." THAT WAS WRONG — an artifact of a
