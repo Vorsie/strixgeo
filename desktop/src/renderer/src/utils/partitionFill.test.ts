@@ -2468,3 +2468,57 @@ describe('collapseAdjacentSameFormation — body_id gate (spec §9 body-split)',
     expect(units).toHaveLength(1)
   })
 })
+
+describe('sub-shallow-TD flat tail — deep stratigraphy continues flat below the shallow column (owner 2026-06-20)', () => {
+  /** Even-odd point-in-polygon in (fraction, elevation) space. */
+  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+  const coverAt = (regions: PartitionRegion[], f: number, e: number): string[] =>
+    regions.filter((r) => r.kind !== 'lens' && inPoly(r.polygon, f, e)).map((r) => r.formationId)
+
+  // A DEEP column (SAND to −15) and a SHALLOW column (same SAND, but only to −5),
+  // SAND tops correlated. The deepest matched band would otherwise SLANT from the
+  // deep base (−15) up to the shallow base (−5), leaving the wedge below the
+  // shallow TD empty (the systematic "nothing renders below the undeep test"
+  // void). The fix ends the band FLAT at the shallow base and lays the deep SAND
+  // tail FLAT full-width down to its own base.
+  const deep = col('deep', 0, [
+    { top: 0, base: 3, f: 'CLAY', b: 'c' },
+    { top: 3, base: 15, f: 'SAND', b: 's' },
+  ])
+  const shallow = col('shallow', 0, [
+    { top: 0, base: 3, f: 'CLAY', b: 'c' },
+    { top: 3, base: 5, f: 'SAND', b: 's' },
+  ])
+
+  it('fills below the shallow column TD with the deep SAND (no void)', () => {
+    const regions = pf(deep, shallow)
+    // Deep into the wedge below the shallow column's TD (−5), near the shallow
+    // side (fraction 0.9): MUST be covered by SAND, not empty.
+    expect(coverAt(regions, 0.9, -10)).toContain('SAND')
+    expect(coverAt(regions, 0.6, -12)).toContain('SAND')
+    // Mid-gap just below the shallow TD: covered (the void's worst point).
+    expect(coverAt(regions, 0.75, -6)).toContain('SAND')
+  })
+
+  it('does not leave the wedge below the shallow TD empty at any fraction', () => {
+    const regions = pf(deep, shallow)
+    // March across the gap at an elevation strictly inside the wedge (−5 > e > −15)
+    // on the shallow side; every sample must be covered.
+    for (let s = 1; s <= 9; s++) {
+      const f = s / 10
+      const cover = coverAt(regions, f, -8)
+      expect(cover.length, `void at fraction ${f}, elev −8`).toBeGreaterThan(0)
+    }
+  })
+})
