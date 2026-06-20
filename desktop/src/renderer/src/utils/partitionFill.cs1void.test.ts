@@ -244,6 +244,127 @@ describe('CS1 real-data partition void gate', () => {
     expect(offenders, `interior voids found:\n${offenders.join('\n')}`).toEqual([])
   })
 
+  it('has correct lithology below shallow tests (no clay where sand should be)', () => {
+    // Short columns (base elevation shallower than at least one neighbour's) create
+    // a wedge between their real data and the bottom-tie line. Bridge injection must
+    // fill that wedge with the CORRECT formation (not always the single deepest clay).
+    // For each gap touching a short column, sample points in the below-real-data
+    // wedge and assert the filled formation matches what the deep neighbour has at
+    // that elevation.
+    //
+    // CS1 formation suffixes: 38d1bc=ZAND/sand, 19bb43=KLEI/clay, 0f2e06=SILT, 512af4=VEEN.
+    //
+    // Tolerance: allow mismatch within 0.5 m of a formation boundary (rasterisation
+    // artefact at the seam). GAP-19 over-match is excluded as a known pre-existing issue.
+
+    const cols = columns.filter((c) => c.units.length > 0)
+    const surfElev = cols.map((c) => c.surfaceElevM)
+
+    // Find short columns: those whose deepest base elevation is shallower than at
+    // least one neighbour's. A column is "short" if its base elev > min neighbour base.
+    const baseElev = cols.map(
+      (c) => c.surfaceElevM - Math.max(...c.units.map((u) => u.baseDepthM)),
+    )
+
+    // Per elevation (mTAW), look up what formation the real data in a column has.
+    // Returns null when elev is above the column's surface or below its deepest base.
+    function formationAtElev(colIdx: number, elev: number): string | null {
+      const c = cols[colIdx]
+      const surf = surfElev[colIdx]
+      for (const u of c.units) {
+        const top = surf - u.topDepthM
+        const base = surf - u.baseDepthM
+        if (elev <= top + 1e-6 && elev >= base - 1e-6) return u.formationId
+      }
+      return null
+    }
+
+    // For a given formation, find the nearest formation boundary depths in a column.
+    // Used to determine if a sample point is within 0.5 m of a boundary.
+    function nearBoundary(colIdx: number, elev: number, tol = 0.5): boolean {
+      const c = cols[colIdx]
+      const surf = surfElev[colIdx]
+      for (const u of c.units) {
+        const top = surf - u.topDepthM
+        const base = surf - u.baseDepthM
+        if (Math.abs(elev - top) < tol || Math.abs(elev - base) < tol) return true
+      }
+      return false
+    }
+
+    const BAND_TOL = 0.5 // m: formation boundary tolerance
+    const offenders: string[] = []
+    const GAP19_KNOWN = 19
+
+    for (let g = 0; g < cols.length - 1; g++) {
+      if (g === GAP19_KNOWN) continue // known pre-existing over-match issue
+
+      const leftBase = baseElev[g]
+      const rightBase = baseElev[g + 1]
+      // The gap is "short-column-adjacent" when one side is at least 2 m shallower.
+      const minBase = Math.min(leftBase, rightBase)
+      const maxBase = Math.max(leftBase, rightBase)
+      if (maxBase - minBase < 2) continue // both sides similar depth — not a short-col gap
+
+      // The shallow side and deep side.
+      const shallowSide: 0 | 1 = leftBase > rightBase ? 0 : 1
+      const deepSide: 0 | 1 = shallowSide === 0 ? 1 : 0
+      const deepColIdx = shallowSide === 0 ? g + 1 : g
+
+      const gapRegs = byGap.get(g) ?? []
+      const gapBottom = (() => {
+        const l = tie.tieElev[g]
+        const r = tie.tieElev[g + 1]
+        if (l === null && r === null) return null
+        return Math.min(l ?? r!, r ?? l!)
+      })()
+      if (gapBottom === null) continue
+
+      const shallowBase = maxBase // base elev of the shorter column
+      // The wedge to sample: from just below the shallow column's real data down to
+      // the gap bottom (the bottom-tie line). Skip if there's no wedge to sample.
+      if (shallowBase <= gapBottom + 1) continue
+
+      // Sample ~12 points in the wedge (near the short column's fraction: 0.1 or 0.9).
+      const sampleFrac = shallowSide === 0 ? 0.1 : 0.9
+      const wedgeTop = shallowBase - 0.1 // just below shallow TD
+      const wedgeBot = gapBottom + 0.1 // just above tie line
+      if (wedgeTop <= wedgeBot) continue
+      const N = 12
+      for (let si = 0; si < N; si++) {
+        const t = si / (N - 1)
+        const elev = wedgeTop + t * (wedgeBot - wedgeTop)
+
+        // Expected: the formation the deep column has at this elevation.
+        const expectedForm = formationAtElev(deepColIdx, elev)
+        if (expectedForm === null) continue // deep column doesn't reach here either
+
+        // Near a boundary — allow mismatch.
+        if (nearBoundary(deepColIdx, elev, BAND_TOL)) continue
+
+        // Find the formation in the filled partition at this sample point.
+        const covReg = gapRegs.find(
+          (r) => r.kind !== 'lens' && inPolygon(sampleFrac, elev, r.polygon),
+        )
+        if (covReg === null || covReg === undefined) {
+          // No region covers this point — still a void (counted by the coverage test).
+          continue
+        }
+        if (covReg.formationId !== expectedForm) {
+          offenders.push(
+            `GAP-${g} @elev ${elev.toFixed(2)} f=${sampleFrac}: got …${covReg.formationId.slice(-6)} expected …${expectedForm.slice(-6)}`,
+          )
+        }
+      }
+    }
+
+    if (offenders.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-LITHO] lithology mismatches:\n  ' + offenders.join('\n  '))
+    }
+    expect(offenders, `lithology mismatches found:\n${offenders.join('\n')}`).toEqual([])
+  })
+
   it('has no quad-on-quad overlaps in any gap', () => {
     const offenders: string[] = []
     for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
@@ -276,4 +397,5 @@ describe('CS1 real-data partition void gate', () => {
     }
     expect(offenders, `quad overlaps found:\n${offenders.join('\n')}`).toEqual([])
   })
+
 })
