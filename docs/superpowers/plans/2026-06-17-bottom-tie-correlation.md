@@ -14,17 +14,54 @@
 
 ---
 
-## ⚠ OPEN — sub-shallow-TD partition VOIDS (2026-06-20, UNSOLVED after 4 attempts)
+## ⚠ OPEN — ONE remaining void: GAP-19 over-match (2026-06-20, root-caused; resists quick fixes)
 
-**Symptom (owner dogfeed):** the 2D `computeSectionFill` "Fill bands" leaves empty VOIDS below shallow tests' TDs on CS1 (the 3D voxel model then fills them with spurious clay). Owner-confirmed the fix belongs in the 2D partition (`partitionFill.ts`): below a shallow column's TD the deep neighbour's bands must continue FLAT (mockup B), partition stays gapless (0 voids, 0 overlaps).
+**The owner's bottom-tie work fixed 13 of 14 gaps.** A real-data gate
+(`desktop/src/renderer/src/utils/partitionFill.cs1void.test.ts` — regenerate input
+with `scripts/throwaway_cs1_partition_extract.py`, then
+`npx vitest run …partitionFill.cs1void.test.ts`; reads the dev-DB-derived CS1 input,
+rasterises every gap with winding-rule PIP, flags interior/sandwiched voids +
+quad-on-quad overlaps) reports against the owner's CURRENT correlations exactly
+**ONE void gap — GAP-19, ~3151 cells, elev +0.90..+7.79 — and ZERO overlaps.** The
+earlier "14 gaps" count was on the stale pre-rework correlations; tying the bottoms
+turned the rest into clean "color between the lines" fills.
 
-**What IS fixed (keep):** the mixed-tie B2↔S7A gap; the GAP-7 OVERLAP (gone, verified 0); the clay-bridge same-formation merge across a pulled lens (gone, verified). Cesium e2e/vitest-load failures are PRE-EXISTING (toolchain `&&` SyntaxError on cesium-importing suites), not from this work.
+**GAP-19 exact root cause (verified by instrumenting `emitGap` against real data):**
+S6 (deep, left, TD −9.96) ↔ S5a (shallow, right, TD +7.91), BOTH a single sand
+formation. After reduce+collapse: `L0:11.4..0.8` (10.6 m), `R0:11.4..9.6` (1.8 m),
+`R1:9.6..7.9`. Tops are correlated → `matchColumns` bands `L0↔R0`, but L0 is 10.6 m
+vs R0's 1.8 m so the band base SLANTS +0.8(L) ↔ +9.6(R). L0's sand between +0.8 and
++9.6 is rendered only as the slanted band's lower-left triangle → on the RIGHT below
+S5a's TD (+7.9) nothing fills down to +0.8 → the void. R1 (R's deeper sand) is
+stranded as a genuine-pinch whose apex plunges to +0.85. **`collapseAdjacentSame­
+Formation` (line ~320) merges only when formationId AND bodyId match — R0/R1 are the
+same sand but DIFFERENT bodies, so they never collapse into one R sand unit; had
+they, the band would clamp at S5a's TD with L0's tail flat below.**
 
-**What is NOT fixed:** the sub-TD voids. Independent whole-section CS1 scan on `18b60a3d` (winding-rule PIP matching the SVG renderer, interior-sandwiched-only, connected-component sizing, perturbation + edge-distance classification) found **genuine multi-metre holes in 14 of 23 gaps** — e.g. GAP-19 n=3465 cells (~6.9 m tall, 97 frac-steps wide), GAP-18 ~6 m, GAP-5 ~4.6 m. **The `18b60a3d` commit message ("fill slanted-pair voids") OVERCLAIMS — it did not close the sub-TD voids; the fix agent rationalized a "22 artifacts" claim the independent scan disproved (thousands of real holes).**
+**THREE quick fixes ATTEMPTED 2026-06-20, ALL reverted (nets caught each):**
+1. Re-enable `injectVirtualUnits` → fixed GAP-19 but created GAP-16 void + GAP-8/17
+   overlaps + 7 unit-test failures (two mechanisms fighting; that's why it was off).
+2. Unconditional `splitDeepTailAtFacingFloor` (split any straddler at facing-TD elev
+   → head bands, tail flat) → fixed GAP-19 but created GAP-8/17 overlaps + broke a
+   golden + 6 unit tests (over-applies to unmatched straddlers the floor walk already
+   handles).
+3. Narrowed split to only TOP-CORRELATED deep straddlers → did NOT even fix GAP-19
+   (head still slants, R1 still strands) AND still broke a golden + 3 unit tests.
 
-**Root (verified):** the triangular void below a shallow column's TD — bounded above by the deep column's tapering band, below by the deeper full-width bands — is not tiled. The sideways/`injectVirtualUnits`/fill-triangle paths fire INCONSISTENTLY (some high-dTD gaps clean: 7/8/16/22-ish; others hole: 19/18/5/12/0/10…).
+**Conclusion:** GAP-19 needs MATCH-AWARE surgery (split/clamp only the matched
+deep-side unit, AFTER `matchColumns`, inside `emitGap`) so the band clamps at the
+facing TD and the deep tail + R1 lay flat — combined with regenerating the
+`partitionFill.goldens.test.ts` PARITY CONTRACT and re-running the Python parity
+test (`tests/unit/domain/test_section_partition_goldens.py`). That is a scoped,
+reviewed change, not a one-liner. **GATES for whoever does it:** (1) the CS1
+void+overlap gate above → 0/0, (2) goldens regenerated + Python parity green,
+(3) full `partitionFill.test.ts` green. The synthetic `assertTiles` tests do NOT
+reproduce the real single-formation-different-body TD-mismatch, so the CS1 gate is
+mandatory.
 
-**Recommendation (do NOT keep blind-patching — 4 attempts failed):** fresh, focused session. Two candidate strategies: (a) a deterministic CLOSE-ANY-HOLE post-pass in `emitGap` (after region emission, fill remaining interior-uncovered cells by extending the bordering deep band — robust, less elegant); (b) get `injectVirtualUnits` (extend the shallow column's stack below its TD with the facing deep neighbour's flat units) to fire CONSISTENTLY for every shallow-neighbour gap (the right model; current impl is inconsistent). **GATE: the whole-section CS1 scan via `scripts/throwaway_cs1_partition_extract.py` must show 0 interior voids + 0 overlaps — unit tests alone repeatedly missed these (assertTiles in the synthetic fixtures doesn't reproduce the real TD-mismatch geometry).**
+**Everything else from this branch is solid + committed:** the bottom-tie gesture,
+cursor mTAW HUD, all 4 e2e reds fixed (suite green), CSP Cesium fix, clay-bridge
+removed, 0 overlaps. ~65 commits on develop, unpushed.
 
 ---
 
