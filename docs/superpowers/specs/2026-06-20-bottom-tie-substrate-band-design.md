@@ -1,7 +1,8 @@
 # Bottom-tie substrate band — design
 
 **Date:** 2026-06-20
-**Status:** design settled (owner decisions captured), ready for plan + build
+**Status:** APPROVED (owner confirmed model 2026-06-20: "it just follows the bottom
+tie"); plan written; subagent-driven build underway
 **Owner directives (2026-06-20):** "fill driven by my bottom-ties"; "bounded by the
 bottom-tie line or another correlation band."
 
