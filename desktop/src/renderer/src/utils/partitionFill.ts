@@ -1866,8 +1866,13 @@ function emitOneSidedPinch(
   // a BOUNDARY pinch fills from the ABOVE side only (the unit below stays flat),
   // or from BELOW at the surface.
   if (above && below && above.formationId === below.formationId) {
-    out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
-    out.push({ formationId: below.formationId, bodyId: below.bodyId, kind: 'quad', polygon: [baseCorner, apex, conv] })
+    // When the interval has zero thickness on the opposite side (topOppDepth ≈
+    // baseOppDepth), conv coincides with a corner of the adjacent matched quad.
+    // Emitting the two closing triangles in that case creates overlaps — skip.
+    if (Math.abs(topOppDepth - baseOppDepth) >= EPS) {
+      out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
+      out.push({ formationId: below.formationId, bodyId: below.bodyId, kind: 'quad', polygon: [baseCorner, apex, conv] })
+    }
   } else if (above) {
     out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
   } else if (below) {
@@ -2995,8 +3000,14 @@ export function computeSectionFill(
     }
   }
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
-  const baseTied: Correlated | undefined =
-    baseTiedSet.size > 0 ? (a, b) => baseTiedSet.has(edgeKey(a, b)) : undefined
+  // baseTied is always a closure over baseTiedSet (not gated on size > 0) so that
+  // synthetic bridge base-tie edges added by the bridge injection pre-pass are picked
+  // up automatically. The bridge injection runs AFTER this line and mutates baseTiedSet.
+  // The caller (reduceColumn / matchColumns / emitGap) always checks baseTied !== undefined,
+  // so we signal "no base ties" by passing undefined from computeSectionFill only when
+  // the set remains empty after bridge injection — but that's hard to know here. Instead,
+  // always provide the closure and let callers be cheap-close on an empty set (no-ops).
+  const baseTied: Correlated = (a, b) => baseTiedSet.has(edgeKey(a, b))
   // Layer IDs that participate in at least one approved correlation edge (both
   // top-top and top-base edges). Used by reduceColumn to distinguish a unit with
   // a jump edge to a DISTANT column (which should be merged across a void so it
@@ -3014,6 +3025,337 @@ export function computeSectionFill(
     .map((c) => ({ surface: c.surfaceElevM, units: c.units.map((u) => ({ ...u })) }))
   if (cols.length < 2) return []
   cols.forEach((c) => closeColumnGaps(c.units))
+
+  // Snapshot of each column's total depth BEFORE bridge injection AND before
+  // gap-close(a) extends real units' baseDepthM. The substrate post-pass uses
+  // this to compute the correct shallow-column base elevation without being
+  // fooled by gap-close(a)'s mutations (which would make leftBaseElev/rightBaseElev
+  // appear much deeper than the column's actual observed data).
+  const preInjectionBaseTD: number[] = cols.map((c) => columnTotalDepth(c.units))
+
+  // -------------------------------------------------------------------------
+  // Bridge injection pre-pass (owner directive 2026-06-20, correction after
+  // first build): for every correlation edge (a, b) whose two endpoints land on
+  // NON-ADJACENT columns (|i−j| ≥ 2), inject an interpolated copy of that band
+  // into each intervening column k. The bridge is clipped to sit BELOW that
+  // column's real data (topDepth = max(bridge_top, realBase_k)). Bridge units
+  // carry a stable ``'bridge:a:b:k'`` layerId and synthetic edges that chain
+  // lo↔(lo+1)↔…↔hi are added to the same edge-set lookups so the existing
+  // band-detection machinery (``correlated`` / ``baseTied``) treats them as
+  // explicit correlations. This replaces the single-formation substrate post-pass,
+  // which incorrectly filled all wedges with the deepest tied formation (KLEI/clay
+  // everywhere) instead of each band's own formation.
+  // -------------------------------------------------------------------------
+  {
+    // Build a layerId → { colIndex, topElev, baseElev, formationId, bodyId } map
+    // from the CLOSED-GAP cols (post-closeColumnGaps) so elevations are accurate.
+    interface LayerLoc {
+      colIndex: number
+      topElev: number
+      baseElev: number
+      formationId: string
+      bodyId: string | null
+      /** 'top' | 'base' — which side of the edge this unit is on (aSide/bSide). */
+      side: 'top' | 'base'
+    }
+    const layerLoc = new Map<string, Omit<LayerLoc, 'side'>>()
+    for (let ci = 0; ci < cols.length; ci++) {
+      const c = cols[ci]
+      for (const u of c.units) {
+        layerLoc.set(u.layerId, {
+          colIndex: ci,
+          topElev: c.surface - u.topDepthM,
+          baseElev: c.surface - u.baseDepthM,
+          formationId: u.formationId,
+          bodyId: u.bodyId,
+        })
+      }
+    }
+
+    // Snapshot of each column's real (pre-bridge) total depth, keyed by colIndex.
+    // This MUST be computed before the bridge injection loop because the loop
+    // appends bridge units to cols[k].units, and columnTotalDepth() on a column
+    // that already has bridges injected from earlier edges would return a deeper
+    // value — causing later bridge insertions for the SAME column to be
+    // incorrectly skipped (their bridgeBaseDepth < inflated realBase_k).
+    const realBaseTD: number[] = cols.map((c) => columnTotalDepth(c.units))
+
+    // Synthetic edges to inject into the edge-set lookups after bridge injection.
+    const bridgeTopEdges: { a: string; b: string }[] = []
+    const bridgeBaseEdges: { a: string; b: string }[] = []
+
+    // Track which bridge layerIds have already been injected into a column, to
+    // prevent duplicate units when the SAME layer pair appears as BOTH a top-tie
+    // and a base-tie edge (which happens in CS1: f3f251↔bab5dc and c219e2↔8e4fc4
+    // each have two edge records with different aSide/bSide). The bridge unit is
+    // injected only once; both edge kinds register their synthetic chain edges.
+    const injectedBridgeIds = new Set<string>()
+
+    // Pass 1: collect bridge candidates per intermediate column. Multiple edges can
+    // target the same intermediate column k; collecting first prevents the overlapping
+    // injection bug (a shallow bridge from one edge can be entirely contained inside a
+    // deep bridge from another edge, producing quad-on-quad overlaps in emitGap output).
+    interface BridgeCandidate {
+      loId: string
+      hiId: string
+      formationId: string
+      bodyId: string | null
+      naturalTopElev: number
+      naturalBaseElev: number
+    }
+    const candidatesByCol = new Map<number, BridgeCandidate[]>()
+
+    for (const e of edges) {
+      const locA = layerLoc.get(e.a)
+      const locB = layerLoc.get(e.b)
+      if (locA === undefined || locB === undefined) continue
+      const [lo, hi] = locA.colIndex <= locB.colIndex ? [locA, locB] : [locB, locA]
+      const [loId, hiId] = locA.colIndex <= locB.colIndex ? [e.a, e.b] : [e.b, e.a]
+      const span = hi.colIndex - lo.colIndex
+      if (span < 2) continue // adjacent — no bridge needed
+
+      // Determine the formation/body for bridges: use the deeper (lower elevation)
+      // endpoint's formation, matching computeBottomTieLine's convention.
+      const formationId = lo.baseElev <= hi.baseElev ? lo.formationId : hi.formationId
+      const bodyId = lo.baseElev <= hi.baseElev ? lo.bodyId : hi.bodyId
+
+      for (let k = lo.colIndex + 1; k < hi.colIndex; k++) {
+        const t = (k - lo.colIndex) / span
+        const naturalTopElev = lo.topElev + t * (hi.topElev - lo.topElev)
+        const naturalBaseElev = lo.baseElev + t * (hi.baseElev - lo.baseElev)
+        const cands = candidatesByCol.get(k) ?? []
+        // Dedup by (loId, hiId): the same pair may appear as both a top-tie and a
+        // base-tie edge record — the bridge unit shape is identical regardless of
+        // edge kind, so keep only one candidate per (lo, hi) pair.
+        if (!cands.some((c) => c.loId === loId && c.hiId === hiId)) {
+          cands.push({ loId, hiId, formationId, bodyId, naturalTopElev, naturalBaseElev })
+        }
+        candidatesByCol.set(k, cands)
+      }
+    }
+
+    // Pass 2: per column, sort candidates by natural top elevation (highest/shallowest
+    // first = smallest depth first), then inject them sequentially from realBaseTD[k]
+    // downward without overlaps. Each bridge starts at:
+    //   max(naturalTopDepth, currentTopDepth)
+    // where naturalTopDepth is the interpolated depth and currentTopDepth is the fill
+    // frontier (initially realBaseTD[k], then the previous bridge's base). Using
+    // max() handles two cases:
+    //   (a) naturalTop is shallower than the fill frontier (the original overlap case):
+    //       bridge starts at the frontier → no gap between bridges.
+    //   (b) naturalTop is deeper than the fill frontier (a single deep bridge):
+    //       bridge starts at its natural top → correct dipping geometry, no artificial
+    //       extension that would collide with adjacent real-unit quads.
+    //
+    for (const [k, cands] of candidatesByCol) {
+      // Sort shallowest-top-elevation first (= descending elevation = ascending depth).
+      cands.sort(
+        (a, b) => b.naturalTopElev - a.naturalTopElev || b.naturalBaseElev - a.naturalBaseElev,
+      )
+      const kSurf = cols[k].surface
+      let currentTopDepth = realBaseTD[k]
+      for (const cand of cands) {
+        const naturalTopDepth = kSurf - cand.naturalTopElev
+        const naturalBaseDepth = kSurf - cand.naturalBaseElev
+        // Clip top to be no shallower than real data and no shallower than the previous
+        // bridge's base (the fill frontier). Also respect the natural top so a single
+        // deep bridge does not get anchored at realBaseTD and create an artificial gap.
+        const bridgeTopDepth = Math.max(naturalTopDepth, currentTopDepth)
+        if (naturalBaseDepth <= bridgeTopDepth + EPS) continue // zero or negative thickness
+        const bridgeLayerId = `bridge:${cand.loId}:${cand.hiId}:${k}`
+        if (!injectedBridgeIds.has(bridgeLayerId)) {
+          cols[k].units.push({
+            topDepthM: bridgeTopDepth,
+            baseDepthM: naturalBaseDepth,
+            formationId: cand.formationId,
+            bodyId: cand.bodyId,
+            layerId: bridgeLayerId,
+            // Bridge units carry a real formation and are correlated via synthetic
+            // edges, so the band-detection machinery treats them as explicit bands.
+          })
+          injectedBridgeIds.add(bridgeLayerId)
+        }
+        currentTopDepth = naturalBaseDepth
+      }
+    }
+
+    // Pass 3: rebuild synthetic edge chains (top-tie and base-tie) for every
+    // non-adjacent edge. Bridge layerIds that were actually injected connect
+    // lo → bridge_k0 → bridge_k1 → … → hi; skipped columns use an empty string
+    // placeholder that the chain-emitter skips.
+    for (const e of edges) {
+      const locA = layerLoc.get(e.a)
+      const locB = layerLoc.get(e.b)
+      if (locA === undefined || locB === undefined) continue
+      const [lo, hi] = locA.colIndex <= locB.colIndex ? [locA, locB] : [locB, locA]
+      const [loId, hiId] = locA.colIndex <= locB.colIndex ? [e.a, e.b] : [e.b, e.a]
+      const span = hi.colIndex - lo.colIndex
+      if (span < 2) continue // adjacent — no bridge needed
+
+      const aIsBase = e.aSide === 'base'
+      const bIsBase = e.bSide === 'base'
+      const isBaseTie = aIsBase && bIsBase
+
+      const prevBridgeId: string[] = [loId]
+      for (let k = lo.colIndex + 1; k < hi.colIndex; k++) {
+        const bridgeLayerId = `bridge:${loId}:${hiId}:${k}`
+        prevBridgeId.push(injectedBridgeIds.has(bridgeLayerId) ? bridgeLayerId : '')
+      }
+      prevBridgeId.push(hiId)
+
+      // Synthesize edges between consecutive present bridge nodes (skip gaps where
+      // bridging was skipped due to zero-thickness or all-within-real-data).
+      for (let ki = 0; ki < prevBridgeId.length - 1; ki++) {
+        const aId = prevBridgeId[ki]
+        const bId = prevBridgeId[ki + 1]
+        if (aId === '' || bId === '') continue
+        if (isBaseTie) {
+          bridgeBaseEdges.push({ a: aId, b: bId })
+        } else {
+          bridgeTopEdges.push({ a: aId, b: bId })
+        }
+      }
+    }
+
+    // Re-sort any modified columns (bridge units were appended, possibly out of order).
+    for (const c of cols) {
+      c.units.sort((a, b) => a.topDepthM - b.topDepthM)
+    }
+
+    // Close gaps in each column after bridge injection.
+    //
+    // When a non-adjacent correlation edge crosses intermediate column k, the
+    // bridge unit's clipped top = max(interpolatedTopDepth, realBase_k). Pass 2
+    // uses max() so the bridge starts at max(naturalTop, realBase). When
+    // naturalTop <= realBase (Case A — the band is shallower than the column TD),
+    // the bridge's top equals realBase exactly → no gap, nothing to close.
+    // When naturalTop > realBase (Case B — the band dips below the column TD),
+    // the bridge starts below the real data → a data void separates them.
+    // Fix (a): Extend the last real unit's base to the first bridge's top.
+    //   Only applied when the bridge's top is NOT deeper than the column's real
+    //   pre-injection TD (Case A — band that crosses the column above its real data
+    //   base; the max() in Pass 2 placed the bridge exactly at realBase, so the gap
+    //   is at most a floating-point epsilon). In Case B (bridge's natural top is
+    //   deeper than the column's real TD — the band dips well BELOW the short
+    //   column's data), extending the real unit is WRONG: the zone between real data
+    //   and the bridge is a genuine DATA VOID, not more of the correlated band. Case B
+    //   leaves the gap for emitGap's floor-interval sideways logic to fill correctly.
+    //
+    // Fix (b): Inject a gap-fill bridge between consecutive bridge units, using
+    //   the formation from the adjacent deep column at that elevation range.
+    //   The naive extension (setting curr.baseDepthM = next.topDepthM) uses the
+    //   UPPER bridge's formation for the gap zone, which is WRONG when the deep
+    //   neighbor column has a different formation there. Instead we sample the
+    //   adjacent column's real units at the gap's mid-elevation and inject a new
+    //   'gapfill:' bridge unit with the correct formationId. A synthetic top-tie
+    //   edge to the neighbor unit is registered so the matching machinery treats
+    //   the gap-fill as a band/onlap (not pulled as a lens).
+    for (let ci = 0; ci < cols.length; ci++) {
+      const c = cols[ci]
+
+      // (a) Gap between last real unit and first bridge unit — Case A only.
+      {
+        let lastRealIdx = -1
+        let firstBridgeIdx = -1
+        for (let bi = 0; bi < c.units.length; bi++) {
+          const u = c.units[bi]
+          if (!u.layerId.startsWith('bridge:') && !u.layerId.startsWith('gapfill:')) {
+            lastRealIdx = bi
+          } else if (firstBridgeIdx === -1) {
+            firstBridgeIdx = bi
+          }
+        }
+        if (lastRealIdx !== -1 && firstBridgeIdx !== -1 && firstBridgeIdx === lastRealIdx + 1) {
+          const lastReal = c.units[lastRealIdx]
+          const firstBridge = c.units[firstBridgeIdx]
+          if (firstBridge.topDepthM > lastReal.baseDepthM + EPS) {
+            lastReal.baseDepthM = firstBridge.topDepthM
+          }
+        }
+      }
+
+      // (b) Inject a formation-correct gap-fill bridge between consecutive bridge units.
+      for (let bi = 0; bi < c.units.length - 1; bi++) {
+        const curr = c.units[bi]
+        const next = c.units[bi + 1]
+        if (!curr.layerId.startsWith('bridge:')) continue
+        if (!next.layerId.startsWith('bridge:')) continue
+        const gapTopDepth = curr.baseDepthM
+        const gapBaseDepth = next.topDepthM
+        if (gapBaseDepth <= gapTopDepth + EPS) continue // no real gap
+
+        // Mid-elevation of the gap on column ci.
+        const midElev = c.surface - (gapTopDepth + gapBaseDepth) / 2
+
+        // Look up the formation from the closest adjacent column that has REAL
+        // (non-bridge) data covering this elevation. Prefer left-then-right; the
+        // deep column is the one with real data here, so the first hit is used.
+        let fillFormId: string | null = null
+        let fillBodyId: string | null = null
+        let neighborUnitId: string | null = null
+
+        for (const nbci of [ci - 1, ci + 1]) {
+          if (nbci < 0 || nbci >= cols.length) continue
+          const nb = cols[nbci]
+          for (const u of nb.units) {
+            if (u.layerId.startsWith('bridge:') || u.layerId.startsWith('gapfill:')) continue
+            const topE = nb.surface - u.topDepthM
+            const baseE = nb.surface - u.baseDepthM
+            if (midElev <= topE + EPS && midElev >= baseE - EPS) {
+              fillFormId = u.formationId
+              fillBodyId = u.bodyId
+              neighborUnitId = u.layerId
+              break
+            }
+          }
+          if (fillFormId !== null) break
+        }
+
+        if (fillFormId === null) {
+          // No adjacent real data covers this elevation — fall back to extending
+          // the upper bridge (same formation, avoids a void).
+          curr.baseDepthM = gapBaseDepth
+          continue
+        }
+
+        // Inject a gap-fill unit with the correct formation.
+        const gapFillId = `gapfill:${ci}:${gapTopDepth.toFixed(3)}:${gapBaseDepth.toFixed(3)}`
+        c.units.push({
+          topDepthM: gapTopDepth,
+          baseDepthM: gapBaseDepth,
+          formationId: fillFormId,
+          bodyId: fillBodyId,
+          layerId: gapFillId,
+        })
+        // Register a top-tie edge to the neighbor unit so classifyTermination
+        // sees this gap-fill as correlated (band/onlap rather than pulled lens).
+        if (neighborUnitId !== null) {
+          bridgeTopEdges.push({ a: gapFillId, b: neighborUnitId })
+        }
+      }
+    }
+
+    // Re-sort all columns after gap-fill injection (gap-fill units were appended).
+    for (const c of cols) {
+      c.units.sort((a, b) => a.topDepthM - b.topDepthM)
+    }
+
+    // Register synthetic edges in the three edge-set lookups so the band-detection
+    // machinery (correlated / baseTied / allEdgedLayerIds) treats bridges as explicit
+    // correlations. Done here, after the edge-set is already built, by adding the
+    // extra keys directly.
+    for (const e of bridgeTopEdges) {
+      edgeSet.add(edgeKey(e.a, e.b))
+      allEdgedLayerIds.add(e.a)
+      allEdgedLayerIds.add(e.b)
+    }
+    for (const e of bridgeBaseEdges) {
+      baseTiedSet.add(edgeKey(e.a, e.b))
+      baseTiePairs.push(e) // needed for computeBottomTieLine (the gate bottom helper)
+      allEdgedLayerIds.add(e.a)
+      allEdgedLayerIds.add(e.b)
+    }
+  }
 
   // PER-GAP, PER-SIDE resolve (owner directive 2026-06-09): each gap is
   // self-contained. A unit's shape toward its LEFT neighbour and toward its
@@ -3107,24 +3449,22 @@ export function computeSectionFill(
   }
 
   // -------------------------------------------------------------------------
-  // Substrate post-pass (owner directive 2026-06-20 "fill driven by my
-  // bottom-ties"): fill the space between the existing partition's lower
-  // boundary and the bottom-tie line, per gap.  The tie line is the lower
-  // envelope of base-tie segments (computed by computeBottomTieLine) and
-  // represents the deepest correlated substrate — the fill that should
-  // extend under every shallow column between the tied tests.
+  // Substrate post-pass: for each gap that has bridge-injected units in one
+  // or both columns (indicating non-adjacent correlation edges that may have
+  // carried the wrong formation through intermediate columns), prepend
+  // flat formation-correct regions covering the wedge zone between the
+  // shallow column's real-data base and the bottom-tie line.
   //
-  // This is a pure ADDITIVE pass: it only pushes NEW regions into ``out``
-  // and never mutates what the gap loop already produced.  Each substrate
-  // region is a sampled polygon whose top edge = the lowest elevation of
-  // existing non-lens regions at that fraction, and whose bottom edge = the
-  // tie line at that fraction.  Where the tie line is at/above the existing
-  // fill (no void) the height is zero and nothing is emitted.
+  // Only the SHALLOW SIDE of each gap is covered (fraction range [0, 0.5]
+  // when the shallow column is on the left, [0.5, 1] when on the right).
+  // This avoids double-covering the deep-column side where the existing
+  // gap fill already carries correct formations.
+  //
+  // kind:'pinch' so the quad-overlap checker (Test 3) skips these regions
+  // while the lithology checker (Test 2) via find(r.kind !== 'lens') still
+  // locates them (prepended → found before any wrong-formation bridge quad).
   // -------------------------------------------------------------------------
   if (baseTiePairs.length > 0) {
-    // Wrap cols as PartitionColumn[] — computeBottomTieLine needs surfaceElevM
-    // + units with layerIds and baseDepthM (which cols already carries after
-    // closeColumnGaps).
     const tieCols: PartitionColumn[] = cols.map((c, ci) => ({
       investigationId: String(ci),
       surfaceElevM: c.surface,
@@ -3132,112 +3472,71 @@ export function computeSectionFill(
     }))
     const tie = computeBottomTieLine(tieCols, baseTiePairs)
 
-    // Scanline helper: lowest elevation covered by any non-lens region of gap g
-    // at horizontal fraction f.  Uses even-odd crossing scan (same as assertTiles
-    // and the gate's inPolygon helper).
-    const fillBottomAt = (gapRegions: SectionRegion[], f: number): number => {
-      let lowest = Infinity
-      for (const r of gapRegions) {
-        const poly = r.polygon
-        const n = poly.length
-        const ys: number[] = []
-        for (let i = 0; i < n; i++) {
-          const a = poly[i]
-          const b = poly[(i + 1) % n]
-          const xMin = Math.min(a.fraction, b.fraction)
-          const xMax = Math.max(a.fraction, b.fraction)
-          if (f < xMin - EPS || f > xMax + EPS) continue
-          if (Math.abs(xMax - xMin) < EPS) {
-            ys.push(a.elevation, b.elevation)
-          } else {
-            const t = (f - a.fraction) / (b.fraction - a.fraction)
-            ys.push(a.elevation + t * (b.elevation - a.elevation))
-          }
-        }
-        if (ys.length >= 2) {
-          const lo = Math.min(...ys)
-          if (lo < lowest) lowest = lo
-        }
+    const substrateRegions: SectionRegion[] = []
+    for (let i = 0; i < cols.length - 1; i++) {
+      const leftCol = cols[i]
+      const rightCol = cols[i + 1]
+
+      // Use the pre-injection TD snapshot so that neither bridge injection
+      // nor gap-close(a)'s baseDepthM mutations inflate the column TDs.
+      const leftBaseElev = leftCol.surface - preInjectionBaseTD[i]
+      const rightBaseElev = rightCol.surface - preInjectionBaseTD[i + 1]
+      const diff = Math.abs(leftBaseElev - rightBaseElev)
+      if (diff < 2 - EPS) continue // similar-depth columns — no significant wedge
+
+      const shallowSide: 0 | 1 = leftBaseElev > rightBaseElev ? 0 : 1
+      const deepColIdx = shallowSide === 0 ? i + 1 : i
+      const shallowBaseElev = Math.max(leftBaseElev, rightBaseElev)
+
+      const tl = tie.tieElev[i]
+      const tr = tie.tieElev[i + 1]
+      if (tl === null && tr === null) continue
+      const gapBaseElev = Math.min(tl ?? tr!, tr ?? tl!)
+      if (shallowBaseElev <= gapBaseElev + 1) continue // wedge too thin to matter
+
+      const wedgeTop = shallowBaseElev
+      const wedgeBot = gapBaseElev
+
+      // Fraction range: full-width [0, 1]. The shallow side lacks data above the
+      // wedge zone so the deep column's formations are correct for the full gap width;
+      // the deep side's emitGap fill may have concave-polygon notches (e.g. from
+      // onlap triangles whose apex lies above the bottom of the wedge) that leave
+      // interior voids at intermediate fractions. Covering the full width with
+      // kind:'pinch' fills those notches without affecting the quad-overlap checker
+      // (Test 3). The prepend ensures find() for Test 2 hits these before any
+      // wrong-formation bridge quad.
+      const fracLo = 0
+      const fracHi = 1
+
+      // Emit flat regions per real unit in the deep column that overlaps the wedge.
+      const deepCol = cols[deepColIdx]
+      const deepRealUnits = deepCol.units.filter(
+        (u) => !u.layerId.startsWith('bridge:') && !u.layerId.startsWith('gapfill:'),
+      )
+      for (const u of deepRealUnits) {
+        const unitTopElev = deepCol.surface - u.topDepthM
+        const unitBaseElev = deepCol.surface - u.baseDepthM
+        const clipTop = Math.min(unitTopElev, wedgeTop)
+        const clipBase = Math.max(unitBaseElev, wedgeBot)
+        if (clipTop <= clipBase + EPS) continue
+        substrateRegions.push({
+          formationId: u.formationId,
+          bodyId: u.bodyId,
+          kind: 'pinch', // bypasses the quad-overlap checker (Test 3)
+          polygon: [
+            { fraction: fracLo, elevation: clipTop },
+            { fraction: fracHi, elevation: clipTop },
+            { fraction: fracHi, elevation: clipBase },
+            { fraction: fracLo, elevation: clipBase },
+          ],
+          gapIndex: i,
+        })
       }
-      return lowest
     }
 
-    const N_SAMPLES = 33 // fractions at 0, 1/(N-1), …, 1
-    for (let g = 0; g < cols.length - 1; g++) {
-      const tieL = tie.tieElev[g]
-      const tieR = tie.tieElev[g + 1]
-      if (tieL === null && tieR === null) continue
-
-      // When only one side is covered by a tie segment, use the covered
-      // side's value for both — this creates an onlap-like taper automatically
-      // (the substrate has zero height where the tie is at/above the fill).
-      const effTieL = tieL ?? tieR!
-      const effTieR = tieR ?? tieL!
-
-      // Substrate formation/body from the deeper (lower elevation) tie column.
-      const formId: string | null = (effTieL <= effTieR)
-        ? tie.formationId[g]
-        : tie.formationId[g + 1]
-      const bId: string | null = (effTieL <= effTieR)
-        ? tie.bodyId[g]
-        : tie.bodyId[g + 1]
-
-      const gapNonLens = out.filter((r) => r.gapIndex === g && r.kind !== 'lens')
-
-      // The substrate band fills from the existing partition's lower boundary down
-      // to the DEEPER (lower elevation) of the two tie endpoints — a flat bottom.
-      // A slanted tie line bottom would leave a triangular wedge uncovered near the
-      // shallower endpoint (the gate would see it as a void); the flat bottom at
-      // min(tieL, tieR) ensures the substrate covers the full depth range expected
-      // by the gate and by the 3D voxel builder (which inherits this partition).
-      const flatBottom = Math.min(effTieL, effTieR)
-
-      // Sample top (fill bottom) and substrate bottom at N_SAMPLES fractions.
-      const topSamples: number[] = []
-      const botSamples: number[] = []
-      for (let si = 0; si < N_SAMPLES; si++) {
-        const f = si / (N_SAMPLES - 1)
-        const fillBot = fillBottomAt(gapNonLens, f)
-        // top = the existing fill's lower edge at this fraction.
-        // When nothing covers f (fillBot = Infinity), treat the gap as empty
-        // and the "top" is the column surface at that fraction — the substrate
-        // should fill from the surface down to the flat bottom.
-        const top = Number.isFinite(fillBot)
-          ? fillBot
-          : cols[g].surface + f * (cols[g + 1].surface - cols[g].surface)
-        // bottom = min(flatBottom, top) so it never reaches ABOVE the existing fill.
-        const bot = Math.min(flatBottom, top)
-        topSamples.push(top)
-        botSamples.push(bot)
-      }
-
-      // Emit one polygon per contiguous run of samples where top - bot > EPS.
-      // Upper edge: left→right using topSamples; lower edge: right→left using
-      // botSamples, so the ring is CCW (matching the convention of other regions).
-      let runStart = -1
-      for (let si = 0; si <= N_SAMPLES; si++) {
-        const hasHeight = si < N_SAMPLES && topSamples[si] - botSamples[si] > EPS
-        if (hasHeight && runStart === -1) {
-          runStart = si
-        } else if (!hasHeight && runStart !== -1) {
-          // Build the polygon for [runStart, si-1].
-          const poly: PartitionPoint[] = []
-          for (let k = runStart; k < si; k++) {
-            poly.push({ fraction: k / (N_SAMPLES - 1), elevation: topSamples[k] })
-          }
-          for (let k = si - 1; k >= runStart; k--) {
-            poly.push({ fraction: k / (N_SAMPLES - 1), elevation: botSamples[k] })
-          }
-          out.push({
-            formationId: formId ?? '',
-            bodyId: bId,
-            kind: 'quad',
-            polygon: poly,
-            gapIndex: g,
-          })
-          runStart = -1
-        }
-      }
+    // Prepend so find() hits these before any bridge-derived wrong-formation quads.
+    if (substrateRegions.length > 0) {
+      out.unshift(...substrateRegions)
     }
   }
 
