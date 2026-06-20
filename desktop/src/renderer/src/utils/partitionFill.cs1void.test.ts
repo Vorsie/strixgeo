@@ -96,22 +96,27 @@ function largestInteriorVoid(regions: readonly SectionRegion[]): { cells: number
     }
   }
 
-  // Interior = uncovered cell with at least one covered cell ABOVE and one BELOW
-  // in the same fraction column (sandwiched — a genuine hole, not the open space
-  // above the surface or below the section floor).
+  // A void is uncovered space that the partition SHOULD fill. The bottom boundary
+  // of the section is the bottom-tie line ≈ the DEEPEST filled extent across the
+  // gap (the deep neighbour's base, continued under the shallow columns). So a void
+  // is an uncovered cell that (a) has coverage ABOVE it in its own fraction column,
+  // and (b) lies AT/ABOVE the gap's deepest covered row. This catches BOTH
+  // sandwiched holes AND the bottom-region voids below a shallow test's TD (which a
+  // "covered below" requirement wrongly skips — those voids extend down to the
+  // bottom line with nothing covered beneath them).
+  let deepestCoveredRow = -1
+  for (let iy = NY - 1; iy >= 0; iy--) {
+    let any = false
+    for (let ix = 0; ix < NX; ix++) if (covered[iy * NX + ix]) { any = true; break }
+    if (any) { deepestCoveredRow = iy; break }
+  }
   const interior: boolean[] = new Array(NX * NY).fill(false)
   for (let ix = 0; ix < NX; ix++) {
-    let coveredAbove: boolean[] = new Array(NY).fill(false)
     let seen = false
-    for (let iy = 0; iy < NY; iy++) {
-      coveredAbove[iy] = seen
-      if (covered[iy * NX + ix]) seen = true
-    }
-    let coveredBelow = false
-    for (let iy = NY - 1; iy >= 0; iy--) {
+    for (let iy = 0; iy <= deepestCoveredRow; iy++) {
       const here = covered[iy * NX + ix]
-      if (!here && coveredAbove[iy] && coveredBelow) interior[iy * NX + ix] = true
-      if (here) coveredBelow = true
+      if (!here && seen) interior[iy * NX + ix] = true
+      if (here) seen = true
     }
   }
 
