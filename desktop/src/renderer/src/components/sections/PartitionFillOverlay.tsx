@@ -1014,6 +1014,109 @@ export default function PartitionFillOverlay({
     screenToLevel,
   ])
 
+  // ----- UNDER-COLUMN SUBSTRATE FILL (fix: "gap exactly below a test column") --
+  // The gap partition is built EDGE-TO-EDGE (gapXs: left col's RIGHT edge → right
+  // col's LEFT edge), and ContactsLayer's per-column litho bands stop at the test's
+  // TD. That left the column-width sliver BELOW each test's TD filled by NOTHING —
+  // the "gap exactly below a test column" (dogfeed 2026-06-20). Both the void gate
+  // and the FILL-DIAG missed it because they only ever sample INSIDE gaps; a
+  // column's own x-range was never checked.
+  //
+  // Fix: continue the adjacent gap's MATRIX stratigraphy flat across the column's
+  // own width, below its TD, down to that matrix's deepest base ("colour between
+  // the lines"). We sample the gap at the column's edge fraction (≈0 or ≈1) where
+  // lens wedges have pinched out, take the non-lens (matrix) intervals, and stack
+  // them contiguously from TD downward — closing any vertical gap (a lens spot) by
+  // extending the region below it upward, so the result is gapless by construction.
+  const underColumnFills = useMemo(() => {
+    type Fill = { key: string; x: number; y: number; width: number; height: number; color: string }
+    const { sectionRegions } = sectionFillData
+    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const nCol = valid.length
+    if (nCol < 2) return [] as Fill[]
+
+    // Elevation intervals where a vertical line at `frac` crosses a simple polygon
+    // (even-odd scanline). Skips vertical edges (fraction-equal endpoints).
+    const sliceAt = (
+      poly: readonly { fraction: number; elevation: number }[],
+      frac: number,
+    ): Array<[number, number]> => {
+      const ys: number[] = []
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i]
+        const b = poly[(i + 1) % poly.length]
+        if (a.fraction === b.fraction) continue
+        const lo = Math.min(a.fraction, b.fraction)
+        const hi = Math.max(a.fraction, b.fraction)
+        if (frac < lo || frac > hi) continue
+        const t = (frac - a.fraction) / (b.fraction - a.fraction)
+        ys.push(a.elevation + t * (b.elevation - a.elevation))
+      }
+      ys.sort((p, q) => p - q)
+      const out: Array<[number, number]> = []
+      for (let k = 0; k + 1 < ys.length; k += 2) out.push([ys[k], ys[k + 1]])
+      return out
+    }
+
+    const out: Fill[] = []
+    for (let ci = 0; ci < nCol; ci++) {
+      const id = valid[ci]
+      const col = colByInv.get(id) as PartitionColumn
+      const sc = screenByInv.get(id) as ColumnScreen
+      const leftX = sc.leftX
+      const width = sc.rightX - sc.leftX
+      if (width <= 0.5 || col.units.length === 0) continue
+      const tdElev = col.surfaceElevM - Math.max(...col.units.map((u) => u.baseDepthM))
+
+      // Adjacent gap + the fraction at THIS column's edge (lenses pinched there).
+      const useRight = ci < nCol - 1
+      const gapIdx = useRight ? ci : ci - 1
+      const frac = useRight ? 0.0015 : 0.9985
+
+      // Matrix (non-lens) intervals at the edge, clipped to strictly below TD.
+      const segs: Array<{ lo: number; hi: number; color: string }> = []
+      for (const r of sectionRegions) {
+        if (r.gapIndex !== gapIdx || r.kind === 'lens') continue
+        const color = formationColorById.get(r.formationId) ?? FALLBACK_COLOR
+        for (const [lo, hi] of sliceAt(r.polygon, frac)) {
+          const top = Math.min(hi, tdElev)
+          if (top - lo > 0.01) segs.push({ lo, hi: top, color })
+        }
+      }
+      if (segs.length === 0) continue
+
+      // Stack top→bottom, closing inter-segment gaps by extending the lower up.
+      segs.sort((a, b) => b.hi - a.hi)
+      let cursorTop = tdElev
+      for (const s of segs) {
+        if (cursorTop - s.lo <= 0.01) continue // already covered by a higher seg
+        const yT = clampY(levelToScreen(cursorTop))
+        const yB = clampY(levelToScreen(s.lo))
+        if (yB - yT > 0.5) {
+          out.push({
+            key: `uc-${ci}-${s.lo.toFixed(2)}`,
+            x: leftX,
+            y: yT,
+            width,
+            height: yB - yT,
+            color: s.color,
+          })
+        }
+        cursorTop = s.lo
+      }
+    }
+    return out
+  }, [
+    sectionFillData,
+    orderedInvs,
+    colByInv,
+    screenByInv,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+    formationColorById,
+  ])
+
   // One label per BODY at its tallest visible region, clamped to the viewport so
   // it survives a zoom onto a single test (dogfeed 2026-06-05).
   const labels = useMemo(() => {
@@ -1351,6 +1454,24 @@ export default function PartitionFillOverlay({
           />
         )
       })}
+
+      {/* Under-column substrate fill: closes the gap exactly below each test's TD
+          (the column-width sliver the edge-to-edge gap partition never covered). */}
+      {underColumnFills.map((f) => (
+        <rect
+          key={f.key}
+          data-testid="partition-undercol"
+          x={f.x}
+          y={f.y}
+          width={f.width}
+          height={f.height}
+          fill={f.color}
+          fillOpacity={FILL_OPACITY}
+          stroke={f.color}
+          strokeOpacity={STROKE_OPACITY}
+          strokeWidth={0.5}
+        />
+      ))}
 
       {labels.map((l) => (
         <text
