@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyTermination,
   collapseAdjacentSameFormation,
+  computeBottomTieLine,
   computePartitionFill,
   computeSectionFill,
   LENS_PINCH_FRACTION,
@@ -2520,5 +2521,152 @@ describe('sub-shallow-TD flat tail — deep stratigraphy continues flat below th
       const cover = coverAt(regions, f, -8)
       expect(cover.length, `void at fraction ${f}, elev −8`).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeBottomTieLine
+// ---------------------------------------------------------------------------
+
+describe('computeBottomTieLine', () => {
+  // (a) Single adjacent tie — two columns, both bases tied.
+  // Col 0: surface=0, SAND base at depth 5 → baseElev = 0-5 = -5
+  // Col 1: surface=0, CLAY base at depth 8 → baseElev = 0-8 = -8
+  // Tie: L#0.base ↔ R#0.base
+  it('(a) single adjacent tie returns both base elevations', () => {
+    const left = col('L', 0, [{ top: 0, base: 5, f: 'SAND', b: 's' }])
+    const right = col('R', 0, [{ top: 0, base: 8, f: 'CLAY', b: 'c' }])
+    const edges = [{ a: 'L#0', b: 'R#0' }]
+    const result = computeBottomTieLine([left, right], edges)
+
+    expect(result.tieElev).toHaveLength(2)
+    expect(result.tieElev[0]).toBeCloseTo(-5, 9)
+    expect(result.tieElev[1]).toBeCloseTo(-8, 9)
+    // formationId from the deeper (lower elev) endpoint = CLAY at -8
+    expect(result.formationId[0]).toBe('CLAY')
+    expect(result.formationId[1]).toBe('CLAY')
+    expect(result.bodyId[0]).toBe('c')
+    expect(result.bodyId[1]).toBe('c')
+  })
+
+  // (b) Span-2 tie — cols 0 and 2 tied, col 1 sits between.
+  // Col 0: surface=0, base depth 4 → baseElev = -4
+  // Col 1: surface=0, base depth 2 → NOT tied
+  // Col 2: surface=0, base depth 10 → baseElev = -10
+  // Tie L#0 ↔ R#0 spans columns 0..2. Col 1 (index 1) is interpolated at t=0.5:
+  //   elev at 1 = -4 + 0.5 * (-10 - -4) = -4 + 0.5 * -6 = -7
+  // formationId from deeper endpoint = CLAY (col 2, elev -10)
+  it('(b) span-2 tie interpolates at the column between endpoints', () => {
+    const c0 = col('A', 0, [{ top: 0, base: 4, f: 'SAND', b: 's' }])
+    const c1 = col('B', 0, [{ top: 0, base: 2, f: 'GRAVEL', b: 'g' }])
+    const c2 = col('C', 0, [{ top: 0, base: 10, f: 'CLAY', b: 'c' }])
+    const edges = [{ a: 'A#0', b: 'C#0' }]
+    const result = computeBottomTieLine([c0, c1, c2], edges)
+
+    expect(result.tieElev).toHaveLength(3)
+    expect(result.tieElev[0]).toBeCloseTo(-4, 9)
+    expect(result.tieElev[1]).toBeCloseTo(-7, 9) // interpolated
+    expect(result.tieElev[2]).toBeCloseTo(-10, 9)
+    // deeper endpoint is CLAY (col 2, -10)
+    expect(result.formationId[1]).toBe('CLAY')
+    expect(result.bodyId[1]).toBe('c')
+  })
+
+  // (c) Two overlapping segments at different depths → lower envelope picks the deeper.
+  // Col 0 base = -3, col 1 base = -6, col 2 base = -2.
+  // Segment A: col0 ↔ col1 → col 0 = -3, col 1 = -6; formation = CLAY (deeper)
+  // Segment B: col1 ↔ col2 → col 1 = -6, col 2 = -2; formation = CLAY (deeper at -6)
+  // At col 1, two segments give: seg-A=-6, seg-B=-6; they agree. Segment A wins at col 0.
+  // Add a shallower col0-col2 segment: C col0↔col2 with elev -1 and -1.5.
+  //   At col 1 (t=0.5): seg-C = -1 + 0.5*(-1.5 - -1) = -1.25 — shallower than -6, envelope keeps -6.
+  it('(c) two overlapping segments → lower envelope picks the deeper at the overlap', () => {
+    const c0 = col('X', 0, [{ top: 0, base: 3, f: 'SAND', b: 'sa' }])   // baseElev -3
+    const c1 = col('Y', 0, [{ top: 0, base: 6, f: 'CLAY', b: 'cl' }])   // baseElev -6
+    const c2 = col('Z', 0, [{ top: 0, base: 1.5, f: 'SILT', b: 'si' }]) // baseElev -1.5
+    // Segment A: c0 ↔ c1 (formationId from deeper endpoint = CLAY at -6)
+    const edgeA = { a: 'X#0', b: 'Y#0' }
+    // Segment B: c0 ↔ c2 (values: -3 vs -1.5; deeper = SAND at -3)
+    const edgeB = { a: 'X#0', b: 'Z#0' }
+    const result = computeBottomTieLine([c0, c1, c2], [edgeA, edgeB])
+
+    // col 1 is covered by segment A only → -6 (CLAY)
+    expect(result.tieElev[1]).toBeCloseTo(-6, 9)
+    expect(result.formationId[1]).toBe('CLAY')
+    // col 2: covered by segment B only → -1.5 (deeper endpoint of B is SAND at -3 on col 0,
+    // but col 2 endpoint is -1.5; deeper = SAND at -3 → formationId SAND)
+    expect(result.tieElev[2]).toBeCloseTo(-1.5, 9)
+    expect(result.formationId[2]).toBe('SAND')
+    // col 0: both segments cover col 0; seg-A gives -3, seg-B gives -3. Envelope = -3.
+    // seg-A has deeper endpoint CLAY (-6), seg-B has deeper endpoint SAND (-3).
+    // Both give -3 at col 0 (tied) → first segment wins → SAND (edgeA's col-0 endpoint is -3,
+    // which is the SHALLOWER end of edgeA; the DEEPER end is col-1 at -6 → CLAY wins for edgeA).
+    // Actually at col 0, both segments report -3 (their col-0 endpoint). Tied → first segment (edgeA)
+    // wins → formationId CLAY (edgeA's deeper endpoint).
+    expect(result.tieElev[0]).toBeCloseTo(-3, 9)
+    expect(result.formationId[0]).toBe('CLAY')
+  })
+
+  // (d) Flat extension: a tie on cols 1↔2 in a 4-column section.
+  // Col 0 and col 3 are outside the tied range.
+  // Col 1 base = -4, col 2 base = -7.
+  // flat-left: col 0 = col 1's value (-4, CLAY)
+  // flat-right: col 3 = col 2's value (-7, CLAY)
+  it('(e) flat extension: outer columns take the nearest covered column value', () => {
+    const c0 = col('A', 0, [{ top: 0, base: 1, f: 'GRAVEL', b: 'g' }])
+    const c1 = col('B', 0, [{ top: 0, base: 4, f: 'SAND',   b: 's' }])
+    const c2 = col('C', 0, [{ top: 0, base: 7, f: 'CLAY',   b: 'c' }])
+    const c3 = col('D', 0, [{ top: 0, base: 2, f: 'SILT',   b: 'si' }])
+    // Only tie b/w col 1 (B#0) and col 2 (C#0)
+    const edges = [{ a: 'B#0', b: 'C#0' }]
+    const result = computeBottomTieLine([c0, c1, c2, c3], edges)
+
+    expect(result.tieElev).toHaveLength(4)
+    // col 1 and 2 are directly covered
+    expect(result.tieElev[1]).toBeCloseTo(-4, 9)
+    expect(result.tieElev[2]).toBeCloseTo(-7, 9)
+    // col 0 (before the tie range) → flat extension from col 1
+    expect(result.tieElev[0]).toBeCloseTo(-4, 9)
+    expect(result.formationId[0]).toBe('CLAY') // deeper endpoint of the segment is col 2 at -7
+    // col 3 (after the tie range) → flat extension from col 2
+    expect(result.tieElev[3]).toBeCloseTo(-7, 9)
+    expect(result.formationId[3]).toBe('CLAY')
+  })
+
+  // (d) Internal null — a 5-column section with two separate non-overlapping ties
+  // covering cols 0↔1 and cols 3↔4, with col 2 in the middle covered by neither.
+  // Both ties have endpoint elevations well above (shallower) than each other.
+  it('(d) internal column between non-overlapping segments stays null', () => {
+    const c0 = col('A', 0, [{ top: 0, base: 2, f: 'SAND', b: 's1' }])
+    const c1 = col('B', 0, [{ top: 0, base: 3, f: 'SAND', b: 's2' }])
+    const c2 = col('C', 0, [{ top: 0, base: 1, f: 'GRAVEL', b: 'g' }]) // uncovered
+    const c3 = col('D', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }])
+    const c4 = col('E', 0, [{ top: 0, base: 5, f: 'CLAY', b: 'c2' }])
+    // Tie 1 spans cols 0..1 only; tie 2 spans cols 3..4 only.
+    const edges = [
+      { a: 'A#0', b: 'B#0' }, // loCol=0, hiCol=1 — does NOT cover col 2
+      { a: 'D#0', b: 'E#0' }, // loCol=3, hiCol=4 — does NOT cover col 2
+    ]
+    const result = computeBottomTieLine([c0, c1, c2, c3, c4], edges)
+
+    // col 2 is in a gap between two separate segments (neither [0,1] nor [3,4] covers col 2)
+    // flat extension only covers columns BEFORE loCol of the leftmost segment
+    // and columns AFTER hiCol of the rightmost segment. Col 2 is BETWEEN segments = null.
+    expect(result.tieElev[2]).toBeNull()
+    expect(result.formationId[2]).toBeNull()
+    expect(result.bodyId[2]).toBeNull()
+
+    // Other columns are covered normally
+    expect(result.tieElev[0]).not.toBeNull()
+    expect(result.tieElev[1]).not.toBeNull()
+    expect(result.tieElev[3]).not.toBeNull()
+    expect(result.tieElev[4]).not.toBeNull()
+  })
+
+  // Empty columns → empty result arrays
+  it('empty columns array returns empty arrays', () => {
+    const result = computeBottomTieLine([], [])
+    expect(result.tieElev).toHaveLength(0)
+    expect(result.formationId).toHaveLength(0)
+    expect(result.bodyId).toHaveLength(0)
   })
 })
