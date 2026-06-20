@@ -2971,6 +2971,9 @@ export function computeSectionFill(
   const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
   const edgeSet = new Set<string>()
   const baseTiedSet = new Set<string>()
+  // Raw base-tie pairs, kept for the substrate post-pass (computeBottomTieLine needs
+  // the layer-id pairs to look up each unit's column index and base elevation).
+  const baseTiePairs: { a: string; b: string }[] = []
   // topLayerId → baseLayerId (directional: the top-side is the one with aSide=top).
   const mixedTiedTopToBase = new Map<string, string>()
   for (const e of edges) {
@@ -2982,6 +2985,7 @@ export function computeSectionFill(
       edgeSet.add(edgeKey(e.a, e.b))
     } else if (aIsBase && bIsBase) {
       baseTiedSet.add(edgeKey(e.a, e.b))
+      baseTiePairs.push({ a: e.a, b: e.b })
     } else if (aIsTop && bIsBase) {
       // a is the top-side (deep unit top), b is the base-side (shallow test TD).
       mixedTiedTopToBase.set(e.a, e.b)
@@ -3101,6 +3105,142 @@ export function computeSectionFill(
     )
     for (const r of gapRegions) out.push({ ...r, gapIndex: i })
   }
+
+  // -------------------------------------------------------------------------
+  // Substrate post-pass (owner directive 2026-06-20 "fill driven by my
+  // bottom-ties"): fill the space between the existing partition's lower
+  // boundary and the bottom-tie line, per gap.  The tie line is the lower
+  // envelope of base-tie segments (computed by computeBottomTieLine) and
+  // represents the deepest correlated substrate — the fill that should
+  // extend under every shallow column between the tied tests.
+  //
+  // This is a pure ADDITIVE pass: it only pushes NEW regions into ``out``
+  // and never mutates what the gap loop already produced.  Each substrate
+  // region is a sampled polygon whose top edge = the lowest elevation of
+  // existing non-lens regions at that fraction, and whose bottom edge = the
+  // tie line at that fraction.  Where the tie line is at/above the existing
+  // fill (no void) the height is zero and nothing is emitted.
+  // -------------------------------------------------------------------------
+  if (baseTiePairs.length > 0) {
+    // Wrap cols as PartitionColumn[] — computeBottomTieLine needs surfaceElevM
+    // + units with layerIds and baseDepthM (which cols already carries after
+    // closeColumnGaps).
+    const tieCols: PartitionColumn[] = cols.map((c, ci) => ({
+      investigationId: String(ci),
+      surfaceElevM: c.surface,
+      units: c.units,
+    }))
+    const tie = computeBottomTieLine(tieCols, baseTiePairs)
+
+    // Scanline helper: lowest elevation covered by any non-lens region of gap g
+    // at horizontal fraction f.  Uses even-odd crossing scan (same as assertTiles
+    // and the gate's inPolygon helper).
+    const fillBottomAt = (gapRegions: SectionRegion[], f: number): number => {
+      let lowest = Infinity
+      for (const r of gapRegions) {
+        const poly = r.polygon
+        const n = poly.length
+        const ys: number[] = []
+        for (let i = 0; i < n; i++) {
+          const a = poly[i]
+          const b = poly[(i + 1) % n]
+          const xMin = Math.min(a.fraction, b.fraction)
+          const xMax = Math.max(a.fraction, b.fraction)
+          if (f < xMin - EPS || f > xMax + EPS) continue
+          if (Math.abs(xMax - xMin) < EPS) {
+            ys.push(a.elevation, b.elevation)
+          } else {
+            const t = (f - a.fraction) / (b.fraction - a.fraction)
+            ys.push(a.elevation + t * (b.elevation - a.elevation))
+          }
+        }
+        if (ys.length >= 2) {
+          const lo = Math.min(...ys)
+          if (lo < lowest) lowest = lo
+        }
+      }
+      return lowest
+    }
+
+    const N_SAMPLES = 33 // fractions at 0, 1/(N-1), …, 1
+    for (let g = 0; g < cols.length - 1; g++) {
+      const tieL = tie.tieElev[g]
+      const tieR = tie.tieElev[g + 1]
+      if (tieL === null && tieR === null) continue
+
+      // When only one side is covered by a tie segment, use the covered
+      // side's value for both — this creates an onlap-like taper automatically
+      // (the substrate has zero height where the tie is at/above the fill).
+      const effTieL = tieL ?? tieR!
+      const effTieR = tieR ?? tieL!
+
+      // Substrate formation/body from the deeper (lower elevation) tie column.
+      const formId: string | null = (effTieL <= effTieR)
+        ? tie.formationId[g]
+        : tie.formationId[g + 1]
+      const bId: string | null = (effTieL <= effTieR)
+        ? tie.bodyId[g]
+        : tie.bodyId[g + 1]
+
+      const gapNonLens = out.filter((r) => r.gapIndex === g && r.kind !== 'lens')
+
+      // The substrate band fills from the existing partition's lower boundary down
+      // to the DEEPER (lower elevation) of the two tie endpoints — a flat bottom.
+      // A slanted tie line bottom would leave a triangular wedge uncovered near the
+      // shallower endpoint (the gate would see it as a void); the flat bottom at
+      // min(tieL, tieR) ensures the substrate covers the full depth range expected
+      // by the gate and by the 3D voxel builder (which inherits this partition).
+      const flatBottom = Math.min(effTieL, effTieR)
+
+      // Sample top (fill bottom) and substrate bottom at N_SAMPLES fractions.
+      const topSamples: number[] = []
+      const botSamples: number[] = []
+      for (let si = 0; si < N_SAMPLES; si++) {
+        const f = si / (N_SAMPLES - 1)
+        const fillBot = fillBottomAt(gapNonLens, f)
+        // top = the existing fill's lower edge at this fraction.
+        // When nothing covers f (fillBot = Infinity), treat the gap as empty
+        // and the "top" is the column surface at that fraction — the substrate
+        // should fill from the surface down to the flat bottom.
+        const top = Number.isFinite(fillBot)
+          ? fillBot
+          : cols[g].surface + f * (cols[g + 1].surface - cols[g].surface)
+        // bottom = min(flatBottom, top) so it never reaches ABOVE the existing fill.
+        const bot = Math.min(flatBottom, top)
+        topSamples.push(top)
+        botSamples.push(bot)
+      }
+
+      // Emit one polygon per contiguous run of samples where top - bot > EPS.
+      // Upper edge: left→right using topSamples; lower edge: right→left using
+      // botSamples, so the ring is CCW (matching the convention of other regions).
+      let runStart = -1
+      for (let si = 0; si <= N_SAMPLES; si++) {
+        const hasHeight = si < N_SAMPLES && topSamples[si] - botSamples[si] > EPS
+        if (hasHeight && runStart === -1) {
+          runStart = si
+        } else if (!hasHeight && runStart !== -1) {
+          // Build the polygon for [runStart, si-1].
+          const poly: PartitionPoint[] = []
+          for (let k = runStart; k < si; k++) {
+            poly.push({ fraction: k / (N_SAMPLES - 1), elevation: topSamples[k] })
+          }
+          for (let k = si - 1; k >= runStart; k--) {
+            poly.push({ fraction: k / (N_SAMPLES - 1), elevation: botSamples[k] })
+          }
+          out.push({
+            formationId: formId ?? '',
+            bodyId: bId,
+            kind: 'quad',
+            polygon: poly,
+            gapIndex: g,
+          })
+          runStart = -1
+        }
+      }
+    }
+  }
+
   return out
 }
 
