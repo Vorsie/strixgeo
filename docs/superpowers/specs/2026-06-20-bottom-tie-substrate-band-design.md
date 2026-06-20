@@ -72,6 +72,28 @@ So this is the EXISTING band/onlap/lens machinery, generalised from adjacent pai
    CS1 gate (section-wide bottom) reports **0 voids, 0 overlaps** in all 22 gaps,
    with onlaps/lenses where the contacts only partially correlate.
 
+## ⚠ CORRECTION (2026-06-20, after first build) — MULTI-BAND, not single substrate
+
+The first build (substrate post-pass) filled the wedge below short columns with the
+SINGLE DEEPEST formation = KLEI/clay (`19bb43`) → owner's "way too much clay." That is
+wrong: the structure is MULTI-BAND. In CS1 the deep stack is …**ZAND/sand (`38d1bc`)**
+over **KLEI/clay (`19bb43`, deepest)**. The owner's yellow outline is the SAND band,
+which must extend under the short columns *above* the clay, each band following ITS
+correlations. **Correlations are the ground truth** (owner directive 2026-06-20).
+
+**Correct model — bridge injection.** A short column (col17, col20/21/22, col8 in CS1)
+is "transparent" to any band whose correlation jumps over it. For every correlation
+edge `(a,b)` (top-top, base-base, or mixed) connecting a unit in column `i` to a unit
+in a NON-adjacent column `j` (`|i−j| ≥ 2` in the filtered `cols`), inject an
+interpolated copy of that band into each intervening column `k` (linear interp of the
+unit's top + base elevation by column fraction), clipped to sit BELOW that column's
+real data, and chain the edge through the bridges (`a ↔ bridge_{i+1} ↔ … ↔ b`, same
+side). Then the existing correlation-driven band machinery (`reduceColumn` /
+`matchColumns` / `emitGap`) tiles every band — sand over clay — through the short
+columns, with onlap/lens falling out as usual. This REPLACES the single-substrate
+post-pass. Lithology is correct by construction (the bridge copies the band's
+formation); coverage is verified by the gate; the OWNER verifies lithology by dogfeed.
+
 ## Implementation approach (to be detailed in the plan)
 
 Two candidate mechanisms — pick in the plan, validate with the gate:
