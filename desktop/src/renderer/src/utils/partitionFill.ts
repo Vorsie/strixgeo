@@ -2868,6 +2868,190 @@ export interface SectionRegion extends PartitionRegion {
 }
 
 /**
+ * One substrate fill quad below a column's TD (elevation space). The left/right
+ * edges carry independent top/base elevations so the band can SLOPE across the
+ * column — continuing the straight deep-test→deep-test bridge line through a
+ * shallow column instead of flattening it.
+ */
+export interface UnderColumnQuad {
+  /** Top elevation (mTAW) at the column's LEFT edge. */
+  topLeftElev: number
+  /** Top elevation at the column's RIGHT edge. */
+  topRightElev: number
+  /** Base elevation at the column's LEFT edge. */
+  baseLeftElev: number
+  /** Base elevation at the column's RIGHT edge. */
+  baseRightElev: number
+  formationId: string
+}
+
+/** The substrate fill below one column's TD. */
+export interface UnderColumnFill {
+  /** Index into the non-empty ordered ``columns`` passed in. */
+  columnIndex: number
+  /** Quads, top→bottom, that tile [deepest..TD] with no vertical gap. */
+  quads: UnderColumnQuad[]
+}
+
+/**
+ * Elevation intervals where a vertical line at ``frac`` crosses a simple polygon
+ * (even-odd scanline). Vertical edges (equal-fraction endpoints) are skipped.
+ *
+ * Parameters
+ * ----------
+ * poly : readonly PartitionPoint[]
+ *     Closed polygon ring in (fraction, elevation) space.
+ * frac : float
+ *     Fraction in [0, 1] at which to slice.
+ *
+ * Returns
+ * -------
+ * list[tuple[float, float]]
+ *     ``[baseElev, topElev]`` pairs (ascending elevation within each pair).
+ */
+function slicePolygonAtFraction(
+  poly: readonly PartitionPoint[],
+  frac: number,
+): Array<[number, number]> {
+  const ys: number[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    if (a.fraction === b.fraction) continue
+    const lo = Math.min(a.fraction, b.fraction)
+    const hi = Math.max(a.fraction, b.fraction)
+    if (frac < lo || frac > hi) continue
+    const t = (frac - a.fraction) / (b.fraction - a.fraction)
+    ys.push(a.elevation + t * (b.elevation - a.elevation))
+  }
+  ys.sort((p, q) => p - q)
+  const out: Array<[number, number]> = []
+  for (let k = 0; k + 1 < ys.length; k += 2) out.push([ys[k], ys[k + 1]])
+  return out
+}
+
+/**
+ * Substrate fill for the column-width sliver BELOW each test's TD.
+ *
+ * The gap partition is built edge-to-edge (a gap spans the left column's right
+ * edge to the right column's left edge), and the per-column litho bands stop at
+ * the test TD — so the column's own x-range below its TD is filled by nothing
+ * ("the gap exactly below a test column").  This continues the adjacent gap's
+ * MATRIX (non-lens) stratigraphy flat across the column width, below its TD,
+ * down to the deepest matrix base, stacked contiguously so the section is
+ * gapless under every test.
+ *
+ * The result is in elevation space (no screen projection) so it is unit-testable
+ * without rendering — the regression guard for the dogfeed sub-TD void bug.
+ *
+ * Gap-closing rule: at a column edge the lens wedges have pinched out, so the
+ * matrix (non-lens) slices alone may leave a vertical gap where a lens sat.  We
+ * close it by extending the segment BELOW the gap upward to meet the one above,
+ * because an enclosed lens shares the same matrix formation above and below.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly PartitionColumn[]
+ *     The non-empty columns in along-section order — the SAME list passed to
+ *     ``computeSectionFill`` (region ``gapIndex`` is relative to it).
+ * regions : readonly SectionRegion[]
+ *     The output of ``computeSectionFill`` for those columns.
+ *
+ * Returns
+ * -------
+ * UnderColumnFill[]
+ *     One entry per column that has anything to fill below its TD.  A column
+ *     that is itself the deepest at its edge yields no entry.
+ */
+export function computeUnderColumnSubstrate(
+  columns: readonly PartitionColumn[],
+  regions: readonly SectionRegion[],
+): UnderColumnFill[] {
+  const EPS = 0.01
+  const nCol = columns.length
+  if (nCol < 2) return []
+
+  /**
+   * Contiguous matrix (non-lens) stack at one gap edge, below ``tdElev``. Lens
+   * wedges have pinched out at a column edge, so the matrix slices alone may leave
+   * a vertical gap where a lens sat; we close it by extending the segment BELOW
+   * upward to meet the one above (an enclosed lens shares the matrix formation on
+   * both sides). Returns top→bottom with no vertical gap.
+   */
+  const stackAtEdge = (gapIdx: number, frac: number, tdElev: number) => {
+    const segs: Array<{ lo: number; hi: number; formationId: string }> = []
+    for (const r of regions) {
+      if (r.gapIndex !== gapIdx || r.kind === 'lens') continue
+      for (const [lo, hi] of slicePolygonAtFraction(r.polygon, frac)) {
+        const top = Math.min(hi, tdElev)
+        if (top - lo > EPS) segs.push({ lo, hi: top, formationId: r.formationId })
+      }
+    }
+    segs.sort((a, b) => b.hi - a.hi)
+    let cursorTop = tdElev
+    const out: Array<{ top: number; base: number; formationId: string }> = []
+    for (const s of segs) {
+      if (cursorTop - s.lo <= EPS) continue // already covered by a higher segment
+      out.push({ top: cursorTop, base: s.lo, formationId: s.formationId })
+      cursorTop = s.lo
+    }
+    return out
+  }
+
+  const out: UnderColumnFill[] = []
+  for (let ci = 0; ci < nCol; ci++) {
+    const col = columns[ci]
+    if (col.units.length === 0) continue
+    const tdElev = col.surfaceElevM - Math.max(...col.units.map((u) => u.baseDepthM))
+
+    // The matrix stack at THIS column's LEFT edge (right edge of the left gap) and
+    // RIGHT edge (left edge of the right gap). At a column edge the lens wedges
+    // have pinched out, so these are the deep-test bridge contacts arriving at the
+    // column — sloping a quad between them continues the straight deep→deep line.
+    const leftStack = ci > 0 ? stackAtEdge(ci - 1, 0.9985, tdElev) : []
+    const rightStack = ci < nCol - 1 ? stackAtEdge(ci, 0.0015, tdElev) : []
+
+    const quads: UnderColumnQuad[] = []
+    const sameStack =
+      leftStack.length > 0 &&
+      leftStack.length === rightStack.length &&
+      leftStack.every((s, i) => s.formationId === rightStack[i].formationId)
+
+    if (sameStack) {
+      // Both edges carry the same band stack (the bridge is continuous): SLOPE
+      // each band from its left-edge contact to its right-edge contact.
+      for (let i = 0; i < leftStack.length; i++) {
+        const l = leftStack[i]
+        const r = rightStack[i]
+        quads.push({
+          formationId: l.formationId,
+          topLeftElev: l.top,
+          baseLeftElev: l.base,
+          topRightElev: r.top,
+          baseRightElev: r.base,
+        })
+      }
+    } else {
+      // Stacks differ (an extra band on one side, or an edge column with only one
+      // gap): fall back to a FLAT fill from whichever side has data, so the column
+      // stays gapless even when a clean slope can't be paired.
+      const s = rightStack.length > 0 ? rightStack : leftStack
+      for (const seg of s) {
+        quads.push({
+          formationId: seg.formationId,
+          topLeftElev: seg.top,
+          baseLeftElev: seg.base,
+          topRightElev: seg.top,
+          baseRightElev: seg.base,
+        })
+      }
+    }
+    if (quads.length > 0) out.push({ columnIndex: ci, quads })
+  }
+  return out
+}
+
+/**
  * Inject virtual flat units from the DEEP column into the SHALLOW column so
  * the sub-TD void below the shallow column is filled by geometry.
  *
