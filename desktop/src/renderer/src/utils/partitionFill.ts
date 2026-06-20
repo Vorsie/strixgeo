@@ -2540,24 +2540,95 @@ function emitGap(
         { leftDepth: lu.topDepthM, rightDepth: ru.topDepthM },
         prevQuadBase,
       )
-      const quadBase = clampIface(
-        { leftDepth: lu.baseDepthM, rightDepth: ru.baseDepthM },
-        quadTop,
+      // Sub-shallow-TD flat-tail (the systematic bottom-void fix, owner 2026-06-20
+      // "color between the lines"). When the DEEP side of a matched band dips BELOW
+      // the SHALLOW column's floor elevation, a straight band base would slant into
+      // the shallow side's DATA VOID, leaving a triangular hole below it down to the
+      // bottom-tie envelope (the void seen below every shallow test). Instead: end
+      // the band FLAT at the shallower base, then lay the deep unit's tail FLAT
+      // full-width from there down to its own base — the deep stratigraphy continues
+      // flat under the shallow column. Triggers ONLY for the bottom-most slanted
+      // band (an interior pair's deep base never sits below the shallow floor under a
+      // monotonic match), so interior dips are untouched.
+      const shallowFloorElevHere = Math.max(
+        leftSurface - leftFloor,
+        rightSurface - rightFloor,
       )
-      const leftH = quadBase.leftDepth - quadTop.leftDepth
-      const rightH = quadBase.rightDepth - quadTop.rightDepth
-      if (leftH >= EPS || rightH >= EPS) {
+      const leftBaseE = leftSurface - lu.baseDepthM
+      const rightBaseE = rightSurface - ru.baseDepthM
+      const deepBaseE = Math.min(leftBaseE, rightBaseE)
+      const shallowBaseE = Math.max(leftBaseE, rightBaseE)
+      // The SHALLOW side's matched unit must be its column's DEEPEST: only then is
+      // the space below it a pure data void to flat-fill. When the shallow column
+      // has unmatched units deeper than this matched unit, the floor walk fills that
+      // space — a full-width tail would double-cover it (GAP-8/16/17 overlaps).
+      const deepIsLeft = leftBaseE < rightBaseE
+      const shallowMatchedIsDeepest = deepIsLeft
+        ? mri === rightUnits.length - 1
+        : mli === leftUnits.length - 1
+      // The DEEP side's matched unit must ALSO be its column's deepest: when the
+      // deep column has unmatched units BELOW this one, the floor walk lays those
+      // flat and a tail here double-covers them (GAP-8/16/17 — gaps that had no
+      // void at all; the floor walk already handled them). Requiring BOTH sides'
+      // matched units to be deepest confines the fix to the bottom-most pair where
+      // the deep column genuinely terminates and the shallow side is a pure void.
+      const deepMatchedIsDeepest = deepIsLeft
+        ? mli === leftUnits.length - 1
+        : mri === rightUnits.length - 1
+      if (
+        deepBaseE < shallowFloorElevHere - EPS &&
+        shallowBaseE - deepBaseE > EPS &&
+        shallowMatchedIsDeepest &&
+        deepMatchedIsDeepest
+      ) {
+        // Band: flat at the shallower base.
+        const flatBase = clampIface(
+          { leftDepth: leftSurface - shallowBaseE, rightDepth: rightSurface - shallowBaseE },
+          quadTop,
+        )
+        if (flatBase.leftDepth - quadTop.leftDepth >= EPS || flatBase.rightDepth - quadTop.rightDepth >= EPS) {
+          regions.push({
+            formationId: lu.formationId,
+            bodyId: lu.bodyId,
+            kind: 'quad',
+            polygon: buildQuadPolygon(quadTop, flatBase, leftSurface, rightSurface),
+          })
+        }
+        // Deep tail: flat full-width from the shallow base down to the deep base.
+        const deepUnit = deepIsLeft ? lu : ru
+        const tailBase = {
+          leftDepth: leftSurface - deepBaseE,
+          rightDepth: rightSurface - deepBaseE,
+        }
         regions.push({
-          formationId: lu.formationId,
-          bodyId: lu.bodyId,
+          formationId: deepUnit.formationId,
+          bodyId: deepUnit.bodyId,
           kind: 'quad',
-          polygon: buildQuadPolygon(quadTop, quadBase, leftSurface, rightSurface),
+          polygon: buildQuadPolygon(flatBase, tailBase, leftSurface, rightSurface),
         })
-        prevQuadBase = quadBase
-        prevQuadFormationId = lu.formationId
-        prevQuadBodyId = lu.bodyId
+        prevQuadBase = tailBase
+        prevQuadFormationId = deepUnit.formationId
+        prevQuadBodyId = deepUnit.bodyId
       } else {
-        prevQuadBase = quadTop
+        const quadBase = clampIface(
+          { leftDepth: lu.baseDepthM, rightDepth: ru.baseDepthM },
+          quadTop,
+        )
+        const leftH = quadBase.leftDepth - quadTop.leftDepth
+        const rightH = quadBase.rightDepth - quadTop.rightDepth
+        if (leftH >= EPS || rightH >= EPS) {
+          regions.push({
+            formationId: lu.formationId,
+            bodyId: lu.bodyId,
+            kind: 'quad',
+            polygon: buildQuadPolygon(quadTop, quadBase, leftSurface, rightSurface),
+          })
+          prevQuadBase = quadBase
+          prevQuadFormationId = lu.formationId
+          prevQuadBodyId = lu.bodyId
+        } else {
+          prevQuadBase = quadTop
+        }
       }
       prevMatchLi = mli
       prevMatchRi = mri
