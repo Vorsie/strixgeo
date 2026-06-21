@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
-from groundmodel.infrastructure.db.models.body_orm import BodyOrm as LithoLensOrm
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -388,9 +388,9 @@ async def test_accept_does_not_auto_fire_lens_detection(
     db_session.add_all([edge1, edge2, edge3, edge4])
     await db_session.commit()
 
-    # Before accept: no LithoLensOrm rows.
+    # Before accept: no BodyOrm rows.
     pre_lens_count = len(
-        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
         .scalars()
         .all()
     )

@@ -24,9 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.materialise_body_companions import MaterialiseBodyCompanions
-from groundmodel.infrastructure.db.models.body_orm import (
-    BodyOrm as LithoLensOrm,
-)  # TODO: slice 2 — full rename
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -185,8 +183,8 @@ def _lens(
     body_ordinal: int = 0,
     primary_section_id: UUID | None = None,
     name: str | None = None,
-) -> LithoLensOrm:
-    """Return an unsaved LithoLensOrm.
+) -> BodyOrm:
+    """Return an unsaved BodyOrm.
 
     Parameters
     ----------
@@ -195,7 +193,7 @@ def _lens(
         correlation graph.  Required by the NOT NULL constraint on
         ``body.source_investigation_id``.
     """
-    return LithoLensOrm(
+    return BodyOrm(
         id=uuid7(),
         app_project_id=project.id,
         model_id=model.id,

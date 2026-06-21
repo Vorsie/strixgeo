@@ -14,7 +14,7 @@ Ten cases covering the depth-drag cross-merge logic added to
 9.  Litho model: cross-merge fires resolver + lens detection (ordinals refresh,
     LithoLens rows reconcile).
 10. Geological model: cross-merge runs but does NOT call resolver/lens
-    detection (no LithoLensOrm rows materialise).
+    detection (no BodyOrm rows materialise).
 """
 
 from __future__ import annotations
@@ -28,9 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.update_formation_contact import UpdateFormationContact
-from groundmodel.infrastructure.db.models.body_orm import (
-    BodyOrm as LithoLensOrm,
-)  # TODO: slice 2 — full rename
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -460,7 +458,7 @@ async def test_litho_model_cross_merge_disabled(
     # only fired on cross-merge deletions, and that path is now dead
     # for litho contacts.
     lens_rows = (
-        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
@@ -474,7 +472,7 @@ async def test_litho_model_cross_merge_disabled(
 
 @pytest.mark.asyncio
 async def test_geo_model_no_lens_cascade(db_session: AsyncSession, project: ProjectOrm) -> None:
-    """Cross-merge on a geological model must NOT create LithoLensOrm rows.
+    """Cross-merge on a geological model must NOT create BodyOrm rows.
 
     The cascade is gated on ``model.kind == 'lithostratigraphic'``. A
     geological model cross-merge still deletes contacts but must not
@@ -501,9 +499,9 @@ async def test_geo_model_no_lens_cascade(db_session: AsyncSession, project: Proj
     assert result is not None
     assert not uc.absorbed
 
-    # No LithoLensOrm rows must exist (geo model has no lens concept).
+    # No BodyOrm rows must exist (geo model has no lens concept).
     lens_count = len(
-        (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == geo.id)))
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geo.id)))
         .scalars()
         .all()
     )

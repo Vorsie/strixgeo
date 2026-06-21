@@ -35,7 +35,7 @@ BODY_ID = uuid4()
 def _make_session(*, model_project_id: object | None, model_exists: bool) -> AsyncMock:
     """Build a mocked AsyncSession that reaches the model-scope guard.
 
-    The body row (``BodyOrm``, imported as ``LithoLensOrm``) always passes its
+    The body row (``BodyOrm``) always passes its
     own check — right project, right model.  ``session.get`` for the model
     returns a stub whose ``app_project_id`` is ``model_project_id`` when
     ``model_exists`` is True, else None (the not-found branch).
@@ -45,7 +45,6 @@ def _make_session(*, model_project_id: object | None, model_exists: bool) -> Asy
 
     async def _get(orm_class: object, id_val: object) -> object | None:  # noqa: ANN001
         class_name = getattr(orm_class, "__name__", "")
-        # BodyOrm is imported into the use case under the alias LithoLensOrm.
         if class_name == "BodyOrm":
             return body_stub if id_val == BODY_ID else None
         if class_name == "GeologicalModelOrm":
