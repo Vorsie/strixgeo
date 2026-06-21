@@ -211,7 +211,7 @@ class BatchAcceptContext:
 
     The single-accept path re-loads all of this on every call.  When a batch
     accepts N anchors, the litho-formation lookup is identical across anchors,
-    the existing-contact set is loaded once instead of one existence ``SELECT``
+    the existing-layer set is loaded once instead of one existence ``SELECT``
     per layer, and the display-order recompute runs once after the batch instead
     of per anchor.  ``BatchAcceptLithoSuggestions`` builds this once and passes
     it to every ``AcceptLithoSuggestions.execute`` call.
@@ -227,7 +227,7 @@ class BatchAcceptContext:
     litho_formations : dict[tuple[str, str], GeologicalFormationOrm]
         Find-or-create lookup keyed by
         ``(litho_main_soil_code, canonical_sig)`` — geo-agnostic under A2.
-    existing_contacts : dict[tuple, UUID]
+    existing_layers : dict[tuple, UUID]
         Existing contacts keyed by
         ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)`` → id.
         Lets ``_find_or_create_contact`` answer in memory instead of a per-layer
@@ -236,7 +236,7 @@ class BatchAcceptContext:
 
     geology_model_id: UUID | None
     litho_formations: dict[tuple[str, str], GeologicalFormationOrm]
-    existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
+    existing_layers: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
 
 
 class AcceptLithoSuggestions(GroundModelLogger):
@@ -342,7 +342,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         batch_ctx : BatchAcceptContext | None
             Pre-loaded shared state for a batch accept (#153 hoist).  When
             given: the litho-formation lookup is reused (not re-loaded), contact
-            find-or-create answers from the in-memory existing-contacts dict (no
+            find-or-create answers from the in-memory existing-layers dict (no
             per-layer ``SELECT``), and the display-order recompute is skipped
             (the batch caller runs it once after all anchors).  ``None``
             (default) is the self-loading single-accept path.
@@ -483,7 +483,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 # readers stay coherent. Source enum maps to the litho_layer
                 # source set: contact 'borehole_observation' ↔ layer
                 # 'observation_layer'; everything else maps to 'segmenter'.
-                contact_id, was_created = await self._find_or_create_layer(
+                # ``layer_id`` is the LithoLayer PK; the LL→FC trigger mirrors
+                # it onto a formation_contact row with the SAME UUID, so it
+                # doubles as the contact id that seeds the section
+                # (created_contact_ids / found_contact_ids).
+                layer_id, was_created = await self._find_or_create_layer(
                     litho_model_id=litho_model_id,
                     formation_id=formation.id,
                     depth_top_m=sug.depth_top_m,
@@ -492,12 +496,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     cpt_id=cpt_id,
                     confidence=sug.confidence.value.lower(),
                     source=_map_contact_source_to_layer(sug.source),
-                    existing_contacts=batch_ctx.existing_contacts if batch_ctx else None,
+                    existing_layers=batch_ctx.existing_layers if batch_ctx else None,
                 )
                 if was_created:
-                    created_contact_ids.append(contact_id)
+                    created_contact_ids.append(layer_id)
                 else:
-                    found_contact_ids.append(contact_id)
+                    found_contact_ids.append(layer_id)
 
                 # Litho↔geo coupling (#162 Task 3): link the litho contact
                 # to the nearest geo contact within couple_tolerance_m and
@@ -515,7 +519,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         # (A4 cleanup — LL is the source of truth). The
                         # LL→FC trigger mirrors the coupling label onto the
                         # FC mirror.
-                        litho_layer = await self._session.get(LithoLayerOrm, contact_id)
+                        litho_layer = await self._session.get(LithoLayerOrm, layer_id)
                         if litho_layer is not None:
                             litho_layer.parent_geo_contact_id = geo_contact_id
                             geo_contact = await self._session.get(
@@ -533,7 +537,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                                 geo_contact.depth_top_m = sug.depth_top_m
                                 touched_geo_formation_ids_set.add(geo_contact.formation_id)
                                 self.debug(
-                                    f"  Coupled litho contact {contact_id} → "
+                                    f"  Coupled litho contact {layer_id} → "
                                     f"geo contact {geo_contact_id} "
                                     f"(snapped geo depth {old_geo_depth:.3f}m → "
                                     f"{sug.depth_top_m:.3f}m, "
@@ -541,7 +545,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                                 )
                             else:
                                 self.debug(
-                                    f"  Coupled litho contact {contact_id} → "
+                                    f"  Coupled litho contact {layer_id} → "
                                     f"geo contact {geo_contact_id} (depths already match)"
                                 )
 
@@ -733,7 +737,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
             )
 
-    async def _load_existing_contacts(
+    async def _load_existing_layers(
         self,
         litho_model_id: UUID,
     ) -> dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]:
@@ -746,9 +750,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
 
         A4 cleanup: queries ``litho_layer`` (the Shape A source of truth)
         rather than ``formation_contact`` (the legacy mirror, still kept in
-        sync via the LL↔FC trigger pair). The method name kept the
-        ``_contacts`` suffix for callers that share the variable name —
-        the values are interchangeable UUIDs end-to-end.
+        sync via the LL↔FC trigger pair). The returned layer id doubles as
+        the mirrored contact id (same UUID end-to-end), so the seed path
+        consumes these values directly as contact ids.
 
         Parameters
         ----------
@@ -790,7 +794,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         """Load the shared state a multi-anchor batch accept reuses (#153 hoist).
 
         Reads, once: the parent geology model id (+ scope guard), the
-        litho-formation find-or-create lookup, and the existing-contact
+        litho-formation find-or-create lookup, and the existing-layer
         idempotency map.  Pass the result as ``batch_ctx`` to each
         :meth:`execute` call so none of these is re-loaded per anchor.
 
@@ -818,12 +822,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
         litho_formations = self._build_litho_formation_lookup(
             await self._repo.list_formations(project_id)
         )
-        existing_contacts = await self._load_existing_contacts(litho_model_id)
+        existing_layers = await self._load_existing_layers(litho_model_id)
 
         return BatchAcceptContext(
             geology_model_id=geology_model_id,
             litho_formations=litho_formations,
-            existing_contacts=existing_contacts,
+            existing_layers=existing_layers,
         )
 
     async def _load_geology_contacts_at_inv(
@@ -1088,7 +1092,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         cpt_id: UUID | None,
         confidence: str,
         source: str,
-        existing_contacts: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
+        existing_layers: dict[tuple[UUID, UUID, float, UUID | None, UUID | None], UUID]
         | None = None,
     ) -> tuple[UUID, bool]:
         """Idempotent layer find-or-create (A4 cleanup — was contact).
@@ -1115,7 +1119,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             (``"segmenter"``, ``"manual"``, ``"observation_layer"``,
             ``"observation_interpretation"``). The caller maps the original
             contact source via ``_map_contact_source_to_layer``.
-        existing_contacts : dict | None
+        existing_layers : dict | None
             Batch mode (#153): a pre-loaded
             ``key → layer_id`` map for the model, keyed by
             ``(model_id, formation_id, depth_top_m, borehole_id, cpt_id)``.
@@ -1138,8 +1142,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # bit-identical depth from the same pipeline.
         key = (litho_model_id, formation_id, depth_top_m, borehole_id, cpt_id)
 
-        if existing_contacts is not None:
-            hit = existing_contacts.get(key)
+        if existing_layers is not None:
+            hit = existing_layers.get(key)
             if hit is not None:
                 return hit, False
         else:
@@ -1181,8 +1185,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
             confidence=confidence,
         )
         self._session.add(layer)
-        if existing_contacts is not None:
-            existing_contacts[key] = layer.id
+        if existing_layers is not None:
+            existing_layers[key] = layer.id
         else:
             await self._session.flush()
             self.trace(
