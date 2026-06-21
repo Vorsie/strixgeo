@@ -3099,4 +3099,40 @@ describe('computeBracketSubstrate (deep-to-deep substrate)', () => {
       }
     }
   })
+
+  // BANDLENS — a lens that pinches out within the deep-to-deep substrate band must
+  // pinch at LENS_PINCH_FRACTION inside its OWN gap, not be scaled by the band's
+  // width. The deep anchor L carries an enclosed sand lens BELOW a shallow middle
+  // column's TD, so the lens reaches the deep-anchor band slice. The band L→R spans
+  // BOTH gaps (each gap is HALF the band), so the buggy linear remap would push the
+  // intra-gap apex from 0.45 to 0.45/0.5 = 0.90 (past halfway). The re-anchor keeps
+  // it at LENS_PINCH_FRACTION in the gap it belongs to.
+  it('BANDLENS: a band-path lens pinches at LENS_PINCH_FRACTION in its own gap, not scaled by band width', () => {
+    // L (deep): clay | sand (enclosed lens, no edges → geometric matrix) | clay.
+    // M (shallow, TD elev 9 — above the sand at elev 5..1): forces the sand into the
+    //   deep-to-deep band, and makes the band L→R twice the width of gap 0 (L→M).
+    // R (deep): a single deep clay (the band's far anchor).
+    const L = col('L', 10, [
+      { top: 0, base: 5, f: 'clay', b: 'cTop-L' },
+      { top: 5, base: 9, f: 'sand', b: 'sandL' },
+      { top: 9, base: 25, f: 'clay', b: 'cBot-L' },
+    ])
+    const M = col('M', 10, [{ top: 0, base: 1, f: 'clay', b: 'cM' }])
+    const R = col('R', 10, [{ top: 0, base: 25, f: 'clay', b: 'cR' }])
+    const regions = computeSectionFill([L, M, R], [], undefined, [0, 100, 200])
+
+    // The sand lens lives in gap 0 (L→M), anchored on the LEFT column edge (L is the
+    // source). It pinches at LENS_PINCH_FRACTION, NOT 0.90.
+    const sandLens = regions.filter((r) => r.formationId === 'sand' && r.kind === 'lens')
+    expect(sandLens).toHaveLength(1)
+    const lens = sandLens[0]
+    expect(lens.gapIndex).toBe(0)
+    const apex = lens.polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
+    expect(apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    // The lens's vertical extent (its own depth) is preserved — apex at the sand's
+    // mid-elevation (depth 7 → elev 3), corners on the source edge at elev 5 / 1.
+    expect(apex.elevation).toBeCloseTo(3, 6)
+    const corners = lens.polygon.filter((p) => Math.abs(p.fraction) < 1e-6)
+    expect(corners.map((p) => p.elevation).sort((a, b) => a - b)).toEqual([1, 5])
+  })
 })
