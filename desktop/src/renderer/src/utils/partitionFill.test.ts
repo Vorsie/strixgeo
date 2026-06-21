@@ -3205,3 +3205,120 @@ describe('matched silt over a shallow TD is one region', () => {
     expect(topElev).toBeCloseTo(9.86, 1)
   })
 })
+
+describe('computeSectionFill — a top-correlated unit dipping below a shallow neighbour TD bands, not lenses', () => {
+  // Owner directive (the real CS1 GAP-16 case): a SILT unit on a deep column is
+  // TOP-CORRELATED to a SILT unit on a SHALLOWER single-unit neighbour whose own
+  // TD lies ABOVE the deep silt's depth. The deep silt dips below that neighbour's
+  // TD but continues up to it. It must render as ONE dipping band — its lateral
+  // extent reaching the shallow neighbour's column (clamped at that neighbour's
+  // TD) — NOT as an isolated lens that pinches out mid-gap into the void. The
+  // deeper neighbour's clay (below the silt) continues under the shallow test
+  // below its TD as substrate, with no cross-formation overlap.
+
+  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+
+  // Three columns, surfaces equal (depth = −elevation). DEEP_L carries SILT over
+  // KLEI over ZAND. SHALLOW is a single SILT unit (TD 1.5) top-correlated to
+  // DEEP_L's SILT; its TD (elev −1.5) sits ABOVE DEEP_L's silt (elev −2…−4).
+  // DEEP_R brackets the substrate on the far side and has NO silt correlated to
+  // DEEP_L's silt, so the bracket walk would otherwise re-lens DEEP_L's silt
+  // against DEEP_R.
+  // The silt is ENCLOSED by KLEI of body ``KLEI_ENCLOSE`` (above AND below) that
+  // is NOT correlated to DEEP_R, so the substrate bracket walk (DEEP_L↔DEEP_R,
+  // skipping the shallow void) sees 0 correlated contacts on the silt and would
+  // re-lens it. The silt's ONLY correlation is the top↔top edge to SHALLOW. A
+  // separate deeper KLEI body (``KLEI_DEEP``) DOES correlate to DEEP_R so the
+  // substrate has its deep-to-deep matrix band (mirrors CS1: col16's silt is
+  // enclosed by KLEI uncorrelated to col18, while a deeper KLEI bands across).
+  const SILT_BODY = 'siltBody'
+  const KLEI_ENCLOSE = 'kleiEnclose'
+  const KLEI_DEEP = 'kleiDeep'
+  const ZAND_BODY = 'zandBody'
+  const DEEP_L = col('DEEP_L', 0, [
+    { top: 0, base: 2, f: 'KLEI', b: KLEI_ENCLOSE }, // encloses silt, uncorrelated to DEEP_R
+    { top: 2, base: 4, f: 'SILT', b: SILT_BODY }, // dips below SHALLOW's TD
+    { top: 4, base: 6, f: 'KLEI', b: KLEI_ENCLOSE }, // encloses silt below
+    { top: 6, base: 10, f: 'KLEI', b: KLEI_DEEP }, // deep matrix, correlated to DEEP_R
+    { top: 10, base: 14, f: 'ZAND', b: ZAND_BODY },
+  ])
+  const SHALLOW = col('SHALLOW', 0, [
+    { top: 0, base: 1.5, f: 'SILT', b: SILT_BODY }, // single unit, TD above DEEP_L's silt
+  ])
+  const DEEP_R = col('DEEP_R', 0, [
+    { top: 0, base: 10, f: 'KLEI', b: KLEI_DEEP },
+    { top: 10, base: 14, f: 'ZAND', b: ZAND_BODY },
+  ])
+
+  // Edges: the silt↔silt top correlation (DEEP_L.silt ↔ SHALLOW.silt) plus the
+  // DEEP matrix correlations DEEP_L↔DEEP_R (KLEI_DEEP, ZAND) so the substrate
+  // bands the deep stratigraphy across. The enclosing KLEI_ENCLOSE is deliberately
+  // NOT correlated to DEEP_R, so the silt has 0 correlated contacts toward the
+  // bracket anchor and would re-lens absent the fix.
+  const edges: CorrelationEdge[] = [
+    { a: 'DEEP_L#1', b: 'SHALLOW#0' }, // silt top-correlation
+    { a: 'DEEP_L#3', b: 'DEEP_R#0' }, // KLEI_DEEP deep matrix
+    { a: 'DEEP_L#4', b: 'DEEP_R#1' }, // ZAND
+  ]
+
+  it('the deep silt is ONE dipping band reaching the shallow column, not a mid-gap lens', () => {
+    const regions = computeSectionFill([DEEP_L, SHALLOW, DEEP_R], edges)
+    // Gap 0 is DEEP_L↔SHALLOW (the shallow neighbour is on the right).
+    const gap0 = regions.filter((r) => r.gapIndex === 0)
+    const silt = gap0.filter((r) => r.formationId === 'SILT')
+    expect(silt.length).toBeGreaterThan(0)
+    // The silt extending genuinely BELOW the shallow TD (cap at elev −1.5) is ONE
+    // region whose lateral extent reaches the SHALLOW column edge (fraction near 1)
+    // — a dipping band, not a lens that pinches out around the default 0.45 mid-gap
+    // apex. The fix moved the apex from LENS_PINCH_FRACTION to the facing (shallow)
+    // column edge. (The above-cap silt slivers touch −1.5 but do not descend past
+    // it, so a strict-below threshold isolates the sub-cap band.)
+    const subCapSilt = silt.filter((r) =>
+      r.polygon.some((p) => p.elevation < -1.5 - 0.1),
+    )
+    expect(subCapSilt.length).toBe(1)
+    const maxFrac = Math.max(...subCapSilt[0].polygon.map((p) => p.fraction))
+    expect(maxFrac).toBeGreaterThan(0.8) // reaches the shallow column, not ~0.45
+  })
+
+  it('the deeper neighbour clay continues under the shallow test below its TD', () => {
+    const regions = computeSectionFill([DEEP_L, SHALLOW, DEEP_R], edges)
+    const gap0 = regions.filter((r) => r.gapIndex === 0)
+    // Below the shallow TD (elev −1.5), under the shallow column (fraction near 1),
+    // BELOW the dipping silt band (e.g. elev −6, where DEEP_L logs KLEI), the
+    // covering lithology is KLEI — the substrate carries the deep clay sideways.
+    const covering = gap0.filter((r) => r.kind !== 'lens' && inPoly(r.polygon, 0.95, -6))
+    expect(covering.length).toBeGreaterThan(0)
+    expect(covering.every((r) => r.formationId === 'KLEI')).toBe(true)
+  })
+
+  it('no cross-formation overlap in the gap (the band did not flood the substrate)', () => {
+    const regions = computeSectionFill([DEEP_L, SHALLOW, DEEP_R], edges)
+    const gap0 = regions.filter((r) => r.gapIndex === 0 && r.kind !== 'lens')
+    // Sample the gap densely; no point may be covered by two DIFFERENT lithologies
+    // (a true partition). Exempts lens overlays, which deliberately ride a matrix.
+    let overlapCells = 0
+    for (let iy = 0; iy < 120; iy++) {
+      const e = 0 - (iy / 119) * 14
+      for (let ix = 0; ix < 40; ix++) {
+        const f = (ix + 0.5) / 40
+        const forms = new Set(
+          gap0.filter((r) => inPoly(r.polygon, f, e)).map((r) => r.formationId),
+        )
+        if (forms.size >= 2) overlapCells++
+      }
+    }
+    expect(overlapCells).toBe(0)
+  })
+})
