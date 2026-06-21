@@ -1463,6 +1463,16 @@ describe('computePartitionFill', () => {
   })
 })
 
+describe('computeSectionFill — optional along-position input', () => {
+  it('computeSectionFill accepts alongM and is unchanged under uniform spacing', () => {
+    const a = col('A', 0, [{ top: 0, base: 5, f: 'CLAY', b: 'c' }])
+    const b = col('B', 0, [{ top: 0, base: 5, f: 'CLAY', b: 'c' }])
+    const withAlong = computeSectionFill([a, b], [], undefined, [0, 100])
+    const without = computeSectionFill([a, b], [])
+    expect(withAlong).toEqual(without)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // carveOverlays — a lens/onlap overlay is SUBTRACTED from the matrix it sits in,
 // so the fill becomes a TRUE volumetric partition: every point belongs to
