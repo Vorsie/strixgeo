@@ -298,7 +298,7 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
 
         # ------------------------------------------------------------------
         # 2. Load contacts for this body (model_id + formation_id).
-        #    Body identity is stored on LithoLensOrm.body_ordinal but contacts
+        #    Body identity is stored on BodyOrm.body_ordinal but contacts
         #    themselves don't carry it — the resolver assigns ordinals globally.
         #    We load ALL contacts for (model, formation) and use the provided
         #    body_ordinal as a filter via the correlation graph.  For MVP the

@@ -20,12 +20,12 @@ The use case owns the commit boundary — ``ResolveLithoInstances`` is
 called with ``commit=False`` so the resolver result lands in the same
 atomic transaction as the approval flip.
 
-Lens detection is NOT fired here (owner directive 2026-05-31): the
-explicit ``POST .../lenses/detect`` verb is the only entry point that
-materialises or reconciles ``LithoLensOrm`` rows.  The ``bodies_created``
-and ``bodies_removed`` fields on :class:`AcceptResult` stay on the
-response shape for client compatibility but are always ``0`` from this
-flow.
+Body detection is NOT fired here (owner directive 2026-05-31): body
+membership is managed by :class:`ResolveLithoInstances` and stale
+``BodyOrm`` rows are reconciled by the startup / bundle-restore body
+sweep.  The ``bodies_created`` and ``bodies_removed`` fields on
+:class:`AcceptResult` stay on the response shape for client
+compatibility but are always ``0`` from this flow.
 """
 
 from __future__ import annotations

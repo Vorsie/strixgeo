@@ -17,10 +17,10 @@ from every cross-section's ``seeded_formation_contact_ids`` so the
 explicit-content invariant doesn't bloat across delete cycles. All
 mutations land in one commit.
 
-Lens detection is NOT fired here (owner directive 2026-05-31): stale
-``LithoLensOrm`` rows survive a layer delete until the user clicks the
-explicit "Detect lenses" verb (``POST .../lenses/detect``). The
-renderer must tolerate dangling lens rows.
+Body detection is NOT fired here (owner directive 2026-05-31): stale
+``BodyOrm`` rows survive a layer delete until the startup /
+bundle-restore body sweep reconciles them. The renderer must tolerate
+dangling body rows.
 
 Pre-A4 the frontend deleted litho rows by calling
 ``DELETE /contacts/{id}`` and relying on the FC→LL trigger to prune the

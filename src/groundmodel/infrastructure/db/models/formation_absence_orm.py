@@ -26,7 +26,7 @@ class FormationAbsenceOrm(Base):
     Which body (body_ordinal) is absent at a given investigation is determined
     at query time by the correlation-graph resolver — it is not stored here.
     This avoids redundancy and allows absences to remain valid even when the
-    user renames or removes a ``LithoLensOrm`` metadata row.
+    user renames or removes a ``BodyOrm`` metadata row.
 
     Source enum
     -----------
@@ -61,7 +61,7 @@ class FormationAbsenceOrm(Base):
     No SQLAlchemy relationship objects
     -----------------------------------
     FK columns only — no ``relationship()`` objects.  Consistent with
-    ``LithoLensOrm`` and ``LithoCorrelationEdgeOrm``.
+    ``BodyOrm`` and ``LithoContactCorrelationEdgeOrm``.
     """
 
     __tablename__ = "formation_absence"

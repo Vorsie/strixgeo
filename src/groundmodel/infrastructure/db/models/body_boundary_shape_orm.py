@@ -30,11 +30,12 @@ class BodyBoundaryShapeOrm(Base):
     Lifecycle
     ---------
     * ``model_id`` → CASCADE: clearing/deleting the model evaporates shapes.
-    * ``body_id`` → CASCADE: deleting the body (DetectLithoLenses orphan
-      sweep, or user-initiated deletion) removes its shape + nodes.
-    * Orphan sweep: ``DetectLithoLenses`` deletes shapes whose ``body_id``
-      no longer matches any live body (the defining contacts were deleted
-      or un-correlated), so a shape never outlives its body.
+    * ``body_id`` → CASCADE: deleting the body (resolver reconcile via the
+      startup / bundle-restore body sweep, or user-initiated deletion)
+      removes its shape + nodes.
+    * Orphan sweep: the resolver-driven body sweep deletes shapes whose
+      ``body_id`` no longer matches any live body (the defining contacts
+      were deleted or un-correlated), so a shape never outlives its body.
 
     No ``relationship()`` objects — explicit ``select()`` in the use-case
     layer, consistent with the rest of the geology ORM.

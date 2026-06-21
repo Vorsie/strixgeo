@@ -13,7 +13,7 @@ class MaterialiseLensCompanionsResponse(BaseModel):
     companion_sections_created : int
         Number of perpendicular companion sections successfully created.
     skipped_no_primary : int
-        Lenses skipped because ``LithoLensOrm.primary_section_id`` is
+        Bodies skipped because ``BodyOrm.primary_section_id`` is
         ``None`` or the section row has been deleted.
     skipped_unfinished_section : int
         Lenses skipped because at least one seeded contact on the primary

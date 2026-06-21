@@ -33,9 +33,9 @@ operations with different semantics.
 
 For lithostratigraphic models, any cross-merge that deletes contacts
 triggers ``ResolveLithoInstances`` before commit to keep ordinals
-consistent.  Lens detection is NOT fired here (owner directive
-2026-05-31) — stale ``LithoLensOrm`` rows survive until the user
-clicks the explicit "Detect lenses" verb.
+consistent.  Body detection is NOT fired here (owner directive
+2026-05-31) — stale ``BodyOrm`` rows survive until the startup /
+bundle-restore body sweep reconciles them.
 """
 
 from __future__ import annotations
@@ -253,9 +253,9 @@ class UpdateFormationContact(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # Litho cascade (resolver only) when contacts were deleted.  Runs   #
         # before commit so it is part of the same transaction.              #
-        # Lens detection is NOT fired here (owner directive 2026-05-31) —  #
-        # stale ``LithoLensOrm`` rows survive cross-merge until the user   #
-        # clicks the explicit "Detect lenses" verb.                         #
+        # Body detection is NOT fired here (owner directive 2026-05-31) —    #
+        # stale ``BodyOrm`` rows survive cross-merge until the startup /     #
+        # bundle-restore body sweep reconciles them.                         #
         # ------------------------------------------------------------------ #
         if deleted_any:
             # ``model`` was fetched at the top of execute for the

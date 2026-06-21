@@ -286,9 +286,9 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ordinals stay coherent in the same transaction.  Lens detection
         # is NO LONGER fired here (owner directive 2026-05-31): a single
         # manual correlate that incidentally closed a #135 topology was
-        # silently spawning a LithoLensOrm row, which violated the
-        # "no side-effects beyond the gesture" invariant.  Detection now
-        # runs only on the explicit ``POST .../lenses/detect`` verb.
+        # silently spawning a BodyOrm row, which violated the
+        # "no side-effects beyond the gesture" invariant.  Body rows are
+        # reconciled by the startup / bundle-restore body sweep.
         await ResolveLithoInstances(self._session).execute(
             model_id=model_id,
             commit=False,  # caller owns the transaction boundary
@@ -419,9 +419,9 @@ class UncorrelateLithoContacts(GroundModelLogger):
         self.debug(f"UncorrelateLithoContacts: edge {existing.id} deleted from session")
 
         # Topology changed — re-run the resolver so instance ordinals stay
-        # coherent.  Lens detection is NO LONGER fired here (owner directive
-        # 2026-05-31); stale LithoLensOrm rows are reconciled only when the
-        # user clicks "Detect lenses" (``POST .../lenses/detect``).
+        # coherent.  Body detection is NO LONGER fired here (owner directive
+        # 2026-05-31); stale BodyOrm rows are reconciled by the startup /
+        # bundle-restore body sweep.
         await ResolveLithoInstances(self._session).execute(
             model_id=model_id,
             commit=False,  # caller owns the transaction boundary

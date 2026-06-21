@@ -8,9 +8,9 @@ router; this layer trusts the call and just drops the row.
 When the deleted contact belonged to a lithostratigraphic model,
 the FK cascade removes any ``LithoContactCorrelationEdge`` rows that
 referenced it.  The resolver is re-run inline so instance ordinals
-stay coherent with the updated edge graph.  Lens detection is NOT
-fired here (owner directive 2026-05-31): stale ``LithoLensOrm`` rows
-are reconciled only on the explicit ``POST .../lenses/detect`` verb.
+stay coherent with the updated edge graph.  Body detection is NOT
+fired here (owner directive 2026-05-31): stale ``BodyOrm`` rows are
+reconciled by the startup / bundle-restore body sweep.
 Non-litho models skip the resolver pass (no correlation edges exist
 for geological contacts).
 """
@@ -104,8 +104,8 @@ class DeleteFormationContact(GroundModelLogger):
         # Litho-only cascade: the FK delete above removes any
         # LithoContactCorrelationEdge rows that referenced this contact.
         # Re-run the resolver so instance_ordinal values stay coherent.
-        # Lens detection is NOT fired here (owner directive 2026-05-31) —
-        # stale LithoLensOrm rows survive until "Detect lenses" runs.
+        # Body detection is NOT fired here (owner directive 2026-05-31) —
+        # stale BodyOrm rows survive until the startup / restore body sweep.
         # Geological contacts have no correlation edges — skip the cascade.
         if ok:
             geo_model = await self._session.get(GeologicalModelOrm, model_id)
