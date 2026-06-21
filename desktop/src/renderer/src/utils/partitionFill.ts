@@ -3071,59 +3071,6 @@ export function computeUnderColumnSubstrate(
 }
 
 /**
- * Inject virtual flat units from the DEEP column into the SHALLOW column so
- * the sub-TD void below the shallow column is filled by geometry.
- *
- * When left.TD < right.TD (the right column is deeper), the region between
- * left's deepest unit and right's deepest units has no data on the left side.
- * Without intervention this space is a void — nothing matches and the floor
- * carry-through has no shallow-column unit to pair against. Injecting virtual
- * copies of the deep column's sub-TD units (those that START at or below the
- * shallow TD) gives the geometry algorithm something to band/sideways against,
- * filling the void as flat quads at the deep column's own elevations.
- *
- * Virtual units carry a ``'virtual:...'`` layerId prefix so:
- *   1. No existing correlation edge can ever match them (``correlated()`` returns
- *      false — edges reference real layerIds only).
- *   2. The reach guard in ``reduceColumn`` returns false for them because their
- *      top is below the real shallow TD, so they will never be evicted as lenses.
- *
- * The real (pre-injection) TDs are passed to ``reduceColumn`` unchanged, so the
- * Fix-B merge gate (which uses neighbourTD) is preserved.
- *
- * Parameters
- * ----------
- * shallowUnits : PartitionUnit[]
- *     The units of the SHALLOW column (mutable — virtual units are appended).
- * deepUnits : readonly PartitionUnit[]
- *     The units of the DEEP column (source for virtual copies).
- * shallowTD : number
- *     The real TD of the shallow column (depth in metres).
- */
-function injectVirtualUnits(
-  shallowUnits: PartitionUnit[],
-  deepUnits: readonly PartitionUnit[],
-  shallowTD: number,
-): void {
-  for (const u of deepUnits) {
-    // Only inject units that START at or below the shallow column's TD.
-    // A unit that straddles the boundary (topDepthM < shallowTD <= baseDepthM)
-    // is clipped so it starts at shallowTD — the real units already handle the
-    // portion above, and the virtual copy covers the portion below.
-    if (u.baseDepthM <= shallowTD + EPS) continue
-    const topDepthM = Math.max(u.topDepthM, shallowTD)
-    shallowUnits.push({
-      topDepthM,
-      baseDepthM: u.baseDepthM,
-      formationId: u.formationId,
-      bodyId: u.bodyId,
-      layerId: `virtual:${u.layerId}`,
-      virtual: true,
-    })
-  }
-}
-
-/**
  * Resolve the WHOLE section at once: reduce each column ONCE against BOTH its
  * neighbours, then emit each gap from the shared reduced columns.
  *
@@ -3623,26 +3570,6 @@ export function computeSectionFill(
     const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds, mixedTiedLayerIds)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
-    // Sub-TD injection (spec §5 rule 1 / §7 sideways-default): when one column is
-    // shallower than the other, the region below the shallow column's TD is a DATA
-    // VOID — no observed data on the shallow side.  Inject virtual flat copies of
-    // the deep column's sub-TD units into the shallow column so the gap algorithm
-    // has something to tile against, producing flat quads at the deep column's own
-    // elevations (the sideways continuation) instead of leaving the space empty.
-    //
-    // Injected AFTER reduceColumn + collapseAdjacentSameFormation so virtual units
-    // cannot be pulled as lenses or merged with real units.  Virtual units carry a
-    // ``'virtual:...'`` layerId so no real correlation edge can match them; they
-    // appear in the floor interval of emitGap as uncorrelated sideways pinch units
-    // whose ``sideways`` flag fires (the immediate facing neighbour — the real
-    // shallow column — does not reach their depth).
-    // Virtual unit injection is NOT used: the facingTopElev max-clamp below
-    // (in emitGap's sideways path) fills the slanted-base voids directly.
-    // if (leftTD < rightTD - EPS) {
-    //   injectVirtualUnits(left.units, right.units, leftTD)
-    // } else if (rightTD < leftTD - EPS) {
-    //   injectVirtualUnits(right.units, left.units, rightTD)
-    // }
     // Side context for the carry-through, NEAREST-FIRST from each facing column
     // outward: leftward starts with col i and walks toward index 0; rightward
     // starts with col i+1 and walks toward the section end. The facing columns
