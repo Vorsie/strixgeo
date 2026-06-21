@@ -3685,7 +3685,114 @@ export function computeSectionFill(
     }),
   )
 
+  mergeSplitBodyRegions(out)
+
   return out
+}
+
+/**
+ * Merge a body's vertically-split tile regions in a gap into one coherent shape.
+ *
+ * The shallow-TD cap (``clipPolyAboveElev`` in ``computeSectionFill``) splits a
+ * matched unit that extends BELOW the shallow column's TD into two parts: the
+ * above-cap band (emitted by ``emitGap``, clamped flat at the shallow TD) and the
+ * below-cap remainder (re-emitted by the deep-to-deep substrate pass). With the
+ * same lithology AND the same ``bodyId``, that one geological unit renders as TWO
+ * shapes — a flat band plus a separate same-body pinch tail, looking like it both
+ * onlaps and wedges out (real CS1 GAP-8: a single SILT body drawn as band + tail).
+ *
+ * These split parts are already a contiguous, gap-less vertical stack (the
+ * partition is a true tiling), so their union is a single column-spanning
+ * trapezoid: at each column edge (fraction 0 and 1) the merged shape spans
+ * ``[min, max]`` of the group's elevations there. The merged quad's base follows
+ * the correlation — slanting from the shallow side's base to the deep neighbour's
+ * matched base where the substrate kept the slant (GAP-8), or flat where the
+ * substrate filled the sub-TD void flat.
+ *
+ * Tiling-safety guard: the merged quad is committed ONLY when the parts exactly
+ * tile it (the summed part areas equal the quad area within ``SPAN_EPS``). A
+ * concave or notched union (a body with an internal hole, e.g. a carved lens
+ * cavity) would over-cover and collide with a neighbour — those groups are left
+ * untouched. Lens/onlap overlays (``kind: 'lens'``) are excluded entirely; they
+ * deliberately overlap their matrix and are not part of the tiling.
+ *
+ * Parameters
+ * ----------
+ * regions : SectionRegion[]
+ *     The full region list; mutated in place — merged groups are collapsed to a
+ *     single region (the first member's slot), the other members removed.
+ */
+function mergeSplitBodyRegions(regions: SectionRegion[]): void {
+  // Group non-lens region INDICES by (gapIndex, bodyId). A null bodyId can never
+  // be a single geological unit split across the cap, so skip it.
+  const groups = new Map<string, number[]>()
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i]
+    if (r.kind === 'lens' || !r.bodyId) continue
+    const key = `${r.gapIndex} ${r.bodyId}`
+    const g = groups.get(key)
+    if (g) g.push(i)
+    else groups.set(key, [i])
+  }
+
+  const removed = new Set<number>()
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue
+    // A split group must share one formation (a body is single-lithology). If not
+    // (defensive — should not happen), leave it untouched.
+    const first = regions[idxs[0]]
+    if (idxs.some((i) => regions[i].formationId !== first.formationId)) continue
+
+    // Elevation span at each column edge across the whole group.
+    let maxL = -Infinity
+    let minL = Infinity
+    let maxR = -Infinity
+    let minR = Infinity
+    let partAreaSum = 0
+    for (const i of idxs) {
+      for (const p of regions[i].polygon) {
+        if (Math.abs(p.fraction) < FRAC_EPS) {
+          if (p.elevation > maxL) maxL = p.elevation
+          if (p.elevation < minL) minL = p.elevation
+        } else if (Math.abs(p.fraction - 1) < FRAC_EPS) {
+          if (p.elevation > maxR) maxR = p.elevation
+          if (p.elevation < minR) minR = p.elevation
+        }
+      }
+      partAreaSum += Math.abs(signedArea2(regions[i].polygon)) / 2
+    }
+    // Every part must span the full fraction width (a degenerate triangle still
+    // touches both edges at a single point), so all four bounds must be finite.
+    if (!Number.isFinite(maxL) || !Number.isFinite(maxR)) continue
+
+    const mergedQuad: PartitionPoint[] = [
+      { fraction: 0, elevation: maxL },
+      { fraction: 1, elevation: maxR },
+      { fraction: 1, elevation: minR },
+      { fraction: 0, elevation: minL },
+    ]
+    const quadArea = Math.abs(signedArea2(mergedQuad)) / 2
+    // Tiling guard: the parts must EXACTLY tile the merged quad (no notch, no
+    // overhang). Otherwise the min/max-per-edge quad would over-cover and overlap
+    // a neighbouring body — skip the merge and keep the parts as-is.
+    if (Math.abs(quadArea - partAreaSum) > SPAN_EPS) continue
+    if (quadArea < SPAN_EPS) continue
+
+    // Collapse the group: replace the first member with the merged quad, drop the
+    // rest. Preserve the first member's kind/formation/body/gap so downstream
+    // consumers (overlay, gate) see one region for this body in this gap.
+    regions[idxs[0]] = { ...first, kind: 'quad', polygon: mergedQuad }
+    for (let k = 1; k < idxs.length; k++) removed.add(idxs[k])
+  }
+
+  if (removed.size === 0) return
+  // Compact in place (preserve order of the survivors).
+  let w = 0
+  for (let r = 0; r < regions.length; r++) {
+    if (removed.has(r)) continue
+    regions[w++] = regions[r]
+  }
+  regions.length = w
 }
 
 // ---------------------------------------------------------------------------
