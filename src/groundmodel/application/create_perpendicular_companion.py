@@ -54,9 +54,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.infrastructure.db.models.body_orm import (
-    BodyOrm as LithoLensOrm,
-)  # TODO: slice 2 — full rename
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -149,9 +147,9 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # ------------------------------------------------------------------
         # 1. Load and validate the body.
         # ------------------------------------------------------------------
-        lens = await self._session.get(LithoLensOrm, body_id)
+        lens = await self._session.get(BodyOrm, body_id)
         if lens is None or lens.app_project_id != project_id or lens.model_id != model_id:
-            raise ValueError(f"LithoLens {body_id} not found in project {project_id}")
+            raise ValueError(f"Body {body_id} not found in project {project_id}")
 
         # ------------------------------------------------------------------
         # 2. Model scope guard.

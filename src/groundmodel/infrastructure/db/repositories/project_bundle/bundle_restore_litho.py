@@ -61,11 +61,6 @@ from .bundle_serialization import (
     _apply_json_to_kwargs,
 )
 
-# Legacy aliases used by residual references (lens shapes / nodes sections
-# still use the old names internally — renamed in slice 4).
-LithoLensShapeOrm = BodyBoundaryShapeOrm
-LithoLensBoundaryNodeOrm = BodyBoundaryNodeOrm
-
 
 def _blank_surface_geometry(kwargs: dict[str, Any]) -> None:
     """Drop a restored surface's TIN geometry and force a rebuild.
@@ -951,8 +946,8 @@ async def _restore_lens_shapes_and_nodes(
     existing_shapes: set[UUID] = set(
         (
             await session.execute(
-                select(LithoLensShapeOrm.id)
-                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                select(BodyBoundaryShapeOrm.id)
+                .join(GeologicalModelOrm, BodyBoundaryShapeOrm.model_id == GeologicalModelOrm.id)
                 .where(GeologicalModelOrm.app_project_id == project_id)
             )
         )
@@ -978,16 +973,18 @@ async def _restore_lens_shapes_and_nodes(
             )
             dropped_shapes += 1
             continue
-        session.add(LithoLensShapeOrm(**_apply_json_to_kwargs(LithoLensShapeOrm, shape_payload)))
+        session.add(
+            BodyBoundaryShapeOrm(**_apply_json_to_kwargs(BodyBoundaryShapeOrm, shape_payload))
+        )
         valid_shape_ids.add(sid)
         new_shapes += 1
 
     existing_nodes: set[UUID] = set(
         (
             await session.execute(
-                select(LithoLensBoundaryNodeOrm.id)
-                .join(LithoLensShapeOrm, LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id)
-                .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+                select(BodyBoundaryNodeOrm.id)
+                .join(BodyBoundaryShapeOrm, BodyBoundaryNodeOrm.shape_id == BodyBoundaryShapeOrm.id)
+                .join(GeologicalModelOrm, BodyBoundaryShapeOrm.model_id == GeologicalModelOrm.id)
                 .where(GeologicalModelOrm.app_project_id == project_id)
             )
         )
@@ -1011,11 +1008,7 @@ async def _restore_lens_shapes_and_nodes(
             )
             dropped_nodes += 1
             continue
-        session.add(
-            LithoLensBoundaryNodeOrm(
-                **_apply_json_to_kwargs(LithoLensBoundaryNodeOrm, node_payload)
-            )
-        )
+        session.add(BodyBoundaryNodeOrm(**_apply_json_to_kwargs(BodyBoundaryNodeOrm, node_payload)))
         new_nodes += 1
     if dropped_shapes or dropped_nodes:
         logger.warning(

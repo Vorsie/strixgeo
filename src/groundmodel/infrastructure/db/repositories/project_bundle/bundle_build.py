@@ -60,12 +60,6 @@ from .bundle_serialization import (
 if TYPE_CHECKING:
     pass
 
-# Legacy aliases used by residual references in the restore path (lens shapes /
-# nodes sections still use the old names internally — renamed in slice 4).
-LithoLensOrm = BodyOrm
-LithoLensShapeOrm = BodyBoundaryShapeOrm
-LithoLensBoundaryNodeOrm = BodyBoundaryNodeOrm
-
 
 class BundleIntegrityError(ValueError):
     """Raised when a bundle would be (or is) internally inconsistent.
@@ -188,7 +182,7 @@ async def _build_project_bundle_impl(
     # Litho lens metadata rows (#101 R4 Position 4).  Slim rows: id, model_id,
     # formation_id, body_ordinal, name, primary_section_id.
     # app_project_id is declared on the lens table so we scope directly.
-    lenses_stmt = select(LithoLensOrm).where(LithoLensOrm.app_project_id == project.id)
+    lenses_stmt = select(BodyOrm).where(BodyOrm.app_project_id == project.id)
     # Formation absence records (#101 R4 Position 4).  Scoped via
     # geological_formation → project (formation carries app_project_id).
     absences_stmt = (
@@ -214,14 +208,14 @@ async def _build_project_bundle_impl(
     # Lens boundary shapes + nodes (#163f Slice 2). Scoped through
     # geological_model (the shape carries model_id; nodes hang off the shape).
     lens_shapes_stmt = (
-        select(LithoLensShapeOrm)
-        .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+        select(BodyBoundaryShapeOrm)
+        .join(GeologicalModelOrm, BodyBoundaryShapeOrm.model_id == GeologicalModelOrm.id)
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
     lens_boundary_nodes_stmt = (
-        select(LithoLensBoundaryNodeOrm)
-        .join(LithoLensShapeOrm, LithoLensBoundaryNodeOrm.shape_id == LithoLensShapeOrm.id)
-        .join(GeologicalModelOrm, LithoLensShapeOrm.model_id == GeologicalModelOrm.id)
+        select(BodyBoundaryNodeOrm)
+        .join(BodyBoundaryShapeOrm, BodyBoundaryNodeOrm.shape_id == BodyBoundaryShapeOrm.id)
+        .join(GeologicalModelOrm, BodyBoundaryShapeOrm.model_id == GeologicalModelOrm.id)
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
     # Cached watertight body solids (watertight-loft builder Task 9, spec §7).
