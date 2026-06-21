@@ -2977,4 +2977,70 @@ describe('computeBracketSubstrate (deep-to-deep substrate)', () => {
       }
     }
   })
+
+  // OPEN bracket: the shallow test sits at the SECTION END, with the only deep
+  // anchor beside it. There is no deep anchor to bracket on the open side, so the
+  // deep anchor's sub-TD stack must run STRAIGHT SIDEWAYS behind the shallow
+  // column — the deep band continues flat past the section edge. Below the shallow
+  // TD the deep lithology fills (no void, no wrong formation), and the shallow
+  // CLAY that lives ABOVE the TD never bleeds down into the substrate.
+  it('continues the deep stack flat sideways behind a shallow section-end test', () => {
+    // Shallow column is the OUTERMOST (left end); the deep anchor is inside it.
+    const Mshallow = col('Msh', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }]) // TD -4
+    const Ldeep = col('Ldeep', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' }, // deep SAND to TD -15
+    ])
+    const regions = computeBracketSubstrate([Mshallow, Ldeep], [], [0, 100], EMPTY_CTX)
+    const gap0 = regions.filter((r) => r.gapIndex === 0)
+    // Below the shallow TD (-4), at the deep SAND's own depth, the cover is SAND
+    // only — the deep band ran straight sideways. Nothing wrong, nothing void.
+    expect(coverAt(gap0, 0.5, -8)).toEqual(['SAND'])
+    expect(coverAt(gap0, 0.2, -12)).toEqual(['SAND'])
+    expect(coverAt(gap0, 0.8, -12)).toEqual(['SAND'])
+    // The shallow CLAY ends at -4: just below the TD there is no CLAY in the
+    // substrate (the shallow column's lithology does not flood down past its TD).
+    expect(coverAt(gap0, 0.5, -5)).not.toContain('CLAY')
+  })
+
+  // MULTI-RUN: five columns deep/shallow/deep/shallow/deep form TWO distinct
+  // brackets — (D1,D2) over the first shallow gap pair and (D2,D3) over the
+  // second. Each shallow region must carry the lithology of the deep band that
+  // owns its space, and within any single gap two formations never overlap (the
+  // deep bands are straight, so each gap belongs to exactly one of them).
+  it('carries the correct deep lithology per shallow run with no cross-formation overlap', () => {
+    const D1 = col('D1', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' },
+    ])
+    const S1 = col('S1', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'a' }]) // TD -4
+    const D2 = col('D2', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SILT', b: 't' },
+    ])
+    const S2 = col('S2', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'd' }]) // TD -4
+    const D3 = col('D3', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' },
+    ])
+    const regions = computeBracketSubstrate(
+      [D1, S1, D2, S2, D3],
+      [],
+      [0, 100, 200, 300, 400],
+      EMPTY_CTX,
+    )
+    // Gap 0 hugs D1 (SAND) and gap 1 hugs D2 (SILT) — the first bracket's facies
+    // seam falls between them. Gap 2 hugs D2 (SILT), gap 3 hugs D3 (SAND).
+    const expected: Record<number, string> = { 0: 'SAND', 1: 'SILT', 2: 'SILT', 3: 'SAND' }
+    for (const gap of [0, 1, 2, 3]) {
+      const sub = regions.filter((r) => r.gapIndex === gap)
+      // The correct deep lithology appears below the shallow TD (-4).
+      expect(coverAt(sub, 0.5, -8)).toEqual([expected[gap]])
+      // No two different formations cover the same point inside this gap.
+      for (let f = 0.1; f <= 0.9; f += 0.2) {
+        const cov = new Set(coverAt(sub, f, -10))
+        expect(cov.size, `cross-formation overlap in gap ${gap} at f=${f}`).toBeLessThanOrEqual(1)
+      }
+    }
+  })
 })
