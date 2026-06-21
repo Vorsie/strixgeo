@@ -3951,15 +3951,22 @@ export function computeBracketSubstrate(
     layerIds: new Set(c.units.map((u) => u.layerId)),
   }))
 
-  // Run emitGap on TWO ADJACENT columns ci / ci+1 exactly as the computeSectionFill
-  // per-gap loop does (fresh copies, reduceColumn + collapseAdjacentSameFormation +
-  // emitGap with the same side context + lookups). The OPEN-bracket substrate path
-  // uses this to inherit emitGap's shaped sub-TD geometry (mixed-tie risings,
-  // boundary pinch-outs, lens-backing matrix) before clipping below the shallow TD.
+  // Run the per-gap reduce/emit sequence (fresh copies, reduceColumn ×2 +
+  // collapseAdjacentSameFormation ×2 + emitGap with the same side context + lookups)
+  // exactly as the computeSectionFill per-gap loop does. BOTH substrate paths use it:
+  //   - the OPEN-bracket adjacent path (full column units, ci-derived side slices,
+  //     gapIndex ci) to inherit emitGap's shaped sub-TD geometry (mixed-tie risings,
+  //     boundary pinch-outs, lens-backing matrix) before clipping below the shallow TD;
+  //   - the CLOSED-band path (truncateToBand-clipped anchor units, L/R-derived side
+  //     slices, gapIndex 0 because the band is re-tagged per gap after slicing).
+  // The caller supplies already-built leftward/rightward SideColumn slices so the helper
+  // does not need to know whether the anchors are adjacent (i/i+1) or distant (L/R).
   const emitGapBetween = (
-    leftCol: { surface: number; units: PartitionUnit[] },
-    rightCol: { surface: number; units: PartitionUnit[] },
-    ci: number,
+    leftCol: { surface: number; units: readonly PartitionUnit[] },
+    rightCol: { surface: number; units: readonly PartitionUnit[] },
+    leftwardColumns: SideColumn[],
+    rightwardColumns: SideColumn[],
+    gapIndex: number,
   ): PartitionRegion[] => {
     const left = { surface: leftCol.surface, units: leftCol.units.map((u) => ({ ...u })) }
     const right = { surface: rightCol.surface, units: rightCol.units.map((u) => ({ ...u })) }
@@ -3987,8 +3994,6 @@ export function computeBracketSubstrate(
     )
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
-    const leftwardColumns = sideColumns.slice(0, ci + 1).reverse()
-    const rightwardColumns = sideColumns.slice(ci + 1)
     return emitGap(
       left.units,
       left.surface,
@@ -3998,7 +4003,7 @@ export function computeBracketSubstrate(
       lensesRight,
       correlated,
       undefined,
-      ci,
+      gapIndex,
       leftwardColumns,
       rightwardColumns,
       baseTied,
@@ -4026,6 +4031,9 @@ export function computeBracketSubstrate(
   if (baseTied) {
     // Reconstruct the pairs the line builder needs from the predicate over the
     // section's layer ids (the predicate is symmetric, so test each unordered pair).
+    // O(units²) probe: acceptable at CS1 section scale (small N — a handful of
+    // columns × a few units each). If a much larger section ever exercises this path,
+    // thread the original base-tie pairs through ``ctx`` instead of rebuilding them.
     const ids: string[] = []
     for (const c of cols) for (const u of c.units) ids.push(u.layerId)
     for (let a = 0; a < ids.length; a++) {
@@ -4134,7 +4142,9 @@ export function computeBracketSubstrate(
           // lens-backing matrix). The anchor's surplus stack emerges as sideways-flat
           // fill (spec rule-3) where it applies. (Measured better than a flat stack on
           // the real CS1 gate: fewer lithology mismatches.)
-          for (const r of emitGapBetween(cols[i], cols[i + 1], i)) {
+          const leftwardColumns = sideColumns.slice(0, i + 1).reverse()
+          const rightwardColumns = sideColumns.slice(i + 1)
+          for (const r of emitGapBetween(cols[i], cols[i + 1], leftwardColumns, rightwardColumns, i)) {
             if (r.kind === 'lens') continue // overlays are above-TD; the cap keeps them.
             const poly = clipBand(r.polygon)
             if (hasArea(poly)) out.push({ ...r, polygon: poly, gapIndex: i })
@@ -4202,48 +4212,13 @@ export function computeBracketSubstrate(
         bandTop = bandBottom
         continue
       }
-      const leftIds = new Set(left.units.map((u) => u.layerId))
-      const rightIds = new Set(right.units.map((u) => u.layerId))
-      const leftTD = columnTotalDepth(left.units)
-      const rightTD = columnTotalDepth(right.units)
-      const lensesLeft = reduceColumn(
-        left.units,
-        rightIds,
-        correlated,
-        rightTD,
-        baseTied,
-        allEdgedLayerIds,
-        mixedTiedLayerIds,
-      )
-      const lensesRight = reduceColumn(
-        right.units,
-        leftIds,
-        correlated,
-        leftTD,
-        baseTied,
-        allEdgedLayerIds,
-        mixedTiedLayerIds,
-      )
-      collapseAdjacentSameFormation(left.units)
-      collapseAdjacentSameFormation(right.units)
+      // Same reduce/emit sequence as the OPEN-adjacent path and computeSectionFill's
+      // per-gap loop — shared via emitGapBetween. Side context is built from the DISTANT
+      // anchors L/R (not the gap's adjacent i/i+1); gapIndex is 0 because each sliced
+      // region is re-tagged with the shallow gap index below.
       const leftwardColumns = sideColumns.slice(0, L + 1).reverse()
       const rightwardColumns = sideColumns.slice(R)
-      const bandRegions = emitGap(
-        left.units,
-        left.surface,
-        right.units,
-        right.surface,
-        lensesLeft,
-        lensesRight,
-        correlated,
-        undefined,
-        0,
-        leftwardColumns,
-        rightwardColumns,
-        baseTied,
-        mixedTiedTopToBase,
-        layerBaseElevLookup,
-      )
+      const bandRegions = emitGapBetween(left, right, leftwardColumns, rightwardColumns, 0)
       const clipped = bandRegions
         .map((r) => ({ region: r, poly: clipBand(r.polygon) }))
         .filter((x) => hasArea(x.poly))
