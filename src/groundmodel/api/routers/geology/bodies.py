@@ -55,7 +55,7 @@ from groundmodel.api.schemas.project.body import (
     NameBodyResponse,
 )
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
-from groundmodel.api.schemas.project.litho_lens import (
+from groundmodel.api.schemas.project.formation_absence import (
     FormationAbsenceItem,
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,

@@ -1,12 +1,11 @@
-"""Formation-absence schemas — kept in litho_lens package for historical reasons.
+"""Formation-absence schemas (the request/response for upserting absences).
 
 Body-related schemas (BodyListItem, NameBodyRequest, NameBodyResponse,
-DetectBodiesResponse, BodyBoundaryNodeItem, BodyBoundaryResponse,
-BodyBoundaryWriteRequest) have moved to
+BodyBoundaryNodeItem, BodyBoundaryResponse, BodyBoundaryWriteRequest) live in
 ``groundmodel.api.schemas.project.body``.
 """
 
-from groundmodel.api.schemas.project.litho_lens.upsert_formation_absence_request import (
+from groundmodel.api.schemas.project.formation_absence.upsert_formation_absence_request import (
     FormationAbsenceItem,
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,
