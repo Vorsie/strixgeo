@@ -296,6 +296,64 @@ describe('CS1 real-data partition void gate', () => {
     const offenders: string[] = []
     const GAP19_KNOWN = 19
 
+    // ---- Correlation-banded-formation exemption (deep-to-deep substrate spec) ----
+    //
+    // The PRIMARY check below assumes the sub-TD wedge continues the deep neighbour's
+    // formation FLAT at the sampled elevation. That assumption is right for a genuine
+    // flat-fill flood (the old clay-over-sand bug: the matrix formation flooding the
+    // wedge with NO cross-column correlation behind it). But the deep-to-deep substrate
+    // pass deliberately produces SLOPING correlated bands: when a unit has an approved
+    // correlation edge to a same-lithology unit on another column, the band slopes
+    // between the two and can own a sub-TD point at a DIFFERENT formation than the deep
+    // neighbour's flat formation there. Those are correct-per-spec, not floods.
+    //
+    // So a mismatch is exempt iff BOTH hold:
+    //   (a) the sample point is covered by exactly ONE non-lens region (no
+    //       cross-formation overlap there — the cross-formation test guarantees this
+    //       model-wide, but we assert it LOCALLY so the exemption can't paper over an
+    //       overlap), AND
+    //   (b) the covering region's formationId is "banded" — some unit of that
+    //       formationId participates in an approved correlation edge linking it ACROSS
+    //       columns (top-top / bridge / mixed tie), so it forms a sloping band rather
+    //       than a flat flood of the matrix.
+    //
+    // A flat flood of an UN-correlated matrix formation has no such edge → stays
+    // flagged (the old bug can't sneak through). Concrete cases this exempts on real
+    // CS1 (all traced to single-coverage, correlation-driven sloping bands):
+    //   - GAP-7 @ +3.97 / +2.23, f=0.9: SILT band col7(bcee13)↔col9(10082f), an
+    //     approved same-lithology top edge bridging behind shallow col8.
+    //   - GAP-12 @ -6.50, f=0.1: KLEI band col12(99ff83)↔col13(24a38d), a 2-contact
+    //     (top+base) band correlation down-dipping toward col12.
+    //
+    // Build F = { formationId : ∃ units u,v on DIFFERENT columns with
+    //   u.formationId === v.formationId === F AND an approved edge between
+    //   u.layerId and v.layerId }. aSide/bSide top/base/undefined all count (a
+    //   correlation across columns is a band regardless of which contacts tie).
+    const layerToCol = new Map<string, { colIdx: number; formationId: string }>()
+    cols.forEach((c, ci) => {
+      for (const u of c.units) layerToCol.set(u.layerId, { colIdx: ci, formationId: u.formationId })
+    })
+    const bandedFormations = new Set<string>()
+    for (const e of raw.edges) {
+      const ua = layerToCol.get(e.a)
+      const ub = layerToCol.get(e.b)
+      if (ua === undefined || ub === undefined) continue
+      // Cross-column, same-formation edge ⇒ that formation bands here.
+      if (ua.colIdx !== ub.colIdx && ua.formationId === ub.formationId) {
+        bandedFormations.add(ua.formationId)
+      }
+    }
+    // Toothiness check: the exemption must NOT exempt every formation, or it is
+    // vacuous. Log the banded set vs the full formation vocabulary so a regression
+    // (e.g. all formations banded ⇒ the gate stops catching floods) is visible.
+    const allFormations = new Set<string>()
+    for (const c of cols) for (const u of c.units) allFormations.add(u.formationId)
+    // eslint-disable-next-line no-console
+    console.info(
+      `[CS1-LITHO] banded formations: ${bandedFormations.size}/${allFormations.size} ` +
+        `(${[...bandedFormations].map((f) => '…' + f.slice(-6)).join(', ')})`,
+    )
+
     for (let g = 0; g < cols.length - 1; g++) {
       if (g === GAP19_KNOWN) continue // known pre-existing over-match issue
 
@@ -342,15 +400,26 @@ describe('CS1 real-data partition void gate', () => {
         // Near a boundary — allow mismatch.
         if (nearBoundary(deepColIdx, elev, BAND_TOL)) continue
 
-        // Find the formation in the filled partition at this sample point.
-        const covReg = gapRegs.find(
+        // Find the non-lens regions in the filled partition at this sample point.
+        const covRegs = gapRegs.filter(
           (r) => r.kind !== 'lens' && inPolygon(sampleFrac, elev, r.polygon),
         )
-        if (covReg === null || covReg === undefined) {
+        if (covRegs.length === 0) {
           // No region covers this point — still a void (counted by the coverage test).
           continue
         }
+        const covReg = covRegs[0]
         if (covReg.formationId !== expectedForm) {
+          // Exemption: a correlation-driven sloping band may legitimately own this
+          // sub-TD point at a different formation than the deep neighbour's FLAT
+          // formation. Fires only when (a) exactly ONE non-lens region covers the
+          // point (no cross-formation overlap to hide) AND (b) the covering
+          // formation is correlation-banded across columns. A flat flood of an
+          // un-correlated matrix formation satisfies neither extra clause and stays
+          // flagged.
+          const singleCoverage = covRegs.length === 1
+          const banded = bandedFormations.has(covReg.formationId)
+          if (singleCoverage && banded) continue
           offenders.push(
             `GAP-${g} @elev ${elev.toFixed(2)} f=${sampleFrac}: got …${covReg.formationId.slice(-6)} expected …${expectedForm.slice(-6)}`,
           )
