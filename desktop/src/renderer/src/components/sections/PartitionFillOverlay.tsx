@@ -739,10 +739,17 @@ export default function PartitionFillOverlay({
         bSide: e.contact_b_side,
       }))
 
+    // True along-section position (metres) per column, 1:1 with orderedColumns
+    // (both derive from `valid` in the same order). Passing it lets the deep-to-deep
+    // substrate pass slice each gap's deep band at the real column spacing instead of
+    // the uniform fallback. In along-METRES (the slice math is metre-based); the
+    // screen projection downstream is unchanged, so no raw-vs-warped mismatch.
+    const alongM = valid.map((id) => (screenByInv.get(id) as ColumnScreen).along)
+
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides)
+    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
 
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
   }, [
