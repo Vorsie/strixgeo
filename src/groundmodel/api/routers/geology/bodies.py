@@ -661,7 +661,7 @@ async def create_perpendicular_companion(
         ) from exc
 
     response = CrossSectionResponse.model_validate(result.companion_section)
-    response.companion_lens_name = body.name
+    response.companion_body_name = body.name
 
     http_status = status.HTTP_200_OK if result.already_existed else status.HTTP_201_CREATED
     return JSONResponse(

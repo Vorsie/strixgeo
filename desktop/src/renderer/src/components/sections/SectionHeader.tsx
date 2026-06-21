@@ -179,8 +179,8 @@ export default function SectionHeader({
                 : 'This section was a lens companion (the lens has since been deleted)'
             }
           >
-            {section.companion_lens_name
-              ? `perp · Companion of ${section.companion_lens_name}`
+            {section.companion_body_name
+              ? `perp · Companion of ${section.companion_body_name}`
               : 'perp · Lens companion section'}
           </span>
         )}
