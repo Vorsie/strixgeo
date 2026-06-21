@@ -3148,6 +3148,13 @@ function injectVirtualUnits(
  *     The APPROVED correlation edges (layer-id pairs). Two units band iff an edge
  *     connects their ``layerId``s; geometry only fills the uncorrelated remainder.
  * lensApexOverrides : optional per-body apex shaping (keyed by bodyId).
+ * alongM : readonly number[], optional
+ *     The along-section position (metres) of each NON-EMPTY column, in the same
+ *     left→right order as ``columns`` after empties are skipped. Lets a later
+ *     substrate pass slice an L→R deep-anchor partition at an intervening shallow
+ *     column by its true along-section fraction between L and R. When absent (the
+ *     default), columns are treated as uniformly spaced — current behaviour,
+ *     backwards compatible.
  *
  * Returns
  * -------
@@ -3158,6 +3165,7 @@ export function computeSectionFill(
   columns: readonly PartitionColumn[],
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+  alongM?: readonly number[],
 ): SectionRegion[] {
   // Build three separate edge lookups (order-independent layer-id pair key):
   //   correlated        — top-keyed edges (aSide='top'/omitted, bSide='top'/omitted).
