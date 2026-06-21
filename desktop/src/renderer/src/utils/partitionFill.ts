@@ -3765,6 +3765,367 @@ export function computeSectionFill(
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Deep-to-deep substrate pass (computeBracketSubstrate)
+// ---------------------------------------------------------------------------
+
+/**
+ * Clip a (fraction, elevation) polygon to the half-plane ``elevation <= cut``
+ * (keep the part BELOW a horizontal line), via Sutherland–Hodgman.
+ *
+ * An edge that crosses the cut line gets an interpolated vertex ON the line; a
+ * vertex exactly on the line is treated as inside (kept). Returns ``[]`` when
+ * the whole polygon is above the line.
+ */
+function clipPolyBelowElev(
+  poly: readonly PartitionPoint[],
+  cut: number,
+): PartitionPoint[] {
+  const out: PartitionPoint[] = []
+  const n = poly.length
+  if (n === 0) return out
+  const inside = (p: PartitionPoint): boolean => p.elevation <= cut + EPS
+  for (let i = 0; i < n; i++) {
+    const cur = poly[i]
+    const prev = poly[(i + n - 1) % n]
+    const curIn = inside(cur)
+    const prevIn = inside(prev)
+    if (curIn) {
+      if (!prevIn) out.push(intersectElev(prev, cur, cut))
+      out.push(cur)
+    } else if (prevIn) {
+      out.push(intersectElev(prev, cur, cut))
+    }
+  }
+  return out
+}
+
+/** Interpolate the point where edge a→b crosses the horizontal line ``elevation = cut``. */
+function intersectElev(a: PartitionPoint, b: PartitionPoint, cut: number): PartitionPoint {
+  const dy = b.elevation - a.elevation
+  // Degenerate (horizontal edge on the cut) — return the endpoint; caller dedups.
+  const t = Math.abs(dy) < EPS ? 0 : (cut - a.elevation) / dy
+  return { fraction: a.fraction + t * (b.fraction - a.fraction), elevation: cut }
+}
+
+/**
+ * Clip a (fraction, elevation) polygon to the vertical strip
+ * ``fLo <= fraction <= fHi``, via Sutherland–Hodgman against the two vertical
+ * lines. An edge crossing a strip boundary gets an interpolated vertex on it.
+ */
+function clipPolyStrip(
+  poly: readonly PartitionPoint[],
+  fLo: number,
+  fHi: number,
+): PartitionPoint[] {
+  const left = clipPolyHalfFraction(poly, fLo, true) // keep fraction >= fLo
+  return clipPolyHalfFraction(left, fHi, false) // keep fraction <= fHi
+}
+
+/**
+ * Clip to one vertical half-plane: ``keepGE`` true keeps ``fraction >= bound``,
+ * false keeps ``fraction <= bound``. Interpolates crossings on the line.
+ */
+function clipPolyHalfFraction(
+  poly: readonly PartitionPoint[],
+  bound: number,
+  keepGE: boolean,
+): PartitionPoint[] {
+  const out: PartitionPoint[] = []
+  const n = poly.length
+  if (n === 0) return out
+  const inside = (p: PartitionPoint): boolean =>
+    keepGE ? p.fraction >= bound - EPS : p.fraction <= bound + EPS
+  const cross = (a: PartitionPoint, b: PartitionPoint): PartitionPoint => {
+    const dx = b.fraction - a.fraction
+    const t = Math.abs(dx) < EPS ? 0 : (bound - a.fraction) / dx
+    return { fraction: bound, elevation: a.elevation + t * (b.elevation - a.elevation) }
+  }
+  for (let i = 0; i < n; i++) {
+    const cur = poly[i]
+    const prev = poly[(i + n - 1) % n]
+    const curIn = inside(cur)
+    const prevIn = inside(prev)
+    if (curIn) {
+      if (!prevIn) out.push(cross(prev, cur))
+      out.push(cur)
+    } else if (prevIn) {
+      out.push(cross(prev, cur))
+    }
+  }
+  return out
+}
+
+/** True when a clipped polygon has positive area (≥ 3 non-degenerate vertices). */
+function hasArea(poly: readonly PartitionPoint[]): boolean {
+  if (poly.length < 3) return false
+  let area = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    area += (poly[j].fraction - poly[i].fraction) * (poly[j].elevation + poly[i].elevation)
+  }
+  return Math.abs(area) > EPS
+}
+
+/**
+ * Fill the region below each shallow column's TD with the deep stratigraphy drawn
+ * straight from one deep anchor to the next, sliced per intervening shallow column.
+ *
+ * For each maximal run of consecutive shallow columns bracketed by deep anchors
+ * (L, R): run the same reduce/match/emitGap machinery ``computeSectionFill`` runs
+ * for an adjacent gap, but on the non-adjacent (L, R) pair — yielding the
+ * deep-to-deep partition (straight bands, facies seams, pinch-outs). Clip it to
+ * elevations below the run's shallowest TD, then slice it at each intervening
+ * shallow gap's along fraction to produce that gap's substrate regions (sloped
+ * quads continuing the straight band), re-normalised to that gap's own [0, 1] and
+ * tagged with its ``gapIndex``. Open brackets (a run at a section end) continue the
+ * deep side's stack flat sideways.
+ *
+ * Pure — no rendering. Returns ``SectionRegion[]`` tagged with each shallow gap's
+ * ``gapIndex``. Works in pure fraction space (no warp transform); the overlay
+ * applies the spacing warp later.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly PartitionColumn[]
+ *     The section columns in order. Empty columns are dropped; ``alongM`` aligns
+ *     1:1 with the surviving non-empty columns (same order).
+ * edges : readonly CorrelationEdge[]
+ *     Approved correlation edges. Unused directly (the ``ctx`` predicates already
+ *     encode them) but kept for signature parity with ``computeSectionFill``.
+ * alongM : readonly number[]
+ *     Each surviving column's along-section position (metres). Used for the
+ *     fraction slicing.
+ * ctx : object
+ *     The edge-derived predicates ``computeSectionFill`` builds once, threaded in:
+ *     ``correlated`` (top-tie), ``baseTied`` (bottom-tie, optional),
+ *     ``mixedTiedTopToBase`` (top→base tie map), ``allEdgedLayerIds`` (any-edge set).
+ *
+ * Returns
+ * -------
+ * SectionRegion[]
+ *     Substrate regions, each tagged with the shallow gap's ``gapIndex``.
+ */
+export function computeBracketSubstrate(
+  columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[],
+  alongM: readonly number[],
+  ctx: {
+    correlated: Correlated
+    baseTied?: Correlated
+    mixedTiedTopToBase: ReadonlyMap<string, string>
+    allEdgedLayerIds: ReadonlySet<string>
+  },
+): SectionRegion[] {
+  void edges // predicates already carry the edge information; kept for parity.
+  const { correlated, baseTied, mixedTiedTopToBase, allEdgedLayerIds } = ctx
+
+  // Drop empty columns; alongM is assumed aligned 1:1 with the surviving columns.
+  const keep: number[] = []
+  for (let i = 0; i < columns.length; i++) if (columns[i].units.length > 0) keep.push(i)
+  const cols = keep.map((i) => ({
+    surface: columns[i].surfaceElevM,
+    units: columns[i].units.map((u) => ({ ...u })),
+  }))
+  const along = keep.map((i) => alongM[i])
+  if (cols.length < 2) return []
+  cols.forEach((c) => closeColumnGaps(c.units))
+
+  // TD elevation of each column (deepest base, in mTAW).
+  const tdElev = cols.map((c) => c.surface - columnTotalDepth(c.units))
+
+  // Layer ids named by a mixed (top↔base) tie — never lens/onlap-extracted.
+  const mixedTiedLayerIds = new Set<string>()
+  for (const [k, v] of mixedTiedTopToBase) {
+    mixedTiedLayerIds.add(k)
+    mixedTiedLayerIds.add(v)
+  }
+
+  // Section-wide layerId → base elevation, from the unmodified pre-gap columns
+  // (closeColumnGaps already ran; matches computeSectionFill's lookup source).
+  const layerBaseElevLookup = new Map<string, number>()
+  for (const c of cols) {
+    for (const u of c.units) layerBaseElevLookup.set(u.layerId, c.surface - u.baseDepthM)
+  }
+
+  // Whole-section side context (nearest-first slices below).
+  const sideColumns: SideColumn[] = cols.map((c) => ({
+    td: columnTotalDepth(c.units),
+    layerIds: new Set(c.units.map((u) => u.layerId)),
+  }))
+
+  // Each gap i sits below the shallower of its two columns' TDs. Its bracket is
+  // the nearest DEEP anchor on each side: a column whose TD is at-or-below (deeper
+  // than) the gap's shallow TD by > EPS. A gap whose own columns are both deeper
+  // than nothing nearby is OPEN on that side.
+  const nGaps = cols.length - 1
+  const shallowTdElev = (i: number): number => Math.max(tdElev[i], tdElev[i + 1])
+
+  interface Bracket {
+    L: number | null // deep anchor index <= i, or null = open-left
+    R: number | null // deep anchor index >= i+1, or null = open-right
+  }
+  const bracketOf = (i: number): Bracket => {
+    const shallow = shallowTdElev(i)
+    let L: number | null = null
+    for (let k = i; k >= 0; k--) {
+      if (tdElev[k] < shallow - EPS) {
+        L = k
+        break
+      }
+    }
+    let R: number | null = null
+    for (let k = i + 1; k < cols.length; k++) {
+      if (tdElev[k] < shallow - EPS) {
+        R = k
+        break
+      }
+    }
+    return { L, R }
+  }
+
+  // Group consecutive gaps sharing the same (L, R) bracket into one run, so
+  // emitGap(L, R) is called once per run and every slice comes from ONE tiling
+  // partition (they tile by construction).
+  interface Run {
+    L: number | null
+    R: number | null
+    gaps: number[]
+  }
+  const runs: Run[] = []
+  for (let i = 0; i < nGaps; i++) {
+    const b = bracketOf(i)
+    const last = runs[runs.length - 1]
+    if (last && last.L === b.L && last.R === b.R) last.gaps.push(i)
+    else runs.push({ L: b.L, R: b.R, gaps: [i] })
+  }
+
+  const out: SectionRegion[] = []
+
+  for (const run of runs) {
+    // Run's clip elevation = the deepest of the shallow TDs across the run's gaps
+    // (the highest elevation below which ALL gaps in the run are substrate). Clip
+    // strictly below it so we never re-emit fill the adjacent-gap pass owns.
+    const clipElev = Math.min(...run.gaps.map((i) => shallowTdElev(i)))
+
+    if (run.L === null || run.R === null) {
+      // OPEN bracket: no deep anchor on one side. Continue the deep side's sub-TD
+      // stack flat sideways out to the section edge for the run's gaps.
+      const deepIdx = run.L ?? run.R
+      if (deepIdx === null) continue // no deep anchor at all — nothing to fill.
+      const deep = cols[deepIdx]
+      for (const i of run.gaps) {
+        for (const u of deep.units) {
+          const top = deep.surface - u.topDepthM
+          const base = deep.surface - u.baseDepthM
+          const clipTop = Math.min(top, clipElev)
+          if (clipTop <= base + EPS) continue // unit entirely above the shallow TD.
+          out.push({
+            formationId: u.formationId,
+            bodyId: u.bodyId,
+            kind: 'pinch',
+            polygon: [
+              { fraction: 0, elevation: clipTop },
+              { fraction: 1, elevation: clipTop },
+              { fraction: 1, elevation: base },
+              { fraction: 0, elevation: base },
+            ],
+            gapIndex: i,
+          })
+        }
+      }
+      continue
+    }
+
+    // CLOSED bracket (L, R): replicate the per-gap loop body on the non-adjacent
+    // anchor pair. Fresh copies so reduceColumn / collapseAdjacentSameFormation
+    // mutate copies, never the section state.
+    const L = run.L
+    const R = run.R
+    const left = { surface: cols[L].surface, units: cols[L].units.map((u) => ({ ...u })) }
+    const right = { surface: cols[R].surface, units: cols[R].units.map((u) => ({ ...u })) }
+    const leftIds = new Set(left.units.map((u) => u.layerId))
+    const rightIds = new Set(right.units.map((u) => u.layerId))
+    const leftTD = columnTotalDepth(left.units)
+    const rightTD = columnTotalDepth(right.units)
+    const lensesLeft = reduceColumn(
+      left.units,
+      rightIds,
+      correlated,
+      rightTD,
+      baseTied,
+      allEdgedLayerIds,
+      mixedTiedLayerIds,
+    )
+    const lensesRight = reduceColumn(
+      right.units,
+      leftIds,
+      correlated,
+      leftTD,
+      baseTied,
+      allEdgedLayerIds,
+      mixedTiedLayerIds,
+    )
+    collapseAdjacentSameFormation(left.units)
+    collapseAdjacentSameFormation(right.units)
+
+    // Side context relative to L and R, nearest-first outward (same shape as the
+    // adjacent-gap loop, but the bracket spans intervening columns).
+    const leftwardColumns = sideColumns.slice(0, L + 1).reverse()
+    const rightwardColumns = sideColumns.slice(R)
+
+    const bandRegions = emitGap(
+      left.units,
+      left.surface,
+      right.units,
+      right.surface,
+      lensesLeft,
+      lensesRight,
+      correlated,
+      undefined,
+      0,
+      leftwardColumns,
+      rightwardColumns,
+      baseTied,
+      mixedTiedTopToBase,
+      layerBaseElevLookup,
+    )
+
+    // Clip the L→R partition to elevations strictly below the run's shallow TD.
+    const clipped = bandRegions
+      .map((r) => ({ region: r, poly: clipPolyBelowElev(r.polygon, clipElev) }))
+      .filter((x) => hasArea(x.poly))
+
+    // Slice per gap in the run. cols[L] sits at band-fraction 0, cols[R] at 1.
+    const span = along[R] - along[L]
+    if (Math.abs(span) < EPS) continue // degenerate spacing — nothing to slice.
+    for (const i of run.gaps) {
+      const fL = (along[i] - along[L]) / span
+      const fR = (along[i + 1] - along[L]) / span
+      const width = fR - fL
+      if (Math.abs(width) < EPS) continue
+      for (const { region, poly } of clipped) {
+        const strip = clipPolyStrip(poly, fL, fR)
+        if (!hasArea(strip)) continue
+        // Re-normalise the band fractions to this gap's own [0, 1].
+        const local = strip.map((p) => ({
+          fraction: (p.fraction - fL) / width,
+          elevation: p.elevation,
+        }))
+        out.push({
+          formationId: region.formationId,
+          bodyId: region.bodyId,
+          kind: region.kind,
+          ...(region.overlayTier ? { overlayTier: region.overlayTier } : {}),
+          polygon: local,
+          gapIndex: i,
+        })
+      }
+    }
+  }
+
+  return out
+}
+
 /**
  * Compute the partition fill for ONE adjacent column gap.
  *
