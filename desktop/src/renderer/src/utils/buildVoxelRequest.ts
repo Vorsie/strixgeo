@@ -186,7 +186,19 @@ export function buildVoxelRequest(
       };
     });
 
-    const regions: RegionInput[] = computeSectionFill(columns, input.edges).map(
+    // True along-section position (metres) per column, 1:1 with `columns`:
+    // assembleSectionPartitionInput pushes to `columns` and `orderedColumns` in
+    // lockstep, so they share order + length by construction. Passing alongM lets
+    // the deep-to-deep substrate pass slice each gap's deep band at the real column
+    // spacing, so the 3D voxel model inherits the same substrate geometry the 2D
+    // overlay renders. (3rd arg = lensApexOverrides, unused here → undefined.)
+    const alongM = orderedColumns.map((c) => c.alongM);
+    const regions: RegionInput[] = computeSectionFill(
+      columns,
+      input.edges,
+      undefined,
+      alongM,
+    ).map(
       (r) => ({
         formation_id: r.formationId,
         body_id: r.bodyId,
