@@ -3134,9 +3134,6 @@ export function computeSectionFill(
   const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
   const edgeSet = new Set<string>()
   const baseTiedSet = new Set<string>()
-  // Raw base-tie pairs, kept for the substrate post-pass (computeBottomTieLine needs
-  // the layer-id pairs to look up each unit's column index and base elevation).
-  const baseTiePairs: { a: string; b: string }[] = []
   // topLayerId → baseLayerId (directional: the top-side is the one with aSide=top).
   const mixedTiedTopToBase = new Map<string, string>()
   for (const e of edges) {
@@ -3148,7 +3145,6 @@ export function computeSectionFill(
       edgeSet.add(edgeKey(e.a, e.b))
     } else if (aIsBase && bIsBase) {
       baseTiedSet.add(edgeKey(e.a, e.b))
-      baseTiePairs.push({ a: e.a, b: e.b })
     } else if (aIsTop && bIsBase) {
       // a is the top-side (deep unit top), b is the base-side (shallow test TD).
       mixedTiedTopToBase.set(e.a, e.b)
@@ -3520,7 +3516,6 @@ export function computeSectionFill(
     }
     for (const e of bridgeBaseEdges) {
       baseTiedSet.add(edgeKey(e.a, e.b))
-      baseTiePairs.push(e) // needed for computeBottomTieLine (the gate bottom helper)
       allEdgedLayerIds.add(e.a)
       allEdgedLayerIds.add(e.b)
     }
