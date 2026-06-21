@@ -1384,6 +1384,28 @@ export default function PartitionFillOverlay({
 
   return (
     <g ref={rootRef} data-testid="partition-fill-overlay" style={{ pointerEvents: 'none' }}>
+      {/* Under-column substrate fill: closes the gap exactly below each test's TD
+          (the column-width sliver the edge-to-edge gap partition never covered),
+          sloped to continue the straight deep-test→deep-test bridge line.
+
+          Rendered BEFORE (beneath) the gap partition regions so that a gap region
+          (e.g. a silt lens from a deeper test) which overlaps a co-located shallow
+          test's column strip paints OVER that column's under-column matrix sliver
+          instead of being hidden by it. For non-overlapping columns the two groups
+          occupy disjoint x-ranges, so the order is visually inert there. */}
+      {underColumnFills.map((f) => (
+        <path
+          key={f.key}
+          data-testid="partition-undercol"
+          d={f.points}
+          fill={f.color}
+          fillOpacity={FILL_OPACITY}
+          stroke={f.color}
+          strokeOpacity={STROKE_OPACITY}
+          strokeWidth={0.5}
+        />
+      ))}
+
       {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
@@ -1417,22 +1439,6 @@ export default function PartitionFillOverlay({
           />
         )
       })}
-
-      {/* Under-column substrate fill: closes the gap exactly below each test's TD
-          (the column-width sliver the edge-to-edge gap partition never covered),
-          sloped to continue the straight deep-test→deep-test bridge line. */}
-      {underColumnFills.map((f) => (
-        <path
-          key={f.key}
-          data-testid="partition-undercol"
-          d={f.points}
-          fill={f.color}
-          fillOpacity={FILL_OPACITY}
-          stroke={f.color}
-          strokeOpacity={STROKE_OPACITY}
-          strokeWidth={0.5}
-        />
-      ))}
 
       {labels.map((l) => (
         <text
