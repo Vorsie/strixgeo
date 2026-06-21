@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #216, #217, #218 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4)*
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #222 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons; #222 spun off #217 for the persisted lens-named columns)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5501,71 +5501,22 @@ shared-office coworker deployment.
 Longer term, fold into the bundled-Postgres plan (#2) — generate a random password
 at first run.
 
-## 216. Dead-code removal sweep — retirement shrapnel + stub graveyard (Tier E — both, M)
+## 222. Rename companion_lens_id / is_lens_companion DB columns (Tier E — backend, S)
 
-*(audit: KISS-01..09, DEAD-04..12 — Low/Medium/Info)*
+*(spun off the #217 lens→body sweep, 2026-06-21)*
 
-**What.** A batch of confirmed-dead artifacts (zero call sites verified across
-`src/` + `desktop/` + `tests/`), safe to delete: stub parsers returning `...`
-(`ags_parser.py`, `las_parser.py`); stub exporters that only raise
-(`dsheet_exporter.py`, `geostudio_exporter.py`); the never-called `export_project.py`;
-the zero-subclass `BoreholeTest` ABC; disconnected domain stubs (`dmt.py`,
-`insitu_test.py`, `monitoring/inclinometer.py`, `monitoring/piezometer.py`); the empty
-`ec7/` package; dead TS client methods (`detectBodies`, `deleteLens`, the
-`listBodies`/`listLenses` duplicate, `extremeMemberLayerId`); the `gwater_kNm3`
-request param the frontend never sends; the no-op `detectBodiesForFixture` e2e helper
-+ 4 call sites; always-zero `bodies_created`/`bodies_removed` response fields; and a
-`// TODO Task 19` dead comment embedded in a toast string (`useLithoSuggestions.ts:276`).
-The `CPT` domain model (`pushed/cpt.py`) needs a decision — delete or document as the
-intended future ORM-decoupling layer.
+**What.** The persisted cross-section columns `companion_lens_id` and
+`is_lens_companion` (plus their bundle keys + the
+`g1a2b3c4d5e6_lens_companion_and_primary_section` migration vocabulary) still carry
+the retired "lens" name. The transient `companion_lens_name` response field was
+renamed to `companion_body_name` in #217, but these two are real DB columns so the
+rename needs an Alembic migration + a bundle-restore key remap.
 
-**Why it matters.** Dead stubs in the parser/exporter hierarchies look wireable to a
-new contributor; the Ellipsis-returning parsers have a broken return contract; the
-double-named client methods obscure which is canonical.
+**Why it matters.** Minor — internal column names, not user-facing — but they keep
+the retired vocabulary alive in the schema + `.gmproj` bundle shape.
 
-**When to revisit.** A single low-risk cleanup PR, any time. Verify each with grep
-before deleting; git preserves the removed sketches.
-
-## 217. Lens→body naming sweep (Tier E — both, M)
-
-*(audit: NAME-01..08, DEAD-10/11, DOC-08 — Medium/Low)*
-
-**What.** The lens→body retirement left retired vocabulary in live identifiers,
-public API surface, and docstrings: the public field `companion_lens_name` (+ TS
-type) holds `body.name`; `bundle_build.py:63–66` defines `LithoLensOrm = BodyOrm`
-(+2) aliases that keep the old names greppable-as-live; the
-`/lens-companions/materialise` route segment + the `litho_lens/` schema package (which
-now houses formation-absence schemas) name the wrong concept; `accept_litho_suggestions.py`
-assigns a `layer_id` to a var named `contact_id` and has `_load_existing_contacts`
-loading layers; multiple docstrings reference deleted `LithoLensOrm` /
-`SuggestBodyPinchOuts` / `ClaimBodyExtent` / `DetectBodies` /
-`DetectLithoLenses` as live collaborators.
-
-**Why it matters.** Every reader (and the incoming coworker) is misdirected by names
-that promise a retired entity; the `contact_id`-holds-a-`layer_id` case will actively
-mislead anyone debugging a duplicate-layer bug.
-
-**When to revisit.** While backwards-compat is suspended (the window for the public
-field/route renames). Mechanical, mostly find-and-replace; do it as one sweep with
-the #216 dead-code pass.
-
-## 218. Float-equality correctness hygiene (Tier E — backend, S)
-
-*(audit: COR-08, COR-09 — Low)*
-
-**What.** Two exact-float comparisons that should carry an epsilon. (a) The
-bidirectional litho↔geo propagation cycle-breaker
-(`update_formation_contact.py:369,397`) uses `geo_contact.depth_top_m == new_depth`
-— one ULP of drift (mm-rounding / ORM round-trip) defeats the guard. (b) The
-find-or-create layer dedup (`accept_litho_suggestions.py:1147`) uses SQL
-`depth_top_m == :value` — a clean-decimal vs arithmetic-derived value double-inserts
-near-identical layers, violating the no-overlap invariant.
-
-**Why it matters.** Both are silent: (a) risks a propagation loop / missed
-termination, (b) risks duplicate layers the CHECK constraint won't catch.
-
-**When to revisit.** Quick win when either file is next touched. Use a half-mm epsilon
-(0.0005 m) / mm-rounded comparison / `BETWEEN ±ε`.
+**When to revisit.** While backwards-compat is suspended (the bundle-key change is
+free then). Low priority; bundle with the next cross-section migration.
 
 ## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S) — MOSTLY RESOLVED
 
