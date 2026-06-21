@@ -2096,19 +2096,23 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
       { top: 12, base: 18, f: 'KLEI', b: 'sideways' }, // R deepest → sideways, SAME formation as the band
     ])
     const regions = sf(left, right)
-    const siltPinch = regions.find((r) => r.formationId === 'SILT' && r.kind === 'pinch')
-    expect(siltPinch).toBeDefined()
-    // The pinch apex (its sole fraction>0 vertex). A BOUNDARY pinch's apex sits on
-    // the BASE interface (≈ -12, the floor the wedge tapers to); the buggy LENS
-    // apex sits at the SILT's own enclosed mid (≈ -10). Assert the apex is the
-    // deeper boundary value, not the shallow lens value.
-    const apex = siltPinch!.polygon.reduce(
-      (m, p) => (p.fraction > m.fraction ? p : m),
-      siltPinch!.polygon[0],
-    )
+    // The deep-to-deep substrate cap splits a pinch that crosses the gap's shallow
+    // TD into an above-TD piece (emitGap, capped at -10 = L's own TD) and a sub-TD
+    // piece (the substrate pass, continuing to the base interface). The boundary
+    // pinch tapers to ≈ -12 in the SUB-TD piece, so the test reads the DEEPEST SILT
+    // pinch apex across all SILT pinch regions — the boundary-vs-lens distinction
+    // lives there. (Pre-cap there was one SILT pinch region; the cap line at -10
+    // coincides with the SILT's own base, so the above-TD piece's apex is exactly
+    // -10 — the very value that signals the lens bug. Checking the deepest apex
+    // verifies the genuine boundary pinch reaches -12 regardless of the split.)
+    const siltPinches = regions.filter((r) => r.formationId === 'SILT' && r.kind === 'pinch')
+    expect(siltPinches.length).toBeGreaterThan(0)
+    const deepestApex = siltPinches
+      .map((r) => r.polygon.reduce((m, p) => (p.fraction > m.fraction ? p : m), r.polygon[0]))
+      .reduce((m, p) => (p.elevation < m.elevation ? p : m))
     // Behaviour: a boundary pinch tapers toward the base interface (deeper than the
     // SILT's own base at -10). The lens bug would tip at the SILT's own mid (-10).
-    expect(apex.elevation).toBeLessThan(-11)
+    expect(deepestApex.elevation).toBeLessThan(-11)
   })
 
   // ---------------------------------------------------------------------------
