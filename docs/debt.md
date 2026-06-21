@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #126, #155, #156, #158, #222 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #155, #156, #158, #222 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -2608,22 +2608,6 @@ but the result is ambiguous without knowing which project + section
 
 **When to revisit.** Owner provides the evidence above. Until then
 no code change is possible without risk of fixing the wrong layer.
-
-## 126. LithoLensOrm.name: change from VARCHAR(120) to TEXT (Tier E)
-
-**What.** `LithoLensOrm.name` is mapped as `String(120)` (PostgreSQL
-`VARCHAR(120)`). Per CLAUDE.md conventions, free-form label columns
-should be `TEXT` — `VARCHAR(N)` is for fixed-spec values (codes, enums,
-IDs). A lens name entered by the user is free-form; a 120-char cap
-invites surprise truncation.
-
-**Why deferred.** Backwards-compat rule is suspended (pre-ship). A
-small migration to `ALTER COLUMN name TYPE TEXT` is the fix; it is
-mechanical and non-breaking.
-
-**When to revisit.** Any migration-bearing session while the backwards-
-compat suspension is still in effect. One migration line.
-Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
 ## 127. RESOLVED — Auto-correlate litho bodies on accept / import
 

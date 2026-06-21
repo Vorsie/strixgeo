@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -101,7 +101,9 @@ class BodyOrm(Base):
     source_investigation_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
 
     # Optional human label. UI falls back to a derived name when null.
-    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # TEXT, not VARCHAR(N) — a user-entered free-form label should never
+    # surprise-truncate (CLAUDE.md schema-design rule; debt #126).
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Per-project display colour override for the 3D Solid view.
     #
