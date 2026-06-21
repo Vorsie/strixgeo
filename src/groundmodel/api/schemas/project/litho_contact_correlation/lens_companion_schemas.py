@@ -1,4 +1,4 @@
-"""Schemas for POST .../lens-companions/materialise (#133 Phase 2)."""
+"""Schemas for POST .../body-companions/materialise (#133 Phase 2)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class MaterialiseLensCompanionsResponse(BaseModel):
-    """Response body for the lens-companions materialise endpoint.
+    """Response body for the body-companions materialise endpoint.
 
     Attributes
     ----------

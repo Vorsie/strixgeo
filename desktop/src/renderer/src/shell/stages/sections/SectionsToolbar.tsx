@@ -345,16 +345,16 @@ export default function SectionsToolbar(): JSX.Element {
   // in the meantime so the missing refresh isn't load-bearing.
   const handleMaterialiseLensCompanions = useCallback(async (): Promise<void> => {
     if (!activeLithoModel || materialisingCompanions) return
-    log.info('sections', `materialiseLensCompanions: model=${activeLithoModel.id}`)
+    log.info('sections', `materialiseBodyCompanions: model=${activeLithoModel.id}`)
     setMaterialisingCompanions(true)
     try {
-      const result = await api.geology.materialiseLensCompanions(
+      const result = await api.geology.materialiseBodyCompanions(
         project.id,
         activeLithoModel.id,
       )
       log.success(
         'sections',
-        `materialiseLensCompanions: ${result.companion_sections_created} created, ` +
+        `materialiseBodyCompanions: ${result.companion_sections_created} created, ` +
           `${result.skipped_unfinished_section} unfinished, ` +
           `${result.skipped_no_primary} no-primary, ${result.errored} errored`,
       )
@@ -369,7 +369,7 @@ export default function SectionsToolbar(): JSX.Element {
       // see them" report (2026-06-03).
       requestCorrelationEdgesRefetch?.()
     } catch (err) {
-      log.error('sections', 'materialiseLensCompanions: failed', err)
+      log.error('sections', 'materialiseBodyCompanions: failed', err)
       toast('error', 'Materialise lens companions failed — try again.')
     } finally {
       setMaterialisingCompanions(false)

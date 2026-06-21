@@ -3,7 +3,7 @@
 Covers:
   POST   .../contact-correlations/auto       → 200 + count shape
   POST   .../contact-correlations/accept     → 200 + count shape
-  POST   .../lens-companions/materialise     → 200 + count shape
+  POST   .../body-companions/materialise     → 200 + count shape
   GET    .../contact-correlations            → user_approved in each item
   POST   .../contact-correlations            → requires a valid request_section_id (section-scoped)
   DELETE .../contact-correlations            → request_section_id accepted (not enforced on delete)
@@ -412,7 +412,7 @@ async def test_accept_404_on_unknown_model(
 
 
 # ---------------------------------------------------------------------------
-# POST /lens-companions/materialise — 200 + count shape
+# POST /body-companions/materialise — 200 + count shape
 # ---------------------------------------------------------------------------
 
 
@@ -420,14 +420,14 @@ async def test_materialise_returns_200_with_count_shape(
     async_client: AsyncClient,
     project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
 ) -> None:
-    """POST /lens-companions/materialise on an empty model returns 200 + four counters."""
+    """POST /body-companions/materialise on an empty model returns 200 + four counters."""
     project, _bh1, _bh2 = project_with_two_boreholes
     pid = str(project.id)
     model = await _create_model(async_client, pid)
     mid = model["id"]
 
     resp = await async_client.post(
-        f"/projects/{pid}/geology/models/{mid}/lens-companions/materialise"
+        f"/projects/{pid}/geology/models/{mid}/body-companions/materialise"
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -445,13 +445,13 @@ async def test_materialise_404_on_unknown_model(
     async_client: AsyncClient,
     project_with_two_boreholes: tuple[ProjectOrm, BoreholeOrm, BoreholeOrm],
 ) -> None:
-    """POST /lens-companions/materialise with an unknown model_id returns 404."""
+    """POST /body-companions/materialise with an unknown model_id returns 404."""
     project, _bh1, _bh2 = project_with_two_boreholes
     pid = str(project.id)
     unknown_mid = str(uuid7())
 
     resp = await async_client.post(
-        f"/projects/{pid}/geology/models/{unknown_mid}/lens-companions/materialise"
+        f"/projects/{pid}/geology/models/{unknown_mid}/body-companions/materialise"
     )
     assert resp.status_code == 404
 

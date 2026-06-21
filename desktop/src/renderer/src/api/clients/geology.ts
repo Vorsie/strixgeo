@@ -1804,22 +1804,7 @@ export const geologyClient = {
     errored: number
   }> =>
     post(
-      `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
-      {},
-    ),
-
-  // Backwards-compat alias.
-  materialiseLensCompanions: (
-    projectId: string,
-    modelId: string,
-  ): Promise<{
-    companion_sections_created: number
-    skipped_no_primary: number
-    skipped_unfinished_section: number
-    errored: number
-  }> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
+      `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
       {},
     ),
 

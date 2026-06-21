@@ -13,7 +13,7 @@
  *    ``user_approved=true`` on edges in scope; reports
  *    ``bodies_created``/``bodies_removed``/``ordinals_changed``; DB shows
  *    the user-approved flip (the "solid emerald" state).
- * 4. POST .../lens-companions/materialise → returns 200 with the
+ * 4. POST .../body-companions/materialise → returns 200 with the
  *    counters; if companion sections were created they're visible in
  *    ``GET /cross_sections?project_id={pid}`` with
  *    ``is_lens_companion=true``.
@@ -327,7 +327,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       expect(approvedAfterAccept).toBeGreaterThanOrEqual(accept.edges_accepted)
 
       // -----------------------------------------------------------------------
-      // 5. Materialise lens companions — POST .../lens-companions/materialise.
+      // 5. Materialise lens companions — POST .../body-companions/materialise.
       //    Mirrors the "Materialise lens companions" toolbar button (testid:
       //    litho-materialise-lens-companions).  Creates a perpendicular
       //    companion section for every lens whose primary section is fully
@@ -339,7 +339,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       const matRes = await page.evaluate(
         async ([base, pid, m]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${m}/lens-companions/materialise`,
+            `${base}/projects/${pid}/geology/models/${m}/body-companions/materialise`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

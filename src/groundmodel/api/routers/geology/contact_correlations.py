@@ -9,7 +9,7 @@ geology package __init__; paths extend to:
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations/auto
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations/accept
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations/{edge_id}/accept
-  POST   /projects/{pid}/geology/models/{mid}/lens-companions/materialise
+  POST   /projects/{pid}/geology/models/{mid}/body-companions/materialise
 
 These endpoints are MODEL-level only.  They take no section_id and do NOT
 modify seeded_formation_contact_ids on any cross-section row — the #57
@@ -555,7 +555,7 @@ async def accept_single_contact_correlation(
 
 
 @router.post(
-    "/models/{model_id}/lens-companions/materialise",
+    "/models/{model_id}/body-companions/materialise",
     response_model=MaterialiseLensCompanionsResponse,
     status_code=status.HTTP_200_OK,
     summary="Create perpendicular companion sections for qualifying lenses (#133 Phase 2)",

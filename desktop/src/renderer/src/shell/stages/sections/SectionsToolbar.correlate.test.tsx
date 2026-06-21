@@ -72,7 +72,7 @@ vi.mock('../../../api/client', async () => {
           bodies_removed: 0,
           ordinals_changed: 0,
         }),
-        materialiseLensCompanions: vi.fn().mockResolvedValue({
+        materialiseBodyCompanions: vi.fn().mockResolvedValue({
           companion_sections_created: 0,
           skipped_no_primary: 0,
           skipped_unfinished_section: 0,
@@ -1056,7 +1056,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
 //
 // handleMaterialiseLensCompanions (litho-materialise-lens-companions):
 //   M1-1  Button present + enabled on litho axis with model + section.
-//   M1-2  Clicking calls materialiseLensCompanions(projectId, modelId) and
+//   M1-2  Clicking calls materialiseBodyCompanions(projectId, modelId) and
 //         toasts the four-counter breakdown on success.
 //   M1-3  API error â†’ toasts an error, button re-enables.
 //   M1-4  Button disabled when no section selected (mirrors the Accept
@@ -1087,8 +1087,8 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     expect(btn).not.toBeDisabled()
   })
 
-  it('M1-2: click calls materialiseLensCompanions(projectId, modelId) and toasts counter breakdown', async () => {
-    vi.mocked(api.geology.materialiseLensCompanions).mockResolvedValueOnce({
+  it('M1-2: click calls materialiseBodyCompanions(projectId, modelId) and toasts counter breakdown', async () => {
+    vi.mocked(api.geology.materialiseBodyCompanions).mockResolvedValueOnce({
       companion_sections_created: 3,
       skipped_no_primary: 1,
       skipped_unfinished_section: 2,
@@ -1109,7 +1109,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     const btn = screen.getByTestId('litho-materialise-lens-companions')
     await act(async () => { fireEvent.click(btn) })
 
-    expect(api.geology.materialiseLensCompanions).toHaveBeenCalledWith('proj-1', 'model-litho-1')
+    expect(api.geology.materialiseBodyCompanions).toHaveBeenCalledWith('proj-1', 'model-litho-1')
     // Toast carries all three displayed counters.
     expect(toast).toHaveBeenCalledTimes(1)
     const [level, message] = toast.mock.calls[0] as [string, string]
@@ -1121,7 +1121,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
   })
 
   it('M1-3: API error â†’ toasts error', async () => {
-    vi.mocked(api.geology.materialiseLensCompanions).mockRejectedValueOnce(new Error('server error'))
+    vi.mocked(api.geology.materialiseBodyCompanions).mockRejectedValueOnce(new Error('server error'))
     const toast = vi.fn()
 
     renderWith(
