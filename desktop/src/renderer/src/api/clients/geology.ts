@@ -1605,10 +1605,6 @@ export const geologyClient = {
     ),
 
   // --- Body (formerly lens) CRUD (Slice 3 backend / Slice 5 FE rename) --
-  listBodies: (projectId: string, modelId: string): Promise<BodyListItem[]> =>
-    get(`/projects/${projectId}/geology/models/${modelId}/bodies`),
-
-  // Backwards-compat alias.
   listLenses: (projectId: string, modelId: string): Promise<BodyListItem[]> =>
     get(`/projects/${projectId}/geology/models/${modelId}/bodies`),
 
@@ -1677,16 +1673,6 @@ export const geologyClient = {
     bodyId: string,
   ): Promise<void> => {
     const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`
-    const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-    }
-  },
-
-  // Backwards-compat alias.
-  deleteLens: async (projectId: string, modelId: string, lensId: string): Promise<void> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}`
     const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
@@ -1793,22 +1779,6 @@ export const geologyClient = {
   }> =>
     post(
       `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/accept`,
-      {},
-    ),
-
-  // --- Detect bodies (explicit verb, owner directive 2026-05-31) -------
-  detectBodies: (
-    projectId: string,
-    modelId: string,
-    sectionId?: string,
-  ): Promise<{
-    bodies_created: number
-    bodies_removed: number
-    bodies_skipped_unresolved_ordinal: number
-  }> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/detect` +
-        (sectionId ? `?section_id=${sectionId}` : ''),
       {},
     ),
 
