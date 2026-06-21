@@ -43,7 +43,6 @@ import {
   openFixtureProject,
   goToStage,
   cleanupFixtureFile,
-  detectBodiesForFixture,
 } from './helpers/project_open'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
@@ -63,14 +62,6 @@ test.describe('flow_partition_fill_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
-      // Re-establish the detector ``to_target`` extents on the seeded bodies
-      // BEFORE opening. A sibling spec's model-wide auto-correlate + accept (run
-      // earlier on the SHARED fixture DB) shifts instance ordinals, which makes
-      // the resolver DELETE + RECREATE body rows. The recreated rows keep their
-      // accepted member layers + ``body_id`` (so the partition fill still groups
-      // them), but lose detector extents — running detect first keeps the seeded
-      // topology fully coherent. Idempotent on a fresh seed.
-      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
       await goToStage(page, 'Sections')

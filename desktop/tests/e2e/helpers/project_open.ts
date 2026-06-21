@@ -176,50 +176,6 @@ export async function openFixtureProject(
 }
 
 /**
- * Re-run the explicit "Detect bodies" pass on the project's lithostratigraphic
- * model so every resolver-owned body carries its detector ``to_target`` extents.
- *
- * Why a spec needs this
- * ---------------------
- * The single authority for body EXISTENCE is ``ResolveLithoInstances`` (one
- * body per connected component of accepted layers); ``DetectBodies`` only
- * writes the detector-owned ``to_target`` EXTENTS onto those bodies. A
- * model-wide ``auto-correlate`` + ``accept`` (fired by sibling specs such as
- * ``auto-correlate-and-lenses`` / ``flow_auto_correlate`` / ``flow_auto_lens_ui``
- * on the SHARED fixture DB) shifts instance ordinals, which makes the resolver
- * DELETE + RECREATE body rows — and the recreated rows start with NO extents
- * because ``DetectBodies`` is not auto-run after a model-wide accept. The body
- * topology is unchanged (the seeded manual edges survive), only the extents are
- * dropped, so ``BodyExtentOverlay`` renders nothing (``body-extent-fill`` /
- * ``body-label`` absent) until the detector re-stamps them.
- *
- * Calling this at the start of a body-rendering spec re-establishes the extents
- * the prior spec stripped — exactly what the "Detect bodies" toolbar verb does.
- * It re-creates required preconditions; it does not weaken any assertion (the
- * bodies + their bilateral closure are genuinely present in the seed).
- *
- * Idempotent — on a freshly-seeded DB (extents already present) it is a no-op.
- *
- * Parameters
- * ----------
- * page
- *     The renderer ``Page`` (used only as a same-origin ``fetch`` host).
- * fixtureProjectId
- *     The seeded project's UUID.
- */
-export async function detectBodiesForFixture(
-  page: Page,
-  fixtureProjectId: string,
-): Promise<void> {
-  // No-op since the body-extent retirement (2026-06-06): bodies are now seeded
-  // directly by build_synthetic_fixture.py via ResolveLithoInstances (same-litho
-  // correlation components), and the POST .../bodies/detect endpoint was removed.
-  // Kept as a no-op so the caller specs need no change; drop in an e2e cleanup pass.
-  void page
-  void fixtureProjectId
-}
-
-/**
  * Navigate to a workflow stage by clicking its spine button.
  *
  * The spine button carries a *dynamic* ``aria-label`` (a per-stage summary

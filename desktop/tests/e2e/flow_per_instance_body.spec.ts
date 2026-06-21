@@ -48,7 +48,6 @@ import {
   openFixtureProject,
   goToStage,
   cleanupFixtureFile,
-  detectBodiesForFixture,
 } from './helpers/project_open'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
@@ -105,16 +104,6 @@ test.describe('flow_per_instance_body', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
-      // Re-establish the detector ``to_target`` extents on the seeded bodies
-      // BEFORE opening the project. A sibling spec's model-wide auto-correlate +
-      // accept (run earlier on the shared fixture DB) shifts instance ordinals,
-      // which makes the resolver recreate body rows WITHOUT extents — so the
-      // two-instance bodies render nothing until the detector re-stamps them.
-      // Running detect before the open means the section render fetches the
-      // already-corrected bodies. The seeded topology (manual edges) is intact;
-      // this re-runs the "Detect bodies" pass the UI verb fires. Idempotent on a
-      // fresh seed.
-      await detectBodiesForFixture(page, FIXTURE_PROJECT_ID)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await openSectionDLitho(page)
 
