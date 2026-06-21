@@ -308,14 +308,20 @@ describe('CS1 real-data partition void gate', () => {
     // neighbour's flat formation there. Those are correct-per-spec, not floods.
     //
     // So a mismatch is exempt iff BOTH hold:
-    //   (a) the sample point is covered by exactly ONE non-lens region (no
-    //       cross-formation overlap there — the cross-formation test guarantees this
-    //       model-wide, but we assert it LOCALLY so the exemption can't paper over an
-    //       overlap), AND
+    //   (a) singleCoverage — the sample point is covered by exactly ONE non-lens
+    //       region. THIS is the load-bearing guard. A genuine flat flood where the
+    //       deep column actually carries a different formation produces a SECOND
+    //       covering region at that point (→ singleCoverage false → flagged), or a
+    //       cross-formation overlap caught by the separate cross-formation test. The
+    //       `banded` clause alone is NOT what keeps a flood flagged: a matrix clay
+    //       (e.g. the GAP-12 KLEI band) IS in the banded set, so banding cannot be
+    //       the teeth — single-coverage is.
     //   (b) the covering region's formationId is "banded" — some unit of that
     //       formationId participates in an approved correlation edge linking it ACROSS
     //       columns (top-top / bridge / mixed tie), so it forms a sloping band rather
-    //       than a flat flood of the matrix.
+    //       than a flat flood of the matrix. This narrows (a): a genuinely
+    //       un-correlated matrix formation that somehow single-covered would still be
+    //       flagged.
     //
     // A flat flood of an UN-correlated matrix formation has no such edge → stays
     // flagged (the old bug can't sneak through). Concrete cases this exempts on real
@@ -413,10 +419,11 @@ describe('CS1 real-data partition void gate', () => {
           // Exemption: a correlation-driven sloping band may legitimately own this
           // sub-TD point at a different formation than the deep neighbour's FLAT
           // formation. Fires only when (a) exactly ONE non-lens region covers the
-          // point (no cross-formation overlap to hide) AND (b) the covering
-          // formation is correlation-banded across columns. A flat flood of an
-          // un-correlated matrix formation satisfies neither extra clause and stays
-          // flagged.
+          // point — the load-bearing guard: a real flood where the deep column carries
+          // a different formation here produces a SECOND covering region (or a
+          // cross-formation overlap caught separately) — AND (b) the covering
+          // formation is correlation-banded across columns. A matrix clay IS in the
+          // banded set (GAP-12 KLEI), so (b) alone has no teeth; single-coverage does.
           const singleCoverage = covRegs.length === 1
           const banded = bandedFormations.has(covReg.formationId)
           if (singleCoverage && banded) continue
