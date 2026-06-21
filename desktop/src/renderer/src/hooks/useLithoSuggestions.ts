@@ -273,8 +273,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         toast(
           'success',
           `Auto-correlate: ${result.edges_created} edge${result.edges_created === 1 ? '' : 's'} created, ` +
-            // TODO Task 19: formations_recomputed removed from autoCorrelateContacts response.
-          `${result.edges_skipped_existing} edge(s) already existed.`,
+            `${result.edges_skipped_existing} edge(s) already existed.`,
         )
       }
       // Auto-lens: tell the user the crossings became lens candidates, not edges.
