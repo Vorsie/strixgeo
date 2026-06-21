@@ -849,13 +849,13 @@ ipcMain.handle('app:show-logs-folder', async (): Promise<void> => {
 // our React code runs. The most common cause on Windows Electron is the
 // GPU process / driver going down (Cesium + WebGL on an older or
 // recently-updated driver is a known offender). Setting
-// ``STRIX_DISABLE_GPU=1`` in the env disables hardware acceleration
+// ``STRIXGEO_DISABLE_GPU=1`` in the env disables hardware acceleration
 // entirely; the app still renders fine via software (slower 3D, but
 // boots). Off by default so production isn't slowed for everyone.
-if (process.env.STRIX_DISABLE_GPU === '1') {
+if (process.env.STRIXGEO_DISABLE_GPU === '1') {
   app.disableHardwareAcceleration()
   // eslint-disable-next-line no-console
-  console.warn('[main] STRIX_DISABLE_GPU=1 — hardware acceleration disabled')
+  console.warn('[main] STRIXGEO_DISABLE_GPU=1 — hardware acceleration disabled')
 }
 
 // ---------------------------------------------------------------------------

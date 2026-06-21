@@ -1,13 +1,13 @@
 """Unit tests for the DOV fixture transport (``dov_fixture_transport.py``).
 
 Tests cover three behaviours:
-1. ``STRIX_DOV_FIXTURE_MODE=1`` causes ``make_dov_async_client`` to return a
+1. ``STRIXGEO_DOV_FIXTURE_MODE=1`` causes ``make_dov_async_client`` to return a
    client backed by ``MockTransport``, not the production network.
 2. A request to a known DOV URL (WFS + per-permkey XML) returns the correct
    fixture file contents.
 3. A request whose route has no matching fixture (and no fallback) returns
    HTTP 404 so the failure is loud rather than silent.
-4. ``STRIX_DOV_FIXTURE_MODE`` unset → the client is a plain ``AsyncClient``
+4. ``STRIXGEO_DOV_FIXTURE_MODE`` unset → the client is a plain ``AsyncClient``
    with no mock transport.
 """
 
@@ -96,7 +96,7 @@ def _make_fixture_tree(tmp_path: Path) -> Path:
 
 
 def test_is_fixture_mode_when_env_is_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    """STRIX_DOV_FIXTURE_MODE=1 → is_fixture_mode() returns True."""
+    """STRIXGEO_DOV_FIXTURE_MODE=1 → is_fixture_mode() returns True."""
     monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "1")
     assert is_fixture_mode() is True
 
@@ -108,7 +108,7 @@ def test_is_fixture_mode_false_when_env_absent(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_is_fixture_mode_false_when_env_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
-    """STRIX_DOV_FIXTURE_MODE=0 (any value != '1') → is_fixture_mode() returns False."""
+    """STRIXGEO_DOV_FIXTURE_MODE=0 (any value != '1') → is_fixture_mode() returns False."""
     monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "0")
     assert is_fixture_mode() is False
 
@@ -121,7 +121,7 @@ def test_is_fixture_mode_false_when_env_is_zero(monkeypatch: pytest.MonkeyPatch)
 def test_fixture_mode_client_uses_mock_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """STRIX_DOV_FIXTURE_MODE=1 → client transport is MockTransport, not real network."""
+    """STRIXGEO_DOV_FIXTURE_MODE=1 → client transport is MockTransport, not real network."""
     root = _make_fixture_tree(tmp_path)
     monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "1")
     monkeypatch.setenv(DOV_FIXTURE_ROOT_ENV, str(root))
@@ -139,7 +139,7 @@ def test_fixture_mode_client_uses_mock_transport(
 def test_production_mode_client_uses_real_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Absent STRIX_DOV_FIXTURE_MODE → client uses the production network transport."""
+    """Absent STRIXGEO_DOV_FIXTURE_MODE → client uses the production network transport."""
     monkeypatch.delenv(DOV_FIXTURE_MODE_ENV, raising=False)
 
     client = make_dov_async_client()

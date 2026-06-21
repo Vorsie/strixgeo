@@ -41,7 +41,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433
 # fixtures (desktop/tests/e2e/fixtures/dov) instead of the live DOV network, so
 # the flow_dov_bbox_* specs assert deterministic counts. The uvicorn child
 # spawned below inherits this env. See dov_fixture_transport.py / dov_http.py.
-$env:STRIX_DOV_FIXTURE_MODE = "1"
+$env:STRIXGEO_DOV_FIXTURE_MODE = "1"
 
 function Get-PortListener {
     return Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |

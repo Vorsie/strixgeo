@@ -52,7 +52,7 @@ test.describe('flow_boot_open', () => {
       const apiBase = (await app.evaluate(({ ipcMain }) =>
         // Access the constant the main process exposes.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (global as any).__STRIX_API_BASE
+        (global as any).__STRIXGEO_API_BASE
       ).catch(() => null)) ?? 'http://127.0.0.1:8765'
 
       // 3. Verify GET /lenses 200 (regression check for #129a).

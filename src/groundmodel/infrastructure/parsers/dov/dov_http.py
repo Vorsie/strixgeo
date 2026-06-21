@@ -24,11 +24,11 @@ Tuning rationale (verified live 2026-05-07 onwards)
 
 Test-mode mock
 --------------
-When ``STRIX_DOV_FIXTURE_MODE=1`` is set, this factory returns a client
+When ``STRIXGEO_DOV_FIXTURE_MODE=1`` is set, this factory returns a client
 backed by ``dov_fixture_transport._build_fixture_transport`` instead of
 the production network.  All DOV HTTP traffic (WFS + per-permkey XML
 downloads) is redirected to on-disk fixture files under
-``STRIX_DOV_FIXTURE_ROOT`` (defaults to
+``STRIXGEO_DOV_FIXTURE_ROOT`` (defaults to
 ``desktop/tests/e2e/fixtures/dov``).
 
 The production client path is byte-identical when the env var is absent or
@@ -54,7 +54,7 @@ def make_dov_async_client() -> httpx.AsyncClient:
     raw client (not a context-managed handle) keeps ``async with`` at the
     call site for readability — every existing caller already wraps it.
 
-    In fixture mode (``STRIX_DOV_FIXTURE_MODE=1``), the client is backed by
+    In fixture mode (``STRIXGEO_DOV_FIXTURE_MODE=1``), the client is backed by
     an in-process ``httpx.MockTransport`` that serves requests from on-disk
     fixture files.  All other settings (timeout, limits, follow_redirects)
     are identical — callers see no behavioural difference.

@@ -6,7 +6,7 @@
  * Happy path:
  *   POST /cpt/import-dov with the fixture bbox exercises the full DOV import
  *   pipeline: WFS index → per-permkey XML fetch → parse → persist. All HTTP
- *   traffic is served by ``dov_fixture_transport`` (STRIX_DOV_FIXTURE_MODE=1).
+ *   traffic is served by ``dov_fixture_transport`` (STRIXGEO_DOV_FIXTURE_MODE=1).
  *   The test verifies:
  *   - API: 200 with imported=3, duplicates=0, failed=0.
  *   - DB: countCpts(projectId) grows by exactly 3.
@@ -24,7 +24,7 @@
  *   the WFS → "no features → skip" flow.
  *
  * Fixture transport decision:
- *   The backend is started with STRIX_DOV_FIXTURE_MODE=1 so
+ *   The backend is started with STRIXGEO_DOV_FIXTURE_MODE=1 so
  *   ``make_dov_async_client()`` returns a ``httpx.MockTransport`` backed by
  *   ``desktop/tests/e2e/fixtures/dov/``.  No live DOV network access occurs.
  *   The empty bbox uses the same transport — an empty WFS count fixture is
@@ -78,7 +78,7 @@ test.describe('flow_dov_bbox_cpt_import (#130)', () => {
 
   test.beforeAll(async ({ }) => {
     // Trigger the full DOV CPT import pipeline against the fixture transport.
-    // The backend must be running with STRIX_DOV_FIXTURE_MODE=1.
+    // The backend must be running with STRIXGEO_DOV_FIXTURE_MODE=1.
     const resp = await fetch(`${API_BASE}/cpt/import-dov`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

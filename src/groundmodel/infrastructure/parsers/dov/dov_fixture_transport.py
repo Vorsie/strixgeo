@@ -1,6 +1,6 @@
 """Mock httpx transport for DOV HTTP traffic during e2e testing.
 
-When ``STRIX_DOV_FIXTURE_MODE=1`` is set, ``make_dov_async_client`` in
+When ``STRIXGEO_DOV_FIXTURE_MODE=1`` is set, ``make_dov_async_client`` in
 ``dov_http.py`` wires this transport instead of the production network path.
 All DOV HTTP calls (WFS + per-permkey XML downloads) are served from
 on-disk fixture files — no live DOV network access occurs.
@@ -53,9 +53,9 @@ the test as a failure with a clear message.
 
 Environment variables
 ---------------------
-``STRIX_DOV_FIXTURE_MODE`` : ``"1"``
+``STRIXGEO_DOV_FIXTURE_MODE`` : ``"1"``
     Enables fixture mode. Any other value (or absent) uses the live network.
-``STRIX_DOV_FIXTURE_ROOT`` : path string
+``STRIXGEO_DOV_FIXTURE_ROOT`` : path string
     Root directory for fixture files. Defaults to
     ``desktop/tests/e2e/fixtures/dov`` relative to the Python CWD (which is
     the repository root when running under uvicorn from the repo root).
@@ -74,10 +74,10 @@ import httpx
 # ---------------------------------------------------------------------------
 
 # Env var that activates fixture mode.
-DOV_FIXTURE_MODE_ENV = "STRIX_DOV_FIXTURE_MODE"
+DOV_FIXTURE_MODE_ENV = "STRIXGEO_DOV_FIXTURE_MODE"
 
 # Env var that overrides the fixture root directory.
-DOV_FIXTURE_ROOT_ENV = "STRIX_DOV_FIXTURE_ROOT"
+DOV_FIXTURE_ROOT_ENV = "STRIXGEO_DOV_FIXTURE_ROOT"
 
 # Default fixture root — relative to the repo root (the process CWD when the
 # backend is launched via ``uv run uvicorn ... --cwd <repo-root>``).
@@ -369,7 +369,7 @@ def _serve_fixture(fixture_path: Path, content_type: str) -> httpx.Response:
 
 
 def is_fixture_mode() -> bool:
-    """Return True when ``STRIX_DOV_FIXTURE_MODE=1`` is set.
+    """Return True when ``STRIXGEO_DOV_FIXTURE_MODE=1`` is set.
 
     Returns
     -------

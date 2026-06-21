@@ -8,7 +8,7 @@
  *   borehole import pipeline: boring WFS index → boring XML download → parse →
  *   interpretation WFS → interpretation XML → sample WFS → grain-size
  *   observaties WFS → grain-size XML → persist (all phases). All HTTP traffic is
- *   served by ``dov_fixture_transport`` (STRIX_DOV_FIXTURE_MODE=1).
+ *   served by ``dov_fixture_transport`` (STRIXGEO_DOV_FIXTURE_MODE=1).
  *   The test verifies:
  *   - API: 200 with imported=2, duplicates=0, failed=0.
  *   - DB: countBoreholes(projectId) grows by exactly 2.
@@ -25,7 +25,7 @@
  *   imported=0 (fixture transport serves empty_count.xml for all layers).
  *
  * Fixture transport decision:
- *   Same as Flow P: backend started with STRIX_DOV_FIXTURE_MODE=1. No live
+ *   Same as Flow P: backend started with STRIXGEO_DOV_FIXTURE_MODE=1. No live
  *   DOV network access during any test in this file.
  *
  * Fixture bbox (WGS84):
@@ -83,7 +83,7 @@ test.describe('flow_dov_bbox_borehole_import (#130)', () => {
 
   test.beforeAll(async ({ }) => {
     // Trigger the full DOV borehole import pipeline against the fixture transport.
-    // The backend must be running with STRIX_DOV_FIXTURE_MODE=1.
+    // The backend must be running with STRIXGEO_DOV_FIXTURE_MODE=1.
     const resp = await fetch(`${API_BASE}/borehole/import-dov`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -87,7 +87,7 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
       // Disable GPU acceleration to avoid the 0xC0000005 renderer crash
       // on CI machines and development laptops without a real GPU driver.
       // Same env switch as debt #chore-main devtools commit.
-      STRIX_DISABLE_GPU: '1',
+      STRIXGEO_DISABLE_GPU: '1',
       // Forward the integration DATABASE_URL so the backend (already
       // running) serves the fixture data, not the dev DB.
       DATABASE_URL:

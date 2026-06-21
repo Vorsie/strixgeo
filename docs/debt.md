@@ -3095,7 +3095,7 @@ have already happened OR are statistically most likely:
   the CLAUDE.local.md baseline; alert if a slice regresses it
   by > 25%.
 * **3D viewer load** — Cesium brittleness on dev / CI machines
-  without GPUs; the ``STRIX_DISABLE_GPU`` path needs its own
+  without GPUs; the ``STRIXGEO_DISABLE_GPU`` path needs its own
   flow.
 * **DOV bbox import** — slow (~50s cold for shallow CPTs),
   network-dependent, skip-by-default but available as a

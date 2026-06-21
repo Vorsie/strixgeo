@@ -162,7 +162,7 @@ A full green run is offline and deterministic.
 ```
 
 **DOV cassettes — the `flow_dov_bbox_*` specs never touch the network.** The
-runner sets ``STRIX_DOV_FIXTURE_MODE=1``, which makes ``make_dov_async_client``
+runner sets ``STRIXGEO_DOV_FIXTURE_MODE=1``, which makes ``make_dov_async_client``
 (``dov_http.py``) back the client with an ``httpx.MockTransport``
 (``dov_fixture_transport.py``) that serves every DOV call — WFS count/features
 + per-permkey CPT/borehole/interpretation/observation XML — from on-disk
