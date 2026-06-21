@@ -398,4 +398,40 @@ describe('CS1 real-data partition void gate', () => {
     expect(offenders, `quad overlaps found:\n${offenders.join('\n')}`).toEqual([])
   })
 
+  it('has no cross-formation overlap in any gap (true partition, one lithology per point)', () => {
+    const offenders: string[] = []
+    for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
+      const nonLens = regs.filter((r) => r.kind !== 'lens')
+      let minE = Infinity
+      let maxE = -Infinity
+      for (const r of nonLens) for (const p of r.polygon) {
+        if (p.elevation < minE) minE = p.elevation
+        if (p.elevation > maxE) maxE = p.elevation
+      }
+      if (!Number.isFinite(minE) || maxE - minE < 1e-6) continue
+      const NX = 120
+      const NY = 320
+      const seen = new Map<string, number>() // "formA+formB" -> cell count
+      for (let iy = 0; iy < NY; iy++) {
+        const py = maxE - ((iy + 0.5) / NY) * (maxE - minE)
+        for (let ix = 0; ix < NX; ix++) {
+          const px = (ix + 0.5) / NX
+          const forms = [...new Set(nonLens.filter((r) => inPolygon(px, py, r.polygon)).map((r) => r.formationId))]
+          if (forms.length >= 2) {
+            const key = forms.sort().join('+')
+            seen.set(key, (seen.get(key) ?? 0) + 1)
+          }
+        }
+      }
+      for (const [key, cells] of seen) {
+        if (cells >= CELL_THRESHOLD) offenders.push(`GAP-${gap} ${key}: ${cells} cells`)
+      }
+    }
+    if (offenders.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-XFORM] cross-formation overlaps:\n  ' + offenders.join('\n  '))
+    }
+    expect(offenders, `cross-formation overlaps found:\n${offenders.join('\n')}`).toEqual([])
+  })
+
 })
