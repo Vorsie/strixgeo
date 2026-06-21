@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #124, #125, #126, #155, #156, #158, #222 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons; #222 spun off #217 for the persisted lens-named columns)*
+* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #126, #155, #156, #158, #222 *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -2608,25 +2608,6 @@ but the result is ambiguous without knowing which project + section
 
 **When to revisit.** Owner provides the evidence above. Until then
 no code change is possible without risk of fixing the wrong layer.
-
-## 124. CreateLithoLens — split into geometry service + DB-loading layer (Tier E)
-
-**What.** `create_litho_lens.py` is 780+ lines. The wedge-tip geometry
-(`_load_formation_contacts_on_section`, `_commit_wedge_tips_for_absent`,
-`_project_to_along`, `_load_target_contacts_on_section`) is pure
-section-geometry logic that mixes with ORM session calls. A thin
-`LithoLensGeometryService` (domain-layer, session-free) holding the
-pure math + a DB-loading layer above it would make the geometry unit-
-testable in isolation without needing an async session mock.
-
-**Why deferred.** The 780-line file is well-structured internally;
-the split is a refactoring exercise, not a correctness fix. Slicing it
-now would widen the PR without delivering user value.
-
-**When to revisit.** When a Phase 5 lens-geometry variant (e.g.
-interfingering shape, multi-section aggregation) forces the geometry
-logic to grow. At that point the split pays for itself immediately.
-Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
 ## 126. LithoLensOrm.name: change from VARCHAR(120) to TEXT (Tier E)
 
