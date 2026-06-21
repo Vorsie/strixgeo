@@ -2129,6 +2129,7 @@ function emitGap(
   mixedTiedTopToBase: ReadonlyMap<string, string> = new Map(),
   layerBaseElevLookup: ReadonlyMap<string, number> = new Map(),
   capElev = -Infinity,
+  skipCarve = false,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2900,7 +2901,12 @@ function emitGap(
   // Subtract each lens/onlap overlay out of the matrix it sits in, so the gap is
   // a TRUE volumetric partition (every point in exactly one region) — required by
   // the 3D extraction, which assigns each CPT point to exactly one body.
-  carveOverlays(regions)
+  //
+  // The deep-to-deep substrate band path defers this (``skipCarve``): its lenses
+  // are re-anchored from band-fraction space into each destination gap AFTER the
+  // band→gap slice (a band-space carve would bake the notch at the WRONG, scaled
+  // gap fraction). The substrate loop carves each gap once the lens apex is final.
+  if (!skipCarve) carveOverlays(regions)
 
   return regions
 }
@@ -3818,6 +3824,85 @@ function hasArea(poly: readonly PartitionPoint[]): boolean {
 }
 
 /**
+ * Re-anchor a lens overlay that reaches the deep-anchor band slice so it pinches at
+ * ``LENS_PINCH_FRACTION`` within its DESTINATION gap, instead of being linearly
+ * remapped through the band strip (which scales the intra-gap apex by 1/width and
+ * pushes it past halfway).
+ *
+ * A lens's apex fraction is intra-gap geometry (where it pinches within its own gap),
+ * not a continuous deep-to-deep band coordinate. The lens is anchored on ONE source
+ * column edge (left lens → corner at fraction 0, source column ``L``; right lens →
+ * corner at fraction 1, source column ``R``). Its vertical extent (top/base corner
+ * elevations + apex elevation) is correct as built and clipped to the band, so only
+ * the apex FRACTION is re-derived.
+ *
+ * Returns ``null`` (skip emission) when the lens's source column is not one of the
+ * destination gap's two columns — a lens fabricated in a gap whose neither column is
+ * the lens source does not belong there.
+ *
+ * Parameters
+ * ----------
+ * region : PartitionRegion
+ *     The lens region from the deep-to-deep emit (its ``polygon`` is the un-clipped
+ *     lens triangle in the [L, R] band's fraction space).
+ * clippedPoly : readonly PartitionPoint[]
+ *     The lens polygon already clipped to the current band's elevation extent — the
+ *     source of the (band-honoring) top/base/apex elevations.
+ * i : number
+ *     The destination shallow gap index (spans columns ``i`` and ``i + 1``).
+ * L, R : number
+ *     The band's deep anchors (``L <= i`` and ``R >= i + 1``).
+ */
+function reanchorBandLens(
+  region: PartitionRegion,
+  clippedPoly: readonly PartitionPoint[],
+  i: number,
+  L: number,
+  R: number,
+): SectionRegion | null {
+  // Anchor side from the UN-clipped lens triangle: the corner is the fraction that
+  // sits on a column edge (0 = left, 1 = right). buildLeftLensPolygon anchors at 0;
+  // buildRightLensPolygon at 1.
+  const onLeftEdge = region.polygon.some((p) => Math.abs(p.fraction) < FRAC_EPS)
+  const onRightEdge = region.polygon.some((p) => Math.abs(p.fraction - 1) < FRAC_EPS)
+  if (onLeftEdge === onRightEdge) return null // ambiguous (neither / both) — skip.
+  const cornerFrac = onLeftEdge ? 0 : 1
+  // Source column: a left lens belongs to L, a right lens to R. It belongs in this
+  // gap only when that source is one of the gap's own columns (i or i + 1). In the
+  // bracket band L <= i and R >= i + 1, so that reduces to L === i / R === i + 1.
+  const sourceCol = onLeftEdge ? L : R
+  if (sourceCol !== i && sourceCol !== i + 1) return null
+
+  // Vertical extent from the band-clipped polygon: the two corner points (on the
+  // source edge) give top/base; the apex is the remaining off-edge point. Keep the
+  // elevations; only the apex fraction is re-derived.
+  const cornerPts = clippedPoly.filter((p) => Math.abs(p.fraction - cornerFrac) < FRAC_EPS)
+  if (cornerPts.length < 2) return null // clip degenerated the lens away — skip.
+  const topElev = Math.max(...cornerPts.map((p) => p.elevation))
+  const baseElev = Math.min(...cornerPts.map((p) => p.elevation))
+  const offEdge = clippedPoly.filter((p) => Math.abs(p.fraction - cornerFrac) >= FRAC_EPS)
+  const apexElev =
+    offEdge.length > 0
+      ? offEdge.reduce((s, p) => s + p.elevation, 0) / offEdge.length
+      : (topElev + baseElev) / 2
+  if (topElev - baseElev <= SPAN_EPS) return null // no vertical extent — skip.
+
+  const apexFraction = onLeftEdge ? LENS_PINCH_FRACTION : 1 - LENS_PINCH_FRACTION
+  return {
+    formationId: region.formationId,
+    bodyId: region.bodyId,
+    kind: 'lens',
+    ...(region.overlayTier ? { overlayTier: region.overlayTier } : {}),
+    polygon: [
+      { fraction: cornerFrac, elevation: topElev },
+      { fraction: apexFraction, elevation: apexElev },
+      { fraction: cornerFrac, elevation: baseElev },
+    ],
+    gapIndex: i,
+  }
+}
+
+/**
  * Fill the region below each shallow column's TD with the deep stratigraphy drawn
  * straight from one deep anchor to the next, sliced per intervening shallow column.
  *
@@ -3920,6 +4005,7 @@ export function computeBracketSubstrate(
     leftwardColumns: SideColumn[],
     rightwardColumns: SideColumn[],
     gapIndex: number,
+    skipCarve = false,
   ): PartitionRegion[] => {
     const left = { surface: leftCol.surface, units: leftCol.units.map((u) => ({ ...u })) }
     const right = { surface: rightCol.surface, units: rightCol.units.map((u) => ({ ...u })) }
@@ -3962,6 +4048,8 @@ export function computeBracketSubstrate(
       baseTied,
       mixedTiedTopToBase,
       layerBaseElevLookup,
+      -Infinity,
+      skipCarve,
     )
   }
 
@@ -3970,6 +4058,10 @@ export function computeBracketSubstrate(
   const shallowTdElev = (i: number): number => Math.max(tdElev[i], tdElev[i + 1])
 
   const out: SectionRegion[] = []
+  // Gaps that received a re-anchored band-path lens (skipCarve deferred their carve) —
+  // only these need the post-loop per-gap carve. The OPEN-adjacent path already carved
+  // in-band (it drops lenses), so re-carving it would double-notch its matrix.
+  const gapsNeedingCarve = new Set<number>()
 
   // Bottom-tie line: the lowest elevation the substrate fills down to per column.
   // Deep tests anchor it (via base↔base ties); a gap fills down to the DEEPER of
@@ -4168,10 +4260,13 @@ export function computeBracketSubstrate(
       // Same reduce/emit sequence as the OPEN-adjacent path and computeSectionFill's
       // per-gap loop — shared via emitGapBetween. Side context is built from the DISTANT
       // anchors L/R (not the gap's adjacent i/i+1); gapIndex is 0 because each sliced
-      // region is re-tagged with the shallow gap index below.
+      // region is re-tagged with the shallow gap index below. skipCarve=true: the
+      // lens overlays are re-anchored into their destination gap below (a band-space
+      // carve would notch the matrix at the wrong, band-scaled gap fraction); the
+      // per-gap carve runs once the lens apexes are final.
       const leftwardColumns = sideColumns.slice(0, L + 1).reverse()
       const rightwardColumns = sideColumns.slice(R)
-      const bandRegions = emitGapBetween(left, right, leftwardColumns, rightwardColumns, 0)
+      const bandRegions = emitGapBetween(left, right, leftwardColumns, rightwardColumns, 0, true)
       const clipped = bandRegions
         .map((r) => ({ region: r, poly: clipBand(r.polygon) }))
         .filter((x) => hasArea(x.poly))
@@ -4183,6 +4278,20 @@ export function computeBracketSubstrate(
         const width = fR - fL
         if (Math.abs(width) >= FRAC_EPS) {
           for (const { region, poly } of clipped) {
+            if (region.kind === 'lens') {
+              // A lens's apex fraction is INTRA-GAP geometry (where it pinches within
+              // its OWN gap), NOT a continuous deep-to-deep band coordinate — so it must
+              // not be linearly remapped through the band strip + re-normalise (that
+              // scales 0.45 by 1/width → past halfway when the destination gap is only
+              // part of the wider band). Re-anchor it to pinch at LENS_PINCH_FRACTION in
+              // the destination gap instead, on its own source-column edge.
+              const reanchored = reanchorBandLens(region, poly, i, L, R)
+              if (reanchored) {
+                out.push(reanchored)
+                gapsNeedingCarve.add(i)
+              }
+              continue
+            }
             const strip = clipPolyStrip(poly, fL, fR)
             if (!hasArea(strip)) continue
             const local = strip.map((p) => ({
@@ -4202,6 +4311,22 @@ export function computeBracketSubstrate(
       }
       bandTop = bandBottom
     }
+  }
+
+  // Carve each band-lens gap's overlays out of their matrix now that every band lens
+  // has been re-anchored into its destination gap (skipCarve deferred the in-band
+  // carve). carveOverlays operates per gap and mutates polygons in place — group by
+  // gapIndex so a lens only notches the matrix in its OWN gap. Only gaps that got a
+  // re-anchored band lens are carved (the OPEN-adjacent path already carved in-band).
+  if (gapsNeedingCarve.size > 0) {
+    const byGap = new Map<number, SectionRegion[]>()
+    for (const r of out) {
+      if (!gapsNeedingCarve.has(r.gapIndex)) continue
+      const g = byGap.get(r.gapIndex)
+      if (g) g.push(r)
+      else byGap.set(r.gapIndex, [r])
+    }
+    for (const regs of byGap.values()) carveOverlays(regs)
   }
 
   return out
