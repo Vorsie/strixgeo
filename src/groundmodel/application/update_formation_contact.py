@@ -65,6 +65,13 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 class UpdateFormationContact(GroundModelLogger):
     """Apply a partial update to one formation contact and commit."""
 
+    # Half-mm tolerance for the litho↔geo propagation loop-guard.  An exact
+    # ``==`` defeats the guard on a single ULP of drift (mm-rounding on the
+    # depth, or an ORM round-trip), risking a propagation loop / missed
+    # termination (debt #218).  Coupled depths are equal in intent well
+    # within this band; a real distinct depth differs by far more.
+    _DEPTH_EPSILON_M = 0.0005
+
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
@@ -379,7 +386,7 @@ class UpdateFormationContact(GroundModelLogger):
             if geo_contact is None:
                 self.debug(f"propagate litho→geo: geo parent {parent_id} not found — skip")
                 return
-            if geo_contact.depth_top_m == new_depth:
+            if abs(geo_contact.depth_top_m - new_depth) <= self._DEPTH_EPSILON_M:
                 # Loop guard: geo already at target depth — nothing to write.
                 self.debug(f"propagate litho→geo: geo {parent_id} already at {new_depth}m — skip")
                 return
@@ -419,7 +426,7 @@ class UpdateFormationContact(GroundModelLogger):
             children = (await self._session.execute(children_stmt)).scalars().all()
             written = 0
             for child in children:
-                if child.depth_top_m == new_depth:
+                if abs(child.depth_top_m - new_depth) <= self._DEPTH_EPSILON_M:
                     # Loop guard: already at target depth — skip.
                     self.debug(
                         f"propagate geo→litho: litho {child.id} already at {new_depth}m — skip"
