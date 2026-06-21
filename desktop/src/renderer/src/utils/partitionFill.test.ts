@@ -3136,3 +3136,72 @@ describe('computeBracketSubstrate (deep-to-deep substrate)', () => {
     expect(corners.map((p) => p.elevation).sort((a, b) => a - b)).toEqual([1, 5])
   })
 })
+
+// MATCHED-SILT-OVER-SHALLOW-TD — a SILT unit at a shallow test, top-correlated to a
+// deeper neighbour whose matched base lies BELOW the shallow unit's own TD, must
+// render as ONE region with a slanted base running from the shallow base to the deep
+// base — NOT a flat band clamped at the shallow base PLUS a separate same-body
+// pinch tail below it (real CS1 GAP-8: col8 SILT TD elev 9.29 ↔ col9 SILT base elev
+// 8.84; the body was emitted as a flat band [2] + a wedge tail [3], looking like it
+// both onlaps and wedges out).
+describe('matched silt over a shallow TD is one region', () => {
+  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+
+  // Shallow LEFT column: its DEEPEST unit is the matched SILT (TD = SILT base 9.29).
+  // Deep RIGHT column: the matched SILT runs deeper (base 8.84), then more units below.
+  // Surfaces ~equal so the only depth difference is the matched silt's own bases.
+  const L = col('Lshallow', 12.79, [
+    { top: 1.52, base: 2.94, f: 'ZAND', b: 'zTop' },
+    { top: 2.94, base: 3.5, f: 'SILT', b: 'siltMatched' }, // deepest on L → TD 9.29
+  ])
+  const R = col('Rdeep', 12.87, [
+    { top: 1.61, base: 3.0, f: 'KLEI', b: 'kTopR' },
+    { top: 3.0, base: 4.03, f: 'SILT', b: 'siltMatched' }, // same body → matched; base elev 8.84
+    { top: 4.03, base: 6.39, f: 'KLEI', b: 'kMidR' },
+    { top: 6.39, base: 10.36, f: 'SILT', b: 'siltDeepR' },
+    { top: 10.36, base: 16.75, f: 'ZAND', b: 'zDeepR' },
+    { top: 16.75, base: 23.12, f: 'KLEI', b: 'kBotR' },
+  ])
+
+  it('the matched SILT body is exactly one non-lens region in the gap', () => {
+    const regions = sf(L, R)
+    const siltMatchedRegions = regions.filter(
+      (r) => r.gapIndex === 0 && r.kind !== 'lens' && r.bodyId === 'siltMatched',
+    )
+    // One coherent shape, not a flat band + a same-body wedge tail.
+    expect(siltMatchedRegions).toHaveLength(1)
+  })
+
+  it('the single SILT region reaches the deep neighbour base and is one contiguous shape', () => {
+    const regions = sf(L, R)
+    const siltRegions = regions.filter(
+      (r) => r.gapIndex === 0 && r.kind !== 'lens' && r.bodyId === 'siltMatched',
+    )
+    // No second same-body region — the band + tail are merged.
+    expect(siltRegions).toHaveLength(1)
+    const silt = siltRegions[0]
+    // On the RIGHT edge (deep neighbour) the SILT base reaches the deep matched base
+    // (8.84), BELOW the shallow column's own TD (9.29) — the deep stratigraphy
+    // continues into the sub-TD band as part of THIS unit, not a separate tail.
+    const rightElevs = silt.polygon.filter((p) => Math.abs(p.fraction - 1) < 1e-6).map((p) => p.elevation)
+    const rightBase = Math.min(...rightElevs)
+    expect(rightBase).toBeCloseTo(8.84, 1)
+    // A point below the shallow TD (9.29) near the deep edge is inside the SINGLE
+    // SILT region — there is no separate same-body pinch tail covering it.
+    expect(inPoly(silt.polygon, 0.95, 9.0)).toBe(true)
+    // The TOP of the unit is unchanged (the matched tops ~9.85/9.87).
+    const topElev = Math.max(...silt.polygon.map((p) => p.elevation))
+    expect(topElev).toBeCloseTo(9.86, 1)
+  })
+})
