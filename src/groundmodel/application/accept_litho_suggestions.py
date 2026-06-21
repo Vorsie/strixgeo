@@ -258,6 +258,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
         model cannot be found.
     """
 
+    # Half-mm tolerance for the find-or-create layer dedup SQL match.  The
+    # stored ``depth_top_m`` is mm-rounded by the contiguity trigger, so an
+    # exact ``==`` against a freshly-computed (arithmetic-derived) depth can
+    # miss the existing row and double-insert near-identical layers — which
+    # the no-overlap CHECK constraint will not catch (debt #218).
+    _DEDUP_DEPTH_EPSILON_M = 0.0005
+
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
@@ -1144,7 +1151,12 @@ class AcceptLithoSuggestions(GroundModelLogger):
             existing_stmt = select(LithoLayerOrm.id).where(
                 LithoLayerOrm.model_id == litho_model_id,
                 LithoLayerOrm.formation_id == formation_id,
-                LithoLayerOrm.depth_top_m == depth_top_m,
+                # ±half-mm window, not ``==`` — the stored depth is mm-rounded
+                # while ``depth_top_m`` here is arithmetic-derived (debt #218).
+                LithoLayerOrm.depth_top_m.between(
+                    depth_top_m - self._DEDUP_DEPTH_EPSILON_M,
+                    depth_top_m + self._DEDUP_DEPTH_EPSILON_M,
+                ),
                 LithoLayerOrm.status == "accepted",
                 anchor_filter,
             )
