@@ -11,6 +11,7 @@ import {
   classifyTermination,
   collapseAdjacentSameFormation,
   computeBottomTieLine,
+  computeBracketSubstrate,
   computePartitionFill,
   computeSectionFill,
   computeUnderColumnSubstrate,
@@ -2893,5 +2894,87 @@ describe('computeUnderColumnSubstrate (under-column substrate fill)', () => {
     const fills = computeUnderColumnSubstrate(columns, regions)
     expect(fills.find((f) => f.columnIndex === 1)?.quads.length).toBeGreaterThan(0)
     expect(fills.find((f) => f.columnIndex === 2)?.quads.length).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeBracketSubstrate — the deep-to-deep substrate pass (Task 3).
+//
+// Below a shallow test's TD, the deep stratigraphy must run as STRAIGHT lines
+// from one deep anchor to the next: sand owns its space, no clay flooded over
+// sand. The helper runs the same reduce/match/emitGap machinery on the
+// non-adjacent deep-anchor pair (L, R), clips below the shallowest TD in the
+// run, and slices per intervening shallow gap.
+// ---------------------------------------------------------------------------
+describe('computeBracketSubstrate (deep-to-deep substrate)', () => {
+  /** Standard even-odd point-in-polygon test in (fraction, elevation) space. */
+  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+
+  /** The non-lens lithologies covering (fraction f, elevation e). */
+  const coverAt = (regions: SectionRegion[], f: number, e: number): string[] =>
+    regions.filter((r) => r.kind !== 'lens' && inPoly(r.polygon, f, e)).map((r) => r.formationId)
+
+  const EMPTY_CTX = {
+    correlated: (() => false) as Correlated,
+    baseTied: undefined,
+    mixedTiedTopToBase: new Map<string, string>(),
+    allEdgedLayerIds: new Set<string>(),
+  }
+
+  // RUN-2: two consecutive shallow tests between two deep anchors → the deep sand
+  // runs STRAIGHT behind both (no step, no clay flood).
+  it('draws a deep band straight behind a run of 2 shallow tests', () => {
+    const L = col('L', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' },
+    ])
+    const M1 = col('M1', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }]) // TD -4, shallow
+    const M2 = col('M2', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c2' }]) // TD -4, shallow
+    const R = col('R', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' },
+    ])
+    const regions = computeBracketSubstrate([L, M1, M2, R], [], [0, 100, 200, 300], EMPTY_CTX)
+    // Below each shallow TD (-4), at the sand's own depth, cover is SAND only — never CLAY.
+    for (const gap of [0, 1, 2]) {
+      expect(coverAt(regions.filter((r) => r.gapIndex === gap), 0.5, -8)).toEqual(['SAND'])
+    }
+  })
+
+  // FACIES: the deep anchors disagree (SAND left, SILT right) → they meet at a
+  // facies seam, never overlapping.
+  it('meets at a facies seam where the bracketing anchors differ', () => {
+    const L = col('L', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SAND', b: 's' },
+    ])
+    const M = col('M', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }])
+    const R = col('R', 0, [
+      { top: 0, base: 3, f: 'CLAY', b: 'c' },
+      { top: 3, base: 15, f: 'SILT', b: 't' },
+    ])
+    const regions = computeBracketSubstrate([L, M, R], [], [0, 100, 200], EMPTY_CTX)
+    // No point INSIDE A GAP is covered by both SAND and SILT — they meet at the
+    // facies seam, never overlap. (Checked per gap: the seam sits between the two
+    // gaps, so gap 0 carries SAND and gap 1 carries SILT — combining them across
+    // gaps at one gap-local fraction is two different places, not an overlap.)
+    for (const gap of [0, 1]) {
+      const sub = regions.filter((r) => r.gapIndex === gap)
+      for (let f = 0.1; f <= 0.9; f += 0.1) {
+        const cov = new Set(coverAt(sub, f, -8))
+        expect(cov.has('SAND') && cov.has('SILT'), `overlap in gap ${gap} at f=${f}`).toBe(false)
+      }
+    }
   })
 })
