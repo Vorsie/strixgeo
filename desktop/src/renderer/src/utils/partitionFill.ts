@@ -4010,6 +4010,72 @@ function reanchorBandLens(
 }
 
 /**
+ * Re-anchor a band-lens as a CONNECTED DIPPING BAND that reaches the destination
+ * gap's FACING shallow column, clamped at that column's TD elevation — instead of
+ * a mid-gap pinch (the GAP-16 case, owner directive).
+ *
+ * Used when ``facingBandTd`` proved the lens body is explicitly correlated to a
+ * unit on the gap's facing column (a column the bracket walk skipped because its
+ * TD is the cap, not strictly below the band). The unit dips below that
+ * neighbour's TD but continues up to it, so its lateral extent reaches the facing
+ * edge — joining the above-cap band sliver ``emitGap`` drew on that column — at
+ * the facing TD elevation, rather than tapering to a point in the void.
+ *
+ * Geometry: a triangle anchored on the SOURCE edge (top/base from the clipped lens
+ * exactly like ``reanchorBandLens``) with its apex moved to the FACING edge at
+ * ``facingTdElev``. It stays ``kind: 'lens'`` (an overlay riding its matrix), so
+ * ``carveOverlays`` notches the matrix to its true band shape (no overlap / void).
+ *
+ * Parameters
+ * ----------
+ * region, clippedPoly, i, L, R
+ *     As ``reanchorBandLens``.
+ * facingTdElev : number
+ *     The facing column's TD elevation (mTAW) — the apex elevation of the band on
+ *     the facing edge.
+ */
+function reanchorBandToFacing(
+  region: PartitionRegion,
+  clippedPoly: readonly PartitionPoint[],
+  i: number,
+  L: number,
+  R: number,
+  facingTdElev: number,
+): SectionRegion | null {
+  const onLeftEdge = region.polygon.some((p) => Math.abs(p.fraction) < FRAC_EPS)
+  const onRightEdge = region.polygon.some((p) => Math.abs(p.fraction - 1) < FRAC_EPS)
+  if (onLeftEdge === onRightEdge) return null
+  const cornerFrac = onLeftEdge ? 0 : 1
+  const sourceCol = onLeftEdge ? L : R
+  if (sourceCol !== i && sourceCol !== i + 1) return null
+  const cornerPts = clippedPoly.filter((p) => Math.abs(p.fraction - cornerFrac) < FRAC_EPS)
+  if (cornerPts.length < 2) return null
+  const topElev = Math.max(...cornerPts.map((p) => p.elevation))
+  const baseElev = Math.min(...cornerPts.map((p) => p.elevation))
+  if (topElev - baseElev <= SPAN_EPS) return null
+  // The facing edge is the OPPOSITE column edge from the source: a left-edge lens
+  // bands toward fraction 1, a right-edge lens toward fraction 0. Its apex sits at
+  // the facing column's TD elevation — the cap on that side — so the sub-cap band
+  // meets the above-cap band sliver emitGap drew there. The apex MAY sit above the
+  // source-edge top (the unit dips UP toward the shallow column); it is bounded
+  // only by the source base below (a zero-or-inverted band makes no sense).
+  const facingFrac = onLeftEdge ? 1 : 0
+  const apexElev = Math.max(baseElev + SPAN_EPS, facingTdElev)
+  return {
+    formationId: region.formationId,
+    bodyId: region.bodyId,
+    kind: 'lens',
+    ...(region.overlayTier ? { overlayTier: region.overlayTier } : {}),
+    polygon: [
+      { fraction: cornerFrac, elevation: topElev },
+      { fraction: facingFrac, elevation: apexElev },
+      { fraction: cornerFrac, elevation: baseElev },
+    ],
+    gapIndex: i,
+  }
+}
+
+/**
  * Fill the region below each shallow column's TD with the deep stratigraphy drawn
  * straight from one deep anchor to the next, sliced per intervening shallow column.
  *
@@ -4095,6 +4161,24 @@ export function computeBracketSubstrate(
     td: columnTotalDepth(c.units),
     layerIds: new Set(c.units.map((u) => u.layerId)),
   }))
+
+  // Per-column bodyId → layerIds, for the connected-dipping-band check below
+  // (a substrate band-lens whose body is correlated to the gap's FACING shallow
+  // column should reach that column clamped at its TD — a dipping band — instead
+  // of pinching mid-gap as an isolated lens). Keyed by column index.
+  const bodyLayerIdsByCol: ReadonlyMap<string, ReadonlySet<string>>[] = cols.map((c) => {
+    const m = new Map<string, Set<string>>()
+    for (const u of c.units) {
+      if (u.bodyId == null) continue
+      let s = m.get(u.bodyId)
+      if (!s) {
+        s = new Set()
+        m.set(u.bodyId, s)
+      }
+      s.add(u.layerId)
+    }
+    return m
+  })
 
   // Run the per-gap reduce/emit sequence (fresh copies, reduceColumn ×2 +
   // collapseAdjacentSameFormation ×2 + emitGap with the same side context + lookups)
@@ -4261,6 +4345,61 @@ export function computeBracketSubstrate(
     return { L, R }
   }
 
+  // CONNECTED-DIPPING-BAND check (the GAP-16 case). A band-lens for body B,
+  // sourced from a deep anchor (L for a left-edge lens, R for a right-edge lens)
+  // and re-anchored into destination gap ``i``, is a genuine isolated pinch ONLY
+  // when B does not continue onto the gap's FACING shallow column. The facing
+  // column is the gap's OTHER column from the lens's source edge: a LEFT-edge lens
+  // sits on column ``i`` and faces ``i + 1``; a RIGHT-edge lens sits on ``i + 1``
+  // and faces ``i``. When body B is present on the facing column AND an approved
+  // correlation edge connects B's layers on the source-anchor column to B's layers
+  // on the facing column, the unit dips below the facing column's TD but continues
+  // up to it — it bands toward that column clamped at its TD (so it joins the
+  // above-cap band sliver emitGap drew there), NOT a mid-gap pinch.
+  //
+  // Returns the facing column's TD elevation when the dipping-band exemption
+  // applies, else null (the normal mid-gap pinch path).
+  const facingBandTd = (
+    region: PartitionRegion,
+    i: number,
+    L: number,
+    R: number,
+  ): number | null => {
+    if (region.bodyId == null) return null
+    const onLeftEdge = region.polygon.some((p) => Math.abs(p.fraction) < FRAC_EPS)
+    const onRightEdge = region.polygon.some((p) => Math.abs(p.fraction - 1) < FRAC_EPS)
+    if (onLeftEdge === onRightEdge) return null // ambiguous — leave to the normal path.
+    // Source anchor column + the gap's facing column for this lens edge.
+    const sourceCol = onLeftEdge ? L : R
+    const facingCol = onLeftEdge ? i + 1 : i
+    if (facingCol < 0 || facingCol >= cols.length) return null
+    // The facing column must be a SHALLOW void the bracket walk skipped: its TD is
+    // not strictly below this band region's top (so it was not itself a bracket
+    // anchor for this body). If it were deeper, the band would have resolved against
+    // it directly and this exemption is unnecessary.
+    const regionTop = Math.max(...region.polygon.map((p) => p.elevation))
+    if (tdElev[facingCol] < regionTop - SPAN_EPS) return null
+    const sourceLayers = bodyLayerIdsByCol[sourceCol].get(region.bodyId)
+    const facingLayers = bodyLayerIdsByCol[facingCol].get(region.bodyId)
+    if (sourceLayers === undefined || facingLayers === undefined) return null
+    // Require an APPROVED correlation edge between the body's source-anchor layers
+    // and its facing-column layers (body_id alone over-lumps; the edge is the
+    // trustworthy band signal). aSide/bSide are irrelevant here — any approved
+    // cross-column edge connecting the two means the lithology continues.
+    let connected = false
+    for (const a of sourceLayers) {
+      for (const b of facingLayers) {
+        if (correlated(a, b) || (baseTied?.(a, b) ?? false)) {
+          connected = true
+          break
+        }
+      }
+      if (connected) break
+    }
+    if (!connected) return null
+    return tdElev[facingCol]
+  }
+
   for (let i = 0; i < nGaps; i++) {
     const bottomLine = gapBottomLine(i)
     let bandTop = shallowTdElev(i)
@@ -4392,7 +4531,23 @@ export function computeBracketSubstrate(
               // scales 0.45 by 1/width → past halfway when the destination gap is only
               // part of the wider band). Re-anchor it to pinch at LENS_PINCH_FRACTION in
               // the destination gap instead, on its own source-column edge.
-              const reanchored = reanchorBandLens(region, poly, i, L, R)
+              //
+              // CONNECTED-DIPPING-BAND exemption (owner directive, the GAP-16 case):
+              // a band-lens is an isolated mid-gap pinch ONLY when its lithology
+              // genuinely terminates in the void. When the lens body is explicitly
+              // CORRELATED (an approved edge) to a unit on the destination gap's FACING
+              // shallow column — a column the bracket walk skipped because its TD is not
+              // strictly below the band top, i.e. the column whose own TD IS the cap —
+              // the unit dips below that neighbour's TD but continues up to it. It must
+              // render as ONE dipping band reaching the facing column's edge, clamped at
+              // that column's TD, so it joins the above-cap band sliver that emitGap
+              // emitted on that column. ``facingBandTd`` returns that TD elevation when
+              // the correlation exists, else null (→ normal mid-gap pinch).
+              const facingTd = facingBandTd(region, i, L, R)
+              const reanchored =
+                facingTd !== null
+                  ? reanchorBandToFacing(region, poly, i, L, R, facingTd)
+                  : reanchorBandLens(region, poly, i, L, R)
               if (reanchored) {
                 out.push(reanchored)
                 gapsNeedingCarve.add(i)
