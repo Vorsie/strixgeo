@@ -81,11 +81,11 @@ export default function BackendFailedModal({ open, logsPath }: Props): JSX.Eleme
           id="backend-failed-title"
           className="text-status-danger font-semibold text-base"
         >
-          Strix failed to start
+          StrixGeo failed to start
         </h2>
 
         <p id="backend-failed-desc" className="text-sm text-text-secondary">
-          The Strix backend process exited before it was ready. This usually
+          The StrixGeo backend process exited before it was ready. This usually
           means a database connection problem or a startup crash.
         </p>
 
@@ -101,7 +101,7 @@ export default function BackendFailedModal({ open, logsPath }: Props): JSX.Eleme
             onClick={handleQuit}
             className="px-4 py-2 bg-status-danger text-white rounded text-sm hover:bg-status-danger/90 focus:outline-none focus:ring-2 focus:ring-status-danger"
           >
-            Quit Strix
+            Quit StrixGeo
           </button>
         </div>
       </div>

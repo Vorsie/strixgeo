@@ -47,7 +47,7 @@ describe('ErrorBoundary', () => {
       screen.getByRole('alert'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/Strix encountered an unexpected error/i),
+      screen.getByText(/StrixGeo encountered an unexpected error/i),
     ).toBeInTheDocument()
   })
 
@@ -66,7 +66,7 @@ describe('ErrorBoundary', () => {
         <AlwaysThrows />
       </ErrorBoundary>,
     )
-    const btn = screen.getByRole('button', { name: /Reload Strix/i })
+    const btn = screen.getByRole('button', { name: /Reload StrixGeo/i })
     expect(btn).toBeInTheDocument()
     expect(btn).toHaveFocus()
   })

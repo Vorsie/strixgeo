@@ -270,7 +270,7 @@ describe('App (smoke)', () => {
     const { findByText } = render(<App />)
 
     // The principal assertion. The boot effect (getApiBaseUrl +
-    // waitForApi) is async; the "Starting Strix API…" splash
+    // waitForApi) is async; the "Starting StrixGeo API…" splash
     // renders first, then ready=true flips and WelcomeScreen
     // appears. If anything in App's render or initial effects
     // throws (TDZ ReferenceError, missing globals, hook-ordering

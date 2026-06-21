@@ -270,7 +270,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'Strix',
+    title: 'StrixGeo',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -497,11 +497,11 @@ function buildMenu(win: BrowserWindow): void {
           },
         },
         { type: 'separator' },
-        { label: 'About Strix', click: () => {
+        { label: 'About StrixGeo', click: () => {
           dialog.showMessageBox(win, {
             type: 'info',
-            title: 'Strix',
-            message: 'Strix — Ground Model Platform',
+            title: 'StrixGeo',
+            message: 'StrixGeo — Ground Model Platform',
             detail: 'Version 0.1.0 — Phase 2\nGeotechnical data management for EC7 Gen2.'
           })
         }}
@@ -628,7 +628,7 @@ ipcMain.handle('project:open-dialog', async () => {
       // Accept both the canonical ``.strix`` and the legacy
       // ``.gmproj`` extension so users with pre-rebrand files can
       // still open them.
-      { name: 'Strix Project', extensions: PROJECT_FILE_OPEN_EXTENSIONS },
+      { name: 'StrixGeo Project', extensions: PROJECT_FILE_OPEN_EXTENSIONS },
       { name: 'All Files', extensions: ['*'] },
     ],
   })
@@ -641,7 +641,7 @@ ipcMain.handle(
   'project:save-dialog',
   async (_event, defaultName: string | undefined) => {
     const result = await dialog.showSaveDialog({
-      filters: [{ name: 'Strix Project', extensions: [PROJECT_FILE_EXTENSION] }],
+      filters: [{ name: 'StrixGeo Project', extensions: [PROJECT_FILE_EXTENSION] }],
       defaultPath: defaultName,
     })
     if (result.canceled) return null
@@ -764,7 +764,7 @@ ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects()
 const _WINDOW_TITLE_MAX_LEN = 256
 ipcMain.handle('window:set-title', (_event, title: string | null) => {
   if (mainWindow === null) return
-  const safe = title && title !== '' ? title.slice(0, _WINDOW_TITLE_MAX_LEN) : 'Strix'
+  const safe = title && title !== '' ? title.slice(0, _WINDOW_TITLE_MAX_LEN) : 'StrixGeo'
   mainWindow.setTitle(safe)
 })
 
@@ -889,8 +889,8 @@ process.on('uncaughtException', (err: Error): void => {
   // Show a synchronous dialog — at this point the event loop may be
   // in an unrecoverable state, so we use the blocking variant.
   dialog.showErrorBox(
-    'Strix — unexpected error',
-    `An unexpected error occurred in the Strix main process:\n\n${err.message}\n\nStrix will now exit. Check the log file for details.`,
+    'StrixGeo — unexpected error',
+    `An unexpected error occurred in the StrixGeo main process:\n\n${err.message}\n\nStrixGeo will now exit. Check the log file for details.`,
   )
   // Exit with a non-zero code so the OS knows it was a crash.
   process.exit(1)
@@ -910,8 +910,8 @@ process.on('unhandledRejection', (reason: unknown): void => {
 // boot. We collect crashes locally (no upload) — telemetry is a Tier B
 // debt item (#16) gated on the commercial release window.
 crashReporter.start({
-  productName: 'Strix',
-  companyName: 'Strix',
+  productName: 'StrixGeo',
+  companyName: 'StrixGeo',
   submitURL: '',
   uploadToServer: false,
 })

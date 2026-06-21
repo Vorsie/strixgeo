@@ -20,7 +20,7 @@ export default function AppLoading(): JSX.Element {
   return (
     <div className="flex items-center justify-center h-screen bg-surface-app text-text-secondary text-sm gap-2">
       <div className="animate-spin rounded-full border-2 border-border-default border-t-accent w-5 h-5" />
-      Starting Strix API…
+      Starting StrixGeo API…
     </div>
   )
 }

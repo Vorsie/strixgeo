@@ -538,7 +538,7 @@ export function useProjectLifecycle({
       return
     }
     const dirtyMark = projectDirty ? ' *' : ''
-    void window.electron.setWindowTitle(`Strix — ${projectName}${dirtyMark}`)
+    void window.electron.setWindowTitle(`StrixGeo — ${projectName}${dirtyMark}`)
   }, [projectName, projectDirty])
 
   // ---------------------------------------------------------------------------

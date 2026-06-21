@@ -21,7 +21,7 @@ export default function AppBootError(): JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-surface-app text-text-secondary text-sm gap-2">
       <div className="text-status-danger font-medium">
-        Failed to start the Strix API
+        Failed to start the StrixGeo API
       </div>
       <div className="text-xs text-text-muted">
         Check the developer console for the Python traceback.

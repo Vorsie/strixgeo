@@ -106,7 +106,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         className="flex flex-col items-center justify-center h-screen bg-surface-app text-text-primary gap-4 p-8"
       >
         <div className="text-status-danger text-lg font-semibold">
-          Strix encountered an unexpected error
+          StrixGeo encountered an unexpected error
         </div>
         <div className="text-text-secondary text-sm max-w-md text-center">
           {this.state.errorMessage}
@@ -122,7 +122,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           onClick={() => window.location.reload()}
           className="mt-2 px-4 py-2 bg-accent text-text-on-accent rounded text-sm hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          Reload Strix
+          Reload StrixGeo
         </button>
       </div>
     )
