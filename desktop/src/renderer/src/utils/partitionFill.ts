@@ -1802,6 +1802,20 @@ function carveOverlays(regions: PartitionRegion[]): void {
  *     surface / floor respectively.
  * leftSurface, rightSurface : column surface elevations (mTAW).
  * f : tip fraction measured from the pinch side (``INTERIOR_PINCH_FRACTION``).
+ * apexElevFloor : optional minimum elevation (mTAW) the convergence apex may take
+ *     — the gap's CAP line (the shallow-TD elevation below which the deep-to-deep
+ *     substrate pass owns the section; ``computeSectionFill`` caps every emitGap
+ *     region there). A boundary pinch tapers toward its base interface, which on
+ *     the deep column can dip BELOW this cap; without the clamp the apex dips past
+ *     the cap and the cap then truncates the taper to an OFF-CENTRE, abrupt end
+ *     (the GAP-19 "square end" dogfeed bug — a clay tipping at fraction ~0.30
+ *     instead of 0.5). Clamping the apex UP to the cap line makes the taper
+ *     converge to a clean POINT at the halfway fraction exactly on the cap line:
+ *     the deeper corner below the cap is removed cleanly by the cap, leaving the
+ *     point at ``f``. A pinch apex never legitimately sits below the cap (the
+ *     substrate owns that band), so the clamp is safe for every interval. Default
+ *     ``-Infinity`` (no clamp) — used by the substrate pass's own ``emitGap``
+ *     call, which IS the below-cap region and must taper freely to its own base.
  *
  * Returns
  * -------
@@ -1818,6 +1832,7 @@ function emitOneSidedPinch(
   leftSurface: number,
   rightSurface: number,
   f: number,
+  apexElevFloor = -Infinity,
 ): PartitionRegion[] {
   const apexFraction = side === 'left' ? f : 1 - f
 
@@ -1849,6 +1864,17 @@ function emitOneSidedPinch(
   } else {
     apexElev = ifaceElev(topIface, apexFraction, leftSurface, rightSurface)
   }
+  // Clamp the convergence apex UP to the cap line — see the ``apexElevFloor`` doc.
+  // A boundary pinch tapering toward its base interface dips BELOW the cap (the
+  // shallow-TD line the substrate pass owns); the cap would then truncate the taper
+  // to an off-centre, abrupt tip (the GAP-19 "square end" dogfeed bug). Clamping the
+  // apex up to the cap makes it taper to a clean POINT at the halfway fraction on
+  // the cap line. ``apexElevFloor`` is the PRE-injection cap (passed by
+  // ``computeSectionFill`` as ``capElev``) — virtual/bridge units never inflate it,
+  // so an interior pinch resting on a real band ABOVE the cap keeps its apex (its
+  // elevation exceeds the cap, the clamp does not fire); only a genuinely-below-cap
+  // floor pinch is raised. A lens keeps its own mid-elevation apex untouched.
+  if (!isLens && apexElev < apexElevFloor) apexElev = apexElevFloor
   const apex: PartitionPoint = { fraction: apexFraction, elevation: apexElev }
 
   // The interval has zero thickness on the OPPOSITE column (the unit is absent
@@ -2102,6 +2128,7 @@ function emitGap(
   baseTied?: Correlated,
   mixedTiedTopToBase: ReadonlyMap<string, string> = new Map(),
   layerBaseElevLookup: ReadonlyMap<string, number> = new Map(),
+  capElev = -Infinity,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2310,6 +2337,7 @@ function emitGap(
             leftSurface,
             rightSurface,
             INTERIOR_PINCH_FRACTION,
+            capElev,
           ),
         )
       } else {
@@ -3573,6 +3601,17 @@ export function computeSectionFill(
     // general).
     const leftwardColumns = sideColumns.slice(0, i + 1).reverse()
     const rightwardColumns = sideColumns.slice(i + 1)
+    // This gap's SHALLOW TD (cap line): the deep-to-deep substrate pass
+    // (computeBracketSubstrate) owns everything BELOW it, so emitGap's output is
+    // capped here. Shallow TD = the SHALLOWER (higher-elevation) of the two floors
+    // — the elevation below which only ONE column has data. preInjectionBaseTD is
+    // the source so virtual/bridge mutations cannot inflate it. Computed BEFORE
+    // emitGap so it can be threaded in as the one-sided-pinch apex clamp (a
+    // boundary pinch tapering below the cap would otherwise be truncated to an
+    // off-centre, abrupt tip — the GAP-19 "square end" dogfeed bug).
+    const leftFloorElev = cols[i].surface - preInjectionBaseTD[i]
+    const rightFloorElev = cols[i + 1].surface - preInjectionBaseTD[i + 1]
+    const shallowTd = Math.max(leftFloorElev, rightFloorElev)
     const gapRegions = emitGap(
       left.units,
       left.surface,
@@ -3588,16 +3627,8 @@ export function computeSectionFill(
       baseTied,
       mixedTiedTopToBase,
       layerBaseElevLookup,
+      shallowTd,
     )
-    // Cap each region at this gap's SHALLOW TD: the deep-to-deep substrate pass
-    // (computeBracketSubstrate) owns everything BELOW it, so emitGap's output must
-    // not emit sub-TD geometry (its floor-carry/bridge fill is the cross-formation
-    // overlap source). Shallow TD = the SHALLOWER (higher-elevation) of the two
-    // floors — the elevation below which only ONE column has data. preInjectionBaseTD
-    // is the source so virtual/bridge mutations cannot inflate it.
-    const leftFloorElev = cols[i].surface - preInjectionBaseTD[i]
-    const rightFloorElev = cols[i + 1].surface - preInjectionBaseTD[i + 1]
-    const shallowTd = Math.max(leftFloorElev, rightFloorElev)
     for (const r of gapRegions) {
       // Lens/onlap overlays are observed-region (above-TD) overlays — never clipped.
       if (r.kind === 'lens') {
