@@ -1442,7 +1442,7 @@ function edgeElevations(poly: PartitionPoint[], side: 0 | 1): number[] {
 }
 
 /** Signed area × 2 of a ring in (fraction, elevation) space (> 0 = CCW). */
-function signedArea2(poly: PartitionPoint[]): number {
+function signedArea2(poly: readonly PartitionPoint[]): number {
   let s = 0
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i]
@@ -3784,7 +3784,7 @@ function clipPolyBelowElev(
   const out: PartitionPoint[] = []
   const n = poly.length
   if (n === 0) return out
-  const inside = (p: PartitionPoint): boolean => p.elevation <= cut + EPS
+  const inside = (p: PartitionPoint): boolean => p.elevation <= cut + SPAN_EPS
   for (let i = 0; i < n; i++) {
     const cur = poly[i]
     const prev = poly[(i + n - 1) % n]
@@ -3797,14 +3797,15 @@ function clipPolyBelowElev(
       out.push(intersectElev(prev, cur, cut))
     }
   }
-  return out
+  // Clipping along the cut line emits coincident points; dedup like clipToConvex.
+  return dedupeRing(out)
 }
 
 /** Interpolate the point where edge a→b crosses the horizontal line ``elevation = cut``. */
 function intersectElev(a: PartitionPoint, b: PartitionPoint, cut: number): PartitionPoint {
   const dy = b.elevation - a.elevation
   // Degenerate (horizontal edge on the cut) — return the endpoint; caller dedups.
-  const t = Math.abs(dy) < EPS ? 0 : (cut - a.elevation) / dy
+  const t = Math.abs(dy) < SPAN_EPS ? 0 : (cut - a.elevation) / dy
   return { fraction: a.fraction + t * (b.fraction - a.fraction), elevation: cut }
 }
 
@@ -3835,10 +3836,10 @@ function clipPolyHalfFraction(
   const n = poly.length
   if (n === 0) return out
   const inside = (p: PartitionPoint): boolean =>
-    keepGE ? p.fraction >= bound - EPS : p.fraction <= bound + EPS
+    keepGE ? p.fraction >= bound - FRAC_EPS : p.fraction <= bound + FRAC_EPS
   const cross = (a: PartitionPoint, b: PartitionPoint): PartitionPoint => {
     const dx = b.fraction - a.fraction
-    const t = Math.abs(dx) < EPS ? 0 : (bound - a.fraction) / dx
+    const t = Math.abs(dx) < FRAC_EPS ? 0 : (bound - a.fraction) / dx
     return { fraction: bound, elevation: a.elevation + t * (b.elevation - a.elevation) }
   }
   for (let i = 0; i < n; i++) {
@@ -3853,17 +3854,16 @@ function clipPolyHalfFraction(
       out.push(cross(prev, cur))
     }
   }
-  return out
+  // Clipping along a strip boundary emits coincident points; dedup like clipToConvex.
+  return dedupeRing(out)
 }
 
 /** True when a clipped polygon has positive area (≥ 3 non-degenerate vertices). */
 function hasArea(poly: readonly PartitionPoint[]): boolean {
-  if (poly.length < 3) return false
-  let area = 0
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    area += (poly[j].fraction - poly[i].fraction) * (poly[j].elevation + poly[i].elevation)
-  }
-  return Math.abs(area) > EPS
+  // Reuse the shared shoelace (signedArea2) rather than open-coding it; the area
+  // tolerance matches the dedup/clip machinery (SPAN_EPS) so a region the dedup
+  // path collapses cannot survive here as a near-zero sliver.
+  return poly.length >= 3 && Math.abs(signedArea2(poly)) > SPAN_EPS
 }
 
 /**
@@ -3968,14 +3968,14 @@ export function computeBracketSubstrate(
     const shallow = shallowTdElev(i)
     let L: number | null = null
     for (let k = i; k >= 0; k--) {
-      if (tdElev[k] < shallow - EPS) {
+      if (tdElev[k] < shallow - SPAN_EPS) {
         L = k
         break
       }
     }
     let R: number | null = null
     for (let k = i + 1; k < cols.length; k++) {
-      if (tdElev[k] < shallow - EPS) {
+      if (tdElev[k] < shallow - SPAN_EPS) {
         R = k
         break
       }
@@ -4018,7 +4018,7 @@ export function computeBracketSubstrate(
           const top = deep.surface - u.topDepthM
           const base = deep.surface - u.baseDepthM
           const clipTop = Math.min(top, clipElev)
-          if (clipTop <= base + EPS) continue // unit entirely above the shallow TD.
+          if (clipTop <= base + SPAN_EPS) continue // unit entirely above the shallow TD.
           out.push({
             formationId: u.formationId,
             bodyId: u.bodyId,
@@ -4039,6 +4039,19 @@ export function computeBracketSubstrate(
     // CLOSED bracket (L, R): replicate the per-gap loop body on the non-adjacent
     // anchor pair. Fresh copies so reduceColumn / collapseAdjacentSameFormation
     // mutate copies, never the section state.
+    //
+    // This deliberately MIRRORS the per-gap loop in computeSectionFill (the
+    // reduceColumn / collapseAdjacentSameFormation / emitGap sequence). Do NOT
+    // "tidy up" the divergences below — they are intentional. What DIFFERS from
+    // the original loop:
+    //   (a) lensApexOverrides is passed as ``undefined`` — no apex shaping below
+    //       a TD (the substrate is straight deep-to-deep band, not lens-shaped).
+    //   (b) the gapIndex arg is passed as ``0`` (not ``i``) — emitGap's own gap
+    //       tag is irrelevant here; the band is re-tagged per shallow gap after
+    //       slicing (each emitted region's gapIndex is set in the slice loop).
+    //   (c) leftwardColumns / rightwardColumns are sliced around the non-adjacent
+    //       anchors ``L`` / ``R`` (the bracket span), NOT the adjacent ``i`` /
+    //       ``i + 1`` — the run skips intervening shallow columns.
     const L = run.L
     const R = run.R
     const left = { surface: cols[L].surface, units: cols[L].units.map((u) => ({ ...u })) }
@@ -4102,7 +4115,7 @@ export function computeBracketSubstrate(
       const fL = (along[i] - along[L]) / span
       const fR = (along[i + 1] - along[L]) / span
       const width = fR - fL
-      if (Math.abs(width) < EPS) continue
+      if (Math.abs(width) < FRAC_EPS) continue
       for (const { region, poly } of clipped) {
         const strip = clipPolyStrip(poly, fL, fR)
         if (!hasArea(strip)) continue
