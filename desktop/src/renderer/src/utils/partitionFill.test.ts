@@ -1047,6 +1047,58 @@ describe('computePartitionFill', () => {
   })
 
   // -----------------------------------------------------------------------
+  // PINCH-POINT-HALFWAY — a unit that pinches out toward its neighbour tapers to
+  // a POINT at the HALFWAY fraction (0.5), like an onlap — NOT an off-centre,
+  // abrupt tip truncated short by the shallow-TD cap (the GAP-19 "square end"
+  // dogfeed bug, owner directive: "just onlap halfway to S5A").
+  //
+  // Setup (the GAP-19 shape, minimised): a deep LEFT column (SAND band + a deep
+  // KLEI reaching elev −12) and a SHALLOW RIGHT column whose deepest unit is a
+  // SILT pinching out (elev −4..−8). The SILT is the boundary pinch; its apex
+  // tapers toward the deep base interface, which dips BELOW the gap's shallow-TD
+  // cap (−8, where the deep-to-deep substrate pass takes over). Without the fix
+  // the cap truncates the taper to an off-centre tip at fraction ~0.67; the owner
+  // wants it to taper to a clean POINT at the halfway fraction (0.5) right on the
+  // cap line. The matrix fills the space behind the taper (the partition tiles).
+  // -----------------------------------------------------------------------
+  it('PINCH-POINT: a pinch-out tapers to a POINT at the halfway fraction (no square end)', () => {
+    const left = col('L', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'band' }, // matched band (correlated)
+      { top: 4, base: 12, f: 'KLEI', b: 'kd' }, // deep — reaches below the shallow TD
+    ])
+    const right = col('R', 0, [
+      { top: 0, base: 4, f: 'SAND', b: 'band' }, // matched band
+      { top: 4, base: 8, f: 'SILT', b: 'ss' }, // R's deepest → pinches out toward L
+    ])
+    // computeSectionFill (not computePartitionFill): the shallow-TD cap that
+    // truncates the taper lives in computeSectionFill, so the bug only reproduces
+    // through the full section path.
+    const regions = sf(left, right).filter((r) => r.gapIndex === 0)
+    // The SILT pinch-out region that sits ABOVE the cap (elev > −8): a RIGHT pinch,
+    // so its column-edge vertices are on fraction 1 and its taper tip is interior.
+    const siltPinch = regions.find(
+      (r) =>
+        r.formationId === 'SILT' &&
+        r.kind === 'pinch' &&
+        r.polygon.every((p) => p.elevation >= -8 - 1e-6),
+    )
+    expect(siltPinch).toBeDefined()
+    // Its interior (non-column-edge) vertices — the terminating edge — must
+    // collapse to a SINGLE POINT at the halfway fraction (0.5), not an off-centre
+    // tip and not a vertical edge.
+    const interior = siltPinch!.polygon.filter((p) => p.fraction > 1e-6 && p.fraction < 1 - 1e-6)
+    expect(interior).toHaveLength(1)
+    expect(Math.abs(interior[0].fraction - 0.5)).toBeLessThan(1e-6)
+    // The terminating edge has ZERO height — no residual vertical/square end: no
+    // two vertices share the tip fraction at different elevations.
+    const tipFrac = interior[0].fraction
+    const tipElevs = siltPinch!.polygon
+      .filter((p) => Math.abs(p.fraction - tipFrac) < 1e-6)
+      .map((p) => p.elevation)
+    expect(Math.max(...tipElevs) - Math.min(...tipElevs)).toBeLessThan(1e-6)
+  })
+
+  // -----------------------------------------------------------------------
   // NONOVERLAP — two same-lithology minorities at DIFFERENT depths stay as two
   // separate lenses (NOT merged into one band). Each silt is enclosed by the
   // sand matrix on its OWN column at its OWN level; they do not align, so they
