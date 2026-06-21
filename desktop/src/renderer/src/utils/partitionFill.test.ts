@@ -2527,6 +2527,96 @@ describe('sub-shallow-TD flat tail — deep stratigraphy continues flat below th
 })
 
 // ---------------------------------------------------------------------------
+// No matrix-over-sand overlap below a shallow TD (the GAP-18 clay-on-sand bug)
+// ---------------------------------------------------------------------------
+//
+// Owner rule (2026-06-21, instrumented on real CS1 GAP-18 S7→S6): below a
+// shallow test's TD, the DEEP neighbour's stratigraphy OWNS that space. The
+// shallow column's matrix (clay/silt) must NOT extend down OVER the deep sand.
+// The partition was emitting BOTH the matrix clay (a full-width quad/pinch) AND
+// the deep sand in the same place; z-order then paints clay over sand, so the
+// borehole's sand reads as clay ("clay-on-clay where it should be clay-on-sand",
+// prompt 12). The rule: at any point below the shallow TD, the covering set must
+// not contain a matrix lithology where the deep neighbour has sand.
+describe('no matrix-over-sand overlap below a shallow TD', () => {
+  const inPoly = (poly: PartitionRegion['polygon'], f: number, e: number): boolean => {
+    let inside = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].fraction
+      const yi = poly[i].elevation
+      const xj = poly[j].fraction
+      const yj = poly[j].elevation
+      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
+      if (hit) inside = !inside
+    }
+    return inside
+  }
+  const coverAt = (regions: PartitionRegion[], f: number, e: number): string[] =>
+    regions.filter((r) => r.kind !== 'lens' && inPoly(r.polygon, f, e)).map((r) => r.formationId)
+
+  // Real GAP-18 shapes + real correlation edges (the load-bearing part: the bug is
+  // EDGE-driven, so a no-edge gate cannot reproduce it). S7 (shallow) bottoms out
+  // in KLEI at +4.23 mTAW; it never reached the sand. S6 (deep) carries ZAND from
+  // +7.0 down to −5.87. The user drew (prompt 12) a MIXED TIE: S6's ZAND TOP ↔
+  // S7's KLEI BASE (+4.23 = S7's TD) — "the sand continues up to where S7 bottomed
+  // out". That tie must RAISE the sand to S7's TD and let it own the space below;
+  // instead the matrix clay floods over it (the GAP-18 clay-on-sand bug).
+  const shallowS7 = col('S7', 13.1, [
+    { top: 1.21, base: 2.99, f: 'SILT', b: 'a' }, // S7#0
+    { top: 2.99, base: 5.35, f: 'KLEI', b: 'b' }, // S7#1
+    { top: 5.35, base: 6.45, f: 'SILT', b: 'c' }, // S7#2
+    { top: 6.45, base: 8.87, f: 'KLEI', b: 'd' }, // S7#3 deepest = KLEI, TD elev +4.23
+  ])
+  const deepS6 = col('S6', 13.03, [
+    { top: 1.6, base: 3.79, f: 'SILT', b: 'e' }, // S6#0
+    { top: 3.79, base: 6.0, f: 'KLEI', b: 'f' }, // S6#1
+    { top: 6.0, base: 18.9, f: 'ZAND', b: 'g' }, // S6#2 ZAND +7.03 .. −5.87
+    { top: 18.9, base: 22.99, f: 'KLEI', b: 'h' }, // S6#3
+  ])
+  // The three real edges (see throwaway_cs1_input.json, S7↔S6):
+  //   1. SILT band   S7#0 ↔ S6#0   (top/top)
+  //   2. MIXED tie   S6#2 ZAND top ↔ S7#3 KLEI base   (the bottom tie to S7's TD)
+  //   3. KLEI band   S7#1 ↔ S6#1   (top/top)
+  const gap18Edges: CorrelationEdge[] = [
+    { a: 'S7#0', b: 'S6#0' },
+    { a: 'S6#2', b: 'S7#3', aSide: 'top', bSide: 'base' },
+    { a: 'S7#1', b: 'S6#1' },
+  ]
+
+  it('does not overlay the shallow matrix clay on the deep sand below the shallow TD', () => {
+    const regions = computeSectionFill([shallowS7, deepS6], gap18Edges)
+    // S7 TD = +4.23. Sample the sub-TD wedge at the sand's own elevations, near
+    // the shallow side (fraction 0.2) where the bug painted clay over sand.
+    for (const e of [3, 1, -1, -3, -5]) {
+      const cover = coverAt(regions, 0.2, e)
+      // The deep neighbour has ZAND here, so the fill must include ZAND…
+      expect(cover, `expected sand at elev ${e}, got [${cover.join(',')}]`).toContain('ZAND')
+      // …and must NOT also be covered by the matrix clay (the overlay bug).
+      expect(cover, `clay overlaid on sand at elev ${e}, cover=[${cover.join(',')}]`).not.toContain(
+        'KLEI',
+      )
+    }
+  })
+
+  it('emits no clay region overlapping a sand region anywhere below the shallow TD', () => {
+    const regions = computeSectionFill([shallowS7, deepS6], gap18Edges)
+    // March the whole sub-TD wedge: at no (fraction, elevation) may KLEI and ZAND
+    // both cover the point (a true partition has one lithology per point).
+    const offenders: string[] = []
+    for (let fi = 1; fi <= 9; fi++) {
+      const f = fi / 10
+      for (let e = 4; e >= -5.8; e -= 0.5) {
+        const cover = new Set(coverAt(regions, f, e))
+        if (cover.has('KLEI') && cover.has('ZAND')) {
+          offenders.push(`f=${f.toFixed(1)} e=${e.toFixed(1)}`)
+        }
+      }
+    }
+    expect(offenders, `clay∩sand overlap cells:\n${offenders.join('\n')}`).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // computeBottomTieLine
 // ---------------------------------------------------------------------------
 
