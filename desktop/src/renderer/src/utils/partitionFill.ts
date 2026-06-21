@@ -653,6 +653,7 @@ function reduceColumn(
   neighbourTD: number,
   baseTied?: Correlated,
   allEdgedLayerIds?: ReadonlySet<string>,
+  mixedTiedLayerIds?: ReadonlySet<string>,
 ): ExtractedLens[] {
   const lenses: ExtractedLens[] = []
   // A pulled lens records its ORIGINAL extent, not the live (possibly flood-
@@ -692,6 +693,10 @@ function reduceColumn(
   while (changed) {
     changed = false
     for (let i = 1; i < units.length - 1; i++) {
+      // A mixed-tied unit (top↔base edge) is an explicit continuity declaration —
+      // never pinch it out as a lens; let it survive to the floor walk that raises
+      // it to the tied contact (GAP-18 clay-on-sand fix).
+      if (mixedTiedLayerIds?.has(units[i].layerId)) continue
       // An INTERIOR unit pinches out as a LENS toward this neighbour iff NEITHER
       // of its two bounding contacts is correlated (the owner's 0-contact rule).
       // Bands (2 contacts) and onlaps (1) are kept and shaped by emitGap. Pulling
@@ -834,6 +839,7 @@ function extractIntervalMinorities(
   belowLith: string | null,
   leftTD: number,
   rightTD: number,
+  mixedTiedLayerIds?: ReadonlySet<string>,
 ): ExtractedMinority[] {
   const out: ExtractedMinority[] = []
   const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[], number]> = [
@@ -855,6 +861,9 @@ function extractIntervalMinorities(
         const u = stack[i]
         const above = stack[i - 1]
         const below = stack[i + 1]
+        // A mixed-tied unit is an explicit continuity declaration — never extract
+        // it; it must reach the floor walk that raises it to the tied contact.
+        if (mixedTiedLayerIds?.has(u.layerId)) continue
         if (above.formationId !== below.formationId) continue
         const m = above.formationId
         if (m === u.formationId) continue
@@ -883,7 +892,7 @@ function extractIntervalMinorities(
         const u = stack[0]
         const below = stack[1]
         const m = below.formationId
-        if (m !== u.formationId && otherFormations.has(m)) {
+        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId && otherFormations.has(m)) {
           out.push({ unit: { ...u }, kind: 'onlap', edge: 'top' })
           below.ownTopDepth = u.ownTopDepth // matrix grows up to the bracket
           stack.splice(0, 1)
@@ -898,7 +907,7 @@ function extractIntervalMinorities(
         const u = stack[last]
         const above = stack[last - 1]
         const m = above.formationId
-        if (m !== u.formationId && otherFormations.has(m)) {
+        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId && otherFormations.has(m)) {
           out.push({ unit: { ...u }, kind: 'onlap', edge: 'base' })
           above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
           stack.splice(last, 1)
@@ -2098,6 +2107,15 @@ function emitGap(
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
   const rightLenses: ExtractedLens[] = [...rightLensesIn]
 
+  // Layer ids named by a mixed (top↔base) tie — these units must NOT be
+  // lens/onlap-extracted in the interval walk; they survive to the floor walk
+  // that raises them to the tied contact (GAP-18 clay-on-sand fix).
+  const mixedTiedLayerIds = new Set<string>()
+  for (const [k, v] of mixedTiedTopToBase) {
+    mixedTiedLayerIds.add(k)
+    mixedTiedLayerIds.add(v)
+  }
+
   // Each column's total depth — the reach guard for interval-minority
   // extraction. reduceColumn only removes interior minorities (never the deepest
   // floor unit), so this equals the pre-reduction TD.
@@ -2245,6 +2263,7 @@ function emitGap(
       belowMatrix?.formationId ?? null,
       leftTD,
       rightTD,
+      mixedTiedLayerIds,
     )) {
       if (min.kind === 'lens') {
         ;(min.unit.side === 'left' ? leftLenses : rightLenses).push({
@@ -3183,6 +3202,17 @@ export function computeSectionFill(
       mixedTiedTopToBase.set(e.b, e.a)
     }
   }
+  // Every layerId named by a mixed (top↔base) tie. Such a unit is the engineer's
+  // explicit "this unit continues to the tied contact" declaration (e.g. the
+  // GAP-18 bottom tie S6-ZAND-top ↔ S7-TD), so it must NOT be lens/onlap-extracted
+  // — doing so deletes it BEFORE the floor walk applies the tie, and the matrix
+  // floods its space (the clay-on-sand bug). Threaded into reduceColumn +
+  // extractIntervalMinorities so a mixed-tied unit survives to the floor walk.
+  const mixedTiedLayerIds = new Set<string>()
+  for (const [k, v] of mixedTiedTopToBase) {
+    mixedTiedLayerIds.add(k)
+    mixedTiedLayerIds.add(v)
+  }
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
   // baseTied is always a closure over baseTiedSet (not gated on size > 0) so that
   // synthetic bridge base-tie edges added by the bridge injection pre-pass are picked
@@ -3581,8 +3611,8 @@ export function computeSectionFill(
     // used by reduceColumn and the floor-interval carry-through.
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
-    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds)
-    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds)
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds, mixedTiedLayerIds)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds, mixedTiedLayerIds)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
     // Sub-TD injection (spec §5 rule 1 / §7 sideways-default): when one column is
