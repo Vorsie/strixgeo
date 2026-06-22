@@ -657,6 +657,51 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(bulkSubset(result).get('cpt-1')?.suggestions).toHaveLength(1)
   })
 
+  it('B1b — Suggest-all commits ghosts once after the whole fan-out, not progressively per anchor (#155)', async () => {
+    // Hand each segmenter call a deferred promise we resolve one at a time, so
+    // we can observe whether ghosts trickle in (old O(N²)-render behaviour) or
+    // land in a single flush after every anchor completes (the #155 fix).
+    const deferreds: Array<(v: { layers: LithoLayerSuggestion[] }) => void> = []
+    geoApi.suggestLitho.mockImplementation(
+      () =>
+        new Promise<{ layers: LithoLayerSuggestion[] }>(resolve => {
+          deferreds.push(resolve)
+        }),
+    )
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Kick off the fan-out without awaiting — both workers fire suggestLitho.
+    let fanout!: Promise<void>
+    await act(async () => {
+      fanout = result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'cpt-2', surfaceElevationM: 11 },
+      ])
+      await Promise.resolve()
+    })
+    expect(deferreds).toHaveLength(2)
+
+    // Resolve ONLY the first anchor's segmenter call.
+    await act(async () => {
+      deferreds[0]({ layers: [makeSuggestion('ZAND', 0.0)] })
+      await Promise.resolve()
+    })
+    // Coalesced: nothing committed until the whole fan-out finishes. The old
+    // per-anchor setState would already show size 1 here.
+    expect(bulkSubset(result).size).toBe(0)
+
+    // Resolve the second anchor — now the single coalesced flush lands.
+    await act(async () => {
+      deferreds[1]({ layers: [makeSuggestion('KLEI', 1.0)] })
+      await fanout
+    })
+    expect(bulkSubset(result).size).toBe(2)
+  })
+
   it('B2 — handleAcceptBulkLitho commits one layer + marks the idx accepted on the anchor', async () => {
     geoApi.suggestLitho.mockResolvedValue({
       layers: [makeSuggestion('ZAND', 0.0), makeSuggestion('KLEI', 2.5)],
