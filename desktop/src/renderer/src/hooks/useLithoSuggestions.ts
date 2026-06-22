@@ -1360,6 +1360,14 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       const CONCURRENCY = 5
       let cursor = 0
       const failures: string[] = []
+      // #155: each worker writes its result into this local Map and the
+      // whole batch is flushed to React state ONCE, after the fan-out
+      // completes — not per-anchor. A per-anchor setGhostsByAnchor forced a
+      // full SectionPanel re-render (placedColumns + the anchorGhosts-iterating
+      // memos + every un-memoised ghost column) on each of N accumulating
+      // entries → O(N²) render. JS is single-threaded so concurrent workers
+      // never race on this Map.
+      const collected = new Map<string, BulkAnchorGhost>()
       async function worker(): Promise<void> {
         while (cursor < anchors.length) {
           const anchorIdx = cursor++
@@ -1381,17 +1389,13 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
                     minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
                   }
             const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
-            setGhostsByAnchor(prev => {
-              const next = new Map(prev)
-              next.set(id, {
-                kind,
-                suggestions: resp.layers,
-                surfaceElevationM,
-                accepted: new Set(),
-                rejected: new Set(),
-                edits: new Map(),
-              })
-              return next
+            collected.set(id, {
+              kind,
+              suggestions: resp.layers,
+              surfaceElevationM,
+              accepted: new Set(),
+              rejected: new Set(),
+              edits: new Map(),
             })
           } catch (err) {
             log.warn('geology', `bulk suggest failed anchor=${id}`, err)
@@ -1405,6 +1409,14 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       )
       try {
         await Promise.all(workers)
+        // Single coalesced flush. `prev` here is the start-wipe result
+        // (only the preserved focused entry, if any), so merging `collected`
+        // on top reproduces the prior end state in one render.
+        setGhostsByAnchor(prev => {
+          const next = new Map(prev)
+          for (const [id, ghost] of collected) next.set(id, ghost)
+          return next
+        })
         log.success(
           'geology',
           `handleSuggestAllLitho done anchors=${anchors.length} failures=${failures.length}`,
