@@ -3419,7 +3419,34 @@ to prompt them one at a time without flooding the user.  Owner
 directive: ship single-path first, revisit if bulk-path slivers
 become a dogfeed pain point.
 
-## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — split out from #134-C)
+## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration)
+
+**SHELVED 2026-06-22 (owner directive).** Do NOT build this. While
+scoping the bulk-snap UX, the owner raised the deeper question: should
+litho↔geo reconciliation happen at litho-EDIT time at all, or should
+the lithostratigraphic and geological models stay independent during
+editing and reconcile at the BUILD / geotech-subdivision boundary? A
+system-architect pass (2026-06-22) concluded the build-time pass
+``divide_picks_by_geology`` (``domain/services/litho_geo_bounding.py``,
+run inside ``RecomputeLithoSolids`` before ``build_body_solids``)
+already covers ~90% of the structural need (geology as hard bounds,
+snap-or-divide at ``litho_snap_tolerance_m``) WITHOUT any 2D-contact
+FK, and that the edit-time coupling (#134/#162) — especially the
+bidirectional drag-propagation that silently moves a geological
+surface — is the kind of invisible side effect the 2026-06-11
+"geology bounds litho at BUILD time, not the 2D edit" directive was
+reacting against. Leading direction: defer reconciliation to the
+geotech inspector as a corridor-scale "Reconcile with geology" review
+(snap-or-divide dry-run, writes ``parent_geo_contact_id`` as confirmed
+provenance) rather than a per-accept popup. **Owner chose the
+lowest-risk path: shelve #134-C-bulk, delete nothing, leave the
+edit-time coupling as-is, revisit placement when the geotech inspector
+is designed.** So this item builds nothing now; if the placement
+reconsideration lands on "defer", #134-C-bulk is moot (close it) and
+#162's edit-time enforcement + #157 re-scope too. See
+[[project_litho_geo_reconciliation_placement]]. The original scoping
+(below) is retained only as the spec for IF it is ever built at the
+litho-edit stage.
 
 **What.** Extend the post-accept ``findGeoSnapCandidates`` check
 (landed for the single-suggestion path 2026-05-27) to the three
