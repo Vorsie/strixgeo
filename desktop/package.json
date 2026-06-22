@@ -56,6 +56,10 @@
   "build": {
     "appId": "com.groundmodel.desktop",
     "productName": "Ground Model",
+    "icon": "resources/icon.ico",
+    "win": {
+      "icon": "resources/icon.ico"
+    },
     "directories": {
       "output": "dist"
     },

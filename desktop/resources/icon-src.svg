@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="56" fill="#14110D"/>
+  <polygon points="128,44 196,84 60,84" fill="#F5C53D"/>
+  <rect x="60" y="84"  width="136" height="28" fill="#E0962E"/>
+  <rect x="60" y="112" width="136" height="28" fill="#C46A3C"/>
+  <rect x="60" y="140" width="136" height="28" fill="#8AA85A"/>
+  <polygon points="60,168 196,168 128,212" fill="#5C3617"/>
+  <path d="M128 44 196 84 196 168 128 212 60 168 60 84Z" fill="none" stroke="#2A1505" stroke-width="6" stroke-linejoin="round"/>
+  <polygon points="84,64 74,34 110,56"  fill="#FFF1D6" stroke="#2A1505" stroke-width="4" stroke-linejoin="round"/>
+  <polygon points="172,64 182,34 146,56" fill="#FFF1D6" stroke="#2A1505" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="98"  cy="120" r="17" fill="#2A1505" stroke="#FFF1D6" stroke-width="3"/>
+  <circle cx="158" cy="120" r="17" fill="#2A1505" stroke="#FFF1D6" stroke-width="3"/>
+  <circle cx="98"  cy="120" r="6" fill="#FFF1D6"/>
+  <circle cx="158" cy="120" r="6" fill="#FFF1D6"/>
+  <polygon points="128,158 118,138 138,138" fill="#FFF1D6" stroke="#2A1505" stroke-width="3" stroke-linejoin="round"/>
+</svg>

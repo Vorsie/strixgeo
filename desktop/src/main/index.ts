@@ -271,6 +271,11 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'StrixGeo',
+    // StrixGeo owl — window/taskbar icon. ``resources/`` is bundled into the
+    // package (see electron-builder ``files``), so ``out/main → ../../resources``
+    // resolves in both dev and the packaged app. The installer/exe icon comes
+    // from resources/icon.ico (electron-builder ``build.icon``).
+    icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
