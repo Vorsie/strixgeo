@@ -3906,6 +3906,29 @@ across investigations / auto-populate↔Suggest aggregation mismatch) is NOT
 addressed by A2. Re-verify on a fresh post-A2 dogfeed: if doubling no longer
 reproduces, close this; if it does, it's the admixture-drift path.
 
+**Code re-verification 2026-06-22 (no repro yet — narrows the residual).**
+Read `accept_litho_suggestions.py` end-to-end. Confirmed: (1) straddle-split is
+fully gone — `AcceptLithoResult.straddle_split_count` is A2-deprecated/always-0
+and the accept loop (≈l.439) no longer splits across geo boundaries. (2) The
+find-or-create key is now the **2-tuple** `(litho_main_soil_code,
+canonical_admixture_signature)` — geo-agnostic, NOT the old 3-tuple with
+`parent_formation_id` quoted below (that line is stale). It is deterministic and
+dedups, so two SAND units after accept ⟹ their `sig` genuinely differs. (3) The
+ONLY residual drift vector is therefore the admixture signature.
+`Admixture.canonical_key()` = `"<soil_code>:<amount>"` and
+`_canonical_admixture_signature` sorts+joins those — `locally` is excluded (owner
+decision) **but `amount` is kept**. So two layers the engineer reads as "the same
+SAND" whose admixtures differ only in amount (`KL:Z` weak-clay vs `KL:M`
+medium-clay) become two units BY DESIGN. (4) **The diagnostic is already wired** —
+the find-or-create logs `Created/Found litho formation … sig='{sig}'` at DEBUG
+(accept loop ≈l.458/471). Next dogfeed: enable DEBUG, accept, read the two SAND
+rows' `sig=` values — that tells us immediately whether they differ on `amount`
+(the policy lever) or on something unexpected. No instrumentation to add; no code
+change is safe to make blind (would mean re-adding speculative reshape logic —
+[[feedback-litho-accept-verbatim-copy]]). The narrowed question is a single owner
+policy call: **should `amount` participate in the unit dedup bucket the way
+`locally` already doesn't?**
+
 **What.** Owner dogfeed 2026-05-27 reported "double sand or silt
 units" appearing in the inspector after Accept-litho, even when
 the suggestion view showed a single merged SAND ghost.  The
