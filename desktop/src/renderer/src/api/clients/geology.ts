@@ -925,6 +925,28 @@ export interface BuildGeotechResponse {
 }
 
 /**
+ * Response from ``POST .../geotech/subdivide-all-bodies``.
+ *
+ * ``mid`` in the request path is the lithostratigraphic model id.
+ */
+export interface SubdivideAllBodiesResponse {
+  /** The geotechnical model used (created by an earlier build call or reused). */
+  geotech_model_id: string
+  /** Classified geotech formation rows created in this call. */
+  created_formation_ids: string[]
+  /** Total litho_layer rows inserted into the geotech model. */
+  layer_count: number
+  /** Total BodyOrm rows created after resolution. */
+  body_count: number
+  /** Body groups that received a consistent multi-band split. */
+  split_body_count: number
+  /** Body groups assigned one representative NAD class. */
+  one_class_body_count: number
+  /** Body groups that were borehole-only (no CPT qc data). */
+  borehole_only_count: number
+}
+
+/**
  * One suggested NAD packing sub-unit ghost within a geotech segment.
  *
  * ``nad_class`` is null for borehole anchors (no qc series → unclassifiable).
@@ -1923,6 +1945,25 @@ export const geologyClient = {
   ): Promise<BuildGeotechResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/build`,
+      { section_id: sectionId },
+    ),
+
+  /**
+   * POST .../geotech/subdivide-all-bodies — classify + materialise geotech NAD
+   * bodies for all in-corridor litho bodies in one shot.
+   *
+   * ``lithoModelId`` is the lithostratigraphic model whose bodies are subdivided.
+   * The server reuses the child geotechnical model created by ``buildGeotechModel``
+   * (or creates one if absent) and materialises real geotech spatial bodies via
+   * litho_layer + edge inserts.
+   */
+  subdivideAllBodies: (
+    projectId: string,
+    lithoModelId: string,
+    sectionId: string,
+  ): Promise<SubdivideAllBodiesResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-all-bodies`,
       { section_id: sectionId },
     ),
 
