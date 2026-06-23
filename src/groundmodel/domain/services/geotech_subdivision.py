@@ -1,0 +1,136 @@
+"""Geotech NAD subdivision suggester — packing splits within one litho segment.
+
+Reuses the litho segmenter's smoothing/RLE/merge helpers but classifies on RAW
+qc via :func:`classify_nad` (no Dr, no Robertson, no σ′v). Heavy smoothing is
+an in-memory split helper only (spec §1, §4 Step B); it never persists.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from groundmodel.domain.services.litho_segmentation import (
+    _greedy_merge,
+    _rolling_median_zones,
+    _run_length_encode,
+)
+from groundmodel.domain.services.nad_classifier import classify_nad
+from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.shared.constants.litho_constants import BaseLithology
+
+# Smoothing half-window in samples — heavier than the litho default so single
+# spikes/drops do not trigger spurious packing splits (spec §1). In-memory only.
+_SMOOTH_HALF_WINDOW = 5
+
+
+@dataclass(frozen=True)
+class GeotechSplit:
+    """One suggested NAD sub-unit within a geo-bounded litho segment.
+
+    Parameters
+    ----------
+    depth_top_m : float
+        Top depth of the sub-unit (metres, positive down), clamped to the
+        parent segment top.
+    depth_base_m : float
+        Base depth of the sub-unit (metres, positive down), clamped to the
+        parent segment base.
+    nad_class : int
+        Classified NAD packing class 1–31.
+    """
+
+    depth_top_m: float
+    depth_base_m: float
+    nad_class: int
+
+
+def suggest_geotech_subdivision(
+    soil: BaseLithology,
+    admixtures: tuple[Admixture, ...],
+    depth_m: list[float],
+    qc_mpa: list[float],
+    segment_top_m: float,
+    segment_base_m: float,
+    min_thickness_m: float,
+) -> list[GeotechSplit]:
+    """Suggest NAD sub-units for one geo-bounded litho segment.
+
+    Classifies each CPT sample inside the segment via :func:`classify_nad`,
+    applies a rolling-median smoother to suppress single-point spikes, then
+    run-length encodes and merges runs shorter than ``min_thickness_m``.
+    Returns one :class:`GeotechSplit` per surviving packing run. A uniform
+    segment (or one with only thin variation) returns a single split spanning
+    the entire segment.
+
+    Parameters
+    ----------
+    soil : BaseLithology
+        Main soil type of the parent litho unit.
+    admixtures : tuple[Admixture, ...]
+        Parent unit admixtures; drives the clean/secondary NAD variant lookup.
+    depth_m : list[float]
+        Full CPT depth series (metres, positive down). Samples outside
+        ``[segment_top_m, segment_base_m]`` are ignored.
+    qc_mpa : list[float]
+        Cone resistance in MPa, one value per entry in ``depth_m``.
+    segment_top_m : float
+        Top bound of the geo-bounded litho segment (metres).
+    segment_base_m : float
+        Base bound of the geo-bounded litho segment (metres).
+    min_thickness_m : float
+        Minimum sub-unit thickness; runs thinner than this are absorbed into
+        their neighbour by :func:`_greedy_merge`.
+
+    Returns
+    -------
+    list[GeotechSplit]
+        One split per surviving packing run, ordered top-to-bottom. Never
+        empty — falls back to a single split covering the full segment when
+        no CPT samples fall inside it.
+
+    Raises
+    ------
+    ValueError
+        If ``depth_m`` and ``qc_mpa`` have different lengths.
+    """
+    if len(depth_m) != len(qc_mpa):
+        raise ValueError(
+            f"depth_m ({len(depth_m)}) and qc_mpa ({len(qc_mpa)}) must have equal length."
+        )
+
+    # --- filter to samples inside [segment_top_m, segment_base_m] ----------
+    pairs = [
+        (d, q)
+        for d, q in zip(depth_m, qc_mpa)
+        if segment_top_m - 1e-9 <= d <= segment_base_m + 1e-9
+    ]
+
+    if not pairs:
+        # No CPT coverage in this segment — return one unit at the fallback class.
+        fallback = classify_nad(soil, admixtures, 0.0)
+        return [GeotechSplit(segment_top_m, segment_base_m, fallback)]
+
+    seg_depths: list[float] = [d for d, _q in pairs]
+    seg_qc: list[float] = [q for _d, q in pairs]
+
+    # --- classify, smooth, RLE, merge -------------------------------------
+    classes: list[int] = [classify_nad(soil, admixtures, q) for q in seg_qc]
+    smoothed = _rolling_median_zones(classes, _SMOOTH_HALF_WINDOW)
+    runs = _run_length_encode(smoothed)
+
+    # _greedy_merge takes the actual depth values (not sample counts) and a
+    # float min thickness — no conversion needed.
+    runs = _greedy_merge(runs, seg_depths, min_thickness_m)
+
+    # --- assemble GeotechSplit list ---------------------------------------
+    splits: list[GeotechSplit] = []
+    for i, (cls, start, end) in enumerate(runs):
+        top = segment_top_m if i == 0 else seg_depths[start]
+        # end is exclusive (RLE convention: [start, end)); the last sample of
+        # this run is at index end-1, and the next run starts at end.
+        # Use seg_depths[end] as the boundary depth when not the final run,
+        # matching the convention that a run's base == the next run's top.
+        base = segment_base_m if i == len(runs) - 1 else seg_depths[end]
+        splits.append(GeotechSplit(round(top, 3), round(base, 3), int(cls)))  # type: ignore[arg-type]
+
+    return splits
