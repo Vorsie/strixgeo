@@ -1,28 +1,69 @@
-// Geotechnical stage canvas placeholder — the next milestone after the
-// lithostratigraphic stage (v1.0 gate step 4, owner rescope 2026-05-18).
+// Geotechnical stage canvas — renders the geotech section view by reusing
+// SectionsCanvas with the axis forced to 'geotechnical'.  When no geotech
+// model exists yet (the user hasn't run "Subdivide all bodies") a guided
+// EmptyState is shown instead.
+//
+// Implementation rationale: the Sections stage and the Geotechnical stage
+// share the same SectionsCanvas component and the same sectionModelAxis
+// piece of ShellContext state.  On mount this canvas forces the axis to
+// 'geotechnical' so the user lands in the NAD-coloured band view rather
+// than whatever the Sections stage left selected.  The axis is shared, so
+// switching back to the Sections stage retains 'geotechnical' until the
+// user manually picks Geology or Litho — consistent with the way switching
+// between Geology/Litho in the Sections stage persists.
 
+import { useEffect } from 'react'
 import { Layers } from 'lucide-react'
 
+import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
+import SectionsCanvas from '../sections/SectionsCanvas'
 
 /**
- * Placeholder canvas for the Geotechnical stage (S6 stub).
+ * Canvas for the Geotechnical stage (S6).
  *
- * Uses the shared EmptyState primitive (debt #45) so the placeholder
- * matches the icon + guided-copy bar the rest of the shell holds —
- * a bare "coming soon" line on camera undercut the polish narrative.
+ * Reuses ``SectionsCanvas`` with the section-model axis forced to
+ * ``'geotechnical'`` on mount, so the owner finds NAD-coloured body
+ * bands under the Geotechnical spine stage where they expect them.
+ *
+ * When no geotechnical model exists (``activeGeotechModel === null``),
+ * a short guided ``EmptyState`` explains that "Subdivide all bodies"
+ * must be run first in the Geotech inspector.
  *
  * Returns
  * -------
  * JSX.Element
- *     The guided placeholder.
+ *     Either the geotech section view or a guided placeholder.
  */
 export default function GeotechnicalCanvas(): JSX.Element {
-  return (
-    <EmptyState
-      icon={<Layers />}
-      title="Geotechnical subdivision"
-      hint="Subdivide lithostratigraphic units by packing density into NAD classes (1–31) and view CPT-derived indicators (Ic zone, Dr, NAD class, γ-estimate) per unit. This is the next stage to build after the lithostratigraphic model; design-ready parameter values (φ′, c′, cu, E50) stay Phase 5."
-    />
-  )
+  const {
+    geoModel: { activeGeotechModel },
+    sections: { sectionModelAxis, setSectionModelAxis },
+  } = useShell()
+
+  // Force the section axis to 'geotechnical' when the canvas mounts and
+  // a geotech model exists.  Guards:
+  //   • activeGeotechModel === null → no model yet, show EmptyState instead.
+  //   • sectionModelAxis already 'geotechnical' → skip the write to avoid
+  //     a spurious render / infinite-loop risk.
+  useEffect(() => {
+    if (activeGeotechModel !== null && sectionModelAxis !== 'geotechnical') {
+      setSectionModelAxis('geotechnical')
+    }
+  }, [activeGeotechModel, sectionModelAxis, setSectionModelAxis])
+
+  if (activeGeotechModel === null) {
+    return (
+      <EmptyState
+        icon={<Layers />}
+        title="No geotechnical model yet"
+        hint="Run 'Subdivide all bodies' in the Geotech inspector to derive NAD packing classes (1–31) from the CPT series. The section view here will then colour each body band by its packing class."
+      />
+    )
+  }
+
+  // Render the shared SectionsCanvas — the useEffect above has already
+  // set the axis to 'geotechnical', so SectionsCanvas will pass
+  // axisMode='geotechnical' into SectionPanel and render NAD bands.
+  return <SectionsCanvas />
 }
