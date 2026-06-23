@@ -81,8 +81,8 @@ function makeLithoModel(): GeologicalModelResponse {
 
 function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
-  sectionModelAxis?: 'geological' | 'lithostratigraphic'
-  setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic') => void
+  sectionModelAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
+  setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic' | 'geotechnical') => void
   sectionFocusedColumn?: { kind: 'cpt' | 'borehole'; id: string; name: string } | null
   selectedSectionId?: string | null
   lithoStaleSurfaceCount?: number
@@ -294,6 +294,10 @@ function makeCtx(overrides: {
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,
       lithoCrossingPinchOuts: [],
+      activeGeotechModel: null,
+      geotechLayers: [],
+      geotechContacts: [],
+      geotechFormations: [],
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
