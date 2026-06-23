@@ -1151,7 +1151,7 @@ function CrossingsBanner({
 // ---------------------------------------------------------------------------
 
 interface ModelActionsProps {
-  axis: 'geological' | 'lithostratigraphic'
+  axis: 'geological' | 'lithostratigraphic' | 'geotechnical'
   activeGeologicalModel: GeologicalModelResponse | null
   activeLithoModel: GeologicalModelResponse | null
   staleSurfaceCount: number
