@@ -42,8 +42,8 @@ subdivision is built on top of it. Priority order:
 * **#121** — correlation polygon-ribbon rendering, lens-aware (design work — after #101)
 * **#122** — correlation edge opacity fade + body-hover spike (polish — after #121)
 * **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
-* **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
-* **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
+* **#99** — CLOSED-STALE 2026-06-23 (no longer reproducing across the post-May litho rework; code correct in the obvious reading + G34b pins it; re-open if it resurfaces in a live project)
+* **#138** — CLOSED-STALE 2026-06-23 (intermittent, never captured a deterministic repro; DR1/DR2 cover the basic merged-layer-still-draggable path; re-open if it resurfaces in a live project)
 * **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
 * **#140** — RESOLVED 2026-05-28 (owner directive: decouple). Accept-all no longer fires auto-correlate — the `autoCorrelateContacts` call was removed from `handleAcceptAllBulkLitho`, so bulk accept never silently creates correlation edges / surprises the user with amber edges. Auto-correlate is now run only via the explicit toolbar action (`handleAutoCorrelate`, unchanged). B3 test pins that accept-all does not auto-correlate.
 * **#141** — RESOLVED 2026-05-27 (SplitToolbarButton — Correlate as primary verb, Auto-correlate + Accept correlations under the caret; amber-tint mode-on signal preserved on the primary)
@@ -1757,7 +1757,14 @@ a long session; deserves its own focused implementation.
 **When to revisit.** Immediately — owner explicitly green-lit it. The
 first task of the next litho-workflow pass.
 
-## 99. Litho drag-resize clamp does not pass through rejected layers — investigated, code correct in the obvious reading (Tier G — verify with owner; G34b pins the mirror)
+## 99. ~~Litho drag-resize clamp does not pass through rejected layers~~ — CLOSED-STALE 2026-06-23 (no longer reproducing; re-open if seen in a live project)
+
+**Closed stale.** Awaited an owner repro since 2026-05-22; never
+reproduced across the large post-May litho rework (A2 decoupling,
+partition-fill, body-extent retirement, voxel builder). The 2026-05-23
+investigation found the code correct in the obvious reading and G34b
+remains the regression net. Notes preserved below for re-modelling if
+the symptom resurfaces.
 
 **What.** Dogfeed 2026-05-22: the user rejected a litho ghost layer,
 then tried to drag the boundary of the sand layer below it *up* and
@@ -3620,7 +3627,12 @@ noticeable at extreme spacing, or bundle with any future `warpAnchors`
 density/interpolation change. No root cause confirmed — needs a measured
 repro (cursor X vs landed-feature X at spacing < 0.5 with collisions).
 
-## 138. Drag-lock after litho merge — handle becomes immovable (Tier G — needs repro)
+## 138. ~~Drag-lock after litho merge — handle becomes immovable~~ — CLOSED-STALE 2026-06-23 (intermittent, never captured; re-open if seen in a live project)
+
+**Closed stale.** Intermittent since 2026-05-26; a deterministic repro
+was never captured, and it did not resurface across the large post-May
+litho rework. DR1/DR2 cover the basic merged-layer-still-draggable path.
+Candidate-path notes preserved below for re-modelling if it resurfaces.
 
 **What.** After merging two same-lithology layers on a litho ghost
 column, the surviving layer's boundary handle sometimes refuses to
