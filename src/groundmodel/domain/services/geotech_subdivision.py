@@ -20,6 +20,8 @@ from groundmodel.shared.constants.litho_constants import BaseLithology
 
 # Smoothing half-window in samples — heavier than the litho default so single
 # spikes/drops do not trigger spurious packing splits (spec §1). In-memory only.
+# 5 half-window samples ≈ 10 cm at a 2 cm CPT increment / ≈ 25 cm at 5 cm —
+# re-derive if the CPT resolution assumption changes.
 _SMOOTH_HALF_WINDOW = 5
 
 
@@ -86,7 +88,8 @@ def suggest_geotech_subdivision(
     list[GeotechSplit]
         One split per surviving packing run, ordered top-to-bottom. Never
         empty — falls back to a single split covering the full segment when
-        no CPT samples fall inside it.
+        no CPT samples fall inside it (qc=0.0 → loosest NAD class for the
+        soil type).
 
     Raises
     ------
@@ -106,7 +109,9 @@ def suggest_geotech_subdivision(
     ]
 
     if not pairs:
-        # No CPT coverage in this segment — return one unit at the fallback class.
+        # No CPT samples in this segment (e.g. borehole-only column): qc=0.0 →
+        # loosest NAD class for the soil; one fallback unit spanning the segment,
+        # never empty.
         fallback = classify_nad(soil, admixtures, 0.0)
         return [GeotechSplit(segment_top_m, segment_base_m, fallback)]
 
