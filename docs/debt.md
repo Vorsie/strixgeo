@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill)*
-* **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #155, #156, #158, #222 *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222 *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -622,37 +622,23 @@ variance-based metric replaces it.
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
 
-## 41. `Geology3DViewer.tsx` component-level smoke still absent (Tier E — residual; pure helpers extracted + netted 2026-05-17)
+## 41. ~~`Geology3DViewer.tsx` component-level smoke still absent~~ — RESOLVED 2026-06-23
 
-**What.** Part (a) is **done** (6c5389a): the pure coordinate math —
-`computeBasemapBounds`, `sampleTinZ`, `clipTrisToHalfSpace`,
-`clipTexTrisToHalfSpace` — was extracted VERBATIM into
-`cesiumGeometry.ts` with 13 vitest cases (`cesiumGeometry.test.ts`)
-covering the barycentric sampler, the footprint bbox/url math and the
-Sutherland–Hodgman half-space clip incl. the textured st-lerp.
-Geology3DViewer dropped 1,739→1,580 lines. **This is exactly the bug
-class the 585c714 `flyToCutFace` ReferenceError was, and it is now
-netted.** The remaining residual is part (b): a `Geology3DViewer.
-test.tsx` mount smoke for the *component shell* (effect wiring, the
-two-click split-line state machine, the `widgetRef.current == null`
-guards).
-
-**Why deferred / re-tiered to E.** The component smoke needs a Cesium
-mock module or headless-WebGL harness — `new Cesium.CesiumWidget`
-throws under jsdom and the mount effect sets `widgetRef.current` to
-the constructed widget (the null guard only holds if construction is
-intercepted), so the smoke needs a non-trivial inert-Cesium stub
-(separate tooling investment). With the *pure math* now covered, the
-marginal value of a shell-mount smoke is much lower than when this was
-a Tier-C blocker — the named bug class no longer rides on it.
-
-**When to revisit.** Before Phase 5 or first external release, OR
-opportunistically when a Cesium test-mock is built for any other
-viewer work. Fix: stand up `test/cesiumMock.ts` (inert
-CesiumWidget/Scene/Camera/ScreenSpaceEventHandler + real math
-classes), then `Geology3DViewer.test.tsx` mounting with empty props
-(every builder early-returns on empty data) asserting no throw +
-split-line click reducer transitions.
+Part (a) (pure coordinate math → `cesiumGeometry.ts` + 13 vitest cases)
+shipped 2026-05-17 (6c5389a). Part (b) (the component-shell mount smoke)
+shipped 2026-06-23: `test/cesiumMock.ts` (an auto-vivifying inert Cesium
+stub module — any symbol is callable/constructable/assignable/recursively
+accessible, so `import * as Cesium` mounts under jsdom without WebGL) +
+`Geology3DViewer.test.tsx` (G3D-1..5): mounts single+split with empty
+data, asserts the `resetCameraRef` effect wiring + cleanup-nulls, invokes
+the reset callback (proving the `flyToBounds`/`flyToCutFace` symbol
+references resolve — the 585c714 ReferenceError bug class), and rebuilds
+across mode/toggle prop changes. **Known gap (explicitly out of scope):**
+the two-click split-line draw lives inline in a Cesium
+`ScreenSpaceEventHandler` callback (not a separable pure reducer), so the
+inert mock — whose `setInputAction` is a no-op — cannot drive it; it would
+need a callback-capturing harness asserting against stub geometry, which
+proves nothing real. Documented in the test file's header.
 
 ## 44. Cross-stage selection — per-stage visualisation of the carried scope (Tier D — follow-on from 2026-05-21 ship)
 
