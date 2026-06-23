@@ -5181,31 +5181,22 @@ site after `bulkGhostsByAnchor` useMemo). All bodies moved verbatim; TDZ verifie
 per call site; tsc + 1,624 vitest + senior-code-reviewer pass clean on all clusters.
 `useGeologicalModel.ts` 5,180 → 2,080 lines (−60%).
 
-## 204. Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle (Tier E — backend, S)
+## 204. ~~Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle~~ — CLOSED 2026-06-23, MISFILED (not dead)
 
-**What.** The `litho_lens*` tables and the lens-companion columns were
-dropped from the schema during the body-with-extent / partition-fill
-retirement, but the bundle response schema (Pydantic) still *declares*
-`is_lens_companion` and `companion_lens_id`, so they serialize as inert
-`false` / `null` defaults on the objects that still carry them (observed
-on 3 objects in a re-exported `.strix`, all empty). No data, no
-behaviour — just dead fields riding the wire and the on-disk bundle.
-Found 2026-06-07 while scrubbing a dogfeed `test.strix` of retired
-pinch-out/lens artifacts (DB delete + re-export through the v4
-serializer, which already strips the real lens/extent data — these two
-schema-declared fields are all that survive).
-
-**Why deferred.** Pure cosmetic schema cleanup with a backwards-compat
-wrinkle: removing the fields from the response model + restore path is a
-one-liner each, but the restore's unknown-key filter must keep tolerating
-them so legacy bundles that still carry real values open cleanly. Worth
-doing in the same pass as any other bundle-schema tidy, not as a one-off.
-
-**When to revisit.** Next time the `.strix` bundle schema is touched
-(e.g. a `format_version` bump at the backwards-compat re-arm, or the
-#201/#178 god-component/client split that already moves bundle types).
-Drop both fields from the response model, leave the restore filter
-permissive.
+**CLOSED — the fields are LIVE, do NOT remove them.** Verified
+2026-06-23: `cross_section.companion_lens_id` / `is_lens_companion` are
+the perpendicular-companion linkage, which the body-extent /
+partition-fill retirement explicitly KEPT ("Materialise companions").
+`create_perpendicular_companion.py` writes them
+(`companion.companion_lens_id = body_id; is_lens_companion = True`); the
+"Materialise companions" router + `materialise_body_companions.py` query
+on them; and the frontend renders the section-header companion badge
+from them (`SectionHeader.tsx:173`, `section.ts` types). The 3 "empty"
+objects in the 2026-06-07 re-exported `.strix` were sections with no
+companion — not dead fields. The original filing mistook the historical
+*name* (lens, not body) for deadness. The real outstanding work — the
+lens→body rename of these exact persisted columns — is already tracked
+as **#222** (migration-gated). Nothing to drop here.
 
 ## 205. Advanced litho-3D uncertainty visualisation (Tier D — Phase 5, frontend, M)
 
