@@ -66,3 +66,26 @@ export function isGeologicalFormation(f: GeologicalFormationResponse): boolean {
 export function isLithoUnit(f: GeologicalFormationResponse): boolean {
   return f.litho_main_soil_code !== null
 }
+
+/**
+ * True when ``f`` is a geotechnical NAD-class unit (created via the
+ * subdivide-all-bodies accept path).
+ *
+ * ``nad_class`` is set unconditionally by the geotech-builder accept
+ * path and never set on a geological or litho formation. Call sites read
+ * declaratively (``filter(isGeotechUnit)`` mirrors
+ * ``filter(isLithoUnit)``).
+ *
+ * Parameters
+ * ----------
+ * f
+ *     A formation row returned by ``api.geology.listFormations``.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when ``f`` carries a NAD class — i.e. it is a geotech unit.
+ */
+export function isGeotechUnit(f: GeologicalFormationResponse): boolean {
+  return f.nad_class !== null
+}
