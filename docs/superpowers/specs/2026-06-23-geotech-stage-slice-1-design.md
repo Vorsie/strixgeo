@@ -44,9 +44,75 @@ horizontal-correlation work (formerly "Slice 2") into the core flow.
   partition-fill/band overlays), NAD packing-name labels + "CPT est." badge, the
   no-qc/manual band state, the build-then-subdivide gate. No per-test ghost-accept UI.
 
-The B-policy aggregation (detect consistent vertical transition across a body's
-tests vs lateral-only; interpolate the split surface) is the key NEW algorithm
-and warrants its own focused design + plan before building.
+The B-policy aggregation is the key NEW algorithm — designed in §0.1.
+
+## 0.1 B-policy algorithm — `SubdivideAllBodies`
+
+**Grouping.** The unit of subdivision is a **`(litho body_id, geo_formation_id)`
+group**: the set of C1 geo-bounded segments, across tests, that share the same
+litho `body_id` (resolver connected-component, from `load_body_picks`) AND the
+same geological formation. This is one connected, single-lithology, single-age
+region — the thing the user thinks of as "a body". (A litho body straddling a geo
+boundary yields two groups, one per geo band — correct, since they carry
+different `source_geo_formation_id` identity.)
+
+**Per group:**
+
+1. **Per-CPT packing profile.** For each CPT member, run the A3 segmenter
+   (`suggest_geotech_subdivision`) on that CPT's qc within the group's depth
+   range → an ordered, min-thickness-merged list of packing **bands**
+   (los/matig/dicht/zeer-dicht, or the fines bands) top-to-bottom, each with its
+   transition depth + the precise NAD class. Borehole members contribute no
+   profile (no qc).
+
+2. **Consensus test.** Compare the CPTs' ordered band sequences:
+   - **Consistent** ⟺ the CPTs share the same ordered band sequence (a CPT that
+     bottoms out early — fewer bands — is allowed to match a *prefix* of the
+     longer sequence, the too-shallow case). → split into connected sub-bodies,
+     one per band position.
+   - **Not consistent** (different band orders, or a band appears/vanishes
+     mid-sequence — lateral-only variation) → ONE representative class for the
+     whole group, no internal split.
+   - A group with exactly ONE CPT: that CPT's own profile IS the split (no
+     cross-test consensus needed). A group with ZERO CPTs (borehole-only): one
+     carry-through unit, `nad_class=None` (manual later).
+   - v1 consensus is on the coarse packing **band** sequence (not the exact NAD
+     number), after A3's min-thickness merge, so qc noise / ±1-class jitter
+     doesn't break consensus. *(Open refinement: a fuzzier "±1 band" tolerance —
+     v1 is exact-band-sequence; revisit if real data is too strict.)*
+
+3. **Split surfaces (consistent case).** Sub-body *k* spans band position *k*
+   across all the group's tests. The boundary between sub-body *k* and *k+1* is a
+   **correlated geotech contact surface**: one contact per contributing CPT at
+   that CPT's *k→k+1* transition depth; boreholes and too-shallow CPTs get a
+   contact interpolated from the neighbouring CPTs (reuse the litho
+   TIN/contact-correlation machinery). The sub-bodies are thus connected across
+   the group's tests by construction.
+
+4. **Representative NAD class.** Each sub-body (or the whole group in the
+   one-class case) gets the **thickness-weighted dominant** NAD class across its
+   contributing CPTs over its depth range (mode by summed thickness; tie → the
+   denser class). *(Open: dominant-vs-median — v1 = thickness-weighted dominant.)*
+
+5. **Persist + connect.** Write the geotech contacts at the split surfaces +
+   find-or-create the classified `geological_formation` by the full triple
+   `(nad_class, source_litho_formation_id, source_geo_formation_id)` (reuse C2b's
+   machinery), then run the resolver on the geotech model so the sub-bodies get
+   their own geotech `body_id` (connected). Single transaction; idempotent
+   re-run (delete+rewrite the model's geotech contacts, like C1).
+
+**Reuses:** A3 (per-CPT packing profile), the NAD classifier (A1/A2), C1's
+geo-bounding + body_id stamping, C2b's find-or-create-by-triple + skeleton/orphan
+persistence, the litho TIN/contact-correlation + resolver. **New:** the consensus
+test (§0.1 step 2), the representative-class aggregation (step 4), the
+split-surface interpolation across a group's tests (step 3).
+
+**Open design questions to confirm at build time:** (a) consensus tolerance
+(exact band sequence vs ±1-band fuzzy); (b) representative metric (dominant vs
+median); (c) how aggressively too-shallow / single-CPT groups should still split
+vs fall to one class. v1 defaults are stated above; they're the safe starting
+point and the real-data eval (run on `test.strix` against the owner's manual
+NAD marks, à la `strix-suggestion-eval`) is the arbiter.
 
 ---
 
