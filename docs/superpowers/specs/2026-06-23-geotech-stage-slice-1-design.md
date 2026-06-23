@@ -10,7 +10,8 @@
 
 Take the finished **lithostratigraphic** units and subdivide them by **packing
 density / consistency** into Belgian **NAD classes (1–31)**, producing the third
-model level. Each geotech unit carries a `(geological formation, lithology, NAD
+model level. *(Flanders/Belgian NAD is the focus now; extending to other national
+class systems is a later concern.)* Each geotech unit carries a `(geological formation, lithology, NAD
 class)` identity — because the same lithology gets different parameters by
 geological age (Paleogene Boom Klei vs Quaternary clay must be separable for
 later parameterisation).
@@ -112,10 +113,11 @@ prevails as a hard bound. *(architect finding 2, staff risk 3)*
 lithology-known segment: smooth qc in-memory (a heavier window than the litho
 segmenter — a split helper, never stored), classify each smoothed run via
 `(soil type, admixture, qc) → NAD class`, RLE + greedy min-thickness merge, emit
-ghost split contacts pre-assigned their NAD class. Reuses the module-level helpers
-already in `litho_segmentation.py` (`_rolling_median_zones`, `_run_length_encode`,
-`_greedy_merge`) and the Robertson 2015 core (`robertson_2015.py`,
-`relative_density_sand`) as imports, not re-implementations. *(staff Q2)*
+ghost split contacts pre-assigned their NAD class (via the §5 qc-band lookup — no
+Dr). Reuses the module-level smoothing/segmentation helpers already in
+`litho_segmentation.py` (`_rolling_median_zones`, `_run_length_encode`,
+`_greedy_merge`) as imports, not re-implementations. The Robertson/Dr core is NOT
+used by the classifier. *(staff Q2)*
 
 **Step C — accept / reject / drag.** New `AcceptGeotechSuggestions` use case (the
 litho accept is heavily litho-coupled: its find-or-create key is `(litho_main_soil_code,
@@ -125,21 +127,44 @@ triggers. *(staff Q3)*
 
 ## 5. NAD classification rule
 
-The rule is `(soil type, admixture, qc [+ σ′v]) → NAD class 1–31`. Status:
-- **Labels** for all 31 classes: already in `NAD_CLASSES`. ✓
-- **Sand packing** (classes 5–8, and 1–2 gravel): the Dr → class path already
-  exists in `litho_segmentation.py` (`_dr_to_nad_class`, `_SAND_NAD_BY_DR`).
-- **Admixture-aware sand** (9–12), **silt** (13–20), **clay** (21–28), **peat**
-  (29–31): the qc/consistency thresholds are in the owner's Excel
-  (`Correlaties uit S en NAD_NEN_v2.xlsx`, sheet `laagnr NAD-NEN`). **Prerequisite
-  task T0: import that Excel into `src/groundmodel/infrastructure/codelists/data/`
-  and port the threshold table into a `*_constants.py` `(base_lithology, admixture,
-  qc-band) → nad_class` lookup** (mirrors the existing codelist-from-xlsx pattern).
-  The Excel is not yet in the repo — owner to supply.
+The rule is **`(soil type, admixture, qc-band) → NAD class 1–31`** — a qc-band
+lookup. **No Dr** (owner directive 2026-06-23): the existing `litho_segmentation`
+Dr → class path (`_dr_to_nad_class`, `_SAND_NAD_BY_DR`) is **not** reused here;
+sand is classified on qc bands like every other soil. The default classification
+input is **raw qc** (no σ′v / no normalisation); a Qtn option exists (see below).
 
-The lithology + admixture come from the source litho unit (so the segmenter is
-lithology-conditioned and picks the right threshold column); qc comes from the
-intersecting CPT.
+- **Labels** for all 31 classes: already in `NAD_CLASSES`. ✓
+- **qc input:** raw `qc_mpa` by default, with a **Settings toggle to use Qtn**
+  (normalised cone resistance, the depth-independent packing measure) when the
+  engineer prefers it. Default raw. **Dependency:** the NAD-NEN Excel thresholds
+  are *raw-qc bands*, so the Qtn path needs its own **Qtn-banded threshold set**
+  (owner to supply, or the Qtn toggle is a follow-up). Qtn re-introduces σ′v
+  (water table + unit weights) on that path only — and Qtn is already computed in
+  the Robertson pipeline (`qtn_f_ic_series`), so the computation is reused, not new.
+  The raw-qc default needs no σ′v.
+- **Thresholds** for all classes (gravel 1–4, sand 5–12, silt 13–20, clay 21–28,
+  peat 29–31): in the owner's Excel (`Correlaties uit S en NAD_NEN_v2.xlsx`, sheet
+  `laagnr NAD-NEN`). **Prerequisite task T0: add that Excel to
+  `src/groundmodel/infrastructure/codelists/data/` and port it into a
+  `*_constants.py` `(base_lithology, admixture, qc-band) → nad_class` lookup**
+  (mirrors the existing codelist-from-xlsx pattern). Not yet in the repo — owner
+  to supply.
+
+**Admixture matching is EXACT against the variants the table actually defines:**
+sand has only silt-/clay admixture variants (silt-/kleihoudend → 9–12), NOT a
+gravelly-sand variant; silt and clay have only the sandy variant (zandhoudend →
+17–20 / 25–28). A litho admixture with no NAD variant for that soil (e.g. gravelly
+sand) falls to the **clean** variant of that soil. No fuzzy matching.
+
+The lithology + admixture come from the source litho unit (so the classifier picks
+the right threshold column); qc comes from the intersecting CPT.
+
+**Edge — qc outside the defined bands:** default to the **nearest** NAD class
+*within the unit's soil + admixture column*. The **lithology is hard truth** — qc
+never reclassifies the soil type, only the packing/consistency band within it.
+
+**Scope:** Belgian (Flanders) NAD only for now; extending to other national class
+systems is a later concern.
 
 ## 6. Components
 
@@ -152,8 +177,8 @@ create/ensure wiring, suggest/accept endpoints (geotech variants).
 reuse SectionPanel / overlays), `GeotechSuggestionGhostColumns` (near-copy of the
 litho ghost component with NAD-label rendering + an NAD-class colour map), an
 `axisMode:'geotechnical'` branch (`ContactsLayer`, `CanvasHints`, toolbar), a
-geotech inspector roster, Settings knobs (min-thickness, smoothing window —
-mirror the litho segmenter rows).
+geotech inspector roster, Settings knobs (min-thickness, smoothing window, and a
+**raw-qc / Qtn toggle** — mirror the litho segmenter rows).
 
 **Reused:** the contact/build/section/bundle pipeline, the Robertson core +
 segmenter helpers, the litho_geo_bounding geometry, the sibling-model create
@@ -187,6 +212,8 @@ pattern.
   per-investigation. Aggregation policy is Slice 2.
 - **Future un-snap adjustability:** geo-bounding is automatic in S1; per-contact
   override is backlog.
+- **qc outside the defined bands:** default to the nearest NAD class within the
+  unit's soil + admixture column; lithology is hard truth (see §5).
 
 ## 9. Testing
 - Domain: the NAD classification lookup at band/threshold boundaries per
@@ -199,6 +226,7 @@ pattern.
   dual-ref FKs.
 - Frontend: the ghost accept/reject/drag flow on the geotech axis; the suggest gate
   + hint; NAD packing-name labels; the no-qc band state.
+- e2e fixture
 
 ## 10. Decomposition & debt impact
 - **S2** — horizontal correlation → large geotech bodies + cross-CPT aggregation policy.
@@ -213,5 +241,8 @@ pattern.
 
 ## 11. Open inputs (must resolve before T0)
 - The NAD-NEN Excel (`Correlaties uit S en NAD_NEN_v2.xlsx`) must be added to the
-  repo so the `(soil, admixture, qc-band) → NAD class` table can be ported. Owner
-  to supply.
+  repo so the raw-`(soil, admixture, qc-band) → NAD class` table can be ported.
+  Owner to supply.
+- The **Qtn-banded threshold set** (for the optional Qtn classification path) — if
+  the Excel doesn't carry Qtn bands, the raw-qc path ships first and the Qtn toggle
+  becomes a follow-up. Owner to confirm.
