@@ -20,8 +20,17 @@ def test_clean_sand_loosest_when_qc_below_all_bands():
 
 
 def test_silty_sand_uses_secondary_variant():
-    """Sand + a qualifying clay admixture → secondary variant (spec §5 exact match); qc 8 → NAD 10."""
+    """Sand + a qualifying clay admixture → secondary variant (spec §5); qc 8 → NAD 10."""
     admx = (Admixture(soil_code="KL", amount="M"),)
+    assert classify_nad("ZAND", admx, 8.0) == 10
+
+
+def test_loam_admixture_on_sand_is_silty_secondary():
+    """Sand + a leem (LE) admixture → secondary variant (leem == silt geotech).
+
+    qc 8 MPa → silt-/kleihoudend sand matig gp = NAD 10.
+    """
+    admx = (Admixture(soil_code="LE", amount="M"),)
     assert classify_nad("ZAND", admx, 8.0) == 10
 
 
