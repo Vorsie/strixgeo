@@ -60,19 +60,16 @@ NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]
 }
 
 # Which admixture soil_codes map to the "secondary" NAD variant per main soil
-# (spec §5, exact matching). Codes are DOV hoofdnaam/bijmenging grondsoort codes
-# from ``codetabel_hoofdnaam.csv`` (same codelist for both main and admixture
-# grondsoort elements). Sand/gravel take silt ("SI") OR clay ("KL"); silt/clay/peat
-# take sand ("XZ"). Anything else → "clean".
-# Verified against litho_segmentation_constants.py DOV_HOOFDNAAM_TO_LITHOLOGY and
-# codetabel_hoofdnaam.csv: SI=silt, KL=klei, XZ=zand (generic). Leem ("LE") and
-# slib ("SL") are silt-class soils but the NAD table only specifies "silt-/
-# kleihoudend" as the named secondary variant; exact-match policy (spec §5)
-# means only the direct silt code qualifies until the owner's xlsx confirms
-# whether LE/SL should also trigger "secondary". TODO Task T0: verify LE/SL.
+# (spec §5). Codes are DOV hoofdnaam/bijmenging grondsoort codes from
+# ``codetabel_hoofdnaam.csv`` (same codelist for main + admixture elements):
+# SI=silt, KL=klei, LE=leem, XZ=zand (generic). The NAD secondary variant for
+# coarse soils is "silt-/kleihoudend" (silty OR clayey); leem is geotechnically
+# the same as silt (owner directive 2026-06-23), so sand/gravel take SI, KL OR
+# LE. Fines (silt/clay/peat) take the sand code XZ ("zandhoudend"). "SL" (slib)
+# is not a used admixture code → intentionally omitted. Anything else → "clean".
 _SECONDARY_ADMIXTURE_CODES: dict[BaseLithology, frozenset[str]] = {
-    "GRIND": frozenset({"SI", "KL"}),
-    "ZAND": frozenset({"SI", "KL"}),
+    "GRIND": frozenset({"SI", "KL", "LE"}),
+    "ZAND": frozenset({"SI", "KL", "LE"}),
     "SILT": frozenset({"XZ"}),
     "KLEI": frozenset({"XZ"}),
     "VEEN": frozenset({"XZ"}),
