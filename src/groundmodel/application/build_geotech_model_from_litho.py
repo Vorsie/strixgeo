@@ -16,7 +16,7 @@ What it persists (one transaction, single commit at the end)
 1. **The geotech model** — find-or-create a ``geological_model`` row with
    ``kind='geotechnical'`` whose parent is the litho model.  Reuses the existing
    ``GeologyRepository.create_model`` + ``REQUIRED_PARENT_KIND`` invariant; an
-   already-existing geotech child is reused (idempotent re-build).
+   already-existing geotech child is reused.
 2. **Skeleton geotech formations** — one ``geological_formation`` row per distinct
    ``(source_litho_formation_id, source_geo_formation_id)`` pair encountered, with
    ``nad_class=None``, the inherited ``litho_main_soil_code`` + ``litho_admixtures``
@@ -24,11 +24,24 @@ What it persists (one transaction, single commit at the end)
    migration ``c120996a504d``).  These satisfy the NOT-NULL ``formation_id`` FK on
    the contacts; ``nad_class=None`` is a valid transient state (Task C2's accept
    find-or-creates the real ``(nad_class, …)`` formation and retargets the
-   contacts).  Find-or-create by the pair so the skeleton is shared across columns.
+   contacts).  Find-or-create is DB-backed (queries before inserting) so skeletons
+   are shared across sections and survive a re-build without duplication.
 3. **Geotech ``FormationContact`` rows** at each segment top per investigation: the
    carried-through litho contact tops AND the geo-division cuts.  A contact created
    at a geo-division boundary carries ``parent_geo_contact_id`` pointing at the
    geological contact that forced the cut (provenance, set at BUILD).
+
+Idempotency on re-build
+-----------------------
+Calling ``execute`` a second time on the same ``(litho_model_id, section_id)`` is
+safe.  Before writing new contacts (Phase 5) the use case deletes the geotech
+model's existing ``FormationContact`` rows for the in-corridor investigations
+(scoped to the section's corridor, so other sections' contacts are untouched).
+Skeleton formations are DB-backed find-or-create: a re-build reuses the existing
+rows instead of inserting duplicates.  Skeleton rows that become wholly unreferenced
+after a re-build are **not** garbage-collected here — that is acceptable because
+Task C2 accept manages the skeleton lifecycle and the orphaned rows carry no
+user-visible state.
 
 The geo-bounding geometry
 -------------------------
@@ -50,7 +63,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -186,6 +199,14 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
         ValueError
             When the litho model is missing / out of project, or the section is
             not in the project.
+
+        Notes
+        -----
+        Re-calling with the same arguments is safe.  Before writing new contacts
+        the method deletes existing geotech contacts for the in-corridor
+        investigations (section-scoped delete — other sections' contacts are
+        untouched).  Skeleton formations are reused from the DB when they already
+        exist, so a second build produces no duplicate rows.
         """
         self.info(f"BuildGeotechModelFromLitho: litho_model={litho_model_id} section={section_id}")
 
@@ -223,6 +244,25 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
                 created_formation_ids=[],
                 created_contact_ids=[],
                 divided_contact_count=0,
+            )
+
+        # Phase 2b — delete this section's existing geotech contacts for the
+        # in-corridor investigations before re-writing them.  This makes contact
+        # creation idempotent: a second build replaces, not duplicates, the prior
+        # skeleton contacts.  The delete is scoped to the section's in-corridor
+        # investigations so contacts for OTHER sections are untouched.
+        if in_corridor:
+            corridor_ids = list(in_corridor.keys())
+            await self._session.execute(
+                delete(FormationContactOrm).where(
+                    FormationContactOrm.model_id == geotech_model.id,
+                    FormationContactOrm.borehole_id.in_(corridor_ids)
+                    | FormationContactOrm.cpt_id.in_(corridor_ids),
+                )
+            )
+            self.debug(
+                f"BuildGeotechModelFromLitho: deleted prior geotech contacts for "
+                f"{len(corridor_ids)} in-corridor investigation(s) on re-build"
             )
 
         # Phase 3 — geo-bounding geometry.  Build the per-formation surfaces, the
@@ -684,9 +724,44 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
             The found-or-created skeleton formation row.
         """
         key = (source_litho_formation_id, source_geo_formation_id)
-        existing = skeleton_by_key.get(key)
-        if existing is not None:
-            return existing
+        cached = skeleton_by_key.get(key)
+        if cached is not None:
+            return cached
+
+        # Cache miss — query the DB before inserting so that a re-build (or a
+        # concurrent build for a different section) reuses the existing skeleton
+        # row instead of creating a duplicate.
+        #
+        # The source_geo_formation_id IS NULL case requires `.is_(None)` in the
+        # WHERE clause; using `== None` would be treated as Python None-comparison
+        # and silently produce the wrong SQL predicate.
+        geo_filter = (
+            GeologicalFormationOrm.source_geo_formation_id.is_(None)
+            if source_geo_formation_id is None
+            else GeologicalFormationOrm.source_geo_formation_id == source_geo_formation_id
+        )
+        db_row = (
+            (
+                await self._session.execute(
+                    select(GeologicalFormationOrm).where(
+                        GeologicalFormationOrm.app_project_id == project_id,
+                        GeologicalFormationOrm.source_litho_formation_id
+                        == source_litho_formation_id,
+                        geo_filter,
+                        GeologicalFormationOrm.nad_class.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if db_row is not None:
+            skeleton_by_key[key] = db_row
+            self.debug(
+                f"_find_or_create_skeleton_formation: reused {db_row.id} "
+                f"litho={source_litho_formation_id} geo={source_geo_formation_id}"
+            )
+            return db_row
 
         litho_formation = litho_formation_by_id.get(source_litho_formation_id)
         soil_code = litho_formation.litho_main_soil_code if litho_formation is not None else None
