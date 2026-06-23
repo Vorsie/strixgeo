@@ -38,6 +38,9 @@ NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]
     ("KLEI", "clean"): [(0.5, 21), (1.0, 22), (2.0, 23), (None, 24)],
     ("KLEI", "secondary"): [(0.5, 25), (1.0, 26), (2.0, 27), (None, 28)],
     # VEEN: qc-based peat packing is weak; provisional single-band default.
+    # The NAD table defines NO "zandhoudend veen" secondary variant, so the
+    # secondary row intentionally mirrors clean (a sandy-peat admixture does not
+    # change the class) rather than being a copy-paste stub.
     ("VEEN", "clean"): [(0.3, 29), (0.6, 30), (None, 31)],
     ("VEEN", "secondary"): [(0.3, 29), (0.6, 30), (None, 31)],
 }
