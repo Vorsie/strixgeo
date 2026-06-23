@@ -313,8 +313,13 @@ interface Props {
    * renders ``LithoCompositionPickerDialog`` instead of
    * ``FormationPickerDialog``.  The geological + geotechnical axes
    * use the original dialog unchanged.
+   *
+   * When ``'geotechnical'``, contact and band rendering mirrors the
+   * lithostratigraphic axis (same drag/right-click, coloured
+   * per-column bands) but litho-only gestures (correlation,
+   * auto-correlate, partition fill, lens detection) are excluded.
    */
-  axisMode?: 'geological' | 'lithostratigraphic'
+  axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   /**
    * Inclusive snap tolerance (m) for the litho↔geological drag-
    * indicator (debt #134-B).  Threaded straight to ContactsLayer.
@@ -376,6 +381,13 @@ interface Props {
    *  false, the low-confidence stroke opacity multiplier becomes 1.0
    *  so the uncertainty cue disappears.  Defaults to true. */
   showConfidenceFade?: boolean
+  /**
+   * Geotech axis only — when true the geotech model for this section has
+   * not yet been built, so the NAD subdivision suggestion flow is
+   * unavailable.  Forwarded to ``CanvasHints`` to surface a discoverability
+   * hint (``data-testid="geotech-not-built-hint"``).  No-op on other axes.
+   */
+  geotechNotReconciled?: boolean
   /**
    * Active lithostratigraphic model id.  Required for the lens-naming
    * context-menu gesture — passed through so the action always has a
@@ -782,6 +794,7 @@ export default function SectionPanel({
   onManualLithoUnitCreate,
   onLithoExistingUnitPick,
   showConfidenceFade = true,
+  geotechNotReconciled = false,
   activeLithoModelId,
   onEditInGeologyStage,
   contactEdges,
@@ -2742,7 +2755,8 @@ export default function SectionPanel({
               // correlation ribbons, not an auto-join (confirmed via the
               // dashed-inventory diagnostic, 2026-05-29).  Geological axis
               // keeps them (formations ARE laterally continuous).
-              renderFormationSurfaces={axisMode !== 'lithostratigraphic'}
+              // Geotech mirrors litho: no cross-column auto-join either.
+              renderFormationSurfaces={axisMode !== 'lithostratigraphic' && axisMode !== 'geotechnical'}
               // Debt #142 follow-up — the post-accept hide of litho
               // suggestion ghosts removed the bold colour fill the user
               // previously read as "this band is a SAND / SILT / CLAY
@@ -2751,7 +2765,8 @@ export default function SectionPanel({
               // underlying CPT trace.  Geological axis keeps the
               // original 0.18 (light backdrop where bands would
               // otherwise compete with contact lines + labels).
-              bandFillOpacity={axisMode === 'lithostratigraphic' ? 0.55 : 0.18}
+              // Geotech mirrors litho (same contact/band rendering).
+              bandFillOpacity={axisMode === 'lithostratigraphic' || axisMode === 'geotechnical' ? 0.55 : 0.18}
               // Cross-column TIN-derived formationFillBands need a
               // built litho surface to produce geometry; on a typical
               // litho-axis CPT column with no surface the band cell is
@@ -2759,11 +2774,10 @@ export default function SectionPanel({
               // rect between adjacent committed contacts on every
               // column directly — independent of any TIN — so the
               // user always sees the lithology stack.
-              perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
-              // Litho-fill view toggle (litho axis only) — hides the
-              // formationFillBands: litho axis OFF (ModelFillOverlay replaces it);
-              // geological axis ON, unchanged. The store-backed showModelFill
-              // now gates ModelFillOverlay, not ContactsLayer.
+              // Geotech mirrors litho for the same reason.
+              perColumnBandsFromContacts={axisMode === 'lithostratigraphic' || axisMode === 'geotechnical'}
+              // Litho-fill view toggle (litho/geotech axis) — hides the
+              // formationFillBands: litho/geotech axes OFF; geological axis ON.
               showFormationFill={axisMode === 'geological'}
               // Debt #151 dogfeed refinement 2026-05-27 — pending
               // ghost ranges per anchor so the per-column band can
@@ -2776,8 +2790,9 @@ export default function SectionPanel({
               // contacts now that cross-merge is off (commit 9d4a01db).
               // Geological axis keeps its cross-merge absorb gesture
               // and stays unclamped (prop undefined).
+              // Geotech mirrors litho (same min-slab discipline).
               contactDragClampMinThicknessM={
-                axisMode === 'lithostratigraphic' ? 0.1 : undefined
+                axisMode === 'lithostratigraphic' || axisMode === 'geotechnical' ? 0.1 : undefined
               }
               // Debt #134-B — pre-release "↦ snap on release" hint in
               // the drag readout.  Only meaningful on the litho axis;
@@ -3274,6 +3289,7 @@ export default function SectionPanel({
             contactGestureState?.contactCorrelateMode === true
             && correlateContacts.length === 0
           }
+          geotechNotReconciled={geotechNotReconciled}
         />
       </div>
 
