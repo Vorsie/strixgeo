@@ -900,6 +900,106 @@ export interface BodyBoundaryResponse {
 
 
 // ---------------------------------------------------------------------------
+// Geotech build / suggest / accept types
+// ---------------------------------------------------------------------------
+
+/**
+ * Response from ``POST .../geotech/build``.
+ *
+ * ``mid`` in the request path is the lithostratigraphic model id.
+ */
+export interface BuildGeotechResponse {
+  /** The geotechnical model that was created or reused. */
+  geotech_model_id: string
+  /** True when the model was first created in this call; false when reused. */
+  created_model: boolean
+  /** Skeleton geotech formation rows created in this call. */
+  created_formation_ids: string[]
+  /** Geotech formation-contact rows created in this call. */
+  created_contact_ids: string[]
+  /**
+   * Count of geo-division cuts — segments whose top is a geological-boundary
+   * cut rather than a carried-through litho top.
+   */
+  divided_contact_count: number
+}
+
+/**
+ * One suggested NAD packing sub-unit ghost within a geotech segment.
+ *
+ * ``nad_class`` is null for borehole anchors (no qc series → unclassifiable).
+ * ``source_geo_formation_id`` is null when the sub-unit sits in the open
+ * shallow band above the topmost geological surface.
+ */
+export interface GeotechGhostSubUnit {
+  depth_top_m: number
+  depth_base_m: number
+  /** NAD packing class 1–31, or null (borehole carry-through). */
+  nad_class: number | null
+  source_litho_formation_id: string
+  source_geo_formation_id: string | null
+}
+
+/**
+ * Suggested sub-units for one geo-bounded skeleton segment.
+ *
+ * ``source_geo_formation_id`` is null when the segment sits above the
+ * topmost geological surface.
+ */
+export interface GeotechSegmentSuggestion {
+  segment_top_m: number
+  segment_base_m: number
+  source_litho_formation_id: string
+  source_geo_formation_id: string | null
+  ghost_sub_units: GeotechGhostSubUnit[]
+}
+
+/** All segment suggestions for one in-corridor investigation. */
+export interface GeotechInvestigationSuggestion {
+  investigation_id: string
+  /** True for CPT anchors (qc available), false for boreholes. */
+  is_cpt: boolean
+  segments: GeotechSegmentSuggestion[]
+}
+
+/**
+ * One accepted NAD packing sub-unit in the accept-geotech request body.
+ *
+ * ``nad_class`` is null for borehole carry-through.
+ * ``source_geo_formation_id`` is null above the topmost geological surface.
+ */
+export interface AcceptGeotechSubUnit {
+  investigation_id: string
+  depth_top_m: number
+  depth_base_m: number
+  nad_class: number | null
+  source_litho_formation_id: string
+  source_geo_formation_id: string | null
+}
+
+/** One accepted geo-bounded skeleton segment in the accept-geotech request body. */
+export interface AcceptGeotechSegment {
+  investigation_id: string
+  segment_top_m: number
+  segment_base_m: number
+  sub_units: AcceptGeotechSubUnit[]
+}
+
+/** Request body for ``POST .../contacts/accept-geotech-suggestions``. */
+export interface AcceptGeotechRequest {
+  section_id: string
+  segments: AcceptGeotechSegment[]
+}
+
+/** Response from ``POST .../contacts/accept-geotech-suggestions``. */
+export interface AcceptGeotechResponse {
+  created_formation_ids: string[]
+  created_contact_ids: string[]
+  /** Orphaned skeleton formations deleted in this call. */
+  deleted_skeleton_ids: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Geotechnical-unit types
 // ---------------------------------------------------------------------------
 
@@ -1806,6 +1906,56 @@ export const geologyClient = {
     post(
       `/projects/${projectId}/geology/models/${modelId}/body-companions/materialise`,
       {},
+    ),
+
+  // --- Geotech build / suggest / accept -----------------------------------
+
+  /**
+   * POST .../geotech/build — build the skeleton geotech model from a litho model.
+   *
+   * ``lithoModelId`` is the parent lithostratigraphic model.  The server
+   * creates (or reuses) a child geotechnical model and returns its id.
+   */
+  buildGeotechModel: (
+    projectId: string,
+    lithoModelId: string,
+    sectionId: string,
+  ): Promise<BuildGeotechResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${lithoModelId}/geotech/build`,
+      { section_id: sectionId },
+    ),
+
+  /**
+   * POST .../geotech/suggest — generate NAD packing sub-unit suggestions.
+   *
+   * ``geotechModelId`` is the geotechnical model returned by ``buildGeotechModel``.
+   * Returns one suggestion item per in-corridor investigation.
+   */
+  suggestGeotechSubdivision: (
+    projectId: string,
+    geotechModelId: string,
+    sectionId: string,
+  ): Promise<GeotechInvestigationSuggestion[]> =>
+    post(
+      `/projects/${projectId}/geology/models/${geotechModelId}/geotech/suggest`,
+      { section_id: sectionId },
+    ),
+
+  /**
+   * POST .../contacts/accept-geotech-suggestions — commit accepted NAD sub-units.
+   *
+   * ``geotechModelId`` is the geotechnical model.  Returns created formation +
+   * contact ids and the list of deleted skeleton formation ids.
+   */
+  acceptGeotechSuggestions: (
+    projectId: string,
+    geotechModelId: string,
+    request: AcceptGeotechRequest,
+  ): Promise<AcceptGeotechResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${geotechModelId}/contacts/accept-geotech-suggestions`,
+      request,
     ),
 
   // Delete source='auto' edges for the model. With sectionId (debt #3), only
