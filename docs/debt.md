@@ -87,7 +87,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill)*
 * **E. Lower technical debt:** #16, #17, #27, #41, #62, #65, #68, #82, #114, #155, #156, #158, #222 *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -5180,25 +5180,6 @@ refs passed as `MutableRefObject` params; B-1 ghost-clear useEffect co-located w
 site after `bulkGhostsByAnchor` useMemo). All bodies moved verbatim; TDZ verified
 per call site; tsc + 1,624 vitest + senior-code-reviewer pass clean on all clusters.
 `useGeologicalModel.ts` 5,180 → 2,080 lines (−60%).
-
-## 203. F1 / cheatsheet discoverability — nothing in-canvas points to F1 (Tier D — onboarding, frontend, S)
-
-**What.** The Help → Gesture cheatsheet (debt #95, shipped 2026-06-06)
-is reachable via the menu and the F1 accelerator, but nothing on the
-canvas tells the user F1 exists. A one-line "Press F1 for the full
-gesture reference" in `components/sections/CanvasHints.tsx` (the
-always-on per-stage gesture pill) would close the discoverability
-loop. CanvasHints is a section file that was off-limits to Session C's
-disjoint-file scope, so the hint was filed here rather than bolted on
-during integration.
-
-**Why deferred.** Touching CanvasHints is a render change on a section
-component (geometry-check + vitest + tsc gate), and it pairs naturally
-with the #93 onboarding/hinting pass rather than a merge session.
-
-**When to revisit.** With #93 (first-use tutorial + per-stage hinting),
-or the first dogfeed "I didn't know there was a cheatsheet". Add the
-F1 hint line to the CanvasHints pill in the same pass.
 
 ## 204. Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle (Tier E — backend, S)
 
