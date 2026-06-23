@@ -139,6 +139,7 @@ import {
   type ColumnLabelMode,
 } from '../utils/columnLabelLod'
 import { LITHO_SEGMENTER_DEFAULTS } from '../utils/lithoSegmenterPrefs'
+import { nadClassColor, nadClassName } from '../utils/nadClasses'
 
 interface Props {
   section: CrossSectionResponse
@@ -315,9 +316,11 @@ interface Props {
    * use the original dialog unchanged.
    *
    * When ``'geotechnical'``, contact and band rendering mirrors the
-   * lithostratigraphic axis (same drag/right-click, coloured
-   * per-column bands) but litho-only gestures (correlation,
-   * auto-correlate, partition fill, lens detection) are excluded.
+   * lithostratigraphic axis: ``PartitionFillOverlay`` renders bands
+   * coloured by NAD class (via ``nadClassColor``), and the label
+   * shows the NAD class name (via ``nadClassName``).  Litho-only
+   * gestures (correlation, auto-correlate, lens detection) are
+   * excluded — the geotech axis is view-only for F3.
    */
   axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   /**
@@ -839,25 +842,40 @@ export default function SectionPanel({
   // "Sa1", "Sa2". The geological formation a body falls in is a SEPARATE derived
   // label (``body.geo_formation_name``), shown as context, not baked into the
   // name — so the old "QP"/"QH" geo-parent prefix is gone.
+  // On the geotechnical axis, bands are coloured by NAD class and labelled
+  // by NAD class name (e.g. "Dicht" / "No qc — manual class").
+  // On litho / geological axes, label derives from soil code + colour from
+  // the stored lithology colour.
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
-      // Litho units carry the soil in ``litho_main_soil_code`` (e.g. ZAND);
-      // ``lithology`` is a separate, usually-null field. Use the main soil.
-      const base = lithologyAbbrev(f.litho_main_soil_code ?? f.lithology)
-      m.set(f.id, base || f.name)
+      if (axisMode === 'geotechnical') {
+        // Geotech axis: label is the NAD class name.
+        m.set(f.id, nadClassName(f.nad_class ?? null))
+      } else {
+        // Litho units carry the soil in ``litho_main_soil_code`` (e.g. ZAND);
+        // ``lithology`` is a separate, usually-null field. Use the main soil.
+        const base = lithologyAbbrev(f.litho_main_soil_code ?? f.lithology)
+        m.set(f.id, base || f.name)
+      }
     }
     return m
-  }, [formations])
+  }, [formations, axisMode])
 
-  // formation_id → lithology colour, for the body band fill. Litho units carry
-  // their lithology colour in the stored ``color`` (stamped at create +
-  // backfilled, #145); geological formations carry the user-chosen colour.
+  // formation_id → band fill colour.
+  // Litho units: stored lithology colour (stamped at create + backfilled, #145).
+  // Geological formations: user-chosen colour.
+  // Geotech formations: NAD class colour (nadClassColor); null → neutral grey.
   const formationColorById = useMemo(() => {
     const m = new Map<string, string>()
-    for (const f of formations) m.set(f.id, f.color)
+    for (const f of formations) {
+      m.set(
+        f.id,
+        axisMode === 'geotechnical' ? nadClassColor(f.nad_class ?? null) : f.color,
+      )
+    }
     return m
-  }, [formations])
+  }, [formations, axisMode])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -3048,18 +3066,16 @@ export default function SectionPanel({
                 onRequestAcceptEdge={onRequestAcceptEdge}
               />
             )}
-            {/* Body band fill — colour each body's closed loop with its one
-                lithology, traced across its on-section member columns. Renders
-                BENEATH the wedge/extent overlay so the caps + interaction paint
-                on top. Litho axis only, and ONLY when the user has clicked
-                "Fill bands" (never auto-drawn). */}
             {/* Partition fill — every point belongs to exactly one body, no
                 overlaps + no gaps (owner directive 2026-06-05; the 2D section
                 defines the 3D model). Renders the tiled partition + labels +
-                open-end stubs when Fill bands is on. The move-shared-boundary
-                drag (replacing the morph apex drag) lands next; the drag props
-                are still passed for call-site stability. */}
-            {axisMode === 'lithostratigraphic' && lenses !== undefined && (
+                open-end stubs when Fill bands is on.
+                On the litho axis: bands coloured by lithology colour.
+                On the geotech axis: bands coloured by NAD class (nadClassColor);
+                  a formation with nad_class === null renders in neutral grey
+                  ("No qc — manual class" label) — distinct from amber, never amber.
+                Geotech axis is view-only (no drag handles wired). */}
+            {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 contactEdges={contactEdges}
