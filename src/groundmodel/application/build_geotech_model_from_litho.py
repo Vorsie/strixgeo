@@ -139,8 +139,11 @@ class BuildGeotechResult:
     created_contact_ids : list[UUID]
         Geotech ``FormationContact`` rows created in this call.
     divided_contact_count : int
-        How many of the created contacts are geo-division cuts (carry
-        ``parent_geo_contact_id`` when a geological contact matched).
+        Count of geo-division cuts (segments whose top is a geological-boundary
+        cut, not a carried-through litho top).  Note a cut may still carry a
+        null ``parent_geo_contact_id`` when no geological contact was within
+        tolerance — ``divided_contact_count`` counts cuts, not matched
+        provenance links.
     """
 
     geotech_model_id: UUID
@@ -251,19 +254,22 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
         # creation idempotent: a second build replaces, not duplicates, the prior
         # skeleton contacts.  The delete is scoped to the section's in-corridor
         # investigations so contacts for OTHER sections are untouched.
-        if in_corridor:
-            corridor_ids = list(in_corridor.keys())
-            await self._session.execute(
-                delete(FormationContactOrm).where(
-                    FormationContactOrm.model_id == geotech_model.id,
-                    FormationContactOrm.borehole_id.in_(corridor_ids)
-                    | FormationContactOrm.cpt_id.in_(corridor_ids),
-                )
+        #
+        # in_corridor is guaranteed non-empty here: if picks is non-empty (we
+        # returned early above when it wasn't), then load_body_picks found rows
+        # restricted to in_corridor.keys(), so in_corridor must have entries.
+        corridor_ids = list(in_corridor.keys())
+        await self._session.execute(
+            delete(FormationContactOrm).where(
+                FormationContactOrm.model_id == geotech_model.id,
+                FormationContactOrm.borehole_id.in_(corridor_ids)
+                | FormationContactOrm.cpt_id.in_(corridor_ids),
             )
-            self.debug(
-                f"BuildGeotechModelFromLitho: deleted prior geotech contacts for "
-                f"{len(corridor_ids)} in-corridor investigation(s) on re-build"
-            )
+        )
+        self.debug(
+            f"BuildGeotechModelFromLitho: deleted prior geotech contacts for "
+            f"{len(corridor_ids)} in-corridor investigation(s) on re-build"
+        )
 
         # Phase 3 — geo-bounding geometry.  Build the per-formation surfaces, the
         # boundary samplers, and run the pure transforms (geology = hard bound).
@@ -451,8 +457,11 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
 
         Unlike ``load_geo_surfaces`` (which returns ``SurfaceBound`` and drops the
         geological ``formation_id``), this keeps the formation id so a cut can be
-        attributed to its geological formation.  Stale or empty-geometry surfaces
-        are skipped — the same filter the shared loader applies.
+        attributed to its geological formation.  Stale, vertex-less, or
+        triangle-less surfaces are skipped — a surface with vertices but no
+        triangles (e.g. a 2-contact formation) would produce a ``TinSurface``
+        whose ``evaluate_tin_at`` always returns ``None``, silently degrading
+        every evaluation to the nearest-vertex fallback.
 
         Parameters
         ----------
@@ -470,7 +479,7 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
         rows = await self._repo.list_surfaces(parent_geo_model_id)
         out: list[_GeoSurface] = []
         for row in rows:
-            if row.is_stale or not row.vertices:
+            if row.is_stale or not row.vertices or not row.triangles:
                 continue
             tin = TinSurface(
                 vertices=[tuple(v) for v in row.vertices],
@@ -770,13 +779,16 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
         name = (
             f"{litho_formation.name} (geotech)" if litho_formation is not None else "geotech unit"
         )
+        # Inherit display_order so the formation-list UI orders geotech units like
+        # their litho parents; fall back to 0 when the litho row is missing.
+        display_order = litho_formation.display_order if litho_formation is not None else 0
 
         formation = GeologicalFormationOrm(
             id=uuid7(),
             app_project_id=project_id,
             name=name,
             color=color,
-            display_order=0,
+            display_order=display_order,
             nad_class=None,  # set at Task C2 accept
             litho_main_soil_code=soil_code,
             litho_admixtures=admixtures,
