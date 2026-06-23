@@ -57,7 +57,11 @@ from groundmodel.application.project_investigations_onto_section import (
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.domain.services.geotech_body_aggregation import BandProfile, plan_body_subdivision
+from groundmodel.domain.services.geotech_body_aggregation import (
+    BandProfile,
+    BodySubdivisionPlan,
+    plan_body_subdivision,
+)
 from groundmodel.domain.services.geotech_split_surface import ColumnXY, interpolate_split_elevations
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
@@ -309,10 +313,6 @@ class SubdivideAllBodies(GroundModelLogger):
         classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
         skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
 
-        # layer_id_by_inv_pos[investigation_id][band_position_k] = litho_layer id
-        # — used to build same-position geotech edges after all layers are inserted.
-        layer_id_by_inv_pos: dict[str, dict[int, UUID]] = defaultdict(dict)
-
         total_layers = 0
         split_body_count = 0
         one_class_body_count = 0
@@ -333,6 +333,12 @@ class SubdivideAllBodies(GroundModelLogger):
             # Collect CPT members of the group.
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
 
+            # Hoist formation attributes: they are constant for the whole group
+            # (all segs share one source_litho_fid), so fetching them once per
+            # group avoids N redundant DB round-trips (one per CPT member).
+            soil_code = await self._formation_soil_code(source_litho_fid)
+            admixtures = await self._formation_admixtures(source_litho_fid)
+
             # Build a BandProfile per CPT member.
             profiles: list[BandProfile] = []
             for seg in cpt_segs:
@@ -341,8 +347,6 @@ class SubdivideAllBodies(GroundModelLogger):
                     # CPT without a loaded series — treat as no-splits.
                     profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=[]))
                     continue
-                soil_code = await self._formation_soil_code(source_litho_fid)
-                admixtures = await self._formation_admixtures(source_litho_fid)
                 if soil_code is None or soil_code not in BASE_LITHOLOGIES:
                     profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=[]))
                     continue
@@ -384,6 +388,15 @@ class SubdivideAllBodies(GroundModelLogger):
                 total_depths=total_depths,
             )
 
+            # Build a GROUP-LOCAL position→layer-id map: only the layers created
+            # in THIS group iteration populate it.  A global accumulator across
+            # groups is wrong when one investigation appears in two geo-band groups
+            # (divide_picks_by_geology splits a straddling litho layer): the second
+            # group would overwrite the first group's position-k entries for the
+            # shared investigation, then _insert_geotech_edges would wire the wrong
+            # layer rows (C1 bug fix).
+            group_layer_id_by_inv_pos: dict[str, dict[int, UUID]] = defaultdict(dict)
+
             # Materialise litho_layer rows per column × band position.
             for col_plan in column_plans:
                 if not col_plan.sub_intervals:
@@ -420,17 +433,20 @@ class SubdivideAllBodies(GroundModelLogger):
                         **anchor_kwargs,
                     )
                     self._session.add(layer)
-                    layer_id_by_inv_pos[inv_id][k] = layer.id
+                    group_layer_id_by_inv_pos[inv_id][k] = layer.id
                     total_layers += 1
 
             await self._session.flush()
 
             # Insert geotech edges — SAME band position only (TRAP 1).
+            # Pass the GROUP-LOCAL map so edges only reference layers created in
+            # this group; no stale entries from a prior group for the same
+            # investigation can leak in.
             await self._insert_geotech_edges(
                 geotech_model_id=geotech_model.id,
                 section_id=section_id,
                 group_segs=group_segs,
-                layer_id_by_inv_pos=layer_id_by_inv_pos,
+                layer_id_by_inv_pos=group_layer_id_by_inv_pos,
                 litho_layer_ids_by_inv=litho_layer_ids_by_inv,
                 litho_approved_edges=litho_approved_edges,
                 n_bands=n_bands,
@@ -584,7 +600,7 @@ class SubdivideAllBodies(GroundModelLogger):
         *,
         group_segs: list[BodyLayerPick],
         anchor_kind: dict[str, str],
-        plan,  # BodySubdivisionPlan
+        plan: BodySubdivisionPlan,
         profiles: list[BandProfile],
         geo_surfaces: list[_GeoSurface],
         total_depths: dict[UUID, float],
@@ -605,7 +621,7 @@ class SubdivideAllBodies(GroundModelLogger):
         anchor_kind : dict[str, str]
             ``investigation_id (str) -> "borehole" | "cpt"``.
         plan : BodySubdivisionPlan
-            The aggregator's decision.
+            The B-policy aggregator's decision for this group.
         profiles : list[BandProfile]
             Per-CPT packing-band profiles.
         geo_surfaces : list[_GeoSurface]
@@ -1002,7 +1018,8 @@ class SubdivideAllBodies(GroundModelLogger):
         classified_by_key[key] = formation
         created_formation_ids.append(formation.id)
         self.debug(
-            f"_find_or_create_classified: created {formation.id} nad={nad_class} "
+            f"_find_or_create_classified: created {formation.id} "
+            f"nad={nad_class} soil={soil_code} "
             f"litho={source_litho_formation_id} geo={source_geo_formation_id}"
         )
         return formation
@@ -1086,6 +1103,10 @@ class SubdivideAllBodies(GroundModelLogger):
         self._session.add(formation)
         await self._session.flush()
         skeleton_by_key[key] = formation
+        self.debug(
+            f"_find_or_create_skeleton: created {formation.id} "
+            f"litho={source_litho_formation_id} geo={source_geo_formation_id}"
+        )
         return formation
 
     # ------------------------------------------------------------------
