@@ -77,6 +77,7 @@ def classify_nad(
     for upper, nad_class in bands:
         if upper is None or qc_mpa < upper:
             return nad_class
-    # Unreachable when the bands list ends with a None upper bound (as all rows do),
-    # but present as a safety net to satisfy the type-checker and avoid an implicit None.
+    # Unreachable when every NAD_QC_BANDS row ends with a (None, ...) entry — an
+    # invariant the constants table (and any Task T0 threshold swap) must preserve.
+    # Present as a safety net to satisfy the type-checker and avoid an implicit None.
     return bands[-1][1]

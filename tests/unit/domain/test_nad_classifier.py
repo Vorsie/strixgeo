@@ -20,7 +20,7 @@ def test_clean_sand_loosest_when_qc_below_all_bands():
 
 
 def test_silty_sand_uses_secondary_variant():
-    """Sand + clay admixture → silt-/kleihoudend variant (9–12), qc 8 → NAD 10."""
+    """Sand + a qualifying clay admixture → secondary variant (spec §5 exact match); qc 8 → NAD 10."""
     admx = (Admixture(soil_code="KL", amount="M"),)
     assert classify_nad("ZAND", admx, 8.0) == 10
 
@@ -32,7 +32,7 @@ def test_gravelly_sand_is_not_a_variant_falls_to_clean():
 
 
 def test_sandy_clay_uses_secondary_variant():
-    """Clay + SAND admixture (real code XZ) → zandhoudend clay (25–28), qc 1.5 → NAD 27."""
+    """Clay + a sand admixture (XZ = DOV zand code) → secondary variant (spec §5); qc 1.5 → NAD 27."""
     admx = (Admixture(soil_code="XZ", amount="M"),)
     assert classify_nad("KLEI", admx, 1.5) == 27
 
