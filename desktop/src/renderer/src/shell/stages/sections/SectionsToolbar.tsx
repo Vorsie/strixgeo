@@ -78,6 +78,8 @@ export default function SectionsToolbar(): JSX.Element {
     geoModel: {
       activeGeologicalModel,
       activeLithoModel,
+      // F3: geotech axis toggle needs to know whether a geotech model exists.
+      activeGeotechModel,
       handleExportModelPlaxis3d,
       lithoSuggesting,
       // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
@@ -446,6 +448,7 @@ export default function SectionsToolbar(): JSX.Element {
   // lithostratigraphic axis uses the litho model. Build/Seed/Dedupe/Export
   // buttons are gated on the ACTIVE model for the chosen axis.
   const isLitho = sectionModelAxis === 'lithostratigraphic'
+  const isGeotech = sectionModelAxis === 'geotechnical'
   const hasModel = isLitho
     ? activeLithoModel !== null
     : activeGeologicalModel !== null
@@ -456,10 +459,11 @@ export default function SectionsToolbar(): JSX.Element {
   // and silently writing to the geological model. Gate them on the
   // geological model + the geology axis explicitly; the litho axis's
   // equivalent build flow is Suggest/accept, not these verbs.
-  const geoVerbDisabled = isLitho || activeGeologicalModel === null
-  const geoVerbHint = isLitho
-    ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
-    : null
+  const geoVerbDisabled = isLitho || isGeotech || activeGeologicalModel === null
+  const geoVerbHint =
+    isLitho || isGeotech
+      ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
+      : null
   // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
   // for the focused column in the active section. On the litho axis the
   // source is the section-local focused column (right-click → Focus in the
@@ -610,9 +614,10 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   // Handler for the axis toggle — validate the target axis before
-  // switching so a disabled "Litho" segment can't be clicked.
+  // switching so a disabled segment can't be clicked.
   function handleAxisChange(axis: SectionModelAxis): void {
     if (axis === 'lithostratigraphic' && activeLithoModel === null) return
+    if (axis === 'geotechnical' && activeGeotechModel === null) return
     setSectionModelAxis(axis)
   }
 
@@ -675,11 +680,11 @@ export default function SectionsToolbar(): JSX.Element {
         <button
           type="button"
           role="radio"
-          aria-checked={!isLitho}
+          aria-checked={!isLitho && !isGeotech}
           onClick={() => handleAxisChange('geological')}
           className={[
             'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-            !isLitho
+            !isLitho && !isGeotech
               ? 'bg-accent text-text-on-accent'
               : 'bg-surface-card text-text-secondary hover:text-text-primary',
           ].join(' ')}
@@ -720,6 +725,41 @@ export default function SectionsToolbar(): JSX.Element {
             }
           >
             Litho
+          </button>
+        </span>
+        {/* Geotech segment — enabled only when a geotechnical model exists.
+            Same span-wrapper pattern as Litho: Chromium suppresses title on
+            disabled elements, so the tooltip rides the presentational span. */}
+        <span
+          role="presentation"
+          title={
+            activeGeotechModel === null
+              ? 'Run "Subdivide all bodies" in the Geotech inspector first'
+              : undefined
+          }
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={isGeotech}
+            disabled={activeGeotechModel === null}
+            onClick={() => handleAxisChange('geotechnical')}
+            data-testid="axis-geotech"
+            className={[
+              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              isGeotech
+                ? 'bg-accent text-text-on-accent'
+                : activeGeotechModel === null
+                  ? 'bg-surface-card text-text-muted cursor-not-allowed'
+                  : 'bg-surface-card text-text-secondary hover:text-text-primary',
+            ].join(' ')}
+            title={
+              activeGeotechModel !== null
+                ? 'View geotechnical subdivision (NAD packing classes) on this section'
+                : undefined
+            }
+          >
+            Geotech
           </button>
         </span>
       </div>
