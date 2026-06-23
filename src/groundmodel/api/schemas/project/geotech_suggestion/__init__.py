@@ -15,6 +15,8 @@ from .build_geotech_response import BuildGeotechResponse
 from .geotech_ghost_sub_unit_item import GeotechGhostSubUnitItem
 from .geotech_investigation_suggestion_item import GeotechInvestigationSuggestionItem
 from .geotech_segment_suggestion_item import GeotechSegmentSuggestionItem
+from .subdivide_all_bodies_request import SubdivideAllBodiesRequest
+from .subdivide_all_bodies_response import SubdivideAllBodiesResponse
 from .suggest_geotech_request import SuggestGeotechRequest
 
 __all__ = [
@@ -27,5 +29,7 @@ __all__ = [
     "GeotechGhostSubUnitItem",
     "GeotechInvestigationSuggestionItem",
     "GeotechSegmentSuggestionItem",
+    "SubdivideAllBodiesRequest",
+    "SubdivideAllBodiesResponse",
     "SuggestGeotechRequest",
 ]
