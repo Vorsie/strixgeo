@@ -1208,3 +1208,597 @@ async def test_sab_c1_geo_band_group_isolation(
         f"C1-regression: {len(cross_group_edges)} edge(s) cross geo-band group(s) — "
         f"the group-local layer map fix is not effective:\n" + "\n".join(cross_group_edges)
     )
+
+
+# ---------------------------------------------------------------------------
+# Bug-1 regression — duplicate-investigation-id in a body group
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def multi_layer_body_scene(db_session: AsyncSession) -> dict:
+    """Scene for Bug-1 regression: one investigation with TWO accepted litho layers
+    in the SAME body group (no geo surface, so no boundary split).
+
+    Geometry
+    --------
+    No geological surface is added, so ``divide_picks_by_geology`` is a no-op
+    and every litho segment maps to a single group (``source_geo_formation_id=None``).
+
+    * **CPT-P** at x=149 000 m: TWO ZAND litho layers, 0–4 m and 4–8 m.
+    * **CPT-Q** at x=149 300 m: ONE ZAND litho layer, 0–8 m.
+
+    CPT-P's two layers are correlated to CPT-Q's single layer (two separate
+    correlation edges on the same section), so all three layers share the same
+    ``body_id`` after resolution.
+
+    Before the fix, ``group_segs`` for this body group contained TWO entries
+    for CPT-P (one per accepted layer).  The investigation-pair loop in
+    ``_insert_geotech_edges`` produced ``(CPT-P, CPT-Q)`` twice — once from
+    the first CPT-P layer's pairing and once from the second — causing the
+    same canonical geotech layer-pair edge to be ``session.add``-ed twice in
+    one flush → ``uq_litho_contact_corr_triple`` IntegrityError.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model``, ``section``,
+        ``cpt_p_id``, ``cpt_q_id``, ``layer_p1_id``, ``layer_p2_id``,
+        ``layer_q_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="Bug1 regression", status="active")
+    db_session.add(proj)
+    await db_session.flush()
+
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="Geo-B1",
+        kind="geological",
+        is_active=True,
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="Litho-B1",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
+        is_active=True,
+    )
+    db_session.add_all([geo_model, litho_model])
+    await db_session.flush()
+
+    # ZAND formation (in BASE_LITHOLOGIES → CPT segmenter will run).
+    f_zand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="ZAND_B1",
+        color="#f5deb3",
+        display_order=1,
+        litho_main_soil_code="ZAND",
+        litho_admixtures=[],
+    )
+    db_session.add(f_zand)
+    await db_session.flush()
+
+    # CPT-P: two layers (0–4 m and 4–8 m), two-layer qc.
+    depths_p, qc_p = _two_layer_qc(n_top=200, n_bot=200, qc_top=3.0, qc_bot=22.0)
+    cpt_p = CptOrm(
+        id=uuid7(),
+        name="CPT-P",
+        cpt_type="CPTU",
+        project_id="B1",
+        test_id="B1/CPT-P",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_p.series = CptSeriesOrm(
+        depths_m=depths_p,
+        qc_mpa=qc_p,
+        fs_mpa=[0.05] * len(depths_p),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # CPT-Q: single layer (0–8 m), uniform qc.
+    depths_q, qc_q = _qc_series(n=400, qc_mpa=12.0)
+    cpt_q = CptOrm(
+        id=uuid7(),
+        name="CPT-Q",
+        cpt_type="CPTU",
+        project_id="B1",
+        test_id="B1/CPT-Q",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_q.series = CptSeriesOrm(
+        depths_m=depths_q,
+        qc_mpa=qc_q,
+        fs_mpa=[0.05] * len(depths_q),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    db_session.add_all([cpt_p, cpt_q])
+    await db_session.flush()
+
+    # Two litho layers on CPT-P, one on CPT-Q — all ZAND.
+    layer_p1 = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=f_zand.id,
+        cpt_id=cpt_p.id,
+        depth_top_m=0.0,
+        depth_base_m=4.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    layer_p2 = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=f_zand.id,
+        cpt_id=cpt_p.id,
+        depth_top_m=4.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    layer_q = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=f_zand.id,
+        cpt_id=cpt_q.id,
+        depth_top_m=0.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add_all([layer_p1, layer_p2, layer_q])
+    await db_session.flush()
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="S-B1",
+        start_x=148_700.0,
+        start_y=200_000.0,
+        end_x=149_600.0,
+        end_y=200_000.0,
+        epsg=31370,
+        projection_buffer_m=200.0,
+    )
+    db_session.add(section)
+    await db_session.flush()
+
+    # Correlate: CPT-P layer_p1 ↔ CPT-Q layer_q, and CPT-P layer_p2 ↔ CPT-Q
+    # layer_q.  Two edges, same CPT-Q layer — all three layers end up in the
+    # same body after resolution.  This is the condition that produces two
+    # ``group_segs`` entries for CPT-P in the same body group.
+    edge_p1_q = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        section_id=section.id,
+        contact_a_id=min(layer_p1.id, layer_q.id),
+        contact_b_id=max(layer_p1.id, layer_q.id),
+        contact_a_side="top",
+        contact_b_side="top",
+        source="manual",
+        user_approved=True,
+    )
+    edge_p2_q = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        section_id=section.id,
+        contact_a_id=min(layer_p2.id, layer_q.id),
+        contact_b_id=max(layer_p2.id, layer_q.id),
+        contact_a_side="top",
+        contact_b_side="top",
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add_all([edge_p1_q, edge_p2_q])
+    await db_session.commit()
+
+    return {
+        "project": proj,
+        "litho_model": litho_model,
+        "section": section,
+        "cpt_p_id": cpt_p.id,
+        "cpt_q_id": cpt_q.id,
+        "layer_p1_id": layer_p1.id,
+        "layer_p2_id": layer_p2.id,
+        "layer_q_id": layer_q.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_bug1_duplicate_investigation_id_regression(
+    multi_layer_body_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Bug-1 regression: duplicate investigation id in a body group must not raise.
+
+    When CPT-P has TWO accepted litho layers in the SAME body (both correlated
+    to CPT-Q), ``group_segs`` for that body group contains two entries for CPT-P
+    (one per litho layer).  Before the fix, the ``_insert_geotech_edges``
+    investigation-pair loop generated the canonical ``(CPT-P, CPT-Q)`` pair
+    twice, attempted to add the same edge row twice in one flush, and raised a
+    ``uq_litho_contact_corr_triple`` IntegrityError.
+
+    This test asserts:
+    B1-1  The use case completes without raising (IntegrityError was the failure
+          mode before the fix).
+    B1-2  The geotech ``litho_contact_correlation_edge`` table has NO duplicate
+          rows — the count of edges equals the count of DISTINCT
+          ``(model_id, contact_a_id, contact_b_id)`` triples.
+    B1-3  At least one geotech edge was created (the positive guard — the
+          no-duplicate assertion cannot pass vacuously on zero edges).
+    """
+    scene = multi_layer_body_scene
+    project = scene["project"]
+    litho_model_id = scene["litho_model"].id
+    section_id = scene["section"].id
+
+    # B1-1: must not raise.
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+        section_id=section_id,
+    )
+
+    geotech_model_id = result.geotech_model_id
+
+    # B1-3 (positive guard): at least one edge must exist so B1-2 is meaningful.
+    geotech_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(geotech_edges) > 0, (
+        "B1-3: no geotech edges created — the positive guard failed; "
+        "the correlation edge between CPT-P and CPT-Q must produce at least one edge"
+    )
+
+    # B1-2: no duplicate edges — all (contact_a_id, contact_b_id) pairs are distinct.
+    canonical_pairs = [(e.contact_a_id, e.contact_b_id) for e in geotech_edges]
+    distinct_pairs = set(canonical_pairs)
+    assert len(canonical_pairs) == len(distinct_pairs), (
+        f"B1-2: found {len(canonical_pairs) - len(distinct_pairs)} duplicate geotech edge(s) — "
+        f"the duplicate-investigation-id guard is not effective. "
+        f"Pairs: {canonical_pairs}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bug-2 regression — C1 direct FormationContact rows conflict with SAB re-run
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def c1_then_sab_scene(db_session: AsyncSession) -> dict:
+    """Scene for Bug-2 regression: C1 runs first (direct FC writes), then SAB re-runs.
+
+    ``BuildGeotechModelFromLitho`` (C1) writes ``FormationContact`` rows DIRECTLY
+    (not via the LL→FC trigger).  Before the Bug-2 fix, ``_delete_prior_geotech_data``
+    only deleted geotech ``litho_layer`` rows (whose FC mirrors were cleaned by the
+    trigger), leaving C1's direct FC rows in the table.  On the SECOND SAB run the
+    LL→FC trigger tried to INSERT those same FC keys again →
+    ``uq_formation_contact_model_formation_borehole_depth`` IntegrityError.
+
+    This scene re-uses the ``geo_band_scene`` geometry (two CPTs straddling a geo
+    surface at depth 5 m), but calls ``BuildGeotechModelFromLitho.execute()``
+    explicitly before ``SubdivideAllBodies``.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model``, ``section``, ``cpt_x_id``, ``cpt_y_id``.
+    """
+    from groundmodel.application.build_geotech_model_from_litho import (
+        BuildGeotechModelFromLitho,
+    )
+
+    proj = ProjectOrm(id=uuid7(), name="Bug2 regression", status="active")
+    db_session.add(proj)
+    await db_session.flush()
+
+    geo_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="Geo-B2",
+        kind="geological",
+        is_active=True,
+    )
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="Litho-B2",
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo_model.id,
+        is_active=True,
+    )
+    db_session.add_all([geo_model, litho_model])
+    await db_session.flush()
+
+    geo_deep = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="Q_DEEP_B2",
+        color="#999999",
+        display_order=1,
+    )
+    f_zand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="ZAND_B2",
+        color="#f5deb3",
+        display_order=1,
+        litho_main_soil_code="ZAND",
+        litho_admixtures=[],
+    )
+    db_session.add_all([geo_deep, f_zand])
+    await db_session.flush()
+
+    # Flat geo surface at absolute elevation 0.0 m (depth 5.0 m below surface).
+    geo_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=geo_model.id,
+        formation_id=geo_deep.id,
+        method="tin",
+        vertices=[
+            [148000.0, 199000.0, 0.0],
+            [150500.0, 199000.0, 0.0],
+            [150500.0, 201000.0, 0.0],
+            [148000.0, 201000.0, 0.0],
+        ],
+        triangles=[[0, 1, 2], [0, 2, 3]],
+        source_contact_count=2,
+        source_contact_checksum=b"\x00" * 16,
+        is_stale=False,
+    )
+    db_session.add(geo_surface)
+
+    depths_b2, qc_b2 = _two_layer_qc(n_top=250, n_bot=250, qc_top=3.0, qc_bot=22.0)
+
+    cpt_x = CptOrm(
+        id=uuid7(),
+        name="CPT-X-B2",
+        cpt_type="CPTU",
+        project_id="B2",
+        test_id="B2/CPT-X",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=10.0,
+    )
+    cpt_x.series = CptSeriesOrm(
+        depths_m=depths_b2,
+        qc_mpa=qc_b2,
+        fs_mpa=[0.05] * len(depths_b2),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    cpt_y = CptOrm(
+        id=uuid7(),
+        name="CPT-Y-B2",
+        cpt_type="CPTU",
+        project_id="B2",
+        test_id="B2/CPT-Y",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=10.0,
+    )
+    cpt_y.series = CptSeriesOrm(
+        depths_m=depths_b2,
+        qc_mpa=qc_b2,
+        fs_mpa=[0.05] * len(depths_b2),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    db_session.add_all([cpt_x, cpt_y])
+    await db_session.flush()
+
+    layer_x = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=f_zand.id,
+        cpt_id=cpt_x.id,
+        depth_top_m=0.0,
+        depth_base_m=10.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    layer_y = LithoLayerOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        formation_id=f_zand.id,
+        cpt_id=cpt_y.id,
+        depth_top_m=0.0,
+        depth_base_m=10.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add_all([layer_x, layer_y])
+    await db_session.flush()
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=proj.id,
+        name="S-B2",
+        start_x=148_700.0,
+        start_y=200_000.0,
+        end_x=149_600.0,
+        end_y=200_000.0,
+        epsg=31370,
+        projection_buffer_m=200.0,
+    )
+    db_session.add(section)
+    await db_session.flush()
+
+    edge = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=litho_model.id,
+        section_id=section.id,
+        contact_a_id=min(layer_x.id, layer_y.id),
+        contact_b_id=max(layer_x.id, layer_y.id),
+        contact_a_side="top",
+        contact_b_side="top",
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(edge)
+    await db_session.commit()
+
+    # Run C1 explicitly so its direct FormationContact writes are in the DB
+    # before SAB is called.  This is the production sequence that triggered Bug 2.
+    await BuildGeotechModelFromLitho(db_session).execute(
+        project_id=proj.id,
+        litho_model_id=litho_model.id,
+        section_id=section.id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model": litho_model,
+        "section": section,
+        "cpt_x_id": cpt_x.id,
+        "cpt_y_id": cpt_y.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_bug2_c1_fc_conflict_on_rerun(
+    c1_then_sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Bug-2 regression: C1 direct FC rows must not conflict with a SAB re-run.
+
+    ``BuildGeotechModelFromLitho`` (C1) writes ``FormationContact`` rows directly
+    (not via the LL→FC trigger).  Before the fix, ``_delete_prior_geotech_data``
+    step 2 deleted only the geotech ``litho_layer`` rows (whose FC mirrors were
+    cleaned by the LL→FC trigger), but NOT C1's direct FC rows.  On the SECOND
+    SAB run the LL→FC trigger tried to INSERT those same FC keys again →
+    ``uq_formation_contact_model_formation_borehole_depth`` IntegrityError.
+
+    The geo-band scene is used (two CPTs each straddling a geological surface at
+    5.0 m depth) because that is the configuration that produces direct C1 FC
+    rows at the geo-division cut depths — the exact condition that triggered the
+    real-data crash.
+
+    This test asserts:
+    B2-1  The FIRST SAB call (after C1 has run) completes without raising.
+    B2-2  The SECOND SAB call (the re-run that triggered the bug) completes
+          without raising.
+    B2-3  The geotech ``formation_contact`` count is STABLE across the two runs —
+          no duplicate FC rows accumulate.
+    B2-4  Every accepted geotech ``litho_layer`` row has a matching
+          ``formation_contact`` row (LL→FC trigger correctly derived all FCs
+          after step-2b cleared the stale C1 FCs).
+    """
+    scene = c1_then_sab_scene
+    project = scene["project"]
+    litho_model_id = scene["litho_model"].id
+    section_id = scene["section"].id
+
+    # B2-1: first SAB call — C1's direct FC rows are already in the DB.
+    result1 = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+        section_id=section_id,
+    )
+    geotech_model_id = result1.geotech_model_id
+
+    # Capture FC count after the first run.
+    fc_after_first = (
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fc_count_first = len(fc_after_first)
+
+    # B2-2: second SAB call — must not raise the FC unique-constraint violation.
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+        section_id=section_id,
+    )
+
+    fc_after_second = (
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fc_count_second = len(fc_after_second)
+
+    # B2-3: FC count must be stable (no duplicates from the re-run).
+    assert fc_count_second == fc_count_first, (
+        f"B2-3: formation_contact count changed across SAB re-runs "
+        f"({fc_count_first} → {fc_count_second}); "
+        f"step-2b delete is not clearing C1 FCs before re-insertion"
+    )
+
+    # B2-4: every accepted geotech litho_layer must have a matching FC.
+    geotech_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fc_ids_second = {fc.id for fc in fc_after_second}
+    missing_fc = [ll.id for ll in geotech_layers if ll.id not in fc_ids_second]
+    assert len(missing_fc) == 0, (
+        f"B2-4: {len(missing_fc)} geotech litho_layer row(s) have no matching "
+        f"formation_contact after the re-run — step-2b delete may have cleared "
+        f"C1 FCs but the LL→FC trigger did not re-derive them. "
+        f"Missing: {[str(lid) for lid in missing_fc]}"
+    )
