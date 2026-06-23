@@ -21,9 +21,10 @@ from groundmodel.shared.constants.litho_constants import BaseLithology
 Variant = Literal["clean", "secondary"]
 
 # Each entry: ascending list of (qc_upper_bound_mpa, nad_class). The classifier
-# picks the first band whose upper bound is >= qc; qc above the last band → that
-# last (densest) class; qc below the first → that first (loosest) class
-# (nearest-class fallback, spec §5). ``None`` upper bound = open-topped (densest).
+# picks the first band whose upper bound exceeds qc (qc < upper); qc above the
+# last band → that last (densest) class; qc below the first → that first
+# (loosest) class (nearest-class fallback, spec §5). ``None`` upper bound =
+# open-topped (densest).
 NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]] = {
     # GRIND (provisional)
     ("GRIND", "clean"): [(10.0, 1), (None, 2)],
