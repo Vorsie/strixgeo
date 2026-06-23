@@ -53,7 +53,7 @@ import { useGeologicalModelOps } from './useGeologicalModelOps'
 import { useLithoModelOps } from './useLithoModelOps'
 import { useLithoSuggestions } from './useLithoSuggestions'
 import type { StratigraphyLumping } from '../utils/projectFile'
-import { isLithoUnit } from '../utils/formationKind'
+import { isLithoUnit, isGeotechUnit } from '../utils/formationKind'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
 import {
@@ -774,6 +774,37 @@ export interface UseGeologicalModelResult {
    * Rendered as amber lens-candidate markers on the section.
    */
   lithoCrossingPinchOuts: CrossingPinchOut[]
+  // -------------------------------------------------------------------------
+  // Geotechnical model parallel set (F2 — geotech data layer).
+  //
+  // Mirrors the litho parallel set above.  Loaded from the active
+  // kind='geotechnical' sibling; independent of the geological and litho
+  // contact sets so mutations in one set never invalidate the others.
+  // Cleared when activeGeotechModel is null (no geotech model yet).
+  // -------------------------------------------------------------------------
+  /**
+   * The active ``kind='geotechnical'`` model for the project, or ``null``
+   * when none exists yet.  Populated by ``refreshModels`` alongside
+   * ``activeLithoModel``.
+   */
+  activeGeotechModel: GeologicalModelResponse | null
+  /**
+   * Accepted geotech layers for the active model — the source of truth
+   * for the geotechnical axis render.  Mirrors ``lithoLayers``.
+   */
+  geotechLayers: LithoLayerResponse[]
+  /**
+   * Boundary-centric projection of ``geotechLayers``.  Mirrors
+   * ``lithoContacts`` — derived via ``lithoLayersToContacts`` so legacy
+   * consumers that operate on the contact shape keep working unchanged.
+   */
+  geotechContacts: FormationContactResponse[]
+  /**
+   * Geotech NAD-class unit vocabulary for the active project.  Derived
+   * from the global ``formations`` list filtered by ``isGeotechUnit``
+   * (``nad_class !== null``).  Mirrors ``lithoFormations``.
+   */
+  geotechFormations: GeologicalFormationResponse[]
 }
 
 /**
@@ -934,6 +965,27 @@ export function useGeologicalModel({
     () => formations.filter(isLithoUnit),
     [formations],
   )
+  // Geotech parallel state (F2 — geotech data layer).  Mirrors the litho
+  // parallel state block above.  The active geotechnical model pointer is
+  // set by ``refreshModels``; geotechLayers is loaded by a dedicated
+  // useEffect keyed on activeGeotechModel.  geotechContacts + geotechFormations
+  // derive from geotechLayers / formations respectively (same useMemo
+  // pattern as lithoContacts / lithoFormations so bug class #88 cannot
+  // recur here either).
+  const [activeGeotechModel, setActiveGeotechModel] =
+    useState<GeologicalModelResponse | null>(null)
+  const [geotechLayers, setGeotechLayers] = useState<LithoLayerResponse[]>([])
+  const geotechContacts = useMemo<FormationContactResponse[]>(
+    () => lithoLayersToContacts(geotechLayers),
+    [geotechLayers],
+  )
+  // Geotech NAD-class units derived from the global formation list.
+  // Every refetch of ``formations`` updates this implicitly — same
+  // anti-debt-#88 reasoning as lithoFormations above.
+  const geotechFormations = useMemo(
+    () => formations.filter(isGeotechUnit),
+    [formations],
+  )
   // Refresh signal for InterpretationPane. The pane keeps its own
   // formations cache; bumping this counter forces a refetch.
   // Bumped after auto-populate from stratigraphy because the new
@@ -981,12 +1033,16 @@ export function useGeologicalModel({
     if (!project) {
       setModels([])
       setActiveLithoModel(null)
+      setActiveGeotechModel(null)
       return []
     }
     const ms = await api.geology.listModels(project.id)
     setModels(ms)
     setActiveLithoModel(
       ms.find(m => m.is_active && m.kind === 'lithostratigraphic') ?? null,
+    )
+    setActiveGeotechModel(
+      ms.find(m => m.is_active && m.kind === 'geotechnical') ?? null,
     )
     return ms
   }, [project])
@@ -1221,6 +1277,41 @@ export function useGeologicalModel({
       cancelled = true
     }
   }, [project, activeLithoModel])
+
+  // Load / reload geotech layers when the active geotech model changes.
+  // Mirrors the litho-layers effect above; clears when activeGeotechModel
+  // is null.  No surfaces fetch (geotech model has no TIN surfaces in v1).
+  useEffect(() => {
+    if (!project || !activeGeotechModel) {
+      setGeotechLayers([])
+      return
+    }
+    // Clear immediately on model change to prevent stale state showing
+    // under a different model header (same reasoning as the litho effect).
+    setGeotechLayers([])
+    let cancelled = false
+    const projectId = project.id
+    const modelId = activeGeotechModel.id
+    ;(async () => {
+      try {
+        const layers = await api.geology.listLayers(projectId, modelId)
+        if (cancelled) return
+        setGeotechLayers(layers)
+        log.debug(
+          'geology',
+          `geotech model ${modelId}: loaded ${layers.length} layers`,
+        )
+      } catch (err) {
+        if (!cancelled) {
+          log.warn('geology', `geotech model ${modelId}: load failed`, err)
+          setGeotechLayers([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project, activeGeotechModel])
 
   const refetchFormations = useCallback(() => {
     if (!project) return
@@ -2114,5 +2205,10 @@ export function useGeologicalModel({
     lithoCrossingPinchOuts,
     // Litho body solids — spread from useLithoSolids (lifted from canvas).
     ...lithoSolidsResult,
+    // Geotech parallel set (F2 — geotech data layer).
+    activeGeotechModel,
+    geotechLayers,
+    geotechContacts,
+    geotechFormations,
   }
 }
