@@ -356,8 +356,12 @@ class AcceptGeotechSuggestions(GroundModelLogger):
     ) -> None:
         """Delete this investigation's geotech contacts in ``[seg_top, seg_base)``.
 
-        Half-open range: the next segment's top at ``seg_base`` is excluded so a
-        per-segment sweep never clobbers the neighbouring segment's top contact.
+        Half-open range, with a ``_SEGMENT_TOP_EPS_M`` float guard on each bound:
+        the predicate is ``seg_top - eps <= depth_top_m < seg_base - eps``. The
+        ``- eps`` on the upper bound excludes the next segment's top at
+        ``seg_base`` (so a per-segment sweep never clobbers the neighbouring
+        segment's top contact); the ``- eps`` on the lower bound keeps the
+        segment's own top contact within range despite float drift.
 
         Parameters
         ----------
