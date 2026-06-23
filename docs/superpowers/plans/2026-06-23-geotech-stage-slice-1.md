@@ -18,7 +18,8 @@
 
 The production NAD qc thresholds come from the owner's Excel (`Correlaties uit S en NAD_NEN_v2.xlsx`, sheet `laagnr NAD-NEN`), **not yet in the repo**. **Phase A is built and tested against a small, clearly-marked PROVISIONAL representative table** so all code + tests land now; T0 swaps the production values in without changing structure or tests.
 
-- [ ] **T0 (blocked on owner): add the Excel + port production thresholds**
+- [x] **T0 RESOLVED 2026-06-23** — owner supplied the source (`Correlaties uit S en NAD_NEN_v2.xlsx` NAD-NEN sheet == `NO26043` p.2). Real thresholds ported into `nad_classification_constants.py` (ZAND 3/7/12.5/15, SILT/KLEI 1.5/3/4, GRIND 20, VEEN 0.75/1), source cited, 13 unit tests green. The 1.6 MB xlsx is NOT committed (values live in code + cited); add it under `infrastructure/codelists/data/` only if provenance-in-repo is wanted. **Open micro-items:** (a) sand/gravel official method NORMALISES qc — raw is the default per directive, Qtn the deferred toggle; (b) whether DOV `LE` (leem) / `SL` (slib) admixture codes should also trigger the silt-/kleihoudend "secondary" variant (currently only `SI`/`KL`).
+- [ ] **T0 (original, now resolved): add the Excel + port production thresholds**
   - Add `Correlaties uit S en NAD_NEN_v2.xlsx` to `src/groundmodel/infrastructure/codelists/data/`.
   - Replace the provisional values in `nad_classification_constants.py` (Task A1) with the ported table, keeping the same structure. Tests in A2/A3 assert *mechanics* against the provisional table and stay green; add one integration test asserting a few known rows from the real Excel.
   - **Also confirm with owner:** does the Excel carry Qtn bands? If not, the Qtn toggle (Task D-Settings) ships disabled with a "raw qc only for now" note.
