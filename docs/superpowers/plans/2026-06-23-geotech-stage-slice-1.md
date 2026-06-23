@@ -1,5 +1,18 @@
 # Geotechnical Stage — Slice 1 Implementation Plan
 
+> ⚠ **STATUS 2026-06-23 — partially built + a design pivot.** Phases **A, B, C (all
+> tasks), T0, D1, D2 are DONE + two-stage-reviewed on `develop` (unpushed)** — the
+> geotech backend works via the API. The interaction model then PIVOTED to
+> **body-centric** (owner directive): see spec **§0 + §0.1**, which SUPERSEDE the
+> per-test "suggest → accept ghost" framing in Phase C's accept + all of Phase D
+> below. **Remaining = (1) a NEW `SubdivideAllBodies` use case implementing the
+> B-policy algorithm (spec §0.1), reusing A3/classifier/C1/C2b/resolver; (2)
+> body-centric frontend D3/D4/D5.** These remaining tasks need a fresh plan —
+> re-run `superpowers:writing-plans` against spec §0/§0.1 before building them.
+> Everything below the line is the ORIGINAL per-test plan: Phases A/B/C1 are
+> accurate-as-built; Phase C2's accept gesture + Phase D are superseded by the
+> body-centric model.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a `kind='geotechnical'` sibling model that subdivides lithostratigraphic units into Belgian NAD packing classes (1–31) via an assisted-manual flow — automatic geo-bounding on build, a raw-qc NAD-band suggester, and ghost accept/reject/drag — reusing the existing contact/section/bundle pipeline.
