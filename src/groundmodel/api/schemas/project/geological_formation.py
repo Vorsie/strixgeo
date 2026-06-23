@@ -116,6 +116,12 @@ class GeologicalFormationResponse(BaseModel):
     These are ``None`` on geological-model formations and populated on
     lithostratigraphic formations created by ``AcceptLithoSuggestions``.
 
+    Includes the geotech-stage dual-reference columns
+    (``source_litho_formation_id``, ``source_geo_formation_id``) that
+    record the explicit provenance of a geotech unit — which litho formation
+    it subdivides and which geological formation it sits within (spec §3).
+    Both are ``None`` on geological- and litho-model rows.
+
     ``parent_formation_name`` is a server-resolved display value derived from
     the project formation set (the name of the formation whose id equals
     ``parent_formation_id``).  It is ``None`` on geological-model rows
@@ -139,6 +145,15 @@ class GeologicalFormationResponse(BaseModel):
     nad_class: int | None
     # Litho-builder Phase 1 fields — NULL on geological-model rows.
     parent_formation_id: UUID | None = None
+    # Geotech-stage dual-reference columns (spec §3).
+    # ``source_litho_formation_id`` — the lithostratigraphic formation this
+    # geotech unit subdivides; NULL on geological- and litho-model rows.
+    # ``source_geo_formation_id`` — the geological formation the unit sits
+    # within; NULL on geological- and litho-model rows.  Both are additive
+    # optional fields so legacy API consumers that predate the geotech stage
+    # receive ``None`` and continue to function without modification.
+    source_litho_formation_id: UUID | None = None
+    source_geo_formation_id: UUID | None = None
     # Debt #87: True when ``parent_formation_id`` was inferred from TIN
     # extrapolation rather than from a geology contact at the investigation
     # the litho unit was created on. The LithologyInspector renders an
