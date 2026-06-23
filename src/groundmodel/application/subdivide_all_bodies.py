@@ -76,6 +76,7 @@ from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -545,6 +546,22 @@ class SubdivideAllBodies(GroundModelLogger):
             )
         )
 
+        # 2b. Delete any remaining FormationContact rows for the geotech model
+        # in the corridor.  BuildGeotechModelFromLitho (C1) writes FC rows
+        # DIRECTLY (not via the LL→FC trigger), so the trigger-based cleanup in
+        # step 2 does not remove them.  Without this step a subsequent SAB run
+        # on the same section fires the LL→FC trigger which tries to INSERT the
+        # same FC row → uq_formation_contact_model_formation_borehole_depth
+        # violation.  Deleting all corridor FC rows here is safe: SAB does not
+        # use C1's skeleton FC rows at all — it writes its own via the trigger.
+        await self._session.execute(
+            delete(FormationContactOrm).where(
+                FormationContactOrm.model_id == geotech_model_id,
+                FormationContactOrm.borehole_id.in_(corridor_ids)
+                | FormationContactOrm.cpt_id.in_(corridor_ids),
+            )
+        )
+
         # 3. Delete BodyOrm rows for the geotech model.  After the layer delete
         # the resolver will recreate them; the bodies from the previous run must
         # be cleared first so we don't violate the (model, formation, ordinal)
@@ -795,21 +812,37 @@ class SubdivideAllBodies(GroundModelLogger):
         n_bands : int
             Number of band positions in the group plan.
         """
-        inv_ids = [seg.investigation_id for seg in group_segs]
+        # Deduplicate investigation ids: a body group can have multiple
+        # geo-bounded segments for the same investigation when two accepted
+        # litho layers of the same body sit on the same CPT and both fall
+        # within the same geological band.  Duplicates in inv_ids cause the
+        # nested pair-loop below to generate (inv_a, inv_b) twice → duplicate
+        # canonical edge pairs → uq_litho_contact_corr_triple violation.
+        inv_ids = list(dict.fromkeys(seg.investigation_id for seg in group_segs))
 
-        # Build the list of investigation pairs connected in the litho model.
-        # Two investigations are connected if ANY of their litho layer id pairs
-        # forms an approved edge.
+        # Build the list of unique investigation pairs connected in the litho
+        # model.  Two investigations are connected if ANY of their litho layer
+        # id pairs forms an approved edge.
+        seen_inv_pairs: set[tuple[str, str]] = set()
         connected_pairs: list[tuple[str, str]] = []
         for i in range(len(inv_ids)):
             for j in range(i + 1, len(inv_ids)):
                 inv_a = inv_ids[i]
                 inv_b = inv_ids[j]
+                canonical_inv = (min(inv_a, inv_b), max(inv_a, inv_b))
+                if canonical_inv in seen_inv_pairs:
+                    continue
                 layers_a = litho_layer_ids_by_inv.get(inv_a, set())
                 layers_b = litho_layer_ids_by_inv.get(inv_b, set())
                 if self._has_approved_edge(layers_a, layers_b, litho_approved_edges):
                     connected_pairs.append((inv_a, inv_b))
+                    seen_inv_pairs.add(canonical_inv)
 
+        # Guard against duplicate canonical layer pairs across groups when the
+        # same investigation appears in multiple body groups (e.g. a litho body
+        # that straddles a geo boundary).  The set prevents the same
+        # (contact_a_id, contact_b_id) pair being added twice in one flush.
+        seen_layer_pairs: set[tuple[UUID, UUID]] = set()
         for inv_a, inv_b in connected_pairs:
             pos_a = layer_id_by_inv_pos.get(inv_a, {})
             pos_b = layer_id_by_inv_pos.get(inv_b, {})
@@ -822,6 +855,13 @@ class SubdivideAllBodies(GroundModelLogger):
 
                 # Canonical ordering: a < b (CHECK constraint).
                 canonical_a, canonical_b = sorted([layer_a_id, layer_b_id])
+                if (canonical_a, canonical_b) in seen_layer_pairs:
+                    self.debug(
+                        f"_insert_geotech_edges: skipping duplicate edge "
+                        f"({canonical_a}, {canonical_b}) at k={k}"
+                    )
+                    continue
+                seen_layer_pairs.add((canonical_a, canonical_b))
                 edge = LithoContactCorrelationEdgeOrm(
                     id=uuid7(),
                     model_id=geotech_model_id,
