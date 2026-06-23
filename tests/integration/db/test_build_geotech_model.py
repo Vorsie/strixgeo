@@ -422,3 +422,93 @@ async def test_cp_c_division_contact_carries_geo_provenance(
         "the geo-division geotech contact must carry parent_geo_contact_id pointing "
         "at the geological contact that forced the cut (CP-C provenance)"
     )
+
+
+@pytest.mark.asyncio
+async def test_cp_e_rebuild_is_idempotent(db_session: AsyncSession, scene: dict) -> None:
+    """CP-E: calling execute() twice with the same args produces no duplicate rows.
+
+    After the first build we capture the geotech contact count on ``bh_straddle``
+    and the number of skeleton formations (``source_litho_formation_id IS NOT NULL``).
+    After the second build both counts must be identical — contacts are replaced,
+    not appended; skeletons are reused, not duplicated.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    bh_straddle = scene["bh_straddle"]
+
+    uc = BuildGeotechModelFromLitho(db_session)
+
+    # --- First build ---
+    await uc.execute(project_id=proj.id, litho_model_id=litho.id, section_id=scene["section_id"])
+
+    geotech = await _geotech_model(db_session, proj.id)
+    assert geotech is not None
+
+    contacts_after_first = (
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == geotech.id,
+                    FormationContactOrm.borehole_id == bh_straddle.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    contact_count_after_first = len(contacts_after_first)
+
+    skeletons_after_first = (
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm).where(
+                    GeologicalFormationOrm.source_litho_formation_id.is_not(None),
+                    GeologicalFormationOrm.app_project_id == proj.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    skeleton_count_after_first = len(skeletons_after_first)
+
+    # --- Second build (re-build with the same args) ---
+    await uc.execute(project_id=proj.id, litho_model_id=litho.id, section_id=scene["section_id"])
+
+    contacts_after_second = (
+        (
+            await db_session.execute(
+                select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == geotech.id,
+                    FormationContactOrm.borehole_id == bh_straddle.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    contact_count_after_second = len(contacts_after_second)
+
+    skeletons_after_second = (
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm).where(
+                    GeologicalFormationOrm.source_litho_formation_id.is_not(None),
+                    GeologicalFormationOrm.app_project_id == proj.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    skeleton_count_after_second = len(skeletons_after_second)
+
+    assert contact_count_after_second == contact_count_after_first, (
+        f"re-build must not duplicate geotech contacts on bh_straddle: "
+        f"first={contact_count_after_first}, second={contact_count_after_second}"
+    )
+    assert skeleton_count_after_second == skeleton_count_after_first, (
+        f"re-build must not duplicate skeleton formations: "
+        f"first={skeleton_count_after_first}, second={skeleton_count_after_second}"
+    )
