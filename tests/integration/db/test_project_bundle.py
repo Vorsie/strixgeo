@@ -2734,3 +2734,149 @@ async def test_body_display_color_round_trips_in_bundle(db_session: AsyncSession
     assert restored_legacy.display_color is None, (
         "legacy bundle without display_color key must restore to None (additive tolerance)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Geotech source-FK round-trip (Task B2 — spec §3 / §11)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_round_trips_geotech_source_fks(
+    db_session: AsyncSession,
+) -> None:
+    """source_litho_formation_id and source_geo_formation_id survive build → restore.
+
+    A geotech-unit formation that has both provenance FK columns set must
+    carry those values verbatim through the bundle JSON round-trip.  A
+    legacy bundle payload that is missing both keys must restore the
+    formation with ``None`` on both columns (additive tolerance — old
+    .gmproj files open cleanly on a new build).
+    """
+    source = await _make_source_project(db_session)
+    project_id = source.id
+
+    # Three formations:
+    #   geo_f  — a geological parent (source_geo_formation_id target)
+    #   litho_f — a lithostratigraphic parent (source_litho_formation_id target)
+    #   geotech_f — the geotech unit that references both
+    geo_f = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Geo parent",
+        color="#aaaaaa",
+        display_order=0,
+    )
+    litho_f = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Litho parent",
+        color="#bbbbbb",
+        display_order=1,
+    )
+    geotech_f = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Geotech unit",
+        color="#cccccc",
+        display_order=2,
+        source_litho_formation_id=litho_f.id,
+        source_geo_formation_id=geo_f.id,
+    )
+    db_session.add_all([geo_f, litho_f, geotech_f])
+    await db_session.commit()
+
+    geo_id = geo_f.id
+    litho_id = litho_f.id
+    geotech_id = geotech_f.id
+
+    # ---- Build bundle, assert FK columns appear in the formation payload ---
+    bundle = await build_project_bundle(db_session, source)
+    by_name = {f["name"]: f for f in bundle["geological_formations"]}
+    assert "Geotech unit" in by_name, "geotech formation must appear in the bundle"
+    geotech_payload = by_name["Geotech unit"]
+    assert geotech_payload.get("source_litho_formation_id") == str(litho_id), (
+        "source_litho_formation_id must be serialised as a UUID string in the bundle"
+    )
+    assert geotech_payload.get("source_geo_formation_id") == str(geo_id), (
+        "source_geo_formation_id must be serialised as a UUID string in the bundle"
+    )
+
+    # ---- Wipe end-to-end (simulate restoring onto a fresh DB) -------------
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == project_id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore and verify both FK columns survived ----------------------
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    restored_geotech = (
+        await db_session.execute(
+            select(GeologicalFormationOrm).where(GeologicalFormationOrm.id == geotech_id)
+        )
+    ).scalar_one()
+    assert restored_geotech.source_litho_formation_id == litho_id, (
+        "source_litho_formation_id must survive the bundle round-trip"
+    )
+    assert restored_geotech.source_geo_formation_id == geo_id, (
+        "source_geo_formation_id must survive the bundle round-trip"
+    )
+
+    # ---- Legacy tolerance: a bundle payload without the keys restores to None
+    # Simulates opening a .gmproj saved before the geotech stage added these
+    # columns.  _apply_json_to_kwargs silently skips keys absent from the
+    # data dict, so both columns default to None in the ORM constructor.
+    legacy_geotech = dict(geotech_payload)
+    legacy_geotech.pop("source_litho_formation_id", None)
+    legacy_geotech.pop("source_geo_formation_id", None)
+    # Use a fresh id so it doesn't collide with the already-restored row.
+    legacy_geotech["id"] = str(uuid7())
+    legacy_geotech["name"] = "Geotech unit (legacy)"
+
+    legacy_bundle = dict(bundle)
+    # Replace formations with three rows: original geo + litho (needed so
+    # the legacy row has valid FK targets in the DB), plus the legacy row.
+    legacy_bundle["geological_formations"] = [
+        by_name["Geo parent"],
+        by_name["Litho parent"],
+        legacy_geotech,
+    ]
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        legacy_bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    from uuid import UUID as _UUID
+
+    restored_legacy = (
+        await db_session.execute(
+            select(GeologicalFormationOrm).where(
+                GeologicalFormationOrm.id == _UUID(legacy_geotech["id"])
+            )
+        )
+    ).scalar_one()
+    assert restored_legacy.source_litho_formation_id is None, (
+        "source_litho_formation_id must be None when absent from legacy bundle payload"
+    )
+    assert restored_legacy.source_geo_formation_id is None, (
+        "source_geo_formation_id must be None when absent from legacy bundle payload"
+    )
