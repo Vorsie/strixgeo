@@ -93,6 +93,26 @@ class GeologicalFormationOrm(Base):
         ForeignKey("geological_formation.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    # Geotech-stage dual-reference columns (spec §3 explicit identity tuple) ----
+    # The litho formation this geotech unit subdivides.  ON DELETE SET NULL —
+    # removing the litho parent demotes the unit to unlinked rather than
+    # cascading.  NULL on geological- and litho-model rows.
+    source_litho_formation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("geological_formation.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # The geological formation the unit sits within.  Paleogene vs Quaternary
+    # clay carry different parameters, so the geo-ancestry is first-class
+    # stored rather than derived transitively through the litho parent.
+    # ON DELETE SET NULL — same policy as the other self-FKs.  NULL on
+    # geological- and litho-model rows.
+    source_geo_formation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("geological_formation.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # Debt #87: True when ``parent_formation_id`` was inferred from TIN
     # extrapolation rather than from a geology contact at the investigation
     # the litho unit was created on.  The LithologyInspector renders an
