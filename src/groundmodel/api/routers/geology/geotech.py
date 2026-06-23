@@ -1,6 +1,6 @@
-"""Geology API — geotechnical subdivision endpoints (Slice 1, Task C3).
+"""Geology API — geotechnical subdivision endpoints (Slice 1, Task C3 + E4).
 
-Three endpoints that expose the geotech-stage use cases:
+Four endpoints that expose the geotech-stage use cases:
 
 * ``POST /models/{model_id}/geotech/build``   — build the geo-bounded skeleton
   from a lithostratigraphic model (model_id = litho model).
@@ -8,11 +8,13 @@ Three endpoints that expose the geotech-stage use cases:
   for an existing geotech model (model_id = geotech model).
 * ``POST /models/{model_id}/contacts/accept-geotech-suggestions`` — persist
   accepted sub-units (model_id = geotech model).
+* ``POST /models/{model_id}/geotech/subdivide-all-bodies`` — classify + materialise
+  all in-corridor bodies in one shot (model_id = litho model).
 
-All three require the model to belong to ``project_id`` (scope guard via
+All four require the model to belong to ``project_id`` (scope guard via
 ``get_in_project_or_404``).  Kind validation mirrors the litho endpoints:
-``build`` requires ``kind='lithostratigraphic'``; ``suggest`` and ``accept``
-require ``kind='geotechnical'``.
+``build`` and ``subdivide-all-bodies`` require ``kind='lithostratigraphic'``;
+``suggest`` and ``accept`` require ``kind='geotechnical'``.
 
 Mounted under ``/projects/{project_id}/geology`` by the package ``__init__``.
 """
@@ -33,6 +35,8 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     GeotechGhostSubUnitItem,
     GeotechInvestigationSuggestionItem,
     GeotechSegmentSuggestionItem,
+    SubdivideAllBodiesRequest,
+    SubdivideAllBodiesResponse,
     SuggestGeotechRequest,
 )
 from groundmodel.application.accept_geotech_suggestions import (
@@ -41,6 +45,7 @@ from groundmodel.application.accept_geotech_suggestions import (
     AcceptGeotechSuggestions,
 )
 from groundmodel.application.build_geotech_model_from_litho import BuildGeotechModelFromLitho
+from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.application.suggest_geotech_subdivision import (
     GeotechInvestigationSuggestion,
     SuggestGeotechSubdivision,
@@ -404,4 +409,112 @@ async def accept_geotech_suggestions(
         created_formation_ids=result.created_formation_ids,
         created_contact_ids=result.created_contact_ids,
         deleted_skeleton_ids=result.deleted_skeleton_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subdivide-all-bodies endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/geotech/subdivide-all-bodies",
+    response_model=SubdivideAllBodiesResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def subdivide_all_bodies(
+    project_id: UUID,
+    model_id: UUID,
+    request: SubdivideAllBodiesRequest,
+    session: AsyncSession = Depends(get_session),
+) -> SubdivideAllBodiesResponse:
+    """Classify and materialise geotech NAD bodies for all in-corridor litho bodies.
+
+    Runs ``SubdivideAllBodies`` (Task E3) which groups geo-bounded litho picks
+    by ``(body_id, source_geo_formation_id)``, applies the B-policy aggregator
+    to decide consistent-split vs one-class per group, interpolates split
+    surfaces onto every column, and materialises real geotech spatial bodies
+    via ``litho_layer`` + edge inserts so they render through the litho engine.
+
+    The endpoint is idempotent: prior geotech layers, edges, and bodies for the
+    section corridor are deleted before re-writing.  Unlike ``geotech/build``
+    (which writes ``FormationContact`` rows via the skeleton path), this endpoint
+    writes ``litho_layer`` rows directly; the two paths write to different tables
+    and may both exist in the project.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the litho model must belong to this project.
+    model_id : UUID
+        The **lithostratigraphic** model whose bodies are subdivided.  Must be
+        ``kind='lithostratigraphic'``; any other kind returns 422.
+    request : SubdivideAllBodiesRequest
+        Body with the ``section_id`` whose in-corridor investigations are
+        classified and materialised.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    SubdivideAllBodiesResponse
+        Geotech model id, created formation ids, and per-phase counts.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'``, or a domain
+        error is raised during materialisation.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}"
+        f"/geotech/subdivide-all-bodies "
+        f"section_id={request.section_id}"
+    )
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    if model.kind != "lithostratigraphic":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": (
+                    f"Model {model_id} has kind='{model.kind}'; "
+                    "geotech/subdivide-all-bodies requires kind='lithostratigraphic'"
+                ),
+                "actual_kind": model.kind,
+            },
+        )
+
+    try:
+        result = await SubdivideAllBodies(session).execute(
+            project_id=project_id,
+            litho_model_id=model_id,
+            section_id=request.section_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "subdivide_all_bodies_error", "message": str(exc)},
+        ) from exc
+
+    logger.info(
+        f"subdivide_all_bodies ok geotech_model={result.geotech_model_id} "
+        f"layers={result.layer_count} bodies={result.body_count} "
+        f"split={result.split_body_count} one_class={result.one_class_body_count} "
+        f"borehole_only={result.borehole_only_count}"
+    )
+    return SubdivideAllBodiesResponse(
+        geotech_model_id=result.geotech_model_id,
+        created_formation_ids=result.created_formation_ids,
+        layer_count=result.layer_count,
+        body_count=result.body_count,
+        split_body_count=result.split_body_count,
+        one_class_body_count=result.one_class_body_count,
+        borehole_only_count=result.borehole_only_count,
     )
