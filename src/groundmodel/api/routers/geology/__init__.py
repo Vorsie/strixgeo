@@ -17,6 +17,7 @@ from . import (
     contacts,
     exports,
     formations,
+    geotech,
     litho_layers,
     litho_solids,
     models,
@@ -33,3 +34,4 @@ router.include_router(contact_correlations.router)
 router.include_router(bodies.router)
 router.include_router(litho_layers.router)
 router.include_router(litho_solids.router)
+router.include_router(geotech.router)
