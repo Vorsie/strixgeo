@@ -1,15 +1,27 @@
-"""Provisional NAD packing-class lookup: ``(soil, admixture-variant, qc) → class``.
+"""NAD packing-class lookup: ``(soil, admixture-variant, qc) → class 1–31``.
 
-⚠ PROVISIONAL VALUES — the production qc thresholds come from the owner's
-``Correlaties uit S en NAD_NEN_v2.xlsx`` (Task T0). The STRUCTURE here is final;
-only the numbers get swapped. Classification is on RAW qc (MPa), no Dr, no σ′v
-(spec §5).
+Production thresholds ported from the Belgian NAD table (Task T0): the
+``NAD-NEN`` sheet of ``Correlaties uit S en NAD_NEN_v2.xlsx`` (Daniel Verastegui,
+CPTE_2025), == the table on page 2 of ``NO26043_BepalingTabelGrond­
+karakteristieken_v1.0``. Each class's tabulated qc is the LOWER bound of its
+packing band; the band's upper bound is the next (denser) class's qc, so e.g.
+``ZAND, matig gp`` is ``7 ≤ qc < 12.5`` and ``zeer dicht`` is ``qc ≥ 15`` (the
+``>`` marker in the sheet). The same sheet also carries the per-class design
+parameters (γ, φ′, c′, cu, m) — those are the Phase-5 table, NOT used here.
+
+Classification is on RAW qc (MPa), no Dr, no σ′v (spec §5, owner directive). The
+NAD sheet's *official* method NORMALISES qc for sand/gravel (its ``qc,gem,norm``
+column, a Qtn-style overburden normalisation that can shift a sand one band
+up/down); per owner directive raw qc is the default and the normalised/Qtn path
+is a deferred Settings option (spec §5 "Qtn toggle"), applied to the same
+thresholds before lookup. Non-sand soils are never normalised.
 
 A variant is ``"clean"`` or ``"secondary"``. ``"secondary"`` means the soil
 carries its single admixture variant that the NAD table defines:
-sand → silt-/kleihoudend, silt/clay → zandhoudend. Any other admixture (e.g.
-gravelly sand) is NOT a NAD variant and falls to ``"clean"`` (spec §5, exact
-matching). Gravel uses clean/secondary too (silt-/kleihoudend).
+sand/gravel → silt-/kleihoudend, silt/clay → zandhoudend. Any other admixture
+(e.g. gravelly sand) is NOT a NAD variant and falls to ``"clean"`` (spec §5,
+exact matching). VEEN has no secondary variant in the table (its ``secondary``
+row mirrors ``clean``).
 """
 
 from __future__ import annotations
@@ -25,25 +37,26 @@ Variant = Literal["clean", "secondary"]
 # last band → that last (densest) class; qc below the first → that first
 # (loosest) class (nearest-class fallback, spec §5). ``None`` upper bound =
 # open-topped (densest).
+# Real NAD-NEN thresholds (Task T0). Each (upper_bound, class): the band is
+# qc < upper; upper = the next class's tabulated lower-bound qc. Comments give
+# the band range in MPa.
 NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]] = {
-    # GRIND (provisional)
-    ("GRIND", "clean"): [(10.0, 1), (None, 2)],
-    ("GRIND", "secondary"): [(10.0, 3), (None, 4)],
-    # ZAND: los<5 / matig 5-10 / dicht 10-15 / zeer dicht >15 (provisional, memory)
-    ("ZAND", "clean"): [(5.0, 5), (10.0, 6), (15.0, 7), (None, 8)],
-    ("ZAND", "secondary"): [(5.0, 9), (10.0, 10), (15.0, 11), (None, 12)],
-    # SILT: weinig/matig/vrij/vast (provisional)
-    ("SILT", "clean"): [(1.0, 13), (2.0, 14), (4.0, 15), (None, 16)],
-    ("SILT", "secondary"): [(1.0, 17), (2.0, 18), (4.0, 19), (None, 20)],
-    # KLEI (provisional)
-    ("KLEI", "clean"): [(0.5, 21), (1.0, 22), (2.0, 23), (None, 24)],
-    ("KLEI", "secondary"): [(0.5, 25), (1.0, 26), (2.0, 27), (None, 28)],
-    # VEEN: qc-based peat packing is weak; provisional single-band default.
-    # The NAD table defines NO "zandhoudend veen" secondary variant, so the
-    # secondary row intentionally mirrors clean (a sandy-peat admixture does not
-    # change the class) rather than being a copy-paste stub.
-    ("VEEN", "clean"): [(0.3, 29), (0.6, 30), (None, 31)],
-    ("VEEN", "secondary"): [(0.3, 29), (0.6, 30), (None, 31)],
+    # GRIND: matig gp (qc<20) / dicht gp (qc≥20). Table has no los/zeer-dicht gravel.
+    ("GRIND", "clean"): [(20.0, 1), (None, 2)],
+    ("GRIND", "secondary"): [(20.0, 3), (None, 4)],
+    # ZAND: los [3,7) / matig [7,12.5) / dicht [12.5,15) / zeer dicht ≥15.
+    ("ZAND", "clean"): [(7.0, 5), (12.5, 6), (15.0, 7), (None, 8)],
+    ("ZAND", "secondary"): [(7.0, 9), (12.5, 10), (15.0, 11), (None, 12)],
+    # SILT: weinig vast (<1.5) / matig [1.5,3) / vrij [3,4) / vast ≥4.
+    ("SILT", "clean"): [(1.5, 13), (3.0, 14), (4.0, 15), (None, 16)],
+    ("SILT", "secondary"): [(1.5, 17), (3.0, 18), (4.0, 19), (None, 20)],
+    # KLEI: weinig vast (<1.5) / matig [1.5,3) / vrij [3,4) / vast ≥4.
+    ("KLEI", "clean"): [(1.5, 21), (3.0, 22), (4.0, 23), (None, 24)],
+    ("KLEI", "secondary"): [(1.5, 25), (3.0, 26), (4.0, 27), (None, 28)],
+    # VEEN: weinig vast (<0.75) / matig [0.75,1) / vast ≥1. No secondary variant
+    # in the NAD table → the secondary row mirrors clean.
+    ("VEEN", "clean"): [(0.75, 29), (1.0, 30), (None, 31)],
+    ("VEEN", "secondary"): [(0.75, 29), (1.0, 30), (None, 31)],
 }
 
 # Which admixture soil_codes map to the "secondary" NAD variant per main soil
