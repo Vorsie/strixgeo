@@ -95,6 +95,12 @@ export default function SectionsCanvas(): JSX.Element {
       lithoCrossingPinchOuts,
       lithoFormations,
       lithoSurfacesByFormationId,
+      // F3 — geotech axis: layers, contacts + formations from the bus for
+      // the third section render axis (view-only; no edit gestures).
+      activeGeotechModel,
+      geotechLayers,
+      geotechContacts,
+      geotechFormations,
       handleCreateLithoContact,
       handleInlineLithoCreateFormation,
       // Phase 2 of debt #77: the bus exposes the unified Map +
@@ -256,13 +262,22 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
 
-  // Axis flag — defined early so both Slice 2 and Slice 4 blocks can use it.
+  // Axis flags — defined early so downstream blocks can use them.
+  // isGeotech: the third, view-only axis showing NAD-coloured bands.
   const isLitho = sectionModelAxis === 'lithostratigraphic'
+  const isGeotech = sectionModelAxis === 'geotechnical'
 
-  // Key the fetch on the model ID, not the model object: the object
-  // re-identifies on unrelated mutations (e.g. a formation rename rebuilds
-  // it), which would churn the contact-edge refetch unnecessarily.
+  // Key the fetch on the model IDs, not the model objects: the objects
+  // re-identify on unrelated mutations (e.g. a formation rename rebuilds
+  // them), which would churn the contact-edge refetch unnecessarily.
   const lithoModelId = activeLithoModel?.id ?? null
+  const geotechModelId = activeGeotechModel?.id ?? null
+
+  // The active section model and its layers — parameterised by axis so
+  // the PartitionFillOverlay receives the right layer/formation set.
+  const activeSectionModelId = isGeotech ? geotechModelId : lithoModelId
+  const sectionLayers = isGeotech ? geotechLayers : lithoLayers
+  const sectionFormations = isGeotech ? geotechFormations : lithoFormations
 
   // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
@@ -396,43 +411,43 @@ export default function SectionsCanvas(): JSX.Element {
   const contactCorrelateMode = correlateMode
 
   const refetchContactEdges = useCallback(async () => {
-    if (lithoModelId === null) {
+    if (activeSectionModelId === null) {
       setContactCorrelationEdges([])
       return
     }
     log.debug(
       'section',
-      `listContactCorrelations: GET project=${project.id} model=${lithoModelId} section=${selectedSectionId}`,
+      `listContactCorrelations: GET project=${project.id} model=${activeSectionModelId} section=${selectedSectionId}`,
     )
     try {
       const edges = await api.geology.listContactCorrelations(
         project.id,
-        lithoModelId,
+        activeSectionModelId,
         selectedSectionId,
       )
       setContactCorrelationEdges(edges)
       log.debug(
         'section',
-        `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId} section=${selectedSectionId}`,
+        `listContactCorrelations: ${edges.length} edge(s) for model ${activeSectionModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
       log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
     }
-  }, [lithoModelId, project.id, selectedSectionId])
+  }, [activeSectionModelId, project.id, selectedSectionId])
 
   useEffect(() => {
-    if (!isLitho) {
+    if (!isLitho && !isGeotech) {
       setContactCorrelationEdges([])
       return
     }
     void refetchContactEdges()
-    // reason: isLitho + activeLithoModel.id + selectedSectionId are the three
-    // axes that require a re-fetch; refetchContactEdges captures project.id +
-    // lithoModelId in its closure so they don't need to be listed here.
-    // correlationEdgesRefetchNonce (#163c) is bumped after a successful
-    // auto-correlate so the new edges render without a manual reselect.
+    // reason: (isLitho || isGeotech) + activeSectionModelId + selectedSectionId
+    // are the three axes that require a re-fetch; refetchContactEdges captures
+    // project.id + activeSectionModelId in its closure so they don't need to be
+    // listed here. correlationEdgesRefetchNonce (#163c) is bumped after a
+    // successful auto-correlate so the new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLitho, activeLithoModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
+  }, [isLitho, isGeotech, activeSectionModelId, selectedSectionId, correlationEdgesRefetchNonce])
 
   // #163f Slice 2 — detected lenses + their boundary shapes for LensWedge
   // Overlay. Mirrors the contact-edge fetch (same nonce trigger: lenses are
@@ -1174,16 +1189,25 @@ export default function SectionsCanvas(): JSX.Element {
   // the switch. Geological is the default and existing behaviour is identical.
   // (isLitho is defined above the Slice 4 block so both slices share it.)
   // Active model for the chosen axis — used for export button gating.
-  const activeAxisModel = isLitho ? activeLithoModel : activeGeologicalModel
+  // Geotech axis is view-only so it doesn't own an axis model for editing;
+  // fall through to the geological model so export buttons gate correctly.
+  const activeAxisModel = isLitho
+    ? activeLithoModel
+    : isGeotech
+      ? activeGeotechModel
+      : activeGeologicalModel
   // Contact/formation/surface sets routed by axis.
-  const axisContacts = isLitho ? lithoContacts : contacts
-  const axisFormations = isLitho ? lithoFormations : formations
+  // Geotech uses geotechFormations (NAD-stamped) and geotechContacts from
+  // the bus; surfaces are not used on the geotech axis (no TIN rendering).
+  const axisContacts = isLitho ? lithoContacts : isGeotech ? geotechContacts : contacts
+  const axisFormations = isLitho ? lithoFormations : isGeotech ? geotechFormations : formations
   const axisSurfacesByFormationId = isLitho ? lithoSurfacesByFormationId : surfacesByFormationId
   const axisExcludedBoreholeIds = activeAxisModel?.excluded_borehole_ids ?? []
   // Litho axis left-click creates a ghost layer, not a committed contact.
   // The geological axis keeps the original committed-contact flow unchanged.
-  const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
-  const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
+  // Geotech axis is view-only: no contact creation (undefined → disabled).
+  const axisCreateContact = isLitho ? handleCreateLithoContact : isGeotech ? undefined : handleCreateContact
+  const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : isGeotech ? undefined : handleInlineCreateFormation
 
   // Override #2 (owner): derive the default backdrop geological-model id at the
   // prop boundary via useMemo from activeLithoModel?.parent_geological_model_id.
@@ -1275,13 +1299,15 @@ export default function SectionsCanvas(): JSX.Element {
       // zero-thickness, outline-only band that the user cannot see, making the
       // gesture invisible and confusing.  The right-click path already covers
       // the intent; this branch is deleted (dogfeed 2026-05-26).
-      if (isLitho) return
+      // Geotech axis is view-only — no new contacts may be created.
+      if (isLitho || isGeotech) return
 
       // Pass the section id so the backend seeds seeded_formation_contact_ids
       // (P2-E). Without this the create succeeds but the P2-F filter below
       // hides the new contact — the root cause of the "draw/copy does
       // nothing" dogfeed bug: the threading stopped here and never reached
       // the create body.
+      if (!axisCreateContact) return
       await axisCreateContact(
         anchorKind,
         anchorId,
@@ -1305,13 +1331,12 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'sectionAwareCreateContact: section refresh after draw failed', err)
       }
     },
-    // reason: isLitho is listed so the early-return branch refreshes when the
-    // axis switches; visibleCpts/visibleBoreholes are stable arrays during a
-    // session but listed for completeness.  handleCreateManualLithoGhost is no
-    // longer called here (left-click on the litho axis is a no-op per the
-    // 2026-05-26 dogfeed revert above).
+    // reason: isLitho + isGeotech are listed so the early-return branch
+    // refreshes when the axis switches; axisCreateContact captures the
+    // handler for the current axis.  visibleCpts/visibleBoreholes are stable
+    // during a session but listed for completeness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedSection, axisCreateContact, project.id, applyUpdatedSection, isLitho],
+    [selectedSection, axisCreateContact, project.id, applyUpdatedSection, isLitho, isGeotech],
   )
 
   // P2-H (batch) — section-aware contact COPY (drag-to-next-test: one-by-one,
@@ -2077,11 +2102,12 @@ export default function SectionsCanvas(): JSX.Element {
           // picker dialog opens in useContactPicker — BEFORE the internal
           // sectionAwareCreateContact early-return guard even runs. The previous
           // guard was too late in the callback chain.
-          onCreateContact={isLitho ? undefined : sectionAwareCreateContact}
+          onCreateContact={(isLitho || isGeotech) ? undefined : sectionAwareCreateContact}
           onUpdateContactDepth={handleLithoSnapAwareUpdateContactDepth}
           onDeleteContact={handleDeleteContact}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
+          // Geotech axis is view-only; geology sync not applicable.
           onBatchUpdateContacts={handleBatchUpdateContacts}
           onBatchCreateContacts={sectionAwareBatchCreateContacts}
           // Seed from stratigraphy: only available on the geological axis
@@ -2094,7 +2120,7 @@ export default function SectionsCanvas(): JSX.Element {
           // without a refetch GET — the section's seeded set is immediately
           // current so P2-F's filter picks up the new contacts on the next render.
           onAutoPopulateFromStratigraphy={
-            !isLitho && formations.length > 0
+            !isLitho && !isGeotech && formations.length > 0
               ? (boreholeIds) =>
                   handleAutoPopulateFromStratigraphy(
                     boreholeIds,
@@ -2150,7 +2176,13 @@ export default function SectionsCanvas(): JSX.Element {
           // Manual litho composition picker (Phase-1.5): the picker dialog
           // is shown instead of the geological FormationPicker when the
           // section is on the lithostratigraphic axis.
-          axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
+          axisMode={
+            isGeotech
+              ? 'geotechnical'
+              : isLitho
+                ? 'lithostratigraphic'
+                : 'geological'
+          }
           // Debt #134-B — drag-readout "↦ snap on release" hint.  Pure
           // pre-release telegraph for the same prompt the post-release
           // wrapper above (handleLithoSnapAwareUpdateContactDepth)
@@ -2171,7 +2203,7 @@ export default function SectionsCanvas(): JSX.Element {
           // state, litho axis only.  CorrelationEdgesOverlay is mounted on the
           // litho axis (SectionPanel gates on axisMode === 'lithostratigraphic')
           // and absent on the geological axis — zero regression.
-          contactEdges={isLitho ? contactCorrelationEdges : undefined}
+          contactEdges={(isLitho || isGeotech) ? contactCorrelationEdges : undefined}
           // Auto-lens (2026-06-02): pinch-out lens candidates from the last
           // auto-correlate run, rendered as amber diamonds on the litho axis.
           crossingPinchOuts={isLitho ? lithoCrossingPinchOuts : undefined}
@@ -2197,11 +2229,17 @@ export default function SectionsCanvas(): JSX.Element {
             isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
           }
           // #163f Slice 2 — lens wedges + shaping (litho axis only).
-          lenses={isLitho ? lensList : undefined}
+          lenses={
+            isLitho
+              ? lensList
+              : isGeotech
+                ? [] // geotech axis: bodies resolved via correlations; no lens entities yet
+                : undefined
+          }
           // Bug C ("body jump") — committed bodies frame from their own member
           // layer (litho_layer.body_id). Pass the accepted litho layers so
           // BodyExtentOverlay can resolve each body's source band depth.
-          lithoLayers={isLitho ? lithoLayers : undefined}
+          lithoLayers={(isLitho || isGeotech) ? sectionLayers : undefined}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
