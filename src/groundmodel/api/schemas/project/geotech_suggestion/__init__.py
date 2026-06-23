@@ -13,9 +13,9 @@ from .accept_geotech_sub_unit_item import AcceptGeotechSubUnitItem
 from .build_geotech_request import BuildGeotechRequest
 from .build_geotech_response import BuildGeotechResponse
 from .geotech_ghost_sub_unit_item import GeotechGhostSubUnitItem
+from .geotech_investigation_suggestion_item import GeotechInvestigationSuggestionItem
 from .geotech_segment_suggestion_item import GeotechSegmentSuggestionItem
 from .suggest_geotech_request import SuggestGeotechRequest
-from .suggest_geotech_response import GeotechInvestigationSuggestionItem
 
 __all__ = [
     "AcceptGeotechRequest",
