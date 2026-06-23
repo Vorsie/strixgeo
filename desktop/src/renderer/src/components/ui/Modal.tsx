@@ -15,8 +15,14 @@
 //   * Default focus on mount (callers focus their own preferred element)
 //   * Submit logic + the ``busy`` flag during async actions
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+
+// Elements that can hold keyboard focus inside the dialog. Excludes
+// disabled controls and explicit ``tabindex="-1"`` (programmatic-only)
+// nodes. Used to cycle Tab/Shift+Tab within the card (WCAG 2.4.3).
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 interface Props {
   open: boolean
@@ -47,16 +53,70 @@ export default function Modal({
   testid,
   children,
 }: Props) {
+  // Ref to the inner card so the focus trap knows the dialog boundary.
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // Esc-to-cancel + the Tab/Shift+Tab focus trap (WCAG 2.4.3): while the
+  // dialog is open, Tab cycles within the card instead of escaping to the
+  // obscured app behind the scrim.
   useEffect(() => {
     if (!open) return
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape' || busy) return
-      e.preventDefault()
-      onCancel()
+      if (e.key === 'Escape') {
+        if (busy) return
+        e.preventDefault()
+        onCancel()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const card = cardRef.current
+      if (!card) return
+      const focusables = Array.from(
+        card.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      )
+      // No focusable children — keep focus on the card itself.
+      if (focusables.length === 0) {
+        e.preventDefault()
+        card.focus()
+        return
+      }
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey) {
+        if (active === first || !card.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else if (active === last || !card.contains(active)) {
+        e.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open, busy, onCancel])
+
+  // Focus management: remember what was focused before the dialog opened,
+  // pull focus into the card on open (only if the caller hasn't already
+  // focused its own preferred element — e.g. ConfirmDialog focuses Cancel),
+  // and restore focus to the trigger when the dialog closes. Depends only
+  // on ``open`` so a ``busy`` toggle mid-dialog doesn't yank focus around.
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const card = cardRef.current
+    if (card && !card.contains(document.activeElement)) {
+      const firstFocusable = card.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      ;(firstFocusable ?? card).focus()
+    }
+    return () => {
+      // Restore only if the trigger is still in the document and focusable.
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus()
+      }
+    }
+  }, [open])
 
   // Early-return BEFORE the portal so a closed modal renders nothing
   // anywhere (keeps the closed-state `container.querySelector` test
@@ -90,6 +150,10 @@ export default function Modal({
       onClick={() => !busy && onCancel()}
     >
       <div
+        ref={cardRef}
+        // tabIndex=-1 lets the card itself hold focus as a last resort (a
+        // dialog with no focusable children) so Tab still can't escape.
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
