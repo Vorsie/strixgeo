@@ -2865,12 +2865,10 @@ async def test_bundle_round_trips_geotech_source_fks(
     )
     await db_session.commit()
 
-    from uuid import UUID as _UUID
-
     restored_legacy = (
         await db_session.execute(
             select(GeologicalFormationOrm).where(
-                GeologicalFormationOrm.id == _UUID(legacy_geotech["id"])
+                GeologicalFormationOrm.id == UUID(legacy_geotech["id"])
             )
         )
     ).scalar_one()
