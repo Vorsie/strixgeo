@@ -61,6 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -659,6 +660,105 @@ async def test_sab_all(
     geotech_model_id = result.geotech_model_id
 
     # ------------------------------------------------------------------
+    # SAB-4 (idempotency): a second execute() on the same model+section
+    # must produce identical DB row counts — no duplicates, no leaks.
+    # Query the four mutable row families before the re-run, then assert
+    # they match after it.
+    # ------------------------------------------------------------------
+    def _count(rows):  # noqa: ANN001 — local helper, type is irrelevant
+        """Return the length of a scalar .all() result."""
+        return len(rows)
+
+    async def _geotech_layer_count() -> int:
+        """Return the number of accepted geotech litho_layer rows."""
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return _count(rows)
+
+    async def _geotech_edge_count() -> int:
+        """Return the number of geotech correlation edge rows."""
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return _count(rows)
+
+    async def _geotech_body_count() -> int:
+        """Return the number of BodyOrm rows for the geotech model."""
+        rows = (
+            (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geotech_model_id)))
+            .scalars()
+            .all()
+        )
+        return _count(rows)
+
+    async def _geotech_fc_count() -> int:
+        """Return the number of formation_contact rows for the geotech model."""
+        rows = (
+            (
+                await db_session.execute(
+                    select(FormationContactOrm).where(
+                        FormationContactOrm.model_id == geotech_model_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return _count(rows)
+
+    layers_before = await _geotech_layer_count()
+    edges_before = await _geotech_edge_count()
+    bodies_before = await _geotech_body_count()
+    fcs_before = await _geotech_fc_count()
+
+    # Second execute — must be idempotent.
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+        section_id=section_id,
+    )
+
+    layers_after = await _geotech_layer_count()
+    edges_after = await _geotech_edge_count()
+    bodies_after = await _geotech_body_count()
+    fcs_after = await _geotech_fc_count()
+
+    assert layers_after == layers_before, (
+        f"SAB-4 (idempotency): litho_layer count changed on re-run "
+        f"({layers_before} → {layers_after}); re-run must not duplicate rows"
+    )
+    assert edges_after == edges_before, (
+        f"SAB-4 (idempotency): correlation edge count changed on re-run "
+        f"({edges_before} → {edges_after}); re-run must not duplicate edges"
+    )
+    assert bodies_after == bodies_before, (
+        f"SAB-4 (idempotency): BodyOrm count changed on re-run "
+        f"({bodies_before} → {bodies_after}); re-run must not duplicate bodies"
+    )
+    assert fcs_after == fcs_before, (
+        f"SAB-4 (idempotency): formation_contact count changed on re-run "
+        f"({fcs_before} → {fcs_after}); re-run must not duplicate formation_contacts"
+    )
+
+    # ------------------------------------------------------------------
     # SAB-7: TRAP 1 — same-position-only correlation edges.
     # The geotech litho_layer rows for CPT-A and CPT-B each split into
     # two bands (loose + dense).  An edge must connect loose-A ↔ loose-B
@@ -693,6 +793,13 @@ async def test_sab_all(
         .all()
     )
 
+    # SAB-7 positive guard: edges must actually exist so the negative
+    # assertion below cannot pass vacuously on zero edges.
+    assert len(geotech_edges) > 0, (
+        "SAB-7 (TRAP 1): no geotech correlation edges were created — "
+        "CPT-A ↔ CPT-B same-position edges must exist after a consistent split"
+    )
+
     cross_position_edges = [
         edge
         for edge in geotech_edges
@@ -702,6 +809,23 @@ async def test_sab_all(
         f"SAB-7 (TRAP 1): {len(cross_position_edges)} cross-position edge(s) found — "
         f"each edge must connect same-NAD-class layers only. "
         f"Offending edges: {[str(e.id) for e in cross_position_edges]}"
+    )
+
+    # SAB-7 over-merge guard: the consistent-split body (Body-A, CPT-A
+    # and CPT-B) must resolve into ≥2 distinct body_id values across its
+    # geotech litho_layer rows (loose band → body X, dense band → body Y).
+    # A single shared body_id would mean the loose and dense sub-units were
+    # merged by the resolver — the over-merge that same-position-only edges
+    # must prevent.
+    cpt_a_uuid = UUID(sab_scene["cpt_a_id"])
+    cpt_b_uuid = UUID(sab_scene["cpt_b_id"])
+    body_a_layers = [layer for layer in geotech_layers if layer.cpt_id in (cpt_a_uuid, cpt_b_uuid)]
+    body_a_body_ids = [layer.body_id for layer in body_a_layers if layer.body_id is not None]
+    assert len(set(body_a_body_ids)) >= 2, (
+        f"SAB-7 (over-merge guard): Body-A geotech layers for CPT-A and CPT-B "
+        f"resolve to only {len(set(body_a_body_ids))} distinct body_id(s) "
+        f"(expected ≥ 2 — one per packing band). "
+        f"body_ids={[str(b) for b in body_a_body_ids]}"
     )
 
     # ------------------------------------------------------------------
