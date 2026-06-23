@@ -30,8 +30,16 @@ from groundmodel.api.main import app
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
-    """Shared TestClient for HTTP-level assertions."""
-    return TestClient(app, base_url="http://127.0.0.1")
+    """Shared TestClient for HTTP-level assertions.
+
+    ``raise_server_exceptions=False`` so a handler that 500s (e.g. the PDF
+    export reaching an unavailable DB in a unit run) returns a 500 *response*
+    instead of propagating the exception into the test. These are query-param
+    *validation* / security tests — they assert on the status the validator
+    produces (422 vs not), which fires before the handler; whether the handler
+    then succeeds, 404s, or 500s must not make the test DB-dependent.
+    """
+    return TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False)
 
 
 # ===========================================================================
