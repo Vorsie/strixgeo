@@ -6,6 +6,50 @@
 
 ---
 
+## 0. REVISION 2026-06-23 — BODY-CENTRIC subdivision (supersedes the per-test interaction below)
+
+Owner directive during the Phase-D UI brainstorm: **subdivision operates on whole
+litho BODIES, not test-by-test.** The litho stage already produces connected
+bodies (correlated across tests via correlation edges + the resolver's
+``body_id`` + partition-fill); geotech refines those, so the packing sub-units
+inherit the body's connectivity automatically. This folds the
+horizontal-correlation work (formerly "Slice 2") into the core flow.
+
+- **Headline gesture: "Subdivide all bodies"** — one action over the whole model.
+  Per-test suggest/accept ghosts are OUT (that was the fragmentation trap).
+- **Cross-test packing-variation policy = option B:** where packing changes
+  *with depth consistently across a body's tests* (loose-shallow → dense-deep),
+  split the body into connected geotech sub-bodies at the interpolated
+  packing-transition surface. Where variation is *lateral only* (different
+  packing at the same depth across tests, no consistent vertical transition),
+  assign ONE representative NAD class to the whole body (median/dominant across
+  its tests). Full lateral interfingering (option C) stays Phase 5.
+- **Manual depth/boundary adjustment of the result is DEFERRED** (owner: "worry
+  about that later"). Slice 1 = the automatic body-centric subdivision + render.
+
+**Impact on the already-built backend (Phases A–C, on develop):**
+- **Reused as-is:** the NAD classifier (A1/A2, real NAD-NEN thresholds), the
+  per-segment qc segmenter (A3), the geo-bounding skeleton build (C1), the
+  find-or-create-by-full-triple + skeleton/orphan persistence machinery (C2b),
+  the dual-ref FK migration (B), the API scaffolding (C3).
+- **Reframed:** the per-investigation ``SuggestGeotechSubdivision`` (C2a) + the
+  per-segment accept GESTURE become the *compute substrate* for a new
+  **``SubdivideAllBodies``** use case that (1) groups the geo-bounded segments by
+  litho ``body_id``, (2) classifies each test's qc per body, (3) applies policy B
+  to decide split-surface vs representative-class, (4) persists connected geotech
+  sub-bodies. The per-test "suggest → accept ghost" endpoints stay (useful for a
+  future single-body re-classify) but are no longer the headline path.
+- **Frontend (Phase D, not yet built):** D3/D4 are body-centric — a "Subdivide
+  all bodies" toolbar verb + connected body-band rendering (reuse the litho
+  partition-fill/band overlays), NAD packing-name labels + "CPT est." badge, the
+  no-qc/manual band state, the build-then-subdivide gate. No per-test ghost-accept UI.
+
+The B-policy aggregation (detect consistent vertical transition across a body's
+tests vs lateral-only; interpolate the split surface) is the key NEW algorithm
+and warrants its own focused design + plan before building.
+
+---
+
 ## 1. Context & goal
 
 Take the finished **lithostratigraphic** units and subdivide them by **packing
