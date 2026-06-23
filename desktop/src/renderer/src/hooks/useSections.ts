@@ -28,7 +28,7 @@ import { useCorrelate } from '../components/sections/useCorrelate'
 import type { CorrelationSource } from '../components/sections/useCorrelate'
 
 /** Which model the section editor renders and edits (slice 2, #55). */
-export type SectionModelAxis = 'geological' | 'lithostratigraphic'
+export type SectionModelAxis = 'geological' | 'lithostratigraphic' | 'geotechnical'
 
 export interface UseSectionsResult {
   sections: CrossSectionResponse[]
