@@ -41,6 +41,10 @@ export default function CanvasHints({
       <div>
         Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open
       </div>
+      {/* Debt #203 — the Help → Gesture cheatsheet (debt #95) is otherwise
+          only reachable via the menu/F1 accelerator with no on-canvas cue;
+          this line closes the discoverability loop. */}
+      <div data-testid="f1-cheatsheet-hint">Press F1 for the full gesture reference</div>
       {axisMode === 'lithostratigraphic' && (
         <div data-testid="litho-gesture-hint">
           Litho layer: double-click to accept · Alt+drag to copy composition ·
