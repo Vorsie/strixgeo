@@ -10,22 +10,34 @@
  * ----------
  * axisMode
  *     Which model axis the section is editing. Drives whether the
- *     litho-specific gesture line is shown.
+ *     litho-specific gesture line is shown, and whether the
+ *     geotech-not-built hint is eligible to surface.
  * correlateBlocked
  *     Debt #139 — the user has entered correlate mode on a section with
  *     zero litho contacts. Surfaces an explanatory hint so the no-op is
  *     discoverable instead of silent.
+ * geotechNotReconciled
+ *     Geotech axis only — the geotech model for this section has not been
+ *     built yet. Surfaces a discoverability hint prompting the user to
+ *     trigger a build before the NAD suggestion flow is available.
  */
 export default function CanvasHints({
   axisMode,
   correlateBlocked = false,
+  geotechNotReconciled = false,
 }: {
-  axisMode: 'geological' | 'lithostratigraphic'
+  axisMode: 'geological' | 'lithostratigraphic' | 'geotechnical'
   /** Debt #139 — user has entered correlate mode on a section with zero
    *  litho contacts.  The CorrelationEdgesOverlay paints no hit-rects in
    *  this state, leaving the user with no clickable surface.  Surface a
    *  hint line so the failure mode is discoverable instead of silent. */
   correlateBlocked?: boolean
+  /** Geotech axis only — fires when the geotech model for the active
+   *  section has not yet been built, so the NAD subdivision suggestion
+   *  flow is unavailable.  Mirrors the ``correlateBlocked`` pattern:
+   *  visible only on the geotechnical axis when true, styled amber to
+   *  draw the eye without implying an error. */
+  geotechNotReconciled?: boolean
 }): JSX.Element {
   return (
     // SVG can't use Tailwind dark: variants; the hint pill's background and
@@ -54,6 +66,11 @@ export default function CanvasHints({
       {correlateBlocked && (
         <div data-testid="correlate-blocked-hint" style={{ color: 'var(--section-hint-emphasis, #fbbf24)' }}>
           Accept litho suggestions to enable correlation — 0 accepted contacts on this section.
+        </div>
+      )}
+      {axisMode === 'geotechnical' && geotechNotReconciled && (
+        <div data-testid="geotech-not-built-hint" style={{ color: 'var(--section-hint-emphasis, #fbbf24)' }}>
+          Build the geotech model for this section before suggesting NAD subdivision.
         </div>
       )}
     </div>
