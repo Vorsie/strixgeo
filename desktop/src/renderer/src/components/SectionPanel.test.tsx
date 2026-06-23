@@ -531,6 +531,62 @@ describe('SectionPanel — gesture hint pill', () => {
     )
     expect(screen.queryByTestId('correlate-blocked-hint')).toBeNull()
   })
+
+  // D2 — geotechnical axis: geotech-not-built hint (spec §7, ux-reviewer).
+  // The hint fires only on the geotech axis when geotechNotReconciled is true,
+  // prompting the user to build the geotech model before the NAD suggestion
+  // flow is available.
+  it('CH-GN1: renders the geotech-not-built hint on the geotechnical axis when geotechNotReconciled is true', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="geotechnical"
+        geotechNotReconciled
+      />,
+    )
+    const hint = screen.getByTestId('geotech-not-built-hint')
+    expect(hint).toBeInTheDocument()
+    expect(hint).toHaveTextContent(/build the geotech model/i)
+  })
+
+  it('CH-GN2: omits the geotech-not-built hint when geotechNotReconciled is false', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="geotechnical"
+        geotechNotReconciled={false}
+      />,
+    )
+    expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
+  })
+
+  it('CH-GN3: omits the geotech-not-built hint on the lithostratigraphic axis even when geotechNotReconciled is true', () => {
+    // The hint is gated on axisMode === 'geotechnical' — passing the prop on the
+    // wrong axis must never surface the hint (prevents misfire during an axis switch).
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="lithostratigraphic"
+        geotechNotReconciled
+      />,
+    )
+    expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
+  })
+
+  it('CH-GN4: omits the geotech-not-built hint on the geological axis', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="geological"
+        geotechNotReconciled
+      />,
+    )
+    expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
