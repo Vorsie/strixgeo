@@ -249,7 +249,12 @@ class LithoLayerRepository(GroundModelLogger):
     # Litho-3D solid cache support (Task 4 — RecomputeLithoSolids)
     # -----------------------------------------------------------------
 
-    async def load_body_picks(self, model_id: UUID) -> list[BodyLayerPick]:
+    async def load_body_picks(
+        self,
+        model_id: UUID,
+        *,
+        restrict_to_investigation_ids: set[UUID] | None = None,
+    ) -> list[BodyLayerPick]:
         """Load one ``BodyLayerPick`` per accepted litho layer with a resolved body.
 
         The pick carries the investigation's world coordinates and surface
@@ -272,6 +277,13 @@ class LithoLayerRepository(GroundModelLogger):
         ----------
         model_id : UUID
             The lithostratigraphic model to scope the query to.
+        restrict_to_investigation_ids : set[UUID] | None, optional
+            When given, only layers anchored to a CPT/borehole whose id is in
+            this set are loaded — the section-scoped path used by
+            ``BuildGeotechModelFromLitho`` (in-corridor investigations resolved
+            via ``project_investigations_onto_section``).  ``None`` (the
+            default) is the model-wide load every other caller uses.  An empty
+            set returns no picks (no in-corridor investigations).
 
         Returns
         -------
@@ -280,30 +292,41 @@ class LithoLayerRepository(GroundModelLogger):
             Order is deterministic (sorted by ``body_id`` then
             ``depth_top_m``) but callers must not depend on it.
         """
-        self.debug(f"load_body_picks: model={model_id}")
+        self.debug(
+            f"load_body_picks: model={model_id}"
+            + (
+                f" restricted to {len(restrict_to_investigation_ids)} investigation(s)"
+                if restrict_to_investigation_ids is not None
+                else ""
+            )
+        )
 
         # One query for all accepted layers with non-null body_id.
-        layer_rows = list(
-            (
-                await self._session.execute(
-                    select(
-                        LithoLayerOrm.id,
-                        LithoLayerOrm.body_id,
-                        LithoLayerOrm.formation_id,
-                        LithoLayerOrm.depth_top_m,
-                        LithoLayerOrm.depth_base_m,
-                        LithoLayerOrm.borehole_id,
-                        LithoLayerOrm.cpt_id,
-                    )
-                    .where(
-                        LithoLayerOrm.model_id == model_id,
-                        LithoLayerOrm.status == "accepted",
-                        LithoLayerOrm.body_id.is_not(None),
-                    )
-                    .order_by(LithoLayerOrm.body_id, LithoLayerOrm.depth_top_m)
-                )
-            ).all()
+        stmt = (
+            select(
+                LithoLayerOrm.id,
+                LithoLayerOrm.body_id,
+                LithoLayerOrm.formation_id,
+                LithoLayerOrm.depth_top_m,
+                LithoLayerOrm.depth_base_m,
+                LithoLayerOrm.borehole_id,
+                LithoLayerOrm.cpt_id,
+            )
+            .where(
+                LithoLayerOrm.model_id == model_id,
+                LithoLayerOrm.status == "accepted",
+                LithoLayerOrm.body_id.is_not(None),
+            )
+            .order_by(LithoLayerOrm.body_id, LithoLayerOrm.depth_top_m)
         )
+        if restrict_to_investigation_ids is not None:
+            # Section-scoped: keep only layers anchored to an in-corridor
+            # investigation.  The XOR anchor means exactly one of borehole_id /
+            # cpt_id is non-null per row, so an OR over both columns matches the
+            # right rows regardless of anchor kind.
+            ids = restrict_to_investigation_ids
+            stmt = stmt.where(LithoLayerOrm.borehole_id.in_(ids) | LithoLayerOrm.cpt_id.in_(ids))
+        layer_rows = list((await self._session.execute(stmt)).all())
 
         if not layer_rows:
             self.debug(f"load_body_picks: no accepted body-assigned layers for model={model_id}")
