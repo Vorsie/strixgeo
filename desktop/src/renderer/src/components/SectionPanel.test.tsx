@@ -486,6 +486,12 @@ describe('SectionPanel — gesture hint pill', () => {
     expect(screen.queryByTestId('litho-gesture-hint')).toBeNull()
   })
 
+  // Debt #203 — the F1 cheatsheet was undiscoverable from the canvas.
+  it('CH-F1: always shows the F1 cheatsheet discoverability hint', () => {
+    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    expect(screen.getByTestId('f1-cheatsheet-hint')).toHaveTextContent(/press f1/i)
+  })
+
   // Debt #139 — entering correlate mode on a section with zero
   // correlatable contacts leaves the user stranded (no hit-rects,
   // no feedback).  CanvasHints surfaces a discoverability pill so
