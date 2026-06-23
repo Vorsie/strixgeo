@@ -333,8 +333,14 @@ interface Props {
    *                             and the per-contact amber dots add visual
    *                             clutter without functional value outside the
    *                             correlate gesture.
+   * - ``'geotechnical'``      — behaves like ``'lithostratigraphic'`` for
+   *                             contact and band rendering; coupling-glyph
+   *                             circles are hidden the same way.  Litho-only
+   *                             gestures (correlation, auto-correlate, lens
+   *                             detection) are excluded — geotech has none
+   *                             in Slice 1.
    */
-  axisMode?: 'geological' | 'lithostratigraphic'
+  axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -3180,7 +3186,7 @@ export default function ContactsLayer({
                 amber dots are noise when the partition fill is the primary
                 interaction surface; correlate mode restores them so the user
                 can click contacts for the correlate gesture. */}
-            {(axisMode !== 'lithostratigraphic' || correlateMode) &&
+            {((axisMode !== 'lithostratigraphic' && axisMode !== 'geotechnical') || correlateMode) &&
               contacts.find(c => c.id === layer.contactId)?.parent_geo_contact_id != null &&
               layer.segY >= plotTop &&
               layer.segY <= plotBottom && (
