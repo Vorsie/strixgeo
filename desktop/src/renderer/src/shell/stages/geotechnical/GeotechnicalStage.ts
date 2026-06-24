@@ -1,16 +1,18 @@
-// Geotechnical stage descriptor — contract-level stub (Phase 5).
+// Geotechnical stage descriptor (F4/F5 — subdivide all bodies + NAD roster).
 //
-// Unit subdivision (formations → geotechnical units) and parameter values
-// are Phase 5 work.  This stub keeps the spine populated at five stages.
+// F4: GeotechnicalCanvas reuses SectionsCanvas with axis='geotechnical'.
+// F5: GeotechnicalInspector renders the NAD packing-unit roster (replaces
+//     the former null stub).  Toolbar verb ("Subdivide all bodies") is wired
+//     in the SectionsToolbar geotech path.
 
 import { FlaskConical } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import GeotechnicalCanvas from './GeotechnicalCanvas'
+import GeotechnicalInspector from './GeotechnicalInspector'
 
-/** No-op placeholder components — replaced in Phase 5. */
+/** No-op placeholder — the geotech toolbar verb lives in SectionsToolbar. */
 function GeotechnicalToolbar(): null { return null }
-function GeotechnicalInspector(): null { return null }
 
 /**
  * ``useStageSummary`` for the Geotechnical stage.
