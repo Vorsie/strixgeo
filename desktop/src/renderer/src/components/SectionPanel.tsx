@@ -843,7 +843,8 @@ export default function SectionPanel({
   // label (``body.geo_formation_name``), shown as context, not baked into the
   // name — so the old "QP"/"QH" geo-parent prefix is gone.
   // On the geotechnical axis, bands are coloured by NAD class and labelled
-  // by NAD class name (e.g. "Dicht" / "No qc — manual class").
+  // by NAD class name (e.g. "ZAND, dicht gp"). A null nad_class yields ""
+  // so the band renders with no label (degenerate — zero CPTs for the lithology).
   // On litho / geological axes, label derives from soil code + colour from
   // the stored lithology colour.
   const formationLabelById = useMemo(() => {
@@ -3077,8 +3078,8 @@ export default function SectionPanel({
                 open-end stubs when Fill bands is on.
                 On the litho axis: bands coloured by lithology colour.
                 On the geotech axis: bands coloured by NAD class (nadClassColor);
-                  a formation with nad_class === null renders in neutral grey
-                  ("No qc — manual class" label) — distinct from amber, never amber.
+                  a formation with nad_class === null renders in neutral grey with
+                  no label (degenerate — zero CPTs; never amber).
                 Geotech axis is view-only (no drag handles wired). */}
             {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay

@@ -80,7 +80,8 @@ function GeotechnicalUnitRow({ f, geotechContacts }: GeotechnicalUnitRowProps): 
       </span>
 
       {/* "CPT est." badge — only on CPT-classified units (nad_class !== null).
-          A null row carries "No qc — manual class" and must NOT show the badge. */}
+          A null nad_class is a degenerate fallback (no CPTs for the lithology);
+          the row shows a neutral swatch + no label, never a "No qc" text. */}
       {f.nad_class !== null && (
         <span
           className="text-[10px] rounded px-1 py-0 bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 flex-shrink-0"
