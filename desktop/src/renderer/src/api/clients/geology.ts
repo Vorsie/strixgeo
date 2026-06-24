@@ -77,6 +77,19 @@ export interface GeologicalFormationResponse {
   // code). Drives the lens auto-name (``{parent code}{lithology abbrev}{depth
   // rank}`` e.g. ``QPSa1``). null on geological rows / parents without a code.
   parent_formation_code?: string | null
+  // Geotech-stage dual-reference columns.
+  // ``source_litho_formation_id`` — the lithostratigraphic formation this
+  // geotech unit subdivides.  null on geological- and litho-model rows.
+  // ``source_geo_formation_id`` — the geological formation the unit sits
+  // within.  null on geological- and litho-model rows.
+  // Both are additive optional/null fields so legacy API consumers and
+  // older .strix bundles continue to function without modification.
+  // These are the CORRECT discriminators for formation kind — see
+  // formationKind.ts.  A geotech formation (classified OR skeleton) has
+  // source_litho_formation_id !== null; litho and geological formations
+  // have it null.
+  source_litho_formation_id: string | null
+  source_geo_formation_id: string | null
   // Debt #87: true when parent_formation_id was inferred via TIN extrapolation
   // (no geology contact at this investigation covered the suggestion's depth).
   // The LithologyInspector renders an amber dot + tooltip + confirm dialog
