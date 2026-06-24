@@ -941,6 +941,8 @@ export interface BuildGeotechResponse {
  * Response from ``POST .../geotech/subdivide-all-bodies``.
  *
  * ``mid`` in the request path is the lithostratigraphic model id.
+ * The operation is model-wide — layers are written once per investigation,
+ * edges are derived per-section from the litho model's approved edges.
  */
 export interface SubdivideAllBodiesResponse {
   /** The geotechnical model used (created by an earlier build call or reused). */
@@ -957,6 +959,13 @@ export interface SubdivideAllBodiesResponse {
   one_class_body_count: number
   /** Body groups that were borehole-only (no CPT qc data). */
   borehole_only_count: number
+  /**
+   * Borehole-only sub-bodies that were successfully extrapolated to a NAD
+   * class from the nearest same-lithology CPT.
+   */
+  extrapolated_borehole_count: number
+  /** Number of project sections for which geotech edges were derived. */
+  section_count: number
 }
 
 /**
@@ -1963,21 +1972,24 @@ export const geologyClient = {
 
   /**
    * POST .../geotech/subdivide-all-bodies — classify + materialise geotech NAD
-   * bodies for all in-corridor litho bodies in one shot.
+   * bodies for the entire lithostratigraphic model in one shot.
    *
    * ``lithoModelId`` is the lithostratigraphic model whose bodies are subdivided.
    * The server reuses the child geotechnical model created by ``buildGeotechModel``
    * (or creates one if absent) and materialises real geotech spatial bodies via
    * litho_layer + edge inserts.
+   *
+   * The operation is model-wide — layers are written once per investigation;
+   * geotech edges are derived per-section from the litho model's approved edges.
+   * Pass ``lithoModelId`` as the body ``litho_model_id`` for forward-compatibility.
    */
   subdivideAllBodies: (
     projectId: string,
     lithoModelId: string,
-    sectionId: string,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-all-bodies`,
-      { section_id: sectionId },
+      { litho_model_id: lithoModelId },
     ),
 
   /**
