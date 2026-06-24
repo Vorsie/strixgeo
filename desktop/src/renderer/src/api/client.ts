@@ -162,6 +162,8 @@ export type {
   RebuildLithoSolidsResponse,
   UpdateBodyColorResponse,
   VoxelBuildRequest,
+  // F4 — "Subdivide all bodies" endpoint response.
+  SubdivideAllBodiesResponse,
 } from './clients/geology'
 export { DuplicateContactError } from './clients/geology'
 
