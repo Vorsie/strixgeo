@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GeologicalFormationResponse } from '../api/client'
-import { isGeologicalFormation, isLithoUnit } from './formationKind'
+import { isGeologicalFormation, isGeotechUnit, isLithoUnit } from './formationKind'
 
 function makeFormation(
   overrides: Partial<GeologicalFormationResponse> = {},
@@ -25,6 +25,8 @@ function makeFormation(
     instance_ordinal_locked: false,
     parent_formation_name: null,
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -33,24 +35,26 @@ function makeFormation(
 
 describe('formationKind', () => {
   // F1: a pure geological formation — no litho_main_soil_code, no
-  // nad_class. Both parent_formation_id paths (null on geological;
-  // would also be null here) match the legacy filter's expectation.
-  it('F1 — pure geological formation is geological, not litho', () => {
+  // nad_class, no source_litho_formation_id.
+  it('F1 — pure geological formation is geological, not litho, not geotech', () => {
     const geo = makeFormation({ name: 'Quartair Holoceen' })
     expect(isGeologicalFormation(geo)).toBe(true)
     expect(isLithoUnit(geo)).toBe(false)
+    expect(isGeotechUnit(geo)).toBe(false)
   })
 
   // F2: a litho-builder unit with a parent_formation_id set — the
-  // happy path. Excluded from the geology vocabulary.
-  it('F2 — litho unit with a parent is excluded from geology', () => {
+  // happy path. Excluded from the geology + geotech vocabulary.
+  it('F2 — litho unit with a parent is excluded from geology and geotech', () => {
     const litho = makeFormation({
       name: 'ZAND',
       litho_main_soil_code: 'ZAND',
       parent_formation_id: 'geo-parent',
+      source_litho_formation_id: null,
     })
     expect(isGeologicalFormation(litho)).toBe(false)
     expect(isLithoUnit(litho)).toBe(true)
+    expect(isGeotechUnit(litho)).toBe(false)
   })
 
   // F3: regression for the dogfeed bug (2026-05-21) — orphan litho
@@ -62,24 +66,50 @@ describe('formationKind', () => {
       name: 'SILT',
       litho_main_soil_code: 'SILT',
       parent_formation_id: null,
+      source_litho_formation_id: null,
     })
     expect(isGeologicalFormation(orphan)).toBe(false)
     expect(isLithoUnit(orphan)).toBe(true)
+    expect(isGeotechUnit(orphan)).toBe(false)
   })
 
-  // F4: a geotech NAD-class unit — excluded from the geology
-  // vocabulary on a separate signal (nad_class set). Not strictly
-  // the leak that triggered the helper, but the boundary applies
-  // symmetrically.
-  it('F4 — geotech NAD-class unit is excluded from geology', () => {
-    const geotech = makeFormation({
-      name: 'Zand-NAD-21',
+  // F4: a geotech classified unit (nad_class set, soil-code inherited from
+  // source litho, source_litho_formation_id set). With the old proxy
+  // discriminators it leaked into the litho roster because
+  // litho_main_soil_code !== null. The correct discriminator is
+  // source_litho_formation_id.
+  it('F4 — geotech classified unit (nad_class set) is geotech only, not litho', () => {
+    const classified = makeFormation({
+      name: 'ZAND-NAD-21',
+      // inherited from the source litho formation — the old isLithoUnit bug
+      litho_main_soil_code: 'ZAND',
       nad_class: 21,
-      parent_formation_id: 'litho-parent',
+      source_litho_formation_id: 'litho-form-uuid',
+      source_geo_formation_id: 'geo-form-uuid',
     })
-    expect(isGeologicalFormation(geotech)).toBe(false)
-    // Not a litho unit either (no main soil code) — isLithoUnit is
-    // litho-specific.
-    expect(isLithoUnit(geotech)).toBe(false)
+    expect(isGeologicalFormation(classified)).toBe(false)
+    // Must NOT appear in the litho roster despite carrying litho_main_soil_code.
+    expect(isLithoUnit(classified)).toBe(false)
+    expect(isGeotechUnit(classified)).toBe(true)
+  })
+
+  // F5 (new): a geotech skeleton / borehole-only unit — nad_class is null
+  // (no CPT qc available) but source_litho_formation_id is set.  With the
+  // old isGeotechUnit (nad_class !== null) this was silently omitted from
+  // the geotech inspector roster.
+  it('F5 — geotech skeleton unit (nad_class null, source_litho set) is geotech only, not litho', () => {
+    const skeleton = makeFormation({
+      name: 'KLEI (geotech)',
+      // inherited from the source litho formation
+      litho_main_soil_code: 'KLEI',
+      nad_class: null,
+      source_litho_formation_id: 'litho-form-uuid',
+      source_geo_formation_id: null,
+    })
+    expect(isGeologicalFormation(skeleton)).toBe(false)
+    // Must NOT appear in the litho roster.
+    expect(isLithoUnit(skeleton)).toBe(false)
+    // Must appear in the geotech roster even without a NAD class.
+    expect(isGeotechUnit(skeleton)).toBe(true)
   })
 })
