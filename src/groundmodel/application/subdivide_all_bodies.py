@@ -124,9 +124,6 @@ from groundmodel.application.build_geotech_model_from_litho import (
     BuildGeotechModelFromLitho,
     _GeoSurface,
 )
-from groundmodel.application.project_investigations_onto_section import (
-    project_investigations_onto_section,
-)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.geotech_body_aggregation import (
@@ -462,7 +459,6 @@ class SubdivideAllBodies(GroundModelLogger):
 
             # Collect CPT members of the group.
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
-            bh_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "borehole"]
 
             # Hoist formation attributes (constant for the whole group).
             soil_code = await self._formation_soil_code(source_litho_fid)
@@ -636,10 +632,12 @@ class SubdivideAllBodies(GroundModelLogger):
             f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
         )
 
+        sections_with_edges = 0
         for section in sections:
             litho_approved_edges = await self._load_approved_litho_edges(litho_model_id, section.id)
             if not litho_approved_edges:
                 continue
+            sections_with_edges += 1
             self.debug(
                 f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
                 f"{len(litho_approved_edges)} approved litho edge(s)"
@@ -679,7 +677,7 @@ class SubdivideAllBodies(GroundModelLogger):
             one_class_body_count=one_class_body_count,
             borehole_only_count=borehole_only_count,
             extrapolated_borehole_count=extrapolated_borehole_count,
-            section_count=len(sections),
+            section_count=sections_with_edges,
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
