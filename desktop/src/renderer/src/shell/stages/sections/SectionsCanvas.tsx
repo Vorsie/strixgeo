@@ -277,7 +277,6 @@ export default function SectionsCanvas(): JSX.Element {
   // the PartitionFillOverlay receives the right layer/formation set.
   const activeSectionModelId = isGeotech ? geotechModelId : lithoModelId
   const sectionLayers = isGeotech ? geotechLayers : lithoLayers
-  const sectionFormations = isGeotech ? geotechFormations : lithoFormations
 
   // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
