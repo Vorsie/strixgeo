@@ -140,6 +140,7 @@ import {
 } from '../utils/columnLabelLod'
 import { LITHO_SEGMENTER_DEFAULTS } from '../utils/lithoSegmenterPrefs'
 import { nadClassColor, nadClassName } from '../utils/nadClasses'
+import type { GeotechSubLayer } from '../utils/geotechSubdivide'
 
 interface Props {
   section: CrossSectionResponse
@@ -704,6 +705,14 @@ interface Props {
    * correlation-graph derivation.
    */
   lithoLayers?: readonly LithoLayerResponse[]
+  /**
+   * Geotech axis only — each investigation's accepted geotech (NAD-class)
+   * sub-layers, keyed by investigation id. When present, ``PartitionFillOverlay``
+   * subdivides each LITHO region into NAD sub-bands (the geotech fill is the
+   * litho fill, recoloured + split inside each body). Undefined on the litho /
+   * geological axes → no subdivision.
+   */
+  geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -809,6 +818,7 @@ export default function SectionPanel({
   onRequestAcceptEdge,
   lenses,
   lithoLayers,
+  geotechSubLayersByInv,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -3084,6 +3094,7 @@ export default function SectionPanel({
             {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
+                geotechSubLayersByInv={geotechSubLayersByInv}
                 contactEdges={contactEdges}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
