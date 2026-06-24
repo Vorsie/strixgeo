@@ -212,7 +212,7 @@ class ProjectBundleService(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def build(self, project: ProjectOrm) -> dict[str, Any]:
+    async def build(self, project: ProjectOrm, *, include_solids: bool = True) -> dict[str, Any]:
         """Serialise the full project tree to a JSON-friendly dict.
 
         See :func:`_build_project_bundle_impl` for the per-table
@@ -222,13 +222,21 @@ class ProjectBundleService(GroundModelLogger):
         ----------
         project : ProjectOrm
             Project row whose children will be serialised.
+        include_solids : bool, default True
+            When ``False`` the cached ``litho_solids`` 3-D meshes are
+            omitted (emitted as an empty list). The desktop File → Save
+            passes ``False`` — the .strix file never stores the meshes,
+            so fetching them is wasted work. See
+            :func:`_build_project_bundle_impl`.
 
         Returns
         -------
         dict[str, Any]
             JSON-friendly bundle dict.
         """
-        return await _build_project_bundle_impl(self._session, project, logger=self)
+        return await _build_project_bundle_impl(
+            self._session, project, logger=self, include_solids=include_solids
+        )
 
     async def restore(
         self,
@@ -332,7 +340,9 @@ class ProjectBundleService(GroundModelLogger):
 # ---------------------------------------------------------------------------
 
 
-async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> dict[str, Any]:
+async def build_project_bundle(
+    session: AsyncSession, project: ProjectOrm, *, include_solids: bool = True
+) -> dict[str, Any]:
     """Backwards-compat wrapper — see ``ProjectBundleService.build``.
 
     Parameters
@@ -341,13 +351,16 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
         Running SQLAlchemy async session.
     project : ProjectOrm
         Project row to serialise.
+    include_solids : bool, default True
+        Forwarded to ``ProjectBundleService.build`` — ``False`` omits the
+        cached ``litho_solids`` meshes (File → Save uses this).
 
     Returns
     -------
     dict[str, Any]
         JSON-friendly bundle dict.
     """
-    return await ProjectBundleService(session).build(project)
+    return await ProjectBundleService(session).build(project, include_solids=include_solids)
 
 
 async def restore_project_bundle(
