@@ -722,6 +722,12 @@ interface Props {
    * lithology colour instead (an unclassified area reads as its soil type).
    */
   extraColorById?: ReadonlyMap<string, string>
+  /**
+   * Geotech axis only — fallback label per formation id, merged into
+   * ``formationLabelById`` (companion to ``extraColorById``). Lets litho-keyed
+   * regions on the geotech axis show their lithology label instead of blank.
+   */
+  extraLabelById?: ReadonlyMap<string, string>
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -829,6 +835,7 @@ export default function SectionPanel({
   lithoLayers,
   geotechSubLayersByInv,
   extraColorById,
+  extraLabelById,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -869,6 +876,10 @@ export default function SectionPanel({
   // the stored lithology colour.
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
+    // Litho-label fallback FIRST (geotech axis) so any geotech formation below
+    // overwrites it; litho-keyed regions (subdivision deferred) keep the litho
+    // label instead of rendering blank.
+    if (extraLabelById) for (const [id, lab] of extraLabelById) m.set(id, lab)
     for (const f of formations) {
       if (axisMode === 'geotechnical') {
         // Geotech axis: label is the NAD class name.
@@ -881,7 +892,7 @@ export default function SectionPanel({
       }
     }
     return m
-  }, [formations, axisMode])
+  }, [formations, axisMode, extraLabelById])
 
   // formation_id → band fill colour.
   // Litho units: stored lithology colour (stamped at create + backfilled, #145).
