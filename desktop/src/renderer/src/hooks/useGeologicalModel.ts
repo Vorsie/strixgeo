@@ -807,28 +807,24 @@ export interface UseGeologicalModelResult {
    */
   geotechFormations: GeologicalFormationResponse[]
   /**
-   * Run "Subdivide all bodies" for the given section.
+   * Run "Subdivide all bodies" model-wide.
    *
    * Calls ``POST .../geotech/subdivide-all-bodies`` with the active litho
-   * model id and the supplied section id.  On success the geotechnical model
-   * is re-derived (``refreshModels``) so ``activeGeotechModel`` becomes
-   * non-null, the geotech layer list refetches, the formations list refreshes
-   * so NAD-class units appear, and the project is marked dirty.
+   * model id.  The operation is model-wide: geotech layers are written once
+   * per investigation, edges are derived per-section from the litho model's
+   * approved edges.  On success the geotechnical model is re-derived
+   * (``refreshModels``) so ``activeGeotechModel`` becomes non-null, the
+   * geotech layer list refetches, the formations list refreshes so NAD-class
+   * units appear, and the project is marked dirty.
    *
-   * Guards: requires an active project, an active litho model, and a
-   * non-null section id.  Returns early (with an error toast) when any
-   * guard fails.
-   *
-   * Parameters
-   * ----------
-   * sectionId
-   *     UUID of the cross-section whose corridor is used for subdivision.
+   * Guards: requires an active project and an active litho model.  Returns
+   * early (with an error toast) when any guard fails.
    *
    * Returns
    * -------
    * Promise<void>
    */
-  handleSubdivideAllBodies: (sectionId: string) => Promise<void>
+  handleSubdivideAllBodies: () => Promise<void>
 }
 
 /**
@@ -2154,19 +2150,16 @@ export function useGeologicalModel({
   //   (d) markMutated + addToSessionImports for the new formations → dirty flag
   // The verb must be usable when NO geotech model exists yet (first run).
   const handleSubdivideAllBodies = useCallback(
-    async (sectionId: string): Promise<void> => {
+    async (): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
-        toast('error', 'Select a lithostratigraphic model and a cross-section first.')
+        toast('error', 'Select a lithostratigraphic model first.')
         return
       }
-      log.info(
-        'geology',
-        `subdivideAllBodies entry lithoModel=${lithoModel.id} section=${sectionId}`,
-      )
+      log.info('geology', `subdivideAllBodies entry lithoModel=${lithoModel.id} (model-wide)`)
       let result: SubdivideAllBodiesResponse
       try {
-        result = await api.geology.subdivideAllBodies(project.id, lithoModel.id, sectionId)
+        result = await api.geology.subdivideAllBodies(project.id, lithoModel.id)
       } catch (err) {
         log.error('geology', 'subdivideAllBodies failed', err)
         toast('error', 'Subdivide all bodies failed — see console.')
@@ -2178,7 +2171,9 @@ export function useGeologicalModel({
           ` bodies=${result.body_count}` +
           ` split=${result.split_body_count}` +
           ` one_class=${result.one_class_body_count}` +
-          ` borehole_only=${result.borehole_only_count}`,
+          ` borehole_only=${result.borehole_only_count}` +
+          ` extrapolated=${result.extrapolated_borehole_count ?? 0}` +
+          ` sections=${result.section_count ?? 0}`,
       )
       // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
       // the geotechLayers useEffect fires with the new model id.
@@ -2194,9 +2189,11 @@ export function useGeologicalModel({
       }
       markMutated()
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
+      const extrapolated = result.extrapolated_borehole_count ?? 0
+      const boreholeOnly = result.borehole_only_count ?? 0
       const boreholeNote =
-        result.borehole_only_count > 0
-          ? `, ${result.borehole_only_count} borehole-only (no CPT qc)`
+        boreholeOnly > 0
+          ? `, ${boreholeOnly} borehole-only (${extrapolated} extrapolated from CPT)`
           : ''
       toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}.`)
     },
