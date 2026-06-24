@@ -49,6 +49,7 @@ import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import type { GeotechSubLayer } from '../../../utils/geotechSubdivide'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { log } from '../../../utils/log'
 
@@ -271,12 +272,43 @@ export default function SectionsCanvas(): JSX.Element {
   // re-identify on unrelated mutations (e.g. a formation rename rebuilds
   // them), which would churn the contact-edge refetch unnecessarily.
   const lithoModelId = activeLithoModel?.id ?? null
-  const geotechModelId = activeGeotechModel?.id ?? null
 
-  // The active section model and its layers — parameterised by axis so
-  // the PartitionFillOverlay receives the right layer/formation set.
-  const activeSectionModelId = isGeotech ? geotechModelId : lithoModelId
-  const sectionLayers = isGeotech ? geotechLayers : lithoLayers
+  // The partition SHAPE always comes from the LITHO model (layers + edges), on
+  // BOTH the litho and geotech axes. Owner directive (2026-06-24): the geotech
+  // fill must have the EXACT same shape/connectivity as the litho fill, only
+  // subdivided INSIDE each body by NAD packing class. Recomputing a partition
+  // from the geotech layers + geotech edges produced far worse connectivity
+  // (79 % singletons on real data — the NAD-class formationId blocks `pairScore`
+  // from banding a loose sand to a dense sand on the neighbour). So the geotech
+  // axis builds the litho partition and subdivides it via `geotechSubLayersByInv`
+  // (below); `activeSectionModelId` / `sectionLayers` therefore stay LITHO here.
+  const activeSectionModelId = lithoModelId
+  const sectionLayers = lithoLayers
+
+  // Geotech axis subdivision input: each investigation's accepted geotech
+  // (NAD-class) sub-layers, in depth-below-surface, keyed by investigation id.
+  // `PartitionFillOverlay` slices each litho region into NAD sub-bands with this.
+  // Undefined on the litho / geological axes (no subdivision → identity).
+  const geotechSubLayersByInv = useMemo<
+    ReadonlyMap<string, GeotechSubLayer[]> | undefined
+  >(() => {
+    if (!isGeotech) return undefined
+    const m = new Map<string, GeotechSubLayer[]>()
+    for (const layer of geotechLayers) {
+      if (layer.status !== 'accepted') continue
+      const inv = layer.cpt_id ?? layer.borehole_id
+      if (!inv) continue
+      const arr = m.get(inv)
+      const sub: GeotechSubLayer = {
+        topDepthM: layer.depth_top_m,
+        baseDepthM: layer.depth_base_m,
+        formationId: layer.formation_id,
+      }
+      if (arr) arr.push(sub)
+      else m.set(inv, [sub])
+    }
+    return m
+  }, [isGeotech, geotechLayers])
 
   // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
@@ -2239,6 +2271,10 @@ export default function SectionsCanvas(): JSX.Element {
           // layer (litho_layer.body_id). Pass the accepted litho layers so
           // BodyExtentOverlay can resolve each body's source band depth.
           lithoLayers={(isLitho || isGeotech) ? sectionLayers : undefined}
+          // Geotech axis: subdivide each litho region into NAD sub-bands by the
+          // geotech sub-layer depths (the fill is the litho shape, recoloured +
+          // split inside each body). Undefined on litho / geological → identity.
+          geotechSubLayersByInv={geotechSubLayersByInv}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
