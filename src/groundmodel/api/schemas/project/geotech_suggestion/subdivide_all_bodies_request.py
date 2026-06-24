@@ -10,11 +10,17 @@ from pydantic import BaseModel
 class SubdivideAllBodiesRequest(BaseModel):
     """Body of ``POST .../geotech/subdivide-all-bodies``.
 
+    The operation is model-wide: every in-model investigation is classified
+    and materialised in one atomic pass.  Geotech layers are written once per
+    investigation (section-independent); correlation edges are derived
+    per-section from the litho model's approved edges.
+
     Parameters
     ----------
-    section_id : UUID
-        The cross-section whose in-corridor investigations are classified and
-        materialised into geotech NAD spatial bodies.
+    litho_model_id : UUID
+        The lithostratigraphic model whose picks drive the subdivision.
+        (The litho model id also appears in the URL as ``model_id``; this
+        field is the canonical source used by the use case.)
     """
 
-    section_id: UUID
+    litho_model_id: UUID
