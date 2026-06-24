@@ -63,6 +63,7 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
+import { subdivideRegionsByGeotech, type GeotechSubLayer } from '../../utils/geotechSubdivide'
 import type { PlacedColumn } from './utils'
 
 /**
@@ -142,6 +143,20 @@ export interface Props {
    * is always display-only (root is ``pointer-events: none``).
    */
   correlateMode?: boolean
+  /**
+   * Geotech axis only (owner directive 2026-06-24: "keep the litho structure,
+   * only subdivide inside a body"). When present, the partition is built from
+   * the LITHO layers + LITHO edges (so the geotech fill is the litho fill,
+   * exactly) and EACH region is then subdivided into NAD packing sub-bands by
+   * the geotech sub-layer depths on its two bounding columns
+   * (``subdivideRegionsByGeotech``). The resulting region ``formationId`` is the
+   * NAD-class formation id, so ``formationColorById`` / ``formationLabelById``
+   * (the NAD maps) colour + label each sub-band. Absent on the litho /
+   * geological axes — zero behaviour change there.
+   *
+   * Keyed by ``investigationId`` (CPT id or borehole id).
+   */
+  geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
 }
 
 const FILL_OPACITY = 0.62
@@ -526,6 +541,7 @@ export default function PartitionFillOverlay({
   bodies,
   onBodyContextMenu,
   correlateMode = false,
+  geotechSubLayersByInv,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -875,7 +891,15 @@ export default function PartitionFillOverlay({
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
+    const lithoRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
+
+    // Geotech axis: the partition above was built from the LITHO layers + edges
+    // (so the fill is the litho fill, exactly); now subdivide each region into
+    // NAD packing sub-bands by the geotech sub-layer depths. Litho / geological
+    // axes pass no sub-layers, so this is identity there.
+    const sectionRegions = geotechSubLayersByInv
+      ? subdivideRegionsByGeotech(lithoRegions, orderedColumns, geotechSubLayersByInv)
+      : lithoRegions
 
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
   }, [
@@ -888,6 +912,7 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     screenToLevel,
     lensDrag,
+    geotechSubLayersByInv,
   ])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
