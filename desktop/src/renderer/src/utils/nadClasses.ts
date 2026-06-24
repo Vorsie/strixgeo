@@ -119,7 +119,7 @@ const _NAD_CLASS_COLORS: Readonly<Record<number, string>> = {
   31: '#54321a', // VEEN, vast            — darkest
 } as const
 
-/** Neutral fallback colour for class null/undefined ("No qc — manual class"). */
+/** Neutral fallback colour for a degenerate null class (zero CPTs of a lithology). */
 const _NULL_CLASS_COLOR = '#9ca3af' // mid-grey (same as LITHOLOGY_FALLBACK_COLOR)
 
 // ---------------------------------------------------------------------------
@@ -129,13 +129,20 @@ const _NULL_CLASS_COLOR = '#9ca3af' // mid-grey (same as LITHOLOGY_FALLBACK_COLO
 /**
  * Return the canonical packing-class label for a NAD class number.
  *
+ * A null/undefined class is a rare degenerate case (no CPTs present for a
+ * lithology).  Boreholes are classified by extrapolating the nearest CPT's
+ * packing class, so null is never the normal borehole case.  Returning ``""``
+ * for null lets the caller decide whether to render a label at all — the
+ * partition-fill overlay skips empty strings (no label renders on a degenerate
+ * band), and the geotech inspector row simply shows a neutral swatch.
+ *
  * @param n  NAD class (1..31), null, or undefined.
- * @returns  The verbatim backend label for a valid class; the sentinel string
- *           ``"No qc — manual class"`` for null/undefined; or a safe numeric
- *           fallback ``"NAD {n}"`` for any out-of-range integer.
+ * @returns  The verbatim backend label for a valid class; ``""`` for
+ *           null/undefined (degenerate — no label); or a safe numeric fallback
+ *           ``"NAD {n}"`` for any out-of-range integer.
  */
 export function nadClassName(n: number | null | undefined): string {
-  if (n == null) return 'No qc — manual class'
+  if (n == null) return ''
   return NAD_CLASS_NAMES[n] ?? `NAD ${n}`
 }
 
@@ -148,7 +155,7 @@ export function nadClassName(n: number | null | undefined): string {
  *
  * @param n  NAD class (1..31), null, or undefined.
  * @returns  A six-digit hex colour string. null/undefined returns the neutral
- *           mid-grey ``#9ca3af`` representing the "No qc" state.
+ *           mid-grey ``#9ca3af`` (degenerate-band state — no CPTs for this lithology).
  */
 export function nadClassColor(n: number | null | undefined): string {
   if (n == null) return _NULL_CLASS_COLOR
