@@ -331,7 +331,7 @@ export interface UseGeologicalModelResult {
   handleInlineCreateFormation: (
     payload: GeologicalFormationCreatePayload,
   ) => Promise<{ id: string } | null>
-  refetchFormations: () => void
+  refetchFormations: () => Promise<void>
   // Contact actions
   handleCreateContact: (
     anchorKind: 'cpt' | 'borehole',
@@ -1337,9 +1337,9 @@ export function useGeologicalModel({
     }
   }, [project, activeGeotechModel])
 
-  const refetchFormations = useCallback(() => {
-    if (!project) return
-    void api.geology
+  const refetchFormations = useCallback((): Promise<void> => {
+    if (!project) return Promise.resolve()
+    return api.geology
       .listFormations(project.id)
       .then(setFormations)
       .catch(err => {
@@ -2184,7 +2184,9 @@ export function useGeologicalModel({
       // the geotechLayers useEffect fires with the new model id.
       await refreshModels()
       // (c): NAD-class formation rows were created server-side; bring them in.
-      refetchFormations()
+      // Awaited so geotechFormations is populated before the success toast fires
+      // (prevents a brief "No geotech units yet" flash in the inspector).
+      await refetchFormations()
       // (d): record new NAD-class formations as session imports so markMutated
       // lights the dirty flag and they land in the next .gmproj save.
       if (result.created_formation_ids.length > 0) {
