@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for the FormationSelectionDialog per-row reassignment surface
  * (2026-05-17, #55 manual-lump slice — reworked from group-assembler to
  * per-row inline reassignment).
@@ -416,7 +416,9 @@ describe('FormationSelectionDialog', () => {
       instance_ordinal: null,
       instance_ordinal_locked: false,
       parent_formation_name: null,
-    parent_extrapolated: false,
+      parent_extrapolated: false,
+      source_litho_formation_id: null,
+      source_geo_formation_id: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -472,7 +474,9 @@ describe('FormationSelectionDialog', () => {
       instance_ordinal: null,
       instance_ordinal_locked: false,
       parent_formation_name: null,
-    parent_extrapolated: false,
+      parent_extrapolated: false,
+      source_litho_formation_id: null,
+      source_geo_formation_id: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }

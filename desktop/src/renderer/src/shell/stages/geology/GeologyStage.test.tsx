@@ -1,8 +1,8 @@
-// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
+﻿// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
 //
 // Mirrors SectionsStage.test.tsx.  Mounts the two Geology zone components with
 // a stub ShellContext to catch:
-//   * TDZ crashes (in particular the reorderFormations â†’ visibleFormations
+//   * TDZ crashes (in particular the reorderFormations â†' visibleFormations
 //     ordering constraint documented in geology-stage-architecture.md Â§8.1 Risk 3)
 //   * Missing imports
 //   * Render-time throws from stale deps or bad JSX
@@ -384,7 +384,7 @@ describe('Geology stage (smoke)', () => {
   })
 
   it('GeologyInspector renders without throwing (TDZ check)', () => {
-    // This test exercises the reorderFormations â†’ visibleFormations ordering
+    // This test exercises the reorderFormations â†' visibleFormations ordering
     // constraint from geology-stage-architecture.md Â§8.1 Risk 3.  If TDZ
     // fires, React will throw during the render phase and consoleError will
     // receive the error.
@@ -417,7 +417,9 @@ describe('Geology stage (smoke)', () => {
       instance_ordinal: null,
       instance_ordinal_locked: false,
       parent_formation_name: null,
-    parent_extrapolated: false,
+      parent_extrapolated: false,
+      source_litho_formation_id: null,
+      source_geo_formation_id: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -459,12 +461,14 @@ describe('Geology stage (smoke)', () => {
         instance_ordinal: null,
         instance_ordinal_locked: false,
         parent_formation_name: null,
-    parent_extrapolated: false,
+        parent_extrapolated: false,
+        source_litho_formation_id: null,
+        source_geo_formation_id: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
       },
     ]
-    // manifest is empty â†’ visibleFormations is empty on the bus
+    // manifest is empty → visibleFormations is empty on the bus
     ctx.geoModel.visibleFormations = []
     ctx.coordinator.manifestFormationIds = new Set()
     render(
@@ -502,7 +506,7 @@ describe('Geology stage (smoke)', () => {
           n_field_log_intervals: null,
         },
       ]
-      // currentLumping is null â†’ no map passed
+      // currentLumping is null â†' no map passed
       ctx.lifecycle.currentLumping = null
       const discoverSpy = vi.fn().mockResolvedValue({ candidates: [], collisions: [] })
       ctx.geoModel.discoverBoreholeFormations = discoverSpy
@@ -680,6 +684,8 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     instance_ordinal_locked: false,
     parent_formation_name: null,
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   })
@@ -792,6 +798,8 @@ describe('GeologyInspector colour-swatch override (2026-05-30 spec)', () => {
     instance_ordinal_locked: false,
     parent_formation_name: null,
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   })
