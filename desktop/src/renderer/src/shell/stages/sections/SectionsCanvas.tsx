@@ -310,6 +310,15 @@ export default function SectionsCanvas(): JSX.Element {
     return m
   }, [isGeotech, geotechLayers])
 
+  // Geotech axis: litho-colour fallback for partition regions the geotech model
+  // never classified (deep substrate / no qc). Those regions keep their LITHO
+  // formation id, which isn't an NAD formation, so SectionPanel merges this map
+  // into its colour map → they render in their lithology colour instead of grey.
+  const geotechExtraColorById = useMemo<ReadonlyMap<string, string> | undefined>(() => {
+    if (!isGeotech) return undefined
+    return new Map(lithoFormations.map(f => [f.id, f.color]))
+  }, [isGeotech, lithoFormations])
+
   // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
   // The pulse is the "your correlation succeeded" UX signal (dogfeed 2026-05-23).
@@ -2275,6 +2284,9 @@ export default function SectionsCanvas(): JSX.Element {
           // geotech sub-layer depths (the fill is the litho shape, recoloured +
           // split inside each body). Undefined on litho / geological → identity.
           geotechSubLayersByInv={geotechSubLayersByInv}
+          // Litho-colour fallback so geotech regions the model didn't classify
+          // (deep substrate / no qc) render in their lithology colour, not grey.
+          extraColorById={geotechExtraColorById}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
