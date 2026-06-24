@@ -38,6 +38,7 @@ import type {
   LithoLayerResponse,
   LithoLayerSuggestion,
   ProjectResponse,
+  SubdivideAllBodiesResponse,
 } from '../api/client'
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
@@ -805,6 +806,29 @@ export interface UseGeologicalModelResult {
    * (``nad_class !== null``).  Mirrors ``lithoFormations``.
    */
   geotechFormations: GeologicalFormationResponse[]
+  /**
+   * Run "Subdivide all bodies" for the given section.
+   *
+   * Calls ``POST .../geotech/subdivide-all-bodies`` with the active litho
+   * model id and the supplied section id.  On success the geotechnical model
+   * is re-derived (``refreshModels``) so ``activeGeotechModel`` becomes
+   * non-null, the geotech layer list refetches, the formations list refreshes
+   * so NAD-class units appear, and the project is marked dirty.
+   *
+   * Guards: requires an active project, an active litho model, and a
+   * non-null section id.  Returns early (with an error toast) when any
+   * guard fails.
+   *
+   * Parameters
+   * ----------
+   * sectionId
+   *     UUID of the cross-section whose corridor is used for subdivision.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   */
+  handleSubdivideAllBodies: (sectionId: string) => Promise<void>
 }
 
 /**
@@ -2118,6 +2142,69 @@ export function useGeologicalModel({
     toast,
   )
 
+  // F4 — "Subdivide all bodies" toolbar verb.  Called from the Geotechnical
+  // stage toolbar (SectionsToolbar on the geotech axis).  The endpoint
+  // creates or reuses the kind='geotechnical' child model and materialises
+  // geotech spatial bodies; after success we need:
+  //   (a) refreshModels → so activeGeotechModel becomes non-null and the
+  //       Geotech axis toggle enables (or stays enabled on re-runs)
+  //   (b) the geotech-layers useEffect fires automatically because
+  //       setActiveGeotechModel inside refreshModels triggers it
+  //   (c) refetchFormations → so NAD-class units appear in the formations list
+  //   (d) markMutated + addToSessionImports for the new formations → dirty flag
+  // The verb must be usable when NO geotech model exists yet (first run).
+  const handleSubdivideAllBodies = useCallback(
+    async (sectionId: string): Promise<void> => {
+      const lithoModel = activeLithoModelRef.current
+      if (!project || !lithoModel) {
+        toast('error', 'Select a lithostratigraphic model and a cross-section first.')
+        return
+      }
+      log.info(
+        'geology',
+        `subdivideAllBodies entry lithoModel=${lithoModel.id} section=${sectionId}`,
+      )
+      let result: SubdivideAllBodiesResponse
+      try {
+        result = await api.geology.subdivideAllBodies(project.id, lithoModel.id, sectionId)
+      } catch (err) {
+        log.error('geology', 'subdivideAllBodies failed', err)
+        toast('error', 'Subdivide all bodies failed — see console.')
+        return
+      }
+      log.success(
+        'geology',
+        `subdivideAllBodies ok geotech_model=${result.geotech_model_id}` +
+          ` bodies=${result.body_count}` +
+          ` split=${result.split_body_count}` +
+          ` one_class=${result.one_class_body_count}` +
+          ` borehole_only=${result.borehole_only_count}`,
+      )
+      // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
+      // the geotechLayers useEffect fires with the new model id.
+      await refreshModels()
+      // (c): NAD-class formation rows were created server-side; bring them in.
+      refetchFormations()
+      // (d): record new NAD-class formations as session imports so markMutated
+      // lights the dirty flag and they land in the next .gmproj save.
+      if (result.created_formation_ids.length > 0) {
+        addToSessionImports('formation', result.created_formation_ids)
+      }
+      markMutated()
+      const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
+      const boreholeNote =
+        result.borehole_only_count > 0
+          ? `, ${result.borehole_only_count} borehole-only (no CPT qc)`
+          : ''
+      toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}.`)
+    },
+    // reason: activeLithoModelRef is a ref (always current) so listing it would
+    // cause no-op dep churn; refreshModels, refetchFormations, addToSessionImports,
+    // markMutated, toast are all stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, refreshModels, refetchFormations, addToSessionImports, markMutated, toast],
+  )
+
   return {
     activeGeologicalModel,
     models,
@@ -2210,5 +2297,7 @@ export function useGeologicalModel({
     geotechLayers,
     geotechContacts,
     geotechFormations,
+    // F4 — "Subdivide all bodies" toolbar verb.
+    handleSubdivideAllBodies,
   }
 }
