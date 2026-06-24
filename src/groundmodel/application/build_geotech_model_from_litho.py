@@ -433,7 +433,20 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
             .first()
         )
         if existing is not None:
-            self.debug(f"_ensure_geotech_model: reusing existing geotech model {existing.id}")
+            # Ensure the reused model is active — the frontend derives
+            # ``activeGeotechModel`` via ``find(m => m.is_active && m.kind
+            # === 'geotechnical')``, so an inactive reused model would be
+            # invisible to the UI after the first build.  A model may become
+            # inactive if ``activateModel`` was called for a different model
+            # of the same kind (unlikely for geotech which allows only one
+            # child, but defensive correctness matters here).
+            if not existing.is_active:
+                existing.is_active = True
+                self.info(
+                    f"_ensure_geotech_model: re-activated inactive geotech model {existing.id}"
+                )
+            else:
+                self.debug(f"_ensure_geotech_model: reusing existing geotech model {existing.id}")
             return existing, False
 
         model = await self._repo.create_model(
