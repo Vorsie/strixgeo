@@ -114,6 +114,41 @@ vs fall to one class. v1 defaults are stated above; they're the safe starting
 point and the real-data eval (run on `test.strix` against the owner's manual
 NAD marks, à la `strix-suggestion-eval`) is the arbiter.
 
+### AS BUILT — 2026-06-24 (Option A, on `develop` unpushed)
+
+**Option A shipped:** geotech bodies are materialised via the litho machinery
+applied to the geotech model — geotech `litho_layer` rows (`status='accepted'`)
++ `litho_contact_correlation_edge` rows + `ResolveLithoInstances` → `body_id` +
+`BodyOrm`. Step 5 ("run the resolver on the geotech model") is exactly what
+shipped.
+
+**The single most important correctness constraint confirmed at build:** geotech
+correlation edges are derived **same-band-position-only** (loose↔loose,
+dense↔dense). The resolver's one-lithology invariant groups connected components
+by `litho_main_soil_code`, which is identical for loose vs dense sand. Without
+the same-position restriction the resolver over-merges different packing classes
+into one body. SAB-7 pins this in the integration tests.
+
+**Build-time design questions resolved:**
+- (a) Consensus = **exact band-class sequence** after A3's min-thickness merge;
+  shorter sequences may prefix-match a longer one (the too-shallow case). Validated
+  healthy on `test.strix` (14 sections, 273 body groups: 20 % consistent-split /
+  73 % one-class / 7 % borehole-only; 20 % split rate among 250 CPT-bearing
+  groups, no ±1-band relaxation needed).
+- (b) Representative class = **thickness-weighted dominant**, tie → **denser**
+  (higher NAD number). Shipped.
+- (c) Too-shallow CPTs prefix-match; single-CPT groups use their own profile as
+  the split; zero-CPT groups carry through as `nad_class=None`.
+
+**Two real-data-only bugs found by E5 eval + fixed:**
+1. Duplicate geotech edges on geo-band-straddling investigations (a group where
+   one investigation straddles a geo boundary was counted twice in the edge
+   derivation → `UNIQUE` violation). Fixed by deduplicating edges before INSERT.
+2. C1-direct `FormationContact` rows conflicting with the idempotent reset
+   (the reset deleted geotech layers but left behind the C1-derived skeleton
+   contacts, causing FK violations on re-run). Fixed by also purging C1 FC rows
+   in the reset step before rewriting. Both bugs are pinned by regression tests.
+
 ---
 
 ## 1. Context & goal
