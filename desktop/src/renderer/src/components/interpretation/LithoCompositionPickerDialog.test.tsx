@@ -49,6 +49,8 @@ function makeGeoFormation(
     instance_ordinal_locked: false,
     parent_formation_name: null,
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -79,6 +81,8 @@ function makeLithoFormation(
     instance_ordinal_locked: false,
     parent_formation_name: null,
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
