@@ -1,6 +1,8 @@
 # Geotechnical Stage — Slice 1 Implementation Plan
 
-> ⚠ **STATUS 2026-06-23 — partially built + a design pivot.** Phases **A, B, C (all
+> ✅ **STATUS 2026-06-24 — DONE.** All work is BUILT + two-stage-reviewed + real-data-validated on `develop` (unpushed). The body-centric `SubdivideAllBodies` (Option A) use case and the full frontend (Tasks E1–E5, F1–F5) shipped per the plan at `docs/superpowers/plans/2026-06-23-geotech-body-centric-subdivision.md`. Remaining = F6 (e2e spec + fixture, deferred) + the parameter_group analytical layer (Slice 3, deferred until lab-test import lands). See that plan's Phase G for the locked decisions and the E5 real-data eval numbers.
+>
+> ~~⚠ **STATUS 2026-06-23 — partially built + a design pivot.** Phases **A, B, C (all
 > tasks), T0, D1, D2 are DONE + two-stage-reviewed on `develop` (unpushed)** — the
 > geotech backend works via the API. The interaction model then PIVOTED to
 > **body-centric** (owner directive): see spec **§0 + §0.1**, which SUPERSEDE the
@@ -11,7 +13,7 @@
 > re-run `superpowers:writing-plans` against spec §0/§0.1 before building them.
 > Everything below the line is the ORIGINAL per-test plan: Phases A/B/C1 are
 > accurate-as-built; Phase C2's accept gesture + Phase D are superseded by the
-> body-centric model.
+> body-centric model.~~
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
