@@ -1802,3 +1802,248 @@ async def test_sab_bug2_c1_fc_conflict_on_rerun(
         f"C1 FCs but the LL→FC trigger did not re-derive them. "
         f"Missing: {[str(lid) for lid in missing_fc]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# SAB-10 — geotech edge count is proportional to litho connectivity
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def connectivity_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Scene asserting that a correlated litho body produces sufficient geotech edges.
+
+    Geometry
+    --------
+    * **CPT-E** and **CPT-F** at x=149 000 m and x=149 300 m.
+    * Each has ONE accepted ZAND litho layer (0–8 m) correlated via a single
+      approved litho edge.
+    * The ZAND profile is uniform (qc ≈ 12 MPa) so the B-policy returns
+      ``consistent=True, band_classes=[<one_class>]`` — one geotech sub-layer
+      per CPT, one geotech edge expected.
+
+    SAB-10a  The geotech edge count for the one-class correlated body is >= 1
+             (the litho edge is faithfully inherited as a geotech edge).
+    SAB-10b  The geotech edge count is NOT near-zero relative to the litho edge
+             count (connectivity ratio ≥ 0.5 — at least half the litho edges
+             map to geotech edges after dedup).
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model_id``, ``section_id``,
+        ``cpt_e_id``, ``cpt_f_id``, ``litho_edge_count``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="Connectivity scene", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "Conn-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "Conn-Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model_id,
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "Conn-Section",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_600.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    # Uniform qc — one NAD class, no split.
+    depths, qc = _qc_series(n=400, qc_mpa=12.0)
+
+    cpt_e = CptOrm(
+        id=uuid7(),
+        name="CPT-E",
+        cpt_type="CPTU",
+        project_id="CONN",
+        test_id="CONN/CPT-E",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_e.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    cpt_f = CptOrm(
+        id=uuid7(),
+        name="CPT-F",
+        cpt_type="CPTU",
+        project_id="CONN",
+        test_id="CONN/CPT-F",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_f.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    db_session.add_all([cpt_e, cpt_f])
+    await db_session.commit()
+
+    # Accept one ZAND layer per CPT and correlate them.
+    ce_id = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_e.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+    cf_id = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_f.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=ce_id,
+        contact_b=cf_id,
+        section_id=section_id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "cpt_e_id": str(cpt_e.id),
+        "cpt_f_id": str(cpt_f.id),
+        "litho_edge_count": 1,  # exactly one approved litho edge was created
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_connectivity_edge_count(
+    connectivity_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """SAB-10: a correlated litho body produces geotech edges, not near-zero.
+
+    SAB-10a  After subdivide, the geotech model has ≥ 1 correlation edge for a
+             body whose litho model has 1 approved edge.  Before the depth-mapping
+             fix this was 0 (172 litho → 15 geotech on the real model).
+    SAB-10b  The connectivity ratio (geotech_edges / litho_edges) is ≥ 0.5.
+             A healthy derivation should produce close to 1:1 (dedup reduces the
+             count only when many litho layers collapse to the same geotech
+             sub-layer pair).
+    SAB-10c  The SAB-7 over-merge guard still holds: no cross-NAD-class edge was
+             created (same-depth mapping can only connect same-class sub-layers).
+    """
+    project = connectivity_scene["project"]
+    litho_model_id = UUID(connectivity_scene["litho_model_id"])
+    section_id = UUID(connectivity_scene["section_id"])
+    litho_edge_count = connectivity_scene["litho_edge_count"]
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+        section_id=section_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    geotech_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    geotech_edge_count = len(geotech_edges)
+
+    # SAB-10a: at least one geotech edge was produced.
+    assert geotech_edge_count >= 1, (
+        f"SAB-10a: 0 geotech edges for a body with {litho_edge_count} litho edge(s) — "
+        f"the depth-mapping derivation produced no geotech connectivity; "
+        f"a correlated litho body must produce ≥ 1 geotech edge so it bands "
+        f"(not lenses) in the geotech section view"
+    )
+
+    # SAB-10b: connectivity ratio >= 0.5 (not near-zero collapse).
+    ratio = geotech_edge_count / max(litho_edge_count, 1)
+    assert ratio >= 0.5, (
+        f"SAB-10b: geotech connectivity ratio too low: "
+        f"{geotech_edge_count}/{litho_edge_count} = {ratio:.2f} < 0.5 — "
+        f"the depth-mapping derivation is dropping too many litho edges; "
+        f"a 1-edge litho body should produce exactly 1 geotech edge"
+    )
+
+    # SAB-10c: SAB-7 over-merge guard — no cross-formation edge.
+    geotech_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    layer_formation: dict[UUID, UUID] = {ll.id: ll.formation_id for ll in geotech_layers}
+    cross_class_edges = [
+        edge
+        for edge in geotech_edges
+        if layer_formation.get(edge.contact_a_id) != layer_formation.get(edge.contact_b_id)
+    ]
+    assert len(cross_class_edges) == 0, (
+        f"SAB-10c: {len(cross_class_edges)} cross-NAD-class edge(s) found — "
+        f"the depth-mapping derivation violated the over-merge guard; "
+        f"geotech edges must only connect same-formation (same-NAD-class) sub-layers. "
+        f"Offending: {[str(e.id) for e in cross_class_edges]}"
+    )
