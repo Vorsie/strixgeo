@@ -143,6 +143,8 @@ function makeFormation(
     parent_formation_name: null,
     // Debt #87: parent-extrapolated flag; default false.
     parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -181,7 +183,7 @@ function makeCtx(overrides: {
   lithoFormations?: GeologicalFormationResponse[]
   lithoContacts?: FormationContactResponse[]
   lithoStaleTinSessionCount?: number
-  refetchFormations?: () => void
+  refetchFormations?: () => Promise<void>
   lithoSolids?: LithoBodySolidResponse[]
   setBodyColor?: (bodyId: string, color: string | null) => void
   hideMarkers?: boolean
@@ -300,7 +302,7 @@ function makeCtx(overrides: {
       handleFormationUpdated: vi.fn(),
       handleFormationDeleted: vi.fn(),
       handleInlineCreateFormation: () => Promise.resolve(null),
-      refetchFormations: overrides.refetchFormations ?? vi.fn(),
+      refetchFormations: overrides.refetchFormations ?? vi.fn().mockResolvedValue(undefined),
       handleCreateContact: noopAsync,
       handleUpdateContactDepth: noopAsync,
       handleBatchCreateContacts: noopAsync,
