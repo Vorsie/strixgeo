@@ -74,10 +74,28 @@ function makeGeotechModel(): GeologicalModelResponse {
   }
 }
 
+function makeLithoModel(): GeologicalModelResponse {
+  return {
+    id: 'model-litho-1',
+    app_project_id: 'proj-1',
+    name: 'Litho model',
+    description: null,
+    kind: 'lithostratigraphic',
+    parent_geological_model_id: 'model-geo-1',
+    is_active: true,
+    excluded_borehole_ids: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 function makeCtx(overrides: {
   activeGeotechModel?: GeologicalModelResponse | null
+  activeLithoModel?: GeologicalModelResponse | null
+  selectedSectionId?: string | null
   sectionModelAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic' | 'geotechnical') => void
+  handleSubdivideAllBodies?: (sectionId: string) => Promise<void>
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -167,7 +185,7 @@ function makeCtx(overrides: {
         updated_at: '2026-01-01T00:00:00Z',
       },
       models: [],
-      activeLithoModel: null,
+      activeLithoModel: overrides.activeLithoModel ?? null,
       activeGeotechModel: overrides.activeGeotechModel ?? null,
       handleCreateLithoModel: async () => null,
       handleActivateLithoModel: async () => {},
@@ -257,10 +275,12 @@ function makeCtx(overrides: {
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
+      // F4 — "Subdivide all bodies" verb handler.
+      handleSubdivideAllBodies: overrides.handleSubdivideAllBodies ?? noopAsync,
     },
     sections: {
       sections: [],
-      selectedSectionId: null,
+      selectedSectionId: overrides.selectedSectionId ?? null,
       drawingSection: false,
       focusedContactIds: [],
       visibleSections: [],
@@ -437,5 +457,81 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
     const lithoBtn = screen.getByText('Litho').closest('button')
     expect(geoBtn?.getAttribute('aria-checked')).toBe('false')
     expect(lithoBtn?.getAttribute('aria-checked')).toBe('false')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// F4 — "Subdivide all bodies" toolbar verb
+// ---------------------------------------------------------------------------
+//
+// Pinned claims:
+//   BF1  The "Subdivide all bodies" button is present on the geotech axis.
+//   BF2  The button is absent on the geology and litho axes.
+//   BF3  The button is disabled when activeLithoModel is null or selectedSectionId
+//        is null; enabled when both are present.
+//   BF4  Clicking the enabled button calls handleSubdivideAllBodies with the
+//        selected section id.
+
+describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
+  it('BF1 — button is present when the axis is "geotechnical"', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'section-1',
+      }),
+    )
+    expect(screen.getByTestId('geotech-subdivide-all-bodies')).toBeTruthy()
+  })
+
+  it('BF2 — button is absent on the geology axis', () => {
+    renderToolbar(makeCtx({ sectionModelAxis: 'geological' }))
+    expect(screen.queryByTestId('geotech-subdivide-all-bodies')).toBeNull()
+  })
+
+  it('BF2b — button is absent on the lithostratigraphic axis', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+      }),
+    )
+    expect(screen.queryByTestId('geotech-subdivide-all-bodies')).toBeNull()
+  })
+
+  it('BF3 — button is disabled when no litho model exists', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: null,
+        selectedSectionId: 'section-1',
+      }),
+    )
+    expect(screen.getByTestId('geotech-subdivide-all-bodies')).toBeDisabled()
+  })
+
+  it('BF3b — button is disabled when no section is selected', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: null,
+      }),
+    )
+    expect(screen.getByTestId('geotech-subdivide-all-bodies')).toBeDisabled()
+  })
+
+  it('BF4 — clicking the button calls handleSubdivideAllBodies with the selected section id', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'section-abc',
+        handleSubdivideAllBodies,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith('section-abc')
   })
 })
