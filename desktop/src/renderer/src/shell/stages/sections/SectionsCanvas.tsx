@@ -50,6 +50,7 @@ import type { ContactCopyPayload } from '../../../components/sections/ContactsLa
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import type { GeotechSubLayer } from '../../../utils/geotechSubdivide'
+import { lithologyAbbrev } from '../../../utils/lensLabel'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { log } from '../../../utils/log'
 
@@ -99,7 +100,8 @@ export default function SectionsCanvas(): JSX.Element {
       // F3 — geotech axis: layers, contacts + formations from the bus for
       // the third section render axis (view-only; no edit gestures).
       activeGeotechModel,
-      geotechLayers,
+      // geotechLayers — re-add when the NAD split is built (the geotech stage
+      // currently shows the litho fill bands; subdivision deferred).
       geotechContacts,
       geotechFormations,
       handleCreateLithoContact,
@@ -285,38 +287,32 @@ export default function SectionsCanvas(): JSX.Element {
   const activeSectionModelId = lithoModelId
   const sectionLayers = lithoLayers
 
-  // Geotech axis subdivision input: each investigation's accepted geotech
-  // (NAD-class) sub-layers, in depth-below-surface, keyed by investigation id.
-  // `PartitionFillOverlay` slices each litho region into NAD sub-bands with this.
-  // Undefined on the litho / geological axes (no subdivision → identity).
-  const geotechSubLayersByInv = useMemo<
-    ReadonlyMap<string, GeotechSubLayer[]> | undefined
-  >(() => {
-    if (!isGeotech) return undefined
-    const m = new Map<string, GeotechSubLayer[]>()
-    for (const layer of geotechLayers) {
-      if (layer.status !== 'accepted') continue
-      const inv = layer.cpt_id ?? layer.borehole_id
-      if (!inv) continue
-      const arr = m.get(inv)
-      const sub: GeotechSubLayer = {
-        topDepthM: layer.depth_top_m,
-        baseDepthM: layer.depth_base_m,
-        formationId: layer.formation_id,
-      }
-      if (arr) arr.push(sub)
-      else m.set(inv, [sub])
-    }
-    return m
-  }, [isGeotech, geotechLayers])
+  // Geotech axis: NAD subdivision is DEFERRED (owner roadmap 2026-06-24: "fill
+  // bands first → stratigraphy split → NAD split"). For now the geotech stage
+  // shows the LITHO fill bands verbatim (litho shape + litho colours/labels), so
+  // we pass no sub-layers → `PartitionFillOverlay` renders the partition
+  // unchanged. The NAD-subdivision machinery (`subdivideRegionsByGeotech` +
+  // `GeotechSubLayer`) stays in place to be re-enabled when the NAD split is
+  // designed; rebuild the per-inv map from `geotechLayers` then.
+  const geotechSubLayersByInv: ReadonlyMap<string, GeotechSubLayer[]> | undefined = undefined
 
-  // Geotech axis: litho-colour fallback for partition regions the geotech model
-  // never classified (deep substrate / no qc). Those regions keep their LITHO
-  // formation id, which isn't an NAD formation, so SectionPanel merges this map
-  // into its colour map → they render in their lithology colour instead of grey.
+  // Geotech axis: the partition regions carry LITHO formation ids (no
+  // subdivision), so feed SectionPanel the litho colours + labels to merge into
+  // its formation colour/label maps. Without these the geotech axis (whose own
+  // maps are NAD-keyed) would render every region grey/label-less.
   const geotechExtraColorById = useMemo<ReadonlyMap<string, string> | undefined>(() => {
     if (!isGeotech) return undefined
     return new Map(lithoFormations.map(f => [f.id, f.color]))
+  }, [isGeotech, lithoFormations])
+
+  const geotechExtraLabelById = useMemo<ReadonlyMap<string, string> | undefined>(() => {
+    if (!isGeotech) return undefined
+    return new Map(
+      lithoFormations.map(f => [
+        f.id,
+        lithologyAbbrev(f.litho_main_soil_code ?? f.lithology) || f.name,
+      ]),
+    )
   }, [isGeotech, lithoFormations])
 
   // Transient pulse state — set on a successful contact correlate, cleared
@@ -2284,9 +2280,11 @@ export default function SectionsCanvas(): JSX.Element {
           // geotech sub-layer depths (the fill is the litho shape, recoloured +
           // split inside each body). Undefined on litho / geological → identity.
           geotechSubLayersByInv={geotechSubLayersByInv}
-          // Litho-colour fallback so geotech regions the model didn't classify
-          // (deep substrate / no qc) render in their lithology colour, not grey.
+          // Geotech axis shows the LITHO fill bands (subdivision deferred): feed
+          // the litho colours + labels so the litho-keyed regions render in their
+          // lithology colour/label instead of the NAD-keyed maps' grey/blank.
           extraColorById={geotechExtraColorById}
+          extraLabelById={geotechExtraLabelById}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
