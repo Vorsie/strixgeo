@@ -93,6 +93,8 @@ async def _build_project_bundle_impl(
     session: AsyncSession,
     project: ProjectOrm,
     logger: GroundModelLogger,
+    *,
+    include_solids: bool = True,
 ) -> dict[str, Any]:
     """Return a fully serialised snapshot of a project + every child.
 
@@ -114,6 +116,15 @@ async def _build_project_bundle_impl(
     logger : GroundModelLogger
         Caller's typed logger (passed in so log lines carry the service
         module name, not this internal module name).
+    include_solids : bool, default True
+        When ``False`` the cached ``litho_solids`` meshes are NOT queried
+        or serialised — the key is emitted as an empty list. The desktop
+        File → Save path passes ``False`` because the ``.strix`` v3 file
+        format never stored the 3-D meshes (``buildProjectFile`` drops the
+        key) and nothing in the client reads them from the bundle, so
+        shipping ~10 MB of vertices/triangles per save was pure waste that
+        made every save slow. Defaults to ``True`` so any caller that DOES
+        want the meshes (a future export-from-bundle path) is unaffected.
 
     Returns
     -------
@@ -224,6 +235,8 @@ async def _build_project_bundle_impl(
     # the built meshes in the bundle lets a freshly-opened .strix export 3-D
     # geometry without paying the on-click rebuild; staleness rides along so
     # the UI still knows when a solid predates a contact edit.
+    # Skipped entirely when ``include_solids`` is False (File → Save) — the
+    # meshes are megabytes and the .strix file never stores them.
     litho_solids_stmt = (
         select(LithoBodySolidOrm)
         .join(GeologicalModelOrm, LithoBodySolidOrm.model_id == GeologicalModelOrm.id)
@@ -242,7 +255,9 @@ async def _build_project_bundle_impl(
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
-    litho_solids = (await session.execute(litho_solids_stmt)).scalars().all()
+    litho_solids = (
+        (await session.execute(litho_solids_stmt)).scalars().all() if include_solids else []
+    )
 
     # ---- Integrity check + auto-recovery (2026-05-31 dogfeed fix). ------
     # Collect every formation_id referenced by a contact / litho_layer /
