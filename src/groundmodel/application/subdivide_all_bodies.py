@@ -166,6 +166,16 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # shared ``litho_segmenter`` knob, so tuning one never moves the other.
 _DEFAULT_MIN_THICKNESS_M: float = 0.50
 
+# Geo↔litho snap tolerance for the geotech geo-bounding. When a geological
+# surface crosses a litho unit within this distance of a litho contact, the
+# division SNAPS to the contact instead of carving a thin sliver. Geotech uses a
+# wider default (0.3 m) than the litho stage's 0.20 m so true near-coincident
+# slivers snap, while a genuine mid-unit geo boundary further than 0.3 m from any
+# contact still divides (a 0.44 m division is real, not a sliver — owner). Read
+# from ``view_state["geotech_subdivision"]``, kept separate from the litho
+# stage's ``litho_segmenter.litho_snap_tolerance_m``.
+_DEFAULT_GEOTECH_SNAP_TOLERANCE_M: float = 0.30
+
 
 @dataclass(frozen=True)
 class SubdivideAllBodiesResult:
@@ -376,8 +386,10 @@ class SubdivideAllBodies(GroundModelLogger):
                 borehole_only_count=0,
             )
 
-        # Phase 3 — geo-bound picks (same pipeline as C1).
-        snap_tol = await self._c1._read_litho_snap_tolerance_m(litho_model_id)
+        # Phase 3 — geo-bound picks (same pipeline as C1, but a wider geotech
+        # snap tolerance so true near-coincident geo slivers snap to the litho
+        # contact instead of carving thin geotech sub-units).
+        snap_tol = await self._read_geotech_snap_tolerance_m(geotech_model.app_project_id)
         geo_surfaces = await self._c1._load_geo_surfaces_with_formation(
             litho_model.parent_geological_model_id
         )
@@ -1674,6 +1686,35 @@ class SubdivideAllBodies(GroundModelLogger):
             return val if val > 0 else _DEFAULT_MIN_THICKNESS_M
         except (TypeError, ValueError):
             return _DEFAULT_MIN_THICKNESS_M
+
+    async def _read_geotech_snap_tolerance_m(self, project_id: UUID) -> float:
+        """Read the geotech geo↔litho snap tolerance from the project view-state.
+
+        Reads ``view_state["geotech_subdivision"]["litho_snap_tolerance_m"]`` — a
+        GEOTECH-specific, WIDER tolerance than the litho stage's, so a geological
+        surface that crosses a litho unit within this distance of a litho contact
+        snaps to the contact (no sliver) rather than dividing.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project id.
+
+        Returns
+        -------
+        float
+            The configured geotech snap tolerance, or
+            ``_DEFAULT_GEOTECH_SNAP_TOLERANCE_M`` (0.30 m) when absent,
+            non-positive, or non-numeric.
+        """
+        project = await ProjectRepository(self._session).get_by_id(project_id)
+        view_state = project.view_state if project is not None else None
+        seg = (view_state or {}).get("geotech_subdivision") or {}
+        try:
+            val = float(seg.get("litho_snap_tolerance_m", _DEFAULT_GEOTECH_SNAP_TOLERANCE_M))
+            return val if val > 0 else _DEFAULT_GEOTECH_SNAP_TOLERANCE_M
+        except (TypeError, ValueError):
+            return _DEFAULT_GEOTECH_SNAP_TOLERANCE_M
 
     # ------------------------------------------------------------------
     # Formation attribute helpers
