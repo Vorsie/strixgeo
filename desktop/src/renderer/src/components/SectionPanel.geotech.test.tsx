@@ -195,25 +195,49 @@ describe('PartitionFillOverlay with geotechnical axis colours', () => {
     // to the same formation (f8, nad_class=8 → "ZAND, dicht gp").  They span the
     // same L→R columns at different depth intervals.  The dedup pass must ensure only
     // ONE <text> element appears (the tallest body wins the label).
+    const sameTextLayers = [
+      // bodyA: shallower (0–3 m) on both columns
+      geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
+      geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
+      // bodyB: deeper (3–8 m) on both columns — taller → wins the label
+      geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
+      geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
+    ]
     const { container } = render(
       <svg>
         <PartitionFillOverlay
           {...baseProps}
-          lithoLayers={[
-            // bodyA: shallower (0–3 m) on both columns
-            geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
-            geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
-            // bodyB: deeper (3–8 m) on both columns — taller → wins the label
-            geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
-            geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
-          ]}
+          dedupeLabelsByText
+          lithoLayers={sameTextLayers}
         />
       </svg>,
     )
     // Both formations share the same label text ("ZAND, dicht gp" for nad_class=8).
-    // The dedup pass must emit exactly ONE <text> element with that text.
-    const texts = Array.from(container.querySelectorAll('text'))
-    const labelTexts = texts.filter((t) => t.textContent === nadClassName(8))
+    // With dedupeLabelsByText (geotech axis) exactly ONE <text> appears.
+    const labelTexts = Array.from(container.querySelectorAll('text')).filter(
+      (t) => t.textContent === nadClassName(8),
+    )
     expect(labelTexts.length).toBe(1)
+  })
+
+  it('GN8b — WITHOUT dedupeLabelsByText (litho axis) two same-label bodies keep BOTH labels', () => {
+    // Regression guard: the text-dedup must be geotech-only. On litho the label
+    // is the shared lithology abbreviation, so dedup-by-text would wrongly drop
+    // every same-soil body's label but one. Default (false) keeps one-per-body.
+    const sameTextLayers = [
+      geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
+      geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
+      geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
+      geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
+    ]
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...baseProps} lithoLayers={sameTextLayers} />
+      </svg>,
+    )
+    const labelTexts = Array.from(container.querySelectorAll('text')).filter(
+      (t) => t.textContent === nadClassName(8),
+    )
+    expect(labelTexts.length).toBe(2)
   })
 })

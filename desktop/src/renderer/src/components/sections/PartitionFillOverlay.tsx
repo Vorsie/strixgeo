@@ -86,6 +86,12 @@ export interface Props {
   formationColorById: ReadonlyMap<string, string>
   /** formation_id → display label (e.g. "Sa1") for the per-region label. */
   formationLabelById?: ReadonlyMap<string, string>
+  /**
+   * Collapse bodies that share a label string to one label (geotech axis only,
+   * where many bodies carry the same NAD packing-class name). MUST stay false
+   * for litho/geology, where the label is the shared lithology abbreviation.
+   */
+  dedupeLabelsByText?: boolean
   /** Absolute elevation (mTAW) → screen y. */
   levelToScreen: (level: number) => number
   /**
@@ -385,6 +391,7 @@ export default function PartitionFillOverlay({
   placedColumns,
   formationColorById,
   formationLabelById,
+  dedupeLabelsByText = false,
   showBands,
   levelToScreen,
   plotTop,
@@ -1087,9 +1094,13 @@ export default function PartitionFillOverlay({
   // many distinct bodies can carry the same NAD class name (e.g. "KLEI, matig vast")
   // and the label engine should render each text only ONCE (for the tallest body that
   // carries it) so the section does not show the same string 5–10 times overlapping.
-  // On the litho axis labels are typically short unique soil-code abbreviations, so
-  // this pass is inert in practice but harmless — a body that shares its label text
-  // with a taller sibling simply goes unlabelled (the taller one already labels it).
+  // One label per body. ``dedupeLabelsByText`` additionally collapses bodies
+  // that SHARE a label string to a single label — used on the geotech axis,
+  // where the label is the NAD packing-class name and many separate bodies
+  // carry the same long name ("KLEI, matig vast" ×N → one label, declutter).
+  // It MUST stay off for litho/geology: there the label is the lithology
+  // abbreviation ("ZAND"/"KLEI"), shared across every body of that soil, so
+  // text-dedup would wrongly drop all but one same-soil body's label.
   const labels = useMemo(() => {
     const bestByBody = new Map<string, ScreenRegion>()
     for (const sr of screenRegions) {
@@ -1101,7 +1112,7 @@ export default function PartitionFillOverlay({
     }
 
     // Sort entries tallest-first so the tallest body wins the text slot when
-    // two bodies share the same label (e.g. two "KLEI, matig vast" bodies).
+    // two bodies share the same label (geotech text-dedup only).
     const sorted = [...bestByBody.entries()].sort(
       ([, a], [, b]) => b.maxY - b.minY - (a.maxY - a.minY),
     )
@@ -1111,16 +1122,16 @@ export default function PartitionFillOverlay({
     for (const [id, sr] of sorted) {
       const text = formationLabelById?.get(sr.region.formationId)
       if (!text) continue
-      // Skip this body's label if an equally-named (taller) body already claimed it.
-      if (usedText.has(text)) continue
+      // Geotech only: skip if an equally-named (taller) body already claimed it.
+      if (dedupeLabelsByText && usedText.has(text)) continue
       const loX = plotLeft != null ? Math.max(sr.minX, plotLeft) : sr.minX
       const hiX = plotRight != null ? Math.min(sr.maxX, plotRight) : sr.maxX
       if (hiX - loX < 4) continue
-      usedText.add(text)
+      if (dedupeLabelsByText) usedText.add(text)
       out.push({ key: id, x: (loX + hiX) / 2, y: (sr.minY + sr.maxY) / 2, text })
     }
     return out
-  }, [screenRegions, formationLabelById, plotLeft, plotRight])
+  }, [screenRegions, formationLabelById, plotLeft, plotRight, dedupeLabelsByText])
 
   // ---- Collect shared boundaries with their multi-node handle arrays. ------
   //
