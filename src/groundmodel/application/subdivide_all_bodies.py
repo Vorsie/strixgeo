@@ -159,8 +159,12 @@ from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Minimum geotech sub-unit thickness when the view-state knob is absent.
-# Matches ``SuggestGeotechSubdivision._DEFAULT_MIN_THICKNESS_M``.
-_DEFAULT_MIN_THICKNESS_M: float = 0.30
+# Geotech packing bands are intentionally COARSER than litho layers (a 27 cm
+# NAD-class sliver is not a meaningful packing unit), so the geotech default is
+# 0.5 m — kept SEPARATE from the litho segmenter's 0.30 m (which stays fine for
+# lithology layering). Read from ``view_state["geotech_subdivision"]``, not the
+# shared ``litho_segmenter`` knob, so tuning one never moves the other.
+_DEFAULT_MIN_THICKNESS_M: float = 0.50
 
 
 @dataclass(frozen=True)
@@ -1644,7 +1648,11 @@ class SubdivideAllBodies(GroundModelLogger):
         return {(min(a, b), max(a, b)) for a, b in rows}
 
     async def _read_min_thickness_m(self, project_id: UUID) -> float:
-        """Read the project's ``minimum_layer_thickness_m`` from its view-state.
+        """Read the geotech minimum sub-unit thickness from the project view-state.
+
+        Reads ``view_state["geotech_subdivision"]["minimum_layer_thickness_m"]``
+        — a GEOTECH-specific knob, distinct from the litho segmenter's, so
+        coarsening packing bands never affects lithology layering.
 
         Parameters
         ----------
@@ -1654,12 +1662,13 @@ class SubdivideAllBodies(GroundModelLogger):
         Returns
         -------
         float
-            The configured minimum thickness, or ``_DEFAULT_MIN_THICKNESS_M``
-            (0.30 m) when absent, non-positive, or non-numeric.
+            The configured geotech minimum thickness, or
+            ``_DEFAULT_MIN_THICKNESS_M`` (0.50 m) when absent, non-positive, or
+            non-numeric.
         """
         project = await ProjectRepository(self._session).get_by_id(project_id)
         view_state = project.view_state if project is not None else None
-        seg = (view_state or {}).get("litho_segmenter") or {}
+        seg = (view_state or {}).get("geotech_subdivision") or {}
         try:
             val = float(seg.get("minimum_layer_thickness_m", _DEFAULT_MIN_THICKNESS_M))
             return val if val > 0 else _DEFAULT_MIN_THICKNESS_M
