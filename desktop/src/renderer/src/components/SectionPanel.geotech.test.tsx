@@ -11,15 +11,17 @@
 //
 // Pinned claims:
 //   GN1  nadClassColor(8) returns a valid hex string (not neutral grey, not amber).
-//   GN2  nadClassColor(null) returns the neutral grey '#9ca3af' — no-qc state.
+//   GN2  nadClassColor(null) returns the neutral grey '#9ca3af' — degenerate state.
 //   GN3  nadClassName(8) returns a non-empty string (the NAD class name).
-//   GN4  nadClassName(null) returns 'No qc — manual class'.
+//   GN4  nadClassName(null) returns '' (empty — degenerate; no label renders).
 //   GN5  PartitionFillOverlay renders a path element when given a NAD-class
 //        formationColorById and geotech-shaped lithoLayers.
 //   GN6  The rendered path's fill attribute equals the NAD colour for the
 //        formation (nadClassColor(8)), not a lithology colour.
 //   GN7  A formation with nad_class === null gets the neutral-grey fill
 //        (nadClassColor(null)) — distinct from amber.
+//   GN8  Two bodies with the same NAD class label render only ONE <text> label
+//        (dedup pass — prevents "KLEI, matig vast" ×5 overlap on geotech axis).
 
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -116,7 +118,7 @@ describe('NAD colour / label helpers (formationColorById derivation)', () => {
     expect(colour).not.toBe('#d97706') // amber-600 (must never be used)
   })
 
-  it('GN2 — nadClassColor(null) returns neutral grey — the no-qc state', () => {
+  it('GN2 — nadClassColor(null) returns neutral grey — degenerate-band state', () => {
     expect(nadClassColor(null)).toBe('#9ca3af')
   })
 
@@ -124,11 +126,11 @@ describe('NAD colour / label helpers (formationColorById derivation)', () => {
     const name = nadClassName(8)
     expect(typeof name).toBe('string')
     expect(name.length).toBeGreaterThan(0)
-    expect(name).not.toBe('No qc — manual class')
+    expect(name).not.toBe('')
   })
 
-  it('GN4 — nadClassName(null) returns the no-qc sentinel label', () => {
-    expect(nadClassName(null)).toBe('No qc — manual class')
+  it('GN4 — nadClassName(null) returns empty string (degenerate — no label renders)', () => {
+    expect(nadClassName(null)).toBe('')
   })
 })
 
@@ -186,5 +188,32 @@ describe('PartitionFillOverlay with geotechnical axis colours', () => {
       expect(fill).toBe(neutralGrey)
       expect(fill).not.toBe('#d97706') // amber — must never appear on geotech no-qc
     }
+  })
+
+  it('GN8 — two bodies with the same NAD class label render only ONE <text> label', () => {
+    // Scenario: geotech axis with two separate bodies (bodyA, bodyB) both belonging
+    // to the same formation (f8, nad_class=8 → "ZAND, dicht gp").  They span the
+    // same L→R columns at different depth intervals.  The dedup pass must ensure only
+    // ONE <text> element appears (the tallest body wins the label).
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...baseProps}
+          lithoLayers={[
+            // bodyA: shallower (0–3 m) on both columns
+            geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
+            geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
+            // bodyB: deeper (3–8 m) on both columns — taller → wins the label
+            geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
+            geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
+          ]}
+        />
+      </svg>,
+    )
+    // Both formations share the same label text ("ZAND, dicht gp" for nad_class=8).
+    // The dedup pass must emit exactly ONE <text> element with that text.
+    const texts = Array.from(container.querySelectorAll('text'))
+    const labelTexts = texts.filter((t) => t.textContent === nadClassName(8))
+    expect(labelTexts.length).toBe(1)
   })
 })
