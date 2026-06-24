@@ -512,3 +512,46 @@ async def test_cp_e_rebuild_is_idempotent(db_session: AsyncSession, scene: dict)
         f"re-build must not duplicate skeleton formations: "
         f"first={skeleton_count_after_first}, second={skeleton_count_after_second}"
     )
+
+
+@pytest.mark.asyncio
+async def test_cp_f_reused_geotech_model_is_active(db_session: AsyncSession, scene: dict) -> None:
+    """CP-F (BUG S1): a reused geotech model is always returned with is_active=True.
+
+    ``_ensure_geotech_model`` previously returned the existing model without
+    forcing ``is_active=True``.  The frontend derives ``activeGeotechModel``
+    via ``find(m => m.is_active && m.kind==='geotechnical')``, so a reused-
+    but-inactive model is invisible to the UI.
+
+    Regression: simulate an inactive model by building once (creates the
+    model as active), then directly flipping ``is_active=False`` on the DB
+    row, then building again — the second build must re-activate it.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    uc = BuildGeotechModelFromLitho(db_session)
+
+    # First build — creates an active geotech model.
+    await uc.execute(project_id=proj.id, litho_model_id=litho.id, section_id=scene["section_id"])
+
+    geotech = await _geotech_model(db_session, proj.id)
+    assert geotech is not None
+    assert geotech.is_active, "geotech model must be active after first build"
+
+    # Simulate an external deactivation (e.g. activateModel called for a different model).
+    geotech.is_active = False
+    await db_session.commit()
+
+    # Refresh to ensure the DB reflects the deactivation.
+    await db_session.refresh(geotech)
+    assert not geotech.is_active, "sanity check: model must be inactive before second build"
+
+    # Second build — _ensure_geotech_model reuses the existing row and must
+    # set is_active=True again so the frontend can find it.
+    await uc.execute(project_id=proj.id, litho_model_id=litho.id, section_id=scene["section_id"])
+
+    await db_session.refresh(geotech)
+    assert geotech.is_active, (
+        "reused geotech model must be re-activated by _ensure_geotech_model "
+        "(BUG S1 regression guard)"
+    )
