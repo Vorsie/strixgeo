@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -105,6 +105,8 @@ export default function SectionsToolbar(): JSX.Element {
       // model's contact set. Build / Dedupe / Sync moved with their
       // verbs to ``SectionsInspector`` (#97).
       lithoContacts,
+      // F4 — "Subdivide all bodies" toolbar verb on the geotech axis.
+      handleSubdivideAllBodies,
     },
     visibleCpts,
     coordinator: {
@@ -140,6 +142,8 @@ export default function SectionsToolbar(): JSX.Element {
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
   const [reCorrelateAutoEdgeCount, setReCorrelateAutoEdgeCount] = useState(0)
+  // F4 — "Subdivide all bodies" busy flag (geotech axis).
+  const [subdividingBodies, setSubdividingBodies] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -1138,6 +1142,43 @@ export default function SectionsToolbar(): JSX.Element {
             ]}
           />
           {/* Separator after litho-specific actions */}
+          <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+        </>
+      )}
+
+      {/* Geotechnical axis verbs — visible only when the geotech axis is
+          active.  "Subdivide all bodies" is the headline verb: it creates
+          the geotechnical model (if none exists) and materialises NAD
+          packing-class bodies from the litho layer stack.  Gated on the
+          litho model (the source) and a selected section (scope), NOT on
+          activeGeotechModel — the verb must be reachable on the first run
+          before any geotech model exists. */}
+      {isGeotech && (
+        <>
+          <PrimaryToolbarButton
+            icon={<SplitSquareVertical size={13} />}
+            label={subdividingBodies ? 'Subdividing…' : 'Subdivide all bodies'}
+            onClick={() => {
+              if (subdividingBodies || !selectedSectionId || !activeLithoModel) return
+              setSubdividingBodies(true)
+              void handleSubdivideAllBodies(selectedSectionId).finally(() => {
+                setSubdividingBodies(false)
+              })
+            }}
+            disabled={subdividingBodies || !activeLithoModel || !selectedSectionId}
+            busy={subdividingBodies}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model in the Lithology stage first'
+                : !selectedSectionId
+                  ? 'Select a cross-section to run subdivision on'
+                  : subdividingBodies
+                    ? 'Running NAD packing-class subdivision…'
+                    : 'Derive NAD packing classes (1–31) for every litho body in this section. Creates the geotechnical model on first run.'
+            }
+            testid="geotech-subdivide-all-bodies"
+          />
+          {/* Separator after geotech-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
         </>
       )}
