@@ -192,7 +192,7 @@ async def test_sab_it1_subdivide_all_bodies_happy_path(
     # Step 2: subdivide all bodies.
     sab_resp = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
-        json={"section_id": section_id},
+        json={"litho_model_id": litho_id},
     )
     assert sab_resp.status_code == 200, sab_resp.text
     body = sab_resp.json()
@@ -230,7 +230,7 @@ async def test_sab_it2_kind_guard_rejects_geological_model(
     resp = await async_client.post(
         f"/projects/{project.id}/geology/models/{scene['geo_model_id']}"
         "/geotech/subdivide-all-bodies",
-        json={"section_id": scene["section_id"]},
+        json={"litho_model_id": scene["geo_model_id"]},
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "invalid_model_kind"
@@ -262,7 +262,7 @@ async def test_sab_it3_kind_guard_rejects_geotech_model(
     # Now pass the GEOTECH model id to subdivide-all-bodies — must reject.
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{geotech_model_id}/geotech/subdivide-all-bodies",
-        json={"section_id": section_id},
+        json={"litho_model_id": geotech_model_id},
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "invalid_model_kind"
@@ -304,7 +304,7 @@ async def test_sab_it4_scope_guard_rejects_foreign_model(
     # Use the OTHER project's litho model id with the CURRENT project's project_id.
     resp = await async_client.post(
         f"/projects/{project.id}/geology/models/{other_litho.id}/geotech/subdivide-all-bodies",
-        json={"section_id": scene["section_id"]},
+        json={"litho_model_id": str(other_litho.id)},
     )
     assert resp.status_code == 404
 
@@ -322,12 +322,11 @@ async def test_sab_it5_idempotent_reruns(
     """SAB-IT-5: a second subdivide-all-bodies call reuses the same geotech model."""
     pid = project.id
     litho_id = scene["litho_model_id"]
-    section_id = scene["section_id"]
 
     # First call.
     resp1 = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
-        json={"section_id": section_id},
+        json={"litho_model_id": litho_id},
     )
     assert resp1.status_code == 200, resp1.text
     body1 = resp1.json()
@@ -335,7 +334,7 @@ async def test_sab_it5_idempotent_reruns(
     # Second call.
     resp2 = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
-        json={"section_id": section_id},
+        json={"litho_model_id": litho_id},
     )
     assert resp2.status_code == 200, resp2.text
     body2 = resp2.json()
