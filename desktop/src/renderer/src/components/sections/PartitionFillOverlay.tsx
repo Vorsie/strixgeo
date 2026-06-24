@@ -1173,23 +1173,31 @@ export default function PartitionFillOverlay({
   // linearly from the left column's surface elevation to the right's).
   //
   // We use SVG ``clipPath`` elements to avoid polygon clipping math:
-  //   • For each gap, collect the NAD cut lines that fall inside the plot
-  //     y-range and sort them top-to-bottom.
-  //   • Emit one ``clipPath`` per slice (a parallelogram spanning leftX → rightX,
-  //     bounded by the two adjacent cut lines on left and right).
-  //   • For each ``ScreenRegion`` render one NAD-coloured ``path`` per
-  //     overlapping slice, referencing the gap's clipPath for that slice.
+  //   • For each ScreenRegion, collect ONLY the NAD cuts from the bounding
+  //     columns that fall STRICTLY INSIDE this region's vertical span
+  //     [region.minY, region.maxY].
+  //   • Pair the scoped left cuts with the scoped right cuts BY INDEX within
+  //     this region.  A consistent-subdivision body has the same number of NAD
+  //     bands on every column, so index-matching is correct within one region.
+  //     Cuts from a DIFFERENT litho body's depth range never enter this region's
+  //     scoped list — they fall outside [minY, maxY] and are filtered out.
+  //   • Emit one ``clipPath`` per band per region, its parallelogram bounded by
+  //     the region's own top/base Y on each side (not the global plotTop/plotBottom).
+  //   • The region path itself is the fill shape; the clipPath provides the
+  //     vertical subdivision. Their overlap = one NAD sub-band inside one body.
   //
-  // ``geotechClipBands`` is a stable derivation from screenRegions +
-  // geotechClipByInvId; it doesn't re-run on pan/zoom (those are already
-  // baked into screenRegions).
+  // This is the PER-REGION variant (replaces the old PER-GAP variant).  The
+  // old code paired cuts by GLOBAL index across the full column, so leftCuts[i]
+  // from one litho body's depth could pair with rightCuts[i] from a DIFFERENT
+  // litho body's depth — connecting unrelated cuts and shredding the body envelopes
+  // into skewed parallelograms.  Per-region scoping eliminates that class of
+  // cross-body pairing.
   //
   // Each band entry:
-  //   id            — unique clip-path id (string)
+  //   id            — unique clip-path id (string, per region per band)
   //   clipD         — SVG path data for the parallelogram clip region
   //   formationId   — geotech formation id (→ NAD colour via formationColorById)
-  //   regionPaths   — array of { d, bodyId } for every ScreenRegion that
-  //                   overlaps this band
+  //   regionPaths   — singleton array containing this region's path data
   type GeoClipBand = {
     id: string
     clipD: string
@@ -1204,7 +1212,11 @@ export default function PartitionFillOverlay({
 
     const out: GeoClipBand[] = []
 
-    for (let gi = 0; gi < valid.length - 1; gi += 1) {
+    for (let sri = 0; sri < screenRegions.length; sri += 1) {
+      const sr = screenRegions[sri]
+      const gi = sr.region.gapIndex
+      if (gi < 0 || gi >= valid.length - 1) continue
+
       const leftId = valid[gi]
       const rightId = valid[gi + 1]
       const leftCol = colByInv.get(leftId)
@@ -1213,61 +1225,105 @@ export default function PartitionFillOverlay({
       const { leftX, rightX } = gapXs[gi]
       if (rightX <= leftX) continue
 
-      // Build a merged + sorted list of cut elevations for this gap by
-      // interpolating each column's NAD cuts (depthM → elevationM → screenY).
+      // Region vertical span in screen coords (minY = top/shallow, maxY = base/deep).
+      const regionTopY = sr.minY
+      const regionBotY = sr.maxY
+      if (regionBotY <= regionTopY) continue
+
+      // Convert each column's NAD cuts to screen-Y (elevationM = surfaceElevM - depthM).
       const leftCuts = geotechClipByInvId.get(leftId) ?? []
       const rightCuts = geotechClipByInvId.get(rightId) ?? []
 
-      // Convert each column's cuts to screen-Y.
-      // elevationM = surfaceElevM - depthM.
-      const leftCutYs = leftCuts.map((c) => ({
+      const leftAllYs = leftCuts.map((c) => ({
         y: levelToScreen(leftCol.surfaceElevM - c.depthM),
         formationId: c.formationId,
       }))
-      const rightCutYs = rightCuts.map((c) => ({
+      const rightAllYs = rightCuts.map((c) => ({
         y: levelToScreen(rightCol.surfaceElevM - c.depthM),
         formationId: c.formationId,
       }))
 
-      // Merge into a unified ordered list of cut lines for this gap.
-      // Each cut line connects (leftX, leftY) → (rightX, rightY).
-      // We pair them by index: cut[i] on left pairs with cut[i] on right.
-      // If the columns have different numbers of NAD units, use the minimum
-      // count (NAD subdivision may not perfectly align — a known edge case).
-      const nCuts = Math.min(leftCutYs.length, rightCutYs.length)
+      // Scope cuts to those strictly inside this region's vertical span.
+      // "Strictly inside" = cut Y is between the region top and base
+      // (a cut exactly at regionTopY or regionBotY belongs to an adjacent
+      // region's boundary and would produce a zero-height slice here).
+      const leftScopedYs = leftAllYs.filter((c) => c.y > regionTopY && c.y < regionBotY)
+      const rightScopedYs = rightAllYs.filter((c) => c.y > regionTopY && c.y < regionBotY)
 
-      // Sentinel: top of plot and bottom of plot bound the first/last slices.
-      // Between adjacent cuts we emit one clipPath + one set of region paths.
-      // The topmost slice = plotTop → first cut line.
-      // Intermediate slices = cut[i-1] → cut[i].
-      // The bottommost slice = last cut line → plotBottom.
+      // Pair scoped cuts by index within this region.  If the columns have
+      // different scoped-cut counts (e.g. one side happens to have a cut
+      // right at the boundary while the other doesn't), use the min count
+      // as a defensive fallback — the unpaired tail merges into the bottom band.
+      const nCuts = Math.min(leftScopedYs.length, rightScopedYs.length)
 
+      // The region's path data string (same for all bands of this region).
+      const regionD = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
+      const regionPath = {
+        d: regionD,
+        bodyId: sr.region.bodyId ?? null,
+        isLens: sr.region.kind === 'lens',
+      }
+
+      // Emit one band per NAD sub-interval inside this region.
+      // Band 0 : regionTopY → scoped cut[0]
+      // Band k : scoped cut[k-1] → scoped cut[k]
+      // Band last : last scoped cut → regionBotY
+      // When there are no scoped cuts (nCuts = 0): one band = the whole region.
       for (let ci = 0; ci <= nCuts; ci += 1) {
-        // Top boundary of this slice.
-        const topLeftY = ci === 0 ? plotTop : leftCutYs[ci - 1].y
-        const topRightY = ci === 0 ? plotTop : rightCutYs[ci - 1].y
-        // Bottom boundary of this slice.
-        const botLeftY = ci === nCuts ? plotBottom : leftCutYs[ci].y
-        const botRightY = ci === nCuts ? plotBottom : rightCutYs[ci].y
+        // Top boundary of this slice on each column side.
+        const topLeftY = ci === 0 ? regionTopY : leftScopedYs[ci - 1].y
+        const topRightY = ci === 0 ? regionTopY : rightScopedYs[ci - 1].y
+        // Bottom boundary of this slice on each column side.
+        const botLeftY = ci === nCuts ? regionBotY : leftScopedYs[ci].y
+        const botRightY = ci === nCuts ? regionBotY : rightScopedYs[ci].y
 
         // Skip degenerate slices (top === bottom at both ends).
         if (botLeftY <= topLeftY && botRightY <= topRightY) continue
 
-        // The formation id for this slice is the NAD unit AT the top cut
-        // (slice ci corresponds to the NAD unit whose top boundary is cut[ci-1]).
-        // Slice 0 (above the first cut) has no formation from our data — use the
-        // first cut's formation as a fallback (shouldn't appear if NAD units start
-        // at the investigation surface, but guards the edge case).
-        const formationId =
-          ci === 0
-            ? (leftCutYs[0]?.formationId ?? rightCutYs[0]?.formationId ?? '')
-            : leftCutYs[ci - 1].formationId
+        // Formation id for this slice.
+        //
+        // Convention: each cut's ``formationId`` is the NAD unit that STARTS at
+        // that cut depth and owns everything downward to the next cut.  So the
+        // formation covering a given depth is the LAST cut whose Y ≤ that depth's
+        // screen-Y (i.e. the shallowest cut at or above that elevation).
+        //
+        // For bands inside a region with scoped cuts (nCuts > 0):
+        //   • ci > 0  → formation = scoped cut[ci-1].formationId  (the unit that
+        //               starts at cut[ci-1] and runs down to cut[ci] or regionBot).
+        //   • ci = 0  → no scoped cut above this band; the covering formation is
+        //               the LAST cut from the FULL list whose Y ≤ regionTopY
+        //               (may be a cut from a shallower body's depth range that was
+        //               excluded from the scoped list because it sits at the
+        //               region's very top).
+        //
+        // For a region with no cuts inside it (nCuts = 0): same "last cut at or
+        // above regionTopY" search as ci=0 above — the entire region is one band.
+        let formationId: string
+        if (ci > 0) {
+          // Intermediate and bottom sub-bands: formation = the cut just above.
+          formationId = leftScopedYs[ci - 1].formationId
+        } else {
+          // Top sub-band (ci=0, with or without scoped cuts below it): find the
+          // NAD formation whose cut is at or above regionTopY, i.e. the last cut
+          // in the FULL list with Y ≤ regionTopY.
+          //
+          // In screen coords Y increases downward, so "shallower" = smaller Y.
+          // "At or above regionTopY" = Y ≤ regionTopY.
+          const coveringLeft = leftAllYs.filter((c) => c.y <= regionTopY)
+          const coveringRight = rightAllYs.filter((c) => c.y <= regionTopY)
+          formationId =
+            coveringLeft.length > 0
+              ? coveringLeft[coveringLeft.length - 1].formationId
+              : (coveringRight.length > 0
+                  ? coveringRight[coveringRight.length - 1].formationId
+                  : (leftAllYs[0]?.formationId ?? rightAllYs[0]?.formationId ?? ''))
+        }
 
         if (!formationId) continue
 
-        // Clip parallelogram: spans leftX → rightX, bounded by the sloped
-        // top and bottom cut lines.  Extend left/right by 2 px so the clip
-        // doesn't leave hairline gaps at the polygon edges.
+        // Clip parallelogram: spans leftX → rightX, bounded by the sloped top
+        // and bottom cut lines of this band.  Extend left/right by 2 px to
+        // avoid hairline gaps at the polygon edges.
         const xL = leftX - 2
         const xR = rightX + 2
         const clipD =
@@ -1276,30 +1332,10 @@ export default function PartitionFillOverlay({
           `L ${xR.toFixed(2)},${botRightY.toFixed(2)} ` +
           `L ${xL.toFixed(2)},${botLeftY.toFixed(2)} Z`
 
-        const clipId = `geonad-${gi}-${ci}`
+        // Unique id: per screen-region-index + per band-index within that region.
+        const clipId = `geonad-r${sri}-b${ci}`
 
-        // Collect all screen regions in this gap (by gapIndex) and emit their
-        // path data so each can be rendered clipped to this band.
-        const regionPaths: GeoClipBand['regionPaths'] = []
-        for (const sr of screenRegions) {
-          if (sr.region.gapIndex !== gi) continue
-          // Quick bbox overlap check — skip if the region is entirely above the
-          // bottom cut or entirely below the top cut (no overlap with this band).
-          const bandTopY = Math.min(topLeftY, topRightY)
-          const bandBotY = Math.max(botLeftY, botRightY)
-          if (sr.maxY < bandTopY || sr.minY > bandBotY) continue
-
-          const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
-          regionPaths.push({
-            d,
-            bodyId: sr.region.bodyId ?? null,
-            isLens: sr.region.kind === 'lens',
-          })
-        }
-
-        if (regionPaths.length === 0) continue
-
-        out.push({ id: clipId, clipD, formationId, regionPaths })
+        out.push({ id: clipId, clipD, formationId, regionPaths: [regionPath] })
       }
     }
     return out
