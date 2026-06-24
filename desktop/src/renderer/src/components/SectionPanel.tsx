@@ -882,7 +882,12 @@ export default function SectionPanel({
   // Bodies dropdown. It never auto-draws — default off — so a half-finished
   // interpretation isn't shown as a misleading fill. Driven from the toolbar
   // via the shared bandFill store (sibling components, single view toggle).
-  const showBands = useBandFillVisible()
+  // Geotech exception: the NAD-coloured bands ARE the geotechnical view's
+  // deliverable (not a half-finished litho interpretation), and the toggle
+  // lives in the litho-only Bodies dropdown — so the geotech axis would have no
+  // way to turn them on. Force bands on for the geotech axis.
+  const bandFillToggle = useBandFillVisible()
+  const showBands = axisMode === 'geotechnical' || bandFillToggle
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
