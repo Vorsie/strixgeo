@@ -392,6 +392,16 @@ interface Props {
    */
   geotechNotReconciled?: boolean
   /**
+   * Geotech axis only — per-column NAD subdivision cut contacts.  Each entry
+   * carries ``depth_top_m`` (the top depth of a NAD unit on a specific
+   * investigation = a horizontal cut line) and ``formation_id`` (the geotech
+   * formation that owns that NAD unit → ``nad_class`` → colour).  Passed to
+   * ``PartitionFillOverlay`` so it can clip each litho region horizontally at
+   * NAD unit boundaries and colour every slice by its NAD class.
+   * Absent on lithostratigraphic / geological axes.
+   */
+  geotechClipContacts?: readonly FormationContactResponse[]
+  /**
    * Active lithostratigraphic model id.  Required for the lens-naming
    * context-menu gesture — passed through so the action always has a
    * valid model UUID even when no contacts have been seeded yet.
@@ -798,6 +808,7 @@ export default function SectionPanel({
   onLithoExistingUnitPick,
   showConfidenceFade = true,
   geotechNotReconciled = false,
+  geotechClipContacts,
   activeLithoModelId,
   onEditInGeologyStage,
   contactEdges,
@@ -877,6 +888,26 @@ export default function SectionPanel({
     }
     return m
   }, [formations, axisMode])
+
+  // Geotech axis only: per-column NAD subdivision cut lines for PartitionFillOverlay.
+  // Maps investigation id → NAD unit cuts sorted by depth_top_m ascending (shallow
+  // first = highest elevation). PartitionFillOverlay converts depth → elevation
+  // using the placed column's elevation_m and clips each litho region horizontally.
+  const geotechClipByInvId = useMemo(() => {
+    if (!geotechClipContacts || geotechClipContacts.length === 0) return undefined
+    const m = new Map<string, Array<{ depthM: number; formationId: string }>>()
+    for (const c of geotechClipContacts) {
+      const inv = c.cpt_id ?? c.borehole_id
+      if (!inv) continue
+      const entry = { depthM: c.depth_top_m, formationId: c.formation_id }
+      const bucket = m.get(inv)
+      if (bucket) bucket.push(entry)
+      else m.set(inv, [entry])
+    }
+    // Sort each column's cuts shallow-first (ascending depthM).
+    for (const cuts of m.values()) cuts.sort((a, b) => a.depthM - b.depthM)
+    return m
+  }, [geotechClipContacts])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -3106,6 +3137,13 @@ export default function SectionPanel({
                     ? handleBodyContextMenu
                     : undefined
                 }
+                // Geotech axis: pass the NAD cut map so PartitionFillOverlay can
+                // clip each litho region horizontally at NAD unit boundaries and
+                // colour the slices by NAD class.  On the litho axis this is
+                // undefined → the overlay uses formationColorById as-is (litho colours).
+                geotechClipByInvId={geotechClipByInvId}
+                // On geotech axis formationColorById already maps geotech formation
+                // ids → NAD colours (set up in the formationColorById useMemo above).
                 // In correlate mode, drop the partition fill's interactive
                 // handles so clicks reach the correlate gesture targets beneath
                 // (esp. the bottom-of-test handles at the floor) — dogfeed
