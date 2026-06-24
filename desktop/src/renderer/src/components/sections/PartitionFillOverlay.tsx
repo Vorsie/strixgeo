@@ -86,12 +86,6 @@ export interface Props {
   formationColorById: ReadonlyMap<string, string>
   /** formation_id → display label (e.g. "Sa1") for the per-region label. */
   formationLabelById?: ReadonlyMap<string, string>
-  /**
-   * Collapse bodies that share a label string to one label (geotech axis only,
-   * where many bodies carry the same NAD packing-class name). MUST stay false
-   * for litho/geology, where the label is the shared lithology abbreviation.
-   */
-  dedupeLabelsByText?: boolean
   /** Absolute elevation (mTAW) → screen y. */
   levelToScreen: (level: number) => number
   /**
@@ -158,8 +152,28 @@ const STROKE_OPACITY = 0.45
 const FALLBACK_COLOR = '#888888'
 const EDGE_STUB_PX = 64
 const OPEN_END_M = 5
-/** Minimum on-screen region height (px) to carry a label legibly. */
-const LABEL_MIN_H = 14
+/**
+ * Zoom-adaptive label constants.
+ *
+ * Font size is clamped between MIN and MAX, scaling linearly with the region's
+ * on-screen height:  fontSize = clamp(MIN, height * K, MAX).
+ *
+ * K is chosen so that a comfortably tall band (~72 px, typical at 1:200 on a
+ * 4 K monitor) yields a font close to the old fixed 11 px:
+ *   72 * 0.15 ≈ 10.8 → rounds to ~11 px.
+ * A very short band (< ~53 px) produces a smaller font down to MIN_FONT.
+ * An unusually tall band caps at MAX_FONT.
+ *
+ * Show-if-it-fits gate: the label is only emitted when
+ *   height >= fontSize + LABEL_V_MARGIN  (vertical clearance)
+ *   AND availableWidth >= text.length * fontSize * LABEL_CHAR_W_RATIO
+ */
+const LABEL_FONT_MIN = 8
+const LABEL_FONT_MAX = 13
+const LABEL_FONT_K = 0.15
+const LABEL_V_MARGIN = 2
+/** Approximate character width as a fraction of font size (monospace estimate). */
+const LABEL_CHAR_W_RATIO = 0.55
 // Matched-boundary node handle radius + transparent hit halo.
 const BOUNDARY_R = 3
 const BOUNDARY_HIT_R = 10
@@ -181,6 +195,112 @@ const NODE_OWN_EPS = 0.5
 const ADDSTRIP_HIT_W = 14
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
+
+// ---------------------------------------------------------------------------
+// Label placement helpers (module-level, pure — no I/O)
+// ---------------------------------------------------------------------------
+
+/**
+ * Area-weighted centroid of a 2-D screen polygon (Shoelace formula).
+ *
+ * Returns the centroid `{x, y}`. For a degenerate polygon (area ≈ 0,
+ * e.g. a triangle collapsed to a line) falls back to the bounding-box
+ * centre of the provided `{minX, maxX, minY, maxY}` bounds.
+ *
+ * @param pts    Ordered polygon vertices.
+ * @param bounds Bbox fallback (`minX`/`maxX`/`minY`/`maxY`).
+ * @returns      Centroid or fallback point.
+ */
+function polygonCentroid(
+  pts: readonly { x: number; y: number }[],
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+): { x: number; y: number } {
+  const n = pts.length
+  if (n < 3) return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
+  let area = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+    const cross = pts[j].x * pts[i].y - pts[i].x * pts[j].y
+    area += cross
+    cx += (pts[j].x + pts[i].x) * cross
+    cy += (pts[j].y + pts[i].y) * cross
+  }
+  area /= 2
+  if (Math.abs(area) < 1e-6) {
+    // Degenerate (collinear or collapsed) — use bbox centre.
+    return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
+  }
+  return { x: cx / (6 * area), y: cy / (6 * area) }
+}
+
+/**
+ * Returns a point guaranteed to be inside the polygon by scanning horizontal
+ * scanlines at the polygon's mid-height and returning the midpoint of the
+ * widest crossing interval.
+ *
+ * Used as a fallback when the Shoelace centroid of a concave or pinched
+ * polygon falls outside the polygon bounds.
+ *
+ * @param pts    Ordered polygon vertices.
+ * @param bounds Bbox of the polygon (`minX`/`maxX`/`minY`/`maxY`).
+ * @returns      A point inside the polygon, or the bbox centre as last resort.
+ */
+function widestScanlinePoint(
+  pts: readonly { x: number; y: number }[],
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+): { x: number; y: number } {
+  const n = pts.length
+  const scanY = (bounds.minY + bounds.maxY) / 2
+  const xs: number[] = []
+  for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+    const { x: x0, y: y0 } = pts[j]
+    const { x: x1, y: y1 } = pts[i]
+    // Skip horizontal edges (y0 === y1).
+    if (Math.abs(y1 - y0) < 1e-9) continue
+    // Classify intersection: half-open interval [y0, y1) or [y1, y0) to
+    // avoid double-counting shared vertices.
+    const yMin = Math.min(y0, y1)
+    const yMax = Math.max(y0, y1)
+    if (scanY < yMin || scanY >= yMax) continue
+    xs.push(x0 + ((scanY - y0) / (y1 - y0)) * (x1 - x0))
+  }
+  xs.sort((a, b) => a - b)
+  // Pick the widest pair of intersections.
+  let bestMid = (bounds.minX + bounds.maxX) / 2
+  let bestW = -1
+  for (let k = 0; k + 1 < xs.length; k += 2) {
+    const w = xs[k + 1] - xs[k]
+    if (w > bestW) {
+      bestW = w
+      bestMid = (xs[k] + xs[k + 1]) / 2
+    }
+  }
+  return { x: bestMid, y: scanY }
+}
+
+/**
+ * Returns a label anchor `{x, y}` that is inside the polygon.
+ *
+ * Strategy: Shoelace centroid first. If the centroid falls outside the
+ * polygon's bounding box (a reliable fast-reject for pinched/concave
+ * regions) fall back to the widest-scanline midpoint.
+ *
+ * @param pts    Ordered polygon vertices.
+ * @param bounds Bbox (`minX`/`maxX`/`minY`/`maxY`).
+ * @returns      Point inside (or very close to) the polygon.
+ */
+function labelAnchor(
+  pts: readonly { x: number; y: number }[],
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+): { x: number; y: number } {
+  const c = polygonCentroid(pts, bounds)
+  // Bbox containment check — cheap proxy for point-in-polygon (a centroid
+  // outside the bbox is DEFINITELY outside the polygon).
+  const inBbox =
+    c.x >= bounds.minX && c.x <= bounds.maxX && c.y >= bounds.minY && c.y <= bounds.maxY
+  return inBbox ? c : widestScanlinePoint(pts, bounds)
+}
 
 interface ColumnScreen {
   rightX: number
@@ -391,7 +511,6 @@ export default function PartitionFillOverlay({
   placedColumns,
   formationColorById,
   formationLabelById,
-  dedupeLabelsByText = false,
   showBands,
   levelToScreen,
   plotTop,
@@ -1087,51 +1206,57 @@ export default function PartitionFillOverlay({
     formationColorById,
   ])
 
-  // One label per BODY at its tallest visible region, clamped to the viewport so
-  // it survives a zoom onto a single test (dogfeed 2026-06-05).
+  // One label per BODY, zoom-adaptive sizing and fit-based visibility.
   //
-  // A second pass removes duplicate label text across bodies: on the geotech axis
-  // many distinct bodies can carry the same NAD class name (e.g. "KLEI, matig vast")
-  // and the label engine should render each text only ONCE (for the tallest body that
-  // carries it) so the section does not show the same string 5–10 times overlapping.
-  // One label per body. ``dedupeLabelsByText`` additionally collapses bodies
-  // that SHARE a label string to a single label — used on the geotech axis,
-  // where the label is the NAD packing-class name and many separate bodies
-  // carry the same long name ("KLEI, matig vast" ×N → one label, declutter).
-  // It MUST stay off for litho/geology: there the label is the lithology
-  // abbreviation ("ZAND"/"KLEI"), shared across every body of that soil, so
-  // text-dedup would wrongly drop all but one same-soil body's label.
+  // Rules (owner dogfeed, 2026-06-24):
+  //  1. PLACEMENT — polygon centroid (Shoelace), with a widest-scanline fallback
+  //     when the centroid falls outside the polygon's bounding box. This prevents
+  //     a sloped/pinched band's bbox-centre from landing on a neighbouring body.
+  //  2. FONT SIZE — proportional to the region's on-screen height so labels shrink
+  //     when zoomed out and grow (up to MAX) when zoomed in.
+  //  3. SHOW-IF-FITS — a body only gets a label when the scaled font FITS the
+  //     region vertically (height >= fontSize + margin) AND horizontally (estimated
+  //     text width <= available width). This replaces the old fixed LABEL_MIN_H gate
+  //     and the dedupeLabelsByText cross-body collapse.
+  //  4. ONE LABEL PER BODY (by bodyId). A body that spans multiple gap segments
+  //     picks its TALLEST region as the anchor.
   const labels = useMemo(() => {
     const bestByBody = new Map<string, ScreenRegion>()
     for (const sr of screenRegions) {
       const id = sr.region.bodyId
       if (!id) continue
-      if (sr.maxY - sr.minY < LABEL_MIN_H) continue
       const prev = bestByBody.get(id)
       if (!prev || sr.maxY - sr.minY > prev.maxY - prev.minY) bestByBody.set(id, sr)
     }
 
-    // Sort entries tallest-first so the tallest body wins the text slot when
-    // two bodies share the same label (geotech text-dedup only).
-    const sorted = [...bestByBody.entries()].sort(
-      ([, a], [, b]) => b.maxY - b.minY - (a.maxY - a.minY),
-    )
-
-    const usedText = new Set<string>()
-    const out: { key: string; x: number; y: number; text: string }[] = []
-    for (const [id, sr] of sorted) {
+    const out: { key: string; x: number; y: number; fontSize: number; text: string }[] = []
+    for (const [id, sr] of bestByBody) {
       const text = formationLabelById?.get(sr.region.formationId)
       if (!text) continue
-      // Geotech only: skip if an equally-named (taller) body already claimed it.
-      if (dedupeLabelsByText && usedText.has(text)) continue
+
+      const regionH = sr.maxY - sr.minY
+      const fontSize = Math.max(LABEL_FONT_MIN, Math.min(LABEL_FONT_MAX, regionH * LABEL_FONT_K))
+
+      // Show-if-fits gate: vertical clearance + estimated horizontal width.
+      if (regionH < fontSize + LABEL_V_MARGIN) continue
       const loX = plotLeft != null ? Math.max(sr.minX, plotLeft) : sr.minX
       const hiX = plotRight != null ? Math.min(sr.maxX, plotRight) : sr.maxX
-      if (hiX - loX < 4) continue
-      if (dedupeLabelsByText) usedText.add(text)
-      out.push({ key: id, x: (loX + hiX) / 2, y: (sr.minY + sr.maxY) / 2, text })
+      const availW = hiX - loX
+      if (availW < text.length * fontSize * LABEL_CHAR_W_RATIO) continue
+
+      // Clip the polygon to the visible x band before computing the anchor so
+      // the point stays in the VISIBLE portion on zoomed-in views.
+      const clampedBounds = {
+        minX: loX,
+        maxX: hiX,
+        minY: sr.minY,
+        maxY: sr.maxY,
+      }
+      const { x, y } = labelAnchor(sr.points, clampedBounds)
+      out.push({ key: id, x, y, fontSize, text })
     }
     return out
-  }, [screenRegions, formationLabelById, plotLeft, plotRight, dedupeLabelsByText])
+  }, [screenRegions, formationLabelById, plotLeft, plotRight])
 
   // ---- Collect shared boundaries with their multi-node handle arrays. ------
   //
@@ -1478,7 +1603,7 @@ export default function PartitionFillOverlay({
           y={l.y}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize={11}
+          fontSize={l.fontSize}
           fontWeight={600}
           fill="#e2e8f0"
           stroke="#0f172a"
