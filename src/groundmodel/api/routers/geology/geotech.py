@@ -495,6 +495,20 @@ async def subdivide_all_bodies(
                 "actual_kind": model.kind,
             },
         )
+    # The body carries litho_model_id for forward-compatibility; the URL
+    # model_id is authoritative. Reject a mismatched body rather than silently
+    # discard it (the handler always uses the URL id).
+    if request.litho_model_id != model_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "mismatched_model_id",
+                "message": (
+                    f"Body litho_model_id={request.litho_model_id} does not match "
+                    f"URL model_id={model_id}"
+                ),
+            },
+        )
 
     try:
         result = await SubdivideAllBodies(session).execute(
