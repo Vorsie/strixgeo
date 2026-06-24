@@ -405,3 +405,217 @@ describe('PartitionFillOverlay with geotechClipByInvId (F-feature: litho shape c
     expect(paths.length).toBeGreaterThan(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// GC6-GC9  Per-region cut scoping (regression: the old per-gap global-index
+// pairing shredded body envelopes by connecting cuts from different litho bodies)
+// ---------------------------------------------------------------------------
+//
+// Fixture: two litho bodies in a single gap — sand (0–5 m) above clay (5–10 m).
+// Each body has its OWN NAD cuts at different depths:
+//   sand: cut at depth 0 m (nadSand1) + cut at depth 2 m (nadSand2)
+//   clay: cut at depth 5 m (nadClay1) + cut at depth 7 m (nadClay2)
+//
+// The regression would connect sandCut[i] with clayCut[i] across the two bodies,
+// creating cross-body parallelograms.  The fix scopes each cut list to the region's
+// own vertical extent so sand cuts never appear inside the clay region and vice versa.
+//
+// levelToScreen: (l) => 100 - l * 10  (10 m → 100 px tall)
+// surface elev = 10, so:
+//   depth 0 → y = 0   (sand top / surface)
+//   depth 2 → y = 20  (sand NAD boundary, strictly inside sand region [0, 50])
+//   depth 5 → y = 50  (sand/clay boundary)
+//   depth 7 → y = 70  (clay NAD boundary, strictly inside clay region [50, 100])
+//   depth 10 → y = 100 (clay base)
+//
+//   GC6  Sand region paths are ONLY coloured with sand NAD colours (nadSand1 /
+//        nadSand2) — no clay colour.
+//   GC7  Clay region paths are ONLY coloured with clay NAD colours (nadClay1 /
+//        nadClay2) — no sand colour.
+//   GC8  Total clipPaths = 4 (2 sand bands × 1 sand region + 2 clay bands ×
+//        1 clay region) — pins the per-region band count.
+//   GC9  A body whose geotech cuts fall entirely ABOVE or BELOW it (no cuts
+//        strictly inside) renders as exactly ONE slice (the entire region = one
+//        NAD band), coloured by the covering formation.
+describe('GC6-GC9 — per-region cut scoping (regression: global-index cross-body pairing)', () => {
+  const levelToScreen = (l: number) => 100 - l * 10
+
+  // Two bodies in the same gap: sand (0–5 m) and clay (5–10 m).
+  const twoBodyLayers = [
+    geotechLayer('s1', 'L', 'bSand', 'fSandLitho', 0, 5),
+    geotechLayer('s2', 'R', 'bSand', 'fSandLitho', 0, 5),
+    geotechLayer('c1', 'L', 'bClay', 'fClayLitho', 5, 10),
+    geotechLayer('c2', 'R', 'bClay', 'fClayLitho', 5, 10),
+  ]
+
+  const cols = [column('L', 0, 10), column('R', 100, 10)]
+
+  // NAD colours: two for sand, two for clay.
+  const nadSand1Color = '#ffcc00'
+  const nadSand2Color = '#ff9900'
+  const nadClay1Color = '#0077cc'
+  const nadClay2Color = '#004499'
+
+  const nadColors = new Map([
+    ['nadSand1', nadSand1Color],
+    ['nadSand2', nadSand2Color],
+    ['nadClay1', nadClay1Color],
+    ['nadClay2', nadClay2Color],
+  ])
+
+  // geotechClipByInvId: both L and R columns have 4 cuts — 2 for the sand body
+  // and 2 for the clay body.  Depth 0 marks the start of nadSand1, depth 2 the
+  // start of nadSand2 (sand NAD boundary), depth 5 the start of nadClay1,
+  // depth 7 the start of nadClay2 (clay NAD boundary).
+  const geotechClip = new Map<string, Array<{ depthM: number; formationId: string }>>([
+    [
+      'L',
+      [
+        { depthM: 0, formationId: 'nadSand1' },
+        { depthM: 2, formationId: 'nadSand2' },
+        { depthM: 5, formationId: 'nadClay1' },
+        { depthM: 7, formationId: 'nadClay2' },
+      ],
+    ],
+    [
+      'R',
+      [
+        { depthM: 0, formationId: 'nadSand1' },
+        { depthM: 2, formationId: 'nadSand2' },
+        { depthM: 5, formationId: 'nadClay1' },
+        { depthM: 7, formationId: 'nadClay2' },
+      ],
+    ],
+  ])
+
+  const twoBodyProps: Props = {
+    lithoLayers: twoBodyLayers,
+    placedColumns: cols,
+    formationColorById: nadColors,
+    showBands: true,
+    levelToScreen,
+    plotTop: 0,
+    plotBottom: 200,
+    plotLeft: 0,
+    plotRight: 200,
+    geotechClipByInvId: geotechClip,
+  }
+
+  it('GC6 — sand region paths are coloured only with sand NAD colours, never clay colours', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...twoBodyProps} />
+      </svg>,
+    )
+    const sandPaths = Array.from(
+      container.querySelectorAll<SVGPathElement>('[data-testid="partition-region-bSand"]'),
+    )
+    expect(sandPaths.length).toBeGreaterThan(0)
+    for (const path of sandPaths) {
+      const fill = path.getAttribute('fill') ?? ''
+      expect([nadSand1Color, nadSand2Color]).toContain(fill)
+      // Regression: old global-index pairing would put clay colours on sand regions.
+      expect(fill).not.toBe(nadClay1Color)
+      expect(fill).not.toBe(nadClay2Color)
+    }
+  })
+
+  it('GC7 — clay region paths are coloured only with clay NAD colours, never sand colours', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...twoBodyProps} />
+      </svg>,
+    )
+    const clayPaths = Array.from(
+      container.querySelectorAll<SVGPathElement>('[data-testid="partition-region-bClay"]'),
+    )
+    expect(clayPaths.length).toBeGreaterThan(0)
+    for (const path of clayPaths) {
+      const fill = path.getAttribute('fill') ?? ''
+      expect([nadClay1Color, nadClay2Color]).toContain(fill)
+      // Regression: old global-index pairing would put sand colours on clay regions.
+      expect(fill).not.toBe(nadSand1Color)
+      expect(fill).not.toBe(nadSand2Color)
+    }
+  })
+
+  it('GC8 — two bodies with 2 NAD bands each produce 4 clipPaths total', () => {
+    // 2 sand bands (cut at depth 2 is inside sand region [0,50]) × 1 sand region
+    // + 2 clay bands (cut at depth 7 is inside clay region [50,100]) × 1 clay region
+    // = 4 clipPath elements.
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...twoBodyProps} />
+      </svg>,
+    )
+    const clipPaths = container.querySelectorAll('clipPath')
+    expect(clipPaths.length).toBe(4)
+  })
+
+  it('GC9 — a body with no NAD cuts strictly inside it renders as exactly one slice', () => {
+    // A new fixture with a THIRD body (peat, 10–12 m) whose only relevant geotech
+    // cuts (at depths 0, 2, 5, 7) all fall ABOVE the peat body's top (y=100).
+    // The peat region has no scoped cuts → one band coloured by the covering
+    // formation (the last cut at or above depth 10 → depthM=7 → nadClay2).
+    const withPeatLayers = [
+      ...twoBodyLayers,
+      geotechLayer('p1', 'L', 'bPeat', 'fPeatLitho', 10, 12),
+      geotechLayer('p2', 'R', 'bPeat', 'fPeatLitho', 10, 12),
+    ]
+    const nadPeatColor = '#663300'
+    const geotechClipWithPeat = new Map<string, Array<{ depthM: number; formationId: string }>>([
+      [
+        'L',
+        [
+          { depthM: 0, formationId: 'nadSand1' },
+          { depthM: 2, formationId: 'nadSand2' },
+          { depthM: 5, formationId: 'nadClay1' },
+          { depthM: 7, formationId: 'nadClay2' },
+          // nadPeat starts at depth 10 (peat top) — the cut exactly at the
+          // peat region's minY is filtered out (not strictly inside); the peat
+          // region is covered by the nadClay2 band (the last cut above it) ...
+          // unless we add a cut at depth 10 for the peat.
+          { depthM: 10, formationId: 'nadPeat' },
+        ],
+      ],
+      [
+        'R',
+        [
+          { depthM: 0, formationId: 'nadSand1' },
+          { depthM: 2, formationId: 'nadSand2' },
+          { depthM: 5, formationId: 'nadClay1' },
+          { depthM: 7, formationId: 'nadClay2' },
+          { depthM: 10, formationId: 'nadPeat' },
+        ],
+      ],
+    ])
+
+    const nadColorsWithPeat = new Map([
+      ...nadColors,
+      ['nadPeat', nadPeatColor],
+    ])
+
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...twoBodyProps}
+          lithoLayers={withPeatLayers}
+          plotBottom={400}
+          formationColorById={nadColorsWithPeat}
+          geotechClipByInvId={geotechClipWithPeat}
+        />
+      </svg>,
+    )
+
+    // The peat region: minY = levelToScreen(10-10)=100, maxY = levelToScreen(10-12)=120.
+    // Cuts: depth 10 → y = levelToScreen(10-10) = 100 (equals minY, NOT strictly inside).
+    // Scoped cuts = [] → nCuts=0 → ONE slice.
+    // Covering formation: last cut with y ≤ 100 → depth=10 cut → nadPeat.
+    const peatPaths = Array.from(
+      container.querySelectorAll<SVGPathElement>('[data-testid="partition-region-bPeat"]'),
+    )
+    // Exactly one slice → one partition-region-bPeat path rendered.
+    expect(peatPaths.length).toBe(1)
+    expect(peatPaths[0].getAttribute('fill')).toBe(nadPeatColor)
+  })
+})
