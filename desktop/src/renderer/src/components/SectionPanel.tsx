@@ -713,6 +713,15 @@ interface Props {
    * geological axes → no subdivision.
    */
   geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
+  /**
+   * Geotech axis only — fallback colour per formation id, merged into
+   * ``formationColorById`` for ids the NAD colour map doesn't cover. A geotech
+   * region the model never classified (deep substrate / no qc) keeps its LITHO
+   * formation id, which isn't an NAD formation, so without this it renders
+   * fallback grey. Passing the litho colours here makes those regions show their
+   * lithology colour instead (an unclassified area reads as its soil type).
+   */
+  extraColorById?: ReadonlyMap<string, string>
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -819,6 +828,7 @@ export default function SectionPanel({
   lenses,
   lithoLayers,
   geotechSubLayersByInv,
+  extraColorById,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -879,6 +889,10 @@ export default function SectionPanel({
   // Geotech formations: NAD class colour (nadClassColor); null → neutral grey.
   const formationColorById = useMemo(() => {
     const m = new Map<string, string>()
+    // Litho-colour fallback FIRST (geotech axis) so any NAD formation below
+    // overwrites it; ids the NAD map omits (unclassified litho regions) keep the
+    // litho colour instead of falling back to grey.
+    if (extraColorById) for (const [id, col] of extraColorById) m.set(id, col)
     for (const f of formations) {
       m.set(
         f.id,
@@ -886,7 +900,7 @@ export default function SectionPanel({
       )
     }
     return m
-  }, [formations, axisMode])
+  }, [formations, axisMode, extraColorById])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -1471,6 +1485,18 @@ export default function SectionPanel({
       const inv = c.cpt_id ?? c.borehole_id
       if (inv) investigationByContactId.set(c.id, inv)
     }
+    // The correlation edges reference ``litho_layer`` ids (a layer's id keys its
+    // top contact), so also map every litho layer id → its investigation. On the
+    // GEOTECH axis ``contacts`` is the geotech contact set whose ids do NOT match
+    // the (litho) ``contactEdges`` — without this the edge→investigation lookup
+    // below finds nothing, no correlated pairs are detected, and the columns pack
+    // to the 4 px floor instead of getting the widened correlated-pair gap. That
+    // was the geotech "vertical sliver" bug (2026-06-24): identical partition, but
+    // the columns crammed together so every gap fill rendered as a thin strip.
+    for (const layer of lithoLayers ?? []) {
+      const inv = layer.cpt_id ?? layer.borehole_id
+      if (inv) investigationByContactId.set(layer.id, inv)
+    }
     const correlatedInvPairs = new Set<string>()
     for (const edge of contactEdges ?? []) {
       const invA = investigationByContactId.get(edge.contact_a_id)
@@ -1523,6 +1549,9 @@ export default function SectionPanel({
     // belong in the dep list.
     contactEdges,
     contacts,
+    // The edge→investigation map is also built from lithoLayers (the layers the
+    // edges reference), so the correlated-pair gap recomputes when they change.
+    lithoLayers,
   ])
 
   // Scrub-bar outer bounds: the WARP-EFFECTIVE leftmost / rightmost
