@@ -3088,7 +3088,6 @@ export default function SectionPanel({
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
-                dedupeLabelsByText={axisMode === 'geotechnical'}
                 showBands={showBands}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
