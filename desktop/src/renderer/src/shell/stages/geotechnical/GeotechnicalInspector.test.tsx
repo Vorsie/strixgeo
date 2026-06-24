@@ -4,8 +4,9 @@
 //   R1  A classified unit (nad_class set) shows the packing-class name from
 //       nadClassName, a "CPT est." badge, and the NAD swatch colour from
 //       nadClassColor.
-//   R2  A no-qc unit (nad_class=null) shows "No qc — manual class" and NO
-//       "CPT est." badge.
+//   R2  A degenerate unit (nad_class=null) shows no label text and NO
+//       "CPT est." badge (null is rare — borehole CPT extrapolation makes it
+//       non-standard; the row just shows a neutral swatch).
 //   R3  Rows are sorted ascending by display_order then nad_class.
 //   R4  Empty state renders when geotechFormations is empty.
 //   R5  The contact-count badge shows the count of geotechContacts filtered
@@ -465,13 +466,15 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
 // R2 — No-qc unit (nad_class = null)
 // ---------------------------------------------------------------------------
 
-describe('GeotechnicalInspector no-qc unit row (R2)', () => {
-  it('shows "No qc — manual class" for a null nad_class unit', () => {
+describe('GeotechnicalInspector degenerate unit row (R2)', () => {
+  it('shows no label text for a null nad_class unit (degenerate — empty nadClassName)', () => {
     const formation = makeFormation('f-null', { nad_class: null, display_order: 0 })
     renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
 
     const row = screen.getByTestId('geotech-unit-row-f-null')
-    expect(row.textContent).toContain('No qc')
+    // nadClassName(null) is now '' — the row has a neutral swatch + contact count
+    // but no packing-class name text; "No qc" wording is intentionally gone.
+    expect(row.textContent).not.toContain('No qc')
   })
 
   it('does NOT show the "CPT est." badge for a null nad_class unit', () => {
