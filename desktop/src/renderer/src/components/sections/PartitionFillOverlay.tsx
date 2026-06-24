@@ -1082,6 +1082,14 @@ export default function PartitionFillOverlay({
 
   // One label per BODY at its tallest visible region, clamped to the viewport so
   // it survives a zoom onto a single test (dogfeed 2026-06-05).
+  //
+  // A second pass removes duplicate label text across bodies: on the geotech axis
+  // many distinct bodies can carry the same NAD class name (e.g. "KLEI, matig vast")
+  // and the label engine should render each text only ONCE (for the tallest body that
+  // carries it) so the section does not show the same string 5–10 times overlapping.
+  // On the litho axis labels are typically short unique soil-code abbreviations, so
+  // this pass is inert in practice but harmless — a body that shares its label text
+  // with a taller sibling simply goes unlabelled (the taller one already labels it).
   const labels = useMemo(() => {
     const bestByBody = new Map<string, ScreenRegion>()
     for (const sr of screenRegions) {
@@ -1091,13 +1099,24 @@ export default function PartitionFillOverlay({
       const prev = bestByBody.get(id)
       if (!prev || sr.maxY - sr.minY > prev.maxY - prev.minY) bestByBody.set(id, sr)
     }
+
+    // Sort entries tallest-first so the tallest body wins the text slot when
+    // two bodies share the same label (e.g. two "KLEI, matig vast" bodies).
+    const sorted = [...bestByBody.entries()].sort(
+      ([, a], [, b]) => b.maxY - b.minY - (a.maxY - a.minY),
+    )
+
+    const usedText = new Set<string>()
     const out: { key: string; x: number; y: number; text: string }[] = []
-    for (const [id, sr] of bestByBody) {
+    for (const [id, sr] of sorted) {
       const text = formationLabelById?.get(sr.region.formationId)
       if (!text) continue
+      // Skip this body's label if an equally-named (taller) body already claimed it.
+      if (usedText.has(text)) continue
       const loX = plotLeft != null ? Math.max(sr.minX, plotLeft) : sr.minX
       const hiX = plotRight != null ? Math.min(sr.maxX, plotRight) : sr.maxX
       if (hiX - loX < 4) continue
+      usedText.add(text)
       out.push({ key: id, x: (loX + hiX) / 2, y: (sr.minY + sr.maxY) / 2, text })
     }
     return out
