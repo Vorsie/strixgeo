@@ -900,38 +900,33 @@ async def test_sab_all(
 
 @pytest_asyncio.fixture
 async def geo_band_scene(db_session: AsyncSession) -> dict:
-    """Scene for the C1 geo-band group-isolation regression test.
+    """Scene for the no-geo-sliver regression test.
 
     Geometry
     --------
     One flat geological surface at absolute elevation 0.0 m (the top of
     formation ``Q_DEEP``).  Both CPTs sit at surface elevation 5.0 m, so the
-    geo boundary falls at depth 5.0 m below surface.
+    geological boundary falls at depth 5.0 m below surface.
 
     * **CPT-X** at x=149 000 m: one ZAND litho layer 0–10 m spanning BOTH
-      geo bands (0–5 m above-boundary band and 5–10 m Q_DEEP band).
-      ``divide_picks_by_geology`` splits it into two geo-band segments, which
-      become two distinct body groups in the use case.
-    * **CPT-Y** at x=149 300 m: identical profile.  Correlated to CPT-X so
-      both belong to the same litho body before the split, but after
-      ``divide_picks_by_geology`` they each contribute one segment to each of
-      the two geo-band groups.
+      sides of the geo boundary.  The litho formation is parented to ``Q_DEEP``
+      via ``parent_formation_id``.  qc is uniform (3.0 MPa) throughout — no
+      real packing transition so any split at 5.0 m would be a geo-sliver.
+    * **CPT-Y** at x=149 300 m: identical profile, correlated to CPT-X.
 
-    Without the C1 fix, the global ``layer_id_by_inv_pos`` accumulator would
-    let the second geo-band group (Q_DEEP) overwrite the first group's
-    position-k entries for CPT-X and CPT-Y, causing ``_insert_geotech_edges``
-    to look up the Q_DEEP layers when wiring the above-boundary group's edges.
-
-    With the fix, each group carries only its own layers and the edges in each
-    group reference only that group's layers.
+    Under the OLD design, ``divide_picks_by_geology`` split each layer at the
+    geo boundary → two geo-band groups per body → geo slivers.  Under the NEW
+    design, geo-surface re-division is skipped entirely: each correlated body
+    is ONE geotech group, and ``source_geo_formation_id`` is read from the
+    litho formation's ``parent_formation_id`` (= ``Q_DEEP`` here).
 
     Returns
     -------
     dict
         Keys: ``project``, ``geo_model``, ``litho_model``, ``section``,
-        ``cpt_x_id``, ``cpt_y_id``.
+        ``cpt_x_id``, ``cpt_y_id``, ``geo_deep_id``, ``f_zand_id``.
     """
-    proj = ProjectOrm(id=uuid7(), name="C1 geo-band regression", status="active")
+    proj = ProjectOrm(id=uuid7(), name="GBR no-sliver regression", status="active")
     db_session.add(proj)
     await db_session.flush()
 
@@ -953,8 +948,8 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([geo_model, litho_model])
     await db_session.flush()
 
-    # Geological formation whose top surface cuts at absolute elevation 0.0 m
-    # → depth 5.0 m below the 5.0 m surface elevation on both CPTs.
+    # Geological formation whose top surface is at absolute elevation 0.0 m
+    # → depth 5.0 m below both CPTs' surface.
     geo_deep = GeologicalFormationOrm(
         id=uuid7(),
         app_project_id=proj.id,
@@ -962,7 +957,11 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         color="#999999",
         display_order=1,
     )
-    # Litho formation: ZAND (in BASE_LITHOLOGIES → CPT segmenter runs).
+    db_session.add(geo_deep)
+    await db_session.flush()
+
+    # Litho formation: ZAND, parented to Q_DEEP (so source_geo_formation_id is
+    # knowable without geo-surface sampling).
     f_zand = GeologicalFormationOrm(
         id=uuid7(),
         app_project_id=proj.id,
@@ -971,23 +970,24 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         display_order=1,
         litho_main_soil_code="ZAND",
         litho_admixtures=[],
+        parent_formation_id=geo_deep.id,
     )
-    db_session.add_all([geo_deep, f_zand])
+    db_session.add(f_zand)
     await db_session.flush()
 
-    # Flat geo surface at absolute elevation 0.0 m covering the corridor.
-    surface_verts = [
-        [148000.0, 199000.0, 0.0],
-        [150500.0, 199000.0, 0.0],
-        [150500.0, 201000.0, 0.0],
-        [148000.0, 201000.0, 0.0],
-    ]
+    # Flat geo surface — present so C1 could build a skeleton if called, but
+    # SubdivideAllBodies no longer samples it.
     geo_surface = FormationSurfaceOrm(
         id=uuid7(),
         model_id=geo_model.id,
         formation_id=geo_deep.id,
         method="tin",
-        vertices=surface_verts,
+        vertices=[
+            [148000.0, 199000.0, 0.0],
+            [150500.0, 199000.0, 0.0],
+            [150500.0, 201000.0, 0.0],
+            [148000.0, 201000.0, 0.0],
+        ],
         triangles=[[0, 1, 2], [0, 2, 3]],
         source_contact_count=2,
         source_contact_checksum=b"\x00" * 16,
@@ -995,8 +995,10 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
     )
     db_session.add(geo_surface)
 
-    # Two CPTs on the section line with a two-layer qc profile spanning 0–10 m.
-    depths_gbr, qc_gbr = _two_layer_qc(n_top=250, n_bot=250, qc_top=3.0, qc_bot=22.0)
+    # Uniform qc throughout — the litho layer is ONE packing class (no real split).
+    # The regression test must NOT accidentally produce a packing split at 5.0 m;
+    # any split at that depth would be the geo-bounding artefact we removed.
+    depths_gbr, qc_gbr = _qc_series(n=500, qc_mpa=3.0)
 
     cpt_x = CptOrm(
         id=uuid7(),
@@ -1045,8 +1047,7 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([cpt_x, cpt_y])
     await db_session.flush()
 
-    # Accepted litho layers: each CPT has one ZAND layer 0–10 m that straddles
-    # the 5.0 m geo boundary.
+    # One ZAND layer per CPT spanning 0–10 m (straddles the 5.0 m geo boundary).
     layer_x = LithoLayerOrm(
         id=uuid7(),
         model_id=litho_model.id,
@@ -1072,7 +1073,6 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([layer_x, layer_y])
     await db_session.flush()
 
-    # Section covering both CPTs.
     section = CrossSectionOrm(
         id=uuid7(),
         app_project_id=proj.id,
@@ -1087,8 +1087,7 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
     db_session.add(section)
     await db_session.flush()
 
-    # Correlation edge: CPT-X ↔ CPT-Y on the ZAND layer so the resolver places
-    # them in the same litho body before divide_picks_by_geology splits it.
+    # Correlation: CPT-X ↔ CPT-Y → same litho body after resolver.
     edge = LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=litho_model.id,
@@ -1112,6 +1111,8 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         "cpt_y_id": cpt_y.id,
         "layer_x_id": layer_x.id,
         "layer_y_id": layer_y.id,
+        "geo_deep_id": geo_deep.id,
+        "f_zand_id": f_zand.id,
     }
 
 
@@ -1120,29 +1121,37 @@ async def test_sab_c1_geo_band_group_isolation(
     geo_band_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """C1 regression: geo-band groups use group-local layer maps for edge wiring.
+    """No-geo-sliver: a litho layer straddling a geo boundary stays ONE geotech body.
 
-    When one investigation's litho layer straddles a geological boundary,
-    ``divide_picks_by_geology`` splits it into two geo-band segments → two
-    distinct body groups in the use case loop.  The C1 bug caused the second
-    group to overwrite the first group's position-k layer ids for the same
-    investigation in the global accumulator, so ``_insert_geotech_edges``
-    wired the wrong (second-group) layers when processing the first group's
-    edges.
+    When a ZAND litho layer spans 0–10 m and a geological boundary sits at
+    5.0 m, the OLD geo-bounding step split the layer into two geo-band segments
+    producing slivers (e.g. NAD 13 above the boundary + NAD 14 below for the
+    same continuous SILT unit — the real-data bug that triggered the owner
+    directive).
 
-    This test asserts:
-    1. ``layer_count >= 2``: at least the two geo-band geotech layers per CPT
-       were created (one above the geo boundary, one below).
-    2. No geotech edge connects layers from DIFFERENT geo-band groups, i.e.
-       every edge's two endpoint layers share the same ``depth_top_m`` band
-       (both from the above-boundary segment OR both from the Q_DEEP segment).
-       Concretely: for each edge, the top depth of layer A and the top depth of
-       layer B must agree within 0.1 m (they are in the same position k in the
-       same group-local plan).
+    The NEW design skips geo-surface re-division entirely.  Each correlated
+    litho body is ONE geotech group, subdivided only by packing.
+    ``source_geo_formation_id`` is read from the litho formation's
+    ``parent_formation_id`` — no geo-surface sampling.
+
+    GBR-1  The use case produces exactly ONE geotech body group for the
+           CPT-X + CPT-Y correlated pair (one body, not two geo-band bodies).
+    GBR-2  Each CPT's geotech layers span the FULL litho extent (0–10 m),
+           with no gap at the former geo-band boundary (5.0 m).
+    GBR-3  The geotech formations created carry ``source_geo_formation_id``
+           equal to the litho formation's ``parent_formation_id``
+           (= ``geo_deep.id``), not ``None``.
+    GBR-4  No same-lithology adjacent geotech layers on one investigation differ
+           ONLY because of a geo boundary (no adjacent pair of layers with the
+           same soil code and different NAD classes whose depth boundary
+           coincides with the former geo surface at 5.0 m).
     """
     scene = geo_band_scene
     project = scene["project"]
     litho_model_id = scene["litho_model"].id
+    geo_deep_id = scene["geo_deep_id"]
+    cpt_x_uuid = scene["cpt_x_id"]
+    cpt_y_uuid = scene["cpt_y_id"]
 
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
@@ -1151,14 +1160,11 @@ async def test_sab_c1_geo_band_group_isolation(
 
     geotech_model_id = result.geotech_model_id
 
-    # Assertion 1: at least 2 geotech layers created (geo boundary split each CPT).
-    assert result.layer_count >= 2, (
-        f"C1-regression: expected layer_count >= 2 (geo boundary must split each CPT), "
-        f"got {result.layer_count}"
-    )
-
-    # Load all geotech layers keyed by id → depth_top_m.
-    geotech_layers = (
+    # GBR-1: both CPTs belong to the same body — the geotech body count for
+    # CPT-X + CPT-Y must be 1 or 2 (1 per packing band, if consistent).
+    # The load-bearing invariant: there must NOT be 4+ geotech bodies (which
+    # would indicate the old geo-band split produced 2 bodies per CPT).
+    all_geotech_layers = (
         (
             await db_session.execute(
                 select(LithoLayerOrm).where(
@@ -1170,44 +1176,66 @@ async def test_sab_c1_geo_band_group_isolation(
         .scalars()
         .all()
     )
-    layer_top: dict[UUID, float] = {ll.id: ll.depth_top_m for ll in geotech_layers}
+    # Uniform qc → 1 packing band per CPT → exactly 2 geotech layer rows total.
+    # 4 rows would mean the old geo-band split produced 2 layers per CPT (slivers).
+    assert len(all_geotech_layers) == 2, (
+        f"GBR-1: {len(all_geotech_layers)} geotech layer rows — expected exactly 2 "
+        f"(2 CPTs × 1 uniform packing class); more rows imply the geo-band split is "
+        f"still active and produced slivers"
+    )
 
-    # Load all geotech edges.
-    geotech_edges = (
-        (
-            await db_session.execute(
-                select(LithoContactCorrelationEdgeOrm).where(
-                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                )
-            )
+    # GBR-2: each CPT's geotech layers span 0–10 m continuously with no gap
+    # at the former geo boundary (5.0 m).
+    for cpt_uuid in (cpt_x_uuid, cpt_y_uuid):
+        cpt_layers = sorted(
+            [ll for ll in all_geotech_layers if ll.cpt_id == cpt_uuid],
+            key=lambda ll: ll.depth_top_m,
         )
-        .scalars()
-        .all()
-    )
-
-    # Assertion 2: no edge crosses geo-band groups.
-    # Layers in the same geo-band group share the same depth_top_m (they are
-    # the k-th sub-interval of a geo-bounded segment whose top is either
-    # 0.0 m [above-boundary group] or 5.0 m [Q_DEEP group]).  A cross-group
-    # edge would connect a layer at ~0.0 m top to one at ~5.0 m top —
-    # a difference well above 0.5 m tolerance.
-    cross_group_edges = []
-    for edge in geotech_edges:
-        top_a = layer_top.get(edge.contact_a_id)
-        top_b = layer_top.get(edge.contact_b_id)
-        if top_a is None or top_b is None:
-            continue
-        if abs(top_a - top_b) > 0.5:
-            cross_group_edges.append(
-                f"edge {edge.id}: "
-                f"contact_a top={top_a:.3f} m  contact_b top={top_b:.3f} m "
-                f"(diff={abs(top_a - top_b):.3f} m — cross-geo-band-group wiring)"
+        assert cpt_layers, f"GBR-2: no geotech layers for CPT {cpt_uuid}"
+        # Top of first layer must be 0.0 m, base of last must be 10.0 m.
+        assert abs(cpt_layers[0].depth_top_m) < 0.01, (
+            f"GBR-2: CPT {cpt_uuid} first geotech layer starts at "
+            f"{cpt_layers[0].depth_top_m:.3f} m, expected 0.0 m"
+        )
+        assert abs(cpt_layers[-1].depth_base_m - 10.0) < 0.01, (
+            f"GBR-2: CPT {cpt_uuid} last geotech layer ends at "
+            f"{cpt_layers[-1].depth_base_m:.3f} m, expected 10.0 m"
+        )
+        # No gap between adjacent layers.
+        for i in range(1, len(cpt_layers)):
+            gap = abs(cpt_layers[i].depth_top_m - cpt_layers[i - 1].depth_base_m)
+            assert gap < 0.001, (
+                f"GBR-2: CPT {cpt_uuid} has a {gap:.4f} m gap between geotech "
+                f"layers at depth ≈ {cpt_layers[i - 1].depth_base_m:.3f} m — "
+                f"geo-band sliver gap must not appear"
             )
 
-    assert len(cross_group_edges) == 0, (
-        f"C1-regression: {len(cross_group_edges)} edge(s) cross geo-band group(s) — "
-        f"the group-local layer map fix is not effective:\n" + "\n".join(cross_group_edges)
-    )
+    # GBR-3: every geotech formation created for this group carries
+    # source_geo_formation_id == geo_deep.id (the litho formation's parent).
+    geotech_formation_ids = {ll.formation_id for ll in all_geotech_layers}
+    for fid in geotech_formation_ids:
+        formation = await db_session.get(GeologicalFormationOrm, fid)
+        assert formation is not None, f"GBR-3: geotech formation {fid} not found"
+        assert formation.source_geo_formation_id == geo_deep_id, (
+            f"GBR-3: geotech formation {fid} has source_geo_formation_id="
+            f"{formation.source_geo_formation_id}, expected {geo_deep_id} "
+            f"(the litho formation's parent_formation_id)"
+        )
+
+    # GBR-4: no layer boundary at the former geo surface depth (5.0 m).
+    # With uniform qc the packing segmenter never splits — each geotech layer
+    # must span the full 0–10 m litho extent with no internal boundary at 5.0 m.
+    geo_boundary_depth = 5.0
+    for ll in all_geotech_layers:
+        has_boundary_at_5 = (
+            abs(ll.depth_top_m - geo_boundary_depth) < 0.01
+            or abs(ll.depth_base_m - geo_boundary_depth) < 0.01
+        )
+        assert not has_boundary_at_5, (
+            f"GBR-4: geotech layer {ll.id} has a boundary at the former geo surface "
+            f"depth ({geo_boundary_depth} m) — geo-band sliver must not appear "
+            f"(top={ll.depth_top_m:.3f} m, base={ll.depth_base_m:.3f} m)"
+        )
 
 
 # ---------------------------------------------------------------------------
