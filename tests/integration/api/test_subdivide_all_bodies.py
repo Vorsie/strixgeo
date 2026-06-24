@@ -1,7 +1,8 @@
-"""Integration tests for SubdivideAllBodies (Task E3).
+"""Integration tests for SubdivideAllBodies (Task E3 + model-wide restructure).
 
-Nine SAB assertions that exercise the B-policy algorithm end-to-end via the
-direct use-case call (no HTTP endpoint yet; that is Task E4).
+Model-wide assertions: the use case runs once per litho model (not per section).
+Geotech layers are written once per investigation; correlation edges are derived
+per-section from the litho model's approved edges.
 
 Scene summary
 -------------
@@ -44,6 +45,10 @@ SAB-8  (TRAP 2) formation_contact rows are auto-derived — no FC was manually
 SAB-9  Tiling invariant: for every in-corridor investigation in the geotech
        model, the accepted layers span the geo-bounded extent with no internal
        gaps (base of layer k == top of layer k+1 within 1 mm).
+NC-1   NO-CLOBBER: two sections sharing an investigation; a model-wide run
+       produces edges for BOTH sections simultaneously.
+BH-E1  BOREHOLE EXTRAPOLATION: a borehole-only body adjacent to a same-
+       lithology CPT is extrapolated to that CPT's NAD class.
 
 Run via the integration wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_subdivide_all_bodies.py
@@ -629,13 +634,11 @@ async def test_sab_all(
     """
     project = sab_scene["project"]
     litho_model_id = UUID(sab_scene["litho_model_id"])
-    section_id = UUID(sab_scene["section_id"])
 
-    # Execute the use case.
+    # Execute the use case — model-wide, no section_id.
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
 
     # SAB-1: geotech_model_id is present.
@@ -738,7 +741,6 @@ async def test_sab_all(
     await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
 
     layers_after = await _geotech_layer_count()
@@ -1141,12 +1143,10 @@ async def test_sab_c1_geo_band_group_isolation(
     scene = geo_band_scene
     project = scene["project"]
     litho_model_id = scene["litho_model"].id
-    section_id = scene["section"].id
 
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
 
     geotech_model_id = result.geotech_model_id
@@ -1452,13 +1452,11 @@ async def test_sab_bug1_duplicate_investigation_id_regression(
     scene = multi_layer_body_scene
     project = scene["project"]
     litho_model_id = scene["litho_model"].id
-    section_id = scene["section"].id
 
     # B1-1: must not raise.
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
 
     geotech_model_id = result.geotech_model_id
@@ -1730,13 +1728,11 @@ async def test_sab_bug2_c1_fc_conflict_on_rerun(
     scene = c1_then_sab_scene
     project = scene["project"]
     litho_model_id = scene["litho_model"].id
-    section_id = scene["section"].id
 
     # B2-1: first SAB call — C1's direct FC rows are already in the DB.
     result1 = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
     geotech_model_id = result1.geotech_model_id
 
@@ -1758,7 +1754,6 @@ async def test_sab_bug2_c1_fc_conflict_on_rerun(
     await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
 
     fc_after_second = (
@@ -1982,13 +1977,11 @@ async def test_sab_connectivity_edge_count(
     """
     project = connectivity_scene["project"]
     litho_model_id = UUID(connectivity_scene["litho_model_id"])
-    section_id = UUID(connectivity_scene["section_id"])
     litho_edge_count = connectivity_scene["litho_edge_count"]
 
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
-        section_id=section_id,
     )
     geotech_model_id = result.geotech_model_id
 
@@ -2046,4 +2039,513 @@ async def test_sab_connectivity_edge_count(
         f"the depth-mapping derivation violated the over-merge guard; "
         f"geotech edges must only connect same-formation (same-NAD-class) sub-layers. "
         f"Offending: {[str(e.id) for e in cross_class_edges]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# NC-1 — NO-CLOBBER: two sections sharing an investigation
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def no_clobber_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Scene for the NO-CLOBBER regression test.
+
+    Two cross-sections (S1 and S2) share a single investigation (CPT-SHARED)
+    in addition to their own private CPTs.  Each section has one approved litho
+    correlation edge.
+
+    Before the model-wide restructure, running SubdivideAllBodies for S1 deleted
+    all geotech layers for *every* investigation (including CPT-SHARED), then
+    re-created only S1's corridor layers.  A subsequent run for S2 found the
+    correct geotech layers for CPT-SHARED — but between the two runs, S2's
+    geotech edges (which referenced CPT-SHARED's layer ids) were cascade-deleted.
+
+    The model-wide restructure writes layers once per investigation (not per
+    section) and then loops over all sections to derive edges.  A single
+    model-wide call must therefore produce edges for BOTH S1 and S2.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model_id``, ``section_s1_id``,
+        ``section_s2_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="No-clobber scene", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "NC-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "NC-Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model_id,
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    # Section S1: CPT-SHARED + CPT-S1-ONLY (both at y=200_000).
+    sec1_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "NC-S1",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_600.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 200.0,
+        },
+    )
+    assert sec1_resp.status_code == 201, sec1_resp.text
+    section_s1_id = sec1_resp.json()["id"]
+
+    # Section S2: CPT-SHARED + CPT-S2-ONLY (at y=200_100 so S1 won't capture it).
+    sec2_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "NC-S2",
+            "start_x": 148_700.0,
+            "start_y": 200_100.0,
+            "end_x": 149_600.0,
+            "end_y": 200_100.0,
+            "epsg": 31370,
+            "projection_buffer_m": 200.0,
+        },
+    )
+    assert sec2_resp.status_code == 201, sec2_resp.text
+    section_s2_id = sec2_resp.json()["id"]
+
+    depths, qc = _qc_series(n=400, qc_mpa=12.0)
+
+    # CPT-SHARED: on y=200_050 — within the ±200 m buffer of BOTH sections.
+    cpt_shared = CptOrm(
+        id=uuid7(),
+        name="CPT-SHARED",
+        cpt_type="CPTU",
+        project_id="NC",
+        test_id="NC/CPT-SHARED",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_050.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_shared.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # CPT-S1-ONLY: on y=200_000, only within S1's buffer.
+    cpt_s1 = CptOrm(
+        id=uuid7(),
+        name="CPT-S1-ONLY",
+        cpt_type="CPTU",
+        project_id="NC",
+        test_id="NC/CPT-S1",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_s1.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # CPT-S2-ONLY: on y=200_100, only within S2's buffer.
+    cpt_s2 = CptOrm(
+        id=uuid7(),
+        name="CPT-S2-ONLY",
+        cpt_type="CPTU",
+        project_id="NC",
+        test_id="NC/CPT-S2",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_100.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_s2.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    db_session.add_all([cpt_shared, cpt_s1, cpt_s2])
+    await db_session.commit()
+
+    # Accept one ZAND layer per CPT.
+    shared_contact_id = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_shared.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+    s1_contact_id = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_s1.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+    s2_contact_id = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_s2.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+
+    # Correlate CPT-SHARED ↔ CPT-S1-ONLY on section S1.
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=shared_contact_id,
+        contact_b=s1_contact_id,
+        section_id=section_s1_id,
+    )
+    # Correlate CPT-SHARED ↔ CPT-S2-ONLY on section S2.
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=shared_contact_id,
+        contact_b=s2_contact_id,
+        section_id=section_s2_id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_s1_id": section_s1_id,
+        "section_s2_id": section_s2_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_no_clobber_two_sections(
+    no_clobber_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """NC-1: a model-wide run produces edges for both sections simultaneously.
+
+    Two sections (S1, S2) each have one approved litho edge.  CPT-SHARED
+    participates in both sections.  A single model-wide SubdivideAllBodies call
+    must produce geotech correlation edges for BOTH sections — not just the last
+    one processed.
+
+    NC-1a  ``section_count == 2``: both sections were processed.
+    NC-1b  Geotech edges exist for section S1 (CPT-SHARED ↔ CPT-S1-ONLY pair).
+    NC-1c  Geotech edges exist for section S2 (CPT-SHARED ↔ CPT-S2-ONLY pair).
+    NC-1d  The per-section edge sets are DISJOINT (each section's edges reference
+           only that section's CPTs in the layer pair — no cross-section wiring).
+    """
+    project = no_clobber_scene["project"]
+    litho_model_id = UUID(no_clobber_scene["litho_model_id"])
+    section_s1_id = UUID(no_clobber_scene["section_s1_id"])
+    section_s2_id = UUID(no_clobber_scene["section_s2_id"])
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    geotech_model_id = result.geotech_model_id
+
+    # NC-1a: section_count must be 2.
+    assert result.section_count == 2, (
+        f"NC-1a: expected section_count=2, got {result.section_count}; "
+        f"both sections must be processed in a model-wide run"
+    )
+
+    # Load all geotech edges for the model.
+    all_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    edges_s1 = [e for e in all_edges if e.section_id == section_s1_id]
+    edges_s2 = [e for e in all_edges if e.section_id == section_s2_id]
+
+    # NC-1b: at least one edge for S1.
+    assert len(edges_s1) >= 1, (
+        "NC-1b: 0 geotech edges for section S1 — the model-wide run clobbered "
+        "S1's edges when it processed S2 (the original per-section clobber bug)"
+    )
+
+    # NC-1c: at least one edge for S2.
+    assert len(edges_s2) >= 1, (
+        "NC-1c: 0 geotech edges for section S2 — the model-wide run did not "
+        "derive edges for S2 (expected 1 edge for the CPT-SHARED ↔ CPT-S2 pair)"
+    )
+
+    # NC-1d: the two edge sets are disjoint (no edge appears in both sections).
+    s1_ids = {e.id for e in edges_s1}
+    s2_ids = {e.id for e in edges_s2}
+    shared_ids = s1_ids & s2_ids
+    assert len(shared_ids) == 0, (
+        f"NC-1d: {len(shared_ids)} edge id(s) appear in BOTH sections — "
+        f"edges must be section-scoped (one edge per section pair, not shared): "
+        f"{[str(i) for i in shared_ids]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BH-E1 — BOREHOLE EXTRAPOLATION: borehole gets NAD class from nearest CPT
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def borehole_extrapolation_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Scene for the borehole-extrapolation test.
+
+    One CPT (CPT-REF) and one borehole (BH-ALONE) with the SAME lithology
+    (ZAND) and overlapping depth ranges.  BH-ALONE has no CPT in its body
+    group (borehole-only body).  CPT-REF is in a separate body.
+
+    The expectation is that after the model-wide SubdivideAllBodies run,
+    BH-ALONE's geotech sub-body is extrapolated from CPT-REF (nearest same-
+    lithology CPT) and carries a non-None ``nad_class``.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model_id``, ``section_id``,
+        ``bh_alone_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="BH extrapolation scene", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "BHE-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "BHE-Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model_id,
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "BHE-Section",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_600.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 200.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    # CPT-REF: dense ZAND throughout (uniform high qc → one NAD class assigned).
+    depths, qc = _qc_series(n=400, qc_mpa=22.0)
+
+    cpt_ref = CptOrm(
+        id=uuid7(),
+        name="CPT-REF",
+        cpt_type="CPTU",
+        project_id="BHE",
+        test_id="BHE/CPT-REF",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_ref.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # BH-ALONE: ZAND, same depth range, no CPT in its body group.
+    bh_alone = BoreholeOrm(
+        id=uuid7(),
+        name="BH-ALONE",
+        app_project_id=proj.id,
+        project_id="BHE",
+        test_id="BHE/BH-ALONE",
+        location_x=149_200.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        total_depth_m=8.0,
+    )
+
+    db_session.add_all([cpt_ref, bh_alone])
+    await db_session.commit()
+
+    # Accept one ZAND litho layer per investigation (same lithology → extrapolation
+    # candidate).  Do NOT correlate them — BH-ALONE must be in its own body group.
+    await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_ref.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+    await _accept_borehole_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        borehole_id=str(bh_alone.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "bh_alone_id": bh_alone.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_borehole_extrapolation(
+    borehole_extrapolation_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """BH-E1: a borehole-only body gets its NAD class from the nearest same-lithology CPT.
+
+    BH-ALONE is a standalone ZAND borehole (no CPT in its body group).  CPT-REF
+    is a nearby ZAND CPT with a uniform high-qc profile (dense → a non-None
+    NAD class).  After SubdivideAllBodies runs model-wide, BH-ALONE's geotech
+    sub-body must have been extrapolated to CPT-REF's NAD class.
+
+    BH-E1a  ``borehole_only_count >= 1``: BH-ALONE was identified as a borehole-
+             only group.
+    BH-E1b  ``extrapolated_borehole_count >= 1``: at least one borehole sub-body
+             was successfully extrapolated.
+    BH-E1c  BH-ALONE's geotech ``litho_layer`` row has a non-None ``formation_id``
+             whose formation carries a non-None ``nad_class`` — the grey "No qc"
+             skeleton was replaced by a classified formation.
+    """
+    project = borehole_extrapolation_scene["project"]
+    litho_model_id = UUID(borehole_extrapolation_scene["litho_model_id"])
+    bh_alone_id = borehole_extrapolation_scene["bh_alone_id"]
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    geotech_model_id = result.geotech_model_id
+
+    # BH-E1a: BH-ALONE was identified as borehole-only.
+    assert result.borehole_only_count >= 1, (
+        f"BH-E1a: expected borehole_only_count >= 1, got {result.borehole_only_count}; "
+        f"BH-ALONE (no CPT in body group) must be classified as borehole-only"
+    )
+
+    # BH-E1b: at least one borehole was successfully extrapolated.
+    assert result.extrapolated_borehole_count >= 1, (
+        f"BH-E1b: expected extrapolated_borehole_count >= 1, "
+        f"got {result.extrapolated_borehole_count}; "
+        f"BH-ALONE's ZAND sub-body must be extrapolated from the adjacent CPT-REF"
+    )
+
+    # BH-E1c: BH-ALONE's geotech layer formation carries a non-None nad_class.
+    bh_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_alone_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(bh_layers) >= 1, (
+        f"BH-E1c: no accepted geotech litho_layer rows for BH-ALONE "
+        f"(borehole_id={bh_alone_id}) in model {geotech_model_id}"
+    )
+
+    # Load the formation for each bh layer and check nad_class.
+    null_class_layers = []
+    for layer in bh_layers:
+        formation = await db_session.get(GeologicalFormationOrm, layer.formation_id)
+        if formation is None or formation.nad_class is None:
+            null_class_layers.append(layer.id)
+
+    assert len(null_class_layers) == 0, (
+        f"BH-E1c: {len(null_class_layers)} of BH-ALONE's geotech layer(s) have "
+        f"nad_class=None — extrapolation from CPT-REF did not propagate: "
+        f"{[str(lid) for lid in null_class_layers]}"
     )
