@@ -428,7 +428,7 @@ async def subdivide_all_bodies(
     request: SubdivideAllBodiesRequest,
     session: AsyncSession = Depends(get_session),
 ) -> SubdivideAllBodiesResponse:
-    """Classify and materialise geotech NAD bodies for all in-corridor litho bodies.
+    """Classify and materialise geotech NAD bodies for all litho bodies in the model.
 
     Runs ``SubdivideAllBodies`` (Task E3) which groups geo-bounded litho picks
     by ``(body_id, source_geo_formation_id)``, applies the B-policy aggregator
@@ -436,8 +436,14 @@ async def subdivide_all_bodies(
     surfaces onto every column, and materialises real geotech spatial bodies
     via ``litho_layer`` + edge inserts so they render through the litho engine.
 
-    The endpoint is idempotent: prior geotech layers, edges, and bodies for the
-    section corridor are deleted before re-writing.  Unlike ``geotech/build``
+    This operation is **model-wide** (not section-scoped): geotech layers are
+    written once per investigation (section-independent) and correlation edges
+    are derived per-section from the litho model's approved edges.  Borehole-
+    only body groups are extrapolated from the nearest same-lithology CPT when
+    one overlaps the borehole's depth range.
+
+    The endpoint is idempotent: the entire geotech model's layers, edges, and
+    bodies are deleted and rewritten on each call.  Unlike ``geotech/build``
     (which writes ``FormationContact`` rows via the skeleton path), this endpoint
     writes ``litho_layer`` rows directly; the two paths write to different tables
     and may both exist in the project.
@@ -450,8 +456,8 @@ async def subdivide_all_bodies(
         The **lithostratigraphic** model whose bodies are subdivided.  Must be
         ``kind='lithostratigraphic'``; any other kind returns 422.
     request : SubdivideAllBodiesRequest
-        Body with the ``section_id`` whose in-corridor investigations are
-        classified and materialised.
+        Body with ``litho_model_id`` (same as the URL ``model_id``; retained
+        in the request body for forward-compatibility).
     session : AsyncSession
         Database session provided by DI.
 
@@ -470,8 +476,7 @@ async def subdivide_all_bodies(
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}"
-        f"/geotech/subdivide-all-bodies "
-        f"section_id={request.section_id}"
+        f"/geotech/subdivide-all-bodies (model-wide)"
     )
     model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -495,7 +500,6 @@ async def subdivide_all_bodies(
         result = await SubdivideAllBodies(session).execute(
             project_id=project_id,
             litho_model_id=model_id,
-            section_id=request.section_id,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -507,7 +511,9 @@ async def subdivide_all_bodies(
         f"subdivide_all_bodies ok geotech_model={result.geotech_model_id} "
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
-        f"borehole_only={result.borehole_only_count}"
+        f"borehole_only={result.borehole_only_count} "
+        f"extrapolated={result.extrapolated_borehole_count} "
+        f"sections={result.section_count}"
     )
     return SubdivideAllBodiesResponse(
         geotech_model_id=result.geotech_model_id,
@@ -517,4 +523,6 @@ async def subdivide_all_bodies(
         split_body_count=result.split_body_count,
         one_class_body_count=result.one_class_body_count,
         borehole_only_count=result.borehole_only_count,
+        extrapolated_borehole_count=result.extrapolated_borehole_count,
+        section_count=result.section_count,
     )
