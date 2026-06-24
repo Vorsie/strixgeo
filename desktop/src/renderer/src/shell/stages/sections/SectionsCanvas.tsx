@@ -275,13 +275,8 @@ export default function SectionsCanvas(): JSX.Element {
 
   // The active section model and its layers — parameterised by axis so
   // the PartitionFillOverlay receives the right layer/formation set.
-  //
-  // F: geotech axis uses LITHO model id + litho layers for partition fill
-  // (the fill shape comes from litho correlations; geotech clips colour it).
-  // Previously used geotechModelId / geotechLayers, which caused lens divergence
-  // because the geotech model's edges do not share the same correlation graph.
-  const activeSectionModelId = lithoModelId
-  const sectionLayers = lithoLayers
+  const activeSectionModelId = isGeotech ? geotechModelId : lithoModelId
+  const sectionLayers = isGeotech ? geotechLayers : lithoLayers
 
   // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
@@ -2244,10 +2239,6 @@ export default function SectionsCanvas(): JSX.Element {
           // layer (litho_layer.body_id). Pass the accepted litho layers so
           // BodyExtentOverlay can resolve each body's source band depth.
           lithoLayers={(isLitho || isGeotech) ? sectionLayers : undefined}
-          // F: geotech axis — pass geotech contacts so PartitionFillOverlay can
-          // clip each litho region horizontally at NAD subdivision depths and
-          // colour the slices by NAD class. Absent on litho / geological axes.
-          geotechClipContacts={isGeotech ? geotechContacts : undefined}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
