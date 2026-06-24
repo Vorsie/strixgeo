@@ -12,7 +12,9 @@
 //   G5  geotechContacts is the lithoLayersToContacts projection of
 //       geotechLayers (mirrors lithoContacts derivation).
 //   G6  geotechFormations filters the global formations list to rows
-//       where nad_class !== null (mirrors lithoFormations / isGeotechUnit).
+//       where source_litho_formation_id !== null — covers BOTH classified
+//       (nad_class set) and skeleton / borehole-only (nad_class null)
+//       geotech units.  Pure geological and litho rows are excluded.
 //
 // Strategy: mock the whole api.geology module; drive refreshModels by
 // setting up listModels to return geo + geotech models; assert the
@@ -172,6 +174,12 @@ function makeGeotechFormation(id: string): GeologicalFormationResponse {
     lithology: null,
     nad_class: 15,
     parent_formation_id: 'litho-form-1',
+    // source_litho_formation_id is the correct discriminator for geotech
+    // units (see formationKind.ts).  Classified geotech units have this set
+    // AND nad_class set; skeleton/borehole-only units have it set but
+    // nad_class null.
+    source_litho_formation_id: 'litho-form-1',
+    source_geo_formation_id: 'geo-form-1',
     litho_main_soil_code: null,
     litho_admixtures: null,
     instance_ordinal: null,
@@ -351,19 +359,40 @@ describe('geotechContacts (F2 geotech data layer)', () => {
 })
 
 describe('geotechFormations (F2 geotech data layer)', () => {
-  it('G6 — geotechFormations filters formations to rows where nad_class is not null', async () => {
-    // G6: geotechFormations is derived from the global formations list
-    // via isGeotechUnit (nad_class !== null) — the same pattern as
-    // lithoFormations filtering by isLithoUnit (litho_main_soil_code !== null).
-    const geotechFm = makeGeotechFormation('fm-geotech-1')
+  it('G6 — geotechFormations includes classified AND skeleton geotech units, excludes geo + litho rows', async () => {
+    // G6: geotechFormations is derived from the global formations list via
+    // isGeotechUnit (source_litho_formation_id !== null) — covers both a
+    // classified geotech unit (nad_class set) and a borehole-only skeleton
+    // unit (nad_class null).  Pure geological and litho rows are excluded.
+    //
+    // The old discriminator (nad_class !== null) silently omitted skeleton
+    // units from the roster.
+    const classifiedFm = makeGeotechFormation('fm-geotech-classified')
+    // Skeleton / borehole-only unit: nad_class still null, but
+    // source_litho_formation_id is set (the build wrote this row).
+    const skeletonFm: GeologicalFormationResponse = {
+      ...classifiedFm,
+      id: 'fm-geotech-skeleton',
+      name: 'KLEI (geotech skeleton)',
+      nad_class: null,
+      litho_main_soil_code: 'KLEI',
+      source_litho_formation_id: 'litho-form-1',
+    }
+    // Pure geological formation — must be excluded from geotechFormations.
     const geoFm: GeologicalFormationResponse = {
-      ...geotechFm,
+      ...classifiedFm,
       id: 'fm-geo-1',
       name: 'Quartair',
       nad_class: null,
       litho_main_soil_code: null,
+      source_litho_formation_id: null,
+      source_geo_formation_id: null,
     }
-    vi.mocked(apiMock.geology.listFormations).mockResolvedValue([geoFm, geotechFm])
+    vi.mocked(apiMock.geology.listFormations).mockResolvedValue([
+      geoFm,
+      classifiedFm,
+      skeletonFm,
+    ])
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
@@ -372,8 +401,10 @@ describe('geotechFormations (F2 geotech data layer)', () => {
       await new Promise(r => setTimeout(r, 0))
     })
 
-    // Only the row with nad_class set must appear in geotechFormations.
-    expect(result.current.geotechFormations).toHaveLength(1)
-    expect(result.current.geotechFormations[0].id).toBe('fm-geotech-1')
+    // Both classified and skeleton geotech rows must appear.
+    const ids = result.current.geotechFormations.map(f => f.id).sort()
+    expect(ids).toEqual(['fm-geotech-classified', 'fm-geotech-skeleton'].sort())
+    // Pure geological row must be excluded.
+    expect(ids).not.toContain('fm-geo-1')
   })
 })
