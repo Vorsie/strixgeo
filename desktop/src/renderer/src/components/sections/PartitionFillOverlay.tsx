@@ -58,7 +58,7 @@ import {
   type LensApexOverride,
   type PartitionColumn,
   type PartitionUnit,
-  type SectionRegion,
+  type PartitionRegion,
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
@@ -142,22 +142,6 @@ export interface Props {
    * is always display-only (root is ``pointer-events: none``).
    */
   correlateMode?: boolean
-  /**
-   * Geotech axis only — per-column NAD subdivision cut lines.
-   *
-   * Maps investigation id → NAD unit cuts sorted by ``depthM`` ascending
-   * (shallow first).  Each cut carries:
-   * - ``depthM``       — depth below the investigation's surface (mTAW origin).
-   * - ``formationId``  — geotech formation id whose ``nad_class`` determines the
-   *                      colour of the slice BELOW this cut line (down to the next
-   *                      cut or the litho region's base).
-   *
-   * When this map is present the overlay clips every litho region horizontally at
-   * the interpolated NAD cut elevations and colours each sub-region by its NAD
-   * class via ``formationColorById`` (which on the geotech axis maps geotech
-   * formation ids → ``nadClassColor``).  Absent on the lithostratigraphic axis.
-   */
-  geotechClipByInvId?: ReadonlyMap<string, Array<{ depthM: number; formationId: string }>>
 }
 
 const FILL_OPACITY = 0.62
@@ -387,7 +371,7 @@ interface LensDrag {
 
 /** A region already mapped to screen polygon points, tagged with its gap edges. */
 interface ScreenRegion {
-  region: SectionRegion
+  region: PartitionRegion
   points: { x: number; y: number }[]
   leftX: number
   rightX: number
@@ -542,7 +526,6 @@ export default function PartitionFillOverlay({
   bodies,
   onBodyContextMenu,
   correlateMode = false,
-  geotechClipByInvId,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -1165,156 +1148,6 @@ export default function PartitionFillOverlay({
     screenToLevel,
   ])
 
-  // ----- GEOTECH CLIP BANDS (F-feature, geotech axis only) --------------------
-  //
-  // When ``geotechClipByInvId`` is present (axisMode === 'geotechnical') we
-  // clip every litho screen region by NAD subdivision boundaries.  Each NAD
-  // boundary is a SLOPED line in screen space (the depth cut interpolates
-  // linearly from the left column's surface elevation to the right's).
-  //
-  // We use SVG ``clipPath`` elements to avoid polygon clipping math:
-  //   • For each gap, collect the NAD cut lines that fall inside the plot
-  //     y-range and sort them top-to-bottom.
-  //   • Emit one ``clipPath`` per slice (a parallelogram spanning leftX → rightX,
-  //     bounded by the two adjacent cut lines on left and right).
-  //   • For each ``ScreenRegion`` render one NAD-coloured ``path`` per
-  //     overlapping slice, referencing the gap's clipPath for that slice.
-  //
-  // ``geotechClipBands`` is a stable derivation from screenRegions +
-  // geotechClipByInvId; it doesn't re-run on pan/zoom (those are already
-  // baked into screenRegions).
-  //
-  // Each band entry:
-  //   id            — unique clip-path id (string)
-  //   clipD         — SVG path data for the parallelogram clip region
-  //   formationId   — geotech formation id (→ NAD colour via formationColorById)
-  //   regionPaths   — array of { d, bodyId } for every ScreenRegion that
-  //                   overlaps this band
-  type GeoClipBand = {
-    id: string
-    clipD: string
-    formationId: string
-    regionPaths: Array<{ d: string; bodyId: string | null; isLens: boolean }>
-  }
-  const geotechClipBands = useMemo((): GeoClipBand[] => {
-    if (!geotechClipByInvId) return []
-    const { gapXs } = sectionFillData
-    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
-    if (valid.length < 2) return []
-
-    const out: GeoClipBand[] = []
-
-    for (let gi = 0; gi < valid.length - 1; gi += 1) {
-      const leftId = valid[gi]
-      const rightId = valid[gi + 1]
-      const leftCol = colByInv.get(leftId)
-      const rightCol = colByInv.get(rightId)
-      if (!leftCol || !rightCol) continue
-      const { leftX, rightX } = gapXs[gi]
-      if (rightX <= leftX) continue
-
-      // Build a merged + sorted list of cut elevations for this gap by
-      // interpolating each column's NAD cuts (depthM → elevationM → screenY).
-      const leftCuts = geotechClipByInvId.get(leftId) ?? []
-      const rightCuts = geotechClipByInvId.get(rightId) ?? []
-
-      // Convert each column's cuts to screen-Y.
-      // elevationM = surfaceElevM - depthM.
-      const leftCutYs = leftCuts.map((c) => ({
-        y: levelToScreen(leftCol.surfaceElevM - c.depthM),
-        formationId: c.formationId,
-      }))
-      const rightCutYs = rightCuts.map((c) => ({
-        y: levelToScreen(rightCol.surfaceElevM - c.depthM),
-        formationId: c.formationId,
-      }))
-
-      // Merge into a unified ordered list of cut lines for this gap.
-      // Each cut line connects (leftX, leftY) → (rightX, rightY).
-      // We pair them by index: cut[i] on left pairs with cut[i] on right.
-      // If the columns have different numbers of NAD units, use the minimum
-      // count (NAD subdivision may not perfectly align — a known edge case).
-      const nCuts = Math.min(leftCutYs.length, rightCutYs.length)
-
-      // Sentinel: top of plot and bottom of plot bound the first/last slices.
-      // Between adjacent cuts we emit one clipPath + one set of region paths.
-      // The topmost slice = plotTop → first cut line.
-      // Intermediate slices = cut[i-1] → cut[i].
-      // The bottommost slice = last cut line → plotBottom.
-
-      for (let ci = 0; ci <= nCuts; ci += 1) {
-        // Top boundary of this slice.
-        const topLeftY = ci === 0 ? plotTop : leftCutYs[ci - 1].y
-        const topRightY = ci === 0 ? plotTop : rightCutYs[ci - 1].y
-        // Bottom boundary of this slice.
-        const botLeftY = ci === nCuts ? plotBottom : leftCutYs[ci].y
-        const botRightY = ci === nCuts ? plotBottom : rightCutYs[ci].y
-
-        // Skip degenerate slices (top === bottom at both ends).
-        if (botLeftY <= topLeftY && botRightY <= topRightY) continue
-
-        // The formation id for this slice is the NAD unit AT the top cut
-        // (slice ci corresponds to the NAD unit whose top boundary is cut[ci-1]).
-        // Slice 0 (above the first cut) has no formation from our data — use the
-        // first cut's formation as a fallback (shouldn't appear if NAD units start
-        // at the investigation surface, but guards the edge case).
-        const formationId =
-          ci === 0
-            ? (leftCutYs[0]?.formationId ?? rightCutYs[0]?.formationId ?? '')
-            : leftCutYs[ci - 1].formationId
-
-        if (!formationId) continue
-
-        // Clip parallelogram: spans leftX → rightX, bounded by the sloped
-        // top and bottom cut lines.  Extend left/right by 2 px so the clip
-        // doesn't leave hairline gaps at the polygon edges.
-        const xL = leftX - 2
-        const xR = rightX + 2
-        const clipD =
-          `M ${xL.toFixed(2)},${topLeftY.toFixed(2)} ` +
-          `L ${xR.toFixed(2)},${topRightY.toFixed(2)} ` +
-          `L ${xR.toFixed(2)},${botRightY.toFixed(2)} ` +
-          `L ${xL.toFixed(2)},${botLeftY.toFixed(2)} Z`
-
-        const clipId = `geonad-${gi}-${ci}`
-
-        // Collect all screen regions in this gap (by gapIndex) and emit their
-        // path data so each can be rendered clipped to this band.
-        const regionPaths: GeoClipBand['regionPaths'] = []
-        for (const sr of screenRegions) {
-          if (sr.region.gapIndex !== gi) continue
-          // Quick bbox overlap check — skip if the region is entirely above the
-          // bottom cut or entirely below the top cut (no overlap with this band).
-          const bandTopY = Math.min(topLeftY, topRightY)
-          const bandBotY = Math.max(botLeftY, botRightY)
-          if (sr.maxY < bandTopY || sr.minY > bandBotY) continue
-
-          const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
-          regionPaths.push({
-            d,
-            bodyId: sr.region.bodyId ?? null,
-            isLens: sr.region.kind === 'lens',
-          })
-        }
-
-        if (regionPaths.length === 0) continue
-
-        out.push({ id: clipId, clipD, formationId, regionPaths })
-      }
-    }
-    return out
-  }, [
-    geotechClipByInvId,
-    sectionFillData,
-    orderedInvs,
-    colByInv,
-    screenByInv,
-    screenRegions,
-    levelToScreen,
-    plotTop,
-    plotBottom,
-  ])
-
   // ----- UNDER-COLUMN SUBSTRATE FILL (fix: "gap exactly below a test column") --
   // The gap partition is built EDGE-TO-EDGE (gapXs: left col's RIGHT edge → right
   // col's LEFT edge), and ContactsLayer's per-column litho bands stop at the test's
@@ -1728,8 +1561,7 @@ export default function PartitionFillOverlay({
         />
       ))}
 
-      {/* Litho axis: plain partition fill coloured by lithology formation. */}
-      {geotechClipBands.length === 0 && screenRegions.map((sr, i) => {
+      {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
@@ -1762,48 +1594,6 @@ export default function PartitionFillOverlay({
           />
         )
       })}
-
-      {/* Geotech axis: partition fill clipped and coloured by NAD class.
-          Each geotechClipBand is one NAD slice (between two adjacent NAD cut
-          lines in a gap).  For every slice we:
-          1. Define a <clipPath> that is a parallelogram spanning the gap
-             bounded by the two sloped NAD cut lines (left col → right col).
-          2. Re-render each litho region path clipped to that parallelogram,
-             filled with the NAD class colour.  The clipPath means only the
-             overlap between the litho region shape AND the NAD band is visible.
-          The litho region shape provides the LATERAL geometry (pinch-outs,
-          lenses, bands); the NAD band clip provides the VERTICAL subdivision.
-          Rendered in a <defs>…</defs> + <g clipPath="…"> pattern. */}
-      {geotechClipBands.length > 0 && (
-        <>
-          <defs>
-            {geotechClipBands.map((band) => (
-              <clipPath key={band.id} id={band.id}>
-                <path d={band.clipD} />
-              </clipPath>
-            ))}
-          </defs>
-          {geotechClipBands.map((band) => {
-            const color = formationColorById.get(band.formationId) ?? FALLBACK_COLOR
-            return (
-              <g key={band.id} clipPath={`url(#${band.id})`}>
-                {band.regionPaths.map((rp, ri) => (
-                  <path
-                    key={`${band.id}-r${ri}`}
-                    data-testid={`partition-region-${rp.bodyId ?? 'nobody'}`}
-                    d={rp.d}
-                    fill={color}
-                    fillOpacity={rp.isLens ? LENS_OPACITY : FILL_OPACITY}
-                    stroke={color}
-                    strokeOpacity={STROKE_OPACITY}
-                    strokeWidth={0.75}
-                  />
-                ))}
-              </g>
-            )
-          })}
-        </>
-      )}
 
       {labels.map((l) => (
         <text
