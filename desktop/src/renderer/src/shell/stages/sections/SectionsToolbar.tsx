@@ -1159,22 +1159,20 @@ export default function SectionsToolbar(): JSX.Element {
             icon={<SplitSquareVertical size={13} />}
             label={subdividingBodies ? 'Subdividing…' : 'Subdivide all bodies'}
             onClick={() => {
-              if (subdividingBodies || !selectedSectionId || !activeLithoModel) return
+              if (subdividingBodies || !activeLithoModel) return
               setSubdividingBodies(true)
-              void handleSubdivideAllBodies(selectedSectionId).finally(() => {
+              void handleSubdivideAllBodies().finally(() => {
                 setSubdividingBodies(false)
               })
             }}
-            disabled={subdividingBodies || !activeLithoModel || !selectedSectionId}
+            disabled={subdividingBodies || !activeLithoModel}
             busy={subdividingBodies}
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model in the Lithology stage first'
-                : !selectedSectionId
-                  ? 'Select a cross-section to run subdivision on'
-                  : subdividingBodies
-                    ? 'Running NAD packing-class subdivision…'
-                    : 'Derive NAD packing classes (1–31) for every litho body in this section. Creates the geotechnical model on first run.'
+                : subdividingBodies
+                  ? 'Running NAD packing-class subdivision…'
+                  : 'Derive NAD packing classes (1–31) for every litho body in the model. Creates the geotechnical model on first run.'
             }
             testid="geotech-subdivide-all-bodies"
           />
