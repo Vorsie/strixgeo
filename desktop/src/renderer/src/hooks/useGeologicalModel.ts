@@ -2182,6 +2182,12 @@ export function useGeologicalModel({
       // Awaited so geotechFormations is populated before the success toast fires
       // (prevents a brief "No geotech units yet" flash in the inspector).
       await refetchFormations()
+      // (c2): the geotech correlation edges are re-derived server-side, but the
+      // SectionsCanvas edge fetch is keyed on the geotech model id STRING — which
+      // is unchanged on a re-run — so it won't refetch on its own. Bump the nonce
+      // so the bands pick up the new edges (otherwise a re-click shows stale
+      // connectivity / no visible refresh).
+      requestCorrelationEdgesRefetch?.()
       // (d): record new NAD-class formations as session imports so markMutated
       // lights the dirty flag and they land in the next .gmproj save.
       if (result.created_formation_ids.length > 0) {
@@ -2199,7 +2205,7 @@ export function useGeologicalModel({
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
     // cause no-op dep churn; refreshModels, refetchFormations, addToSessionImports,
-    // markMutated, toast are all stable callbacks.
+    // markMutated, toast, requestCorrelationEdgesRefetch are all stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [project, refreshModels, refetchFormations, addToSessionImports, markMutated, toast],
   )
