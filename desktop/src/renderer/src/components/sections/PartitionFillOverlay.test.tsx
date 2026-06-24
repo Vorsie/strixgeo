@@ -36,6 +36,14 @@
 //            contact/edge data stays identical. A pan or zoom that only moves
 //            the elevation-to-pixel mapping must not re-run the expensive LCS
 //            + polygon engine.
+//
+// --- Zoom-adaptive label model (owner dogfeed 2026-06-24) -----------------
+//   ZAL1  A tall body renders its <text> label (fit gate passes).
+//   ZAL2  A very short body (< MIN_FONT + margin px) renders NO label.
+//   ZAL3  One label per body — a body spanning two gap segments renders ONE
+//         <text>, not two.
+//   ZAL4  Label x,y is inside the region bounding box — regression guard for
+//         the bbox-centre "sand label on clay" placement bug.
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -767,5 +775,76 @@ describe('PartitionFillOverlay', () => {
     expect(spy).toHaveBeenCalledTimes(1)
 
     spy.mockRestore()
+  })
+
+  // --------------------------------------------------------------------------
+  // ZAL1-ZAL4: Zoom-adaptive label model (owner dogfeed 2026-06-24)
+  //
+  //   ZAL1  A tall body (50 px region) renders a <text> label.
+  //   ZAL2  A very short body (1 px region, below MIN_FONT + margin) renders
+  //         NO <text> label (fit gate).
+  //   ZAL3  One label per body — a body spanning two gap segments renders
+  //         exactly ONE <text>, not two.
+  //   ZAL4  Label placement: the <text> x,y for the base fixture is within the
+  //         region's bounding box — not the naive bbox-centre when the polygon is
+  //         pinched (regression guard for the "sand label on clay" bug).
+  // --------------------------------------------------------------------------
+
+  it('ZAL1 — a tall body (50 px region) renders its <text> label', () => {
+    // Sand: 0–5 m on L, 0–5 m on R → levelToScreen gives 50 px height.
+    // 50 * 0.15 = 7.5 → clamp to 8 (MIN_FONT). height (50) >= 8 + 2 = 10 ✓.
+    // availW ≈ 60 px; 'Sa'.length * 8 * 0.55 = 8.8 px — fits ✓.
+    const { getAllByTestId } = renderOverlay()
+    // At least one sand label renders.
+    expect(getAllByTestId('partition-label-sand').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('ZAL2 — a body whose region is too short (1 px) renders NO <text> label', () => {
+    // Create a thin body: 0.1 m depth → levelToScreen(10px/m) = 1 px tall.
+    // 1 * 0.15 = 0.15 < MIN_FONT (8); fit gate: height(1) < 8+2 → no label.
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: [
+        layer('t1', 'L', 'thin', 'fSand', 0, 0.1),
+        layer('t2', 'R', 'thin', 'fSand', 0, 0.1),
+      ],
+    })
+    expect(queryAllByTestId('partition-label-thin')).toHaveLength(0)
+  })
+
+  it('ZAL3 — a body spanning two gaps renders exactly ONE <text> label (per-body rule)', () => {
+    // Three columns: L, M, R. Sand body spans both (L,M) and (M,R) gaps.
+    // The per-body rule ensures we emit only ONE <text> for the sand body.
+    const threeCols = [
+      layer('s1', 'L', 'sand', 'fSand', 0, 10),
+      layer('s2', 'M', 'sand', 'fSand', 0, 10),
+      layer('s3', 'R', 'sand', 'fSand', 0, 10),
+    ]
+    const { getAllByTestId, queryAllByTestId } = renderOverlay({
+      lithoLayers: threeCols,
+      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+      plotRight: 300,
+    })
+    // At least one sand region renders (sanity).
+    expect(getAllByTestId('partition-region-sand').length).toBeGreaterThanOrEqual(1)
+    // Exactly one label for the sand body (despite spanning 2 gaps).
+    expect(queryAllByTestId('partition-label-sand')).toHaveLength(1)
+  })
+
+  it('ZAL4 — label x,y is within the region bounding box (placement inside the polygon)', () => {
+    // Regression guard for the "sand label on clay" bbox-centre bug.
+    // For the base fixture the sand body has minX=20, maxX=80, minY=0, maxY=50.
+    // The label anchor (centroid or scanline fallback) must be inside those bounds.
+    const { getAllByTestId } = renderOverlay()
+    const sandLabels = getAllByTestId('partition-label-sand')
+    expect(sandLabels.length).toBeGreaterThanOrEqual(1)
+    const lbl = sandLabels[0]
+    const x = parseFloat(lbl.getAttribute('x') ?? 'NaN')
+    const y = parseFloat(lbl.getAttribute('y') ?? 'NaN')
+    // The gap spans x=[20,80], and sand occupies the full depth range (0–50 px).
+    // The centroid must fall inside [20,80] × [0,50].
+    expect(x).toBeGreaterThanOrEqual(20)
+    expect(x).toBeLessThanOrEqual(80)
+    expect(y).toBeGreaterThanOrEqual(0)
+    expect(y).toBeLessThanOrEqual(50)
   })
 })

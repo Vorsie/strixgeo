@@ -20,8 +20,10 @@
 //        formation (nadClassColor(8)), not a lithology colour.
 //   GN7  A formation with nad_class === null gets the neutral-grey fill
 //        (nadClassColor(null)) — distinct from amber.
-//   GN8  Two bodies with the same NAD class label render only ONE <text> label
-//        (dedup pass — prevents "KLEI, matig vast" ×5 overlap on geotech axis).
+//   GN8  Two bodies with the same NAD class label each render their own <text>
+//        (fit-based per-body model — dedupeLabelsByText removed 2026-06-24).
+//   GN8b A body whose region is too short (< MIN_FONT + margin) renders NO label
+//        (zoom-adaptive fit gate).
 
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -190,16 +192,21 @@ describe('PartitionFillOverlay with geotechnical axis colours', () => {
     }
   })
 
-  it('GN8 — two bodies with the same NAD class label render only ONE <text> label', () => {
-    // Scenario: geotech axis with two separate bodies (bodyA, bodyB) both belonging
-    // to the same formation (f8, nad_class=8 → "ZAND, dicht gp").  They span the
-    // same L→R columns at different depth intervals.  The dedup pass must ensure only
-    // ONE <text> element appears (the tallest body wins the label).
+  it('GN8 — two bodies with the same NAD class label each render their own <text> (fit-based, one per body)', () => {
+    // The old dedupeLabelsByText cross-body collapse is removed (owner directive
+    // 2026-06-24: zoom in → see ALL bands' labels). The per-body rule still
+    // applies: each bodyId gets at most one <text> element.
+    //
+    // Wide columns (0 and 400) give a 380 px gap — enough for the long NAD label
+    // "ZAND, zeer dicht gp" (20 chars × 8 px × 0.55 ≈ 88 px < 380 px).
+    // Heights: bodyA = 3 m × 10 = 30 px, bodyB = 5 m × 10 = 50 px — both
+    // pass the vertical fit gate (h >= MIN_FONT + margin = 10 px).
+    const wideColumns = [column('L', 0, 10), column('R', 400, 10)]
     const sameTextLayers = [
       // bodyA: shallower (0–3 m) on both columns
       geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
       geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
-      // bodyB: deeper (3–8 m) on both columns — taller → wins the label
+      // bodyB: deeper (3–8 m) on both columns
       geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
       geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
     ]
@@ -207,37 +214,35 @@ describe('PartitionFillOverlay with geotechnical axis colours', () => {
       <svg>
         <PartitionFillOverlay
           {...baseProps}
-          dedupeLabelsByText
+          placedColumns={wideColumns}
+          plotRight={500}
           lithoLayers={sameTextLayers}
         />
       </svg>,
     )
-    // Both formations share the same label text ("ZAND, dicht gp" for nad_class=8).
-    // With dedupeLabelsByText (geotech axis) exactly ONE <text> appears.
+    // Two distinct bodies → two <text> elements (fit-based, no text-dedup).
     const labelTexts = Array.from(container.querySelectorAll('text')).filter(
       (t) => t.textContent === nadClassName(8),
     )
-    expect(labelTexts.length).toBe(1)
+    expect(labelTexts.length).toBe(2)
   })
 
-  it('GN8b — WITHOUT dedupeLabelsByText (litho axis) two same-label bodies keep BOTH labels', () => {
-    // Regression guard: the text-dedup must be geotech-only. On litho the label
-    // is the shared lithology abbreviation, so dedup-by-text would wrongly drop
-    // every same-soil body's label but one. Default (false) keeps one-per-body.
-    const sameTextLayers = [
-      geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
-      geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
-      geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
-      geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
+  it('GN8b — a body whose region is too short (< MIN_FONT + margin) renders NO label', () => {
+    // Fit gate: a very thin body (0.1 m = 1 px tall with levelToScreen 10px/m)
+    // cannot fit its label at any reasonable font size → no <text> element.
+    const thinLayers = [
+      // thinBody: only 0.1 m tall on both columns → 1 px screen height
+      geotechLayer('i1', 'L', 'thinBody', 'f8', 0, 0.1),
+      geotechLayer('j1', 'R', 'thinBody', 'f8', 0, 0.1),
     ]
     const { container } = render(
       <svg>
-        <PartitionFillOverlay {...baseProps} lithoLayers={sameTextLayers} />
+        <PartitionFillOverlay {...baseProps} lithoLayers={thinLayers} />
       </svg>,
     )
     const labelTexts = Array.from(container.querySelectorAll('text')).filter(
       (t) => t.textContent === nadClassName(8),
     )
-    expect(labelTexts.length).toBe(2)
+    expect(labelTexts.length).toBe(0)
   })
 })
