@@ -12,6 +12,43 @@ and **materialises real geotech spatial bodies** via ``litho_layer`` + edge
 inserts so they render through the litho engine and are stable anchors for
 the later Parameters stage.
 
+Architecture — MODEL-WIDE layers, PER-SECTION edges
+-----------------------------------------------------
+An investigation's geotech *layers* (packing-class sub-units) depend only on
+that investigation's qc series and its body membership — they are the SAME
+regardless of which section views the investigation.  Only the correlation
+*edges* are section-scoped (each section has its own litho-edge set; geotech
+edges inherit that scoping).
+
+The old per-section design processed one section's corridor and, in its
+idempotent reset, deleted geotech layers for that corridor's investigations.
+Tie-sections sharing an investigation with a cross-section therefore clobbered
+each other's geotech layers (and cascade-deleted the other section's edges).
+
+The new design:
+
+1. Resolves body_id model-wide.
+2. Loads ALL model investigations' picks (no section restriction).
+3. **Idempotent reset: deletes ALL geotech data for the WHOLE geotech model
+   (not a corridor subset)** — edges → layers → FC rows → bodies.
+4. Groups geo-bounded segments by ``(body_id, source_geo_formation_id)``
+   across the whole model.
+5. Classifies each group (CPT-bearing: B-policy; borehole-only: deferred to
+   step 6b extrapolation).
+6. Materialises ``litho_layer`` rows ONCE per (investigation, sub-band) —
+   each investigation appears in at most one group per geo-band so there is
+   no double-materialisation.
+6b. **Borehole extrapolation (NEW):** for each borehole-only sub-body,
+    finds the nearest CPT of the SAME lithology with a classified sub-body
+    overlapping that depth range and assigns its nad_class.  Falls back to
+    nearest CPT of any lithology, then (last resort) nad_class=None.
+7. **Edges — PER SECTION:** loads each project section's approved litho edges
+   and derives geotech edges via depth-overlap mapping (the existing
+   ``_derive_geotech_edges_from_litho`` logic), writing edges tagged with
+   that section's id.
+8. Runs the resolver model-wide.
+9. ONE commit.
+
 What it persists (one transaction, single commit at the end)
 ------------------------------------------------------------
 1. **``litho_layer`` rows** — one per geotech sub-body position per column
@@ -21,10 +58,7 @@ What it persists (one transaction, single commit at the end)
 
 2. **``litho_contact_correlation_edge`` rows** — one per approved litho edge,
    mapped from the litho layer's depth to the geotech sub-layer covering that
-   same depth on each investigation.  This faithfully inherits the litho
-   body's connectivity so a body that banded in the litho view also bands in
-   the geotech view (SAB-7 / TRAP 1 guard: depth-overlap mapping naturally
-   connects same-depth sub-layers, never cross-class).
+   same depth on each investigation, tagged with the source ``section_id``.
    All edges are ``user_approved=True``, ``source='manual'``.
 
 3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the above
@@ -32,13 +66,26 @@ What it persists (one transaction, single commit at the end)
 
 Idempotency on re-run
 ---------------------
-Before writing new rows the use case deletes (within the corridor):
-  1. Geotech ``litho_contact_correlation_edge`` rows.
-  2. Geotech ``litho_layer`` rows (LL→FC trigger deletes their FC mirrors).
-  3. Geotech ``BodyOrm`` rows.
-Existing classified ``geological_formation`` rows are DB-backed find-or-create
-(key = ``(nad_class, source_litho_formation_id, source_geo_formation_id)``)
-so a re-run reuses them without duplication.
+Before writing new rows the use case deletes ALL geotech data for the model
+(not just a corridor), so a re-run always starts from a clean state.  The
+geotech model row itself is not deleted; only its content is.
+
+Borehole extrapolation — nearest-CPT same-lithology rule
+---------------------------------------------------------
+Boreholes carry lithology but not packing-class (no qc series).  After all
+CPT-bearing groups are classified, each borehole-only sub-body is resolved:
+
+1. Find every CPT in the model whose classified geotech sub-body has the SAME
+   ``litho_main_soil_code`` AND overlaps the borehole's depth range
+   (``top_a < base_b`` and ``top_b < base_a``).
+2. Among those candidates, pick the one closest in map-plane xy distance to
+   the borehole.
+3. Assign the candidate CPT's ``nad_class`` to the borehole sub-body.
+4. Fallback 1: if no same-lithology CPT candidate exists, pick the nearest
+   CPT candidate of any lithology at that depth.
+5. Fallback 2: if the model has zero CPTs at all, keep ``nad_class=None``
+   (last resort; the frontend should not show a "No qc" ghost when a
+   same-lithology CPT exists anywhere in the model).
 
 Edge derivation — depth-overlap mapping
 ----------------------------------------
@@ -57,12 +104,14 @@ This approach:
   band at that depth — it can never bridge to a DIFFERENT packing-class sub-body
   unless the packing-class boundary itself is located at exactly depth d, in
   which case the edge maps to the deeper sub-layer (the band above the split).
-- Is section- and group-independent: it works in a single post-materialisation
-  pass over all approved litho edges, regardless of body group boundaries.
+- Is group-independent: it works in a single post-materialisation pass over
+  all approved litho edges for a section, regardless of body group boundaries.
 """
 
 from __future__ import annotations
 
+import math
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -99,6 +148,7 @@ from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -137,8 +187,13 @@ class SubdivideAllBodiesResult:
         Number of body groups assigned one representative NAD class
         (inconsistent CPT profiles → thickness-dominant single class).
     borehole_only_count : int
-        Number of body groups that were borehole-only (no CPT qc → one
-        skeleton sub-body with ``nad_class=None``).
+        Number of body groups that were borehole-only (no CPT qc → classified
+        via nearest-CPT extrapolation or last-resort nad_class=None).
+    extrapolated_borehole_count : int
+        Subset of borehole_only_count that were successfully extrapolated from
+        a nearest same-lithology CPT (not the last-resort None path).
+    section_count : int
+        Number of project sections processed for edge derivation.
     """
 
     geotech_model_id: UUID
@@ -148,6 +203,8 @@ class SubdivideAllBodiesResult:
     split_body_count: int
     one_class_body_count: int
     borehole_only_count: int
+    extrapolated_borehole_count: int = 0
+    section_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -181,12 +238,56 @@ class _ColumnPlan:
     sub_intervals: list[tuple[float, float]] = field(default_factory=list)
 
 
+@dataclass
+class _PendingBoreholeSubBody:
+    """One borehole sub-body awaiting nearest-CPT extrapolation.
+
+    Attributes
+    ----------
+    investigation_id : str
+        Borehole id string.
+    x_m : float
+        Borehole world x-coordinate.
+    y_m : float
+        Borehole world y-coordinate.
+    top_m : float
+        Sub-body depth top (m).
+    base_m : float
+        Sub-body depth base (m).
+    litho_soil_code : str | None
+        Lithology soil code from the source litho formation.
+    source_litho_formation_id : UUID
+        Source litho formation id (for formation find-or-create).
+    source_geo_formation_id : UUID | None
+        Source geo-band formation id.
+    layer_id : UUID
+        The ``LithoLayerOrm`` id already inserted (formation_id is a
+        placeholder skeleton; this id is updated after extrapolation).
+    """
+
+    investigation_id: str
+    x_m: float
+    y_m: float
+    top_m: float
+    base_m: float
+    litho_soil_code: str | None
+    source_litho_formation_id: UUID
+    source_geo_formation_id: UUID | None
+    layer_id: UUID
+
+
 class SubdivideAllBodies(GroundModelLogger):
-    """Classify + materialise geotech spatial bodies for a section corridor.
+    """Classify + materialise geotech spatial bodies for the whole litho model.
 
     Runs after ``BuildGeotechModelFromLitho`` (C1) has ensured the geotech
-    model exists. Does NOT assume C1 contacts exist — it works from the litho
+    model exists.  Does NOT assume C1 contacts exist — it works from the litho
     model's accepted layers + body resolver directly.
+
+    Key design: geotech *layers* are materialised model-wide (one per
+    investigation per sub-band — investigation appears in exactly one body
+    group per geo-band).  Geotech correlation *edges* are derived per section,
+    each tagged with that section's ``section_id``.  This prevents tie-sections
+    from clobbering each other's geotech data.
 
     The caller owns the session; this use case flushes during the write phase
     and commits once at the end.
@@ -213,20 +314,21 @@ class SubdivideAllBodies(GroundModelLogger):
         *,
         project_id: UUID,
         litho_model_id: UUID,
-        section_id: UUID,
     ) -> SubdivideAllBodiesResult:
-        """Subdivide all in-corridor bodies and materialise geotech spatial bodies.
+        """Subdivide all model bodies and materialise geotech spatial bodies.
+
+        Processes the WHOLE litho model (all investigations, all sections) in
+        one transaction.  Geotech layers are model-wide; geotech edges are
+        per-section (each section's approved litho edges are mapped to geotech
+        sub-layers and tagged with that section's id).
 
         Parameters
         ----------
         project_id : UUID
-            Project scope guard — the litho model + section must both belong to
-            this project.
+            Project scope guard — the litho model must belong to this project.
         litho_model_id : UUID
             The lithostratigraphic model to subdivide.  Must be
             ``kind='lithostratigraphic'``.
-        section_id : UUID
-            The cross-section whose in-corridor investigations are subdivided.
 
         Returns
         -------
@@ -236,10 +338,10 @@ class SubdivideAllBodies(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the litho model is missing / out of project, or the section
-            is not in the project.
+            When the litho model is missing / out of project.
         """
-        self.info(f"SubdivideAllBodies: litho_model={litho_model_id} section={section_id}")
+        t0 = time.monotonic()
+        self.info(f"SubdivideAllBodies: litho_model={litho_model_id} (model-wide)")
 
         litho_model = await load_scoped_or_raise(
             self._session,
@@ -254,22 +356,13 @@ class SubdivideAllBodies(GroundModelLogger):
         await ResolveLithoInstances(self._session).execute(model_id=litho_model_id, commit=False)
         self.info(f"SubdivideAllBodies: geotech_model={geotech_model.id} (litho bodies resolved)")
 
-        # Phase 2 — load section-scoped picks with body_id.
-        in_corridor = await project_investigations_onto_section(
-            self._session, project_id=project_id, section_id=section_id
-        )
-        picks = await self._litho_repo.load_body_picks(
-            litho_model_id,
-            restrict_to_investigation_ids=set(in_corridor.keys()),
-        )
-        self.info(
-            f"SubdivideAllBodies: {len(picks)} pick(s) over "
-            f"{len(in_corridor)} in-corridor investigation(s)"
-        )
+        # Phase 2 — load ALL model picks (no section restriction).
+        picks = await self._litho_repo.load_body_picks(litho_model_id)
+        self.info(f"SubdivideAllBodies: {len(picks)} pick(s) across whole model")
         if not picks:
             await self._session.commit()
             self.warning(
-                "SubdivideAllBodies: no in-corridor picks — geotech model "
+                "SubdivideAllBodies: no picks in the model — geotech model "
                 "created/reused but no bodies materialised"
             )
             return SubdivideAllBodiesResult(
@@ -298,45 +391,41 @@ class SubdivideAllBodies(GroundModelLogger):
             )
         divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)
         self.info(
-            f"SubdivideAllBodies: {len(divided)} geo-bounded segment(s) (snap_tol={snap_tol} m)"
+            f"SubdivideAllBodies: {len(divided)} geo-bounded segment(s) "
+            f"(snap_tol={snap_tol} m) [{time.monotonic() - t0:.1f}s]"
         )
 
-        # Phase 4 — idempotent reset: delete prior geotech layers/edges/bodies
-        # for the corridor's investigations under the geotech model.
-        # Order: edges → layers (trigger deletes their FCs) → bodies.
-        corridor_ids = list(in_corridor.keys())
-        await self._delete_prior_geotech_data(geotech_model.id, corridor_ids)
+        # Phase 4 — model-wide idempotent reset: delete ALL geotech data.
+        # Order: edges → layers (trigger deletes their FCs) → stale direct
+        # FC rows (from C1) → bodies.
+        await self._delete_all_geotech_data(geotech_model.id)
 
         # Phase 5 — group geo-bounded segments by (body_id, source_geo_formation_id).
-        # A BodyLayerPick carries body_id + formation_id from the litho layer;
-        # source_geo_formation_id is derived from which geo band the segment sits in.
         groups = await self._group_segments(divided, geo_surfaces)
         self.info(f"SubdivideAllBodies: {len(groups)} body group(s) to process")
 
-        # Phase 6 — anchor-kind lookup for the corridor.
-        anchor_kind = await self._resolve_anchor_kinds(set(in_corridor.keys()))
+        # Phase 6 — anchor-kind lookup for ALL model investigations.
+        all_investigation_ids = {UUID(s.investigation_id) for s in divided}
+        anchor_kind = await self._resolve_anchor_kinds(all_investigation_ids)
 
         # Phase 7 — load CPT series + total depths + min_thickness.
-        cpt_ids_in_corridor = {
-            UUID(inv_id) for inv_id, kind in anchor_kind.items() if kind == "cpt"
-        }
-        cpt_series = await self._load_cpt_series(cpt_ids_in_corridor)
-        total_depths = await self._load_total_depths(set(in_corridor.keys()))
+        all_cpt_ids = {UUID(inv_id) for inv_id, kind in anchor_kind.items() if kind == "cpt"}
+        cpt_series = await self._load_cpt_series(all_cpt_ids)
+        total_depths = await self._load_total_depths(all_investigation_ids)
         min_thickness_m = await self._read_min_thickness_m(geotech_model.app_project_id)
         self.debug(f"SubdivideAllBodies: min_thickness_m={min_thickness_m}")
 
-        # Phase 8 — load the approved litho edges and litho layer depths needed
-        # to derive geotech edges via depth-overlap mapping after materialisation.
-        litho_approved_edges = await self._load_approved_litho_edges(litho_model_id, section_id)
-        litho_layer_depths = await self._load_litho_layer_depths(
-            litho_model_id, set(in_corridor.keys())
-        )
-        self.debug(
-            f"SubdivideAllBodies: {len(litho_approved_edges)} approved litho edge(s), "
-            f"{len(litho_layer_depths)} litho layer depth entries loaded"
+        # Global depth-indexed map built during materialisation: for each
+        # investigation, the list of (depth_top_m, depth_base_m,
+        # geotech_layer_id, geotech_formation_id) tuples for all created
+        # geotech sub-layers on that investigation.  Consumed after the group
+        # loop by _derive_geotech_edges_from_litho.
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]] = defaultdict(
+            list
         )
 
-        # Phase 9 — per-group materialise.
+        # Phase 8 — per-group materialise (CPT-bearing groups get classified
+        # immediately; borehole-only groups are deferred to extrapolation).
         created_formation_ids: list[UUID] = []
         classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
         skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
@@ -346,22 +435,18 @@ class SubdivideAllBodies(GroundModelLogger):
         one_class_body_count = 0
         borehole_only_count = 0
 
-        # Global depth-indexed map built during materialisation: for each
-        # investigation, the list of (depth_top_m, depth_base_m,
-        # geotech_layer_id, geotech_formation_id) tuples for all created
-        # geotech sub-layers on that investigation.  Consumed after the group
-        # loop by _derive_geotech_edges_from_litho.
-        #
-        # formation_id is stored so the edge pass can apply the TRAP 1 / SAB-7
-        # same-formation guard: only emit a geotech edge when both endpoints
-        # resolve to the same formation_id.  Without this guard a litho edge
-        # that crosses a geo-band boundary (the two investigations land in
-        # different body groups with different source_geo_formation_id, and
-        # therefore different geotech formations) would create a cross-class
-        # edge that the resolver would wrongly merge.
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]] = defaultdict(
-            list
-        )
+        # Pending borehole sub-bodies awaiting extrapolation.  Each entry is a
+        # _PendingBoreholeSubBody describing the geometry + provenance of one
+        # borehole sub-unit that was written with a skeleton (nad_class=None)
+        # formation and will be reclassified in Phase 8b.
+        pending_borehole_sub_bodies: list[_PendingBoreholeSubBody] = []
+
+        # Classified CPT sub-body registry: maps (soil_code, geotech_formation_id)
+        # to a list of (x_m, y_m, nad_class, top_m, base_m) tuples.  Built during
+        # the per-group loop and consumed in Phase 8b for distance lookups.
+        # key = litho_soil_code (str|None)
+        # value = list[(x_m, y_m, nad_class, top_m, base_m)]
+        cpt_classified_sub_bodies: list[tuple[str | None, float, float, int, float, float]] = []
 
         for group_idx, (group_key, group_segs) in enumerate(groups.items()):
             body_id_str, source_geo_fid = group_key
@@ -377,10 +462,9 @@ class SubdivideAllBodies(GroundModelLogger):
 
             # Collect CPT members of the group.
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
+            bh_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "borehole"]
 
-            # Hoist formation attributes: they are constant for the whole group
-            # (all segs share one source_litho_fid), so fetching them once per
-            # group avoids N redundant DB round-trips (one per CPT member).
+            # Hoist formation attributes (constant for the whole group).
             soil_code = await self._formation_soil_code(source_litho_fid)
             admixtures = await self._formation_admixtures(source_litho_fid)
 
@@ -389,7 +473,6 @@ class SubdivideAllBodies(GroundModelLogger):
             for seg in cpt_segs:
                 series = cpt_series.get(UUID(seg.investigation_id))
                 if series is None:
-                    # CPT without a loaded series — treat as no-splits.
                     profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=[]))
                     continue
                 if soil_code is None or soil_code not in BASE_LITHOLOGIES:
@@ -423,7 +506,7 @@ class SubdivideAllBodies(GroundModelLogger):
                 f"classes={plan.band_classes}"
             )
 
-            # Build a per-column plan: split depths for each investigation.
+            # Build a per-column plan for all segments (CPT + borehole).
             column_plans = self._build_column_plans(
                 group_segs=group_segs,
                 anchor_kind=anchor_kind,
@@ -433,10 +516,6 @@ class SubdivideAllBodies(GroundModelLogger):
                 total_depths=total_depths,
             )
 
-            # Materialise litho_layer rows per column × band position.
-            # Accumulate (depth_top_m, depth_base_m, geotech_layer_id) tuples
-            # per investigation so the post-loop edge pass can map litho layer
-            # depths to geotech sub-layer ids.
             for col_plan in column_plans:
                 if not col_plan.sub_intervals:
                     continue
@@ -448,53 +527,136 @@ class SubdivideAllBodies(GroundModelLogger):
                 else:
                     anchor_kwargs = {"cpt_id": inv_uuid}
 
-                for k, (top_m, base_m) in enumerate(col_plan.sub_intervals):
-                    nad_class = plan.band_classes[k]
-                    formation = await self._find_or_create_formation(
-                        project_id=project_id,
-                        classified_by_key=classified_by_key,
-                        skeleton_by_key=skeleton_by_key,
-                        created_formation_ids=created_formation_ids,
-                        nad_class=nad_class,
-                        source_litho_formation_id=source_litho_fid,
-                        source_geo_formation_id=source_geo_fid,
-                    )
+                # Look up xy for this investigation (needed for borehole
+                # extrapolation and for CPT registry).
+                inv_seg = next((s for s in group_segs if s.investigation_id == inv_id), None)
+                inv_x = inv_seg.x_m if inv_seg else 0.0
+                inv_y = inv_seg.y_m if inv_seg else 0.0
 
-                    layer = LithoLayerOrm(
-                        id=uuid7(),
-                        model_id=geotech_model.id,
-                        formation_id=formation.id,
-                        depth_top_m=top_m,
-                        depth_base_m=base_m,
-                        status="accepted",
-                        source="segmenter",
-                        confidence="medium",
-                        **anchor_kwargs,
-                    )
-                    self._session.add(layer)
-                    geotech_layer_by_inv_depth[inv_id].append(
-                        (top_m, base_m, layer.id, formation.id)
-                    )
-                    total_layers += 1
+                for k, (top_m, base_m) in enumerate(col_plan.sub_intervals):
+                    is_borehole = col_plan.anchor_kind == "borehole"
+
+                    if is_borehole and not cpt_segs:
+                        # Borehole-only group: materialise with a skeleton
+                        # formation; queue for Phase 8b extrapolation.
+                        formation = await self._find_or_create_skeleton(
+                            project_id=project_id,
+                            skeleton_by_key=skeleton_by_key,
+                            source_litho_formation_id=source_litho_fid,
+                            source_geo_formation_id=source_geo_fid,
+                        )
+                        layer = LithoLayerOrm(
+                            id=uuid7(),
+                            model_id=geotech_model.id,
+                            formation_id=formation.id,
+                            depth_top_m=top_m,
+                            depth_base_m=base_m,
+                            status="accepted",
+                            source="segmenter",
+                            confidence="medium",
+                            **anchor_kwargs,
+                        )
+                        self._session.add(layer)
+                        geotech_layer_by_inv_depth[inv_id].append(
+                            (top_m, base_m, layer.id, formation.id)
+                        )
+                        total_layers += 1
+                        pending_borehole_sub_bodies.append(
+                            _PendingBoreholeSubBody(
+                                investigation_id=inv_id,
+                                x_m=inv_x,
+                                y_m=inv_y,
+                                top_m=top_m,
+                                base_m=base_m,
+                                litho_soil_code=soil_code,
+                                source_litho_formation_id=source_litho_fid,
+                                source_geo_formation_id=source_geo_fid,
+                                layer_id=layer.id,
+                            )
+                        )
+                    else:
+                        nad_class = plan.band_classes[k]
+                        formation = await self._find_or_create_formation(
+                            project_id=project_id,
+                            classified_by_key=classified_by_key,
+                            skeleton_by_key=skeleton_by_key,
+                            created_formation_ids=created_formation_ids,
+                            nad_class=nad_class,
+                            source_litho_formation_id=source_litho_fid,
+                            source_geo_formation_id=source_geo_fid,
+                        )
+                        layer = LithoLayerOrm(
+                            id=uuid7(),
+                            model_id=geotech_model.id,
+                            formation_id=formation.id,
+                            depth_top_m=top_m,
+                            depth_base_m=base_m,
+                            status="accepted",
+                            source="segmenter",
+                            confidence="medium",
+                            **anchor_kwargs,
+                        )
+                        self._session.add(layer)
+                        geotech_layer_by_inv_depth[inv_id].append(
+                            (top_m, base_m, layer.id, formation.id)
+                        )
+                        total_layers += 1
+
+                        # Register CPT sub-bodies for borehole extrapolation.
+                        if col_plan.anchor_kind == "cpt" and nad_class is not None:
+                            cpt_classified_sub_bodies.append(
+                                (soil_code, inv_x, inv_y, nad_class, top_m, base_m)
+                            )
 
             await self._session.flush()
 
-        # Phase 9b — derive geotech edges from the full approved litho edge set
-        # via depth-overlap mapping.  This runs AFTER all groups have been
-        # materialised so every geotech sub-layer id is known.
-        await self._derive_geotech_edges_from_litho(
+        # Phase 8b — borehole extrapolation: resolve pending borehole sub-bodies
+        # by nearest-CPT same-lithology lookup.
+        extrapolated_borehole_count = await self._extrapolate_borehole_sub_bodies(
+            project_id=project_id,
+            pending=pending_borehole_sub_bodies,
+            cpt_classified_sub_bodies=cpt_classified_sub_bodies,
+            classified_by_key=classified_by_key,
+            created_formation_ids=created_formation_ids,
             geotech_model_id=geotech_model.id,
-            section_id=section_id,
-            litho_approved_edges=litho_approved_edges,
-            litho_layer_depths=litho_layer_depths,
             geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
         )
 
-        # Phase 10 — run resolver: creates BodyOrm + stamps litho_layer.body_id.
+        # Phase 9 — load all project sections; derive geotech edges per section.
+        sections = await self._load_project_sections(project_id)
+        self.info(
+            f"SubdivideAllBodies: deriving edges for {len(sections)} section(s) "
+            f"[{time.monotonic() - t0:.1f}s]"
+        )
+
+        # Build the model-wide litho layer depth index once (all accepted litho
+        # layers across all investigations — no section restriction).
+        litho_layer_depths = await self._load_litho_layer_depths(litho_model_id, None)
+        self.debug(
+            f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
+        )
+
+        for section in sections:
+            litho_approved_edges = await self._load_approved_litho_edges(litho_model_id, section.id)
+            if not litho_approved_edges:
+                continue
+            self.debug(
+                f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
+                f"{len(litho_approved_edges)} approved litho edge(s)"
+            )
+            await self._derive_geotech_edges_from_litho(
+                geotech_model_id=geotech_model.id,
+                section_id=section.id,
+                litho_approved_edges=litho_approved_edges,
+                litho_layer_depths=litho_layer_depths,
+                geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+            )
+
+        # Phase 10 — run resolver model-wide: creates BodyOrm + stamps
+        # litho_layer.body_id.
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model.id, commit=False)
 
-        # Count bodies created for the geotech model.
-        body_count = (
+        body_count = len(
             (
                 await self._session.execute(
                     select(BodyOrm).where(BodyOrm.model_id == geotech_model.id)
@@ -507,108 +669,76 @@ class SubdivideAllBodies(GroundModelLogger):
         # Phase 11 — single commit.
         await self._session.commit()
 
+        elapsed = time.monotonic() - t0
         result = SubdivideAllBodiesResult(
             geotech_model_id=geotech_model.id,
             created_formation_ids=created_formation_ids,
             layer_count=total_layers,
-            body_count=len(body_count),
+            body_count=body_count,
             split_body_count=split_body_count,
             one_class_body_count=one_class_body_count,
             borehole_only_count=borehole_only_count,
+            extrapolated_borehole_count=extrapolated_borehole_count,
+            section_count=len(sections),
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
-            f"layers={total_layers} bodies={result.body_count} "
+            f"layers={total_layers} bodies={body_count} "
             f"split={split_body_count} one_class={one_class_body_count} "
-            f"borehole_only={borehole_only_count}"
+            f"borehole_only={borehole_only_count} extrapolated={extrapolated_borehole_count} "
+            f"sections={len(sections)} elapsed={elapsed:.1f}s"
         )
         return result
 
     # ------------------------------------------------------------------
-    # Phase 4 — idempotent reset
+    # Phase 4 — model-wide idempotent reset
     # ------------------------------------------------------------------
 
-    async def _delete_prior_geotech_data(
-        self, geotech_model_id: UUID, corridor_ids: list[UUID]
-    ) -> None:
-        """Delete prior geotech layers, edges, and bodies for the corridor.
+    async def _delete_all_geotech_data(self, geotech_model_id: UUID) -> None:
+        """Delete ALL prior geotech layers, edges, FC rows, and bodies for the model.
 
-        Order: edges first (FK to litho_layer CASCADE prevents reverse order),
-        then layers (LL→FC trigger deletes their FC mirrors), then bodies.
+        Scoped to the entire geotech model (not a corridor subset), so that
+        re-running the model-wide subdivide always starts from a clean state.
+        Order: edges → layers (LL→FC trigger cleans their FC mirrors) →
+        direct FC rows written by C1 → bodies.
 
         Parameters
         ----------
         geotech_model_id : UUID
-            The geotechnical model to clean up.
-        corridor_ids : list[UUID]
-            In-corridor investigation ids scoping the delete.
+            The geotechnical model to wipe clean.
         """
-        if not corridor_ids:
-            return
-
-        # 1. Delete correlation edges for the geotech model on this section.
-        # Edges are model-scoped but their endpoints (contact_a_id/contact_b_id)
-        # reference litho_layer.id rows for the geotech model — delete all edges
-        # for the model so a re-run starts fresh.  Section-scope is implicit
-        # (edges can only be authored on the section they came from, and we're
-        # operating section-by-section).
-        geotech_layer_ids = (
-            (
-                await self._session.execute(
-                    select(LithoLayerOrm.id).where(
-                        LithoLayerOrm.model_id == geotech_model_id,
-                        LithoLayerOrm.borehole_id.in_(corridor_ids)
-                        | LithoLayerOrm.cpt_id.in_(corridor_ids),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if geotech_layer_ids:
-            await self._session.execute(
-                delete(LithoContactCorrelationEdgeOrm).where(
-                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                    LithoContactCorrelationEdgeOrm.contact_a_id.in_(geotech_layer_ids)
-                    | LithoContactCorrelationEdgeOrm.contact_b_id.in_(geotech_layer_ids),
-                )
-            )
-
-        # 2. Delete layers (LL→FC trigger cleans up the FC mirrors).
+        # 1. Delete all correlation edges for the geotech model.
         await self._session.execute(
-            delete(LithoLayerOrm).where(
-                LithoLayerOrm.model_id == geotech_model_id,
-                LithoLayerOrm.borehole_id.in_(corridor_ids)
-                | LithoLayerOrm.cpt_id.in_(corridor_ids),
+            delete(LithoContactCorrelationEdgeOrm).where(
+                LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
             )
         )
 
-        # 2b. Delete any remaining FormationContact rows for the geotech model
-        # in the corridor.  BuildGeotechModelFromLitho (C1) writes FC rows
-        # DIRECTLY (not via the LL→FC trigger), so the trigger-based cleanup in
-        # step 2 does not remove them.  Without this step a subsequent SAB run
-        # on the same section fires the LL→FC trigger which tries to INSERT the
-        # same FC row → uq_formation_contact_model_formation_borehole_depth
-        # violation.  Deleting all corridor FC rows here is safe: SAB does not
-        # use C1's skeleton FC rows at all — it writes its own via the trigger.
+        # 2. Delete all litho_layer rows (LL→FC trigger removes their FC mirrors).
+        await self._session.execute(
+            delete(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
+        )
+
+        # 2b. Delete any remaining FormationContact rows for the geotech model.
+        # BuildGeotechModelFromLitho (C1) writes FC rows DIRECTLY (not via the
+        # LL→FC trigger), so step 2's trigger-based cleanup does not remove them.
+        # Without this step a subsequent SAB run fires the LL→FC trigger which
+        # tries to INSERT the same FC row again →
+        # uq_formation_contact_model_formation_borehole_depth violation.
         await self._session.execute(
             delete(FormationContactOrm).where(
                 FormationContactOrm.model_id == geotech_model_id,
-                FormationContactOrm.borehole_id.in_(corridor_ids)
-                | FormationContactOrm.cpt_id.in_(corridor_ids),
             )
         )
 
-        # 3. Delete BodyOrm rows for the geotech model.  After the layer delete
-        # the resolver will recreate them; the bodies from the previous run must
-        # be cleared first so we don't violate the (model, formation, ordinal)
-        # uniqueness when the resolver tries to create the same key again.
+        # 3. Delete all BodyOrm rows for the geotech model.  The resolver
+        # recreates them; the bodies from the previous run must be cleared so we
+        # don't violate (model, formation, ordinal) uniqueness on re-run.
         await self._session.execute(delete(BodyOrm).where(BodyOrm.model_id == geotech_model_id))
 
         await self._session.flush()
         self.debug(
-            f"_delete_prior_geotech_data: cleared prior geotech data "
-            f"for {len(corridor_ids)} corridor investigation(s)"
+            f"_delete_all_geotech_data: cleared all geotech data for model {geotech_model_id}"
         )
 
     # ------------------------------------------------------------------
@@ -621,11 +751,6 @@ class SubdivideAllBodies(GroundModelLogger):
         geo_surfaces: list[_GeoSurface],
     ) -> dict[tuple[str, UUID | None], list[BodyLayerPick]]:
         """Group geo-bounded segments by ``(body_id, source_geo_formation_id)``.
-
-        The body_id is already stamped on each pick (from the litho model's
-        resolver run in Phase 1).  The source_geo_formation_id is derived by
-        evaluating which geological band each segment sits within — the same
-        ``_geo_formation_at_midpoint`` rule C1 uses.
 
         Parameters
         ----------
@@ -669,9 +794,7 @@ class SubdivideAllBodies(GroundModelLogger):
         Parameters
         ----------
         group_segs : list[BodyLayerPick]
-            All geo-bounded segment picks for the group (one per column in
-            the group — some columns may have multiple picks if the body
-            spans multiple geo bands, but those produce separate groups).
+            All geo-bounded segment picks for the group.
         anchor_kind : dict[str, str]
             ``investigation_id (str) -> "borehole" | "cpt"``.
         plan : BodySubdivisionPlan
@@ -693,7 +816,6 @@ class SubdivideAllBodies(GroundModelLogger):
         col_plans: list[_ColumnPlan] = []
 
         if n == 1:
-            # One band — each column spans its full geo-bounded extent.
             for seg in group_segs:
                 col_plans.append(
                     _ColumnPlan(
@@ -706,9 +828,7 @@ class SubdivideAllBodies(GroundModelLogger):
                 )
             return col_plans
 
-        # Multi-band — interpolate split elevations for each interior boundary
-        # (positions 1..n-1).  The elevation of the split at position k on CPT i
-        # is: surface_elev_m - splits[k].depth_top_m.
+        # Multi-band — interpolate split elevations for each interior boundary.
         all_columns = [
             ColumnXY(
                 investigation_id=seg.investigation_id,
@@ -718,13 +838,9 @@ class SubdivideAllBodies(GroundModelLogger):
             for seg in group_segs
         ]
 
-        # Build depth→elevation split maps per column by interpolating each
-        # interior boundary.
-        # split_depth_by_inv[inv_id][k] = depth_m of split at position k
         split_depth_by_inv: dict[str, dict[int, float]] = defaultdict(dict)
 
         for k in range(1, n):
-            # Collect CPT control points that read at least k splits.
             cpt_points: list[ColumnXY] = []
             cpt_elevations: list[float] = []
             for seg in group_segs:
@@ -732,7 +848,6 @@ class SubdivideAllBodies(GroundModelLogger):
                 if profile is None or len(profile.splits) < k:
                     continue
                 split = profile.splits[k - 1]
-                # The k-th split interior boundary is the TOP of band k.
                 transition_elevation = seg.surface_elev_m - split.depth_base_m
                 cpt_points.append(
                     ColumnXY(
@@ -744,8 +859,6 @@ class SubdivideAllBodies(GroundModelLogger):
                 cpt_elevations.append(transition_elevation)
 
             if not cpt_points:
-                # No CPT data for this position — fall back to evenly dividing
-                # the geo-bounded extent on each column.
                 for seg in group_segs:
                     thickness = seg.base_depth_m - seg.top_depth_m
                     frac_depth = seg.top_depth_m + thickness * (k / n)
@@ -764,15 +877,12 @@ class SubdivideAllBodies(GroundModelLogger):
                 split_depth = seg.surface_elev_m - elev
                 split_depth_by_inv[seg.investigation_id][k] = split_depth
 
-        # Assemble sub_intervals per column.
         for seg in group_segs:
             geo_top = seg.top_depth_m
             geo_base = seg.base_depth_m
             if geo_base <= geo_top:
-                # Zero-thickness segment — skip.
                 continue
 
-            # Build ordered split depths within [geo_top, geo_base].
             raw_splits: list[float] = []
             for k in range(1, n):
                 d = split_depth_by_inv[seg.investigation_id].get(k)
@@ -780,20 +890,15 @@ class SubdivideAllBodies(GroundModelLogger):
                     raw_splits.append(d)
             raw_splits.sort()
 
-            # Clamp and deduplicate: each split must be strictly inside the
-            # geo-bounded extent.  Splits outside or equal to boundaries are
-            # dropped so the tiling always covers [geo_top, geo_base] exactly.
             valid_splits: list[float] = [d for d in raw_splits if geo_top < d < geo_base]
 
-            # Build sub-intervals from the boundary list.
             boundaries = [geo_top] + valid_splits + [geo_base]
             sub_intervals = [
                 (boundaries[i], boundaries[i + 1])
                 for i in range(len(boundaries) - 1)
-                if boundaries[i + 1] - boundaries[i] > 1e-6  # skip degenerate
+                if boundaries[i + 1] - boundaries[i] > 1e-6
             ]
             if not sub_intervals:
-                # All splits landed outside the extent — fall back to one band.
                 sub_intervals = [(geo_top, geo_base)]
 
             col_plans.append(
@@ -809,7 +914,134 @@ class SubdivideAllBodies(GroundModelLogger):
         return col_plans
 
     # ------------------------------------------------------------------
-    # Phase 9b — edge derivation via depth-overlap mapping (TRAP 1 guard)
+    # Phase 8b — borehole extrapolation
+    # ------------------------------------------------------------------
+
+    async def _extrapolate_borehole_sub_bodies(
+        self,
+        *,
+        project_id: UUID,
+        pending: list[_PendingBoreholeSubBody],
+        cpt_classified_sub_bodies: list[tuple[str | None, float, float, int, float, float]],
+        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
+        created_formation_ids: list[UUID],
+        geotech_model_id: UUID,
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]],
+    ) -> int:
+        """Resolve borehole-only sub-bodies via nearest-CPT extrapolation.
+
+        For each pending borehole sub-body:
+        1. Find same-lithology CPT sub-bodies that overlap the borehole's depth
+           range (``top_a < base_b AND top_b < base_a``).
+        2. Among those, pick the nearest by map-plane xy distance.
+        3. Assign its ``nad_class`` and update the layer's ``formation_id``.
+        4. If no same-lithology candidate: try any-lithology at that depth.
+        5. If no CPT candidates at all: keep the skeleton (nad_class=None).
+
+        Updates the ``LithoLayerOrm`` row's ``formation_id`` in place (an
+        UPDATE via the SQLAlchemy ORM) and updates ``geotech_layer_by_inv_depth``
+        so the post-materialisation edge pass sees the correct formation_id.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project.
+        pending : list[_PendingBoreholeSubBody]
+            Borehole sub-bodies to resolve.
+        cpt_classified_sub_bodies : list
+            ``(soil_code, x_m, y_m, nad_class, top_m, base_m)`` tuples for all
+            classified CPT sub-bodies in the model.
+        classified_by_key : dict
+            In-memory find-or-create cache for classified formations (mutated).
+        created_formation_ids : list[UUID]
+            Accumulator of created formation ids (mutated).
+        geotech_model_id : UUID
+            The geotech model id (for logging only).
+        geotech_layer_by_inv_depth : dict
+            Per-investigation depth→layer-id map (mutated: formation_id updated).
+
+        Returns
+        -------
+        int
+            Number of borehole sub-bodies successfully extrapolated (got a
+            real nad_class from a CPT, not the last-resort None).
+        """
+        if not pending:
+            return 0
+
+        extrapolated = 0
+
+        for pb in pending:
+            # Candidates: CPT sub-bodies whose depth range overlaps [top_m, base_m].
+            overlapping = [
+                (sc, x, y, nad, t, b)
+                for (sc, x, y, nad, t, b) in cpt_classified_sub_bodies
+                if t < pb.base_m and b > pb.top_m
+            ]
+
+            # Prefer same-lithology candidates.
+            same_litho = [c for c in overlapping if c[0] == pb.litho_soil_code]
+            candidates = same_litho if same_litho else overlapping
+
+            if candidates:
+                # Nearest by map-plane xy distance.
+                def _dist(c: tuple) -> float:
+                    dx = c[1] - pb.x_m
+                    dy = c[2] - pb.y_m
+                    return math.hypot(dx, dy)
+
+                best = min(candidates, key=_dist)
+                _, best_x, best_y, nad_class, _, _ = best
+                dist_m = _dist(best)
+                matched_litho = best[0]
+
+                formation = await self._find_or_create_classified(
+                    project_id=project_id,
+                    classified_by_key=classified_by_key,
+                    created_formation_ids=created_formation_ids,
+                    nad_class=nad_class,
+                    source_litho_formation_id=pb.source_litho_formation_id,
+                    source_geo_formation_id=pb.source_geo_formation_id,
+                )
+
+                # Update the existing layer row in-place.
+                layer_row = await self._session.get(LithoLayerOrm, pb.layer_id)
+                if layer_row is not None:
+                    layer_row.formation_id = formation.id
+
+                # Update the in-memory depth index so the edge pass sees the
+                # correct formation_id for this layer.
+                inv_entries = geotech_layer_by_inv_depth.get(pb.investigation_id, [])
+                geotech_layer_by_inv_depth[pb.investigation_id] = [
+                    (t, b, lid, formation.id) if lid == pb.layer_id else (t, b, lid, fid)
+                    for (t, b, lid, fid) in inv_entries
+                ]
+
+                self.debug(
+                    f"_extrapolate_borehole_sub_bodies: borehole={pb.investigation_id} "
+                    f"depth=[{pb.top_m:.2f},{pb.base_m:.2f}] "
+                    f"→ nad_class={nad_class} from nearest CPT "
+                    f"(dist={dist_m:.0f} m, soil={matched_litho!r}, "
+                    f"same_litho={bool(same_litho)})"
+                )
+                extrapolated += 1
+            else:
+                # No CPT candidates anywhere — keep the skeleton (nad_class=None).
+                self.debug(
+                    f"_extrapolate_borehole_sub_bodies: borehole={pb.investigation_id} "
+                    f"depth=[{pb.top_m:.2f},{pb.base_m:.2f}] "
+                    f"→ no CPT candidates, keeping nad_class=None (last resort)"
+                )
+
+        await self._session.flush()
+        self.info(
+            f"_extrapolate_borehole_sub_bodies: {extrapolated}/{len(pending)} "
+            f"borehole sub-bodies extrapolated from nearest CPT"
+        )
+        return extrapolated
+
+    # ------------------------------------------------------------------
+    # Phase 9 — edge derivation via depth-overlap mapping (TRAP 1 guard)
     # ------------------------------------------------------------------
 
     async def _derive_geotech_edges_from_litho(
@@ -833,51 +1065,32 @@ class SubdivideAllBodies(GroundModelLogger):
            after a geo-band divide).
         3. Emit a geotech edge between those two geotech sub-layers ONLY when
            they share the same ``formation_id`` (same NAD class / same packing
-           band).  This is the TRAP 1 / SAB-7 same-class guard: a litho edge
-           that crosses a geo-band boundary lands the two investigations in
-           different body groups → different geotech formations → blocked here.
-           Canonical ``a < b`` ordering; dedup on layer-pair.
-
-        This produces ~1 geotech edge per litho edge (with dedup when multiple
-        litho layers collapse to the same geotech sub-layer pair), faithfully
-        inheriting the litho body's connectivity without cross-class edges.
-
-        TRAP 1 / SAB-7 correctness proof: within one body group (same
-        ``body_id`` + ``source_geo_formation_id``), all investigations receive
-        the same B-policy ``plan.band_classes``, so same-depth geotech
-        sub-layers on different investigations always share the same
-        ``formation_id``.  A litho edge that crosses a geo-band boundary maps
-        to sub-layers in DIFFERENT body groups, which have DIFFERENT
-        ``formation_id`` values even at the same depth → filtered out by the
-        same-formation check.
+           band).  This is the TRAP 1 / SAB-7 same-class guard.
+           Canonical ``a < b`` ordering; dedup on layer-pair within this section.
 
         Parameters
         ----------
         geotech_model_id : UUID
             The geotech model id for the edge rows.
         section_id : UUID
-            Section id (NOT NULL on ``litho_contact_correlation_edge``).
+            Section id tagged on each emitted edge row.
         litho_approved_edges : set[tuple[UUID, UUID]]
-            Canonical ``(min_id, max_id)`` pairs of approved litho edges.
+            Canonical ``(min_id, max_id)`` pairs of approved litho edges for
+            this section.
         litho_layer_depths : dict[UUID, tuple[str, float, float]]
             ``litho_layer_id → (investigation_id_str, depth_top_m, depth_base_m)``
-            for every accepted litho layer in the corridor.
+            for every accepted litho layer in the model.
         geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID]]]
             ``investigation_id_str →
             [(depth_top_m, depth_base_m, geotech_layer_id, geotech_formation_id)]``
             accumulated during materialisation (all geotech sub-layers, any order).
         """
-        # Sort each investigation's geotech layers by depth_top_m once so the
-        # depth lookup is a fast linear scan (most investigations have 1–3
-        # sub-layers after subdivision).
         sorted_geotech: dict[str, list[tuple[float, float, UUID, UUID]]] = {
             inv_id: sorted(intervals, key=lambda t: t[0])
             for inv_id, intervals in geotech_layer_by_inv_depth.items()
         }
 
-        # 1 mm tolerance: a geo-band divide can place a geotech layer's top at
-        # the same floating-point value as the litho layer's depth_top_m minus
-        # tiny rounding noise.
+        # 1 mm tolerance for geo-band divide floating-point noise.
         _DEPTH_TOL_M = 0.001
 
         seen_layer_pairs: set[tuple[UUID, UUID]] = set()
@@ -890,7 +1103,7 @@ class SubdivideAllBodies(GroundModelLogger):
             entry_a = litho_layer_depths.get(litho_a_id)
             entry_b = litho_layer_depths.get(litho_b_id)
             if entry_a is None or entry_b is None:
-                # One or both endpoints are not in the corridor — skip.
+                # One or both endpoints are not in the model — skip.
                 skipped_no_litho_depth += 1
                 continue
 
@@ -905,8 +1118,6 @@ class SubdivideAllBodies(GroundModelLogger):
             )
 
             if result_a is None or result_b is None:
-                # The litho layer's depth is outside the materialised geotech
-                # range for that investigation (e.g. excluded from subdivision).
                 skipped_no_geotech_layer += 1
                 self.debug(
                     f"_derive_geotech_edges_from_litho: no geotech layer for "
@@ -920,18 +1131,10 @@ class SubdivideAllBodies(GroundModelLogger):
             geotech_b_id, formation_b_id = result_b
 
             if geotech_a_id == geotech_b_id:
-                # Same layer — would violate the contact_a_id != contact_b_id
-                # CHECK constraint.  Can only happen if both endpoints map to the
-                # same investigation, which would be an intra-investigation edge
-                # (forbidden by the litho schema) — skip defensively.
+                # Same layer — intra-investigation edge (forbidden); skip.
                 continue
 
             # TRAP 1 / SAB-7 guard: only connect same-formation sub-layers.
-            # A cross-formation edge would bridge two DIFFERENT packing-class
-            # sub-bodies, causing the resolver to merge them into one body.
-            # Litho edges that cross geo-band boundaries land their endpoints in
-            # different body groups (different source_geo_formation_id) whose
-            # geotech sub-layers have different formation_ids — filtered here.
             if formation_a_id != formation_b_id:
                 skipped_cross_formation += 1
                 continue
@@ -961,7 +1164,7 @@ class SubdivideAllBodies(GroundModelLogger):
 
         await self._session.flush()
         self.info(
-            f"_derive_geotech_edges_from_litho: "
+            f"_derive_geotech_edges_from_litho: section={section_id} "
             f"{edge_count} geotech edge(s) derived from "
             f"{len(litho_approved_edges)} litho edge(s) "
             f"(skipped_no_depth={skipped_no_litho_depth}, "
@@ -980,11 +1183,6 @@ class SubdivideAllBodies(GroundModelLogger):
         Scans ``sorted_intervals`` (sorted by ``depth_top_m``) for the first
         interval ``[top, base)`` that contains the query depth.  A depth is
         considered contained when ``top - tol_m <= depth_top_m < base + tol_m``.
-        Returns ``(geotech_layer_id, geotech_formation_id)``, or ``None``.
-
-        The tolerance handles floating-point noise introduced by the geo-band
-        divide pass (a segment top may be a few ULP away from the litho layer
-        top that it was derived from).
 
         Parameters
         ----------
@@ -999,8 +1197,7 @@ class SubdivideAllBodies(GroundModelLogger):
         Returns
         -------
         tuple[UUID, UUID] | None
-            ``(geotech_layer_id, geotech_formation_id)``, or ``None`` when not
-            found.
+            ``(geotech_layer_id, geotech_formation_id)``, or ``None``.
         """
         for top, base, layer_id, formation_id in sorted_intervals:
             if top - tol_m <= depth_top_m < base + tol_m:
@@ -1008,7 +1205,7 @@ class SubdivideAllBodies(GroundModelLogger):
         return None
 
     # ------------------------------------------------------------------
-    # Formation find-or-create (delegates to C2b's pattern)
+    # Formation find-or-create
     # ------------------------------------------------------------------
 
     async def _find_or_create_formation(
@@ -1038,7 +1235,7 @@ class SubdivideAllBodies(GroundModelLogger):
         created_formation_ids : list[UUID]
             Accumulator of classified formation ids created (mutated).
         nad_class : int | None
-            NAD packing class, or ``None`` for a borehole carry-through.
+            NAD packing class, or ``None`` for a skeleton carry-through.
         source_litho_formation_id : UUID
             The litho formation this geotech unit subdivides.
         source_geo_formation_id : UUID | None
@@ -1173,9 +1370,11 @@ class SubdivideAllBodies(GroundModelLogger):
         source_litho_formation_id: UUID,
         source_geo_formation_id: UUID | None,
     ) -> GeologicalFormationOrm:
-        """Find-or-create a skeleton (``nad_class=None``) formation for a carry-through.
+        """Find-or-create a skeleton (``nad_class=None``) formation.
 
-        Used for borehole-only sub-bodies that cannot be NAD-classified.
+        Used for borehole-only sub-bodies temporarily before Phase 8b
+        extrapolation, and as a last resort when no CPT data exists in the
+        model at all.
 
         Parameters
         ----------
@@ -1254,6 +1453,32 @@ class SubdivideAllBodies(GroundModelLogger):
     # DB helpers
     # ------------------------------------------------------------------
 
+    async def _load_project_sections(self, project_id: UUID) -> list[CrossSectionOrm]:
+        """Load all cross-sections for the project, ordered by display_order.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project.
+
+        Returns
+        -------
+        list[CrossSectionOrm]
+            All project sections, ordered by display_order then name.
+        """
+        rows = (
+            (
+                await self._session.execute(
+                    select(CrossSectionOrm)
+                    .where(CrossSectionOrm.app_project_id == project_id)
+                    .order_by(CrossSectionOrm.display_order, CrossSectionOrm.name)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
     async def _resolve_anchor_kinds(self, investigation_ids: set[UUID]) -> dict[str, str]:
         """Classify each investigation id as ``"borehole"`` or ``"cpt"``.
 
@@ -1311,12 +1536,12 @@ class SubdivideAllBodies(GroundModelLogger):
         return {s.cpt_id: s for s in rows}
 
     async def _load_total_depths(self, investigation_ids: set[UUID]) -> dict[UUID, float]:
-        """Load total depth for each in-corridor investigation.
+        """Load total depth for each investigation.
 
         Parameters
         ----------
         investigation_ids : set[UUID]
-            In-corridor investigation UUIDs.
+            Investigation UUIDs.
 
         Returns
         -------
@@ -1345,44 +1570,44 @@ class SubdivideAllBodies(GroundModelLogger):
         return total_depths
 
     async def _load_litho_layer_depths(
-        self, litho_model_id: UUID, investigation_ids: set[UUID]
+        self,
+        litho_model_id: UUID,
+        investigation_ids: set[UUID] | None,
     ) -> dict[UUID, tuple[str, float, float]]:
-        """Load top and base depths for accepted litho layers in the corridor.
+        """Load top and base depths for accepted litho layers in the model.
 
-        Used by ``_derive_geotech_edges_from_litho`` to map each litho edge
-        endpoint to the correct geotech sub-layer via depth overlap.
+        When ``investigation_ids`` is ``None``, loads all accepted litho layers
+        for the model (model-wide, no investigation restriction).
 
         Parameters
         ----------
         litho_model_id : UUID
             The litho model to query.
-        investigation_ids : set[UUID]
-            In-corridor investigation ids to restrict to.
+        investigation_ids : set[UUID] | None
+            Investigation ids to restrict to, or ``None`` for all.
 
         Returns
         -------
         dict[UUID, tuple[str, float, float]]
             ``litho_layer_id → (investigation_id_str, depth_top_m, depth_base_m)``
-            for every accepted litho layer on any in-corridor investigation.
+            for every accepted litho layer.
         """
-        if not investigation_ids:
-            return {}
-        rows = (
-            await self._session.execute(
-                select(
-                    LithoLayerOrm.id,
-                    LithoLayerOrm.borehole_id,
-                    LithoLayerOrm.cpt_id,
-                    LithoLayerOrm.depth_top_m,
-                    LithoLayerOrm.depth_base_m,
-                ).where(
-                    LithoLayerOrm.model_id == litho_model_id,
-                    LithoLayerOrm.status == "accepted",
-                    LithoLayerOrm.borehole_id.in_(investigation_ids)
-                    | LithoLayerOrm.cpt_id.in_(investigation_ids),
-                )
+        stmt = select(
+            LithoLayerOrm.id,
+            LithoLayerOrm.borehole_id,
+            LithoLayerOrm.cpt_id,
+            LithoLayerOrm.depth_top_m,
+            LithoLayerOrm.depth_base_m,
+        ).where(
+            LithoLayerOrm.model_id == litho_model_id,
+            LithoLayerOrm.status == "accepted",
+        )
+        if investigation_ids is not None:
+            stmt = stmt.where(
+                LithoLayerOrm.borehole_id.in_(investigation_ids)
+                | LithoLayerOrm.cpt_id.in_(investigation_ids)
             )
-        ).all()
+        rows = (await self._session.execute(stmt)).all()
         result: dict[UUID, tuple[str, float, float]] = {}
         for r in rows:
             inv_id = str(r.borehole_id if r.borehole_id is not None else r.cpt_id)
@@ -1392,12 +1617,7 @@ class SubdivideAllBodies(GroundModelLogger):
     async def _load_approved_litho_edges(
         self, litho_model_id: UUID, section_id: UUID
     ) -> set[tuple[UUID, UUID]]:
-        """Load approved litho edges for the section as canonical pairs.
-
-        Returns the set of ``(min_id, max_id)`` canonical pairs from the
-        litho model's ``litho_contact_correlation_edge`` rows (user_approved,
-        section-scoped).  These pairs are used to derive which investigation
-        pairs are correlated in the litho model.
+        """Load approved litho edges for one section as canonical pairs.
 
         Parameters
         ----------
@@ -1423,14 +1643,10 @@ class SubdivideAllBodies(GroundModelLogger):
                 )
             )
         ).all()
-        # Edges already store canonical (a < b) order, but re-canonicalise for
-        # safety in case any legacy row slipped through without the CHECK guard.
         return {(min(a, b), max(a, b)) for a, b in rows}
 
     async def _read_min_thickness_m(self, project_id: UUID) -> float:
         """Read the project's ``minimum_layer_thickness_m`` from its view-state.
-
-        Mirrors ``SuggestGeotechSubdivision._read_min_thickness_m``.
 
         Parameters
         ----------
