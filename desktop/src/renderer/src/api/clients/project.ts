@@ -167,8 +167,14 @@ export const projectClient = {
   // Full project snapshot — metadata + every CPT (with series) +
   // every borehole (with its child tree). Embedded verbatim in the
   // .gmproj v4 file on save and round-tripped to /restore on open.
-  bundle: (id: string): Promise<ProjectBundleResponse> =>
-    get(`/projects/${id}/bundle`),
+  //
+  // ``includeSolids`` defaults to false: the .strix file never stores the
+  // cached 3-D litho meshes (``buildProjectFile`` drops them) and nothing
+  // here reads ``litho_solids`` from the bundle, so pulling ~10 MB of
+  // vertices/triangles on every save was wasted work that made saving slow.
+  // Pass ``true`` only if a future caller genuinely needs the meshes.
+  bundle: (id: string, includeSolids = false): Promise<ProjectBundleResponse> =>
+    get(`/projects/${id}/bundle?include_solids=${includeSolids}`),
 
   // Idempotently materialise a project + its CPTs + boreholes from a
   // bundle when the DB has lost the rows (wiped DB / fresh install).
