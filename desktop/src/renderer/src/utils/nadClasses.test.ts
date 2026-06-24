@@ -11,9 +11,6 @@ import { NAD_CLASS_NAMES, nadClassColor, nadClassName } from './nadClasses'
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
-// Sentinel returned when no class is assigned.
-const NO_QC_SENTINEL = 'No qc — manual class'
-
 // ---- class name ------------------------------------------------------------
 
 describe('nadClassName', () => {
@@ -41,12 +38,12 @@ describe('nadClassName', () => {
     expect(nadClassName(31)).toBe('VEEN, vast')
   })
 
-  it('null returns the no-qc sentinel', () => {
-    expect(nadClassName(null)).toBe(NO_QC_SENTINEL)
+  it('null returns empty string (degenerate — no CPTs for the lithology; no label renders)', () => {
+    expect(nadClassName(null)).toBe('')
   })
 
-  it('undefined returns the no-qc sentinel', () => {
-    expect(nadClassName(undefined)).toBe(NO_QC_SENTINEL)
+  it('undefined returns empty string (same degenerate path as null)', () => {
+    expect(nadClassName(undefined)).toBe('')
   })
 
   it('out-of-range class returns a safe fallback containing the number', () => {
