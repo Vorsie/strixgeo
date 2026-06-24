@@ -256,6 +256,37 @@ async def test_bundle_carries_litho_solids(
         assert payload["source_pick_checksum"] == src.source_pick_checksum.hex()
 
 
+async def test_bundle_omits_litho_solids_when_excluded(
+    db_session: AsyncSession, built_solid_scene: dict
+) -> None:
+    """``include_solids=False`` emits an empty ``litho_solids`` despite built rows.
+
+    Backs the File → Save fast-path: the .strix file never stores the meshes
+    and nothing in the client reads them from the bundle, so the desktop
+    fetches the bundle WITHOUT the ~10 MB of vertices/triangles. The key must
+    still be present (an empty list) so the response model + file builder see
+    a consistent shape.
+    """
+    project = built_solid_scene["project"]
+    litho = built_solid_scene["litho"]
+
+    db_rows = (
+        (
+            await db_session.execute(
+                select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == litho.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert db_rows, "Precondition: the scene must have built solids"
+
+    bundle = await build_project_bundle(db_session, project, include_solids=False)
+
+    assert "litho_solids" in bundle, "The key must still be present (consistent shape)"
+    assert bundle["litho_solids"] == [], "Excluded solids must serialise to an empty list"
+
+
 async def test_restore_recreates_litho_solids(
     db_session: AsyncSession, built_solid_scene: dict
 ) -> None:
