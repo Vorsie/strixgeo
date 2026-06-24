@@ -195,6 +195,7 @@ function makeStubContext(): ShellContextValue {
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
+      handleSubdivideAllBodies: noopAsync,
     },
     sections: {
       sections: [],

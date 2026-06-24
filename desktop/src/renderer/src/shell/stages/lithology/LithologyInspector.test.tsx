@@ -285,6 +285,8 @@ function makeCtx(overrides: {
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
+      // F4 — stub so the interface is satisfied; not exercised in litho tests.
+      handleSubdivideAllBodies: noopAsync,
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
       formations: overrides.formations ?? [],
