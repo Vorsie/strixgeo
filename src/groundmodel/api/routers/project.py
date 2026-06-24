@@ -197,6 +197,7 @@ async def unarchive_project(
 @router.get("/{project_id}/bundle", response_model=ProjectBundleResponse)
 async def get_project_bundle(
     project_id: UUID,
+    include_solids: bool = True,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, object]:
     """Return a complete snapshot of a project + every CPT and borehole.
@@ -205,13 +206,20 @@ async def get_project_bundle(
     verbatim in the .gmproj file and POSTed back to ``/restore`` if
     the DB ever loses the rows. UUIDs and dates serialise to strings;
     geometry is dropped (rebuilt from x/y/epsg on restore).
+
+    ``include_solids`` (default ``True``) controls whether the cached
+    ``litho_solids`` 3-D meshes ride along. The desktop File → Save passes
+    ``include_solids=false``: the .strix v3 file never stores the meshes
+    (``buildProjectFile`` drops the key) and nothing in the client reads
+    them from the bundle, so the ~10 MB of vertices/triangles was pure
+    over-the-wire waste that made every save slow.
     """
     repo = ProjectRepository(session)
     project = await repo.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     try:
-        return await build_project_bundle(session, project)
+        return await build_project_bundle(session, project, include_solids=include_solids)
     except BundleIntegrityError as err:
         # 422: the DB is self-inconsistent (layers reference formations
         # that no longer exist) so the bundle cannot be safely written.
