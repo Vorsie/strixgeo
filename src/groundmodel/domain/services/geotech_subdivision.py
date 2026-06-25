@@ -127,6 +127,15 @@ def suggest_geotech_subdivision(
     # float min thickness — no conversion needed.
     runs = _greedy_merge(runs, seg_depths, min_thickness_m)
 
+    # _greedy_merge can absorb a thin run that sat BETWEEN two runs of the same
+    # NAD class into one side, leaving two adjacent same-class runs (e.g.
+    # dense / [thin medium absorbed] / dense → dense / dense). Collapse those so
+    # each packing class renders as a single band. This runs PER geo-bounded
+    # litho segment (one suggest_geotech_subdivision call == one segment), so it
+    # can never merge across a geological or lithological boundary — those are
+    # separate segments / separate calls.
+    runs = _merge_adjacent_same_class(runs)
+
     # --- assemble GeotechSplit list ---------------------------------------
     splits: list[GeotechSplit] = []
     for i, (cls, start, end) in enumerate(runs):
@@ -139,3 +148,42 @@ def suggest_geotech_subdivision(
         splits.append(GeotechSplit(round(top, 3), round(base, 3), int(cls)))  # type: ignore[arg-type]
 
     return splits
+
+
+def _merge_adjacent_same_class(
+    runs: list[tuple[int | None, int, int]],
+) -> list[tuple[int | None, int, int]]:
+    """Collapse consecutive runs that share the same NAD class into one run.
+
+    ``_greedy_merge`` absorbs a thin run into a neighbour but never re-checks
+    whether that leaves two same-class runs adjacent (e.g. a thin *medium* band
+    between two *dense* bands is absorbed, yielding ``dense / dense``). This pass
+    welds such pairs so each packing class is one contiguous band.
+
+    Operates on a single geo-bounded litho segment's runs (one
+    :func:`suggest_geotech_subdivision` call), so it cannot weld across a
+    geological or lithological boundary — distinct segments are distinct calls.
+
+    Parameters
+    ----------
+    runs : list[tuple[int | None, int, int]]
+        RLE runs ``(nad_class, start_idx, end_idx_exclusive)`` after greedy
+        merge, ordered top-to-bottom.
+
+    Returns
+    -------
+    list[tuple[int | None, int, int]]
+        Runs with adjacent same-class runs welded; the index span of a welded
+        run covers ``(first.start, last.end)``.
+    """
+    if not runs:
+        return runs
+    merged: list[tuple[int | None, int, int]] = [runs[0]]
+    for cls, start, end in runs[1:]:
+        prev_cls, prev_start, _prev_end = merged[-1]
+        if cls == prev_cls:
+            # Weld: extend the previous run's exclusive end to this run's end.
+            merged[-1] = (prev_cls, prev_start, end)
+        else:
+            merged.append((cls, start, end))
+    return merged
