@@ -15,7 +15,7 @@ import type { ContactCopyPayload, SnapCandidate } from './ContactsLayer'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import type { PlacedColumn } from './utils'
-import { nadClassColor } from '../../utils/nadClasses'
+import { nadClassColor, nadClassName } from '../../utils/nadClasses'
 
 const flipped = (level: number): number => 20 - level
 
@@ -214,6 +214,46 @@ describe('ContactsLayer', () => {
     expect(band).not.toBeNull()
     expect(band?.getAttribute('fill')).toBe(nadClassColor(6))
     expect(band?.getAttribute('fill')).not.toBe('#fbbf24')
+  })
+
+  it('geotech band label uses the NAD packing name once a class is assigned', () => {
+    // Stored name is the lithology ("SAND"); after subdivision the band label
+    // must read the NAD packing class ("SAND, dense" for nad_class 7).
+    const geotechFormation = makeFormation({
+      id: 'f-nad7',
+      color: '#fbbf24',
+      nad_class: 7,
+      name: 'SAND',
+    })
+    const contacts = [
+      makeContact({ id: 'c-1', formation_id: 'f-nad7', borehole_id: 'bh-1', depth_top_m: 2 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [geotechFormation],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { perColumnBandsFromContacts: true, axisMode: 'geotechnical' },
+    )
+    const titles = [...container.querySelectorAll('title')].map(t => t.textContent)
+    expect(titles).toContain(nadClassName(7)) // "SAND, dense"
+    expect(titles).not.toContain('SAND') // the bare lithology name is replaced
+  })
+
+  it('geotech band keeps the lithology name when not yet classified (nad_class null)', () => {
+    const unclassified = makeFormation({ id: 'f-x', nad_class: null, name: 'CLAY' })
+    const contacts = [
+      makeContact({ id: 'c-1', formation_id: 'f-x', borehole_id: 'bh-1', depth_top_m: 2 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [unclassified],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { perColumnBandsFromContacts: true, axisMode: 'geotechnical' },
+    )
+    const titles = [...container.querySelectorAll('title')].map(t => t.textContent)
+    expect(titles).toContain('CLAY') // falls back to lithology before subdivision
   })
 
   it('emits no circle markers — dots replaced by horizontal top segments', () => {

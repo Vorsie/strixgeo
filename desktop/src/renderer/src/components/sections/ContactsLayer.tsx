@@ -64,7 +64,7 @@ import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
-import { nadClassColor } from '../../utils/nadClasses'
+import { nadClassColor, nadClassName } from '../../utils/nadClasses'
 import {
   clamp,
   columnUnderCursor,
@@ -833,17 +833,31 @@ export default function ContactsLayer({
   // without mounting the component. Crucially excludes
   // ``levelToScreen`` / ``plotTop`` / ``plotBottom`` from the deps so
   // vertical pan / zoom keeps this memo cached. Debt #29.
+  // On the GEOTECH axis the band labels are the NAD packing-class name (e.g.
+  // "SAND, dense") instead of the lithology, but ONLY once subdivision has run:
+  // a formation with no nad_class (not yet classified) yields ``""`` from
+  // nadClassName, so it falls back to the lithology name. Override only ``name``
+  // (the label text) — ``color`` stays the formation colour so the label keeps
+  // its contrast against the band.
+  const labelFormations = useMemo(
+    () =>
+      axisMode === 'geotechnical'
+        ? formations.map(f => ({ ...f, name: nadClassName(f.nad_class ?? null) || f.name }))
+        : formations,
+    [formations, axisMode],
+  )
+
   const { slabs, polylineData } = useMemo(
     () =>
       computeSlabsAndPolylines(
         contacts,
-        formations,
+        labelFormations,
         placedColumns,
         excludedBoreholeIds,
         sectionLine,
         alongMToScreenX,
       ),
-    [contacts, formations, placedColumns, excludedBoreholeIds, sectionLine, alongMToScreenX],
+    [contacts, labelFormations, placedColumns, excludedBoreholeIds, sectionLine, alongMToScreenX],
   )
 
   // Stage B — cheap screen-space projection. O(N) per render with no
@@ -1378,7 +1392,15 @@ export default function ContactsLayer({
         axisMode === 'geotechnical' ? nadClassColor(f.nad_class ?? null) : f.color,
       ]),
     )
-    const nameById = new Map(formations.map(f => [f.id, f.name]))
+    // Geotech: the band's menu label ("Remove this … unit") is the NAD packing
+    // name once classified, matching the visible band label; null nad_class
+    // falls back to the lithology name.
+    const nameById = new Map(
+      formations.map(f => [
+        f.id,
+        axisMode === 'geotechnical' ? nadClassName(f.nad_class ?? null) || f.name : f.name,
+      ]),
+    )
     // Subtract pending-ghost depth ranges from a band's [top, base]
     // interval, producing zero or more sub-bands (debt #151 dogfeed
     // refinement 2026-05-27 — split the accepted band where a ghost
