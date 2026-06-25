@@ -25,6 +25,47 @@ from groundmodel.shared.constants.litho_constants import BaseLithology
 _SMOOTH_HALF_WINDOW = 5
 
 
+def _persistence_filter(mask: list[bool], persist: int) -> list[bool]:
+    """Flip interior runs shorter than ``persist`` samples to the preceding value.
+
+    Run-length scans ``mask`` and, for any interior run shorter than ``persist``
+    samples, adopts the value of the run before it. Edge runs (first/last) are
+    never flipped — they have no anchor. This is the "ignore a small dip/spike"
+    rule: a brief excursion across a qc threshold no longer moves a boundary.
+
+    Parameters
+    ----------
+    mask : list[bool]
+        Per-sample boolean (e.g. ``qc >= threshold``).
+    persist : int
+        Minimum run length (samples) to survive; shorter interior runs flip.
+
+    Returns
+    -------
+    list[bool]
+        The persistence-filtered mask, same length as ``mask``.
+    """
+    n = len(mask)
+    if n == 0:
+        return []
+    runs: list[list[int]] = []  # [value(0/1), start, end_exclusive]
+    s = 0
+    for j in range(1, n):
+        if mask[j] != mask[s]:
+            runs.append([int(mask[s]), s, j])
+            s = j
+    runs.append([int(mask[s]), s, n])
+    for i in range(len(runs)):
+        _v, a, b = runs[i]
+        if (b - a) < persist and 0 < i < len(runs) - 1:
+            runs[i][0] = runs[i - 1][0]
+    out = [False] * n
+    for v, a, b in runs:
+        for k in range(a, b):
+            out[k] = bool(v)
+    return out
+
+
 @dataclass(frozen=True)
 class GeotechSplit:
     """One suggested NAD sub-unit within a geo-bounded litho segment.

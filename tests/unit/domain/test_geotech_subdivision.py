@@ -4,6 +4,7 @@ import pytest
 
 from groundmodel.domain.services.geotech_subdivision import (
     _merge_adjacent_same_class,
+    _persistence_filter,
     suggest_geotech_subdivision,
 )
 
@@ -133,6 +134,31 @@ def test_merge_adjacent_same_class_leaves_distinct_runs_untouched():
 def test_merge_adjacent_same_class_empty():
     """An empty run list passes through unchanged."""
     assert _merge_adjacent_same_class([]) == []
+
+
+# --- persistence filter -----------------------------------------------------
+
+
+def test_persistence_filter_flips_short_interior_run():
+    """A 1-sample True spike between long False runs is flipped to False."""
+    mask = [False, False, False, True, False, False, False]
+    assert _persistence_filter(mask, persist=3) == [False] * 7
+
+
+def test_persistence_filter_keeps_runs_at_or_above_persist():
+    """A run >= persist samples survives."""
+    mask = [False, False, True, True, True, False, False]
+    assert _persistence_filter(mask, persist=3) == mask
+
+
+def test_persistence_filter_never_flips_edge_runs():
+    """A short run at the very top/bottom is kept (no preceding/following anchor)."""
+    mask = [True, False, False, False, False]
+    assert _persistence_filter(mask, persist=3)[0] is True
+
+
+def test_persistence_filter_empty():
+    assert _persistence_filter([], persist=2) == []
 
 
 def test_absorbed_middle_band_does_not_leave_two_same_class_units():
