@@ -288,25 +288,24 @@ function subBandCorrelationCount(
   const id = bands[index].layerId
   const belowId = index + 1 < bands.length ? bands[index + 1].layerId : undefined
 
+  const anyEdge = (lid: string): boolean => {
+    for (const nid of neighbourLayerIds) if (correlated(lid, nid)) return true
+    return false
+  }
+
   let count = 0
-  // Top contact: keyed by THIS sub-band's layerId.
-  if (id !== undefined) {
-    for (const nid of neighbourLayerIds) {
-      if (correlated(id, nid)) {
-        count++
-        break
-      }
-    }
-  }
-  // Base contact: keyed by the NEXT sub-band's layerId (its top is this band's base).
-  if (belowId !== undefined) {
-    for (const nid of neighbourLayerIds) {
-      if (correlated(belowId, nid)) {
-        count++
-        break
-      }
-    }
-  }
+  // Top contact. The FIRST sub-band's top IS the litho band's top — and this
+  // function only runs inside a litho region that already spans both columns
+  // (a quad), so that boundary is FRAMED by the litho correlation and counts as
+  // tied. Interior sub-bands key the top contact on their own layerId (a geotech
+  // packing edge). Without this framing the boundary sub-bands could never reach
+  // count 2, so the bottom band of a fully-tied region wrongly onlapped instead
+  // of banding (dogfeed 2026-06-25).
+  if (index === 0 || (id !== undefined && anyEdge(id))) count++
+  // Base contact. The LAST sub-band's base IS the litho band's base — also framed
+  // by the spanning litho region. Interior sub-bands key the base contact on the
+  // sub-band immediately below (its top is this band's base).
+  if (index === bands.length - 1 || (belowId !== undefined && anyEdge(belowId))) count++
   return count as 0 | 1 | 2
 }
 
@@ -372,6 +371,11 @@ function subdivideRegionR1(
 
   const out: SectionRegion[] = []
   const overlays: SectionRegion[] = []
+  // Right sub-bands consumed as the partner of a left BAND quad — recorded by
+  // RIGHT layerId as we emit each band so the right-side loop below skips exactly
+  // the partner it already drew (not "any right band whose id is in the left set",
+  // which never matched and let a banded right partner re-emit a spurious overlay).
+  const bandedRightLayerIds = new Set<string>()
 
   // --- Left column sub-bands toward the right neighbour ---
   for (let i = 0; i < leftBands.length; i++) {
@@ -396,6 +400,8 @@ function subdivideRegionR1(
       }
       const topR = rightSurf - bestR.topDepthM
       const baseR = rightSurf - bestR.baseDepthM
+      // Mark the right partner consumed so the right-side loop doesn't redraw it.
+      if (bestR.layerId !== undefined) bandedRightLayerIds.add(bestR.layerId)
       out.push({
         ...region,
         formationId: lb.formationId,
@@ -412,9 +418,11 @@ function subdivideRegionR1(
       // "Top contact correlated" means the top bracket is tied → laps base up.
       // "Base contact correlated" (only) means the base bracket is tied → laps top down.
       const topId = lb.layerId
-      const belowId = i + 1 < leftBands.length ? leftBands[i + 1].layerId : undefined
-      let topCorr = false
-      if (topId !== undefined) {
+      // The top band's top contact is the litho band's top — framed by the spanning
+      // litho region, so it counts as the tied bracket (laps up) even without a
+      // geotech edge. Interior sub-bands look at the geotech edge on their own top.
+      let topCorr = i === 0
+      if (!topCorr && topId !== undefined) {
         for (const nid of rightLayerIds) {
           if (correlated(topId, nid)) {
             topCorr = true
@@ -467,22 +475,12 @@ function subdivideRegionR1(
 
   // --- Right column sub-bands toward the left neighbour (for unmatched right bands) ---
   // Emit right-side lens/onlap for right sub-bands that are NOT already covered by a
-  // left-column BAND (avoid double-emitting a band sub-quad).
-  const bandedLeftLayerIds = new Set<string>(
-    leftBands
-      .filter((lb, i) => subBandCorrelationCount(leftBands, i, rightLayerIds, correlated) === 2)
-      .map((b) => b.layerId)
-      .filter((id): id is string => id !== undefined),
-  )
-
+  // left-column BAND (avoid double-emitting a band sub-quad). A right band is
+  // "already banded" iff it is the very partner a left BAND quad consumed above —
+  // tracked by right layerId in bandedRightLayerIds.
   for (let j = 0; j < rightBands.length; j++) {
     const rb = rightBands[j]
-    // Skip if this right sub-band's layerId was already banded from the left side.
-    const rbBelow = j + 1 < rightBands.length ? rightBands[j + 1].layerId : undefined
-    const alreadyBanded =
-      (rb.layerId !== undefined && bandedLeftLayerIds.has(rb.layerId)) ||
-      (rbBelow !== undefined && bandedLeftLayerIds.has(rbBelow))
-    if (alreadyBanded) continue
+    if (rb.layerId !== undefined && bandedRightLayerIds.has(rb.layerId)) continue
 
     const topR = rightSurf - rb.topDepthM
     const baseR = rightSurf - rb.baseDepthM
@@ -491,8 +489,9 @@ function subdivideRegionR1(
     if (count === 1) {
       // ONLAP from the right.
       const topId = rb.layerId
-      let topCorr = false
-      if (topId !== undefined) {
+      // Top band's top is framed by the litho region (laps up) — same rule as left.
+      let topCorr = j === 0
+      if (!topCorr && topId !== undefined) {
         for (const nid of leftLayerIds) {
           if (correlated(topId, nid)) {
             topCorr = true
