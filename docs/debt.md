@@ -5633,5 +5633,55 @@ on-click Build path the voxel extraction already pays for). Pairs with the voxel
 builder ([[project_voxel_litho_builder]]) and the model-from-solids fill
 ([[project_litho_model_from_solids]]).
 
+## 225. Save must never silently write a 0-edge bundle when the model has edges (Tier B — data-loss guard, S)
+
+**What.** `useProject.saveProject` does a fresh `GET /bundle` then writes the file.
+If that bundle comes back with `litho_contact_correlation_edges: []` (or any other
+normally-populated array empty) while the DB/model actually has rows, the save
+silently overwrites the `.strix` with empty data — a data-loss shape. Observed
+2026-06-25: a `test.strix` saved at 18:07 had **0 correlation edges** while the DB
+held **481** (the export query is correct and returns 707 when re-run, so the 18:07
+fetch hit a transient bad state). Add a guard: before `writeProjectFile`, if the
+freshly-fetched bundle has 0 edges (or 0 layers, etc.) but the in-memory
+model/section state says there should be edges, **abort the write + surface an
+error toast** ("Save aborted — the bundle came back empty; your data is safe in
+the app, retry") rather than writing the empty file. Belt-and-suspenders: keep the
+PREVIOUS good file as a `.bak` until the new write is validated (count-sanity:
+new-file edge count ≥ a small fraction of the prior, or ≥ what the section view
+shows).
+
+**Why deferred.** Not reproducible from the current DB (the export now returns all
+707), so it's a transient-state guard, not a live bug; and it sits in the save path
+which wasn't otherwise being touched. But it is the difference between "transient
+glitch, no harm" and "silent overwrite of the user's saved work", so it should land
+before any external distribution.
+
+**When to revisit.** Before the coworker binary / first external distribution
+(pairs with the backwards-compat re-arm + #47). Implement as a pre-write invariant
+check in `saveProject` + an atomic `.bak` keep-last-good. Relates to
+[[project_two_stage_save_model]], [[project_decisions_in_bundle]].
+
+## 226. Make `.strix` non-trivially editable (opaque/binary encoding) (Tier B — distribution, S)
+
+**What.** `.strix` is pretty-printed JSON (`JSON.stringify(payload, null, 2)`), so a
+user can open it in Notepad and hand-edit (or corrupt) it. Owner directive
+2026-06-25: make the file harder to open/edit casually — e.g. gzip the JSON (the
+bundle is already MBs, so this also shrinks it), or a length-prefixed binary
+container / base64 wrapper, ideally with a magic-byte header + a checksum so a
+tampered/truncated file is detected on open. NOT encryption (own-your-data ethos
+stays — the goal is "don't accidentally edit it in a text editor", not DRM; see the
+`.strix` file-passing stance in CLAUDE.local "Commercial planning"). Must stay
+backwards-compatible: the loader detects plaintext-JSON `format_version 3` vs the
+new container and reads both (old `.strix` files keep opening), per the
+backwards-compat contract.
+
+**Why deferred.** Cosmetic/robustness, not blocking; touches the save+open+restore
+round-trip + the format-version detection, so it wants doing alongside the #225
+save-guard and the format-version work, not piecemeal.
+
+**When to revisit.** Alongside #225 / before external distribution. Add a magic
+header + gzip + checksum; keep the plaintext-JSON reader for old files. Relates to
+[[project_strix_file_format_version_decoupled]], #47.
+
 ## (end)
 
