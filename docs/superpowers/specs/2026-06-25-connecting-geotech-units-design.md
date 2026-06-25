@@ -53,7 +53,9 @@ A **"Correlate packing"** toolbar verb on the geotech axis, mirroring litho's Co
 
 `subdivideRegionsByGeotech` stops deciding sub-band connections by *local sequence-match* and instead reads the geotech **`body_id`** the resolver stamped on each sub-band: within a litho region, two adjacent sub-bands join into one banded sub-quad **iff they share a geotech `body_id`**, else they render as separate per-test sub-bands. Both auto and manual connections flow through the resolver → `body_id` → render, so a manual connect/disconnect updates the section immediately.
 
-The litho partition still frames every region, so an unconnected sub-band is a per-test sliver **inside its litho band** — never a model-wide singleton. The 187-singleton trap stays closed because connectivity is bounded by the litho partition, not recomputed from geotech edges across the whole model.
+The litho partition still frames every region, so connectivity stays bounded by the litho partition and is never recomputed from geotech edges across the whole model — the 187-singleton trap stays closed. When the sub-bands of a litho region do **not** all connect (a mismatched pair), the region is kept **whole and recoloured to its dominant NAD class** rather than carved into per-test slivers.
+
+*Note: an earlier draft of this section proposed rendering an unconnected sub-band as a per-test sliver inside its litho band. That was deliberately replaced (per the plan) by the dominant-NAD whole-region fallback — keeping the litho region whole avoids spurious wedge geometry from mismatch noise.*
 
 ## 7. Durability across re-subdivide
 
