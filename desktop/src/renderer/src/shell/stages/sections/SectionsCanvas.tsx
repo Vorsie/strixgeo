@@ -52,6 +52,7 @@ import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import type { GeotechSubLayer } from '../../../utils/geotechSubdivide'
 import { lithologyAbbrev } from '../../../utils/lensLabel'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
+import { canConnectPacking } from '../../../utils/geotechPackingConnect'
 import { log } from '../../../utils/log'
 
 /**
@@ -98,11 +99,13 @@ export default function SectionsCanvas(): JSX.Element {
       lithoFormations,
       lithoSurfacesByFormationId,
       // F3 — geotech axis: layers, contacts + formations from the bus for
-      // the third section render axis (view-only; no edit gestures).
+      // the third section render axis.  requestGeotechLayersRefetch is called
+      // after a packing-correlation mutation so body_id stamps re-render.
       activeGeotechModel,
       geotechLayers,
       geotechContacts,
       geotechFormations,
+      requestGeotechLayersRefetch,
       handleCreateLithoContact,
       handleInlineLithoCreateFormation,
       // Phase 2 of debt #77: the bus exposes the unified Map +
@@ -285,6 +288,13 @@ export default function SectionsCanvas(): JSX.Element {
   // (below); `activeSectionModelId` / `sectionLayers` therefore stay LITHO here.
   const activeSectionModelId = lithoModelId
   const sectionLayers = lithoLayers
+
+  // The correlation-edge model id differs by axis: on the GEOTECH axis we fetch
+  // GEOTECH edges (each edge links two geotech litho_layer ids), so the resolver
+  // can re-stamp geotech body_id after a packing-connect mutation.  On the litho
+  // axis we use the litho model id (the two are equal on that axis).
+  const geotechModelId = activeGeotechModel?.id ?? null
+  const correlationModelId = isGeotech ? geotechModelId : activeSectionModelId
 
   // Geotech axis NAD subdivision input: each investigation's accepted geotech
   // (NAD-class) sub-layers, carrying the source LITHO formation id so the
@@ -470,29 +480,29 @@ export default function SectionsCanvas(): JSX.Element {
   const contactCorrelateMode = correlateMode
 
   const refetchContactEdges = useCallback(async () => {
-    if (activeSectionModelId === null) {
+    if (correlationModelId === null) {
       setContactCorrelationEdges([])
       return
     }
     log.debug(
       'section',
-      `listContactCorrelations: GET project=${project.id} model=${activeSectionModelId} section=${selectedSectionId}`,
+      `listContactCorrelations: GET project=${project.id} model=${correlationModelId} section=${selectedSectionId}`,
     )
     try {
       const edges = await api.geology.listContactCorrelations(
         project.id,
-        activeSectionModelId,
+        correlationModelId,
         selectedSectionId,
       )
       setContactCorrelationEdges(edges)
       log.debug(
         'section',
-        `listContactCorrelations: ${edges.length} edge(s) for model ${activeSectionModelId} section=${selectedSectionId}`,
+        `listContactCorrelations: ${edges.length} edge(s) for model ${correlationModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
       log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
     }
-  }, [activeSectionModelId, project.id, selectedSectionId])
+  }, [correlationModelId, project.id, selectedSectionId])
 
   useEffect(() => {
     if (!isLitho && !isGeotech) {
@@ -500,13 +510,15 @@ export default function SectionsCanvas(): JSX.Element {
       return
     }
     void refetchContactEdges()
-    // reason: (isLitho || isGeotech) + activeSectionModelId + selectedSectionId
-    // are the three axes that require a re-fetch; refetchContactEdges captures
-    // project.id + activeSectionModelId in its closure so they don't need to be
-    // listed here. correlationEdgesRefetchNonce (#163c) is bumped after a
-    // successful auto-correlate so the new edges render without a manual reselect.
+    // reason: (isLitho || isGeotech) + correlationModelId + selectedSectionId are
+    // the three axes that require a re-fetch; refetchContactEdges captures project.id
+    // + correlationModelId in its closure so they don't need to be listed separately.
+    // correlationModelId switches between the litho model (litho axis) and the geotech
+    // model (geotech axis) so fetching the correct edge set per axis.
+    // correlationEdgesRefetchNonce (#163c) is bumped after a successful auto-correlate
+    // so the new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLitho, isGeotech, activeSectionModelId, selectedSectionId, correlationEdgesRefetchNonce])
+  }, [isLitho, isGeotech, correlationModelId, selectedSectionId, correlationEdgesRefetchNonce])
 
   // #163f Slice 2 — detected lenses + their boundary shapes for LensWedge
   // Overlay. Mirrors the contact-edge fetch (same nonce trigger: lenses are
@@ -784,6 +796,198 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
   )
 
+  // ---------------------------------------------------------------------------
+  // Geotech packing-correlation handlers (spec §5).
+  //
+  // These mirror the litho correlate handlers above but:
+  //   (a) use activeGeotechModel instead of activeLithoModel,
+  //   (b) run canConnectPacking guard before posting (same-class + same-body),
+  //   (c) call requestGeotechLayersRefetch after success so body_id stamps
+  //       re-render (the geotech layer list is the body_id source, not the
+  //       edges themselves).
+  //   (d) do NOT touch litho state (refetchLithoContacts / undoStack pulse),
+  //       keeping the geotech gesture self-contained.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve the packing-band descriptor for a geotech layer id.
+   *
+   * Finds the geotech layer, derives its NAD class from geotechFormations,
+   * and finds the parent litho body by matching the MIDPOINT of the geotech
+   * sub-band against the litho layers on the same investigation.
+   *
+   * Returns null when the layer is not found (defensive; shouldn't happen in
+   * normal operation).
+   */
+  const resolvePackingDescriptor = useCallback(
+    (geotechLayerId: string) => {
+      const layer = geotechLayers.find(l => l.id === geotechLayerId)
+      if (!layer) return null
+      const nadClass =
+        geotechFormations.find(f => f.id === layer.formation_id)?.nad_class ?? null
+      // Find the litho layer on the SAME investigation whose depth range contains
+      // this sub-band's midpoint — that litho layer owns the body_id.
+      const inv = layer.cpt_id ?? layer.borehole_id
+      const midpoint = (layer.depth_top_m + layer.depth_base_m) / 2
+      const lithoBodyId =
+        lithoLayers.find(
+          l =>
+            (l.cpt_id === layer.cpt_id && l.borehole_id === layer.borehole_id) &&
+            // inv must be non-null for us to have got here
+            inv !== null &&
+            l.depth_top_m <= midpoint + 1e-6 &&
+            l.depth_base_m >= midpoint - 1e-6,
+        )?.body_id ?? null
+      return { nadClass, lithoBodyId }
+    },
+    [geotechLayers, geotechFormations, lithoLayers],
+  )
+
+  const handleCreateGeotechPackingCorrelation = useCallback(
+    async (
+      contactAId: string,
+      contactBId: string,
+      contactASide: 'top' | 'base' = 'top',
+      contactBSide: 'top' | 'base' = 'top',
+    ): Promise<void> => {
+      if (!activeGeotechModel) return
+      const modelId = activeGeotechModel.id
+      const descA = resolvePackingDescriptor(contactAId)
+      const descB = resolvePackingDescriptor(contactBId)
+      // Clear arm state regardless so the gesture always resets cleanly.
+      const clearArm = () => {
+        setArmedContactId(null)
+        setArmedContactSide('top')
+        setLastTargetTestId(null)
+      }
+      if (!descA || !descB) {
+        log.warn('section', 'packing-connect: could not resolve band descriptors', {
+          contactAId,
+          contactBId,
+        })
+        clearArm()
+        return
+      }
+      const verdict = canConnectPacking(descA, descB)
+      if (!verdict.ok) {
+        const hint =
+          verdict.reason === 'null-class'
+            ? 'Packing correlation requires a classified NAD class on both bands.'
+            : verdict.reason === 'same-band'
+              ? 'Cannot correlate a band to itself.'
+              : verdict.reason === 'different-litho-body'
+                ? 'Packing correlation only connects bands within the same litho body.'
+                : 'Packing correlation connects bands with the same NAD class.'
+        toast('warning', hint)
+        clearArm()
+        return
+      }
+      log.info(
+        'section',
+        `packing-connect: linking ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) on geotech model ${modelId}`,
+      )
+      try {
+        await api.geology.createContactCorrelation(
+          project.id,
+          modelId,
+          contactAId,
+          contactBId,
+          selectedSectionId,
+          contactASide,
+          contactBSide,
+        )
+        clearArm()
+        await Promise.all([refetchContactEdges()])
+        requestGeotechLayersRefetch()
+        markMutated()
+        toast('success', 'Packing correlation added.')
+        log.success(
+          'section',
+          `packing-connect: edge ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) created on model ${modelId}`,
+        )
+      } catch (err) {
+        log.warn('section', 'handleCreateGeotechPackingCorrelation: POST failed', err)
+        clearArm()
+        toast('error', 'Could not create the packing correlation — try again.')
+      }
+    },
+    [
+      activeGeotechModel,
+      resolvePackingDescriptor,
+      project.id,
+      selectedSectionId,
+      refetchContactEdges,
+      requestGeotechLayersRefetch,
+      markMutated,
+      toast,
+    ],
+  )
+
+  const handleDeleteGeotechPackingCorrelation = useCallback(
+    async (
+      contactAId: string,
+      contactBId: string,
+      contactASide: 'top' | 'base' = 'top',
+      contactBSide: 'top' | 'base' = 'top',
+    ): Promise<void> => {
+      if (!activeGeotechModel) return
+      const modelId = activeGeotechModel.id
+      log.info(
+        'section',
+        `packing-disconnect: removing ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) on geotech model ${modelId}`,
+      )
+      // Optimistic removal — mirror the litho handler's filter shape.
+      setContactCorrelationEdges(prev =>
+        prev.filter(
+          e =>
+            !(
+              (e.contact_a_id === contactAId &&
+                e.contact_b_id === contactBId &&
+                e.contact_a_side === contactASide &&
+                e.contact_b_side === contactBSide) ||
+              (e.contact_a_id === contactBId &&
+                e.contact_b_id === contactAId &&
+                e.contact_a_side === contactBSide &&
+                e.contact_b_side === contactASide)
+            ),
+        ),
+      )
+      try {
+        await api.geology.deleteContactCorrelation(
+          project.id,
+          modelId,
+          contactAId,
+          contactBId,
+          selectedSectionId,
+          contactASide,
+          contactBSide,
+        )
+        await Promise.all([refetchContactEdges()])
+        requestGeotechLayersRefetch()
+        markMutated()
+        log.success(
+          'section',
+          `packing-disconnect: edge ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) removed`,
+        )
+      } catch (err) {
+        log.warn(
+          'section',
+          'handleDeleteGeotechPackingCorrelation: DELETE failed — rolling back optimistic removal',
+          err,
+        )
+        await Promise.all([refetchContactEdges()])
+      }
+    },
+    [
+      activeGeotechModel,
+      project.id,
+      selectedSectionId,
+      refetchContactEdges,
+      requestGeotechLayersRefetch,
+      markMutated,
+    ],
+  )
+
   // Right-click a pending correlation edge → "Accept correlation" (dogfeed
   // 2026-05-31).  Single-edge accept: flips user_approved=True on the server,
   // refetches edges + lens data so the seam ribbon, ordinal chips, and
@@ -933,9 +1137,10 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   // Build the contactGestureState passed to SectionPanel.
-  // Only wired on the litho axis; absent on the geological axis.
+  // Wired on the litho axis (correlate litho boundaries) and the geotech
+  // axis (correlate packing bands). Absent on the geological axis.
   const contactGestureState: ContactGestureState | undefined = useMemo(() => {
-    if (!isLitho) return undefined
+    if (!isLitho && !isGeotech) return undefined
     return {
       contactCorrelateMode,
       armedContactId,
@@ -955,16 +1160,27 @@ export default function SectionsCanvas(): JSX.Element {
         setArmedContactSide('top')
         setLastTargetTestId(null)
       },
-      onContactCorrelate: handleCreateContactCorrelation,
-      onContactUncorrelate: handleDeleteContactCorrelation,
-      onRequestDeleteContact: handleRequestDeleteContactFromSection,
+      // Route create/delete handlers by axis: geotech uses the packing-connect
+      // guard + geotech model; litho uses the litho model.
+      onContactCorrelate: isGeotech
+        ? handleCreateGeotechPackingCorrelation
+        : handleCreateContactCorrelation,
+      onContactUncorrelate: isGeotech
+        ? handleDeleteGeotechPackingCorrelation
+        : handleDeleteContactCorrelation,
+      // Contact deletion (right-click "Delete contact") is a litho-only gesture;
+      // geotech contacts are owned by the subdivision, not manually deleted.
+      onRequestDeleteContact: isLitho ? handleRequestDeleteContactFromSection : undefined,
     }
   }, [
     isLitho,
+    isGeotech,
     contactCorrelateMode,
     armedContactId,
     armedContactSide,
     lastTargetTestId,
+    handleCreateGeotechPackingCorrelation,
+    handleDeleteGeotechPackingCorrelation,
     handleCreateContactCorrelation,
     handleDeleteContactCorrelation,
     handleRequestDeleteContactFromSection,
@@ -2270,7 +2486,9 @@ export default function SectionsCanvas(): JSX.Element {
           onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
           unapprovedEdgeDrag={unapprovedEdgeDrag}
           // #163e: right-click a correlation edge → "Delete correlation".
-          // Reuses the existing optimistic-remove + DELETE + refetch handler.
+          // On litho: uses the litho delete handler (undo-stack wired).
+          // On geotech: uses the packing disconnect handler (no undo — the
+          //   subdivide verb re-generates all packing correlations anyway).
           onRequestDeleteEdge={
             isLitho
               ? edge =>
@@ -2280,10 +2498,19 @@ export default function SectionsCanvas(): JSX.Element {
                     edge.contact_a_side,
                     edge.contact_b_side,
                   )
-              : undefined
+              : isGeotech
+                ? edge =>
+                    void handleDeleteGeotechPackingCorrelation(
+                      edge.contact_a_id,
+                      edge.contact_b_id,
+                      edge.contact_a_side,
+                      edge.contact_b_side,
+                    )
+                : undefined
           }
           // Dogfeed 2026-05-31: right-click a pending edge → "Accept correlation".
-          // The overlay suppresses the menu item for already-approved edges.
+          // Geotech edges have no approval workflow (they are always treated as
+          // approved); the menu item is suppressed on the geotech axis.
           onRequestAcceptEdge={
             isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
           }
