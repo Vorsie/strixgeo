@@ -28,3 +28,10 @@ def test_empty_either_side_no_pairs():
     """Either side empty -> no pairs (nothing to align against)."""
     assert aligned_same_sequence_pairs([], [("RB0", 6)]) == []
     assert aligned_same_sequence_pairs([("LA0", 6)], []) == []
+
+
+def test_none_class_sequences_still_pair():
+    """None classes compare equal here; the spec §8 null-skip lives in the caller."""
+    left = [("LA0", 6), ("LA1", None)]
+    right = [("RB0", 6), ("RB1", None)]
+    assert aligned_same_sequence_pairs(left, right) == [("LA0", "RB0"), ("LA1", "RB1")]
