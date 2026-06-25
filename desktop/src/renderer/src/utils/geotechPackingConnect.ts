@@ -9,6 +9,10 @@
  *   1. Either band has a null NAD class → null-class (unclassifiable anchor,
  *      e.g. a borehole carry-through).
  *   2. The caller passed the same band as both A and B → same-band (no self-loop).
+ *      Note: the gesture handler (handleCreateGeotechPackingCorrelation) already
+ *      short-circuits on ``contactAId === contactBId`` before calling this helper,
+ *      so this rule is a defensive backstop — the helper still tests it so direct
+ *      callers (e.g. unit tests) are covered.
  *   3. The bands belong to different parent litho bodies (or either is null)
  *      → different-litho-body (only connect within one continuous litho unit).
  *   4. The NAD classes differ → different-class (only same-class bands connect).
@@ -75,10 +79,11 @@ export function canConnectPacking(
     return { ok: false, reason: 'null-class' }
   }
 
-  // Rule 2: self-loop guard — same object reference or identical descriptor
-  // (same class + same body on the same investigation would already be blocked
-  // by the gesture preventing arm + click on the same investigation; this guard
-  // catches edge cases where the same layer id appears on both sides).
+  // Rule 2: self-loop guard — same object reference or identical descriptor.
+  // The gesture handler already short-circuits on contactAId === contactBId
+  // before reaching this helper, so this is a defensive backstop (still tested
+  // here so direct callers are covered); it also catches the edge case where
+  // the same layer id appears on both sides.
   if (a === b) {
     return { ok: false, reason: 'same-band' }
   }
