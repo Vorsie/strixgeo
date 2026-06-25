@@ -330,6 +330,8 @@ export default function SectionsCanvas(): JSX.Element {
         sourceLithoFormationId: srcLithoByFormationId.get(layer.formation_id) ?? null,
         // Resolver geotech body — drives cross-column packing connection (spec §6).
         bodyId: layer.body_id,
+        // Geotech litho_layer.id — correlation-edge endpoint for R1 band/onlap/lens.
+        layerId: layer.id,
       }
       const arr = m.get(inv)
       if (arr) arr.push(sub)
