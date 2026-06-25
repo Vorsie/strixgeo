@@ -447,7 +447,15 @@ function LithoSection({
 // Geotechnical subdivision section
 // ---------------------------------------------------------------------------
 
-function GeotechSection({
+/**
+ * Settings section for the geotech NAD subdivision ("Subdivide all bodies").
+ *
+ * Exposes the min-thickness knob, the gradient-snap toggle, and — only when snap
+ * is enabled — the snap window. Exported so the conditional Save-validity logic
+ * (`allValid` short-circuits the snap-window check when snap is off) can be unit
+ * tested directly without driving the whole dialog.
+ */
+export function GeotechSection({
   draft,
   setDraft,
   initial,
