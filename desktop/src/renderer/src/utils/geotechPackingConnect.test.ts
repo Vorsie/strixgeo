@@ -72,6 +72,20 @@ describe('canConnectPacking', () => {
       expect(v.ok).toBe(false)
       expect(v.reason).toBe('same-band')
     })
+
+    it('allows two independently-constructed descriptors with equal class + body (rule is reference-only)', () => {
+      // The same-band guard is reference equality (a === b), NOT value equality.
+      // Two descriptors built separately with the same nadClass + lithoBodyId
+      // are DIFFERENT physical bands (different columns) and must connect — the
+      // real self-correlate guard is the handler's id-equality short-circuit,
+      // not this value match.
+      const a = band(15, 'body-abc')
+      const b = band(15, 'body-abc')
+      expect(a).not.toBe(b) // distinct references, equal values
+      const v = canConnectPacking(a, b)
+      expect(v.ok).toBe(true)
+      expect(v.reason).toBe('ok')
+    })
   })
 
   // ---------------------------------------------------------------------------
