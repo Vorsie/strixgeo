@@ -807,6 +807,19 @@ export interface UseGeologicalModelResult {
    */
   geotechFormations: GeologicalFormationResponse[]
   /**
+   * Request a re-fetch of the geotech layers for the active model.
+   *
+   * Bumps an internal nonce so the ``geotechLayers`` useEffect re-runs and
+   * reloads the list from the server.  Call after a packing-correlation
+   * mutation so the updated ``body_id`` stamps appear in the render without
+   * the user having to switch models (mirrors the
+   * ``requestCorrelationEdgesRefetch`` pattern for the litho edge state).
+   *
+   * No-op when no geotech model is active (the effect already clears the
+   * list to ``[]`` in that case).
+   */
+  requestGeotechLayersRefetch: () => void
+  /**
    * Run "Subdivide all bodies" model-wide.
    *
    * Calls ``POST .../geotech/subdivide-all-bodies`` with the active litho
@@ -1005,6 +1018,14 @@ export function useGeologicalModel({
   const geotechFormations = useMemo(
     () => formations.filter(isGeotechUnit),
     [formations],
+  )
+  // Monotonic nonce that forces the geotechLayers useEffect to re-run
+  // after a packing-correlation mutation so body_id stamps update in the
+  // render without a model switch (mirrors correlationEdgesRefetchNonce).
+  const [geotechLayersRefetchNonce, setGeotechLayersRefetchNonce] = useState(0)
+  const requestGeotechLayersRefetch = useCallback(
+    () => setGeotechLayersRefetchNonce(n => n + 1),
+    [],
   )
   // Refresh signal for InterpretationPane. The pane keeps its own
   // formations cache; bumping this counter forces a refetch.
@@ -1301,6 +1322,9 @@ export function useGeologicalModel({
   // Load / reload geotech layers when the active geotech model changes.
   // Mirrors the litho-layers effect above; clears when activeGeotechModel
   // is null.  No surfaces fetch (geotech model has no TIN surfaces in v1).
+  // geotechLayersRefetchNonce: bumped by requestGeotechLayersRefetch after a
+  // packing-correlation mutation so body_id stamps re-render without a model
+  // switch (same pattern as the edge-refetch nonce in SectionsCanvas).
   useEffect(() => {
     if (!project || !activeGeotechModel) {
       setGeotechLayers([])
@@ -1331,7 +1355,11 @@ export function useGeologicalModel({
     return () => {
       cancelled = true
     }
-  }, [project, activeGeotechModel])
+    // reason: geotechLayersRefetchNonce is the only dep beyond project +
+    // activeGeotechModel; it is a primitive counter added to force a re-fetch
+    // when packing correlations change body_id stamps without switching model.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, activeGeotechModel, geotechLayersRefetchNonce])
 
   const refetchFormations = useCallback((): Promise<void> => {
     if (!project) return Promise.resolve()
@@ -2302,6 +2330,8 @@ export function useGeologicalModel({
     geotechLayers,
     geotechContacts,
     geotechFormations,
+    // Packing-correlation: re-fetch geotech layers after a body_id mutation.
+    requestGeotechLayersRefetch,
     // F4 — "Subdivide all bodies" toolbar verb.
     handleSubdivideAllBodies,
   }
