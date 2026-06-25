@@ -435,6 +435,9 @@ class SubdivideAllBodies(GroundModelLogger):
         all_cpt_ids = {UUID(inv_id) for inv_id, kind in anchor_kind.items() if kind == "cpt"}
         cpt_series = await self._load_cpt_series(all_cpt_ids)
         min_thickness_m = await self._read_min_thickness_m(geotech_model.app_project_id)
+        gradient_snap, gradient_snap_window_m = await self._read_gradient_snap(
+            geotech_model.app_project_id
+        )
         self.debug(f"SubdivideAllBodies: min_thickness_m={min_thickness_m}")
 
         # Global depth-indexed map built during materialisation: for each
@@ -507,6 +510,8 @@ class SubdivideAllBodies(GroundModelLogger):
                     segment_top_m=seg.top_depth_m,
                     segment_base_m=seg.base_depth_m,
                     min_thickness_m=min_thickness_m,
+                    gradient_snap=gradient_snap,
+                    gradient_snap_window_m=gradient_snap_window_m,
                 )
                 profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=splits))
 
@@ -1634,6 +1639,34 @@ class SubdivideAllBodies(GroundModelLogger):
             return val if val > 0 else _DEFAULT_MIN_THICKNESS_M
         except (TypeError, ValueError):
             return _DEFAULT_MIN_THICKNESS_M
+
+    async def _read_gradient_snap(self, project_id: UUID) -> tuple[bool, float]:
+        """Read the geotech gradient-snap knobs from the project view-state.
+
+        Returns ``(enabled, window_m)`` from
+        ``view_state["geotech_subdivision"]``, defaulting to ``(True, 0.5)`` when
+        absent or malformed.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project id.
+
+        Returns
+        -------
+        tuple[bool, float]
+            ``(gradient_snap_enabled, gradient_snap_window_m)``.
+        """
+        project = await ProjectRepository(self._session).get_by_id(project_id)
+        seg = ((project.view_state if project is not None else None) or {}).get(
+            "geotech_subdivision"
+        ) or {}
+        enabled = seg.get("gradient_snap_enabled", True)
+        try:
+            window = float(seg.get("gradient_snap_window_m", 0.5))
+        except (TypeError, ValueError):
+            window = 0.5
+        return (bool(enabled), window if window > 0 else 0.5)
 
     async def _read_geotech_snap_tolerance_m(self, project_id: UUID) -> float:
         """Read the geotech geo↔litho snap tolerance from the project view-state.
