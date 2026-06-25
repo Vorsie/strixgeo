@@ -159,10 +159,13 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # Minimum geotech sub-unit thickness when the view-state knob is absent.
 # Geotech packing bands are intentionally COARSER than litho layers (a 27 cm
 # NAD-class sliver is not a meaningful packing unit), so the geotech default is
-# 0.5 m — kept SEPARATE from the litho segmenter's 0.30 m (which stays fine for
+# kept SEPARATE from the litho segmenter's 0.30 m (which stays fine for
 # lithology layering). Read from ``view_state["geotech_subdivision"]``, not the
 # shared ``litho_segmenter`` knob, so tuning one never moves the other.
-_DEFAULT_MIN_THICKNESS_M: float = 0.50
+# 0.35 m (owner directive 2026-06-25): 0.50 m was over-merging real packing
+# transitions; 0.35 m resolves a dense-sand-over-medium boundary the engineer
+# would place by hand without descending to sliver noise.
+_DEFAULT_MIN_THICKNESS_M: float = 0.35
 
 # Geo↔litho snap tolerance for the geotech geo-bounding. When a geological
 # surface crosses a litho unit within this distance of a litho contact, the
@@ -1620,7 +1623,7 @@ class SubdivideAllBodies(GroundModelLogger):
         -------
         float
             The configured geotech minimum thickness, or
-            ``_DEFAULT_MIN_THICKNESS_M`` (0.50 m) when absent, non-positive, or
+            ``_DEFAULT_MIN_THICKNESS_M`` (0.35 m) when absent, non-positive, or
             non-numeric.
         """
         project = await ProjectRepository(self._session).get_by_id(project_id)
