@@ -463,6 +463,20 @@ export default function SectionsCanvas(): JSX.Element {
     LithoContactCorrelationEdge[]
   >([])
 
+  // Geotech "Correlate packing" overlay edges (Phase 1, 2026-06-25).
+  //
+  // SEPARATE state from contactCorrelationEdges ON PURPOSE. On the geotech axis
+  // contactCorrelationEdges is the LITHO model's edge list (correlationModelId
+  // is always lithoModelId — see above) that FRAMES the partition fill and the
+  // correlated-pair column spacing. The geotech packing overlay needs the
+  // GEOTECH model's edges; reusing one list for both pulled the litho
+  // connectivity out of the fill and pinched every band to a lens (commit
+  // 7329738b). So the overlay ribbons + right-click targets on the geotech axis
+  // read THIS list; nothing here feeds the partition / spacing.
+  const [geotechPackingEdges, setGeotechPackingEdges] = useState<
+    LithoContactCorrelationEdge[]
+  >([])
+
   // Armed contact id — the source boundary the user clicked first.
   // Null = nothing armed (idle).
   const [armedContactId, setArmedContactId] = useState<string | null>(null)
@@ -510,6 +524,52 @@ export default function SectionsCanvas(): JSX.Element {
       log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
     }
   }, [correlationModelId, project.id, selectedSectionId])
+
+  // Fetch the GEOTECH model's packing edges for the correlate overlay (Phase 1,
+  // 2026-06-25). Scoped to the active geotech model + section, mirroring
+  // refetchContactEdges but pointed at activeGeotechModel.id — never
+  // correlationModelId (which is the litho model). No-op off the geotech axis.
+  const refetchGeotechPackingEdges = useCallback(async () => {
+    if (!isGeotech || !activeGeotechModel) {
+      setGeotechPackingEdges([])
+      return
+    }
+    log.debug(
+      'section',
+      `listGeotechPackingCorrelations: GET project=${project.id} geotechModel=${activeGeotechModel.id} section=${selectedSectionId}`,
+    )
+    try {
+      const edges = await api.geology.listContactCorrelations(
+        project.id,
+        activeGeotechModel.id,
+        selectedSectionId,
+      )
+      setGeotechPackingEdges(edges)
+      // INFO (not DEBUG) on purpose — mirrors refetchContactEdges: the geotech
+      // packing-edge count is the fastest "why aren't packing ribbons drawing"
+      // signal in the default console.
+      log.info(
+        'section',
+        `listGeotechPackingCorrelations: ${edges.length} edge(s) for geotechModel=${activeGeotechModel.id} section=${selectedSectionId}`,
+      )
+    } catch (err) {
+      log.warn(
+        'section',
+        'refetchGeotechPackingEdges: listContactCorrelations failed',
+        err,
+      )
+    }
+  }, [isGeotech, activeGeotechModel, project.id, selectedSectionId])
+
+  useEffect(() => {
+    void refetchGeotechPackingEdges()
+    // reason: isGeotech + activeGeotechModel.id + selectedSectionId are the axes
+    // that require a re-fetch of the geotech overlay edges; refetchGeotechPackingEdges
+    // captures project.id in its closure so it need not be listed.
+    // correlationEdgesRefetchNonce (#163c) is bumped after a successful
+    // auto-correlate so the new edges render without a manual reselect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGeotech, activeGeotechModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
 
   useEffect(() => {
     if (!isLitho && !isGeotech) {
@@ -932,6 +992,7 @@ export default function SectionsCanvas(): JSX.Element {
         )
         clearArm()
         await refetchContactEdges()
+        await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
         markMutated()
         toast('success', 'Packing correlation added.')
@@ -951,6 +1012,7 @@ export default function SectionsCanvas(): JSX.Element {
       project.id,
       selectedSectionId,
       refetchContactEdges,
+      refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
       markMutated,
       toast,
@@ -970,22 +1032,27 @@ export default function SectionsCanvas(): JSX.Element {
         'section',
         `packing-disconnect: removing ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) on geotech model ${modelId}`,
       )
-      // Optimistic removal — mirror the litho handler's filter shape.
-      setContactCorrelationEdges(prev =>
-        prev.filter(
-          e =>
-            !(
-              (e.contact_a_id === contactAId &&
-                e.contact_b_id === contactBId &&
-                e.contact_a_side === contactASide &&
-                e.contact_b_side === contactBSide) ||
-              (e.contact_a_id === contactBId &&
-                e.contact_b_id === contactAId &&
-                e.contact_a_side === contactBSide &&
-                e.contact_b_side === contactASide)
-            ),
-        ),
-      )
+      // Optimistic removal — mirror the litho handler's filter shape. The
+      // overlay ribbons on the geotech axis read geotechPackingEdges, so the
+      // optimistic edit removes the deleted edge from THAT list (the litho
+      // contactCorrelationEdges list frames the partition and never carries a
+      // geotech edge id — filtering it here is a harmless no-op, kept for
+      // parity with the litho handler).
+      const dropEdge = (
+        e: LithoContactCorrelationEdge,
+      ): boolean =>
+        !(
+          (e.contact_a_id === contactAId &&
+            e.contact_b_id === contactBId &&
+            e.contact_a_side === contactASide &&
+            e.contact_b_side === contactBSide) ||
+          (e.contact_a_id === contactBId &&
+            e.contact_b_id === contactAId &&
+            e.contact_a_side === contactBSide &&
+            e.contact_b_side === contactASide)
+        )
+      setContactCorrelationEdges(prev => prev.filter(dropEdge))
+      setGeotechPackingEdges(prev => prev.filter(dropEdge))
       try {
         await api.geology.deleteContactCorrelation(
           project.id,
@@ -997,6 +1064,7 @@ export default function SectionsCanvas(): JSX.Element {
           contactBSide,
         )
         await refetchContactEdges()
+        await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
         markMutated()
         log.success(
@@ -1013,6 +1081,7 @@ export default function SectionsCanvas(): JSX.Element {
         // is rolled back and the server state is unchanged on a failed delete,
         // so the project is not actually dirty.
         await refetchContactEdges()
+        await refetchGeotechPackingEdges()
         // Refresh geotech layers too (mirrors the success path) so body_id
         // stamps stay consistent even if an intermediate mutation changed them.
         requestGeotechLayersRefetch()
@@ -1023,6 +1092,7 @@ export default function SectionsCanvas(): JSX.Element {
       project.id,
       selectedSectionId,
       refetchContactEdges,
+      refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
       markMutated,
     ],
@@ -2519,6 +2589,11 @@ export default function SectionsCanvas(): JSX.Element {
           // litho axis (SectionPanel gates on axisMode === 'lithostratigraphic')
           // and absent on the geological axis — zero regression.
           contactEdges={(isLitho || isGeotech) ? contactCorrelationEdges : undefined}
+          // Geotech "Correlate packing" overlay edges (Phase 1, 2026-06-25):
+          // SEPARATE from contactEdges (which stays the litho-framed partition
+          // list on both axes). The overlay reads this on the geotech axis only;
+          // never feeds the partition / spacing (commit 7329738b regression).
+          geotechCorrelationEdges={isGeotech ? geotechPackingEdges : undefined}
           // Auto-lens (2026-06-02): pinch-out lens candidates from the last
           // auto-correlate run, rendered as amber diamonds on the litho axis.
           crossingPinchOuts={isLitho ? lithoCrossingPinchOuts : undefined}
