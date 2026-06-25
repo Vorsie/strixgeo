@@ -112,15 +112,15 @@ const _NAD_CLASS_COLORS: Readonly<Record<number, string>> = {
   21: '#b0bec8', // KLEI, weinig vast     — lightest
   22: '#8a9fb0', // KLEI, matig vast
   23: '#677e92', // KLEI, vrij vast
-  24: '#445e74', // KLEI, vast            — darkest
+  24: '#506c87', // KLEI, vast            — darkest (lightened from near-black #445e74)
   25: '#a0b0c0', // KLEI, zandhoudend, weinig vast
   26: '#7a92a8', // KLEI, zandhoudend, matig vast
   27: '#587288', // KLEI, zandhoudend, vrij vast
-  28: '#375268', // KLEI, zandhoudend, vast
+  28: '#45607a', // KLEI, zandhoudend, vast (lightened from near-black #375268)
   // VEEN (dark-brown family, weinig vast→vast)
   29: '#a07050', // VEEN, weinig vast     — lightest
   30: '#7a5030', // VEEN, matig vast
-  31: '#54321a', // VEEN, vast            — darkest
+  31: '#6b4630', // VEEN, vast            — darkest (lightened from near-black #54321a)
 } as const
 
 /** Neutral fallback colour for a degenerate null class (zero CPTs of a lithology). */
