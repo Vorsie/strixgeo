@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
+import ReSubdivideConfirmDialog from '../../../components/ReSubdivideConfirmDialog'
 
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
@@ -144,6 +145,9 @@ export default function SectionsToolbar(): JSX.Element {
   const [reCorrelateAutoEdgeCount, setReCorrelateAutoEdgeCount] = useState(0)
   // F4 — "Subdivide all bodies" busy flag (geotech axis).
   const [subdividingBodies, setSubdividingBodies] = useState(false)
+  // C1 (connecting-geotech-units §7) — confirm before a RE-subdivide, which
+  // wipes + regenerates all geotech packing connections (manual ones lost).
+  const [reSubdivideConfirmOpen, setReSubdivideConfirmOpen] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -249,6 +253,25 @@ export default function SectionsToolbar(): JSX.Element {
       // when openedDialog is true.
       if (!openedDialog) setAutoCorrelating(false)
     }
+  }
+
+  // C1 (connecting-geotech-units §7) — run the actual subdivide. Extracted
+  // from the button onClick so both the first-ever run and the confirmed
+  // re-run share one code path.
+  function runSubdivideAllBodies(): void {
+    setSubdividingBodies(true)
+    void handleSubdivideAllBodies().finally(() => {
+      setSubdividingBodies(false)
+    })
+  }
+
+  function handleReSubdivideCancel(): void {
+    setReSubdivideConfirmOpen(false)
+  }
+
+  function handleReSubdivideConfirm(): void {
+    setReSubdivideConfirmOpen(false)
+    runSubdivideAllBodies()
   }
 
   function handleReCorrelateCancel(): void {
@@ -1160,10 +1183,15 @@ export default function SectionsToolbar(): JSX.Element {
             label={subdividingBodies ? 'Subdividing…' : 'Subdivide all bodies'}
             onClick={() => {
               if (subdividingBodies || !activeLithoModel) return
-              setSubdividingBodies(true)
-              void handleSubdivideAllBodies().finally(() => {
-                setSubdividingBodies(false)
-              })
+              // A geotech model only exists AFTER a first subdivide, so its
+              // presence is the proxy for "this is a re-run" — re-runs wipe +
+              // regenerate all packing connections (manual ones lost), so we
+              // confirm first; the first-ever subdivide skips the prompt (§7).
+              if (activeGeotechModel !== null) {
+                setReSubdivideConfirmOpen(true)
+                return
+              }
+              runSubdivideAllBodies()
             }}
             disabled={subdividingBodies || !activeLithoModel}
             busy={subdividingBodies}
@@ -1470,6 +1498,17 @@ export default function SectionsToolbar(): JSX.Element {
         onSkip={handleReCorrelateSkip}
         onReCorrelate={() => { void handleReCorrelateConfirm() }}
         busy={autoCorrelating && !reCorrelateConfirmOpen}
+      />
+
+      {/* Re-subdivide confirmation (C1, connecting-geotech-units §7) — shown
+          before a re-run of "Subdivide all bodies" when a geotech model
+          already exists, because the re-run wipes + regenerates all geotech
+          packing connections (manual connections are lost). */}
+      <ReSubdivideConfirmDialog
+        open={reSubdivideConfirmOpen}
+        onCancel={handleReSubdivideCancel}
+        onConfirm={handleReSubdivideConfirm}
+        busy={subdividingBodies}
       />
     </div>
   )
