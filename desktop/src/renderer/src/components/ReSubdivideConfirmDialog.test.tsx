@@ -6,6 +6,8 @@
 // AC3 — clicking Re-subdivide fires onConfirm, never onCancel.
 // AC4 — clicking Cancel fires onCancel, never onConfirm.
 // AC5 — busy disables both buttons.
+// AC6 — Cancel button has default focus on open (irreversible-action rule:
+//        an accidental Enter must NOT wipe manual packing connections).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,5 +55,13 @@ describe('ReSubdivideConfirmDialog', () => {
     const confirm = screen.getByRole('button', { name: /re-subdivide/i }) as HTMLButtonElement
     expect(cancel.disabled).toBe(true)
     expect(confirm.disabled).toBe(true)
+  })
+
+  it('AC6 — Cancel button has default focus on open', () => {
+    render(<ReSubdivideConfirmDialog open onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const cancel = screen.getByRole('button', { name: /^cancel$/i })
+    // Irreversible-action rule (docs/ux.md): an accidental Enter must not
+    // fire the Re-subdivide path and wipe manual packing connections.
+    expect(document.activeElement).toBe(cancel)
   })
 })
