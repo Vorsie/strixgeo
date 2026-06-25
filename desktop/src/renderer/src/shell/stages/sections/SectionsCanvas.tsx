@@ -289,12 +289,16 @@ export default function SectionsCanvas(): JSX.Element {
   const activeSectionModelId = lithoModelId
   const sectionLayers = lithoLayers
 
-  // The correlation-edge model id differs by axis: on the GEOTECH axis we fetch
-  // GEOTECH edges (each edge links two geotech litho_layer ids), so the resolver
-  // can re-stamp geotech body_id after a packing-connect mutation.  On the litho
-  // axis we use the litho model id (the two are equal on that axis).
-  const geotechModelId = activeGeotechModel?.id ?? null
-  const correlationModelId = isGeotech ? geotechModelId : activeSectionModelId
+  // The contact-edge list FRAMES the partition fill (`computeSectionFill` builds
+  // the connected bands from it) and the correlated-pair column spacing — so on
+  // the GEOTECH axis it MUST stay the LITHO model's edges, exactly as on the litho
+  // axis ("the litho partition still frames every region", spec §6). Fetching the
+  // sparse geotech edges here pulled the litho connectivity out of the fill and
+  // pinched every band to a lens (dogfeed 2026-06-25). The geotech `body_id` that
+  // drives the within-band NAD subdivision comes from `geotechLayers` (a separate
+  // fetch), NOT this list; the manual Correlate-packing gesture POSTs to
+  // `activeGeotechModel.id` directly and the render updates via that body_id.
+  const correlationModelId = activeSectionModelId
 
   // Geotech axis NAD subdivision input: each investigation's accepted geotech
   // (NAD-class) sub-layers, carrying the source LITHO formation id so the
