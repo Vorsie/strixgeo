@@ -360,9 +360,12 @@ describe('subdivideRegionsByGeotech', () => {
 
     const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
 
-    // Two cross-column band quads (upper 'loose', lower 'dense').
+    // Both sub-bands BAND (loose: top framed + base tied; dense: top tied + base
+    // framed) → exactly two cross-column quads, and NO onlap/lens overlays (the
+    // right partner of each band is skipped, no spurious overlay — review issue #1).
     const quads = out.filter((r) => r.kind === 'quad')
-    expect(quads.length).toBeGreaterThanOrEqual(1)
+    expect(quads.length).toBe(2)
+    expect(out.filter((r) => r.overlayTier !== undefined).length).toBe(0)
     // Every quad must have 4 vertices — the full left+right column span.
     for (const q of quads) {
       expect(q.polygon.length).toBe(4)
@@ -406,53 +409,46 @@ describe('subdivideRegionsByGeotech', () => {
     expect(tipFracs[0].elevation).toBeCloseTo(10)
   })
 
-  it('GR3 — only the BASE contact tied → ONLAP overlay, tip on the base bracket', () => {
-    // L-top base contact: edge('lb','rb') → base tied.
-    // L-top top contact: layerId 'lt', NO edge('lt',*) → top NOT tied.
-    // Count = 1, topCorr = false → onlap with tip at the base bracket elevation (baseL).
+  it('GR3 — an INTERIOR sub-band with only its base contact tied → ONLAP, tip on the base bracket', () => {
+    // Framing rule: the litho band's TOP and BASE are framed by the spanning litho
+    // region, so a pure "base-tied / top-untied" onlap can only occur on an
+    // INTERIOR sub-band (both of whose contacts are internal NAD boundaries). Use a
+    // 3-band stack; tie only the middle band's BASE (edge on the bottom band 'lb').
     const region = quadBand('sand', 'b1', 10, 4)
     const subs = new Map<string, GeotechSubLayer[]>([
-      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
-      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+      ['L', [subR1(0, 2, 'a', 'lt'), subR1(2, 4, 'mid', 'lm'), subR1(4, 6, 'b', 'lb')]],
+      ['R', [subR1(0, 2, 'a', 'rt'), subR1(2, 4, 'mid', 'rm'), subR1(4, 6, 'b', 'rb')]],
     ])
-    const edges: CorrelationEdge[] = [edge('lb', 'rb')] // base only
+    const edges: CorrelationEdge[] = [edge('lb', 'rb')] // ties ONLY the middle band's base
 
     const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
 
-    const onlaps = out.filter((r) => r.overlayTier === 'onlap')
-    expect(onlaps.length).toBeGreaterThanOrEqual(1)
-    const looseOnlap = onlaps.find((r) => r.formationId === 'loose')
-    expect(looseOnlap).toBeDefined()
-    expect(looseOnlap!.polygon.length).toBe(3)
-    // Base bracket tied → tip elevation equals the sub-band's base elevation (7 = surf 10 − 3 m).
-    const tipFracs = looseOnlap!.polygon.filter((p) => p.fraction > 0 && p.fraction < 1)
-    expect(tipFracs.length).toBe(1)
-    expect(tipFracs[0].elevation).toBeCloseTo(7)
+    const midOnlap = out.find((r) => r.formationId === 'mid' && r.overlayTier === 'onlap')
+    expect(midOnlap).toBeDefined()
+    expect(midOnlap!.polygon.length).toBe(3) // triangle
+    // Base bracket tied → tip elevation equals the mid band's base elevation
+    // (surf 10 − 4 m = 6).
+    const tip = midOnlap!.polygon.filter((p) => p.fraction > 0 && p.fraction < 1)
+    expect(tip.length).toBe(1)
+    expect(tip[0].elevation).toBeCloseTo(6)
   })
 
-  it('GR4 — neither contact tied → LENS overlay triangle on own column', () => {
-    // No edges → count = 0 for every sub-band → lens overlays on both columns.
+  it('GR4 — an INTERIOR sub-band with neither contact tied → LENS triangle', () => {
+    // A pure 0-count LENS now requires an INTERIOR sub-band (the boundary bands have
+    // their litho-band edge framed). 3-band stack, NO edges → the MIDDLE band (both
+    // contacts internal + untied) lenses; the framed top/bottom bands onlap.
     const region = quadBand('sand', 'b1', 10, 4)
     const subs = new Map<string, GeotechSubLayer[]>([
-      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
-      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+      ['L', [subR1(0, 2, 'a', 'lt'), subR1(2, 4, 'mid', 'lm'), subR1(4, 6, 'b', 'lb')]],
+      ['R', [subR1(0, 2, 'a', 'rt'), subR1(2, 4, 'mid', 'rm'), subR1(4, 6, 'b', 'rb')]],
     ])
-    const edges: CorrelationEdge[] = [] // nothing tied
+    const edges: CorrelationEdge[] = [] // nothing tied → the middle band lenses
 
     const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
 
-    const lenses = out.filter((r) => r.overlayTier === 'lens')
-    expect(lenses.length).toBeGreaterThanOrEqual(1)
-    // Every lens must be a triangle (3 vertices).
-    for (const l of lenses) {
-      expect(l.polygon.length).toBe(3)
-    }
-    // Left-column lenses anchor at fraction 0.
-    const leftLenses = lenses.filter((l) => l.polygon.some((p) => p.fraction === 0))
-    expect(leftLenses.length).toBeGreaterThanOrEqual(1)
-    // Right-column lenses anchor at fraction 1.
-    const rightLenses = lenses.filter((l) => l.polygon.some((p) => p.fraction === 1))
-    expect(rightLenses.length).toBeGreaterThanOrEqual(1)
+    const midLens = out.find((r) => r.formationId === 'mid' && r.overlayTier === 'lens')
+    expect(midLens).toBeDefined()
+    expect(midLens!.polygon.length).toBe(3) // triangle
   })
 
   it('GR5 — R1 output preserves litho-region framing: gapIndex, bodyId, kind', () => {
