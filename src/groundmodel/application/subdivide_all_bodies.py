@@ -1094,11 +1094,11 @@ class SubdivideAllBodies(GroundModelLogger):
             left_stack = _stack(inv_a_str, top_a, base_a)
             right_stack = _stack(inv_b_str, top_b, base_b)
 
-            # The helper is typed for non-null classes; our stacks may carry a
-            # None nad_class (skeleton band).  That is fine at runtime — sequence
-            # equality handles None — and the §8 null-skip below drops any aligned
-            # null-class pair, so the auto-connect never emits one.
-            aligned = aligned_same_sequence_pairs(left_stack, right_stack)  # type: ignore[arg-type]
+            # The helper aligns the two stacks by NAD-class sequence equality
+            # (None compares equal to None); it does NOT skip null-class bands.
+            # The §8 null-skip guard below is what drops any aligned null-class
+            # pair, so the auto-connect never emits one.
+            aligned = aligned_same_sequence_pairs(left_stack, right_stack)
             if not aligned:
                 # Both sides have bands but the NAD-class sequences differ
                 # (count or order) — no auto-connect for this litho pair.
