@@ -13,12 +13,17 @@
  * depths on the two columns bounding the region's gap.
  *
  * The subdivision adds CLEAN HORIZONTAL sub-bands that span the whole body (a
- * consistent split), never spurious per-column wedges. When the two columns of a
- * gap disagree on the sub-band sequence (count or NAD order differ), the region
- * is kept WHOLE — one band, the dominant NAD — so no extra wedge is manufactured
- * from noise. This mirrors the geotech subdivision's policy B (split only where
- * packing changes vertically AND consistently across the body; lateral-only
- * variation → one representative class).
+ * consistent split), never spurious per-column wedges. Whether two columns' NAD
+ * sub-bands connect into a cross-column sub-quad is decided by the resolver
+ * geotech ``body_id`` (``litho_layer.body_id``): paired sub-bands connect only
+ * when, position-for-position, they share the same non-null ``bodyId`` (and the
+ * same NAD ``formationId``). This routes both the auto and the manual packing
+ * connections through the resolver instead of inferring connection from local
+ * sequence equality (spec §6). On any mismatch — count, NAD order, or body —
+ * the region is kept WHOLE (one band, the dominant NAD), so no extra wedge is
+ * manufactured from noise. This mirrors the geotech subdivision's policy B
+ * (split only where packing changes vertically AND consistently across the body;
+ * lateral-only variation → one representative class).
  *
  * Pure module — no React, no I/O, no `Date.now` / `Math.random`.
  */
@@ -43,6 +48,13 @@ export interface GeotechSubLayer {
    * sand NAD colour) seen in the depth-overlap-only v1.
    */
   sourceLithoFormationId: string | null
+  /**
+   * The resolver's geotech ``body_id`` (``litho_layer.body_id``). Two sub-bands
+   * connect across columns into a single cross-column sub-quad ONLY when they
+   * share a non-null ``bodyId`` (in addition to the same NAD ``formationId``).
+   * ``null`` until the resolver runs → never connects. Spec §6.
+   */
+  bodyId: string | null
 }
 
 /** A sub-band clamped + snapped to tile one column's slice of a litho band. */
@@ -50,6 +62,8 @@ interface ColumnSubBand {
   topDepthM: number
   baseDepthM: number
   formationId: string
+  /** Source sub-layer's resolver ``body_id`` — the cross-column connection key. */
+  bodyId: string | null
 }
 
 /**
@@ -83,6 +97,7 @@ function columnSubBands(
       topDepthM: Math.max(sl.topDepthM, bandTopDepthM),
       baseDepthM: Math.min(sl.baseDepthM, bandBaseDepthM),
       formationId: sl.formationId,
+      bodyId: sl.bodyId,
     }))
     .sort((a, b) => a.topDepthM - b.topDepthM)
   if (overlapping.length === 0) return []
@@ -180,12 +195,16 @@ function bandEdges(polygon: readonly PartitionPoint[]): {
  * sub-layer depths on the two columns bounding the region's gap.
  *
  * A `quad` region whose two columns split the band into the SAME sequence of NAD
- * classes (same count, same formation order) is cut into one sub-quad per class,
- * split at the paired (left, right) sub-layer boundaries — clean horizontal
- * bands, the geotech split surface being the straight line joining the two
- * columns' split elevations. Any other case (column mismatch, pinch/lens region,
- * or no sub-layer data) keeps the parent polygon and is recoloured to the
- * dominant NAD (or left at its litho formationId when no NAD data exists).
+ * classes (same count, same NAD formation order, AND the same non-null resolver
+ * ``body_id`` at each position) is cut into one sub-quad per class, split at the
+ * paired (left, right) sub-layer boundaries — clean horizontal bands, the geotech
+ * split surface being the straight line joining the two columns' split elevations.
+ * Connection is therefore driven by the resolver's geotech ``body_id`` (spec §6),
+ * not by local sequence equality: position-for-position the two columns must share
+ * the same body to connect. Any other case (column mismatch, differing body,
+ * pinch/lens region, or no sub-layer data) keeps the parent polygon and is
+ * recoloured to the dominant NAD (or left at its litho formationId when no NAD
+ * data exists).
  *
  * Parameters
  * ----------
@@ -258,11 +277,21 @@ export function subdivideRegionsByGeotech(
       ? columnSubBands(rightSubs, rightBand.topDepthM, rightBand.baseDepthM)
       : []
 
+    // Connection is the resolver's call: paired sub-bands connect only when they
+    // share the same NAD formation AND the same non-null geotech ``body_id`` at
+    // every aligned position (spec §6). A null body (resolver hasn't run / didn't
+    // group them) never connects, so the region falls back to the whole-band
+    // dominant-NAD recolour below.
     const sequencesMatch =
       isQuad &&
       leftBands.length >= 1 &&
       leftBands.length === rightBands.length &&
-      leftBands.every((b, i) => b.formationId === rightBands[i].formationId)
+      leftBands.every(
+        (b, i) =>
+          b.formationId === rightBands[i].formationId &&
+          b.bodyId != null &&
+          b.bodyId === rightBands[i].bodyId,
+      )
 
     if (sequencesMatch) {
       // Clean consistent split → one sub-quad per NAD class, split at the paired
