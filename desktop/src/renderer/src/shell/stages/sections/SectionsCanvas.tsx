@@ -309,6 +309,8 @@ export default function SectionsCanvas(): JSX.Element {
         baseDepthM: layer.depth_base_m,
         formationId: layer.formation_id,
         sourceLithoFormationId: srcLithoByFormationId.get(layer.formation_id) ?? null,
+        // Resolver geotech body — drives cross-column packing connection (spec §6).
+        bodyId: layer.body_id,
       }
       const arr = m.get(inv)
       if (arr) arr.push(sub)
