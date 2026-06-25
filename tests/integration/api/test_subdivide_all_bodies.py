@@ -1966,14 +1966,17 @@ async def test_sab_connectivity_edge_count(
     """SAB-10: a correlated litho body produces geotech edges, not near-zero.
 
     SAB-10a  After subdivide, the geotech model has ≥ 1 correlation edge for a
-             body whose litho model has 1 approved edge.  Before the depth-mapping
-             fix this was 0 (172 litho → 15 geotech on the real model).
+             body whose litho model has 1 approved edge.  A correlated litho body
+             with matching packing stacks must produce geotech connectivity, not
+             near-zero (172 litho → 15 geotech on the real model).
     SAB-10b  The connectivity ratio (geotech_edges / litho_edges) is ≥ 0.5.
              A healthy derivation should produce close to 1:1 (dedup reduces the
              count only when many litho layers collapse to the same geotech
              sub-layer pair).
     SAB-10c  The SAB-7 over-merge guard still holds: no cross-NAD-class edge was
-             created (same-depth mapping can only connect same-class sub-layers).
+             created (the full-sequence derivation connects two stacks only when
+             their NAD-class sequences are identical, so paired sub-layers always
+             share a class).
     """
     project = connectivity_scene["project"]
     litho_model_id = UUID(connectivity_scene["litho_model_id"])
@@ -2001,7 +2004,7 @@ async def test_sab_connectivity_edge_count(
     # SAB-10a: at least one geotech edge was produced.
     assert geotech_edge_count >= 1, (
         f"SAB-10a: 0 geotech edges for a body with {litho_edge_count} litho edge(s) — "
-        f"the depth-mapping derivation produced no geotech connectivity; "
+        f"the full-sequence derivation produced no geotech connectivity; "
         f"a correlated litho body must produce ≥ 1 geotech edge so it bands "
         f"(not lenses) in the geotech section view"
     )
@@ -2011,7 +2014,7 @@ async def test_sab_connectivity_edge_count(
     assert ratio >= 0.5, (
         f"SAB-10b: geotech connectivity ratio too low: "
         f"{geotech_edge_count}/{litho_edge_count} = {ratio:.2f} < 0.5 — "
-        f"the depth-mapping derivation is dropping too many litho edges; "
+        f"the full-sequence derivation is dropping too many litho edges; "
         f"a 1-edge litho body should produce exactly 1 geotech edge"
     )
 
@@ -2036,8 +2039,9 @@ async def test_sab_connectivity_edge_count(
     ]
     assert len(cross_class_edges) == 0, (
         f"SAB-10c: {len(cross_class_edges)} cross-NAD-class edge(s) found — "
-        f"the depth-mapping derivation violated the over-merge guard; "
-        f"geotech edges must only connect same-formation (same-NAD-class) sub-layers. "
+        f"the full-sequence derivation violated the over-merge guard; the "
+        f"same-class guarantee comes from NAD-class SEQUENCE EQUALITY, so geotech "
+        f"edges must only connect same-formation (same-NAD-class) sub-layers. "
         f"Offending: {[str(e.id) for e in cross_class_edges]}"
     )
 
