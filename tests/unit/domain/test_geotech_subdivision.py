@@ -77,6 +77,7 @@ def test_conservative_holds_weaker_class_through_oscillation():
 
 
 def test_uniform_segment_one_band():
+    """Constant-qc segment → a single band spanning the whole segment, edges clamped."""
     depths = [round(0.1 * i, 2) for i in range(21)]
     qc = [8.0] * 21
     splits = suggest_geotech_subdivision(
@@ -94,6 +95,7 @@ def test_uniform_segment_one_band():
 
 
 def test_no_samples_returns_fallback_band():
+    """A segment with no CPT samples (borehole-only) → one fallback band, never empty."""
     splits = suggest_geotech_subdivision(
         soil="ZAND",
         admixtures=(),
@@ -129,6 +131,7 @@ def test_persistence_filter_never_flips_edge_runs():
 
 
 def test_persistence_filter_empty():
+    """An empty mask passes through unchanged."""
     assert _persistence_filter([], persist=2) == []
 
 
@@ -166,11 +169,13 @@ def test_conservative_merge_absorbs_thin_into_weaker_neighbour():
 
 
 def test_conservative_merge_keeps_thick_bands():
+    """Bands already >= min thickness are returned unchanged."""
     bands = [[0.0, 1.0, 6], [1.0, 2.0, 7], [2.0, 3.0, 8]]
     assert _conservative_merge(bands, min_thickness_m=0.35) == bands
 
 
 def test_weld_same_class_bands():
+    """Adjacent bands of equal NAD class weld into one contiguous band."""
     bands = [[0.0, 1.0, 6], [1.0, 1.5, 6], [1.5, 3.0, 8]]
     assert _weld_same_class_bands(bands) == [[0.0, 1.5, 6], [1.5, 3.0, 8]]
 

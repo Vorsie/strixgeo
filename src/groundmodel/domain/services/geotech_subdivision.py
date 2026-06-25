@@ -197,7 +197,11 @@ def _gradient_snap(
     """
     if len(bands) < 2 or len(depths) < 3:
         return bands
-    # |dqc/dz| via central differences on raw qc.
+    # |dqc/dz| via central differences on RAW qc. Spec §5 wrote "lightly-smoothed
+    # qc"; smoothing is intentionally skipped here because the 92nd-percentile peak
+    # threshold below already suppresses single-sample spikes, and the owner's
+    # validated prototype used raw qc. Revisit only if a spike-heavy CPT triggers
+    # a false snap.
     grad = [0.0] * len(depths)
     for i in range(1, len(depths) - 1):
         dz = depths[i + 1] - depths[i - 1]
@@ -205,6 +209,10 @@ def _gradient_snap(
     ordered = sorted(g for g in grad if g > 0.0)
     if not ordered:
         return bands
+    # Index into the ascending gradients at the 92nd percentile. A snap needs
+    # >= 5 samples (the peaks loop scans range(2, n-2)), by which point `ordered`
+    # is large enough that this rank approximates the percentile; on a tiny series
+    # it lands low, but the empty peaks loop then makes the threshold moot.
     thr = ordered[int(0.92 * (len(ordered) - 1))]
     peaks = [
         depths[i]
@@ -220,6 +228,10 @@ def _gradient_snap(
         peak = min(near, key=lambda p: abs(p - d))
         more_conservative = (peak > d) if densifying else (peak < d)
         if more_conservative:
+            # In-place: update both sides of the shared boundary. The next
+            # iteration (k+1) reads bands[k+1][1] (its base), not the [0] we just
+            # set, so there is no read-of-mutated-value hazard; the trailing
+            # merge+weld repairs any sub-min or same-class artefact a snap creates.
             bands[k][1] = peak
             bands[k + 1][0] = peak
     return _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
@@ -338,6 +350,10 @@ def suggest_geotech_subdivision(
     #    to spikes without the harmonic over-suppression).
     bands: list[list[float]] = []
     for a, b in zip(cuts, cuts[1:]):
+        # Half-open [a, b): the cut at depths[-1] == segment_base_m is excluded
+        # from the deepest band. At typical CPT densities (tens of samples per
+        # band) that one boundary sample has a negligible effect on the median;
+        # the degenerate single-sample case is caught by the `if not bands` fallback.
         in_band = [q for d, q in zip(seg_depths, seg_qc) if a <= d < b]
         if not in_band:
             continue
