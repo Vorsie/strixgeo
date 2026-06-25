@@ -300,6 +300,12 @@ export default function SectionsCanvas(): JSX.Element {
   // `activeGeotechModel.id` directly and the render updates via that body_id.
   const correlationModelId = activeSectionModelId
 
+  // The geotech model id for the SEPARATE packing-edge fetch that feeds the
+  // correlate OVERLAY on the geotech axis (never the partition). A string (or
+  // null), mirroring `correlationModelId`, so the fetch callback + effect depend
+  // on the stable id rather than the `activeGeotechModel` object identity.
+  const geotechPackingModelId = activeGeotechModel?.id ?? null
+
   // Geotech axis NAD subdivision input: each investigation's accepted geotech
   // (NAD-class) sub-layers, carrying the source LITHO formation id so the
   // subdivider matches each region to same-soil sub-layers only (no wrong-soil
@@ -530,18 +536,18 @@ export default function SectionsCanvas(): JSX.Element {
   // refetchContactEdges but pointed at activeGeotechModel.id — never
   // correlationModelId (which is the litho model). No-op off the geotech axis.
   const refetchGeotechPackingEdges = useCallback(async () => {
-    if (!isGeotech || !activeGeotechModel) {
+    if (!isGeotech || geotechPackingModelId === null) {
       setGeotechPackingEdges([])
       return
     }
     log.debug(
       'section',
-      `listGeotechPackingCorrelations: GET project=${project.id} geotechModel=${activeGeotechModel.id} section=${selectedSectionId}`,
+      `listGeotechPackingCorrelations: GET project=${project.id} geotechModel=${geotechPackingModelId} section=${selectedSectionId}`,
     )
     try {
       const edges = await api.geology.listContactCorrelations(
         project.id,
-        activeGeotechModel.id,
+        geotechPackingModelId,
         selectedSectionId,
       )
       setGeotechPackingEdges(edges)
@@ -550,7 +556,7 @@ export default function SectionsCanvas(): JSX.Element {
       // signal in the default console.
       log.info(
         'section',
-        `listGeotechPackingCorrelations: ${edges.length} edge(s) for geotechModel=${activeGeotechModel.id} section=${selectedSectionId}`,
+        `listGeotechPackingCorrelations: ${edges.length} edge(s) for geotechModel=${geotechPackingModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
       log.warn(
@@ -559,17 +565,18 @@ export default function SectionsCanvas(): JSX.Element {
         err,
       )
     }
-  }, [isGeotech, activeGeotechModel, project.id, selectedSectionId])
+  }, [isGeotech, geotechPackingModelId, project.id, selectedSectionId])
 
   useEffect(() => {
     void refetchGeotechPackingEdges()
-    // reason: isGeotech + activeGeotechModel.id + selectedSectionId are the axes
-    // that require a re-fetch of the geotech overlay edges; refetchGeotechPackingEdges
-    // captures project.id in its closure so it need not be listed.
-    // correlationEdgesRefetchNonce (#163c) is bumped after a successful
-    // auto-correlate so the new edges render without a manual reselect.
+    // reason: the effect's deps (isGeotech + geotechPackingModelId +
+    // selectedSectionId + correlationEdgesRefetchNonce) are the same axes that
+    // make refetchGeotechPackingEdges stale, so the effect fires whenever the
+    // function would have changed — listing the function itself adds nothing but
+    // churn. correlationEdgesRefetchNonce (#163c) is bumped after a successful
+    // auto-correlate / subdivide so new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGeotech, activeGeotechModel?.id, selectedSectionId, correlationEdgesRefetchNonce])
+  }, [isGeotech, geotechPackingModelId, selectedSectionId, correlationEdgesRefetchNonce])
 
   useEffect(() => {
     if (!isLitho && !isGeotech) {
