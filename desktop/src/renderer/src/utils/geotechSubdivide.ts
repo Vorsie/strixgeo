@@ -12,23 +12,39 @@
  * subdivides each litho region into NAD sub-bands using the geotech sub-layer
  * depths on the two columns bounding the region's gap.
  *
- * The subdivision adds CLEAN HORIZONTAL sub-bands that span the whole body (a
- * consistent split), never spurious per-column wedges. Whether two columns' NAD
- * sub-bands connect into a cross-column sub-quad is decided by the resolver
- * geotech ``body_id`` (``litho_layer.body_id``): paired sub-bands connect only
- * when, position-for-position, they share the same non-null ``bodyId`` (and the
- * same NAD ``formationId``). This routes both the auto and the manual packing
- * connections through the resolver instead of inferring connection from local
- * sequence equality (spec §6). On any mismatch — count, NAD order, or body —
- * the region is kept WHOLE (one band, the dominant NAD), so no extra wedge is
- * manufactured from noise. This mirrors the geotech subdivision's policy B
- * (split only where packing changes vertically AND consistently across the body;
- * lateral-only variation → one representative class).
+ * ### All-or-nothing connection (R0 — legacy, pre-R1)
+ *
+ * The original subdivision mode: sub-bands connect only when the entire sequence
+ * matches position-for-position by resolver ``body_id``.  On any mismatch the
+ * region keeps its parent shape (dominant NAD recolour). This is the fallback
+ * when no ``geotechEdges`` are provided.
+ *
+ * ### Per-sub-band band/onlap/lens (R1 — owner directive 2026-06-25)
+ *
+ * When ``geotechEdges`` are passed, each geotech NAD sub-band's shape toward the
+ * facing column is decided by how many of its TWO bounding contacts are tied by a
+ * geotech packing correlation edge (2 → BAND, 1 → ONLAP, 0 → LENS) — the
+ * same contact-correlation model that ``computeSectionFill`` uses for litho, but
+ * applied PER LITHO REGION so the litho partition still frames every sub-band.
+ * This avoids the 187-singleton trap (running ``computeSectionFill`` directly on
+ * geotech sub-bands across the whole section).
+ *
+ * The geometry stays fully within the enclosing litho region's polygon. A BAND
+ * sub-band emits a 4-point quad; an ONLAP emits a triangle pinching toward the
+ * tied bracket at ``INTERIOR_PINCH_FRACTION``; a LENS emits a triangle pinching
+ * at ``LENS_PINCH_FRACTION``.  The enclosing litho region shape (quad/pinch/lens,
+ * gapIndex, bodyId) is always preserved.
  *
  * Pure module — no React, no I/O, no `Date.now` / `Math.random`.
  */
 
-import type { PartitionColumn, PartitionPoint, SectionRegion } from './partitionFill'
+import type {
+  CorrelationEdge,
+  PartitionColumn,
+  PartitionPoint,
+  SectionRegion,
+} from './partitionFill'
+import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from './partitionFill'
 
 const EPS = 1e-6
 
@@ -55,6 +71,17 @@ export interface GeotechSubLayer {
    * ``null`` until the resolver runs → never connects. Spec §6.
    */
   bodyId: string | null
+  /**
+   * The geotech ``litho_layer.id`` — the stable identity a geotech packing
+   * correlation edge references.  When ``geotechEdges`` are passed to
+   * ``subdivideRegionsByGeotech`` (R1 mode), each sub-band's shape toward the
+   * facing column is decided by how many of its TWO bounding contacts are tied
+   * by an approved edge on these ids (2 → band, 1 → onlap, 0 → lens).
+   *
+   * Optional: absent (undefined) ⟹ treated as uncorrelated (0 tied contacts on
+   * that boundary) — safe fallback, reverts to lens behaviour.
+   */
+  layerId?: string
 }
 
 /** A sub-band clamped + snapped to tile one column's slice of a litho band. */
@@ -64,6 +91,8 @@ interface ColumnSubBand {
   formationId: string
   /** Source sub-layer's resolver ``body_id`` — the cross-column connection key. */
   bodyId: string | null
+  /** Source sub-layer's ``litho_layer.id`` — the geotech edge endpoint key (R1). */
+  layerId: string | undefined
 }
 
 /**
@@ -98,6 +127,7 @@ function columnSubBands(
       baseDepthM: Math.min(sl.baseDepthM, bandBaseDepthM),
       formationId: sl.formationId,
       bodyId: sl.bodyId,
+      layerId: sl.layerId,
     }))
     .sort((a, b) => a.topDepthM - b.topDepthM)
   if (overlapping.length === 0) return []
@@ -190,6 +220,323 @@ function bandEdges(polygon: readonly PartitionPoint[]): {
   }
 }
 
+// ---------------------------------------------------------------------------
+// R1 — per-sub-band band/onlap/lens using geotech correlation edges
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the geotech edge lookup: true iff an approved geotech packing correlation
+ * edge directly connects geotech layer ids ``a`` and ``b``.
+ *
+ * Parameters
+ * ----------
+ * edges : readonly CorrelationEdge[]
+ *     The approved geotech packing edges (``geotechPackingEdges``).
+ *
+ * Returns
+ * -------
+ * (a: string, b: string) => boolean
+ *     Order-independent lookup.
+ */
+function buildGeotechCorrelated(
+  edges: readonly CorrelationEdge[],
+): (a: string, b: string) => boolean {
+  const edgeKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const set = new Set<string>()
+  for (const e of edges) {
+    // Only top-keyed edges are used for the band/onlap/lens count (same as
+    // classifyTermination's topCorr rule). Base-tie + mixed-tie variants are
+    // rare on the geotech axis and deferred — if no aSide/bSide, it's top.
+    const aIsTop = e.aSide === 'top' || e.aSide == null
+    const bIsTop = e.bSide === 'top' || e.bSide == null
+    if (aIsTop && bIsTop) set.add(edgeKey(e.a, e.b))
+  }
+  return (a, b) => set.has(edgeKey(a, b))
+}
+
+/**
+ * The contact-correlation count (0/1/2) for one geotech sub-band toward a
+ * given neighbour column's sub-bands.
+ *
+ * A geotech sub-band's TOP contact is keyed by its own ``layerId``; its BASE
+ * contact is keyed by the layer immediately BELOW it (the next sub-band's
+ * ``layerId``). A contact is correlated iff a geotech packing edge connects
+ * either of those layer ids to any layer id on the neighbour column.
+ *
+ * Parameters
+ * ----------
+ * bands : readonly ColumnSubBand[]
+ *     The sub-bands on one column (depth-ordered).
+ * index : number
+ *     The sub-band to classify.
+ * neighbourLayerIds : ReadonlySet<string>
+ *     Every ``layerId`` on the NEIGHBOUR column's sub-bands in this region.
+ * correlated : (a: string, b: string) => boolean
+ *     Top-keyed geotech edge lookup.
+ *
+ * Returns
+ * -------
+ * 0 | 1 | 2
+ *     Number of correlated bounding contacts.
+ */
+function subBandCorrelationCount(
+  bands: readonly ColumnSubBand[],
+  index: number,
+  neighbourLayerIds: ReadonlySet<string>,
+  correlated: (a: string, b: string) => boolean,
+): 0 | 1 | 2 {
+  const id = bands[index].layerId
+  const belowId = index + 1 < bands.length ? bands[index + 1].layerId : undefined
+
+  let count = 0
+  // Top contact: keyed by THIS sub-band's layerId.
+  if (id !== undefined) {
+    for (const nid of neighbourLayerIds) {
+      if (correlated(id, nid)) {
+        count++
+        break
+      }
+    }
+  }
+  // Base contact: keyed by the NEXT sub-band's layerId (its top is this band's base).
+  if (belowId !== undefined) {
+    for (const nid of neighbourLayerIds) {
+      if (correlated(belowId, nid)) {
+        count++
+        break
+      }
+    }
+  }
+  return count as 0 | 1 | 2
+}
+
+/**
+ * Subdivide a SINGLE quad litho region into geotech sub-band regions using the
+ * per-sub-band band/onlap/lens logic (R1).
+ *
+ * Works entirely within the litho region's elevation span.  Each sub-band is
+ * classified by its correlation count toward the neighbour column:
+ *
+ *   - **2** → BAND: 4-point quad spanning both columns' sub-band ranges.
+ *   - **1** → ONLAP: triangle on this column, tip at ``INTERIOR_PINCH_FRACTION``
+ *              on the correlated bracket interface.
+ *   - **0** → LENS: triangle on this column, tip at ``LENS_PINCH_FRACTION``.
+ *
+ * Lenses and onlaps are emitted as overlay regions (``kind: 'lens'``) on top of
+ * the enclosing band quad (the matrix), matching the litho partition model.
+ *
+ * Sub-bands that have no ``layerId`` (absent from the geotech layer response) are
+ * treated as 0-correlated (lens) — a safe conservative fallback.
+ *
+ * Parameters
+ * ----------
+ * region : SectionRegion
+ *     The parent litho quad region (must be ``kind: 'quad'``).
+ * leftFrac, rightFrac : number
+ *     The region's left / right column fractions in the gap's coordinate space.
+ * leftBands, rightBands : readonly ColumnSubBand[]
+ *     The clamped, depth-ordered sub-band stacks for the left and right columns.
+ * leftSurf, rightSurf : number
+ *     Surface elevations (mTAW) of the left and right columns.
+ * correlated : (a: string, b: string) => boolean
+ *     Geotech edge lookup.
+ *
+ * Returns
+ * -------
+ * SectionRegion[]
+ *     The sub-band regions replacing the parent.  Always at least one entry.
+ *     Main (band) quads come first; overlay (onlap/lens) triangles follow.
+ */
+function subdivideRegionR1(
+  region: SectionRegion,
+  leftFrac: number,
+  rightFrac: number,
+  leftBands: readonly ColumnSubBand[],
+  rightBands: readonly ColumnSubBand[],
+  leftSurf: number,
+  rightSurf: number,
+  correlated: (a: string, b: string) => boolean,
+): SectionRegion[] {
+  if (leftBands.length === 0 || rightBands.length === 0) return [region]
+
+  // Precompute the neighbour layer-id sets for the correlation count.
+  const leftLayerIds = new Set<string>(
+    leftBands.map((b) => b.layerId).filter((id): id is string => id !== undefined),
+  )
+  const rightLayerIds = new Set<string>(
+    rightBands.map((b) => b.layerId).filter((id): id is string => id !== undefined),
+  )
+  // Also add the "below" layer ids so the base-contact check reaches them.
+  // (subBandCorrelationCount already loops rightLayerIds for belowId matching,
+  //  so they must appear in the neighbour set — and they do since we add ALL ids.)
+
+  const out: SectionRegion[] = []
+  const overlays: SectionRegion[] = []
+
+  // --- Left column sub-bands toward the right neighbour ---
+  for (let i = 0; i < leftBands.length; i++) {
+    const lb = leftBands[i]
+    const topL = leftSurf - lb.topDepthM
+    const baseL = leftSurf - lb.baseDepthM
+    const count = subBandCorrelationCount(leftBands, i, rightLayerIds, correlated)
+
+    if (count === 2) {
+      // BAND: find the matching right sub-band by elevation overlap and emit a quad.
+      // Pick the right sub-band with the largest overlap with this left sub-band.
+      let bestR = rightBands[0]
+      let bestOv = -1
+      for (const rb of rightBands) {
+        const topR = rightSurf - rb.topDepthM
+        const baseR = rightSurf - rb.baseDepthM
+        const ov = Math.min(topL, topR) - Math.max(baseL, baseR)
+        if (ov > bestOv) {
+          bestOv = ov
+          bestR = rb
+        }
+      }
+      const topR = rightSurf - bestR.topDepthM
+      const baseR = rightSurf - bestR.baseDepthM
+      out.push({
+        ...region,
+        formationId: lb.formationId,
+        kind: 'quad',
+        polygon: [
+          { fraction: leftFrac, elevation: topL },
+          { fraction: rightFrac, elevation: topR },
+          { fraction: rightFrac, elevation: baseR },
+          { fraction: leftFrac, elevation: baseL },
+        ],
+      })
+    } else if (count === 1) {
+      // ONLAP: determine which bracket it touches (top vs base).
+      // "Top contact correlated" means the top bracket is tied → laps base up.
+      // "Base contact correlated" (only) means the base bracket is tied → laps top down.
+      const topId = lb.layerId
+      const belowId = i + 1 < leftBands.length ? leftBands[i + 1].layerId : undefined
+      let topCorr = false
+      if (topId !== undefined) {
+        for (const nid of rightLayerIds) {
+          if (correlated(topId, nid)) {
+            topCorr = true
+            break
+          }
+        }
+      }
+      // Tip fraction: INTERIOR_PINCH_FRACTION into the gap from the left column.
+      const tipFrac = leftFrac + INTERIOR_PINCH_FRACTION * (rightFrac - leftFrac)
+      // Onlap triangle on the left column: the flat side is the full sub-band span on
+      // the left column; the tip points toward the right at the correlated bracket's
+      // elevation (topL when the top contact is tied; baseL when only the base is tied).
+      // This is the same shape buildOnlapPolygon uses in the litho partition.
+      overlays.push({
+        ...region,
+        formationId: lb.formationId,
+        kind: 'lens' as const,
+        overlayTier: 'onlap' as const,
+        polygon: topCorr
+          ? [
+              // Top contact is correlated → tip at the top bracket elevation.
+              { fraction: leftFrac, elevation: topL },
+              { fraction: tipFrac, elevation: topL },
+              { fraction: leftFrac, elevation: baseL },
+            ]
+          : [
+              // Base contact is correlated → tip at the base bracket elevation.
+              { fraction: leftFrac, elevation: topL },
+              { fraction: tipFrac, elevation: baseL },
+              { fraction: leftFrac, elevation: baseL },
+            ],
+      })
+    } else {
+      // LENS: left-column lens, pinches at LENS_PINCH_FRACTION toward the right.
+      const apexFrac = leftFrac + LENS_PINCH_FRACTION * (rightFrac - leftFrac)
+      const apexElev = (topL + baseL) / 2
+      overlays.push({
+        ...region,
+        formationId: lb.formationId,
+        kind: 'lens' as const,
+        overlayTier: 'lens' as const,
+        polygon: [
+          { fraction: leftFrac, elevation: topL },
+          { fraction: apexFrac, elevation: apexElev },
+          { fraction: leftFrac, elevation: baseL },
+        ],
+      })
+    }
+  }
+
+  // --- Right column sub-bands toward the left neighbour (for unmatched right bands) ---
+  // Emit right-side lens/onlap for right sub-bands that are NOT already covered by a
+  // left-column BAND (avoid double-emitting a band sub-quad).
+  const bandedLeftLayerIds = new Set<string>(
+    leftBands
+      .filter((lb, i) => subBandCorrelationCount(leftBands, i, rightLayerIds, correlated) === 2)
+      .map((b) => b.layerId)
+      .filter((id): id is string => id !== undefined),
+  )
+
+  for (let j = 0; j < rightBands.length; j++) {
+    const rb = rightBands[j]
+    // Skip if this right sub-band's layerId was already banded from the left side.
+    const rbBelow = j + 1 < rightBands.length ? rightBands[j + 1].layerId : undefined
+    const alreadyBanded =
+      (rb.layerId !== undefined && bandedLeftLayerIds.has(rb.layerId)) ||
+      (rbBelow !== undefined && bandedLeftLayerIds.has(rbBelow))
+    if (alreadyBanded) continue
+
+    const topR = rightSurf - rb.topDepthM
+    const baseR = rightSurf - rb.baseDepthM
+    const count = subBandCorrelationCount(rightBands, j, leftLayerIds, correlated)
+
+    if (count === 1) {
+      // ONLAP from the right.
+      const topId = rb.layerId
+      let topCorr = false
+      if (topId !== undefined) {
+        for (const nid of leftLayerIds) {
+          if (correlated(topId, nid)) {
+            topCorr = true
+            break
+          }
+        }
+      }
+      const tipFrac = rightFrac - INTERIOR_PINCH_FRACTION * (rightFrac - leftFrac)
+      overlays.push({
+        ...region,
+        formationId: rb.formationId,
+        kind: 'lens' as const,
+        overlayTier: 'onlap' as const,
+        polygon: [
+          { fraction: rightFrac, elevation: topR },
+          { fraction: tipFrac, elevation: topCorr ? topR : baseR },
+          { fraction: rightFrac, elevation: baseR },
+        ],
+      })
+    } else if (count === 0) {
+      // LENS from the right.
+      const apexFrac = rightFrac - LENS_PINCH_FRACTION * (rightFrac - leftFrac)
+      const apexElev = (topR + baseR) / 2
+      overlays.push({
+        ...region,
+        formationId: rb.formationId,
+        kind: 'lens' as const,
+        overlayTier: 'lens' as const,
+        polygon: [
+          { fraction: rightFrac, elevation: topR },
+          { fraction: apexFrac, elevation: apexElev },
+          { fraction: rightFrac, elevation: baseR },
+        ],
+      })
+    }
+    // count === 2 is impossible for right-only loop (already handled from the left)
+  }
+
+  // If we only produced overlays (no bands at all) — which happens when every
+  // sub-band lenses — just return the parent region to avoid an empty main layer.
+  if (out.length === 0) return [region, ...overlays]
+  return [...out, ...overlays]
+}
+
 /**
  * Subdivide each litho partition region into NAD sub-bands using the geotech
  * sub-layer depths on the two columns bounding the region's gap.
@@ -217,6 +564,13 @@ function bandEdges(polygon: readonly PartitionPoint[]): {
  *     `surfaceElevM` for the depth↔elevation conversion.
  * subLayersByInv : ReadonlyMap<string, readonly GeotechSubLayer[]>
  *     `investigationId → its geotech NAD sub-layers` (depth-below-surface).
+ * geotechEdges : readonly CorrelationEdge[], optional
+ *     Approved geotech packing correlation edges (``geotechPackingEdges`` from
+ *     ``SectionsCanvas``).  When present, enables R1 mode: each sub-band's
+ *     shape toward the facing column is decided by how many of its TWO bounding
+ *     contacts are tied by an edge (2 → band, 1 → onlap, 0 → lens), bounded
+ *     strictly within the enclosing litho region.  When absent (or empty), the
+ *     function falls back to R0 (all-or-nothing body_id connection).
  *
  * Returns
  * -------
@@ -229,7 +583,14 @@ export function subdivideRegionsByGeotech(
   regions: readonly SectionRegion[],
   orderedColumns: readonly PartitionColumn[],
   subLayersByInv: ReadonlyMap<string, readonly GeotechSubLayer[]>,
+  geotechEdges?: readonly CorrelationEdge[],
 ): SectionRegion[] {
+  // R1 activates whenever ``geotechEdges`` is provided (even empty — empty means
+  // everything is 0-correlated, which produces lens overlays). R0 activates only
+  // when ``geotechEdges`` is undefined (the caller did not supply an edge list).
+  const r1Active = geotechEdges !== undefined
+  const geotechCorrelated = r1Active ? buildGeotechCorrelated(geotechEdges!) : undefined
+
   const out: SectionRegion[] = []
 
   for (const region of regions) {
@@ -277,6 +638,26 @@ export function subdivideRegionsByGeotech(
       ? columnSubBands(rightSubs, rightBand.topDepthM, rightBand.baseDepthM)
       : []
 
+    // R1 mode: per-sub-band band/onlap/lens from geotech edges (owner directive
+    // 2026-06-25). This replaces the R0 all-or-nothing ``sequencesMatch`` path
+    // for any region where geotech edges are provided AND the region is a simple
+    // quad with sub-layer data on at least one column.
+    if (r1Active && isQuad && (leftBands.length > 0 || rightBands.length > 0)) {
+      const subRegions = subdivideRegionR1(
+        region,
+        leftFrac,
+        rightFrac,
+        leftBands,
+        rightBands,
+        left.surfaceElevM,
+        right.surfaceElevM,
+        geotechCorrelated!,
+      )
+      out.push(...subRegions)
+      continue
+    }
+
+    // R0 mode (fallback when no geotech edges):
     // Connection is the resolver's call: paired sub-bands connect only when they
     // share the same NAD formation AND the same non-null geotech ``body_id`` at
     // every aligned position (spec §6). A null body (resolver hasn't run / didn't
