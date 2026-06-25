@@ -128,10 +128,8 @@ from groundmodel.application.resolve_litho_instances_use_case import ResolveLith
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
-    BodySubdivisionPlan,
     plan_body_subdivision,
 )
-from groundmodel.domain.services.geotech_split_surface import ColumnXY, interpolate_split_elevations
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -240,6 +238,13 @@ class _ColumnPlan:
     sub_intervals : list[tuple[float, float]]
         ``(depth_top_m, depth_base_m)`` for each band position k, ordered
         top to bottom, already clamped to the geo-bounded extent.
+    nad_classes : list[int | None]
+        The NAD packing class for each sub-interval (parallel to
+        ``sub_intervals``). For a CPT this is the CPT's OWN A3 segmentation
+        class per band — NOT a body-consensus class — so each test segments by
+        its own qc. ``None`` means "classify later by extrapolation" (boreholes,
+        or a CPT with no usable qc); those are materialised with a skeleton
+        formation and resolved in Phase 8b.
     """
 
     investigation_id: str
@@ -247,6 +252,7 @@ class _ColumnPlan:
     geo_bounded_top_m: float
     geo_bounded_base_m: float
     sub_intervals: list[tuple[float, float]] = field(default_factory=list)
+    nad_classes: list[int | None] = field(default_factory=list)
 
 
 @dataclass
@@ -421,10 +427,10 @@ class SubdivideAllBodies(GroundModelLogger):
         all_investigation_ids = {UUID(s.investigation_id) for s in divided}
         anchor_kind = await self._resolve_anchor_kinds(all_investigation_ids)
 
-        # Phase 7 — load CPT series + total depths + min_thickness.
+        # Phase 7 — load CPT series + min_thickness (per-CPT segmentation needs
+        # no body-wide total depths now that split surfaces aren't interpolated).
         all_cpt_ids = {UUID(inv_id) for inv_id, kind in anchor_kind.items() if kind == "cpt"}
         cpt_series = await self._load_cpt_series(all_cpt_ids)
-        total_depths = await self._load_total_depths(all_investigation_ids)
         min_thickness_m = await self._read_min_thickness_m(geotech_model.app_project_id)
         self.debug(f"SubdivideAllBodies: min_thickness_m={min_thickness_m}")
 
@@ -522,10 +528,7 @@ class SubdivideAllBodies(GroundModelLogger):
             column_plans = self._build_column_plans(
                 group_segs=group_segs,
                 anchor_kind=anchor_kind,
-                plan=plan,
                 profiles=profiles,
-                geo_surfaces=geo_surfaces,
-                total_depths=total_depths,
             )
 
             for col_plan in column_plans:
@@ -546,10 +549,14 @@ class SubdivideAllBodies(GroundModelLogger):
                 inv_y = inv_seg.y_m if inv_seg else 0.0
 
                 for k, (top_m, base_m) in enumerate(col_plan.sub_intervals):
-                    is_borehole = col_plan.anchor_kind == "borehole"
+                    # Each column carries its OWN per-band NAD class (CPT = its A3
+                    # segmentation; borehole/unclassified = None). A None class is
+                    # materialised with a skeleton formation + queued for Phase-8b
+                    # extrapolation from the nearest CPT.
+                    nad_class = col_plan.nad_classes[k] if k < len(col_plan.nad_classes) else None
 
-                    if is_borehole and not cpt_segs:
-                        # Borehole-only group: materialise with a skeleton
+                    if nad_class is None:
+                        # No local class (borehole, or CPT w/o usable qc): skeleton
                         # formation; queue for Phase 8b extrapolation.
                         formation = await self._find_or_create_skeleton(
                             project_id=project_id,
@@ -587,7 +594,7 @@ class SubdivideAllBodies(GroundModelLogger):
                             )
                         )
                     else:
-                        nad_class = plan.band_classes[k]
+                        # CPT's OWN A3 class for this band (no body consensus).
                         formation = await self._find_or_create_formation(
                             project_id=project_id,
                             classified_by_key=classified_by_key,
@@ -793,17 +800,16 @@ class SubdivideAllBodies(GroundModelLogger):
         *,
         group_segs: list[BodyLayerPick],
         anchor_kind: dict[str, str],
-        plan: BodySubdivisionPlan,
         profiles: list[BandProfile],
-        geo_surfaces: list[_GeoSurface],
-        total_depths: dict[UUID, float],
     ) -> list[_ColumnPlan]:
         """Build per-column sub-interval plans for one body group.
 
-        For a multi-band consistent plan (``n > 1``), the interior split
-        elevations are interpolated from the CPT control points onto every
-        column.  For a one-band plan, each column gets a single sub-interval
-        spanning its full geo-bounded extent.
+        PER-CPT (owner directive 2026-06-25): each CPT column uses its OWN A3
+        segmentation (``profile.splits``) — its own band depths AND its own NAD
+        class per band — so a test segments by its qc independently of its
+        neighbours (no body-consensus collapse). Boreholes (no qc) get one band
+        over their geo-bounded extent with ``nad_class = None``, resolved later by
+        Phase-8b extrapolation from the nearest CPT.
 
         Parameters
         ----------
@@ -811,117 +817,56 @@ class SubdivideAllBodies(GroundModelLogger):
             All geo-bounded segment picks for the group.
         anchor_kind : dict[str, str]
             ``investigation_id (str) -> "borehole" | "cpt"``.
-        plan : BodySubdivisionPlan
-            The B-policy aggregator's decision for this group.
         profiles : list[BandProfile]
-            Per-CPT packing-band profiles.
-        geo_surfaces : list[_GeoSurface]
-            Parent geology surfaces (for surface elevation at each column).
-        total_depths : dict[UUID, float]
-            CPT / borehole total depths.
+            Per-CPT packing-band profiles (the A3 segmentation per test).
 
         Returns
         -------
         list[_ColumnPlan]
-            One entry per column in the group.
+            One entry per column in the group, carrying per-band NAD classes.
         """
-        n = len(plan.band_classes)
         profiles_by_inv = {p.investigation_id: p for p in profiles}
         col_plans: list[_ColumnPlan] = []
 
-        if n == 1:
-            for seg in group_segs:
-                col_plans.append(
-                    _ColumnPlan(
-                        investigation_id=seg.investigation_id,
-                        anchor_kind=anchor_kind.get(seg.investigation_id, "borehole"),
-                        geo_bounded_top_m=seg.top_depth_m,
-                        geo_bounded_base_m=seg.base_depth_m,
-                        sub_intervals=[(seg.top_depth_m, seg.base_depth_m)],
-                    )
-                )
-            return col_plans
-
-        # Multi-band — interpolate split elevations for each interior boundary.
-        all_columns = [
-            ColumnXY(
-                investigation_id=seg.investigation_id,
-                x_m=seg.x_m,
-                y_m=seg.y_m,
-            )
-            for seg in group_segs
-        ]
-
-        split_depth_by_inv: dict[str, dict[int, float]] = defaultdict(dict)
-
-        for k in range(1, n):
-            cpt_points: list[ColumnXY] = []
-            cpt_elevations: list[float] = []
-            for seg in group_segs:
-                profile = profiles_by_inv.get(seg.investigation_id)
-                if profile is None or len(profile.splits) < k:
-                    continue
-                split = profile.splits[k - 1]
-                transition_elevation = seg.surface_elev_m - split.depth_base_m
-                cpt_points.append(
-                    ColumnXY(
-                        investigation_id=seg.investigation_id,
-                        x_m=seg.x_m,
-                        y_m=seg.y_m,
-                    )
-                )
-                cpt_elevations.append(transition_elevation)
-
-            if not cpt_points:
-                for seg in group_segs:
-                    thickness = seg.base_depth_m - seg.top_depth_m
-                    frac_depth = seg.top_depth_m + thickness * (k / n)
-                    split_depth_by_inv[seg.investigation_id][k] = frac_depth
-                continue
-
-            elevation_map = interpolate_split_elevations(
-                cpt_points=cpt_points,
-                cpt_elevations=cpt_elevations,
-                all_columns=all_columns,
-            )
-            for seg in group_segs:
-                elev = elevation_map.get(seg.investigation_id)
-                if elev is None:
-                    continue
-                split_depth = seg.surface_elev_m - elev
-                split_depth_by_inv[seg.investigation_id][k] = split_depth
-
         for seg in group_segs:
+            kind = anchor_kind.get(seg.investigation_id, "borehole")
             geo_top = seg.top_depth_m
             geo_base = seg.base_depth_m
             if geo_base <= geo_top:
                 continue
 
-            raw_splits: list[float] = []
-            for k in range(1, n):
-                d = split_depth_by_inv[seg.investigation_id].get(k)
-                if d is not None:
-                    raw_splits.append(d)
-            raw_splits.sort()
+            sub_intervals: list[tuple[float, float]] = []
+            nad_classes: list[int | None] = []
 
-            valid_splits: list[float] = [d for d in raw_splits if geo_top < d < geo_base]
+            profile = profiles_by_inv.get(seg.investigation_id)
+            if kind == "cpt" and profile is not None and profile.splits:
+                # PER-CPT (owner directive 2026-06-25): each test segments by its
+                # OWN qc (the A3 ``profile.splits``), NOT a body-consensus class. A
+                # sand whose qc crosses 10/15 MPa splits los/matig/dicht on THIS
+                # test even if its neighbours disagree. The A3 splits already tile
+                # [seg.top, seg.base] (== the geo-bounded extent); clamp defensively.
+                for sp in profile.splits:
+                    top_m = max(sp.depth_top_m, geo_top)
+                    base_m = min(sp.depth_base_m, geo_base)
+                    if base_m - top_m > 1e-6:
+                        sub_intervals.append((top_m, base_m))
+                        nad_classes.append(sp.nad_class)
 
-            boundaries = [geo_top] + valid_splits + [geo_base]
-            sub_intervals = [
-                (boundaries[i], boundaries[i + 1])
-                for i in range(len(boundaries) - 1)
-                if boundaries[i + 1] - boundaries[i] > 1e-6
-            ]
             if not sub_intervals:
+                # Borehole (no qc), or a CPT with no usable segmentation → ONE band
+                # spanning the geo-bounded extent, classified later by Phase-8b
+                # extrapolation (nearest CPT). ``None`` flags the skeleton path.
                 sub_intervals = [(geo_top, geo_base)]
+                nad_classes = [None]
 
             col_plans.append(
                 _ColumnPlan(
                     investigation_id=seg.investigation_id,
-                    anchor_kind=anchor_kind.get(seg.investigation_id, "borehole"),
+                    anchor_kind=kind,
                     geo_bounded_top_m=geo_top,
                     geo_bounded_base_m=geo_base,
                     sub_intervals=sub_intervals,
+                    nad_classes=nad_classes,
                 )
             )
 
