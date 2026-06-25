@@ -235,8 +235,34 @@ function FitOnLoad({
       ...boreholeMarkers.map(m => [m.lat, m.lng] as L.LatLngTuple),
     ]
     if (points.length === 0) return
-    firedRef.current = true
-    map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 17 })
+
+    // StageCanvas keys the Data canvas, so the map FRESH-MOUNTS on every visit
+    // and this effect can run BEFORE the flex layout has given the container its
+    // real size. fitBounds against a 0-size container computes a world/Flanders
+    // zoom, which then persists as the camera (so it stays wrong on every later
+    // visit) — the "auto-zoom to tests fails sometimes" dogfeed. Defer to a
+    // frame, refresh the container size, and only fit once the map actually HAS
+    // a size, retrying for a few frames while layout settles. firedRef is set
+    // only on a real fit, so an unsized give-up re-arms on the next deps change.
+    let raf = 0
+    let attempts = 0
+    const fit = (): void => {
+      map.invalidateSize({ animate: false })
+      const size = map.getSize()
+      if (size.x === 0 || size.y === 0) {
+        if (attempts < 30) {
+          attempts += 1
+          raf = requestAnimationFrame(fit)
+        }
+        return // still unsized — give up silently; a later deps change retries
+      }
+      firedRef.current = true
+      map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 17 })
+    }
+    raf = requestAnimationFrame(fit)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [map, hasPersisted, cptMarkers, boreholeMarkers])
 
   return null
@@ -552,6 +578,11 @@ export default function MapView({
       ...boreholeMarkers.map(m => [m.lat, m.lng] as L.LatLngTuple),
     ]
     if (points.length === 0) return
+    // Refresh the container size first — the button can be clicked right after a
+    // panel resize / stage return where Leaflet's cached size is stale, which
+    // would make fitBounds compute the wrong zoom (same class as the FitOnLoad
+    // race above).
+    map.invalidateSize({ animate: false })
     // Pad so markers don't sit flush against the viewport edges, and
     // cap zoom at 17 — same as FlyToSelected's "site level" — so a
     // single isolated marker doesn't slam the view to z=22 (street
