@@ -62,8 +62,16 @@ function quadBand(
 
 const COLS = [col('L', 10), col('R', 10)]
 
-function sub(top: number, base: number, formationId: string): GeotechSubLayer {
-  return { topDepthM: top, baseDepthM: base, formationId }
+// ``srcLitho`` defaults to 'sand' — the soil of the test regions (quadBand
+// 'sand') — so a sub matches the region unless a test overrides it to a
+// different litho formation (GS9 exercises the soil filter).
+function sub(
+  top: number,
+  base: number,
+  formationId: string,
+  srcLitho = 'sand',
+): GeotechSubLayer {
+  return { topDepthM: top, baseDepthM: base, formationId, sourceLithoFormationId: srcLitho }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,5 +193,24 @@ describe('subdivideRegionsByGeotech', () => {
     expect(out.length).toBe(1)
     expect(out[0].formationId).toBe('sand') // litho id kept (no NAD data)
     expect(out[0].polygon).toEqual(region.polygon)
+  })
+
+  it('GS9 — a region is subdivided only by SAME-soil sub-layers (wrong-soil filter)', () => {
+    // A SAND band (0–6 m). The column carries a sand NAD sub-layer over the whole
+    // band PLUS a clay NAD sub-layer at an overlapping depth (the wrong-soil trap:
+    // depth-overlap alone would let the clay recolour the sand band). Only the
+    // sand sub-layer (sourceLithoFormationId === 'sand') may be used.
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [sub(0, 6, 'sand-dense', 'sand'), sub(2, 5, 'clay-stiff', 'clay')]],
+      ['R', [sub(0, 6, 'sand-dense', 'sand'), sub(2, 5, 'clay-stiff', 'clay')]],
+    ])
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs)
+
+    // One sub-band, the SAND NAD class — never the clay one.
+    expect(out.length).toBe(1)
+    expect(out[0].formationId).toBe('sand-dense')
+    expect(out.some((r) => r.formationId === 'clay-stiff')).toBe(false)
   })
 })
