@@ -1,9 +1,9 @@
 /**
  * Tests for NAD class name + colour map utility (nadClasses.ts).
  *
- * Labels are verified verbatim against the backend source of truth:
- * ``src/groundmodel/shared/constants/litho_constants.py`` NAD_CLASSES.
- * Run grep on the backend file alone (never this file) to confirm a label.
+ * Labels are the ENGLISH translations rendered in the UI (the backend holds the
+ * canonical Dutch ``NAD_CLASSES``). The class NUMBER is the stable key; the
+ * English text is presentation, refined in nadClasses.ts.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -14,28 +14,28 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/
 // ---- class name ------------------------------------------------------------
 
 describe('nadClassName', () => {
-  it('class 1 — "GRIND, matig gp" (verbatim backend label)', () => {
-    expect(nadClassName(1)).toBe('GRIND, matig gp')
+  it('class 1 — "GRAVEL, medium dense"', () => {
+    expect(nadClassName(1)).toBe('GRAVEL, medium dense')
   })
 
-  it('class 6 — "ZAND, matig gp" (verbatim backend label)', () => {
-    expect(nadClassName(6)).toBe('ZAND, matig gp')
+  it('class 6 — "SAND, medium dense"', () => {
+    expect(nadClassName(6)).toBe('SAND, medium dense')
   })
 
-  it('class 12 — "ZAND, silt-/kleihoudend, zeer dicht gp" (verbatim backend label)', () => {
-    expect(nadClassName(12)).toBe('ZAND, silt-/kleihoudend, zeer dicht gp')
+  it('class 12 — "SAND, silty/clayey, very dense"', () => {
+    expect(nadClassName(12)).toBe('SAND, silty/clayey, very dense')
   })
 
-  it('class 13 — "SILT, weinig vast" (verbatim backend label)', () => {
-    expect(nadClassName(13)).toBe('SILT, weinig vast')
+  it('class 13 — "SILT, slightly firm"', () => {
+    expect(nadClassName(13)).toBe('SILT, slightly firm')
   })
 
-  it('class 21 — "KLEI, weinig vast" (verbatim backend label)', () => {
-    expect(nadClassName(21)).toBe('KLEI, weinig vast')
+  it('class 21 — "CLAY, slightly firm"', () => {
+    expect(nadClassName(21)).toBe('CLAY, slightly firm')
   })
 
-  it('class 31 — "VEEN, vast" (verbatim backend label)', () => {
-    expect(nadClassName(31)).toBe('VEEN, vast')
+  it('class 31 — "PEAT, firm"', () => {
+    expect(nadClassName(31)).toBe('PEAT, firm')
   })
 
   it('null returns empty string (degenerate — no CPTs for the lithology; no label renders)', () => {
