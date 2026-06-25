@@ -14,7 +14,8 @@ from groundmodel.domain.services.litho_segmentation import (
     _rolling_median_zones,
     _run_length_encode,
 )
-from groundmodel.domain.services.nad_classifier import classify_nad
+from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
+from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
 
@@ -64,6 +65,59 @@ def _persistence_filter(mask: list[bool], persist: int) -> list[bool]:
         for k in range(a, b):
             out[k] = bool(v)
     return out
+
+
+def _median_increment(depths: list[float]) -> float:
+    """Median sample spacing (m). Falls back to 0.02 m for a degenerate series."""
+    diffs = [b - a for a, b in zip(depths, depths[1:]) if b > a]
+    if not diffs:
+        return 0.02
+    diffs.sort()
+    return diffs[len(diffs) // 2]
+
+
+def _sustained_threshold_cuts(
+    depths: list[float],
+    qc: list[float],
+    soil: BaseLithology,
+    admixtures: tuple[Admixture, ...],
+    min_thickness_m: float,
+) -> list[float]:
+    """Boundary depths where qc *sustainably* crosses each NAD band threshold.
+
+    For every finite qc upper-bound of the soil's NAD column, the raw-qc
+    ``>= bound`` mask is persistence-filtered (a crossing must hold for
+    ``min_thickness_m`` to count), and each surviving transition contributes a
+    cut depth. The window top and bottom are always cuts.
+
+    Parameters
+    ----------
+    depths, qc : list[float]
+        Parallel sample series already restricted to the segment.
+    soil : BaseLithology
+        Segment soil (fixes the NAD column + thresholds).
+    admixtures : tuple[Admixture, ...]
+        Segment admixtures (pick clean vs secondary NAD variant).
+    min_thickness_m : float
+        Persistence length — a crossing must hold this long to place a cut.
+
+    Returns
+    -------
+    list[float]
+        Sorted, de-duplicated cut depths (always includes the window ends).
+    """
+    if not depths:
+        return []
+    persist = max(1, round(min_thickness_m / _median_increment(depths)))
+    variant = _variant_for(soil, admixtures)
+    thresholds = [u for u, _c in NAD_QC_BANDS[(soil, variant)] if u is not None]
+    cuts: set[float] = {depths[0], depths[-1]}
+    for thr in thresholds:
+        above = _persistence_filter([q >= thr for q in qc], persist)
+        for j in range(1, len(above)):
+            if above[j] != above[j - 1]:
+                cuts.add(depths[j])
+    return sorted(cuts)
 
 
 @dataclass(frozen=True)

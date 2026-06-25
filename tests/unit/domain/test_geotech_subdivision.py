@@ -5,6 +5,7 @@ import pytest
 from groundmodel.domain.services.geotech_subdivision import (
     _merge_adjacent_same_class,
     _persistence_filter,
+    _sustained_threshold_cuts,
     suggest_geotech_subdivision,
 )
 
@@ -159,6 +160,29 @@ def test_persistence_filter_never_flips_edge_runs():
 
 def test_persistence_filter_empty():
     assert _persistence_filter([], persist=2) == []
+
+
+# --- sustained threshold cuts -----------------------------------------------
+
+
+def test_sustained_threshold_cuts_one_crossing():
+    """A clean rise across the sand 10 MPa bound yields a cut at the crossing depth."""
+    depths = [round(0.1 * i, 2) for i in range(21)]  # 0.0..2.0
+    qc = [8.0 if d < 1.0 else 12.0 for d in depths]
+    cuts = _sustained_threshold_cuts(depths, qc, "ZAND", (), min_thickness_m=0.35)
+    assert cuts[0] == 0.0 and cuts[-1] == 2.0
+    interior = [c for c in cuts if 0.0 < c < 2.0]
+    assert len(interior) == 1
+    assert abs(interior[0] - 1.0) <= 0.15
+
+
+def test_sustained_threshold_cuts_ignores_transient_spike():
+    """A single-sample spike above a bound creates no cut (persistence filter)."""
+    depths = [round(0.1 * i, 2) for i in range(21)]
+    qc = [8.0] * 21
+    qc[10] = 30.0  # 1-sample spike
+    cuts = _sustained_threshold_cuts(depths, qc, "ZAND", (), min_thickness_m=0.35)
+    assert cuts == [0.0, 2.0]
 
 
 def test_absorbed_middle_band_does_not_leave_two_same_class_units():
