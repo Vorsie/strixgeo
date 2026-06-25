@@ -33,6 +33,16 @@ export interface GeotechSubLayer {
   baseDepthM: number
   /** The geotech (NAD-class) formation id — drives the band colour + label. */
   formationId: string
+  /**
+   * The LITHO formation id this geotech sub-layer was derived from
+   * (``geological_formation.source_litho_formation_id``). A litho region is
+   * subdivided ONLY by the sub-layers whose ``sourceLithoFormationId`` equals the
+   * region's (litho) ``formationId`` — so a clay band can only ever be split into
+   * clay NAD classes, never a neighbouring sand/silt sub-layer at an adjacent
+   * depth. This is the fix for the wrong-soil recolour (a clay region showing a
+   * sand NAD colour) seen in the depth-overlap-only v1.
+   */
+  sourceLithoFormationId: string | null
 }
 
 /** A sub-band clamped + snapped to tile one column's slice of a litho band. */
@@ -210,8 +220,16 @@ export function subdivideRegionsByGeotech(
       out.push(region)
       continue
     }
-    const leftSubs = subLayersByInv.get(left.investigationId) ?? []
-    const rightSubs = subLayersByInv.get(right.investigationId) ?? []
+    // SOIL MATCH: a region is subdivided ONLY by sub-layers derived from the same
+    // litho formation (``sourceLithoFormationId === region.formationId``). Without
+    // this, a clay band's depth range could overlap an adjacent sand sub-layer and
+    // ``dominantNad`` would recolour the clay with a sand NAD colour (the wrong-soil
+    // bug). The region's ``formationId`` here is still the LITHO formation (the
+    // partition is built from litho layers); subdivision replaces it with the NAD id.
+    const matchesSoil = (sl: GeotechSubLayer): boolean =>
+      sl.sourceLithoFormationId === region.formationId
+    const leftSubs = (subLayersByInv.get(left.investigationId) ?? []).filter(matchesSoil)
+    const rightSubs = (subLayersByInv.get(right.investigationId) ?? []).filter(matchesSoil)
 
     const { leftFrac, rightFrac, topElevL, baseElevL, topElevR, baseElevR } = bandEdges(
       region.polygon,
