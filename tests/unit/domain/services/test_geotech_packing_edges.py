@@ -1,3 +1,5 @@
+"""Unit tests for ``aligned_same_sequence_pairs`` — geotech packing-edge pairing."""
+
 from groundmodel.domain.services.geotech_packing_edges import aligned_same_sequence_pairs
 
 
@@ -23,5 +25,6 @@ def test_same_count_different_class_no_pairs():
 
 
 def test_empty_either_side_no_pairs():
+    """Either side empty -> no pairs (nothing to align against)."""
     assert aligned_same_sequence_pairs([], [("RB0", 6)]) == []
     assert aligned_same_sequence_pairs([("LA0", 6)], []) == []
