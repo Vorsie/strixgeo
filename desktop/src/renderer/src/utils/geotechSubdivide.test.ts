@@ -118,7 +118,30 @@ describe('subdivideRegionsByGeotech', () => {
     expect(upper.gapIndex).toBe(0)
   })
 
-  it('GS2 — a one-class body keeps the parent shape, recoloured to its NAD', () => {
+  it('GS2 — a one-class body with a resolver body_id keeps the parent shape, recoloured to its NAD', () => {
+    // Both columns carry a SINGLE dense sub-band sharing a non-null resolver bodyId
+    // (B-dense), so the packing connects across the gap → the 1-element
+    // ``sequencesMatch === true`` split path emits one full-band sub-quad. A single
+    // sub-quad spanning the whole band equals the parent polygon.
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [sub(0, 6, 'dense', 'B-dense')]],
+      ['R', [sub(0, 6, 'dense', 'B-dense')]],
+    ])
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs)
+
+    expect(out.length).toBe(1)
+    expect(out[0].formationId).toBe('dense')
+    // Single sub-quad spanning the band == parent polygon (same shape).
+    expect(out[0].polygon).toEqual(region.polygon)
+  })
+
+  it('GS2b — a single band with no resolver body falls back to dominant NAD', () => {
+    // The OLD GS2 case: both columns carry a single dense sub-band but with a NULL
+    // bodyId, so the packing does NOT connect across the gap. The region is kept
+    // whole via the ``dominantNad`` fallback (not the ``sequencesMatch`` split path)
+    // — still one region, parent polygon, recoloured to the dominant NAD.
     const region = quadBand('sand', 'b1', 10, 4)
     const subs = new Map<string, GeotechSubLayer[]>([
       ['L', [sub(0, 6, 'dense')]],
@@ -245,8 +268,9 @@ describe('subdivideRegionsByGeotech', () => {
     const out = subdivideRegionsByGeotech([region], COLS, subs)
 
     expect(out.length).toBe(1)
-    // dense covers 3 m on each column (6 m) vs loose 3 m+3 m too — tie 6 m each, so
-    // the dominant is the first-seen (loose, shallower); either way one whole band.
+    // tie 6 m each (3 m × 2 columns for both); first-seen wins, but the assertion is
+    // intentionally loose — the WHOLE-BAND outcome is the load-bearing claim, not the
+    // tie-winner.
     expect(out[0].polygon).toEqual(region.polygon)
     expect(['loose', 'dense']).toContain(out[0].formationId)
   })
