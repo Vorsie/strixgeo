@@ -94,6 +94,11 @@ import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
+import {
+  overlayEdgeSource,
+  partitionEdgeSource,
+  shouldMountCorrelationOverlay,
+} from './sections/correlationOverlayAxis'
 import PartitionFillOverlay from './sections/PartitionFillOverlay'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
@@ -646,6 +651,20 @@ interface Props {
    */
   contactEdges?: readonly LithoContactCorrelationEdge[]
   /**
+   * The geotech model's packing-correlation edges (Phase 1, 2026-06-25).
+   *
+   * Drives the ``CorrelationEdgesOverlay`` ribbons + right-click targets on
+   * the GEOTECH axis ONLY. This is a SEPARATE list from ``contactEdges``: on
+   * the geotech axis ``contactEdges`` carries the LITHO model's edges, which
+   * FRAME the partition fill (``computeSectionFill``) + the correlated-pair
+   * column spacing and must NOT be repurposed for the geotech overlay (doing
+   * so pinched every litho band to a lens — dogfeed/commit 7329738b). The
+   * partition stays framed by ``contactEdges``; only the overlay ribbons read
+   * this list. Absent / undefined on the litho + geological axes (zero
+   * regression there — the overlay reads ``contactEdges``).
+   */
+  geotechCorrelationEdges?: readonly LithoContactCorrelationEdge[]
+  /**
    * Auto-lens (2026-06-02): pinch-out lens candidates from the last
    * auto-correlate run — crossings dropped from persistence and surfaced as
    * lenses. Rendered as amber lens-candidate markers (litho axis only).
@@ -825,6 +844,7 @@ export default function SectionPanel({
   activeLithoModelId,
   onEditInGeologyStage,
   contactEdges,
+  geotechCorrelationEdges,
   crossingPinchOuts,
   contactGestureState,
   onUnapprovedDragStart,
@@ -3090,31 +3110,42 @@ export default function SectionPanel({
               )}
 
 
-            {/* Litho correlation overlay: body chips, contact-level edges,
-                and contact gesture hit-targets (#133 Phase 1 + #135).
-                Mounted on the litho axis only (axisMode ===
-                'lithostratigraphic'); absent on the geological axis so the
-                overlay never intercepts geological-axis interactions.
+            {/* Correlation overlay: body chips, contact-level edges, and
+                contact gesture hit-targets (#133 Phase 1 + #135; geotech
+                Phase 1 2026-06-25).
+                Mounted on the litho AND geotech axes; absent on the geological
+                axis so the overlay never intercepts geological-axis
+                interactions. On the geotech axis it draws the "Correlate
+                packing" gesture surface + ribbons, fed the SEPARATE
+                geotechCorrelationEdges list (the litho-framed contactEdges still
+                drive the partition — never mix the two; commit 7329738b). Litho-
+                only features (lens inspect, admixture propagation, crossing
+                pinch-outs) are suppressed on the geotech axis.
                 pointerEvents=none at the group level — the component
                 enables pointer-events only for gesture rects when
                 contactCorrelateMode is active. Kept mounted while correlate
                 mode is on even if correlations are hidden — the overlay also
                 hosts the correlate-gesture hit-targets, so unmounting it would
                 silently break correlate clicks. */}
-            {axisMode === 'lithostratigraphic' &&
-              (showCorrelations || contactGestureState?.contactCorrelateMode) && (
+            {shouldMountCorrelationOverlay(
+              axisMode,
+              showCorrelations,
+              contactGestureState?.contactCorrelateMode,
+            ) && (
               <CorrelationEdgesOverlay
                 contacts={correlateContacts}
-                crossingPinchOuts={crossingPinchOuts}
+                crossingPinchOuts={axisMode === 'geotechnical' ? [] : crossingPinchOuts}
                 formations={formations}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
                 pulsingFormationIds={pulsingFormationIds}
-                onInspectLensBody={onInspectLensBody}
-                onPropagateAdmixtures={onPropagateAdmixtures}
-                contactEdges={contactEdges}
+                onInspectLensBody={axisMode === 'geotechnical' ? undefined : onInspectLensBody}
+                onPropagateAdmixtures={
+                  axisMode === 'geotechnical' ? undefined : onPropagateAdmixtures
+                }
+                contactEdges={overlayEdgeSource(axisMode, contactEdges, geotechCorrelationEdges)}
                 contactGestureState={contactGestureState}
                 onUnapprovedDragStart={onUnapprovedDragStart}
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
@@ -3135,7 +3166,10 @@ export default function SectionPanel({
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 geotechSubLayersByInv={geotechSubLayersByInv}
-                contactEdges={contactEdges}
+                // The partition is ALWAYS framed by the litho-framed contactEdges,
+                // on BOTH axes — never the geotech overlay edges (regression guard,
+                // commit 7329738b). partitionEdgeSource makes that explicit.
+                contactEdges={partitionEdgeSource(axisMode, contactEdges)}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
