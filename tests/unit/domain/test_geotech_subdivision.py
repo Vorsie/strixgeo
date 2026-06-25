@@ -2,7 +2,10 @@
 
 import pytest
 
-from groundmodel.domain.services.geotech_subdivision import suggest_geotech_subdivision
+from groundmodel.domain.services.geotech_subdivision import (
+    _merge_adjacent_same_class,
+    suggest_geotech_subdivision,
+)
 
 
 def _depths(top: float, base: float, step: float = 0.5) -> list[float]:
@@ -105,3 +108,52 @@ def test_mismatched_depths_and_qc_raises():
         match=r"depth_m \(2\) and qc_mpa \(1\) must have equal length\.",
     ):
         suggest_geotech_subdivision("ZAND", (), [1.0, 2.0], [5.0], 1.0, 2.0, 0.5)
+
+
+# --- adjacent same-class merge ----------------------------------------------
+
+
+def test_merge_adjacent_same_class_welds_two_same_runs():
+    """Two adjacent runs of the same NAD class weld into one contiguous band.
+
+    Greedy-merge absorbs a thin band into a neighbour but can leave two
+    same-class runs side by side (dense / [absorbed] / dense); they must become
+    a single dense band spanning both index ranges.
+    """
+    runs = [(6, 0, 5), (6, 5, 10), (8, 10, 15)]
+    assert _merge_adjacent_same_class(runs) == [(6, 0, 10), (8, 10, 15)]
+
+
+def test_merge_adjacent_same_class_leaves_distinct_runs_untouched():
+    """Distinct neighbouring classes are not welded."""
+    runs = [(6, 0, 5), (8, 5, 10), (6, 10, 15)]
+    assert _merge_adjacent_same_class(runs) == runs
+
+
+def test_merge_adjacent_same_class_empty():
+    """An empty run list passes through unchanged."""
+    assert _merge_adjacent_same_class([]) == []
+
+
+def test_absorbed_middle_band_does_not_leave_two_same_class_units():
+    """A thin denser band between two equal looser bands → ONE band, not two.
+
+    The 3.5 m dense (NAD 7) band survives median smoothing but is thinner than
+    the 4.0 m min thickness, so greedy-merge absorbs it into a neighbouring
+    medium (NAD 6) band — which must then weld with the other medium band into a
+    single NAD-6 unit rather than rendering as two adjacent NAD-6 slivers.
+    """
+    depths = _depths(0.0, 16.0)
+    # medium (qc 8 → NAD 6) ··· dense (qc 12 → NAD 7, 6.0–9.5 m) ··· medium again
+    qc = [12.0 if 6.0 <= d < 9.5 else 8.0 for d in depths]
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=16.0,
+        min_thickness_m=4.0,
+    )
+    assert [s.nad_class for s in splits] == [6]
+    assert splits[0].depth_top_m == 0.0 and splits[0].depth_base_m == 16.0
