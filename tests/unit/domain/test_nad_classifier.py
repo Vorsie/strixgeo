@@ -43,10 +43,12 @@ def test_gravelly_sand_is_not_a_variant_falls_to_clean():
 def test_sandy_clay_uses_secondary_variant():
     """Clay + a sand admixture (XZ = DOV zand code) → secondary variant (spec §5).
 
-    qc 2.0 MPa is in the zandhoudend-klei matig-vast band [1.5, 3) → NAD 26.
+    qc 2.0 MPa is in the zandhoudend-klei vrij-vast band [2, 4) → NAD 27 (ANB
+    Tabel 2.1). The point of the test is that the SECONDARY range (25–28) is used,
+    not the clean range (21–24).
     """
     admx = (Admixture(soil_code="XZ", amount="M"),)
-    assert classify_nad("KLEI", admx, 2.0) == 26
+    assert classify_nad("KLEI", admx, 2.0) == 27
 
 
 def test_lithology_is_hard_truth_qc_never_changes_soil():
