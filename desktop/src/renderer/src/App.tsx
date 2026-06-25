@@ -26,6 +26,11 @@ import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
 import CheatsheetDialog from './components/ui/CheatsheetDialog'
 import {
+  buildGeotechSubdivisionPatch,
+  readGeotechSubdivisionPrefs,
+  type GeotechSubdivisionPrefs,
+} from './utils/geotechSubdivisionPrefs'
+import {
   buildLithoSegmenterPatch,
   readLithoSegmenterPrefs,
   type LithoSegmenterPrefs,
@@ -912,6 +917,10 @@ export default function App() {
     () => readLithoSegmenterPrefs(project?.view_state ?? null),
     [project],
   )
+  const initialGeotechSubdivisionPrefs = useMemo(
+    () => readGeotechSubdivisionPrefs(project?.view_state ?? null),
+    [project],
+  )
   const initialSectionDefaults = useMemo(
     () => readSectionDefaults(project?.view_state ?? null),
     [project],
@@ -919,6 +928,12 @@ export default function App() {
   const handleSettingsLithoSegmenterSubmit = useCallback(
     (next: LithoSegmenterPrefs) => {
       void applyViewStatePatch(buildLithoSegmenterPatch(next))
+    },
+    [applyViewStatePatch],
+  )
+  const handleSettingsGeotechSubdivisionSubmit = useCallback(
+    (next: GeotechSubdivisionPrefs) => {
+      void applyViewStatePatch(buildGeotechSubdivisionPatch(next))
     },
     [applyViewStatePatch],
   )
@@ -1043,10 +1058,12 @@ export default function App() {
           open={settingsOpen}
           hasProject={false}
           initialLithoSegmenter={initialLithoSegmenterPrefs}
+          initialGeotechSubdivision={initialGeotechSubdivisionPrefs}
           initialSectionDefaults={initialSectionDefaults}
           themeChoice={themeChoice}
           onCancel={() => setSettingsOpen(false)}
           onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
+          onSubmitGeotechSubdivision={handleSettingsGeotechSubdivisionSubmit}
           onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
           onSetThemeChoice={setThemeChoice}
         />
@@ -1104,10 +1121,12 @@ export default function App() {
         open={settingsOpen}
         hasProject={true}
         initialLithoSegmenter={initialLithoSegmenterPrefs}
+        initialGeotechSubdivision={initialGeotechSubdivisionPrefs}
         initialSectionDefaults={initialSectionDefaults}
         themeChoice={themeChoice}
         onCancel={() => setSettingsOpen(false)}
         onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
+        onSubmitGeotechSubdivision={handleSettingsGeotechSubdivisionSubmit}
         onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
         onSetThemeChoice={setThemeChoice}
       />

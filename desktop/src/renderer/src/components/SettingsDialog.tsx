@@ -20,6 +20,11 @@ import Modal from './ui/Modal'
 import NumericInput from './ui/NumericInput'
 import type { ThemeChoice } from '../hooks/useTheme'
 import {
+  GEOTECH_SUBDIVISION_BOUNDS,
+  GEOTECH_SUBDIVISION_DEFAULTS,
+  type GeotechSubdivisionPrefs,
+} from '../utils/geotechSubdivisionPrefs'
+import {
   LITHO_SEGMENTER_BOUNDS,
   LITHO_SEGMENTER_DEFAULTS,
   type LithoSegmenterPrefs,
@@ -30,16 +35,18 @@ import {
   type SectionDefaults,
 } from '../utils/sectionDefaults'
 
-type SectionKey = 'litho' | 'sections' | 'appearance'
+type SectionKey = 'litho' | 'geotech' | 'sections' | 'appearance'
 
 interface Props {
   open: boolean
   hasProject: boolean
   initialLithoSegmenter: LithoSegmenterPrefs
+  initialGeotechSubdivision: GeotechSubdivisionPrefs
   initialSectionDefaults: SectionDefaults
   themeChoice: ThemeChoice
   onCancel: () => void
   onSubmitLithoSegmenter: (next: LithoSegmenterPrefs) => void
+  onSubmitGeotechSubdivision: (next: GeotechSubdivisionPrefs) => void
   onSubmitSectionDefaults: (next: SectionDefaults) => void
   /** Per-user theme override. Persisted to localStorage by useTheme —
    *  applied immediately, no Save click needed (matches every other
@@ -54,6 +61,7 @@ const SECTIONS: ReadonlyArray<{
   scope: 'project' | 'device'
 }> = [
   { key: 'litho', label: 'Litho segmenter', icon: <SlidersHorizontal size={13} />, scope: 'project' },
+  { key: 'geotech', label: 'Geotechnical', icon: <SlidersHorizontal size={13} />, scope: 'project' },
   { key: 'sections', label: 'Cross-sections', icon: <Layers size={13} />, scope: 'project' },
   { key: 'appearance', label: 'Appearance', icon: <Palette size={13} />, scope: 'device' },
 ]
@@ -62,15 +70,18 @@ export default function SettingsDialog({
   open,
   hasProject,
   initialLithoSegmenter,
+  initialGeotechSubdivision,
   initialSectionDefaults,
   themeChoice,
   onCancel,
   onSubmitLithoSegmenter,
+  onSubmitGeotechSubdivision,
   onSubmitSectionDefaults,
   onSetThemeChoice,
 }: Props): JSX.Element | null {
   const [active, setActive] = useState<SectionKey>('litho')
   const [lithoDraft, setLithoDraft] = useState<LithoSegmenterPrefs>(initialLithoSegmenter)
+  const [geotechDraft, setGeotechDraft] = useState<GeotechSubdivisionPrefs>(initialGeotechSubdivision)
   const [sectionsDraft, setSectionsDraft] = useState<SectionDefaults>(initialSectionDefaults)
 
   // Re-seed drafts on open so a Cancel in one session doesn't leak
@@ -81,9 +92,10 @@ export default function SettingsDialog({
   useEffect(() => {
     if (open) {
       setLithoDraft(initialLithoSegmenter)
+      setGeotechDraft(initialGeotechSubdivision)
       setSectionsDraft(initialSectionDefaults)
     }
-  }, [open, initialLithoSegmenter, initialSectionDefaults])
+  }, [open, initialLithoSegmenter, initialGeotechSubdivision, initialSectionDefaults])
 
   if (!open) return null
 
@@ -145,6 +157,15 @@ export default function SettingsDialog({
                 initial={initialLithoSegmenter}
                 hasProject={hasProject}
                 onSubmit={() => onSubmitLithoSegmenter(lithoDraft)}
+              />
+            )}
+            {active === 'geotech' && (
+              <GeotechSection
+                draft={geotechDraft}
+                setDraft={setGeotechDraft}
+                initial={initialGeotechSubdivision}
+                hasProject={hasProject}
+                onSubmit={() => onSubmitGeotechSubdivision(geotechDraft)}
               />
             )}
             {active === 'sections' && (
@@ -416,6 +437,98 @@ function LithoSection({
         dirty={dirty}
         allValid={allValid}
         onReset={() => setDraft({ ...LITHO_SEGMENTER_DEFAULTS })}
+        onSubmit={onSubmit}
+      />
+    </SectionShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Geotechnical subdivision section
+// ---------------------------------------------------------------------------
+
+function GeotechSection({
+  draft,
+  setDraft,
+  initial,
+  hasProject,
+  onSubmit,
+}: {
+  draft: GeotechSubdivisionPrefs
+  setDraft: (next: GeotechSubdivisionPrefs) => void
+  initial: GeotechSubdivisionPrefs
+  hasProject: boolean
+  onSubmit: () => void
+}): JSX.Element {
+  const thicknessBounds = GEOTECH_SUBDIVISION_BOUNDS.minimumLayerThicknessM
+  const snapWindowBounds = GEOTECH_SUBDIVISION_BOUNDS.gradientSnapWindowM
+
+  const thicknessValid =
+    Number.isFinite(draft.minimumLayerThicknessM) &&
+    draft.minimumLayerThicknessM >= thicknessBounds.min &&
+    draft.minimumLayerThicknessM <= thicknessBounds.max
+  const snapWindowValid =
+    Number.isFinite(draft.gradientSnapWindowM) &&
+    draft.gradientSnapWindowM >= snapWindowBounds.min &&
+    draft.gradientSnapWindowM <= snapWindowBounds.max
+
+  const allValid = thicknessValid && (!draft.gradientSnapEnabled || snapWindowValid)
+
+  const dirty =
+    draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
+    draft.gradientSnapEnabled !== initial.gradientSnapEnabled ||
+    draft.gradientSnapWindowM !== initial.gradientSnapWindowM
+
+  return (
+    <SectionShell
+      title="Geotechnical"
+      blurb={'Tuning for the NAD packing subdivision ("Subdivide all bodies"). Applies to the next Subdivide call; already-subdivided bodies are unchanged.'}
+      scope="project"
+    >
+      <NumberRow
+        id="settings-geotech-min-thickness"
+        label="Min layer thickness (m)"
+        hint={`The thinnest NAD packing band kept; also the persistence a qc change must hold to move a boundary (ignores thinner dips/spikes). Range ${thicknessBounds.min}–${thicknessBounds.max} m. Default ${GEOTECH_SUBDIVISION_DEFAULTS.minimumLayerThicknessM} m.`}
+        value={draft.minimumLayerThicknessM}
+        onChange={v => setDraft({ ...draft, minimumLayerThicknessM: v })}
+        bounds={thicknessBounds}
+        sliderMin={thicknessBounds.min}
+        sliderMax={thicknessBounds.max}
+        step={0.05}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!thicknessValid}
+      />
+      <CheckboxRow
+        id="settings-geotech-gradient-snap"
+        label="Gradient snap"
+        hint="Snap a boundary to a nearby sharp qc break for precision; never moves it to a less-conservative depth."
+        checked={draft.gradientSnapEnabled}
+        onChange={v => setDraft({ ...draft, gradientSnapEnabled: v })}
+        disabled={!hasProject}
+      />
+      {draft.gradientSnapEnabled && (
+        <NumberRow
+          id="settings-geotech-gradient-snap-window"
+          label="Gradient snap window (m)"
+          hint={`How far a boundary may snap to a sharp break. Range ${snapWindowBounds.min}–${snapWindowBounds.max} m. Default ${GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapWindowM} m.`}
+          value={draft.gradientSnapWindowM}
+          onChange={v => setDraft({ ...draft, gradientSnapWindowM: v })}
+          bounds={snapWindowBounds}
+          sliderMin={snapWindowBounds.min}
+          sliderMax={snapWindowBounds.max}
+          step={0.05}
+          unit="m"
+          disabled={!hasProject}
+          invalid={!snapWindowValid}
+        />
+      )}
+
+      <SectionFooter
+        hasProject={hasProject}
+        dirty={dirty}
+        allValid={allValid}
+        onReset={() => setDraft({ ...GEOTECH_SUBDIVISION_DEFAULTS })}
         onSubmit={onSubmit}
       />
     </SectionShell>
