@@ -157,6 +157,18 @@ export interface Props {
    * Keyed by ``investigationId`` (CPT id or borehole id).
    */
   geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
+  /**
+   * Geotech axis only — approved geotech packing correlation edges (R1 mode,
+   * owner directive 2026-06-25). When present, ``subdivideRegionsByGeotech``
+   * switches from all-or-nothing body_id connection (R0) to per-sub-band
+   * band / onlap / lens based on how many of each sub-band's two bounding
+   * contacts are tied by an approved geotech packing edge. Must be the GEOTECH
+   * model's edges (``geotechPackingEdges``), NEVER the litho partition edges —
+   * the litho edges frame the partition and are already consumed by
+   * ``contactEdges``; mixing them here would break the partition regression
+   * guard (commit 7329738b).
+   */
+  geotechEdges?: readonly LithoContactCorrelationEdge[]
 }
 
 const FILL_OPACITY = 0.62
@@ -542,6 +554,7 @@ export default function PartitionFillOverlay({
   onBodyContextMenu,
   correlateMode = false,
   geotechSubLayersByInv,
+  geotechEdges,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -897,8 +910,26 @@ export default function PartitionFillOverlay({
     // (so the fill is the litho fill, exactly); now subdivide each region into
     // NAD packing sub-bands by the geotech sub-layer depths. Litho / geological
     // axes pass no sub-layers, so this is identity there.
+    // When ``geotechEdges`` are present (R1 mode, owner directive 2026-06-25):
+    // each sub-band is shaped band/onlap/lens by its geotech packing correlations
+    // rather than the all-or-nothing body_id rule (R0).
+    const geotechEdgeList: CorrelationEdge[] | undefined = geotechEdges
+      ? geotechEdges
+          .filter((e) => e.user_approved)
+          .map((e) => ({
+            a: e.contact_a_id,
+            b: e.contact_b_id,
+            aSide: e.contact_a_side,
+            bSide: e.contact_b_side,
+          }))
+      : undefined
     const sectionRegions = geotechSubLayersByInv
-      ? subdivideRegionsByGeotech(lithoRegions, orderedColumns, geotechSubLayersByInv)
+      ? subdivideRegionsByGeotech(
+          lithoRegions,
+          orderedColumns,
+          geotechSubLayersByInv,
+          geotechEdgeList,
+        )
       : lithoRegions
 
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
@@ -913,6 +944,7 @@ export default function PartitionFillOverlay({
     screenToLevel,
     lensDrag,
     geotechSubLayersByInv,
+    geotechEdges,
   ])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
