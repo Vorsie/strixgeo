@@ -115,14 +115,21 @@ async def _probe_database() -> None:
     parse the full asyncpg traceback (which routes through SSL setup
     even when SSL isn't configured, and reads as scary).
     """
+    # Name the ACTUAL database (host:port/dbname, password stripped) so a
+    # wrong-DB connection is obvious in the very first log line. The 2026-06-25
+    # incident — an orphaned reseed backend bound to the app port talking to
+    # ``groundmodel_integration`` instead of ``groundmodel`` — would have been a
+    # 30-second diagnosis with this line instead of an evening of forensics.
+    url = engine.url
+    db_target = f"{url.host}:{url.port}/{url.database}"
     try:
         async with asyncio.timeout(_DB_PROBE_TIMEOUT_SECONDS):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-        logger.success("PostgreSQL reachable on boot")
+        logger.success(f"PostgreSQL reachable on boot — connected to {db_target!r}")
     except Exception as exc:  # noqa: BLE001 — we want every failure path to surface the same hint
         logger.error(
-            f"PostgreSQL unreachable on boot: {type(exc).__name__}: {exc}. "
+            f"PostgreSQL unreachable on boot ({db_target!r}): {type(exc).__name__}: {exc}. "
             "Is the docker compose stack up? Try: docker compose up -d"
         )
 
