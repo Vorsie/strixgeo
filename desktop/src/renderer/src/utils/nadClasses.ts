@@ -2,9 +2,12 @@
  * NAD geotechnical packing-class lookup table: names + colours.
  *
  * Translate-at-presentation-boundary rule: the backend stores raw NAD class
- * integers (1..31); this module is the single frontend translation point.
- * Labels are ported verbatim from the backend source of truth:
- * ``src/groundmodel/shared/constants/litho_constants.py`` NAD_CLASSES.
+ * integers (1..31) with the canonical DUTCH labels (``litho_constants.py``
+ * NAD_CLASSES, ported verbatim from the NAD-NEN sheet); this module is the
+ * single frontend translation point and renders them in ENGLISH (the app's UI
+ * language). Density terms are the standard CPT classes (loose / medium dense /
+ * dense / very dense); fines use firmness (slightly / moderately / fairly firm /
+ * firm) — refine the exact geotech terminology here if preferred.
  *
  * Colour ramp note: the palette below maps packing density to lightness within
  * each soil family (loosest = lightest, densest = darkest), reading the 31
@@ -22,50 +25,51 @@
 // ---------------------------------------------------------------------------
 
 /**
- * NAD class number (1..31) → canonical packing-class label.
+ * NAD class number (1..31) → English packing-class label (presentation).
  *
- * Labels are ported verbatim from the backend ``NAD_CLASSES`` dict in
- * ``src/groundmodel/shared/constants/litho_constants.py``.
- * The class number (integer key) is the stable Phase-5 join key into the
- * NAD-NEN parameter sheet; the label is presentation only.
+ * The canonical Dutch labels live in the backend ``NAD_CLASSES`` dict
+ * (``src/groundmodel/shared/constants/litho_constants.py``); these are their
+ * English translations for the UI. The class number (integer key) is the stable
+ * Phase-5 join key into the NAD-NEN parameter sheet; the label is presentation
+ * only, so translating it here changes nothing downstream.
  */
 export const NAD_CLASS_NAMES: Readonly<Record<number, string>> = {
-  // GRIND (gravel) — 4 packing classes
-  1: 'GRIND, matig gp',
-  2: 'GRIND, dicht gp',
-  3: 'GRIND, silt-/kleihoudend, matig gp',
-  4: 'GRIND, silt- of kleihoudend, dicht gp',
-  // ZAND (sand) — 8 packing classes (los/matig/dicht/zeer dicht × clean/silty)
-  5: 'ZAND, los gp',
-  6: 'ZAND, matig gp',
-  7: 'ZAND, dicht gp',
-  8: 'ZAND, zeer dicht gp',
-  9: 'ZAND, silt-/kleihoudend, los gp',
-  10: 'ZAND, silt-/kleihoudend, matig gp',
-  11: 'ZAND, silt-/kleihoudend, dicht gp',
-  12: 'ZAND, silt-/kleihoudend, zeer dicht gp',
-  // SILT — 8 consistency classes (weinig vast/matig vast/vrij vast/vast × clean/sandy)
-  13: 'SILT, weinig vast',
-  14: 'SILT, matig vast',
-  15: 'SILT, vrij vast',
-  16: 'SILT, vast',
-  17: 'SILT, zandhoudend, weinig vast',
-  18: 'SILT, zandhoudend, matig vast',
-  19: 'SILT, zandhoudend, vrij vast',
-  20: 'SILT, zandhoudend, vast',
-  // KLEI (clay) — 8 consistency classes (weinig vast/matig vast/vrij vast/vast × clean/sandy)
-  21: 'KLEI, weinig vast',
-  22: 'KLEI, matig vast',
-  23: 'KLEI, vrij vast',
-  24: 'KLEI, vast',
-  25: 'KLEI, zandhoudend, weinig vast',
-  26: 'KLEI, zandhoudend, matig vast',
-  27: 'KLEI, zandhoudend, vrij vast',
-  28: 'KLEI, zandhoudend, vast',
-  // VEEN (peat) — 3 consistency classes
-  29: 'VEEN, weinig vast',
-  30: 'VEEN, matig vast',
-  31: 'VEEN, vast',
+  // GRAVEL — 4 density classes
+  1: 'GRAVEL, medium dense',
+  2: 'GRAVEL, dense',
+  3: 'GRAVEL, silty/clayey, medium dense',
+  4: 'GRAVEL, silty/clayey, dense',
+  // SAND — 8 density classes (loose/medium dense/dense/very dense × clean/silty)
+  5: 'SAND, loose',
+  6: 'SAND, medium dense',
+  7: 'SAND, dense',
+  8: 'SAND, very dense',
+  9: 'SAND, silty/clayey, loose',
+  10: 'SAND, silty/clayey, medium dense',
+  11: 'SAND, silty/clayey, dense',
+  12: 'SAND, silty/clayey, very dense',
+  // SILT — 8 consistency classes (slightly/moderately/fairly firm/firm × clean/sandy)
+  13: 'SILT, slightly firm',
+  14: 'SILT, moderately firm',
+  15: 'SILT, fairly firm',
+  16: 'SILT, firm',
+  17: 'SILT, sandy, slightly firm',
+  18: 'SILT, sandy, moderately firm',
+  19: 'SILT, sandy, fairly firm',
+  20: 'SILT, sandy, firm',
+  // CLAY — 8 consistency classes (slightly/moderately/fairly firm/firm × clean/sandy)
+  21: 'CLAY, slightly firm',
+  22: 'CLAY, moderately firm',
+  23: 'CLAY, fairly firm',
+  24: 'CLAY, firm',
+  25: 'CLAY, sandy, slightly firm',
+  26: 'CLAY, sandy, moderately firm',
+  27: 'CLAY, sandy, fairly firm',
+  28: 'CLAY, sandy, firm',
+  // PEAT — 3 consistency classes
+  29: 'PEAT, slightly firm',
+  30: 'PEAT, moderately firm',
+  31: 'PEAT, firm',
 } as const
 
 // ---------------------------------------------------------------------------
