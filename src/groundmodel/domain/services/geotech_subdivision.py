@@ -1,29 +1,20 @@
 """Geotech NAD subdivision suggester — packing splits within one litho segment.
 
-Reuses the litho segmenter's smoothing/RLE/merge helpers but classifies on RAW
-qc via :func:`classify_nad` (no Dr, no Robertson, no σ′v). Heavy smoothing is
-an in-memory split helper only (spec §1, §4 Step B); it never persists.
+Uses a conservative per-threshold cut pipeline: sustained crossings place band
+boundaries, each band is classified by its median qc (robust to spikes), thin
+bands absorb into the weaker neighbour, and an optional gradient snap sharpens
+contacts without ever making the placement less conservative.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import median
 
-from groundmodel.domain.services.litho_segmentation import (
-    _greedy_merge,
-    _rolling_median_zones,
-    _run_length_encode,
-)
 from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
 from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
-
-# Smoothing half-window in samples — heavier than the litho default so single
-# spikes/drops do not trigger spurious packing splits (spec §1). In-memory only.
-# 5 half-window samples ≈ 10 cm at a 2 cm CPT increment / ≈ 25 cm at 5 cm —
-# re-derive if the CPT resolution assumption changes.
-_SMOOTH_HALF_WINDOW = 5
 
 
 def _persistence_filter(mask: list[bool], persist: int) -> list[bool]:
@@ -174,6 +165,66 @@ def _weld_same_class_bands(bands: list[list[float]]) -> list[list[float]]:
     return out
 
 
+def _gradient_snap(
+    bands: list[list[float]],
+    depths: list[float],
+    qc: list[float],
+    window_m: float,
+    min_thickness_m: float,
+) -> list[list[float]]:
+    """Snap each interior boundary to a nearby sharp |dqc/dz| peak, conservatively.
+
+    A snap is applied only when it does NOT make the boundary less conservative:
+    for a densifying boundary (weaker class above, denser below) a snap may move
+    the boundary deeper (weaker holds longer) but never shallower; for a softening
+    boundary the reverse. Re-runs the conservative merge + weld afterward.
+
+    Parameters
+    ----------
+    bands : list[list[float]]
+        ``[top, base, nad_class]`` bands after Step 4.
+    depths, qc : list[float]
+        Segment sample series.
+    window_m : float
+        Max distance a boundary may snap.
+    min_thickness_m : float
+        Re-applied to keep bands valid after snapping.
+
+    Returns
+    -------
+    list[list[float]]
+        Bands with eligible interior boundaries snapped.
+    """
+    if len(bands) < 2 or len(depths) < 3:
+        return bands
+    # |dqc/dz| via central differences on raw qc.
+    grad = [0.0] * len(depths)
+    for i in range(1, len(depths) - 1):
+        dz = depths[i + 1] - depths[i - 1]
+        grad[i] = abs((qc[i + 1] - qc[i - 1]) / dz) if dz > 1e-9 else 0.0
+    ordered = sorted(g for g in grad if g > 0.0)
+    if not ordered:
+        return bands
+    thr = ordered[int(0.92 * (len(ordered) - 1))]
+    peaks = [
+        depths[i]
+        for i in range(2, len(grad) - 2)
+        if grad[i] > thr and grad[i] >= grad[i - 1] and grad[i] >= grad[i + 1]
+    ]
+    for k in range(len(bands) - 1):
+        d = bands[k][1]  # boundary between band k (above) and k+1 (below)
+        densifying = bands[k + 1][2] > bands[k][2]
+        near = [p for p in peaks if abs(p - d) <= window_m]
+        if not near:
+            continue
+        peak = min(near, key=lambda p: abs(p - d))
+        more_conservative = (peak > d) if densifying else (peak < d)
+        if more_conservative:
+            bands[k][1] = peak
+            bands[k + 1][0] = peak
+    return _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
+
+
 @dataclass(frozen=True)
 class GeotechSplit:
     """One suggested NAD sub-unit within a geo-bounded litho segment.
@@ -203,15 +254,19 @@ def suggest_geotech_subdivision(
     segment_top_m: float,
     segment_base_m: float,
     min_thickness_m: float,
+    *,
+    gradient_snap: bool = True,
+    gradient_snap_window_m: float = 0.5,
 ) -> list[GeotechSplit]:
     """Suggest NAD sub-units for one geo-bounded litho segment.
 
-    Classifies each CPT sample inside the segment via :func:`classify_nad`,
-    applies a rolling-median smoother to suppress single-point spikes, then
-    run-length encodes and merges runs shorter than ``min_thickness_m``.
-    Returns one :class:`GeotechSplit` per surviving packing run. A uniform
-    segment (or one with only thin variation) returns a single split spanning
-    the entire segment.
+    Uses a conservative per-threshold cut pipeline: sustained qc crossings
+    place band boundaries, each band is classified by its median qc (robust to
+    spikes), thin bands absorb into the weaker neighbour, and an optional
+    gradient snap sharpens contacts without ever making the placement less
+    conservative. Returns one :class:`GeotechSplit` per surviving packing band.
+    A uniform segment (or one with only thin variation) returns a single split
+    spanning the entire segment.
 
     Parameters
     ----------
@@ -229,13 +284,22 @@ def suggest_geotech_subdivision(
     segment_base_m : float
         Base bound of the geo-bounded litho segment (metres).
     min_thickness_m : float
-        Minimum sub-unit thickness; runs thinner than this are absorbed into
-        their neighbour by :func:`_greedy_merge`.
+        Minimum sub-unit thickness; thinner bands absorb into the weaker
+        neighbour via :func:`_conservative_merge`.
+    gradient_snap : bool, optional
+        When ``True`` (default), snap interior boundaries toward nearby sharp
+        ``|dqc/dz|`` peaks, subject to the conservative-placement constraint
+        (a densifying boundary may only move deeper; a softening boundary may
+        only move shallower). Pass ``False`` to disable for deterministic unit
+        tests that assert exact band sequences.
+    gradient_snap_window_m : float, optional
+        Maximum distance (metres) an interior boundary may snap toward a
+        gradient peak. Default 0.5 m.
 
     Returns
     -------
     list[GeotechSplit]
-        One split per surviving packing run, ordered top-to-bottom. Never
+        One split per surviving packing band, ordered top-to-bottom. Never
         empty — falls back to a single split covering the full segment when
         no CPT samples fall inside it (qc=0.0 → loosest NAD class for the
         soil type).
@@ -267,72 +331,29 @@ def suggest_geotech_subdivision(
     seg_depths: list[float] = [d for d, _q in pairs]
     seg_qc: list[float] = [q for _d, q in pairs]
 
-    # --- classify, smooth, RLE, merge -------------------------------------
-    classes: list[int] = [classify_nad(soil, admixtures, q) for q in seg_qc]
-    smoothed = _rolling_median_zones(classes, _SMOOTH_HALF_WINDOW)
-    runs = _run_length_encode(smoothed)
+    # 1. Sustained per-threshold crossings -> cut depths (conservative placement).
+    cuts = _sustained_threshold_cuts(seg_depths, seg_qc, soil, admixtures, min_thickness_m)
 
-    # _greedy_merge takes the actual depth values (not sample counts) and a
-    # float min thickness — no conversion needed.
-    runs = _greedy_merge(runs, seg_depths, min_thickness_m)
+    # 2. Bands between consecutive cuts, each classified by its MEDIAN qc (robust
+    #    to spikes without the harmonic over-suppression).
+    bands: list[list[float]] = []
+    for a, b in zip(cuts, cuts[1:]):
+        in_band = [q for d, q in zip(seg_depths, seg_qc) if a <= d < b]
+        if not in_band:
+            continue
+        cls = classify_nad(soil, admixtures, median(in_band))
+        bands.append([a, b, cls])
+    if not bands:  # degenerate (e.g. single sample) — one band over the segment
+        bands = [[segment_top_m, segment_base_m, classify_nad(soil, admixtures, median(seg_qc))]]
 
-    # _greedy_merge can absorb a thin run that sat BETWEEN two runs of the same
-    # NAD class into one side, leaving two adjacent same-class runs (e.g.
-    # dense / [thin medium absorbed] / dense → dense / dense). Collapse those so
-    # each packing class renders as a single band. This runs PER geo-bounded
-    # litho segment (one suggest_geotech_subdivision call == one segment), so it
-    # can never merge across a geological or lithological boundary — those are
-    # separate segments / separate calls.
-    runs = _merge_adjacent_same_class(runs)
+    # 3. Conservative min-thickness merge (thin -> weaker neighbour) + 4. weld.
+    bands = _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
 
-    # --- assemble GeotechSplit list ---------------------------------------
-    splits: list[GeotechSplit] = []
-    for i, (cls, start, end) in enumerate(runs):
-        top = segment_top_m if i == 0 else seg_depths[start]
-        # end is exclusive (RLE convention: [start, end)); the last sample of
-        # this run is at index end-1, and the next run starts at end.
-        # Use seg_depths[end] as the boundary depth when not the final run,
-        # matching the convention that a run's base == the next run's top.
-        base = segment_base_m if i == len(runs) - 1 else seg_depths[end]
-        splits.append(GeotechSplit(round(top, 3), round(base, 3), int(cls)))  # type: ignore[arg-type]
+    # 5. Optional bounded gradient snap (sharpens real contacts, never less conservative).
+    if gradient_snap:
+        bands = _gradient_snap(bands, seg_depths, seg_qc, gradient_snap_window_m, min_thickness_m)
 
-    return splits
-
-
-def _merge_adjacent_same_class(
-    runs: list[tuple[int | None, int, int]],
-) -> list[tuple[int | None, int, int]]:
-    """Collapse consecutive runs that share the same NAD class into one run.
-
-    ``_greedy_merge`` absorbs a thin run into a neighbour but never re-checks
-    whether that leaves two same-class runs adjacent (e.g. a thin *medium* band
-    between two *dense* bands is absorbed, yielding ``dense / dense``). This pass
-    welds such pairs so each packing class is one contiguous band.
-
-    Operates on a single geo-bounded litho segment's runs (one
-    :func:`suggest_geotech_subdivision` call), so it cannot weld across a
-    geological or lithological boundary — distinct segments are distinct calls.
-
-    Parameters
-    ----------
-    runs : list[tuple[int | None, int, int]]
-        RLE runs ``(nad_class, start_idx, end_idx_exclusive)`` after greedy
-        merge, ordered top-to-bottom.
-
-    Returns
-    -------
-    list[tuple[int | None, int, int]]
-        Runs with adjacent same-class runs welded; the index span of a welded
-        run covers ``(first.start, last.end)``.
-    """
-    if not runs:
-        return runs
-    merged: list[tuple[int | None, int, int]] = [runs[0]]
-    for cls, start, end in runs[1:]:
-        prev_cls, prev_start, _prev_end = merged[-1]
-        if cls == prev_cls:
-            # Weld: extend the previous run's exclusive end to this run's end.
-            merged[-1] = (prev_cls, prev_start, end)
-        else:
-            merged.append((cls, start, end))
-    return merged
+    # Clamp the outer edges to the fixed litho-segment bounds, then emit.
+    bands[0][0] = segment_top_m
+    bands[-1][1] = segment_base_m
+    return [GeotechSplit(round(top, 3), round(base, 3), int(cls)) for top, base, cls in bands]

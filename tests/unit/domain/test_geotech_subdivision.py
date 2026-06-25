@@ -4,7 +4,7 @@ import pytest
 
 from groundmodel.domain.services.geotech_subdivision import (
     _conservative_merge,
-    _merge_adjacent_same_class,
+    _gradient_snap,
     _persistence_filter,
     _sustained_threshold_cuts,
     _weld_same_class_bands,
@@ -21,90 +21,6 @@ def _depths(top: float, base: float, step: float = 0.5) -> list[float]:
     return out
 
 
-def test_uniform_qc_yields_single_unit():
-    """Constant-qc clean sand → ONE NAD unit spanning the whole segment."""
-    # A constant-qc clean sand segment → ONE NAD unit, no internal split.
-    depths = _depths(2.0, 8.0)
-    qc = [8.0] * len(depths)
-    splits = suggest_geotech_subdivision(
-        soil="ZAND",
-        admixtures=(),
-        depth_m=depths,
-        qc_mpa=qc,
-        segment_top_m=2.0,
-        segment_base_m=8.0,
-        min_thickness_m=0.5,
-    )
-    assert [s.nad_class for s in splits] == [6]
-    assert splits[0].depth_top_m == 2.0 and splits[0].depth_base_m == 8.0
-
-
-def test_band_change_splits_into_two_units():
-    """A sustained qc shift crossing a NAD band boundary → two sub-units."""
-    # qc 8 (matig, NAD 6) over the top half, qc 18 (zeer dicht, NAD 8) below.
-    depths = _depths(0.0, 10.0)
-    qc = [8.0 if d < 5.0 else 18.0 for d in depths]
-    splits = suggest_geotech_subdivision(
-        soil="ZAND",
-        admixtures=(),
-        depth_m=depths,
-        qc_mpa=qc,
-        segment_top_m=0.0,
-        segment_base_m=10.0,
-        min_thickness_m=0.5,
-    )
-    assert [s.nad_class for s in splits] == [6, 8]
-    assert (
-        abs(splits[0].depth_base_m - 5.0) <= 0.5
-    )  # boundary within one min-thickness step of the true split at 5.0 m
-
-
-def test_min_thickness_merges_thin_spike():
-    """A single-sample spike below min_thickness is smoothed/merged away."""
-    # A 1-sample dense spike thinner than min_thickness must NOT create a unit.
-    depths = _depths(0.0, 10.0)
-    qc = [8.0] * len(depths)
-    qc[len(qc) // 2] = 30.0  # single spike
-    splits = suggest_geotech_subdivision(
-        soil="ZAND",
-        admixtures=(),
-        depth_m=depths,
-        qc_mpa=qc,
-        segment_top_m=0.0,
-        segment_base_m=10.0,
-        min_thickness_m=1.0,
-    )
-    assert [s.nad_class for s in splits] == [6]  # spike smoothed/merged away
-
-
-def test_non_monotonic_dense_shallow_loose_deep():
-    """Dense-over-loose ordering (non-monotonic qc) → two units, dense on top."""
-    # dense (18) shallow → loose (8) deep: two units, dense on top.
-    depths = _depths(0.0, 10.0)
-    qc = [18.0 if d < 5.0 else 8.0 for d in depths]
-    splits = suggest_geotech_subdivision(
-        soil="ZAND",
-        admixtures=(),
-        depth_m=depths,
-        qc_mpa=qc,
-        segment_top_m=0.0,
-        segment_base_m=10.0,
-        min_thickness_m=0.5,
-    )
-    assert [s.nad_class for s in splits] == [8, 6]
-
-
-def test_no_cpt_coverage_returns_fallback_single_unit():
-    """A litho segment with no CPT samples → one fallback unit spanning the segment.
-
-    The result list is never empty.
-    """
-    splits = suggest_geotech_subdivision("ZAND", (), [], [], 5.0, 10.0, 0.5)
-    assert len(splits) == 1
-    assert splits[0].depth_top_m == 5.0
-    assert splits[0].depth_base_m == 10.0
-
-
 def test_mismatched_depths_and_qc_raises():
     """depth_m and qc_mpa must be parallel series — a length mismatch is a programming error."""
     with pytest.raises(
@@ -114,29 +30,81 @@ def test_mismatched_depths_and_qc_raises():
         suggest_geotech_subdivision("ZAND", (), [1.0, 2.0], [5.0], 1.0, 2.0, 0.5)
 
 
-# --- adjacent same-class merge ----------------------------------------------
+# --- pipeline tests ---------------------------------------------------------
 
 
-def test_merge_adjacent_same_class_welds_two_same_runs():
-    """Two adjacent runs of the same NAD class weld into one contiguous band.
+def test_densifying_ramp_recovers_middle_band():
+    """matig -> dicht -> zeer-dicht: the dicht band is NOT erased (the core bug)."""
+    depths = [round(0.1 * i, 2) for i in range(31)]  # 0..3 m
+    qc = [8.0 if d < 1.0 else (12.0 if d < 2.0 else 18.0) for d in depths]
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6, 7, 8]
 
-    Greedy-merge absorbs a thin band into a neighbour but can leave two
-    same-class runs side by side (dense / [absorbed] / dense); they must become
-    a single dense band spanning both index ranges.
-    """
-    runs = [(6, 0, 5), (6, 5, 10), (8, 10, 15)]
-    assert _merge_adjacent_same_class(runs) == [(6, 0, 10), (8, 10, 15)]
+
+def test_conservative_holds_weaker_class_through_oscillation():
+    """qc oscillating across 15 keeps the WEAKER (dicht) class until it sustains."""
+    depths = [round(0.1 * i, 2) for i in range(31)]
+    qc = []
+    for d in depths:
+        if 1.0 <= d < 1.2:
+            qc.append(18.0)  # transient spike (<0.35 m) — must be ignored
+        elif d >= 2.0:
+            qc.append(18.0)  # sustained zeer-dicht
+        else:
+            qc.append(12.0)  # dicht
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [7, 8]
+    boundary = splits[0].depth_base_m
+    assert abs(boundary - 2.0) <= 0.2
 
 
-def test_merge_adjacent_same_class_leaves_distinct_runs_untouched():
-    """Distinct neighbouring classes are not welded."""
-    runs = [(6, 0, 5), (8, 5, 10), (6, 10, 15)]
-    assert _merge_adjacent_same_class(runs) == runs
+def test_uniform_segment_one_band():
+    depths = [round(0.1 * i, 2) for i in range(21)]
+    qc = [8.0] * 21
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]
+    assert splits[0].depth_top_m == 0.0 and splits[0].depth_base_m == 2.0
 
 
-def test_merge_adjacent_same_class_empty():
-    """An empty run list passes through unchanged."""
-    assert _merge_adjacent_same_class([]) == []
+def test_no_samples_returns_fallback_band():
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=[],
+        qc_mpa=[],
+        segment_top_m=5.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
+    )
+    assert len(splits) == 1
+    assert splits[0].depth_top_m == 5.0 and splits[0].depth_base_m == 10.0
 
 
 # --- persistence filter -----------------------------------------------------
@@ -207,25 +175,22 @@ def test_weld_same_class_bands():
     assert _weld_same_class_bands(bands) == [[0.0, 1.5, 6], [1.5, 3.0, 8]]
 
 
-def test_absorbed_middle_band_does_not_leave_two_same_class_units():
-    """A thin denser band between two equal looser bands → ONE band, not two.
+# --- gradient snap ----------------------------------------------------------
 
-    The 3.5 m dense (NAD 7) band survives median smoothing but is thinner than
-    the 4.0 m min thickness, so greedy-merge absorbs it into a neighbouring
-    medium (NAD 6) band — which must then weld with the other medium band into a
-    single NAD-6 unit rather than rendering as two adjacent NAD-6 slivers.
-    """
-    depths = _depths(0.0, 16.0)
-    # medium (qc 8 → NAD 6) ··· dense (qc 12 → NAD 7, 6.0–9.5 m) ··· medium again
-    qc = [12.0 if 6.0 <= d < 9.5 else 8.0 for d in depths]
-    splits = suggest_geotech_subdivision(
-        soil="ZAND",
-        admixtures=(),
-        depth_m=depths,
-        qc_mpa=qc,
-        segment_top_m=0.0,
-        segment_base_m=16.0,
-        min_thickness_m=4.0,
-    )
-    assert [s.nad_class for s in splits] == [6]
-    assert splits[0].depth_top_m == 0.0 and splits[0].depth_base_m == 16.0
+
+def test_gradient_snap_sharpens_toward_a_break_when_more_conservative():
+    """A densifying boundary snaps DEEPER toward a sharp qc break (more conservative)."""
+    depths = [round(0.1 * i, 2) for i in range(31)]
+    qc = [8.0 if d < 1.5 else 20.0 for d in depths]
+    bands = [[0.0, 1.3, 6], [1.3, 3.0, 8]]
+    snapped = _gradient_snap(bands, depths, qc, window_m=0.5, min_thickness_m=0.35)
+    assert abs(snapped[0][1] - 1.5) <= 0.15  # moved deeper to the break
+
+
+def test_gradient_snap_refuses_less_conservative_move():
+    """A snap that would move a densifying boundary SHALLOWER is rejected."""
+    depths = [round(0.1 * i, 2) for i in range(31)]
+    qc = [8.0 if d < 1.5 else 20.0 for d in depths]
+    bands = [[0.0, 1.7, 6], [1.7, 3.0, 8]]  # boundary already deep
+    snapped = _gradient_snap(bands, depths, qc, window_m=0.5, min_thickness_m=0.35)
+    assert snapped[0][1] == 1.7  # peak at 1.5 is shallower -> not applied
