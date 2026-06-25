@@ -12,7 +12,7 @@
 // disagree on the sub-band sequence, the region is kept WHOLE (one band, the
 // dominant NAD) — no extra wedge is created.
 //
-// Pinned claims:
+// Pinned claims (R0 — all-or-nothing body_id mode, no geotechEdges):
 //   GS1  consistent 2-way split → 2 sub-quads tiling the parent band, split at
 //        the paired (leftSplitElev, rightSplitElev); coloured by NAD formation.
 //   GS2  one-class body (1 sub-layer both sides) → 1 region, parent polygon kept,
@@ -24,11 +24,21 @@
 //        cover exactly the parent band (no gap, no overlap) on each column.
 //   GS6  a body with NO geotech sub-layers → region returned unchanged (keeps its
 //        litho formationId; the caller's colour map falls back).
+//
+// Pinned claims (R1 — per-sub-band band/onlap/lens from geotechEdges):
+//   GR1  both bounding contacts tied → sub-band is a BAND quad.
+//   GR2  only the TOP contact tied → ONLAP triangle on the left column, tip on the
+//        top bracket (the band pinches from the top).
+//   GR3  only the BASE contact tied → ONLAP triangle on the left column, tip on
+//        the base bracket (the band pinches from the base).
+//   GR4  neither contact tied → LENS triangle on the left column, tip at mid-elev.
+//   GR5  litho-region framing (gapIndex, bodyId, kind) is preserved on every
+//        output region (R1 sub-bands inherit the parent's identity fields).
 
 import { describe, expect, it } from 'vitest'
 
 import { subdivideRegionsByGeotech, type GeotechSubLayer } from './geotechSubdivide'
-import type { PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -83,6 +93,30 @@ function sub(
     bodyId,
     sourceLithoFormationId: srcLitho,
   }
+}
+
+// R1 variant: same as ``sub()`` but also carries a ``layerId`` (the geotech
+// ``litho_layer.id``) for the per-sub-band band/onlap/lens classification.
+function subR1(
+  top: number,
+  base: number,
+  formationId: string,
+  layerId: string,
+  srcLitho = 'sand',
+): GeotechSubLayer {
+  return {
+    topDepthM: top,
+    baseDepthM: base,
+    formationId,
+    bodyId: null,
+    sourceLithoFormationId: srcLitho,
+    layerId,
+  }
+}
+
+// Build a geotech packing edge (top-keyed, no aSide/bSide = top by default).
+function edge(a: string, b: string): CorrelationEdge {
+  return { a, b }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,5 +326,155 @@ describe('subdivideRegionsByGeotech', () => {
     expect(out.length).toBe(1)
     expect(out[0].formationId).toBe('sand-dense')
     expect(out.some((r) => r.formationId === 'clay-stiff')).toBe(false)
+  })
+
+  // -------------------------------------------------------------------------
+  // R1 — per-sub-band band/onlap/lens from geotech packing edges
+  // -------------------------------------------------------------------------
+  //
+  // Setup for all R1 tests:
+  //   region   = sand quad band 0–6 m (elev 10→4), COLS flat at surf=10.
+  //   Left col = sub-bands L-top (0–3 m, layerId 'lt') + L-bot (3–6 m, layerId 'lb').
+  //   Right col = sub-bands R-top (0–3 m, layerId 'rt') + R-bot (3–6 m, layerId 'rb').
+  //   Fractions: leftFrac=0, rightFrac=1 (two-column gap, COLS = [L, R]).
+  //
+  // The correlation count per sub-band is determined by how many of its bounding
+  // contacts have a geotech packing edge to ANY layer on the neighbour column:
+  //   Top contact keyed by OWN layerId ('lt'), base contact keyed by NEXT layerId ('lb').
+  //   Edge('lt','rt') ties the top contact of L-top to the right column (band-top tied).
+  //   Edge('lb','rb') ties the base contact of L-top (= top of L-bot) to the right.
+  //   2 edges (lt↔rt + lb↔rb) → L-top BANDS toward right (count=2).
+  //   1 edge (lt↔rt only) → L-top ONLAPS (count=1, top tied).
+  //   0 edges → L-top LENSES (count=0).
+
+  it('GR1 — both bounding contacts tied → sub-band is a BAND quad spanning both columns', () => {
+    // Tie both top and base contacts of the top sand sub-band:
+    //   lt↔rt (top of L-top ↔ top of R-top) and lb↔rb (base of L-top = base of R-top).
+    // L-top and R-top → BAND. L-bot and R-bot → also BAND (edge lb↔rb ties L-bot's top).
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
+      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+    ])
+    const edges: CorrelationEdge[] = [edge('lt', 'rt'), edge('lb', 'rb')]
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
+
+    // Two cross-column band quads (upper 'loose', lower 'dense').
+    const quads = out.filter((r) => r.kind === 'quad')
+    expect(quads.length).toBeGreaterThanOrEqual(1)
+    // Every quad must have 4 vertices — the full left+right column span.
+    for (const q of quads) {
+      expect(q.polygon.length).toBe(4)
+      // Vertices at both fraction 0 (left) and fraction 1 (right).
+      expect(q.polygon.some((p) => p.fraction === 0)).toBe(true)
+      expect(q.polygon.some((p) => p.fraction === 1)).toBe(true)
+    }
+    // The 'loose' quad must exist and span the top of the band.
+    const looseQuad = quads.find((r) => r.formationId === 'loose')
+    expect(looseQuad).toBeDefined()
+    expect(Math.max(...looseQuad!.polygon.map((p) => p.elevation))).toBeCloseTo(10) // parent top
+    expect(Math.min(...looseQuad!.polygon.map((p) => p.elevation))).toBeCloseTo(7) // split at 3 m depth
+  })
+
+  it('GR2 — only the TOP contact tied → ONLAP overlay, tip on the top bracket', () => {
+    // L-top top contact: edge('lt','rt') → top tied.
+    // L-top base contact: layerId 'lb', NO edge('lb',*) → base NOT tied.
+    // Count = 1, topCorr = true → onlap with tip at the top bracket elevation (topL).
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
+      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+    ])
+    const edges: CorrelationEdge[] = [edge('lt', 'rt')] // top only
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
+
+    // At least one onlap overlay must appear.
+    const onlaps = out.filter((r) => r.overlayTier === 'onlap')
+    expect(onlaps.length).toBeGreaterThanOrEqual(1)
+    const looseOnlap = onlaps.find((r) => r.formationId === 'loose')
+    expect(looseOnlap).toBeDefined()
+    // Triangle: 3 vertices.
+    expect(looseOnlap!.polygon.length).toBe(3)
+    // Anchored to left column (fraction 0).
+    expect(looseOnlap!.polygon.filter((p) => p.fraction === 0).length).toBe(2)
+    // Tip fraction is strictly inside the gap (between 0 and 1).
+    const tipFracs = looseOnlap!.polygon.filter((p) => p.fraction > 0 && p.fraction < 1)
+    expect(tipFracs.length).toBe(1)
+    // Top bracket tied → tip elevation equals the sub-band's top elevation (10).
+    expect(tipFracs[0].elevation).toBeCloseTo(10)
+  })
+
+  it('GR3 — only the BASE contact tied → ONLAP overlay, tip on the base bracket', () => {
+    // L-top base contact: edge('lb','rb') → base tied.
+    // L-top top contact: layerId 'lt', NO edge('lt',*) → top NOT tied.
+    // Count = 1, topCorr = false → onlap with tip at the base bracket elevation (baseL).
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
+      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+    ])
+    const edges: CorrelationEdge[] = [edge('lb', 'rb')] // base only
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
+
+    const onlaps = out.filter((r) => r.overlayTier === 'onlap')
+    expect(onlaps.length).toBeGreaterThanOrEqual(1)
+    const looseOnlap = onlaps.find((r) => r.formationId === 'loose')
+    expect(looseOnlap).toBeDefined()
+    expect(looseOnlap!.polygon.length).toBe(3)
+    // Base bracket tied → tip elevation equals the sub-band's base elevation (7 = surf 10 − 3 m).
+    const tipFracs = looseOnlap!.polygon.filter((p) => p.fraction > 0 && p.fraction < 1)
+    expect(tipFracs.length).toBe(1)
+    expect(tipFracs[0].elevation).toBeCloseTo(7)
+  })
+
+  it('GR4 — neither contact tied → LENS overlay triangle on own column', () => {
+    // No edges → count = 0 for every sub-band → lens overlays on both columns.
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
+      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+    ])
+    const edges: CorrelationEdge[] = [] // nothing tied
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
+
+    const lenses = out.filter((r) => r.overlayTier === 'lens')
+    expect(lenses.length).toBeGreaterThanOrEqual(1)
+    // Every lens must be a triangle (3 vertices).
+    for (const l of lenses) {
+      expect(l.polygon.length).toBe(3)
+    }
+    // Left-column lenses anchor at fraction 0.
+    const leftLenses = lenses.filter((l) => l.polygon.some((p) => p.fraction === 0))
+    expect(leftLenses.length).toBeGreaterThanOrEqual(1)
+    // Right-column lenses anchor at fraction 1.
+    const rightLenses = lenses.filter((l) => l.polygon.some((p) => p.fraction === 1))
+    expect(rightLenses.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('GR5 — R1 output preserves litho-region framing: gapIndex, bodyId, kind', () => {
+    // Regression: every output region (band, onlap, lens) must inherit the parent
+    // region's gapIndex and bodyId. The parent kind ('quad') is preserved on quads;
+    // overlays carry kind:'lens' (the overlay marker) but still get the parent's
+    // bodyId and gapIndex so geometry-check tooling can group them correctly.
+    const region = quadBand('sand', 'b1', 10, 4)
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['L', [subR1(0, 3, 'loose', 'lt'), subR1(3, 6, 'dense', 'lb')]],
+      ['R', [subR1(0, 3, 'loose', 'rt'), subR1(3, 6, 'dense', 'rb')]],
+    ])
+    // Mix: top tied (band for top pair), nothing for lower (lens).
+    const edges: CorrelationEdge[] = [edge('lt', 'rt'), edge('lb', 'rb')]
+
+    const out = subdivideRegionsByGeotech([region], COLS, subs, edges)
+
+    for (const r of out) {
+      expect(r.gapIndex).toBe(0) // inherited from parent
+      expect(r.bodyId).toBe('b1') // inherited from parent
+    }
+    // At least one quad sub-band is present.
+    expect(out.some((r) => r.kind === 'quad')).toBe(true)
   })
 })
