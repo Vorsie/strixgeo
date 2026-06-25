@@ -21,7 +21,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from groundmodel.domain.services.geotech_subdivision import suggest_geotech_subdivision
+from groundmodel.domain.services.geotech_subdivision import (  # noqa: E402
+    suggest_geotech_subdivision,
+)
 
 _QC = _ROOT / "scripts" / "throwaway_geotech_qc.json"
 _EXPECTED = [(12.57, 14.37, 6), (14.37, 15.10, 7), (15.10, 16.97, 8)]
