@@ -46,6 +46,7 @@ export default function ReSubdivideConfirmDialog({
       open={open}
       labelledBy="re-subdivide-confirm-title"
       testid="re-subdivide-confirm-dialog"
+      cardClassName="w-[28rem]"
       cancelTestid="re-subdivide-cancel"
       onCancel={onCancel}
       busy={busy}
