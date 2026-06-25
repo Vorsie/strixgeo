@@ -1204,6 +1204,31 @@ export default function SectionsToolbar(): JSX.Element {
             }
             testid="geotech-subdivide-all-bodies"
           />
+          {/* "Correlate packing" — manual same-class/same-body packing connection.
+              Reuses the litho correlate state machine (correlateMode) on the geotech
+              axis so clicking a packing band arms a source; clicking a neighbour's
+              same-class-same-body band connects them. Right-click a connection to
+              disconnect (Disconnect verb in the correlation-edge context menu).
+              Gated on activeGeotechModel: the geotech model must exist (i.e. the
+              user has run "Subdivide all bodies" at least once) for there to be
+              packing bands to correlate. */}
+          <ToolbarButton
+            icon={<GitMerge size={13} />}
+            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing'}
+            onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
+            // Keep clickable while correlateMode is on so the user can exit even
+            // when no packing contacts exist on the section (mirrors litho CT8).
+            disabled={activeGeotechModel === null && !correlateMode}
+            title={
+              activeGeotechModel === null
+                ? 'Run "Subdivide all bodies" first to create packing bands'
+                : correlateMode
+                  ? 'Exit packing-correlate mode (Esc)'
+                  : 'Connect same-class packing bands across investigations within the same litho body'
+            }
+            amber={correlateMode}
+            testid="geotech-correlate-packing"
+          />
           {/* Separator after geotech-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
         </>
