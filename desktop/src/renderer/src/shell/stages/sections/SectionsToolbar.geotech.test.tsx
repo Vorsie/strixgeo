@@ -277,6 +277,7 @@ function makeCtx(overrides: {
       markMutated: vi.fn(),
       // F4 — "Subdivide all bodies" verb handler.
       handleSubdivideAllBodies: overrides.handleSubdivideAllBodies ?? noopAsync,
+      requestGeotechLayersRefetch: vi.fn(),
     },
     sections: {
       sections: [],

@@ -304,6 +304,7 @@ function makeCtx(overrides: {
       markMutated: vi.fn(),
       // F4 — stub so the interface is satisfied; not exercised in litho tests.
       handleSubdivideAllBodies: noopAsync,
+      requestGeotechLayersRefetch: vi.fn(),
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
       formations: [],

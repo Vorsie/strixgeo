@@ -196,6 +196,7 @@ function makeStubContext(): ShellContextValue {
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
       handleSubdivideAllBodies: noopAsync,
+      requestGeotechLayersRefetch: vi.fn(),
     },
     sections: {
       sections: [],

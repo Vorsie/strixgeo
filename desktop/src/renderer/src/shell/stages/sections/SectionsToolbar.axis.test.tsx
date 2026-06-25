@@ -303,6 +303,7 @@ function makeCtx(overrides: {
       markMutated: vi.fn(),
       // F4 — stub so the interface is satisfied; not exercised in axis tests.
       handleSubdivideAllBodies: noopAsync,
+      requestGeotechLayersRefetch: vi.fn(),
     },
     sections: {
       sections: overrides.selectedSectionId
