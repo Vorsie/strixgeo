@@ -433,12 +433,12 @@ describe('GeotechnicalInspector empty state (R4)', () => {
 
 describe('GeotechnicalInspector classified unit row (R1)', () => {
   it('shows the packing-class name label from nadClassName', () => {
-    // NAD class 6 = "ZAND, matig gp" (from NAD_CLASS_NAMES).
+    // NAD class 6 = "SAND, medium dense" (from NAD_CLASS_NAMES, English).
     const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
     renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
 
     const row = screen.getByTestId('geotech-unit-row-f-1')
-    expect(row.textContent).toContain('ZAND, matig gp')
+    expect(row.textContent).toContain('SAND, medium dense')
   })
 
   it('shows the "CPT est." badge on a classified unit', () => {
