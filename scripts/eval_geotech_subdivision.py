@@ -39,7 +39,6 @@ import argparse
 import asyncio
 import sys
 import traceback
-from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -113,31 +112,6 @@ def _confirm_dev_db() -> None:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _SectionResult:
-    """Per-section outcome of the eval run.
-
-    Attributes
-    ----------
-    section_id : UUID
-        The cross-section id.
-    section_name : str
-        Human-readable name for reporting.
-    errored : bool
-        True when the run for this section raised an exception.
-    error_summary : str
-        Short error description (empty when not errored).
-    result : SubdivideAllBodiesResult | None
-        The use-case return value, or None when errored.
-    """
-
-    section_id: UUID
-    section_name: str
-    errored: bool
-    error_summary: str
-    result: SubdivideAllBodiesResult | None
-
-
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
@@ -209,17 +183,19 @@ async def _list_sections(session, project_id: UUID) -> list[CrossSectionOrm]:
 # ---------------------------------------------------------------------------
 
 
-async def _run_section(
+async def _build_section(
     *,
     project_id: UUID,
     litho_model_id: UUID,
     section: CrossSectionOrm,
     dry_run: bool,
-) -> _SectionResult:
-    """Run BuildGeotechModelFromLitho + SubdivideAllBodies for one section.
+) -> tuple[bool, str]:
+    """Build the geo-bounded geotech skeleton for ONE section corridor.
 
-    Opens a fresh session per section so an error on one section leaves the
-    others unaffected.
+    The NAD subdivision itself is model-wide and runs ONCE after every section's
+    skeleton exists (see :func:`_run_subdivide`) — this step only ensures the
+    geotech model + per-section geo-bounded contacts are present. Opens a fresh
+    session per section so an error on one section leaves the others unaffected.
 
     Parameters
     ----------
@@ -228,28 +204,28 @@ async def _run_section(
     litho_model_id : UUID
         Lithostratigraphic model id.
     section : CrossSectionOrm
-        The cross-section to process.
+        The cross-section to build the skeleton for.
     dry_run : bool
         When True, roll back rather than committing — no persistent DB writes.
 
     Returns
     -------
-    _SectionResult
-        The outcome for this section (errored=True on exception).
+    tuple[bool, str]
+        ``(errored, error_summary)`` — ``(False, "")`` on success.
     """
-    section_id = section.id
     section_name = section.name
-    print(f"\n  [{section_name}]  id={section_id}")
+    print(f"\n  [{section_name}]  id={section.id}")
 
     try:
         async with AsyncSessionFactory() as session:
-            # Step A: ensure geotech model + geo-bounded skeleton contacts.
             c1 = BuildGeotechModelFromLitho(session)
             c1_result = await c1.execute(
                 project_id=project_id,
                 litho_model_id=litho_model_id,
-                section_id=section_id,
+                section_id=section.id,
             )
+            if dry_run:
+                await session.rollback()
             print(
                 f"    C1 BuildGeotechModelFromLitho: "
                 f"geotech_model={c1_result.geotech_model_id} "
@@ -257,59 +233,64 @@ async def _run_section(
                 f"skeleton_formations={len(c1_result.created_formation_ids)} "
                 f"contacts={len(c1_result.created_contact_ids)} "
                 f"geo_cuts={c1_result.divided_contact_count}"
+                f"{'  (DRY RUN — rolled back)' if dry_run else ''}"
             )
-
-            # Step B: classify + materialise NAD sub-bodies.
-            sab = SubdivideAllBodies(session)
-            sab_result = await sab.execute(
-                project_id=project_id,
-                litho_model_id=litho_model_id,
-                section_id=section_id,
-            )
-
-            if dry_run:
-                await session.rollback()
-                print(
-                    f"    SAB SubdivideAllBodies: DRY RUN — rolled back "
-                    f"(layers={sab_result.layer_count} "
-                    f"bodies={sab_result.body_count} "
-                    f"split={sab_result.split_body_count} "
-                    f"one_class={sab_result.one_class_body_count} "
-                    f"borehole_only={sab_result.borehole_only_count})"
-                )
-            else:
-                print(
-                    f"    SAB SubdivideAllBodies: COMMITTED — "
-                    f"layers={sab_result.layer_count} "
-                    f"bodies={sab_result.body_count} "
-                    f"split={sab_result.split_body_count} "
-                    f"one_class={sab_result.one_class_body_count} "
-                    f"borehole_only={sab_result.borehole_only_count}"
-                )
-
-        return _SectionResult(
-            section_id=section_id,
-            section_name=section_name,
-            errored=False,
-            error_summary="",
-            result=sab_result,
-        )
-
+        return False, ""
     except Exception as exc:  # noqa: BLE001
         tb = traceback.format_exc()
         summary = f"{type(exc).__name__}: {exc}"
         print(f"    ERROR: {summary}")
-        print("    --- traceback ---")
         for line in tb.splitlines():
             print(f"    {line}")
-        print("    --- end traceback ---")
-        return _SectionResult(
-            section_id=section_id,
-            section_name=section_name,
-            errored=True,
-            error_summary=summary,
-            result=None,
-        )
+        return True, summary
+
+
+async def _run_subdivide(
+    *,
+    project_id: UUID,
+    litho_model_id: UUID,
+    dry_run: bool,
+) -> SubdivideAllBodiesResult | None:
+    """Run the model-wide ``SubdivideAllBodies`` once and return its result.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    litho_model_id : UUID
+        Lithostratigraphic model id (the whole model is subdivided in one
+        transaction — geotech layers are model-wide, edges are per-section).
+    dry_run : bool
+        When True, roll back rather than committing.
+
+    Returns
+    -------
+    SubdivideAllBodiesResult | None
+        The use-case result, or ``None`` when the run raised.
+    """
+    print("\n  [model-wide SubdivideAllBodies]")
+    try:
+        async with AsyncSessionFactory() as session:
+            sab = SubdivideAllBodies(session)
+            result = await sab.execute(project_id=project_id, litho_model_id=litho_model_id)
+            if dry_run:
+                await session.rollback()
+            print(
+                f"    SAB SubdivideAllBodies: "
+                f"{'DRY RUN — rolled back' if dry_run else 'COMMITTED'} — "
+                f"layers={result.layer_count} "
+                f"bodies={result.body_count} "
+                f"split={result.split_body_count} "
+                f"one_class={result.one_class_body_count} "
+                f"borehole_only={result.borehole_only_count}"
+            )
+        return result
+    except Exception as exc:  # noqa: BLE001
+        tb = traceback.format_exc()
+        print(f"    ERROR: {type(exc).__name__}: {exc}")
+        for line in tb.splitlines():
+            print(f"    {line}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -329,41 +310,40 @@ def _print_section_header(title: str) -> None:
     _print_divider()
 
 
-def _aggregate_and_report(section_results: list[_SectionResult]) -> None:
-    """Print the aggregate summary table across all sections.
+def _aggregate_and_report(
+    result: SubdivideAllBodiesResult | None,
+    *,
+    sections_run: int,
+    sections_errored: list[str],
+) -> None:
+    """Print the model-wide subdivision summary.
 
     Parameters
     ----------
-    section_results : list[_SectionResult]
-        One entry per section in run order.
+    result : SubdivideAllBodiesResult | None
+        The single model-wide subdivision result (None when it raised).
+    sections_run : int
+        Number of section-skeleton builds attempted.
+    sections_errored : list[str]
+        Names of sections whose skeleton build raised.
     """
-    total_split = 0
-    total_one_class = 0
-    total_borehole_only = 0
-    total_layers = 0
-    total_bodies = 0
-    total_formations_new: set[UUID] = set()
-    errored_sections: list[str] = []
+    _print_section_header("AGGREGATE SUMMARY")
+    print(f"  section builds run        : {sections_run}")
+    print(f"  section builds errored    : {len(sections_errored)}")
+    if sections_errored:
+        for name in sections_errored:
+            print(f"    - {name}")
+    print()
 
-    for sr in section_results:
-        if sr.errored:
-            errored_sections.append(sr.section_name)
-            continue
-        r = sr.result
-        assert r is not None  # guarded by errored check
-        total_split += r.split_body_count
-        total_one_class += r.one_class_body_count
-        total_borehole_only += r.borehole_only_count
-        total_layers += r.layer_count
-        total_bodies += r.body_count
-        total_formations_new.update(r.created_formation_ids)
+    if result is None:
+        print("  SubdivideAllBodies ERRORED — no model-wide result to report.")
+        return
 
+    total_split = result.split_body_count
+    total_one_class = result.one_class_body_count
+    total_borehole_only = result.borehole_only_count
     total_groups = total_split + total_one_class + total_borehole_only
 
-    _print_section_header("AGGREGATE SUMMARY")
-    print(f"  sections run              : {len(section_results)}")
-    print(f"  sections errored          : {len(errored_sections)}")
-    print()
     print(f"  total body groups         : {total_groups}")
     if total_groups > 0:
         pct_split = 100 * total_split / total_groups
@@ -378,42 +358,9 @@ def _aggregate_and_report(section_results: list[_SectionResult]) -> None:
         print(f"  borehole-only (no CPT qc) : {total_borehole_only}")
 
     print()
-    print(f"  total geotech layers      : {total_layers}")
-    print(f"  total geotech bodies      : {total_bodies}")
-    print(f"  new geotech formations    : {len(total_formations_new)}")
-
-    if errored_sections:
-        print()
-        print("  ERRORED SECTIONS:")
-        for name in errored_sections:
-            print(f"    - {name}")
-
-    # --- Per-section table ---
-    _print_section_header("PER-SECTION TABLE")
-    hdr = (
-        f"  {'Section':30s}  {'Grps':>5}  {'Split':>5}  "
-        f"{'1-cls':>5}  {'BH-only':>7}  {'Layers':>6}  {'Bodies':>6}  Status"
-    )
-    print(hdr)
-    print("  " + "-" * (len(hdr) - 2))
-    for sr in section_results:
-        if sr.errored:
-            row = (
-                f"  {sr.section_name[:30]:30s}  "
-                f"{'':>5}  {'':>5}  {'':>5}  {'':>7}  "
-                f"{'':>6}  {'':>6}  ERROR: {sr.error_summary[:40]}"
-            )
-        else:
-            r = sr.result
-            assert r is not None
-            g = r.split_body_count + r.one_class_body_count + r.borehole_only_count
-            row = (
-                f"  {sr.section_name[:30]:30s}  "
-                f"{g:>5}  {r.split_body_count:>5}  {r.one_class_body_count:>5}  "
-                f"{r.borehole_only_count:>7}  {r.layer_count:>6}  "
-                f"{r.body_count:>6}  OK"
-            )
-        print(row)
+    print(f"  total geotech layers      : {result.layer_count}")
+    print(f"  total geotech bodies      : {result.body_count}")
+    print(f"  new geotech formations    : {len(result.created_formation_ids)}")
 
     # --- Consensus-strictness verdict ---
     _print_section_header("CONSENSUS-STRICTNESS VERDICT (§0.1 B-policy)")
@@ -501,20 +448,33 @@ async def main() -> None:
     if args.dry_run:
         print("  DRY RUN: changes will NOT be committed.\n")
 
-    _print_section_header("PER-SECTION RUNS")
-
-    section_results: list[_SectionResult] = []
+    # Step A — build every section's geo-bounded skeleton (per-section commit).
+    _print_section_header("PER-SECTION SKELETON BUILDS")
+    sections_errored: list[str] = []
     for section in sections:
-        sr = await _run_section(
+        errored, _summary = await _build_section(
             project_id=project_id,
             litho_model_id=litho_model_id,
             section=section,
             dry_run=args.dry_run,
         )
-        section_results.append(sr)
+        if errored:
+            sections_errored.append(section.name)
+
+    # Step B — model-wide NAD subdivision, ONCE (geotech layers are model-wide).
+    _print_section_header("MODEL-WIDE SUBDIVISION")
+    sab_result = await _run_subdivide(
+        project_id=project_id,
+        litho_model_id=litho_model_id,
+        dry_run=args.dry_run,
+    )
 
     print()
-    _aggregate_and_report(section_results)
+    _aggregate_and_report(
+        sab_result,
+        sections_run=len(sections),
+        sections_errored=sections_errored,
+    )
     print("\n=== EVAL COMPLETE ===\n")
 
 
