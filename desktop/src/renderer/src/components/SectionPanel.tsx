@@ -3170,6 +3170,10 @@ export default function SectionPanel({
                 // on BOTH axes — never the geotech overlay edges (regression guard,
                 // commit 7329738b). partitionEdgeSource makes that explicit.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
+                // R1 mode (owner directive 2026-06-25): per-sub-band band/onlap/lens
+                // from geotech packing edges. Only on the geotech axis; the partition
+                // framing stays litho-only. SEPARATE from contactEdges — never mix.
+                geotechEdges={axisMode === 'geotechnical' ? geotechCorrelationEdges : undefined}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
