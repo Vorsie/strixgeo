@@ -52,7 +52,6 @@ import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import type { GeotechSubLayer } from '../../../utils/geotechSubdivide'
 import { lithologyAbbrev } from '../../../utils/lensLabel'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
-import { canConnectPacking } from '../../../utils/geotechPackingConnect'
 import { log } from '../../../utils/log'
 
 /**
@@ -875,61 +874,19 @@ export default function SectionsCanvas(): JSX.Element {
   //
   // These mirror the litho correlate handlers above but:
   //   (a) use activeGeotechModel instead of activeLithoModel,
-  //   (b) run canConnectPacking guard before posting (same-class + same-body),
-  //   (c) call requestGeotechLayersRefetch after success so body_id stamps
+  //   (b) call requestGeotechLayersRefetch after success so body_id stamps
   //       re-render (the geotech layer list is the body_id source, not the
   //       edges themselves).
-  //   (d) do NOT touch litho state (refetchLithoContacts / undoStack pulse),
+  //   (c) do NOT touch litho state (refetchLithoContacts / undoStack pulse),
   //       keeping the geotech gesture self-contained.
+  //
+  // R1 directive (owner, 2026-06-25): the same-class / same-litho-body
+  // canConnectPacking guard was DROPPED entirely — geotech packing ties are
+  // now as permissive as litho's contact-correlate (no class / body /
+  // lithology rejection). The litho-partition frame + the per-region
+  // band/onlap/lens render keep the result sensible; an out-of-region
+  // (nonsense) tie simply doesn't render, exactly like litho.
   // ---------------------------------------------------------------------------
-
-  /**
-   * Resolve the packing-band descriptor for a geotech layer id.
-   *
-   * Finds the geotech layer, derives its NAD class from geotechFormations,
-   * and finds the parent litho body by matching the MIDPOINT of the geotech
-   * sub-band against the litho layers on the same investigation.
-   *
-   * Returns null when the layer is not found (defensive; shouldn't happen in
-   * normal operation). Otherwise returns a descriptor whose ``nadClass`` is
-   * null when the formation is absent from geotechFormations, and whose
-   * ``lithoBodyId`` is null when no litho layer on the same investigation
-   * contains the sub-band midpoint (e.g. a borehole carry-through with no
-   * resolved body). canConnectPacking is the load-bearing guard that rejects
-   * those null-class / null-body descriptors — this resolver never asserts a
-   * connection is valid, it only reports what it found.
-   */
-  const resolvePackingDescriptor = useCallback(
-    (geotechLayerId: string) => {
-      const layer = geotechLayers.find(l => l.id === geotechLayerId)
-      if (!layer) return null
-      const nadClass =
-        geotechFormations.find(f => f.id === layer.formation_id)?.nad_class ?? null
-      // A band with no investigation id on either axis can never own a litho
-      // body — bail before the find so a both-ids-null geotech layer cannot
-      // match a both-ids-null litho layer (canConnectPacking then rejects on
-      // the null body).
-      const inv = layer.cpt_id ?? layer.borehole_id
-      if (inv === null) return { nadClass, lithoBodyId: null }
-      // Find the litho layer on the SAME investigation whose depth range contains
-      // this sub-band's midpoint — that litho layer owns the body_id.
-      const midpoint = (layer.depth_top_m + layer.depth_base_m) / 2
-      const lithoBodyId =
-        lithoLayers.find(
-          l =>
-            l.cpt_id === layer.cpt_id &&
-            l.borehole_id === layer.borehole_id &&
-            // reason: 1e-6 m (1 µm) epsilon absorbs sub-mm float noise so a
-            // midpoint sitting exactly on a litho contact boundary still
-            // matches; depths are stored to mm precision, so 1 µm can never
-            // span a genuine layer.
-            l.depth_top_m <= midpoint + 1e-6 &&
-            l.depth_base_m >= midpoint - 1e-6,
-        )?.body_id ?? null
-      return { nadClass, lithoBodyId }
-    },
-    [geotechLayers, geotechFormations, lithoLayers],
-  )
 
   const handleCreateGeotechPackingCorrelation = useCallback(
     async (
@@ -946,40 +903,8 @@ export default function SectionsCanvas(): JSX.Element {
         setArmedContactSide('top')
         setLastTargetTestId(null)
       }
-      // Self-correlate short-circuit: a band cannot correlate to itself. This
-      // makes canConnectPacking's 'same-band' rule a documented defensive
-      // backstop rather than dead code reached only by direct helper calls.
+      // Self-correlate short-circuit: a band cannot correlate to itself.
       if (contactAId === contactBId) {
-        clearArm()
-        return
-      }
-      const descA = resolvePackingDescriptor(contactAId)
-      const descB = resolvePackingDescriptor(contactBId)
-      if (!descA || !descB) {
-        log.warn('section', 'packing-connect: could not resolve band descriptors', {
-          contactAId,
-          contactBId,
-        })
-        clearArm()
-        return
-      }
-      const verdict = canConnectPacking(descA, descB)
-      if (!verdict.ok) {
-        const hint =
-          verdict.reason === 'null-class'
-            ? 'Packing correlation requires a classified NAD class on both bands.'
-            : verdict.reason === 'same-band'
-              ? 'Cannot correlate a band to itself.'
-              : verdict.reason === 'different-litho-body'
-                ? 'Packing correlation only connects bands within the same litho body.'
-                : 'Packing correlation connects bands with the same NAD class.'
-        // Per-item rejection decision → debug (the user-facing reason is the
-        // toast above; this records the machine reason + the two band ids).
-        log.debug('section', `packing-connect: rejected (${verdict.reason})`, {
-          contactAId,
-          contactBId,
-        })
-        toast('warning', hint)
         clearArm()
         return
       }
@@ -1015,7 +940,6 @@ export default function SectionsCanvas(): JSX.Element {
     },
     [
       activeGeotechModel,
-      resolvePackingDescriptor,
       project.id,
       selectedSectionId,
       refetchContactEdges,
