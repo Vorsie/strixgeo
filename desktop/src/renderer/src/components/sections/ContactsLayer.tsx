@@ -64,6 +64,7 @@ import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
+import { nadClassColor } from '../../utils/nadClasses'
 import {
   clamp,
   columnUnderCursor,
@@ -1366,8 +1367,17 @@ export default function ContactsLayer({
     }
     // Litho formations carry their lithology colour in the stored
     // ``color`` (stamped at create + backfilled, #145); geological
-    // formations carry the user-chosen colour. Both read directly.
-    const colorById = new Map(formations.map(f => [f.id, f.color]))
+    // formations carry the user-chosen colour. On the GEOTECH axis the
+    // per-column bands must use the NAD packing colour (matching the fill
+    // overlay, which colours by ``nadClassColor``) — the stored ``color`` is the
+    // base lithology colour (every sand the same yellow), so reading it directly
+    // made the column disagree with the NAD-coloured fill beside it.
+    const colorById = new Map(
+      formations.map(f => [
+        f.id,
+        axisMode === 'geotechnical' ? nadClassColor(f.nad_class ?? null) : f.color,
+      ]),
+    )
     const nameById = new Map(formations.map(f => [f.id, f.name]))
     // Subtract pending-ghost depth ranges from a band's [top, base]
     // interval, producing zero or more sub-bands (debt #151 dogfeed
@@ -1485,7 +1495,7 @@ export default function ContactsLayer({
       }
     }
     return out
-  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId])
+  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId, axisMode])
 
   const formationFillBands = useMemo(() => {
     if (polylines.length === 0) {

@@ -15,6 +15,7 @@ import type { ContactCopyPayload, SnapCandidate } from './ContactsLayer'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import type { PlacedColumn } from './utils'
+import { nadClassColor } from '../../utils/nadClasses'
 
 const flipped = (level: number): number => 20 - level
 
@@ -144,7 +145,7 @@ function renderLayer(
     onLinkLithoToGeo?: (id: string) => Promise<void>
     renderFormationSurfaces?: boolean
     surfaceThroughPicks?: boolean
-    axisMode?: 'geological' | 'lithostratigraphic'
+    axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     correlateMode?: boolean
   } = {},
 ) {
@@ -190,6 +191,29 @@ describe('ContactsLayer', () => {
     const { container } = renderLayer([], [makeFormation()], [makeBoreholePlaced('bh-1', 50)])
     expect(container.querySelector('path')).toBeNull()
     expect(container.querySelector('line')).toBeNull()
+  })
+
+  it('geotech per-column bands use the NAD packing colour, not the stored lithology colour', () => {
+    // Geotech formation: stored ``color`` is the base lithology colour (every sand
+    // the same yellow), but the band must render the NAD colour for its nad_class
+    // so the column agrees with the NAD-coloured fill overlay beside it.
+    const geotechFormation = makeFormation({ id: 'f-nad6', color: '#fbbf24', nad_class: 6 })
+    const contacts = [
+      makeContact({ id: 'c-1', formation_id: 'f-nad6', borehole_id: 'bh-1', depth_top_m: 2 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [geotechFormation],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { perColumnBandsFromContacts: true, axisMode: 'geotechnical' },
+    )
+    const band = container.querySelector(
+      '[data-testid^="per-column-litho-band-"]',
+    ) as SVGRectElement | null
+    expect(band).not.toBeNull()
+    expect(band?.getAttribute('fill')).toBe(nadClassColor(6))
+    expect(band?.getAttribute('fill')).not.toBe('#fbbf24')
   })
 
   it('emits no circle markers — dots replaced by horizontal top segments', () => {
