@@ -3,9 +3,11 @@
 import pytest
 
 from groundmodel.domain.services.geotech_subdivision import (
+    _conservative_merge,
     _merge_adjacent_same_class,
     _persistence_filter,
     _sustained_threshold_cuts,
+    _weld_same_class_bands,
     suggest_geotech_subdivision,
 )
 
@@ -183,6 +185,26 @@ def test_sustained_threshold_cuts_ignores_transient_spike():
     qc[10] = 30.0  # 1-sample spike
     cuts = _sustained_threshold_cuts(depths, qc, "ZAND", (), min_thickness_m=0.35)
     assert cuts == [0.0, 2.0]
+
+
+# --- conservative merge + same-class weld -----------------------------------
+
+
+def test_conservative_merge_absorbs_thin_into_weaker_neighbour():
+    """A thin band between a weaker (n6) and a denser (n8) band joins the WEAKER."""
+    bands = [[0.0, 1.0, 6], [1.0, 1.2, 7], [1.2, 3.0, 8]]
+    merged = _conservative_merge(bands, min_thickness_m=0.35)
+    assert merged == [[0.0, 1.2, 6], [1.2, 3.0, 8]]
+
+
+def test_conservative_merge_keeps_thick_bands():
+    bands = [[0.0, 1.0, 6], [1.0, 2.0, 7], [2.0, 3.0, 8]]
+    assert _conservative_merge(bands, min_thickness_m=0.35) == bands
+
+
+def test_weld_same_class_bands():
+    bands = [[0.0, 1.0, 6], [1.0, 1.5, 6], [1.5, 3.0, 8]]
+    assert _weld_same_class_bands(bands) == [[0.0, 1.5, 6], [1.5, 3.0, 8]]
 
 
 def test_absorbed_middle_band_does_not_leave_two_same_class_units():

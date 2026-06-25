@@ -120,6 +120,60 @@ def _sustained_threshold_cuts(
     return sorted(cuts)
 
 
+def _conservative_merge(bands: list[list[float]], min_thickness_m: float) -> list[list[float]]:
+    """Absorb sub-min bands into their LOWER-density (lower NAD class) neighbour.
+
+    Within one soil family the NAD class number is ordered loose->dense /
+    weak->firm, so the lower number is the weaker class. Absorbing a thin band
+    into the weaker neighbour makes the weaker class claim a threshold-oscillation
+    zone — the conservative placement the owner asked for. Mutates a copy.
+
+    Parameters
+    ----------
+    bands : list[list[float]]
+        ``[top_m, base_m, nad_class]`` bands, ordered top-to-bottom, contiguous.
+    min_thickness_m : float
+        Minimum band thickness; thinner bands are absorbed.
+
+    Returns
+    -------
+    list[list[float]]
+        Bands all >= ``min_thickness_m`` (unless only one remains).
+    """
+    out = [list(b) for b in bands]
+    changed = True
+    while changed and len(out) > 1:
+        changed = False
+        for i, (top, base, _cls) in enumerate(out):
+            if (base - top) >= min_thickness_m:
+                continue
+            prev = out[i - 1] if i > 0 else None
+            nxt = out[i + 1] if i < len(out) - 1 else None
+            candidates = [c for c in (prev, nxt) if c is not None]
+            target = min(candidates, key=lambda c: c[2])  # lowest NAD class wins
+            if target is prev:
+                out[i - 1][1] = base  # extend prev's base over the thin band
+            else:
+                out[i + 1][0] = top  # extend next's top over the thin band
+            del out[i]
+            changed = True
+            break
+    return out
+
+
+def _weld_same_class_bands(bands: list[list[float]]) -> list[list[float]]:
+    """Weld adjacent bands of equal NAD class into one contiguous band."""
+    if not bands:
+        return []
+    out = [list(bands[0])]
+    for top, base, cls in bands[1:]:
+        if cls == out[-1][2]:
+            out[-1][1] = base
+        else:
+            out.append([top, base, cls])
+    return out
+
+
 @dataclass(frozen=True)
 class GeotechSplit:
     """One suggested NAD sub-unit within a geo-bounded litho segment.
