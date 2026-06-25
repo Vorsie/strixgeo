@@ -43,9 +43,11 @@ The new design:
     overlapping that depth range and assigns its nad_class.  Falls back to
     nearest CPT of any lithology, then (last resort) nad_class=None.
 7. **Edges — PER SECTION:** loads each project section's approved litho edges
-   and derives geotech edges via depth-overlap mapping (the existing
-   ``_derive_geotech_edges_from_litho`` logic), writing edges tagged with
-   that section's id.
+   and derives geotech edges by full-sequence packing match within each litho
+   body (``_derive_geotech_edges_from_litho``): a correlated litho-unit pair's
+   geotech sub-band stacks connect 1:1 ONLY when their NAD-class sequences are
+   identical; any mismatch connects nothing.  Edges are tagged with that
+   section's id.
 8. Runs the resolver model-wide.
 9. ONE commit.
 
@@ -130,6 +132,7 @@ from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
     plan_body_subdivision,
 )
+from groundmodel.domain.services.geotech_packing_edges import aligned_same_sequence_pairs
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -442,11 +445,11 @@ class SubdivideAllBodies(GroundModelLogger):
 
         # Global depth-indexed map built during materialisation: for each
         # investigation, the list of (depth_top_m, depth_base_m,
-        # geotech_layer_id, geotech_formation_id) tuples for all created
-        # geotech sub-layers on that investigation.  Consumed after the group
-        # loop by _derive_geotech_edges_from_litho.
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]] = defaultdict(
-            list
+        # geotech_layer_id, geotech_formation_id, nad_class) tuples for all
+        # created geotech sub-layers on that investigation.  Consumed after the
+        # group loop by _derive_geotech_edges_from_litho.
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = (
+            defaultdict(list)
         )
 
         # Phase 8 — per-group materialise (CPT-bearing groups get classified
@@ -584,8 +587,10 @@ class SubdivideAllBodies(GroundModelLogger):
                             **anchor_kwargs,
                         )
                         self._session.add(layer)
+                        # nad_class is None here (skeleton); updated during Phase 8b
+                        # extrapolation when a nearest-CPT class is assigned.
                         geotech_layer_by_inv_depth[inv_id].append(
-                            (top_m, base_m, layer.id, formation.id)
+                            (top_m, base_m, layer.id, formation.id, nad_class)
                         )
                         total_layers += 1
                         pending_borehole_sub_bodies.append(
@@ -625,7 +630,7 @@ class SubdivideAllBodies(GroundModelLogger):
                         )
                         self._session.add(layer)
                         geotech_layer_by_inv_depth[inv_id].append(
-                            (top_m, base_m, layer.id, formation.id)
+                            (top_m, base_m, layer.id, formation.id, nad_class)
                         )
                         total_layers += 1
 
@@ -893,7 +898,7 @@ class SubdivideAllBodies(GroundModelLogger):
         classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
         created_formation_ids: list[UUID],
         geotech_model_id: UUID,
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]],
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
     ) -> int:
         """Resolve borehole-only sub-bodies via nearest-CPT extrapolation.
 
@@ -925,7 +930,8 @@ class SubdivideAllBodies(GroundModelLogger):
         geotech_model_id : UUID
             The geotech model id (for logging only).
         geotech_layer_by_inv_depth : dict
-            Per-investigation depth→layer-id map (mutated: formation_id updated).
+            Per-investigation depth→layer-id map (mutated: formation_id and
+            nad_class updated for the extrapolated layer).
 
         Returns
         -------
@@ -977,11 +983,13 @@ class SubdivideAllBodies(GroundModelLogger):
                     layer_row.formation_id = formation.id
 
                 # Update the in-memory depth index so the edge pass sees the
-                # correct formation_id for this layer.
+                # correct formation_id AND the extrapolated nad_class for this layer.
                 inv_entries = geotech_layer_by_inv_depth.get(pb.investigation_id, [])
                 geotech_layer_by_inv_depth[pb.investigation_id] = [
-                    (t, b, lid, formation.id) if lid == pb.layer_id else (t, b, lid, fid)
-                    for (t, b, lid, fid) in inv_entries
+                    (t, b, lid, formation.id, nad_class)
+                    if lid == pb.layer_id
+                    else (t, b, lid, fid, nad)
+                    for (t, b, lid, fid, nad) in inv_entries
                 ]
 
                 self.debug(
@@ -1008,7 +1016,7 @@ class SubdivideAllBodies(GroundModelLogger):
         return extrapolated
 
     # ------------------------------------------------------------------
-    # Phase 9 — edge derivation via depth-overlap mapping (TRAP 1 guard)
+    # Phase 9 — edge derivation by full-sequence packing match
     # ------------------------------------------------------------------
 
     async def _derive_geotech_edges_from_litho(
@@ -1018,22 +1026,28 @@ class SubdivideAllBodies(GroundModelLogger):
         section_id: UUID,
         litho_approved_edges: set[tuple[UUID, UUID]],
         litho_layer_depths: dict[UUID, tuple[str, float, float]],
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID]]],
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
     ) -> None:
-        """Derive geotech correlation edges by mapping each litho edge via depth overlap.
+        """Derive geotech edges by full-sequence packing match within each litho body.
 
-        For each approved litho edge ``(litho_layer_A_id, litho_layer_B_id)``:
+        Each approved litho edge already identifies a correlated litho-unit
+        pair (the same litho body, traced across two adjacent tests).  For each
+        such pair this method compares the FULL geotech packing sub-band STACKS
+        within that litho unit on both tests:
 
-        1. Look up each endpoint's investigation id and ``depth_top_m`` from
-           ``litho_layer_depths``.
-        2. Find the geotech sub-layer on that investigation whose
-           ``[depth_top_m, depth_base_m)`` interval contains the litho layer's
-           ``depth_top_m`` (within 1 mm tolerance for exact-boundary alignment
-           after a geo-band divide).
-        3. Emit a geotech edge between those two geotech sub-layers ONLY when
-           they share the same ``formation_id`` (same NAD class / same packing
-           band).  This is the TRAP 1 / SAB-7 same-class guard.
-           Canonical ``a < b`` ordering; dedup on layer-pair within this section.
+        1. Resolve each endpoint's ``(investigation_id, depth_top_m,
+           depth_base_m)`` from ``litho_layer_depths`` — the litho unit's depth
+           extent on each test.
+        2. Collect the geotech sub-band stack (``layer_id, nad_class`` top→base)
+           that falls within that litho unit on each test.
+        3. If the two NAD-class sequences are IDENTICAL (same count, same order)
+           — via ``aligned_same_sequence_pairs`` — emit a 1:1 geotech edge for
+           every aligned band.  Any mismatch (different count or order) → emit
+           nothing for that pair (the engineer connects those manually).
+
+        Per spec §8, an aligned band whose ``nad_class`` is ``None`` cannot
+        auto-connect and is skipped.  Canonical ``a < b`` ordering; dedup on
+        layer-pair within this section.
 
         Parameters
         ----------
@@ -1043,16 +1057,16 @@ class SubdivideAllBodies(GroundModelLogger):
             Section id tagged on each emitted edge row.
         litho_approved_edges : set[tuple[UUID, UUID]]
             Canonical ``(min_id, max_id)`` pairs of approved litho edges for
-            this section.
+            this section.  Each pair is a correlated litho-unit pair.
         litho_layer_depths : dict[UUID, tuple[str, float, float]]
             ``litho_layer_id → (investigation_id_str, depth_top_m, depth_base_m)``
             for every accepted litho layer in the model.
-        geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID]]]
+        geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID, int | None]]]
             ``investigation_id_str →
-            [(depth_top_m, depth_base_m, geotech_layer_id, geotech_formation_id)]``
+            [(depth_top_m, depth_base_m, geotech_layer_id, geotech_formation_id, nad_class)]``
             accumulated during materialisation (all geotech sub-layers, any order).
         """
-        sorted_geotech: dict[str, list[tuple[float, float, UUID, UUID]]] = {
+        sorted_geotech: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = {
             inv_id: sorted(intervals, key=lambda t: t[0])
             for inv_id, intervals in geotech_layer_by_inv_depth.items()
         }
@@ -1060,11 +1074,18 @@ class SubdivideAllBodies(GroundModelLogger):
         # 1 mm tolerance for geo-band divide floating-point noise.
         _DEPTH_TOL_M = 0.001
 
+        def _stack(inv_str: str, lit_top: float, lit_base: float) -> list[tuple[str, int | None]]:
+            """Geotech sub-band stack (layer_id, nad_class) within a litho unit, top->base."""
+            out: list[tuple[str, int | None]] = []
+            for top, base, layer_id, _fid, nad in sorted_geotech.get(inv_str, []):
+                if top >= lit_top - _DEPTH_TOL_M and base <= lit_base + _DEPTH_TOL_M:
+                    out.append((str(layer_id), nad))
+            return out
+
         seen_layer_pairs: set[tuple[UUID, UUID]] = set()
         edge_count = 0
         skipped_no_litho_depth = 0
-        skipped_no_geotech_layer = 0
-        skipped_cross_formation = 0
+        skipped_seq_mismatch = 0
 
         for litho_a_id, litho_b_id in litho_approved_edges:
             entry_a = litho_layer_depths.get(litho_a_id)
@@ -1074,60 +1095,61 @@ class SubdivideAllBodies(GroundModelLogger):
                 skipped_no_litho_depth += 1
                 continue
 
-            inv_a_str, top_a, _base_a = entry_a
-            inv_b_str, top_b, _base_b = entry_b
+            inv_a_str, top_a, base_a = entry_a
+            inv_b_str, top_b, base_b = entry_b
 
-            result_a = self._find_geotech_layer_at_depth(
-                sorted_geotech.get(inv_a_str, []), top_a, _DEPTH_TOL_M
-            )
-            result_b = self._find_geotech_layer_at_depth(
-                sorted_geotech.get(inv_b_str, []), top_b, _DEPTH_TOL_M
-            )
+            left_stack = _stack(inv_a_str, top_a, base_a)
+            right_stack = _stack(inv_b_str, top_b, base_b)
 
-            if result_a is None or result_b is None:
-                skipped_no_geotech_layer += 1
-                self.debug(
-                    f"_derive_geotech_edges_from_litho: no geotech layer for "
-                    f"litho edge ({litho_a_id}, {litho_b_id}) — "
-                    f"inv_a={inv_a_str} top_a={top_a:.3f} → {result_a}, "
-                    f"inv_b={inv_b_str} top_b={top_b:.3f} → {result_b}"
+            # The helper is typed for non-null classes; our stacks may carry a
+            # None nad_class (skeleton band).  That is fine at runtime — sequence
+            # equality handles None — and the §8 null-skip below drops any aligned
+            # null-class pair, so the auto-connect never emits one.
+            aligned = aligned_same_sequence_pairs(left_stack, right_stack)  # type: ignore[arg-type]
+            if not aligned:
+                # Both sides have bands but the NAD-class sequences differ
+                # (count or order) — no auto-connect for this litho pair.
+                if left_stack and right_stack:
+                    skipped_seq_mismatch += 1
+                continue
+
+            # nad_class lookup for the §8 null-skip (identical sequences mean la
+            # and rb share the class, so one side suffices).
+            nad_by_layer = dict(left_stack) | dict(right_stack)
+
+            for la, rb in aligned:
+                # Spec §8: a null-class band cannot auto-connect; skip it.
+                if nad_by_layer.get(la) is None:
+                    continue
+
+                geotech_a_id = UUID(la)
+                geotech_b_id = UUID(rb)
+                if geotech_a_id == geotech_b_id:
+                    # Same layer — intra-investigation edge (forbidden); skip.
+                    continue
+
+                canonical_a, canonical_b = (
+                    (geotech_a_id, geotech_b_id)
+                    if geotech_a_id < geotech_b_id
+                    else (geotech_b_id, geotech_a_id)
                 )
-                continue
+                if (canonical_a, canonical_b) in seen_layer_pairs:
+                    continue
+                seen_layer_pairs.add((canonical_a, canonical_b))
 
-            geotech_a_id, formation_a_id = result_a
-            geotech_b_id, formation_b_id = result_b
-
-            if geotech_a_id == geotech_b_id:
-                # Same layer — intra-investigation edge (forbidden); skip.
-                continue
-
-            # TRAP 1 / SAB-7 guard: only connect same-formation sub-layers.
-            if formation_a_id != formation_b_id:
-                skipped_cross_formation += 1
-                continue
-
-            canonical_a, canonical_b = (
-                (geotech_a_id, geotech_b_id)
-                if geotech_a_id < geotech_b_id
-                else (geotech_b_id, geotech_a_id)
-            )
-            if (canonical_a, canonical_b) in seen_layer_pairs:
-                continue
-            seen_layer_pairs.add((canonical_a, canonical_b))
-
-            edge = LithoContactCorrelationEdgeOrm(
-                id=uuid7(),
-                model_id=geotech_model_id,
-                section_id=section_id,
-                contact_a_id=canonical_a,
-                contact_b_id=canonical_b,
-                contact_a_side="top",
-                contact_b_side="top",
-                source="manual",
-                user_approved=True,
-            )
-            self._session.add(edge)
-            edge_count += 1
+                edge = LithoContactCorrelationEdgeOrm(
+                    id=uuid7(),
+                    model_id=geotech_model_id,
+                    section_id=section_id,
+                    contact_a_id=canonical_a,
+                    contact_b_id=canonical_b,
+                    contact_a_side="top",
+                    contact_b_side="top",
+                    source="manual",
+                    user_approved=True,
+                )
+                self._session.add(edge)
+                edge_count += 1
 
         await self._session.flush()
         self.info(
@@ -1135,41 +1157,8 @@ class SubdivideAllBodies(GroundModelLogger):
             f"{edge_count} geotech edge(s) derived from "
             f"{len(litho_approved_edges)} litho edge(s) "
             f"(skipped_no_depth={skipped_no_litho_depth}, "
-            f"skipped_no_geotech={skipped_no_geotech_layer}, "
-            f"skipped_cross_formation={skipped_cross_formation})"
+            f"skipped_seq_mismatch={skipped_seq_mismatch})"
         )
-
-    @staticmethod
-    def _find_geotech_layer_at_depth(
-        sorted_intervals: list[tuple[float, float, UUID, UUID]],
-        depth_top_m: float,
-        tol_m: float,
-    ) -> tuple[UUID, UUID] | None:
-        """Find the geotech sub-layer whose interval contains ``depth_top_m``.
-
-        Scans ``sorted_intervals`` (sorted by ``depth_top_m``) for the first
-        interval ``[top, base)`` that contains the query depth.  A depth is
-        considered contained when ``top - tol_m <= depth_top_m < base + tol_m``.
-
-        Parameters
-        ----------
-        sorted_intervals : list[tuple[float, float, UUID, UUID]]
-            ``(depth_top_m, depth_base_m, geotech_layer_id, geotech_formation_id)``
-            tuples for one investigation, sorted ascending by ``depth_top_m``.
-        depth_top_m : float
-            The litho layer top depth to find a geotech sub-layer for.
-        tol_m : float
-            Containment tolerance in metres (typically 0.001 = 1 mm).
-
-        Returns
-        -------
-        tuple[UUID, UUID] | None
-            ``(geotech_layer_id, geotech_formation_id)``, or ``None``.
-        """
-        for top, base, layer_id, formation_id in sorted_intervals:
-            if top - tol_m <= depth_top_m < base + tol_m:
-                return layer_id, formation_id
-        return None
 
     # ------------------------------------------------------------------
     # Formation find-or-create
