@@ -1006,6 +1006,9 @@ export default function SectionsCanvas(): JSX.Element {
         // is rolled back and the server state is unchanged on a failed delete,
         // so the project is not actually dirty.
         await refetchContactEdges()
+        // Refresh geotech layers too (mirrors the success path) so body_id
+        // stamps stay consistent even if an intermediate mutation changed them.
+        requestGeotechLayersRefetch()
       }
     },
     [
