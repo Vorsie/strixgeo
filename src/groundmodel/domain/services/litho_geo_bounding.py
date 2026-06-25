@@ -3,11 +3,12 @@
 Two pure transforms applied to the ``BodyLayerPick`` list inside
 ``RecomputeLithoSolids`` before the watertight loft is assembled:
 
-1. :func:`mark_and_truncate_shallow_tests` — flag, and truncate the deep
-   part of, any test whose deepest point sits above the lowest geological
-   boundary (it cannot floor the model). A flagged test keeps its litho only
-   down to its lowest *correlated* contact; a flagged test with no correlated
-   contact is excluded entirely.
+1. :func:`mark_and_truncate_shallow_tests` — FLAG any test whose deepest point
+   sits above the lowest geological boundary (it cannot floor the model). The
+   test's litho is KEPT in full; the flag is informational. (Owner directive
+   2026-06-25: the deepest geological unit a test reaches owns everything down to
+   TD, so deep litho is never truncated/dropped — only flagged. The function name
+   is retained for call-site stability.)
 2. ``divide_picks_by_geology`` (added in a later task) — give every column a
    litho contact at each geological boundary (snap geology→litho within
    tolerance, else divide a straddling layer), re-keying split bodies per
@@ -81,8 +82,10 @@ class ShallowTestResult:
     Attributes
     ----------
     picks : list[BodyLayerPick]
-        The surviving picks (deep tests untouched; shallow tests truncated or
-        dropped).
+        All input picks, unchanged — too-shallow tests are flagged (see
+        ``marked_investigation_ids``) but never truncated or dropped (owner
+        directive 2026-06-25). Retained as an attribute for callers that still
+        thread the result through ``divide_picks_by_geology``.
     marked_investigation_ids : list[str]
         Sorted ids of the tests flagged as too shallow.
     """
@@ -95,13 +98,16 @@ def mark_and_truncate_shallow_tests(
     picks: list[BodyLayerPick],
     lowest_boundary_elevation_at: Callable[[float, float], float | None],
 ) -> ShallowTestResult:
-    """Flag + truncate tests that cannot reach the deepest geological band.
+    """Flag tests that cannot reach the deepest geological band (litho kept).
 
     A test whose deepest pick base sits ABOVE the lowest geological boundary at
-    its location is flagged; its litho is kept only down to its lowest
-    *correlated* contact (a contact whose body spans >= 2 investigations) and
-    dropped below that. A flagged test with no correlated contact is excluded
-    entirely. Every other test passes through unchanged.
+    its location is flagged in ``marked_investigation_ids`` — but ALL its litho is
+    retained. Owner directive 2026-06-25: a geological boundary is a TOP, so the
+    deepest geological unit a test reaches owns everything from its top down to
+    TD; the test's deep litho is geo-assigned by ``divide_picks_by_geology``
+    (which bands each segment by the lowest geo surface still above it), never
+    truncated or dropped. (The name is kept for call-site stability; truncation
+    behaviour was removed.)
 
     Parameters
     ----------
@@ -120,38 +126,24 @@ def mark_and_truncate_shallow_tests(
     for p in picks:
         by_inv.setdefault(p.investigation_id, []).append(p)
 
-    # A body is "correlated" iff it spans >= 2 distinct investigations.
-    inv_by_body: dict[str, set[str]] = {}
-    for p in picks:
-        inv_by_body.setdefault(p.body_id, set()).add(p.investigation_id)
-    correlated = {bid for bid, invs in inv_by_body.items() if len(invs) >= 2}
-
     out: list[BodyLayerPick] = []
     marked: list[str] = []
     for inv_id, ps in by_inv.items():
         floor = lowest_boundary_elevation_at(ps[0].x_m, ps[0].y_m)
         deepest_base = min(_elev(p, p.base_depth_m) for p in ps)
-        if floor is None or deepest_base <= floor + _EPS:
-            out.extend(ps)  # reaches the deepest band (or no floor to check)
-            continue
-        # The test bottoms above the lowest geological boundary -> it is always
-        # flagged (excluded from the model floor), whether or not truncation
-        # actually drops a pick.
-        marked.append(inv_id)
-        corr = [p for p in ps if p.body_id in correlated]
-        if not corr:
-            continue  # no lateral tie anywhere -> exclude entirely
-        endpoint = min(_elev(p, p.base_depth_m) for p in corr)
-        for p in ps:
-            top_e = _elev(p, p.top_depth_m)
-            if top_e <= endpoint + _EPS:
-                continue  # entirely below the endpoint -> drop
-            base_e = _elev(p, p.base_depth_m)
-            if base_e < endpoint - _EPS:
-                # straddles the endpoint -> truncate its base to the endpoint
-                out.append(replace(p, base_depth_m=p.surface_elev_m - endpoint))
-            else:
-                out.append(p)
+        if floor is not None and deepest_base > floor + _EPS:
+            # The test bottoms ABOVE the lowest geological boundary -> FLAG it
+            # (informational), but KEEP all its litho. Owner directive 2026-06-25:
+            # a geological boundary is a TOP, so the deepest geological unit a test
+            # reaches owns everything from its top down to TD. The deep litho must
+            # be retained and geo-assigned by ``divide_picks_by_geology`` (which
+            # bands each segment by the lowest geo surface still above it), never
+            # dropped -- even when those deep picks are uncorrelated single-test
+            # data. (Before 2026-06-25 this truncated a flagged test to its deepest
+            # correlated contact and dropped uncorrelated picks below, which left a
+            # geotech column shallower than its litho -- the GEO-23/125-S7 dogfeed.)
+            marked.append(inv_id)
+        out.extend(ps)
     return ShallowTestResult(picks=out, marked_investigation_ids=sorted(marked))
 
 

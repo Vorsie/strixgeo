@@ -42,27 +42,26 @@ def test_deep_test_is_kept_unchanged():
     assert result.picks == picks
 
 
-def test_shallow_correlated_test_truncates_at_lowest_correlation():
-    """A shallow test with correlated picks is truncated at the deepest correlated base.
+def test_shallow_test_keeps_all_picks_including_uncorrelated_deep():
+    """A too-shallow test is flagged but KEEPS all its litho (owner directive 2026-06-25).
 
-    Single-hole bodies below that endpoint are dropped and the shallow test is
-    marked. Its deep correlated partner reaches below the floor, so the partner
-    is valid and untouched (never marked).
+    A geological boundary is a TOP, so the deepest geological unit a test reaches
+    owns everything from its top down to TD. Even an uncorrelated single-hole pick
+    below the deepest correlated contact is kept — it is geo-assigned to the
+    deepest unit by ``divide_picks_by_geology``, never dropped.
     """
-    # Boundary at -6. SHALLOW reaches only -4 (above -6) -> marked.
-    # Its body B1 spans two investigations (correlated); B2 is single-hole.
-    # Lowest correlation = deepest base of a correlated pick = -3.
+    # Boundary at -6. SHALLOW reaches only -4 (above -6) -> marked, but kept.
     picks = [
         _pick("DEEP", "B1", 0.0, 8.0, x=10.0),  # deep partner — reaches -8, below the -6 floor
-        _pick("SHALLOW", "B1", 0.0, 3.0),  # correlated, base -3 (the endpoint)
-        _pick("SHALLOW", "B2", 3.0, 4.0),  # single-hole, below endpoint -> dropped
+        _pick("SHALLOW", "B1", 0.0, 3.0),  # correlated
+        _pick("SHALLOW", "B2", 3.0, 4.0),  # single-hole, below — now KEPT, not dropped
     ]
     result = mark_and_truncate_shallow_tests(picks, lambda x, y: -6.0)
     assert result.marked_investigation_ids == ["SHALLOW"]
     kept = {(p.investigation_id, p.body_id) for p in result.picks}
-    assert ("SHALLOW", "B1") in kept  # correlated, kept
-    assert ("SHALLOW", "B2") not in kept  # below the endpoint, dropped
-    assert ("DEEP", "B1") in kept  # untouched
+    assert ("SHALLOW", "B1") in kept
+    assert ("SHALLOW", "B2") in kept  # KEPT (was dropped before the 2026-06-25 fix)
+    assert ("DEEP", "B1") in kept
 
 
 def test_shallow_test_is_marked_even_when_nothing_is_truncated():
@@ -86,13 +85,16 @@ def test_shallow_test_is_marked_even_when_nothing_is_truncated():
     assert (shallow[0].top_depth_m, shallow[0].base_depth_m) == (0.0, 3.0)  # unchanged
 
 
-def test_shallow_test_with_no_correlation_is_excluded_entirely():
-    """A shallow test with only single-hole bodies is excluded entirely and marked."""
-    # SHALLOW's only body B9 is single-hole (uncorrelated) -> nothing tied -> drop all.
+def test_shallow_test_with_no_correlation_is_kept_and_marked():
+    """A too-shallow test with only single-hole bodies is flagged but KEPT (not excluded).
+
+    Owner directive 2026-06-25: its litho is real single-test data and belongs to
+    the deepest geological unit it reaches — never dropped, only flagged.
+    """
     picks = [_pick("SHALLOW", "B9", 0.0, 4.0)]
     result = mark_and_truncate_shallow_tests(picks, lambda x, y: -6.0)
     assert result.marked_investigation_ids == ["SHALLOW"]
-    assert result.picks == []
+    assert result.picks == picks  # kept, not excluded
 
 
 def test_no_boundary_at_location_keeps_the_test():
