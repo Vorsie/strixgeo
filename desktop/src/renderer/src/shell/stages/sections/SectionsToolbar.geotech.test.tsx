@@ -96,6 +96,9 @@ function makeCtx(overrides: {
   sectionModelAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic' | 'geotechnical') => void
   handleSubdivideAllBodies?: () => Promise<void>
+  correlateMode?: boolean
+  enterCorrelateMode?: () => void
+  exitCorrelateMode?: () => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -304,10 +307,10 @@ function makeCtx(overrides: {
       applyUpdatedSection: vi.fn(),
       sectionFocusedColumn: null,
       setSectionFocusedColumn: vi.fn(),
-      correlateMode: false,
+      correlateMode: overrides.correlateMode ?? false,
       correlationSource: null,
-      enterCorrelateMode: vi.fn(),
-      exitCorrelateMode: vi.fn(),
+      enterCorrelateMode: overrides.enterCorrelateMode ?? vi.fn(),
+      exitCorrelateMode: overrides.exitCorrelateMode ?? vi.fn(),
       armCorrelationSource: vi.fn(),
       clearCorrelationSource: vi.fn(),
       suggestedTies: [],
@@ -536,5 +539,114 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
     )
     fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C1 — re-subdivide confirmation gate (§7)
+// ---------------------------------------------------------------------------
+//
+// Pinned claims:
+//   BC1  Clicking "Subdivide all bodies" when a geotech model already exists
+//        OPENS the re-subdivide confirm dialog (a re-run wipes manual packing
+//        connections) instead of running the subdivide directly.
+//   BC2  Clicking it when NO geotech model exists (first-ever subdivide) runs
+//        directly and does NOT open the dialog.
+
+describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
+  it('BC1 — opens the confirm dialog (not a direct run) when a geotech model exists', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        handleSubdivideAllBodies,
+      }),
+    )
+    // Dialog is not mounted before the click.
+    expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    // The re-run is gated behind the confirm dialog — it must appear, and the
+    // handler must NOT have fired yet (the user has to confirm first).
+    expect(screen.getByTestId('re-subdivide-confirm-dialog')).toBeTruthy()
+    expect(handleSubdivideAllBodies).not.toHaveBeenCalled()
+  })
+
+  it('BC2 — first-ever subdivide (no geotech model) runs directly, no dialog', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: null,
+        handleSubdivideAllBodies,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D — "Correlate packing" verb (manual same-class/same-body packing connect)
+// ---------------------------------------------------------------------------
+//
+// Pinned claims:
+//   BD1  The "Correlate packing" verb renders on the geotech axis.
+//   BD2  Clicking it (when correlate mode is off) calls enterCorrelateMode.
+//   BD3  Clicking it (when correlate mode is on) calls exitCorrelateMode, and
+//        the active state is reflected (amber + "click 2 bands" label).
+
+describe('SectionsToolbar "Correlate packing" verb (D)', () => {
+  it('BD1 — verb renders on the geotech axis when a geotech model exists', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.getByTestId('geotech-correlate-packing')).toBeTruthy()
+  })
+
+  it('BD2 — clicking enters correlate mode when off', () => {
+    const enterCorrelateMode = vi.fn()
+    const exitCorrelateMode = vi.fn()
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        correlateMode: false,
+        enterCorrelateMode,
+        exitCorrelateMode,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-correlate-packing'))
+    expect(enterCorrelateMode).toHaveBeenCalled()
+    expect(exitCorrelateMode).not.toHaveBeenCalled()
+  })
+
+  it('BD3 — clicking exits correlate mode when on, and active state is reflected', () => {
+    const enterCorrelateMode = vi.fn()
+    const exitCorrelateMode = vi.fn()
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        correlateMode: true,
+        enterCorrelateMode,
+        exitCorrelateMode,
+      }),
+    )
+    const btn = screen.getByTestId('geotech-correlate-packing')
+    // Active-state cue: label switches to the in-progress prompt.
+    expect(btn.textContent).toContain('click 2 bands')
+    fireEvent.click(btn)
+    expect(exitCorrelateMode).toHaveBeenCalled()
+    expect(enterCorrelateMode).not.toHaveBeenCalled()
   })
 })
