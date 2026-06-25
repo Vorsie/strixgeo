@@ -2216,6 +2216,14 @@ export function useGeologicalModel({
       // so the bands pick up the new edges (otherwise a re-click shows stale
       // connectivity / no visible refresh).
       requestCorrelationEdgesRefetch?.()
+      // reason: on a re-subdivide the geotech model id is unchanged, so the
+      // geotechLayers useEffect (keyed on the model object) only re-fires if
+      // refreshModels happens to swap the object reference — implicit and
+      // non-obvious. Make the body_id-stamp reload explicit (mirrors the
+      // edge-nonce rationale above); the small redundant GET on a heavy user
+      // action is acceptable for mechanism-consistency with the manual gesture
+      // path (the packing-correlate handler also bumps this nonce).
+      requestGeotechLayersRefetch()
       // (d): record new NAD-class formations as session imports so markMutated
       // lights the dirty flag and they land in the next .gmproj save.
       if (result.created_formation_ids.length > 0) {
@@ -2233,7 +2241,8 @@ export function useGeologicalModel({
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
     // cause no-op dep churn; refreshModels, refetchFormations, addToSessionImports,
-    // markMutated, toast, requestCorrelationEdgesRefetch are all stable callbacks.
+    // markMutated, toast, requestCorrelationEdgesRefetch, requestGeotechLayersRefetch
+    // are all stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [project, refreshModels, refetchFormations, addToSessionImports, markMutated, toast],
   )
