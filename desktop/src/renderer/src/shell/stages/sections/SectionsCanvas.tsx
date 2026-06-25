@@ -499,9 +499,12 @@ export default function SectionsCanvas(): JSX.Element {
         selectedSectionId,
       )
       setContactCorrelationEdges(edges)
-      log.debug(
+      // INFO (not DEBUG) on purpose: the correlation count the section actually
+      // received is the fastest signal for "why are no bands connecting" — keep
+      // it visible in the default console (the 2026-06-25 wrong-DB incident).
+      log.info(
         'section',
-        `listContactCorrelations: ${edges.length} edge(s) for model ${correlationModelId} section=${selectedSectionId}`,
+        `listContactCorrelations: ${edges.length} edge(s) for model=${correlationModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
       log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
