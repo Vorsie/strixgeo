@@ -89,25 +89,17 @@ CPT-bearing groups are classified, each borehole-only sub-body is resolved:
    (last resort; the frontend should not show a "No qc" ghost when a
    same-lithology CPT exists anywhere in the model).
 
-Edge derivation — depth-overlap mapping
-----------------------------------------
+Edge derivation — full-sequence packing match
+----------------------------------------------
 For each approved litho ``litho_contact_correlation_edge`` (layer_A ↔ layer_B),
-the depth of layer_A's top is looked up, and the geotech sub-layer on the same
-investigation that contains that depth (``depth_top_m <= litho_top < depth_base_m``,
-with a tolerance of 1 mm for exact-boundary cases) is selected as the geotech
-edge endpoint.  Similarly for layer_B on investigation_B.  A geotech edge is
-then emitted between those two geotech sub-layers (canonical a < b).
-
-This approach:
-- Produces ~1 geotech edge per litho edge (minus dedup when multiple litho
-  layers map to the same geotech sub-layer pair).
-- Preserves the TRAP 1 / SAB-7 over-merge guard: a litho edge at depth d maps
-  to the geotech sub-layer covering d, which is always the same packing-class
-  band at that depth — it can never bridge to a DIFFERENT packing-class sub-body
-  unless the packing-class boundary itself is located at exactly depth d, in
-  which case the edge maps to the deeper sub-layer (the band above the split).
-- Is group-independent: it works in a single post-materialisation pass over
-  all approved litho edges for a section, regardless of body group boundaries.
+the geotech sub-band stacks within that litho unit on both tests are compared.
+A stack is the list of ``(layer_id, nad_class)`` tuples top→base for all geotech
+sub-layers whose ``[top, base]`` interval is contained within the litho unit's
+``[depth_top_m, depth_base_m]`` (1 mm tolerance for geo-band divide noise).
+Two stacks are connected 1:1 via ``aligned_same_sequence_pairs`` ONLY when their
+NAD-class sequences are identical (same count, same order).  Any mismatch → no
+auto-connect for that litho pair; the engineer connects those manually.
+Null-class bands (skeleton / last-resort) are skipped per spec §8.
 """
 
 from __future__ import annotations
@@ -588,7 +580,8 @@ class SubdivideAllBodies(GroundModelLogger):
                         )
                         self._session.add(layer)
                         # nad_class is None here (skeleton); updated during Phase 8b
-                        # extrapolation when a nearest-CPT class is assigned.
+                        # extrapolation IF a nearest-CPT candidate is found;
+                        # otherwise stays None.
                         geotech_layer_by_inv_depth[inv_id].append(
                             (top_m, base_m, layer.id, formation.id, nad_class)
                         )
