@@ -43,10 +43,11 @@ The new design:
     overlapping that depth range and assigns its nad_class.  Falls back to
     nearest CPT of any lithology, then (last resort) nad_class=None.
 7. **Edges — PER SECTION:** loads each project section's approved litho edges
-   and derives geotech edges by full-sequence packing match within each litho
-   body (``_derive_geotech_edges_from_litho``): a correlated litho-unit pair's
-   geotech sub-band stacks connect 1:1 ONLY when their NAD-class sequences are
-   identical; any mismatch connects nothing.  Edges are tagged with that
+   and derives geotech edges by same-class packing match within each litho
+   body (``_derive_geotech_edges_from_litho``): within a correlated litho-unit
+   pair, each geotech sub-band connects to EVERY band on the other test that
+   shares its (non-null) NAD class, regardless of count or order; the resolver
+   then unions a recurring class into one body.  Edges are tagged with that
    section's id.
 8. Runs the resolver model-wide.
 9. ONE commit.
@@ -89,17 +90,19 @@ CPT-bearing groups are classified, each borehole-only sub-body is resolved:
    (last resort; the frontend should not show a "No qc" ghost when a
    same-lithology CPT exists anywhere in the model).
 
-Edge derivation — full-sequence packing match
-----------------------------------------------
+Edge derivation — same-class packing match
+-------------------------------------------
 For each approved litho ``litho_contact_correlation_edge`` (layer_A ↔ layer_B),
 the geotech sub-band stacks within that litho unit on both tests are compared.
 A stack is the list of ``(layer_id, nad_class)`` tuples top→base for all geotech
 sub-layers whose ``[top, base]`` interval is contained within the litho unit's
 ``[depth_top_m, depth_base_m]`` (1 mm tolerance for geo-band divide noise).
-Two stacks are connected 1:1 via ``aligned_same_sequence_pairs`` ONLY when their
-NAD-class sequences are identical (same count, same order).  Any mismatch → no
-auto-connect for that litho pair; the engineer connects those manually.
-Null-class bands (skeleton / last-resort) are skipped per spec §8.
+Via ``same_class_pairs`` (spec §5, 2026-06-26), each band on one test connects
+to EVERY band on the other test that shares its (non-null) NAD class, regardless
+of count or order; the resolver's connected-components then unions a recurring
+class within the unit into ONE body (the engineer splits manually).  A litho
+pair where no class matches connects nothing.  Null-class bands (skeleton /
+last-resort) never auto-connect (spec §8).
 """
 
 from __future__ import annotations
@@ -124,7 +127,7 @@ from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
     plan_body_subdivision,
 )
-from groundmodel.domain.services.geotech_packing_edges import aligned_same_sequence_pairs
+from groundmodel.domain.services.geotech_packing_edges import same_class_pairs
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -1009,7 +1012,7 @@ class SubdivideAllBodies(GroundModelLogger):
         return extrapolated
 
     # ------------------------------------------------------------------
-    # Phase 9 — edge derivation by full-sequence packing match
+    # Phase 9 — edge derivation by same-class packing match
     # ------------------------------------------------------------------
 
     async def _derive_geotech_edges_from_litho(
@@ -1021,26 +1024,28 @@ class SubdivideAllBodies(GroundModelLogger):
         litho_layer_depths: dict[UUID, tuple[str, float, float]],
         geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
     ) -> None:
-        """Derive geotech edges by full-sequence packing match within each litho body.
+        """Derive geotech edges by same-class packing match within each litho body.
 
         Each approved litho edge already identifies a correlated litho-unit
         pair (the same litho body, traced across two adjacent tests).  For each
-        such pair this method compares the FULL geotech packing sub-band STACKS
-        within that litho unit on both tests:
+        such pair this method connects the geotech packing sub-bands within that
+        litho unit on both tests by SHARED NAD class:
 
         1. Resolve each endpoint's ``(investigation_id, depth_top_m,
            depth_base_m)`` from ``litho_layer_depths`` — the litho unit's depth
            extent on each test.
         2. Collect the geotech sub-band stack (``layer_id, nad_class`` top→base)
            that falls within that litho unit on each test.
-        3. If the two NAD-class sequences are IDENTICAL (same count, same order)
-           — via ``aligned_same_sequence_pairs`` — emit a 1:1 geotech edge for
-           every aligned band.  Any mismatch (different count or order) → emit
-           nothing for that pair (the engineer connects those manually).
+        3. Via ``same_class_pairs``, emit a geotech edge for every (left, right)
+           band pair that shares the same (non-null) NAD class — regardless of
+           count or order (spec §5, 2026-06-26).  The resolver's connected-
+           components then unions a recurring class within the unit into ONE
+           body; the engineer splits manually.  A litho pair where no class
+           matches on either side emits nothing.
 
-        Per spec §8, an aligned band whose ``nad_class`` is ``None`` cannot
-        auto-connect and is skipped.  Canonical ``a < b`` ordering; dedup on
-        layer-pair within this section.
+        Per spec §8, a band whose ``nad_class`` is ``None`` cannot auto-connect
+        and is skipped (``same_class_pairs`` already drops null-class bands).
+        Canonical ``a < b`` ordering; dedup on layer-pair within this section.
 
         Parameters
         ----------
@@ -1078,7 +1083,7 @@ class SubdivideAllBodies(GroundModelLogger):
         seen_layer_pairs: set[tuple[UUID, UUID]] = set()
         edge_count = 0
         skipped_no_litho_depth = 0
-        skipped_seq_mismatch = 0
+        skipped_no_class_match = 0
 
         for litho_a_id, litho_b_id in litho_approved_edges:
             entry_a = litho_layer_depths.get(litho_a_id)
@@ -1094,20 +1099,15 @@ class SubdivideAllBodies(GroundModelLogger):
             left_stack = _stack(inv_a_str, top_a, base_a)
             right_stack = _stack(inv_b_str, top_b, base_b)
 
-            # The helper aligns the two stacks by NAD-class sequence equality
-            # (None compares equal to None); it does NOT skip null-class bands.
-            # The §8 null-skip guard below is what drops any aligned null-class
-            # pair, so the auto-connect never emits one.
-            aligned = aligned_same_sequence_pairs(left_stack, right_stack)
+            # Spec §5: same-class connection (NOT full-sequence). Every same-class
+            # pair becomes an edge; the resolver unions recurring classes into one
+            # body. None-class bands are skipped inside same_class_pairs.
+            aligned = same_class_pairs(left_stack, right_stack)
             if not aligned:
-                # Both sides have bands but the NAD-class sequences differ
-                # (count or order) — no auto-connect for this litho pair.
                 if left_stack and right_stack:
-                    skipped_seq_mismatch += 1
+                    skipped_no_class_match += 1
                 continue
 
-            # nad_class lookup for the §8 null-skip (identical sequences mean la
-            # and rb share the class, so one side suffices).
             nad_by_layer = dict(left_stack) | dict(right_stack)
 
             for la, rb in aligned:
@@ -1150,7 +1150,7 @@ class SubdivideAllBodies(GroundModelLogger):
             f"{edge_count} geotech edge(s) derived from "
             f"{len(litho_approved_edges)} litho edge(s) "
             f"(skipped_no_depth={skipped_no_litho_depth}, "
-            f"skipped_seq_mismatch={skipped_seq_mismatch})"
+            f"skipped_no_class_match={skipped_no_class_match})"
         )
 
     # ------------------------------------------------------------------
