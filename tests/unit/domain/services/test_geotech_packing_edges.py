@@ -25,6 +25,11 @@ def test_same_class_pairs_never_crosses_class():
     assert same_class_pairs(left, right) == []
 
 
+def test_same_class_pairs_skips_right_side_null_class():
+    # A right-side None never matches a real class (None == 6 is False).
+    assert same_class_pairs([("l", 6)], [("r", None)]) == []
+
+
 def test_same_class_pairs_empty_when_either_side_empty():
     assert same_class_pairs([], [("r", 6)]) == []
     assert same_class_pairs([("l", 6)], []) == []
