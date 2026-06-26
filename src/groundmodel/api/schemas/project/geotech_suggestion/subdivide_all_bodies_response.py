@@ -33,12 +33,10 @@ class SubdivideAllBodiesResponse(BaseModel):
         (inconsistent CPT profiles → thickness-dominant single class).
     borehole_only_count : int
         Number of body groups that were borehole-only (no CPT qc data →
-        skeleton sub-body, then extrapolated from nearest same-lithology CPT
-        when one exists).
-    extrapolated_borehole_count : int
-        Number of borehole-only sub-bodies that were successfully extrapolated
-        to a NAD class from the nearest same-lithology CPT.  Borehole sub-
-        bodies that found no overlapping CPT retain ``nad_class=None``.
+        skeleton sub-body with ``nad_class=None``; cannot be TIN-divided).
+    divided_borehole_count : int
+        Number of borehole columns TIN-divided into geotech sub-bands by their
+        connected CPT body's packing-transition surface (Phase 8c).
     section_count : int
         Number of project sections for which geotech correlation edges were
         derived from the litho model's approved edges.
@@ -72,11 +70,11 @@ class SubdivideAllBodiesResponse(BaseModel):
         ...,
         description="Body groups that were borehole-only (no CPT qc data).",
     )
-    extrapolated_borehole_count: int = Field(
+    divided_borehole_count: int = Field(
         0,
         description=(
-            "Borehole-only sub-bodies extrapolated to a NAD class from the "
-            "nearest same-lithology CPT."
+            "Borehole columns TIN-divided into geotech sub-bands by their "
+            "connected CPT body's packing-transition surface (Phase 8c)."
         ),
     )
     section_count: int = Field(
