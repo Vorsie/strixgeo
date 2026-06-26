@@ -1,37 +1,30 @@
-"""Unit tests for ``aligned_same_sequence_pairs`` — geotech packing-edge pairing."""
+"""Unit tests for same_class_pairs — the geotech same-class auto-edge helper."""
 
-from groundmodel.domain.services.geotech_packing_edges import aligned_same_sequence_pairs
-
-
-def test_identical_sequence_pairs_one_to_one():
-    """Identical NAD-class sequences -> aligned index pairs for every band."""
-    left = [("LA0", 6), ("LA1", 7)]  # (layer_id, nad_class) top->base
-    right = [("RB0", 6), ("RB1", 7)]
-    assert aligned_same_sequence_pairs(left, right) == [("LA0", "RB0"), ("LA1", "RB1")]
+from groundmodel.domain.services.geotech_packing_edges import same_class_pairs
 
 
-def test_mismatched_count_no_pairs():
-    """Different band counts -> no pairs (manual fills it)."""
-    left = [("LA0", 6), ("LA1", 7)]
-    right = [("RB0", 6), ("RB1", 7), ("RB2", 8)]
-    assert aligned_same_sequence_pairs(left, right) == []
+def test_same_class_pairs_connects_matching_classes_across_an_interbed():
+    # S6 sand unit: [matig(6), dicht(7)].  S13 same unit: [matig(6), matig(6), dicht(7)].
+    # Old full-sequence rule emitted 0 (counts differ). New rule ties every
+    # same-class pair: matig->both matig, dicht->dicht.
+    left = [("l_m", 6), ("l_d", 7)]
+    right = [("r_m1", 6), ("r_m2", 6), ("r_d", 7)]
+    pairs = set(same_class_pairs(left, right))
+    assert pairs == {("l_m", "r_m1"), ("l_m", "r_m2"), ("l_d", "r_d")}
 
 
-def test_same_count_different_class_no_pairs():
-    """Same count but a class differs -> not an identical sequence -> no pairs."""
-    left = [("LA0", 6), ("LA1", 7)]
-    right = [("RB0", 6), ("RB1", 8)]
-    assert aligned_same_sequence_pairs(left, right) == []
+def test_same_class_pairs_skips_null_class():
+    left = [("l_a", None), ("l_b", 6)]
+    right = [("r_a", None), ("r_b", 6)]
+    assert set(same_class_pairs(left, right)) == {("l_b", "r_b")}
 
 
-def test_empty_either_side_no_pairs():
-    """Either side empty -> no pairs (nothing to align against)."""
-    assert aligned_same_sequence_pairs([], [("RB0", 6)]) == []
-    assert aligned_same_sequence_pairs([("LA0", 6)], []) == []
+def test_same_class_pairs_never_crosses_class():
+    left = [("l", 5)]
+    right = [("r", 7)]
+    assert same_class_pairs(left, right) == []
 
 
-def test_none_class_sequences_still_pair():
-    """None classes compare equal here; the spec §8 null-skip lives in the caller."""
-    left = [("LA0", 6), ("LA1", None)]
-    right = [("RB0", 6), ("RB1", None)]
-    assert aligned_same_sequence_pairs(left, right) == [("LA0", "RB0"), ("LA1", "RB1")]
+def test_same_class_pairs_empty_when_either_side_empty():
+    assert same_class_pairs([], [("r", 6)]) == []
+    assert same_class_pairs([("l", 6)], []) == []
