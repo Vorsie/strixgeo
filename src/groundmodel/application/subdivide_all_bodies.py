@@ -1108,13 +1108,9 @@ class SubdivideAllBodies(GroundModelLogger):
                     skipped_no_class_match += 1
                 continue
 
-            nad_by_layer = dict(left_stack) | dict(right_stack)
-
             for la, rb in aligned:
-                # Spec §8: a null-class band cannot auto-connect; skip it.
-                if nad_by_layer.get(la) is None:
-                    continue
-
+                # same_class_pairs already filters None-class bands (spec §8), so
+                # every (la, rb) here is a real same-class pair.
                 geotech_a_id = UUID(la)
                 geotech_b_id = UUID(rb)
                 if geotech_a_id == geotech_b_id:
