@@ -128,6 +128,10 @@ from groundmodel.domain.services.geotech_body_aggregation import (
     plan_body_subdivision,
 )
 from groundmodel.domain.services.geotech_packing_edges import same_class_pairs
+from groundmodel.domain.services.geotech_split_surface import (
+    ColumnXY,
+    interpolate_split_elevations,
+)
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -197,11 +201,14 @@ class SubdivideAllBodiesResult:
         Number of body groups assigned one representative NAD class
         (inconsistent CPT profiles → thickness-dominant single class).
     borehole_only_count : int
-        Number of body groups that were borehole-only (no CPT qc → classified
-        via nearest-CPT extrapolation or last-resort nad_class=None).
-    extrapolated_borehole_count : int
-        Subset of borehole_only_count that were successfully extrapolated from
-        a nearest same-lithology CPT (not the last-resort None path).
+        Number of body groups that were borehole-only (no CPT qc → each
+        borehole in a CPT-bearing body is TIN-divided by that body's CPT
+        split surfaces; a truly CPT-free body keeps a skeleton nad_class=None).
+    divided_borehole_count : int
+        Number of borehole columns that were successfully TIN-divided into
+        ≥ 2 geotech sub-bands by the connected CPT body's split surface.
+        A borehole in a body with no CPT splits (one-class, or borehole-only)
+        remains as a single band (possibly with skeleton nad_class=None).
     section_count : int
         Number of project sections processed for edge derivation.
     """
@@ -213,7 +220,7 @@ class SubdivideAllBodiesResult:
     split_body_count: int
     one_class_body_count: int
     borehole_only_count: int
-    extrapolated_borehole_count: int = 0
+    divided_borehole_count: int = 0
     section_count: int = 0
 
 
@@ -448,7 +455,8 @@ class SubdivideAllBodies(GroundModelLogger):
         )
 
         # Phase 8 — per-group materialise (CPT-bearing groups get classified
-        # immediately; borehole-only groups are deferred to extrapolation).
+        # immediately; boreholes in a CPT-bearing body are TIN-divided by the
+        # body's CPT packing-transition surfaces in the same pass).
         created_formation_ids: list[UUID] = []
         classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
         skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
@@ -457,19 +465,7 @@ class SubdivideAllBodies(GroundModelLogger):
         split_body_count = 0
         one_class_body_count = 0
         borehole_only_count = 0
-
-        # Pending borehole sub-bodies awaiting extrapolation.  Each entry is a
-        # _PendingBoreholeSubBody describing the geometry + provenance of one
-        # borehole sub-unit that was written with a skeleton (nad_class=None)
-        # formation and will be reclassified in Phase 8b.
-        pending_borehole_sub_bodies: list[_PendingBoreholeSubBody] = []
-
-        # Classified CPT sub-body registry: maps (soil_code, geotech_formation_id)
-        # to a list of (x_m, y_m, nad_class, top_m, base_m) tuples.  Built during
-        # the per-group loop and consumed in Phase 8b for distance lookups.
-        # key = litho_soil_code (str|None)
-        # value = list[(x_m, y_m, nad_class, top_m, base_m)]
-        cpt_classified_sub_bodies: list[tuple[str | None, float, float, int, float, float]] = []
+        divided_borehole_count = 0
 
         for group_idx, (group_key, group_segs) in enumerate(groups.items()):
             body_id_str, source_geo_fid = group_key
@@ -485,6 +481,9 @@ class SubdivideAllBodies(GroundModelLogger):
 
             # Collect CPT members of the group.
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
+            borehole_segs = [
+                s for s in group_segs if anchor_kind.get(s.investigation_id) == "borehole"
+            ]
 
             # Hoist formation attributes (constant for the whole group).
             soil_code = await self._formation_soil_code(source_litho_fid)
@@ -530,80 +529,42 @@ class SubdivideAllBodies(GroundModelLogger):
                 f"classes={plan.band_classes}"
             )
 
-            # Build a per-column plan for all segments (CPT + borehole).
-            column_plans = self._build_column_plans(
-                group_segs=group_segs,
+            # Build a per-column plan for CPT segments only.
+            # Borehole columns are handled separately via TIN-based division.
+            cpt_column_plans = self._build_column_plans(
+                group_segs=cpt_segs,
                 anchor_kind=anchor_kind,
                 profiles=profiles,
             )
 
-            for col_plan in column_plans:
+            # Phase 8 CPT pass — materialise one band per CPT's own A3 splits.
+            # Also build the transition-surface control points for Phase 8c.
+            # A transition surface k (between band k and band k+1) is defined by
+            # the base elevation of band k on every CPT that has ≥ k+1 bands.
+            # ``transition_surfaces[k]`` = list of (ColumnXY, base_elevation_m).
+            transition_surfaces: list[list[tuple[ColumnXY, float]]] = []
+
+            for col_plan in cpt_column_plans:
                 if not col_plan.sub_intervals:
                     continue
                 inv_id = col_plan.investigation_id
                 inv_uuid = UUID(inv_id)
-                anchor_kwargs: dict[str, UUID] = {}
-                if col_plan.anchor_kind == "borehole":
-                    anchor_kwargs = {"borehole_id": inv_uuid}
-                else:
-                    anchor_kwargs = {"cpt_id": inv_uuid}
-
-                # Look up xy for this investigation (needed for borehole
-                # extrapolation and for CPT registry).
-                inv_seg = next((s for s in group_segs if s.investigation_id == inv_id), None)
+                inv_seg = next((s for s in cpt_segs if s.investigation_id == inv_id), None)
                 inv_x = inv_seg.x_m if inv_seg else 0.0
                 inv_y = inv_seg.y_m if inv_seg else 0.0
+                inv_elev = inv_seg.surface_elev_m if inv_seg else 0.0
 
                 for k, (top_m, base_m) in enumerate(col_plan.sub_intervals):
-                    # Each column carries its OWN per-band NAD class (CPT = its A3
-                    # segmentation; borehole/unclassified = None). A None class is
-                    # materialised with a skeleton formation + queued for Phase-8b
-                    # extrapolation from the nearest CPT.
                     nad_class = col_plan.nad_classes[k] if k < len(col_plan.nad_classes) else None
-
                     if nad_class is None:
-                        # No local class (borehole, or CPT w/o usable qc): skeleton
-                        # formation; queue for Phase 8b extrapolation.
+                        # CPT with no usable qc — one skeleton band.
                         formation = await self._find_or_create_skeleton(
                             project_id=project_id,
                             skeleton_by_key=skeleton_by_key,
                             source_litho_formation_id=source_litho_fid,
                             source_geo_formation_id=source_geo_fid,
                         )
-                        layer = LithoLayerOrm(
-                            id=uuid7(),
-                            model_id=geotech_model.id,
-                            formation_id=formation.id,
-                            depth_top_m=top_m,
-                            depth_base_m=base_m,
-                            status="accepted",
-                            source="segmenter",
-                            confidence="medium",
-                            **anchor_kwargs,
-                        )
-                        self._session.add(layer)
-                        # nad_class is None here (skeleton); updated during Phase 8b
-                        # extrapolation IF a nearest-CPT candidate is found;
-                        # otherwise stays None.
-                        geotech_layer_by_inv_depth[inv_id].append(
-                            (top_m, base_m, layer.id, formation.id, nad_class)
-                        )
-                        total_layers += 1
-                        pending_borehole_sub_bodies.append(
-                            _PendingBoreholeSubBody(
-                                investigation_id=inv_id,
-                                x_m=inv_x,
-                                y_m=inv_y,
-                                top_m=top_m,
-                                base_m=base_m,
-                                litho_soil_code=soil_code,
-                                source_litho_formation_id=source_litho_fid,
-                                source_geo_formation_id=source_geo_fid,
-                                layer_id=layer.id,
-                            )
-                        )
                     else:
-                        # CPT's OWN A3 class for this band (no body consensus).
                         formation = await self._find_or_create_formation(
                             project_id=project_id,
                             classified_by_key=classified_by_key,
@@ -613,42 +574,82 @@ class SubdivideAllBodies(GroundModelLogger):
                             source_litho_formation_id=source_litho_fid,
                             source_geo_formation_id=source_geo_fid,
                         )
-                        layer = LithoLayerOrm(
-                            id=uuid7(),
-                            model_id=geotech_model.id,
-                            formation_id=formation.id,
-                            depth_top_m=top_m,
-                            depth_base_m=base_m,
-                            status="accepted",
-                            source="segmenter",
-                            confidence="medium",
-                            **anchor_kwargs,
-                        )
-                        self._session.add(layer)
-                        geotech_layer_by_inv_depth[inv_id].append(
-                            (top_m, base_m, layer.id, formation.id, nad_class)
-                        )
-                        total_layers += 1
 
-                        # Register CPT sub-bodies for borehole extrapolation.
-                        if col_plan.anchor_kind == "cpt" and nad_class is not None:
-                            cpt_classified_sub_bodies.append(
-                                (soil_code, inv_x, inv_y, nad_class, top_m, base_m)
-                            )
+                    layer = LithoLayerOrm(
+                        id=uuid7(),
+                        model_id=geotech_model.id,
+                        formation_id=formation.id,
+                        depth_top_m=top_m,
+                        depth_base_m=base_m,
+                        status="accepted",
+                        source="segmenter",
+                        confidence="medium",
+                        cpt_id=inv_uuid,
+                    )
+                    self._session.add(layer)
+                    geotech_layer_by_inv_depth[inv_id].append(
+                        (top_m, base_m, layer.id, formation.id, nad_class)
+                    )
+                    total_layers += 1
+
+                    # Record the base of band k as a control point for transition
+                    # surface k (between band k and band k+1).  Skip the last band
+                    # (k == len(sub_intervals) - 1) — it has no successor.
+                    if k < len(col_plan.sub_intervals) - 1:
+                        # base elevation of band k = surface_elev - base_depth
+                        base_elev = inv_elev - base_m
+                        col_xy = ColumnXY(
+                            investigation_id=inv_id,
+                            x_m=inv_x,
+                            y_m=inv_y,
+                        )
+                        while len(transition_surfaces) <= k:
+                            transition_surfaces.append([])
+                        transition_surfaces[k].append((col_xy, base_elev))
+
+            # Phase 8c — TIN-based borehole division.
+            # For each borehole in the group, use the CPT transition surfaces
+            # (built above) to slice the borehole's geo-bounded extent into bands
+            # matching the body's packing structure.  The TIN is evaluated at the
+            # borehole's XY; the resulting elevation is converted to depth and
+            # clamped to the borehole's litho extent.  Boreholes in a CPT-free body
+            # (borehole_only_count branch) fall through to the skeleton path.
+            for bh_seg in borehole_segs:
+                inv_id = bh_seg.investigation_id
+                inv_uuid = UUID(inv_id)
+                bh_x = bh_seg.x_m
+                bh_y = bh_seg.y_m
+                bh_elev = bh_seg.surface_elev_m
+                geo_top = bh_seg.top_depth_m
+                geo_base = bh_seg.base_depth_m
+                if geo_base <= geo_top:
+                    continue
+
+                layer_count_before = total_layers
+                bh_bands = await self._materialise_borehole_bands(
+                    project_id=project_id,
+                    geotech_model_id=geotech_model.id,
+                    inv_id=inv_id,
+                    inv_uuid=inv_uuid,
+                    bh_x=bh_x,
+                    bh_y=bh_y,
+                    bh_surface_elev=bh_elev,
+                    geo_top_m=geo_top,
+                    geo_base_m=geo_base,
+                    transition_surfaces=transition_surfaces,
+                    cpt_segs=cpt_segs,
+                    source_litho_formation_id=source_litho_fid,
+                    source_geo_formation_id=source_geo_fid,
+                    classified_by_key=classified_by_key,
+                    skeleton_by_key=skeleton_by_key,
+                    created_formation_ids=created_formation_ids,
+                    geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+                )
+                total_layers += bh_bands
+                if bh_bands >= 2:
+                    divided_borehole_count += 1
 
             await self._session.flush()
-
-        # Phase 8b — borehole extrapolation: resolve pending borehole sub-bodies
-        # by nearest-CPT same-lithology lookup.
-        extrapolated_borehole_count = await self._extrapolate_borehole_sub_bodies(
-            project_id=project_id,
-            pending=pending_borehole_sub_bodies,
-            cpt_classified_sub_bodies=cpt_classified_sub_bodies,
-            classified_by_key=classified_by_key,
-            created_formation_ids=created_formation_ids,
-            geotech_model_id=geotech_model.id,
-            geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
-        )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
         sections = await self._load_project_sections(project_id)
@@ -708,14 +709,14 @@ class SubdivideAllBodies(GroundModelLogger):
             split_body_count=split_body_count,
             one_class_body_count=one_class_body_count,
             borehole_only_count=borehole_only_count,
-            extrapolated_borehole_count=extrapolated_borehole_count,
+            divided_borehole_count=divided_borehole_count,
             section_count=sections_with_edges,
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
             f"layers={total_layers} bodies={body_count} "
             f"split={split_body_count} one_class={one_class_body_count} "
-            f"borehole_only={borehole_only_count} extrapolated={extrapolated_borehole_count} "
+            f"borehole_only={borehole_only_count} divided_bh={divided_borehole_count} "
             f"sections={len(sections)} elapsed={elapsed:.1f}s"
         )
         return result
@@ -882,7 +883,216 @@ class SubdivideAllBodies(GroundModelLogger):
         return col_plans
 
     # ------------------------------------------------------------------
-    # Phase 8b — borehole extrapolation
+    # Phase 8c — TIN-based borehole division
+    # ------------------------------------------------------------------
+
+    async def _materialise_borehole_bands(
+        self,
+        *,
+        project_id: UUID,
+        geotech_model_id: UUID,
+        inv_id: str,
+        inv_uuid: UUID,
+        bh_x: float,
+        bh_y: float,
+        bh_surface_elev: float,
+        geo_top_m: float,
+        geo_base_m: float,
+        transition_surfaces: list[list[tuple[ColumnXY, float]]],
+        cpt_segs: list[BodyLayerPick],
+        source_litho_formation_id: UUID,
+        source_geo_formation_id: UUID | None,
+        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
+        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
+        created_formation_ids: list[UUID],
+        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
+    ) -> int:
+        """Materialise geotech bands for one borehole using TIN-interpolated split depths.
+
+        For each packing-transition surface in *transition_surfaces* the CPT
+        control points are fed into :func:`interpolate_split_elevations`, which
+        returns the transition elevation at the borehole's XY.  The elevation is
+        converted to a depth and clamped to the borehole's geo-bounded extent
+        ``[geo_top_m, geo_base_m]``.  The resulting ordered split depths divide
+        the extent into bands; each band inherits the NAD class of the
+        corresponding CPT-stack position.
+
+        When *transition_surfaces* is empty (borehole-only body — no CPT split
+        surfaces exist), a single skeleton band spanning the full geo-bounded
+        extent is materialised instead.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project.
+        geotech_model_id : UUID
+            The geotech model row to write layers into.
+        inv_id : str
+            Borehole id string.
+        inv_uuid : UUID
+            Borehole id as UUID.
+        bh_x : float
+            Borehole world x-coordinate (m).
+        bh_y : float
+            Borehole world y-coordinate (m).
+        bh_surface_elev : float
+            Borehole surface elevation (m, positive upward); used to convert
+            interpolated elevation to depth.
+        geo_top_m : float
+            Top of the geo-bounded litho extent for this borehole segment.
+        geo_base_m : float
+            Base of the geo-bounded litho extent for this borehole segment.
+        transition_surfaces : list[list[tuple[ColumnXY, float]]]
+            Per-band-boundary control points.  ``transition_surfaces[k]`` is the
+            list of ``(ColumnXY, base_elevation_m)`` for all CPT columns that
+            have a k-th band boundary (i.e. at least k+2 bands).
+        cpt_segs : list[BodyLayerPick]
+            CPT body-layer picks in this group; used to derive the modal NAD
+            class for each borehole band from the already-materialised CPT
+            layers in *geotech_layer_by_inv_depth*.
+        source_litho_formation_id : UUID
+            Source litho formation driving the find-or-create key.
+        source_geo_formation_id : UUID | None
+            Source geo formation driving the find-or-create key.
+        classified_by_key : dict
+            In-memory find-or-create cache for classified formations (mutated).
+        skeleton_by_key : dict
+            In-memory find-or-create cache for skeleton formations (mutated).
+        created_formation_ids : list[UUID]
+            Accumulator of classified formation ids created in this call (mutated).
+        geotech_layer_by_inv_depth : dict
+            Per-investigation depth→layer-id map (mutated by this method).
+
+        Returns
+        -------
+        int
+            Number of geotech ``LithoLayerOrm`` rows inserted for this borehole.
+        """
+        bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
+
+        # Build the ordered list of split depths clamped to the geo extent.
+        # Each transition surface k is interpolated at the borehole's XY and
+        # converted from elevation to depth.
+        split_depths: list[float] = []
+        for k, ctrl_pts in enumerate(transition_surfaces):
+            if not ctrl_pts:
+                continue
+            cpt_points = [c for c, _ in ctrl_pts]
+            cpt_elevs = [e for _, e in ctrl_pts]
+            elev_at_bh = interpolate_split_elevations(cpt_points, cpt_elevs, [bh_col])
+            split_elev = elev_at_bh[inv_id]
+            split_depth = bh_surface_elev - split_elev
+
+            # Clamp to the geo-bounded extent with a 1 mm guard so the split
+            # doesn't land exactly on a boundary (which would produce a zero-
+            # thickness band at the edge).
+            _CLAMP_GUARD = 0.001
+            split_depth = max(geo_top_m + _CLAMP_GUARD, min(geo_base_m - _CLAMP_GUARD, split_depth))
+            split_depths.append(split_depth)
+
+        # Deduplicate and sort; remove splits that collapse two adjacent bands to
+        # less than _CLAMP_GUARD apart (avoids zero-thickness layers).
+        split_depths = sorted(set(split_depths))
+        filtered: list[float] = []
+        prev = geo_top_m
+        for sd in split_depths:
+            if sd - prev > 0.001 and geo_base_m - sd > 0.001:
+                filtered.append(sd)
+                prev = sd
+        split_depths = filtered
+
+        # Determine per-band NAD class.  The k-th band in the borehole corresponds
+        # to the k-th entry in the CPT column plans.  We derive the class from the
+        # CPT body plan's ``band_classes`` when available; otherwise keep None
+        # (skeleton) — this covers the case where CPTs disagreed (inconsistent body)
+        # or had no usable qc.
+        #
+        # Strategy: find the most-common nad_class among CPT entries in
+        # ``classified_by_key`` for position k.  Since we do not store
+        # band_classes per group here, we derive it from the ``geotech_layer_by_inv_depth``
+        # entries that were just written for CPT members of this group — we look up the
+        # mid-depth of band k on any CPT that was already materialised.
+        # A simpler, correct approach: the CPT column plans already chose a nad_class
+        # per band via the profile.  We stored those in ``geotech_layer_by_inv_depth``.
+        # For band k (interval [band_top, band_base]), find the most-common nad_class
+        # among CPT layers that overlap the corresponding borehole interval's midpoint.
+        #
+        # Build the band intervals from split_depths.
+        band_intervals: list[tuple[float, float]] = []
+        prev_top = geo_top_m
+        for sd in split_depths:
+            band_intervals.append((prev_top, sd))
+            prev_top = sd
+        band_intervals.append((prev_top, geo_base_m))
+
+        # For each band, derive the representative nad_class from the CPT layers
+        # already written in this group (same body, same geo-band).
+        # We use the midpoint of the borehole band to identify which CPT sub-layer
+        # covers that depth.
+        def _modal_nad_class(band_top: float, band_base: float) -> int | None:
+            """Return the most-common CPT nad_class covering the band's midpoint."""
+            mid = (band_top + band_base) / 2.0
+            # Look at CPT entries in geotech_layer_by_inv_depth; those are all
+            # investigations processed so far — filter to CPT members of this group.
+            counts: dict[int, int] = {}
+            for cpt_seg in cpt_segs:
+                for t, b, _lid, _fid, nc in geotech_layer_by_inv_depth.get(
+                    cpt_seg.investigation_id, []
+                ):
+                    if t <= mid <= b and nc is not None:
+                        counts[nc] = counts.get(nc, 0) + 1
+            if not counts:
+                return None
+            return max(counts, key=lambda c: counts[c])
+
+        inserted = 0
+        for band_top, band_base in band_intervals:
+            nad_class = _modal_nad_class(band_top, band_base)
+            formation = await self._find_or_create_formation(
+                project_id=project_id,
+                classified_by_key=classified_by_key,
+                skeleton_by_key=skeleton_by_key,
+                created_formation_ids=created_formation_ids,
+                nad_class=nad_class,
+                source_litho_formation_id=source_litho_formation_id,
+                source_geo_formation_id=source_geo_formation_id,
+            )
+            layer = LithoLayerOrm(
+                id=uuid7(),
+                model_id=geotech_model_id,
+                formation_id=formation.id,
+                depth_top_m=band_top,
+                depth_base_m=band_base,
+                status="accepted",
+                source="segmenter",
+                confidence="medium",
+                borehole_id=inv_uuid,
+            )
+            self._session.add(layer)
+            geotech_layer_by_inv_depth[inv_id].append(
+                (band_top, band_base, layer.id, formation.id, nad_class)
+            )
+            inserted += 1
+
+        if inserted >= 2:
+            self.debug(
+                f"_materialise_borehole_bands: borehole={inv_id} "
+                f"TIN-divided into {inserted} bands "
+                f"(geo=[{geo_top_m:.2f},{geo_base_m:.2f}] "
+                f"splits={[f'{sd:.2f}' for sd in split_depths]})"
+            )
+        else:
+            self.debug(
+                f"_materialise_borehole_bands: borehole={inv_id} "
+                f"single skeleton band [{geo_top_m:.2f},{geo_base_m:.2f}] "
+                f"(no CPT split surfaces or all clamped)"
+            )
+
+        return inserted
+
+    # ------------------------------------------------------------------
+    # Phase 8b — borehole extrapolation (SUPERSEDED by Phase 8c TIN division)
+    # Kept for reference; no longer called from execute().
     # ------------------------------------------------------------------
 
     async def _extrapolate_borehole_sub_bodies(
