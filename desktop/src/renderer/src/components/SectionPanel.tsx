@@ -3179,15 +3179,14 @@ export default function SectionPanel({
                 // on BOTH axes — never the geotech overlay edges (regression guard,
                 // commit 7329738b). partitionEdgeSource makes that explicit.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                // R1 engine carve (computeSectionFill per region) is PAUSED 2026-06-26:
-                // it's gap-free but on real per-CPT-varying packing it fragments into
-                // noisy semi-transparent lens/onlap triangles (dogfeed "blocky polygons
-                // + less-opaque triangles"). Pending an owner decision on the geotech
-                // render model (clean splits vs automatic pinch-outs vs coarser
-                // segmentation), the partition falls back to R0 (clean split where the
-                // packing connects, solid dominant-NAD recolour otherwise — no litter).
-                // The carve code + the borehole pass-through stay in place to re-enable.
-                geotechEdges={undefined}
+                // R1 engine carve (computeSectionFill per region): owner chose Option B
+                // 2026-06-26 — keep the automatic packing pinch-outs/lens-in-lens, but
+                // the lens/onlap pieces render SOLID on the geotech axis (see
+                // PartitionFillOverlay opacity gate) so they read as clean wedges, not
+                // the see-through clutter. Bounded per litho region (the litho frame is
+                // the hard bound — a packing band follows the litho boundary, never
+                // crosses it). SEPARATE from contactEdges (the litho frame) — never mix.
+                geotechEdges={axisMode === 'geotechnical' ? geotechCorrelationEdges : undefined}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
