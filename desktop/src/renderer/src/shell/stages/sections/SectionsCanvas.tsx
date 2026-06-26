@@ -340,6 +340,15 @@ export default function SectionsCanvas(): JSX.Element {
     return m
   }, [isGeotech, geotechLayers, geotechFormations])
 
+  // Which section columns are CPTs (real qc → real packing). Boreholes (not in
+  // this set) carry no measured packing, so a packing band must chain THROUGH them
+  // by adopting the nearest CPT's classes — the user cannot correlate packing to a
+  // borehole (owner directive 2026-06-26). Geotech axis only; undefined elsewhere.
+  const geotechCptInvIds = useMemo<ReadonlySet<string> | undefined>(() => {
+    if (!isGeotech) return undefined
+    return new Set(visibleCpts.map(c => c.id))
+  }, [isGeotech, visibleCpts])
+
   // Geotech axis: the partition regions carry LITHO formation ids (no
   // subdivision), so feed SectionPanel the litho colours + labels to merge into
   // its formation colour/label maps. Without these the geotech axis (whose own
@@ -2578,6 +2587,9 @@ export default function SectionsCanvas(): JSX.Element {
           // geotech sub-layer depths (the fill is the litho shape, recoloured +
           // split inside each body). Undefined on litho / geological → identity.
           geotechSubLayersByInv={geotechSubLayersByInv}
+          // Geotech axis: CPT ids so a packing band chains THROUGH boreholes
+          // (boreholes adopt the nearest CPT's packing — can't be correlated).
+          geotechCptInvIds={geotechCptInvIds}
           // Geotech axis shows the LITHO fill bands (subdivision deferred): feed
           // the litho colours + labels so the litho-keyed regions render in their
           // lithology colour/label instead of the NAD-keyed maps' grey/blank.
