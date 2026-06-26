@@ -95,6 +95,22 @@ This replaces the strict full-sequence rule. It connects a matig band on S6 to t
 matig band on S13 *within the same correlated sand body*, even when the full band
 sequences differ (S6 has an extra silt interbed). Resolver → geotech `body_id`.
 
+**Recurring same-class bands → ONE body (owner decision, 2026-06-26).** When a
+packing class recurs within one correlated litho body (S6 sand =
+*matig → [silt interbed] → matig → dicht*), every matig band ties to the
+neighbour's matig band(s), so the resolver's connected-components unions them into
+a single geotech body — even across the interbed. **This is intended:** it is one
+packing population for analytics; the engineer **splits it manually** if they judge
+the zones distinct (the manual curation in §8). The auto rule therefore deliberately
+emits a same-class edge for *every* overlapping pair (one-to-many is fine — it is
+exactly what produces the single connected body); no closest-midpoint tie-break is
+needed. The architect's "spanning physically distinct bands" concern is resolved by
+this choice: spanning is the desired default, splitting is the manual override.
+
+The same-class filter also automatically satisfies the SAB-7 guard (no cross-class
+edge → loose can never over-merge into dense) — confirmed in agent review. The old
+`aligned_same_sequence_pairs` helper is deleted.
+
 **Manual ties** add packing-specific correlations the auto pass missed — the
 existing "Correlate packing" gesture, pointed at the geotech model.
 
@@ -109,28 +125,61 @@ Boreholes have no qc, so they have no measured packing. The owner's model:
 1. **Pass 1 — form bodies from CPTs only.** Boreholes contribute nothing to body
    formation. (Change from today, where `SubdivideAllBodies` extrapolates a
    nearest-CPT class onto boreholes — that extrapolation is removed.)
-2. **Pass 2 — the bodies divide the boreholes geometrically.** Within each litho
-   unit at a borehole, the connected bodies' surfaces (interpolated between the
-   CPTs that define them) slice the borehole's depth; each slice inherits the
-   dividing body's `body_id` + NAD class, **clipped to the borehole's own litho
-   frame**. In 3D this is automatic — the voxel grid labels the borehole's
-   location by whichever body's voxels occupy it. In 2D the body-partition
-   surfaces interpolate across the borehole column.
+2. **Pass 2 — the bodies divide the boreholes geometrically, at BUILD time
+   (resolved in agent review).** After the CPT bodies + `body_id`s are resolved, a
+   new `SubdivideAllBodies` sub-phase (**"Phase 8c"**) materialises borehole
+   geotech `litho_layer` rows by **TIN-interpolating each body's packing-transition
+   surface** (reuse `domain/services/.../geotech_split_surface.py
+   ::interpolate_split_elevations`, control points = the CPTs' band-base
+   elevations) onto the borehole XY, then slicing the borehole into one band per
+   intersecting body, **clipped to the borehole's own litho frame** (`group_segs`
+   already gives the geo/litho-bounded extent). The band carries the dividing
+   body's `body_id` + NAD class. Build-time materialisation is required because lab
+   containment needs **persisted** geometry to read.
+   - This **replaces** today's nearest-CPT class extrapolation (`SubdivideAllBodies`
+     Phase 8b) — that path is removed.
+   - `interpolate_split_elevations` needs ≥3 non-collinear CPTs for a TIN; it falls
+     back to a flat mean for 2-CPT / collinear groups — still cleaner than today's
+     proportional projection. No new failure mode, no schema change.
+   - The 2D render then "just works": the borehole column carries real geotech
+     layers (with `body_id`), so `computeSectionFill` fills across it like any other
+     column. (This resolves the architect's 2D-circularity concern — boreholes are
+     materialised at build time, not interpolated at render time.)
+   - In 3D the voxel grid labels the borehole's location natively from the same
+     bodies; 2D and 3D agree because both read the same materialised layers.
 
 This is **why lab containment works**: lab samples are taken from boreholes, so a
-borehole *must* carry packing bodies for a lab test to resolve to one. Pass 2 is
-the mechanism. (It also supersedes the 2026-06-26 "borehole adopts nearest-CPT
-class sequence" projection, which created slivers by projecting per-column class
-stacks instead of letting the *bodies'* geometry pass through.)
+borehole *must* carry packing bodies for a lab test to resolve to one. Phase 8c is
+the mechanism. (It supersedes the 2026-06-26 "borehole adopts nearest-CPT class
+sequence" projection, which created slivers by projecting per-column class stacks
+instead of letting the *bodies'* geometry pass through.)
 
 ## 7. Render
 
 - **2D section** = `computeSectionFill(geotechLayers, geotechEdges)` — the
   connected-body partition. Clean *because the bodies connect* (dense edges from
   §5), not because of carve geometry. The litho frame is implicit in the layers'
-  bounds. **`subdivideRegionsByGeotech` is deleted.**
+  bounds (the geotech `litho_layer` rows are already geo/litho-bounded by the
+  build, so a band can't cross a litho boundary — enforced at build time, not
+  render time). **`subdivideRegionsByGeotech` is deleted.**
+  - **Wiring (agent review):** the render swap is an *axis-conditional data
+    source*, not just a deletion. `SectionsCanvas` today hardcodes
+    `activeSectionModelId = lithoModelId` / `sectionLayers = lithoLayers` *even on
+    the geotech axis* precisely to avoid the old singleton problem. On the geotech
+    axis this becomes: `sectionLayers` = geotech layers, `correlationModelId` =
+    geotech model id, `formationColorById/LabelById` = the NAD maps. The overlay's
+    `computeSectionFill` call is unchanged — it renders whatever layers + edges it
+    receives. Remove the `geotechSubLayersByInv` / `geotechCptInvIds` / carve
+    props. The `dominantNad` helper may survive as a no-edge fallback colourer
+    (decide in the plan).
 - **3D** = the litho voxel builder pointed at the geotech model, labelling space by
-  geotech `body_id`. On-demand "Build", same UX as litho.
+  geotech `body_id`. On-demand "Build", same UX as litho. **Wiring (agent review):**
+  needs a geotech-flavoured request-assembly path — `buildVoxelRequest` /
+  `assembleLithoSectionInputs` must produce geotech layers + geotech edges per
+  section (the `PartitionUnit.layerId`s reference geotech `litho_layer.id`s, so the
+  LCS match must use geotech edges). `BuildVoxelLithoModel.execute(model_id, …)`
+  itself takes the geotech `model_id` cleanly; the colour lookup
+  (`sectionFenceData.ts`) must handle NAD formation names.
 - 2D and 3D are **consistent** because both derive from the same geotech layers +
   correlations — exactly the litho 2D/3D relationship.
 
@@ -162,17 +211,32 @@ The 2026-06-26 carve line is **removed**, not extended:
   and the 3D Build at the voxel builder on the geotech model.
 
 Legacy `.strix` bundles still restore (additive — the geotech layers/edges already
-persist; this changes how they're *derived*, not the stored shape — confirm in the
-plan).
+persist; this changes how they're *derived*, not the stored shape; confirmed in
+agent review against `bundle_restore_core.py`). **Stale-state UX note:** a bundle
+saved under the old auto-edge rule carries edges that won't match the new
+connectivity until the user re-runs "Subdivide all bodies" — surface a hint or
+auto-resweep on open (plan decides which). Not a data-corruption risk.
+
+**Critical sequencing (agent review — both reviewers):** the backend edge rule (§5)
++ borehole division (§6) land and are **validated on real data FIRST**; the
+frontend render swap + carve deletion land **only after** connectivity is proven on
+the real section. Shipping the frontend swap on sparse edges would regress straight
+back to the singleton render. See §10.
 
 ## 10. Risks & validation
 
-- **Connectivity density is the make-or-break.** If the inherited litho
-  correlations + same-class rule don't connect enough, we are back to singletons.
-  **Validation gate:** the owner's real `GEO-10/170-S6 → B6 → B4 → GEO-23/125-S13`
-  section must yield a small number of connected bodies and a clean render (no
-  sliver litter) — measured the same way the diagnostic measured the 459/130
-  failure. This is the acceptance test, not a synthetic fixture.
+- **Connectivity density is the make-or-break** (both reviewers: the engine has no
+  "same-body, no edge" fallback — `computeSectionFill` matches purely on edges, so
+  dense §5 edges are the single load-bearing assumption). **Quantitative gate** on
+  the owner's real `GEO-10/170-S6 → B6 → B4 → GEO-23/125-S13` section (the same
+  diagnostic that measured today's 459 regions / 130 slivers):
+  - geotech **connected bodies ≪ today** — target **< 30** for that section (vs the
+    459 fragments), and the model-wide `SubdivideAllBodiesResult.body_count` falls
+    sharply vs the 187-singleton baseline;
+  - rendered partition has **0 sub-resolution slivers** (vs 130 today);
+  - run this **right after the backend edge rule lands, before any frontend work**
+    (a log/diagnostic scan, no UI needed). This is the go/no-go for the frontend
+    swap, not a synthetic fixture.
 - **Borehole division correctness** — lab containment depends on it; validate that
   a known lab-sample depth in a borehole resolves to the geologically correct body.
 - **2D/3D consistency** — the section slice must match the voxel labelling.
@@ -189,12 +253,27 @@ plan).
   cleanup is manual.
 - Cross-litho-body packing connections — packing bodies stay within one litho unit.
 
-## 12. Open questions for the plan
+## 12. Resolved in agent review (2026-06-26)
 
-- Exact reuse boundary of the litho voxel builder for the geotech model (does it
-  parameterise cleanly on `model_id`, or need a thin adapter?).
-- Where pass-2 borehole division runs (build-time materialisation into geotech
-  `litho_layer` rows vs render-time interpolation) — and how lab containment reads
-  it (it needs persisted geometry, so likely build-time).
-- Whether the §5 auto-edge rule lands in `SubdivideAllBodies` or a dedicated
-  `DeriveGeotechConnectivity` use case.
+- **Voxel builder reuse:** `BuildVoxelLithoModel.execute(model_id, …)` parameterises
+  cleanly on the geotech `model_id`; the only new wiring is a geotech-flavoured
+  request-assembly path (geotech layers + geotech edges per section) + NAD colour
+  lookup. (§7.)
+- **Pass-2 borehole division:** build-time materialisation into geotech
+  `litho_layer` rows via `interpolate_split_elevations` (Phase 8c) — lab containment
+  reads persisted geometry. (§6.)
+- **§5 auto-edge rule location:** stays in `SubdivideAllBodies`
+  (`_derive_geotech_edges_from_litho`) — a focused swap of `aligned_same_sequence_pairs`
+  for a same-class depth-overlap loop; no new use case needed.
+- **Recurring same-class → one body**, split manually. (§5.)
+
+## 13. Risks the plan must carry forward (agent review)
+
+- **`SAB-10b` connectivity-ratio test** may need its expected count updated — the
+  new rule emits more edges (possibly >1 geotech edge per litho edge); the `≥0.5`
+  assertion still passes but scan for exact-count asserts.
+- **TDD trigger for §5:** a 2-CPT scene where S6 = `[matig, dicht]` and S13 =
+  `[matig, matig, dicht]` — old rule emits 0 edges, new rule emits the matig + dicht
+  ties. Write that failing test first.
+- **Backend-before-frontend coupling** (§10) is the top sequencing risk — encode it
+  as an explicit gate in the plan.
