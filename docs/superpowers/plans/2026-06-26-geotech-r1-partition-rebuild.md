@@ -1,9 +1,14 @@
 # Geotech R1 — gap-free band/onlap/lens via per-region `computeSectionFill` — Plan
 
 **Date:** 2026-06-26 (overnight prep — awaiting owner approval before implementation)
-**Status:** scoping. Working tree is currently **gap-free on R0** (R1 disabled at
-`SectionPanel.tsx` `geotechEdges={undefined}`, commit on develop). This plan
-rebuilds R1 correctly.
+**Status:** ✅ IMPLEMENTED 2026-06-26 (develop, unpushed — commits 199d1a15 /
+4dd87d2d / 6f9f3790). `carveRegionByGeotech` runs `computeSectionFill` per region;
+GR1-GR5 rebuilt around the no-gap tiling assertion; wiring re-enabled. 15 geotech +
+1975 vitest + tsc + section-geometry-check (exit 0) green. **Owner dogfeed pending.**
+NOTE: the explicit overlapping litho backstop (design step 0) was NOT added — the
+engine's partition property + the R0 fallback already guarantee no gaps, and an
+overlapping backstop would double-label each region. The no-gap guarantee is met by
+construction + the probe + GR2.
 **Supersedes:** the hand-rolled R1 in `geotechSubdivide.ts::subdivideRegionR1`
 (kept dormant; will be replaced).
 
