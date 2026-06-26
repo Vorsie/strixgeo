@@ -526,7 +526,7 @@ async def subdivide_all_bodies(
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
         f"borehole_only={result.borehole_only_count} "
-        f"extrapolated={result.extrapolated_borehole_count} "
+        f"divided_bh={result.divided_borehole_count} "
         f"sections={result.section_count}"
     )
     return SubdivideAllBodiesResponse(
@@ -537,6 +537,6 @@ async def subdivide_all_bodies(
         split_body_count=result.split_body_count,
         one_class_body_count=result.one_class_body_count,
         borehole_only_count=result.borehole_only_count,
-        extrapolated_borehole_count=result.extrapolated_borehole_count,
+        divided_borehole_count=result.divided_borehole_count,
         section_count=result.section_count,
     )
