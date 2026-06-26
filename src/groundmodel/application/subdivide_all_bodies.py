@@ -107,7 +107,6 @@ last-resort) never auto-connect (spec §8).
 
 from __future__ import annotations
 
-import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -250,9 +249,10 @@ class _ColumnPlan:
         The NAD packing class for each sub-interval (parallel to
         ``sub_intervals``). For a CPT this is the CPT's OWN A3 segmentation
         class per band — NOT a body-consensus class — so each test segments by
-        its own qc. ``None`` means "classify later by extrapolation" (boreholes,
-        or a CPT with no usable qc); those are materialised with a skeleton
-        formation and resolved in Phase 8b.
+        its own qc. ``None`` means no packing transition was resolved (a borehole
+        in a CPT-free body, or a CPT with no usable qc); those receive a skeleton
+        formation (``nad_class=None``) — boreholes in a CPT-bearing body are
+        TIN-divided into real classes by Phase 8c instead.
     """
 
     investigation_id: str
@@ -261,44 +261,6 @@ class _ColumnPlan:
     geo_bounded_base_m: float
     sub_intervals: list[tuple[float, float]] = field(default_factory=list)
     nad_classes: list[int | None] = field(default_factory=list)
-
-
-@dataclass
-class _PendingBoreholeSubBody:
-    """One borehole sub-body awaiting nearest-CPT extrapolation.
-
-    Attributes
-    ----------
-    investigation_id : str
-        Borehole id string.
-    x_m : float
-        Borehole world x-coordinate.
-    y_m : float
-        Borehole world y-coordinate.
-    top_m : float
-        Sub-body depth top (m).
-    base_m : float
-        Sub-body depth base (m).
-    litho_soil_code : str | None
-        Lithology soil code from the source litho formation.
-    source_litho_formation_id : UUID
-        Source litho formation id (for formation find-or-create).
-    source_geo_formation_id : UUID | None
-        Source geo-band formation id.
-    layer_id : UUID
-        The ``LithoLayerOrm`` id already inserted (formation_id is a
-        placeholder skeleton; this id is updated after extrapolation).
-    """
-
-    investigation_id: str
-    x_m: float
-    y_m: float
-    top_m: float
-    base_m: float
-    litho_soil_code: str | None
-    source_litho_formation_id: UUID
-    source_geo_formation_id: UUID | None
-    layer_id: UUID
 
 
 class SubdivideAllBodies(GroundModelLogger):
@@ -625,7 +587,6 @@ class SubdivideAllBodies(GroundModelLogger):
                 if geo_base <= geo_top:
                     continue
 
-                layer_count_before = total_layers
                 bh_bands = await self._materialise_borehole_bands(
                     project_id=project_id,
                     geotech_model_id=geotech_model.id,
@@ -970,6 +931,10 @@ class SubdivideAllBodies(GroundModelLogger):
         """
         bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
 
+        # 1 mm guard so a split doesn't land exactly on the geo-bounded boundary
+        # (which would produce a zero-thickness band at the edge).
+        _CLAMP_GUARD = 0.001
+
         # Build the ordered list of split depths clamped to the geo extent.
         # Each transition surface k is interpolated at the borehole's XY and
         # converted from elevation to depth.
@@ -982,11 +947,6 @@ class SubdivideAllBodies(GroundModelLogger):
             elev_at_bh = interpolate_split_elevations(cpt_points, cpt_elevs, [bh_col])
             split_elev = elev_at_bh[inv_id]
             split_depth = bh_surface_elev - split_elev
-
-            # Clamp to the geo-bounded extent with a 1 mm guard so the split
-            # doesn't land exactly on a boundary (which would produce a zero-
-            # thickness band at the edge).
-            _CLAMP_GUARD = 0.001
             split_depth = max(geo_top_m + _CLAMP_GUARD, min(geo_base_m - _CLAMP_GUARD, split_depth))
             split_depths.append(split_depth)
 
@@ -1089,137 +1049,6 @@ class SubdivideAllBodies(GroundModelLogger):
             )
 
         return inserted
-
-    # ------------------------------------------------------------------
-    # Phase 8b — borehole extrapolation (SUPERSEDED by Phase 8c TIN division)
-    # Kept for reference; no longer called from execute().
-    # ------------------------------------------------------------------
-
-    async def _extrapolate_borehole_sub_bodies(
-        self,
-        *,
-        project_id: UUID,
-        pending: list[_PendingBoreholeSubBody],
-        cpt_classified_sub_bodies: list[tuple[str | None, float, float, int, float, float]],
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
-        created_formation_ids: list[UUID],
-        geotech_model_id: UUID,
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
-    ) -> int:
-        """Resolve borehole-only sub-bodies via nearest-CPT extrapolation.
-
-        For each pending borehole sub-body:
-        1. Find same-lithology CPT sub-bodies that overlap the borehole's depth
-           range (``top_a < base_b AND top_b < base_a``).
-        2. Among those, pick the nearest by map-plane xy distance.
-        3. Assign its ``nad_class`` and update the layer's ``formation_id``.
-        4. If no same-lithology candidate: try any-lithology at that depth.
-        5. If no CPT candidates at all: keep the skeleton (nad_class=None).
-
-        Updates the ``LithoLayerOrm`` row's ``formation_id`` in place (an
-        UPDATE via the SQLAlchemy ORM) and updates ``geotech_layer_by_inv_depth``
-        so the post-materialisation edge pass sees the correct formation_id.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Owning project.
-        pending : list[_PendingBoreholeSubBody]
-            Borehole sub-bodies to resolve.
-        cpt_classified_sub_bodies : list
-            ``(soil_code, x_m, y_m, nad_class, top_m, base_m)`` tuples for all
-            classified CPT sub-bodies in the model.
-        classified_by_key : dict
-            In-memory find-or-create cache for classified formations (mutated).
-        created_formation_ids : list[UUID]
-            Accumulator of created formation ids (mutated).
-        geotech_model_id : UUID
-            The geotech model id (for logging only).
-        geotech_layer_by_inv_depth : dict
-            Per-investigation depth→layer-id map (mutated: formation_id and
-            nad_class updated for the extrapolated layer).
-
-        Returns
-        -------
-        int
-            Number of borehole sub-bodies successfully extrapolated (got a
-            real nad_class from a CPT, not the last-resort None).
-        """
-        if not pending:
-            return 0
-
-        extrapolated = 0
-
-        for pb in pending:
-            # Candidates: CPT sub-bodies whose depth range overlaps [top_m, base_m].
-            overlapping = [
-                (sc, x, y, nad, t, b)
-                for (sc, x, y, nad, t, b) in cpt_classified_sub_bodies
-                if t < pb.base_m and b > pb.top_m
-            ]
-
-            # Prefer same-lithology candidates.
-            same_litho = [c for c in overlapping if c[0] == pb.litho_soil_code]
-            candidates = same_litho if same_litho else overlapping
-
-            if candidates:
-                # Nearest by map-plane xy distance.
-                def _dist(c: tuple) -> float:
-                    dx = c[1] - pb.x_m
-                    dy = c[2] - pb.y_m
-                    return math.hypot(dx, dy)
-
-                best = min(candidates, key=_dist)
-                _, best_x, best_y, nad_class, _, _ = best
-                dist_m = _dist(best)
-                matched_litho = best[0]
-
-                formation = await self._find_or_create_classified(
-                    project_id=project_id,
-                    classified_by_key=classified_by_key,
-                    created_formation_ids=created_formation_ids,
-                    nad_class=nad_class,
-                    source_litho_formation_id=pb.source_litho_formation_id,
-                    source_geo_formation_id=pb.source_geo_formation_id,
-                )
-
-                # Update the existing layer row in-place.
-                layer_row = await self._session.get(LithoLayerOrm, pb.layer_id)
-                if layer_row is not None:
-                    layer_row.formation_id = formation.id
-
-                # Update the in-memory depth index so the edge pass sees the
-                # correct formation_id AND the extrapolated nad_class for this layer.
-                inv_entries = geotech_layer_by_inv_depth.get(pb.investigation_id, [])
-                geotech_layer_by_inv_depth[pb.investigation_id] = [
-                    (t, b, lid, formation.id, nad_class)
-                    if lid == pb.layer_id
-                    else (t, b, lid, fid, nad)
-                    for (t, b, lid, fid, nad) in inv_entries
-                ]
-
-                self.debug(
-                    f"_extrapolate_borehole_sub_bodies: borehole={pb.investigation_id} "
-                    f"depth=[{pb.top_m:.2f},{pb.base_m:.2f}] "
-                    f"→ nad_class={nad_class} from nearest CPT "
-                    f"(dist={dist_m:.0f} m, soil={matched_litho!r}, "
-                    f"same_litho={bool(same_litho)})"
-                )
-                extrapolated += 1
-            else:
-                # No CPT candidates anywhere — keep the skeleton (nad_class=None).
-                self.debug(
-                    f"_extrapolate_borehole_sub_bodies: borehole={pb.investigation_id} "
-                    f"depth=[{pb.top_m:.2f},{pb.base_m:.2f}] "
-                    f"→ no CPT candidates, keeping nad_class=None (last resort)"
-                )
-
-        await self._session.flush()
-        self.info(
-            f"_extrapolate_borehole_sub_bodies: {extrapolated}/{len(pending)} "
-            f"borehole sub-bodies extrapolated from nearest CPT"
-        )
-        return extrapolated
 
     # ------------------------------------------------------------------
     # Phase 9 — edge derivation by same-class packing match
@@ -1527,9 +1356,9 @@ class SubdivideAllBodies(GroundModelLogger):
     ) -> GeologicalFormationOrm:
         """Find-or-create a skeleton (``nad_class=None``) formation.
 
-        Used for borehole-only sub-bodies temporarily before Phase 8b
-        extrapolation, and as a last resort when no CPT data exists in the
-        model at all.
+        Used for borehole-only sub-bodies in a CPT-free body (permanent — they
+        cannot be TIN-divided), and as a last resort when no CPT data exists in
+        the model at all.
 
         Parameters
         ----------
