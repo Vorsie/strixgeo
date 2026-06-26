@@ -960,10 +960,10 @@ export interface SubdivideAllBodiesResponse {
   /** Body groups that were borehole-only (no CPT qc data). */
   borehole_only_count: number
   /**
-   * Borehole-only sub-bodies that were successfully extrapolated to a NAD
-   * class from the nearest same-lithology CPT.
+   * Borehole columns TIN-divided into geotech sub-bands by their connected CPT
+   * body's packing-transition surface (Phase 8c).
    */
-  extrapolated_borehole_count: number
+  divided_borehole_count: number
   /** Number of project sections for which geotech edges were derived. */
   section_count: number
 }
