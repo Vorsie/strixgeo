@@ -1974,9 +1974,8 @@ async def test_sab_connectivity_edge_count(
              count only when many litho layers collapse to the same geotech
              sub-layer pair).
     SAB-10c  The SAB-7 over-merge guard still holds: no cross-NAD-class edge was
-             created (the full-sequence derivation connects two stacks only when
-             their NAD-class sequences are identical, so paired sub-layers always
-             share a class).
+             created (the same-class derivation only pairs sub-bands that share
+             a NAD class, so paired sub-layers always share a class).
     """
     project = connectivity_scene["project"]
     litho_model_id = UUID(connectivity_scene["litho_model_id"])
@@ -2004,7 +2003,7 @@ async def test_sab_connectivity_edge_count(
     # SAB-10a: at least one geotech edge was produced.
     assert geotech_edge_count >= 1, (
         f"SAB-10a: 0 geotech edges for a body with {litho_edge_count} litho edge(s) — "
-        f"the full-sequence derivation produced no geotech connectivity; "
+        f"the same-class derivation produced no geotech connectivity; "
         f"a correlated litho body must produce ≥ 1 geotech edge so it bands "
         f"(not lenses) in the geotech section view"
     )
@@ -2014,8 +2013,8 @@ async def test_sab_connectivity_edge_count(
     assert ratio >= 0.5, (
         f"SAB-10b: geotech connectivity ratio too low: "
         f"{geotech_edge_count}/{litho_edge_count} = {ratio:.2f} < 0.5 — "
-        f"the full-sequence derivation is dropping too many litho edges; "
-        f"a 1-edge litho body should produce exactly 1 geotech edge"
+        f"the same-class derivation is dropping too many litho edges; "
+        f"a 1-edge litho body should produce at least 1 geotech edge"
     )
 
     # SAB-10c: SAB-7 over-merge guard — no cross-formation edge.
@@ -2039,9 +2038,9 @@ async def test_sab_connectivity_edge_count(
     ]
     assert len(cross_class_edges) == 0, (
         f"SAB-10c: {len(cross_class_edges)} cross-NAD-class edge(s) found — "
-        f"the full-sequence derivation violated the over-merge guard; the "
-        f"same-class guarantee comes from NAD-class SEQUENCE EQUALITY, so geotech "
-        f"edges must only connect same-formation (same-NAD-class) sub-layers. "
+        f"the same-class derivation violated the over-merge guard; the "
+        f"same-class guarantee comes from the same-NAD-class pairing filter, so "
+        f"geotech edges must only connect same-formation (same-NAD-class) sub-layers. "
         f"Offending: {[str(e.id) for e in cross_class_edges]}"
     )
 
