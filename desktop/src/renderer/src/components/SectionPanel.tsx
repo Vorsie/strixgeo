@@ -733,6 +733,13 @@ interface Props {
    */
   geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
   /**
+   * Geotech axis only — the investigation ids that are CPTs (real packing). A
+   * borehole (not in this set) has no measured packing, so a packing band chains
+   * THROUGH it by adopting the nearest CPT's classes. Forwarded to
+   * ``PartitionFillOverlay`` → ``subdivideRegionsByGeotech``.
+   */
+  geotechCptInvIds?: ReadonlySet<string>
+  /**
    * Geotech axis only — fallback colour per formation id, merged into
    * ``formationColorById`` for ids the NAD colour map doesn't cover. A geotech
    * region the model never classified (deep substrate / no qc) keeps its LITHO
@@ -854,6 +861,7 @@ export default function SectionPanel({
   lenses,
   lithoLayers,
   geotechSubLayersByInv,
+  geotechCptInvIds,
   extraColorById,
   extraLabelById,
   lensBoundaries,
@@ -3166,6 +3174,7 @@ export default function SectionPanel({
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
                 geotechSubLayersByInv={geotechSubLayersByInv}
+                geotechCptInvIds={geotechCptInvIds}
                 // The partition is ALWAYS framed by the litho-framed contactEdges,
                 // on BOTH axes — never the geotech overlay edges (regression guard,
                 // commit 7329738b). partitionEdgeSource makes that explicit.
