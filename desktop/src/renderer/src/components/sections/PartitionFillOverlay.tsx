@@ -1640,7 +1640,14 @@ export default function PartitionFillOverlay({
             data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
             d={d}
             fill={color}
-            fillOpacity={sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY}
+            // Geotech axis (Option B, owner 2026-06-26): render lens/onlap pinch-outs
+            // SOLID, not the litho see-through convention — the carve's packing wedges
+            // should read as clean opaque bands, not the "less-opaque triangle" clutter.
+            fillOpacity={
+              sr.region.kind === 'lens' && geotechSubLayersByInv === undefined
+                ? LENS_OPACITY
+                : FILL_OPACITY
+            }
             stroke={color}
             strokeOpacity={STROKE_OPACITY}
             strokeWidth={0.75}
