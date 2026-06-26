@@ -169,6 +169,14 @@ export interface Props {
    * guard (commit 7329738b).
    */
   geotechEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * Geotech axis only — the investigation ids that are CPTs (real qc-derived
+   * packing). Columns NOT in this set are boreholes; they carry no measured
+   * packing, so a packing band chains THROUGH them by adopting the nearest CPT's
+   * class sequence (the user cannot correlate packing to a borehole). Passed
+   * straight to ``subdivideRegionsByGeotech``. Absent on litho / geological axes.
+   */
+  geotechCptInvIds?: ReadonlySet<string>
 }
 
 const FILL_OPACITY = 0.62
@@ -555,6 +563,7 @@ export default function PartitionFillOverlay({
   correlateMode = false,
   geotechSubLayersByInv,
   geotechEdges,
+  geotechCptInvIds,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -929,6 +938,7 @@ export default function PartitionFillOverlay({
           orderedColumns,
           geotechSubLayersByInv,
           geotechEdgeList,
+          geotechCptInvIds,
         )
       : lithoRegions
 
@@ -945,6 +955,7 @@ export default function PartitionFillOverlay({
     lensDrag,
     geotechSubLayersByInv,
     geotechEdges,
+    geotechCptInvIds,
   ])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
