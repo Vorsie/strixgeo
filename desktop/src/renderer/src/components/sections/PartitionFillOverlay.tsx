@@ -63,7 +63,6 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
-import { subdivideRegionsByGeotech, type GeotechSubLayer } from '../../utils/geotechSubdivide'
 import type { PlacedColumn } from './utils'
 
 /**
@@ -143,40 +142,6 @@ export interface Props {
    * is always display-only (root is ``pointer-events: none``).
    */
   correlateMode?: boolean
-  /**
-   * Geotech axis only (owner directive 2026-06-24: "keep the litho structure,
-   * only subdivide inside a body"). When present, the partition is built from
-   * the LITHO layers + LITHO edges (so the geotech fill is the litho fill,
-   * exactly) and EACH region is then subdivided into NAD packing sub-bands by
-   * the geotech sub-layer depths on its two bounding columns
-   * (``subdivideRegionsByGeotech``). The resulting region ``formationId`` is the
-   * NAD-class formation id, so ``formationColorById`` / ``formationLabelById``
-   * (the NAD maps) colour + label each sub-band. Absent on the litho /
-   * geological axes — zero behaviour change there.
-   *
-   * Keyed by ``investigationId`` (CPT id or borehole id).
-   */
-  geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
-  /**
-   * Geotech axis only — approved geotech packing correlation edges (R1 mode,
-   * owner directive 2026-06-25). When present, ``subdivideRegionsByGeotech``
-   * switches from all-or-nothing body_id connection (R0) to per-sub-band
-   * band / onlap / lens based on how many of each sub-band's two bounding
-   * contacts are tied by an approved geotech packing edge. Must be the GEOTECH
-   * model's edges (``geotechPackingEdges``), NEVER the litho partition edges —
-   * the litho edges frame the partition and are already consumed by
-   * ``contactEdges``; mixing them here would break the partition regression
-   * guard (commit 7329738b).
-   */
-  geotechEdges?: readonly LithoContactCorrelationEdge[]
-  /**
-   * Geotech axis only — the investigation ids that are CPTs (real qc-derived
-   * packing). Columns NOT in this set are boreholes; they carry no measured
-   * packing, so a packing band chains THROUGH them by adopting the nearest CPT's
-   * class sequence (the user cannot correlate packing to a borehole). Passed
-   * straight to ``subdivideRegionsByGeotech``. Absent on litho / geological axes.
-   */
-  geotechCptInvIds?: ReadonlySet<string>
 }
 
 const FILL_OPACITY = 0.62
@@ -561,9 +526,6 @@ export default function PartitionFillOverlay({
   bodies,
   onBodyContextMenu,
   correlateMode = false,
-  geotechSubLayersByInv,
-  geotechEdges,
-  geotechCptInvIds,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -913,34 +875,13 @@ export default function PartitionFillOverlay({
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    const lithoRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
-
-    // Geotech axis: the partition above was built from the LITHO layers + edges
-    // (so the fill is the litho fill, exactly); now subdivide each region into
-    // NAD packing sub-bands by the geotech sub-layer depths. Litho / geological
-    // axes pass no sub-layers, so this is identity there.
-    // When ``geotechEdges`` are present (R1 mode, owner directive 2026-06-25):
-    // each sub-band is shaped band/onlap/lens by its geotech packing correlations
-    // rather than the all-or-nothing body_id rule (R0).
-    const geotechEdgeList: CorrelationEdge[] | undefined = geotechEdges
-      ? geotechEdges
-          .filter((e) => e.user_approved)
-          .map((e) => ({
-            a: e.contact_a_id,
-            b: e.contact_b_id,
-            aSide: e.contact_a_side,
-            bSide: e.contact_b_side,
-          }))
-      : undefined
-    const sectionRegions = geotechSubLayersByInv
-      ? subdivideRegionsByGeotech(
-          lithoRegions,
-          orderedColumns,
-          geotechSubLayersByInv,
-          geotechEdgeList,
-          geotechCptInvIds,
-        )
-      : lithoRegions
+    // The partition itself. On the litho axis the columns + edges are the litho
+    // model's; on the geotech axis they are the GEOTECH model's connected bodies
+    // (Task 3 render swap, 2026-06-26) — the same engine renders both. The old
+    // per-CPT NAD carve (``subdivideRegionsByGeotech``) is retired now that the
+    // geotech bodies connect (backend Tasks 1+2), so this is the geotech fill
+    // directly, with NAD-class colours/labels resolved by the parent maps.
+    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
 
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
   }, [
@@ -953,9 +894,6 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     screenToLevel,
     lensDrag,
-    geotechSubLayersByInv,
-    geotechEdges,
-    geotechCptInvIds,
   ])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
@@ -1640,14 +1578,11 @@ export default function PartitionFillOverlay({
             data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
             d={d}
             fill={color}
-            // Geotech axis (Option B, owner 2026-06-26): render lens/onlap pinch-outs
-            // SOLID, not the litho see-through convention — the carve's packing wedges
-            // should read as clean opaque bands, not the "less-opaque triangle" clutter.
-            fillOpacity={
-              sr.region.kind === 'lens' && geotechSubLayersByInv === undefined
-                ? LENS_OPACITY
-                : FILL_OPACITY
-            }
+            // A lens (one-test body enclosed in a matrix) renders a touch more
+            // solid so it reads as a unit cut out of the continuous matrix. Same
+            // convention on both axes — the geotech bodies connect now (backend
+            // Tasks 1+2), so no axis-specific opacity override is needed.
+            fillOpacity={sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY}
             stroke={color}
             strokeOpacity={STROKE_OPACITY}
             strokeWidth={0.75}
