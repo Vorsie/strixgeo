@@ -16,6 +16,32 @@ carved out of a **matrix band that still fills** underneath — the geotech
 hand-roll had no matrix. Result: every onlap/lens punched a hole → the
 gaps the owner saw (dogfeed 2026-06-25). **R1-as-built is not a partition.**
 
+> **Owner Q (2026-06-26):** why don't we just see the approved litho body as the
+> matrix and carve out the packing densities? Normally the whole litho should be
+> carved out as every soil type has a packing?
+
+**ANSWER — yes, that IS the design; it converges with per-region
+`computeSectionFill` and adds a robustness guarantee.** The litho region is
+already a guaranteed-full partition (the litho stage produced it with no gaps).
+Two consequences:
+
+1. **Litho-body-as-matrix backstop.** Render each litho region's polygon FULLY
+   underneath the packing carve (a base fill behind the band/onlap/lens overlays).
+   Then a gap is structurally impossible — there is always fill beneath. This is
+   the exact thing the hand-rolled R1 lacked (it drew pinching packing shapes with
+   nothing behind them). ADD this as a hard guarantee.
+2. **"Every soil type has a packing" → carve the WHOLE region, no bare matrix.**
+   Within one litho band the packing classes recur (dense above AND below a loose
+   lens), so the class that fills where a lens pinches is the SURROUNDING packing
+   class (dense fills where loose pinches) — which is precisely what
+   `computeSectionFill`'s matrix-merge does. The bare litho colour only ever shows
+   for a column with no packing data at all (a no-qc borehole), and that case is
+   already handled by the nearest-CPT extrapolation, so every column has a packing.
+
+So the two framings are one: **the litho region is the bounded matrix;
+`computeSectionFill` carves the packing densities into it; the region is also
+rendered as a base backstop so the geotech axis can never show a gap.**
+
 The three dogfeed symptoms were all the same root cause (R1 then disabled):
 1. lenses/onlaps don't recompute on each correlation,
 2. the extrapolate-left / pinch-right **lens-in-lens** doesn't form,
@@ -46,6 +72,15 @@ the region's coordinate space. No hand-rolled geometry, no holes.
 ## Design
 
 Rewrite `subdivideRegionsByGeotech`'s R1 branch (the `r1Active && isQuad` path) to:
+
+0. **Emit the parent litho region as a base backstop FIRST** (the owner's
+   litho-as-matrix guarantee). Push the unmodified `region` polygon as the first
+   output entry, coloured by the **dominant NAD** of the region (`dominantNad`,
+   already in the file) — or the litho colour as a last resort when no NAD data
+   covers it. Every carved sub-band below is layered ON TOP of this, so any
+   sliver the carve doesn't cover shows the surrounding packing, never a hole.
+   (Cheap insurance: when the carve is a clean partition this backstop is fully
+   covered and invisible; when anything ever slips, it's a colour, not a gap.)
 
 1. **Build two `PartitionColumn`s from the region's clamped sub-band stacks.**
    `columnSubBands` already clamps + snaps the geotech NAD sub-layers to tile the
@@ -97,10 +132,12 @@ Rewrite `subdivideRegionsByGeotech`'s R1 branch (the `r1Active && isQuad` path) 
 
 ## TDD + verification (mandatory — this is the second attempt)
 
-1. **Unit (red first):** new `geotechSubdivide.test.ts` cases that assert the
-   output is a **partition** of each region — the sub-regions' main (`kind:'quad'`,
-   non-overlay) polygons must cover the parent region's area with **no gap and no
-   overlap**. Encode the owner's case in the rule's words:
+1. **Unit (red first):** new `geotechSubdivide.test.ts` cases. Two layers of
+   assertion: (a) the **backstop** — the first emitted region covers the parent
+   polygon's full area (no-gap guarantee, independent of the carve); (b) the
+   **carve is itself a partition** — the carved main (`kind:'quad'`) bands tile
+   the parent with no gap and no overlap, so the backstop is fully covered on the
+   happy path. Encode the owner's case in the rule's words:
    - dense/loose/dense on the left, dense-only on the right, loose pinched →
      loose is an enclosed lens, dense fills the pinch, **area fully covered**.
    - a fully-tied 2-class stack → two clean bands, area covered.
