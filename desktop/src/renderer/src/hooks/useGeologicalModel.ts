@@ -2200,7 +2200,7 @@ export function useGeologicalModel({
           ` split=${result.split_body_count}` +
           ` one_class=${result.one_class_body_count}` +
           ` borehole_only=${result.borehole_only_count}` +
-          ` extrapolated=${result.extrapolated_borehole_count ?? 0}` +
+          ` divided_bh=${result.divided_borehole_count ?? 0}` +
           ` sections=${result.section_count ?? 0}`,
       )
       // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
@@ -2231,11 +2231,11 @@ export function useGeologicalModel({
       }
       markMutated()
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
-      const extrapolated = result.extrapolated_borehole_count ?? 0
+      const dividedBh = result.divided_borehole_count ?? 0
       const boreholeOnly = result.borehole_only_count ?? 0
       const boreholeNote =
-        boreholeOnly > 0
-          ? `, ${boreholeOnly} borehole-only (${extrapolated} extrapolated from CPT)`
+        dividedBh > 0 || boreholeOnly > 0
+          ? `, ${dividedBh} borehole(s) divided${boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''}`
           : ''
       toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}.`)
     },
