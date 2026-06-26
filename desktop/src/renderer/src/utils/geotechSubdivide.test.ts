@@ -33,6 +33,8 @@
 //   GR4  a one-column-only NAD stack can't form a 2-col partition → R0 recolour
 //        fallback (whole region kept, no gap).
 //   GR5  litho-region framing (gapIndex, bodyId) is preserved on every output.
+//   GR6  a packing band chains THROUGH a borehole — boreholes (no qc) adopt the
+//        nearest CPT's class sequence; you can't correlate packing to a borehole.
 
 import { describe, expect, it } from 'vitest'
 
@@ -458,5 +460,48 @@ describe('subdivideRegionsByGeotech', () => {
       expect(r.bodyId).toBe('b1') // inherited from parent
     }
     expect(out.some((r) => r.kind === 'quad')).toBe(true)
+  })
+
+  it('GR6 — a packing band chains THROUGH a borehole (boreholes adopt nearest-CPT packing)', () => {
+    // S6 (CPT) — B (borehole) — S13 (CPT). Both CPTs split the clay light/dark; the
+    // borehole carries only a single extrapolated clay class. Boreholes have no qc,
+    // so they CANNOT be correlated — the band must chain through them automatically:
+    // the borehole adopts the nearest CPT's class sequence (projected onto its own
+    // band depth), so both gaps band light + dark by geometry (owner 2026-06-26).
+    const cols: PartitionColumn[] = [
+      { investigationId: 'S6', surfaceElevM: 10, units: [] },
+      { investigationId: 'B', surfaceElevM: 10, units: [] },
+      { investigationId: 'S13', surfaceElevM: 10, units: [] },
+    ]
+    // Two clay quad regions: gap 0 (S6↔B) and gap 1 (B↔S13).
+    const region0: SectionRegion = { ...quadBand('clay', 'b1', 10, 4), gapIndex: 0 }
+    const region1: SectionRegion = { ...quadBand('clay', 'b1', 10, 4), gapIndex: 1 }
+    const subs = new Map<string, GeotechSubLayer[]>([
+      ['S6', [subR1(0, 3, 'light', 's6t', 'clay'), subR1(3, 6, 'dark', 's6b', 'clay')]],
+      ['B', [subR1(0, 6, 'clay-single', 'bx', 'clay')]], // single extrapolated class
+      ['S13', [subR1(0, 3, 'light', 's13t', 'clay'), subR1(3, 6, 'dark', 's13b', 'clay')]],
+    ])
+    const cptIds = new Set(['S6', 'S13'])
+
+    const out = subdivideRegionsByGeotech([region0, region1], cols, subs, [], cptIds)
+
+    // Both light and dark classes appear (the band chained through the borehole),
+    // and the borehole's lone extrapolated 'clay-single' class is NOT used.
+    expect(out.some((r) => r.formationId === 'light')).toBe(true)
+    expect(out.some((r) => r.formationId === 'dark')).toBe(true)
+    expect(out.some((r) => r.formationId === 'clay-single')).toBe(false)
+    // Each gap still tiles its region (no gap introduced by the projection).
+    expectColumnTiled(
+      out.filter((r) => r.gapIndex === 0),
+      0,
+      10,
+      4,
+    )
+    expectColumnTiled(
+      out.filter((r) => r.gapIndex === 1),
+      1,
+      10,
+      4,
+    )
   })
 })
