@@ -586,5 +586,37 @@ export function subdivideRegionsByGeotech(
     out.push(dom === null ? region : { ...region, formationId: dom })
   }
 
-  return out
+  if (!r1Active) return out
+
+  // SLIVER CULL (Option B, 2026-06-26) — real-data diagnostic: the carve fragments
+  // noisy per-CPT packing into ~130/459 sub-resolution slivers (degenerate
+  // zero-height regions, tiny enclosed-lens overlays, thin-vertical spikes). Drop
+  // the SAFE ones:
+  //   (a) any region below ~1px height (el < 0.1 m) — degenerate / sub-pixel; the
+  //       resulting gap is below render resolution and covered by neighbour strokes.
+  //   (b) a tiny/thin LENS overlay (el < 0.5 m OR fr < 0.15) — a lens deliberately
+  //       overlaps its matrix MAIN, so dropping it leaves NO hole (the matrix shows
+  //       through). This removes the bulk of the litter (the lens/lens overlays).
+  // The substantial clean bands (quad) and real one-sided pinch-outs (pinch) stay.
+  // The deeper lever for "still too busy" is coarsening the packing segmentation
+  // (raise the geotech min-thickness) so fewer thin bands exist to fragment.
+  const spanOf = (region: SectionRegion, sel: (p: PartitionPoint) => number): number => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const p of region.polygon) {
+      const v = sel(p)
+      if (v < lo) lo = v
+      if (v > hi) hi = v
+    }
+    return hi - lo
+  }
+  return out.filter((region) => {
+    const el = spanOf(region, (p) => p.elevation)
+    if (el < 0.1) return false
+    if (region.kind === 'lens') {
+      const fr = spanOf(region, (p) => p.fraction)
+      if (el < 0.5 || fr < 0.15) return false
+    }
+    return true
+  })
 }
