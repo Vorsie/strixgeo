@@ -3179,14 +3179,15 @@ export default function SectionPanel({
                 // on BOTH axes — never the geotech overlay edges (regression guard,
                 // commit 7329738b). partitionEdgeSource makes that explicit.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                // R1 mode (rebuilt gap-free 2026-06-26): each quad litho region is
-                // CARVED into its NAD packing bands/onlaps/lenses by running the litho
-                // partition engine (computeSectionFill) on the region's two sub-band
-                // stacks, bounded per region — a true partition, no holes (the earlier
-                // hand-rolled triangles left gaps). Only on the geotech axis; the
-                // partition FRAMING stays litho-only. SEPARATE from contactEdges (the
-                // litho frame) — never mix (regression guard, commit 7329738b).
-                geotechEdges={axisMode === 'geotechnical' ? geotechCorrelationEdges : undefined}
+                // R1 engine carve (computeSectionFill per region) is PAUSED 2026-06-26:
+                // it's gap-free but on real per-CPT-varying packing it fragments into
+                // noisy semi-transparent lens/onlap triangles (dogfeed "blocky polygons
+                // + less-opaque triangles"). Pending an owner decision on the geotech
+                // render model (clean splits vs automatic pinch-outs vs coarser
+                // segmentation), the partition falls back to R0 (clean split where the
+                // packing connects, solid dominant-NAD recolour otherwise — no litter).
+                // The carve code + the borehole pass-through stay in place to re-enable.
+                geotechEdges={undefined}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
