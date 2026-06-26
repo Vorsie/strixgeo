@@ -146,6 +146,55 @@ function columnSubBands(
 }
 
 /**
+ * Project a CPT's NAD class SEQUENCE onto a borehole's litho-band depth.
+ *
+ * A borehole has no qc, so it carries no real packing measurement — a packing
+ * band must pass THROUGH it (the user cannot correlate packing to a borehole,
+ * owner directive 2026-06-26). This maps the nearest CPT's same-soil sub-band
+ * sequence proportionally onto the borehole's own band depth, so the borehole's
+ * packing matches the CPT's classes and the carve bands straight across by
+ * geometry. Synthetic ``geo-proj`` layer ids ensure no correlation edge spuriously
+ * matches the projection.
+ *
+ * Parameters
+ * ----------
+ * cptSubs : readonly GeotechSubLayer[]
+ *     The nearest CPT's sub-bands, ALREADY filtered to the region's soil.
+ * bandTopDepthM, bandBaseDepthM : number
+ *     The borehole's litho-band depth span (top shallower than base).
+ * invId : string
+ *     The borehole investigation id (for the synthetic layer-id namespace).
+ *
+ * Returns
+ * -------
+ * GeotechSubLayer[]
+ *     Sub-bands tiling [bandTopDepthM, bandBaseDepthM] with the CPT's class
+ *     sequence, or `[]` when the CPT span or the band span is degenerate.
+ */
+function projectSubsOntoBand(
+  cptSubs: readonly GeotechSubLayer[],
+  bandTopDepthM: number,
+  bandBaseDepthM: number,
+  invId: string,
+): GeotechSubLayer[] {
+  const sorted = [...cptSubs].sort((a, b) => a.topDepthM - b.topDepthM)
+  if (sorted.length === 0) return []
+  const cptTop = sorted[0].topDepthM
+  const cptBase = sorted[sorted.length - 1].baseDepthM
+  const cptSpan = cptBase - cptTop
+  const bandSpan = bandBaseDepthM - bandTopDepthM
+  if (cptSpan <= EPS || bandSpan <= EPS) return []
+  return sorted.map((s, i) => ({
+    topDepthM: bandTopDepthM + ((s.topDepthM - cptTop) / cptSpan) * bandSpan,
+    baseDepthM: bandTopDepthM + ((s.baseDepthM - cptTop) / cptSpan) * bandSpan,
+    formationId: s.formationId,
+    sourceLithoFormationId: s.sourceLithoFormationId,
+    bodyId: null,
+    layerId: `geo-proj:${invId}:${i}`,
+  }))
+}
+
+/**
  * The NAD formation covering the largest total elevation-overlap of a band
  * across BOTH bounding columns — the fallback colour when the columns disagree
  * (so the whole band is recoloured without inventing a wedge). Ties resolve to
@@ -352,6 +401,13 @@ function carveRegionByGeotech(
  *     region. When absent, the function uses R0 (all-or-nothing body_id
  *     connection). An empty array still enables R1 (the carve then bands by
  *     geometry where stacks match, pinches where they differ).
+ * cptInvIds : ReadonlySet<string>, optional
+ *     The investigation ids that are CPTs (have real qc-derived packing). A
+ *     column NOT in this set is a borehole; it has no measured packing, so it
+ *     adopts the nearest CPT's class sequence (projected onto its own band depth)
+ *     and a packing band chains THROUGH it by geometry. The user cannot correlate
+ *     packing to a borehole, so this is the only way a band crosses one. When
+ *     omitted, every column is treated as a CPT (legacy — no pass-through).
  *
  * Returns
  * -------
@@ -365,11 +421,33 @@ export function subdivideRegionsByGeotech(
   orderedColumns: readonly PartitionColumn[],
   subLayersByInv: ReadonlyMap<string, readonly GeotechSubLayer[]>,
   geotechEdges?: readonly CorrelationEdge[],
+  cptInvIds?: ReadonlySet<string>,
 ): SectionRegion[] {
   // R1 activates whenever ``geotechEdges`` is provided (even empty — empty means
   // everything is 0-correlated, which produces lens overlays). R0 activates only
   // when ``geotechEdges`` is undefined (the caller did not supply an edge list).
   const r1Active = geotechEdges !== undefined
+
+  // A column is a CPT (real packing) iff it's in ``cptInvIds``. When the caller
+  // omits the set, every column is treated as a CPT (no borehole pass-through —
+  // the legacy behaviour). Boreholes have no qc, so a packing band must chain
+  // THROUGH them: a borehole column adopts the nearest CPT's class sequence.
+  const isCpt = (invId: string): boolean => cptInvIds === undefined || cptInvIds.has(invId)
+
+  // The nearest CPT column's sub-bands for a non-CPT column index — searched
+  // outward (left first on a tie). Returns null when no CPT column has sub-bands.
+  const nearestCptSubs = (colIndex: number): readonly GeotechSubLayer[] | null => {
+    for (let d = 1; d < orderedColumns.length; d += 1) {
+      for (const idx of [colIndex - d, colIndex + d]) {
+        if (idx < 0 || idx >= orderedColumns.length) continue
+        const col = orderedColumns[idx]
+        if (!isCpt(col.investigationId)) continue
+        const subs = subLayersByInv.get(col.investigationId)
+        if (subs && subs.length > 0) return subs
+      }
+    }
+    return null
+  }
 
   const out: SectionRegion[] = []
 
@@ -388,8 +466,6 @@ export function subdivideRegionsByGeotech(
     // partition is built from litho layers); subdivision replaces it with the NAD id.
     const matchesSoil = (sl: GeotechSubLayer): boolean =>
       sl.sourceLithoFormationId === region.formationId
-    const leftSubs = (subLayersByInv.get(left.investigationId) ?? []).filter(matchesSoil)
-    const rightSubs = (subLayersByInv.get(right.investigationId) ?? []).filter(matchesSoil)
 
     const { leftFrac, rightFrac, topElevL, baseElevL, topElevR, baseElevR } = bandEdges(
       region.polygon,
@@ -404,6 +480,28 @@ export function subdivideRegionsByGeotech(
       topDepthM: right.surfaceElevM - topElevR,
       baseDepthM: right.surfaceElevM - baseElevR,
     }
+
+    // Each column's same-soil packing sub-bands. A CPT uses its OWN sub-bands; a
+    // borehole (no qc, can't be correlated) adopts the nearest CPT's class
+    // sequence projected onto its own band depth, so a packing band chains THROUGH
+    // it by geometry (owner directive 2026-06-26). Falls back to the borehole's own
+    // sub-bands when no CPT carries this soil's classes.
+    const subsForColumn = (
+      col: PartitionColumn,
+      colIndex: number,
+      band: { topDepthM: number; baseDepthM: number },
+    ): GeotechSubLayer[] => {
+      if (isCpt(col.investigationId)) {
+        return (subLayersByInv.get(col.investigationId) ?? []).filter(matchesSoil)
+      }
+      const cptSubs = (nearestCptSubs(colIndex) ?? []).filter(matchesSoil)
+      if (cptSubs.length === 0) {
+        return (subLayersByInv.get(col.investigationId) ?? []).filter(matchesSoil)
+      }
+      return projectSubsOntoBand(cptSubs, band.topDepthM, band.baseDepthM, col.investigationId)
+    }
+    const leftSubs = subsForColumn(left, region.gapIndex, leftBand)
+    const rightSubs = subsForColumn(right, region.gapIndex + 1, rightBand)
 
     // Only a SIMPLE 4-vertex quad ([topL, topR, baseR, baseL]) with a real
     // two-column extent can be cleanly subdivided into stacked sub-quads. A quad
