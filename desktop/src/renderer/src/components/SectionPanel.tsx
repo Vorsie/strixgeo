@@ -3170,17 +3170,14 @@ export default function SectionPanel({
                 // on BOTH axes — never the geotech overlay edges (regression guard,
                 // commit 7329738b). partitionEdgeSource makes that explicit.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                // R1 mode (per-sub-band band/onlap/lens from geotech packing edges)
-                // is DISABLED pending a partition-preserving rebuild: the hand-rolled
-                // onlap/lens emission left holes (a pinching sub-band drew only a
-                // triangle, with no matrix band filling the rest of its depth slice —
-                // dogfeed 2026-06-25 "gaps appeared"). The correct R1 delegates to
-                // computePartitionFill PER litho region (matrix + carved lens, no
-                // gaps), to be rebuilt with TDD + the geometry-check. Until then the
-                // partition falls back to R0 (gap-free clean-split / dominant-NAD
-                // recolour). The "Correlate packing" gesture + ribbons (line ~3148)
-                // are unaffected. SEPARATE from contactEdges — never mix.
-                geotechEdges={undefined}
+                // R1 mode (rebuilt gap-free 2026-06-26): each quad litho region is
+                // CARVED into its NAD packing bands/onlaps/lenses by running the litho
+                // partition engine (computeSectionFill) on the region's two sub-band
+                // stacks, bounded per region — a true partition, no holes (the earlier
+                // hand-rolled triangles left gaps). Only on the geotech axis; the
+                // partition FRAMING stays litho-only. SEPARATE from contactEdges (the
+                // litho frame) — never mix (regression guard, commit 7329738b).
+                geotechEdges={axisMode === 'geotechnical' ? geotechCorrelationEdges : undefined}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
