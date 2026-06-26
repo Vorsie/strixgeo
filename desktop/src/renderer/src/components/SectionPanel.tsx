@@ -145,7 +145,6 @@ import {
 } from '../utils/columnLabelLod'
 import { LITHO_SEGMENTER_DEFAULTS } from '../utils/lithoSegmenterPrefs'
 import { nadClassColor, nadClassName } from '../utils/nadClasses'
-import type { GeotechSubLayer } from '../utils/geotechSubdivide'
 
 interface Props {
   section: CrossSectionResponse
@@ -724,36 +723,6 @@ interface Props {
    * correlation-graph derivation.
    */
   lithoLayers?: readonly LithoLayerResponse[]
-  /**
-   * Geotech axis only — each investigation's accepted geotech (NAD-class)
-   * sub-layers, keyed by investigation id. When present, ``PartitionFillOverlay``
-   * subdivides each LITHO region into NAD sub-bands (the geotech fill is the
-   * litho fill, recoloured + split inside each body). Undefined on the litho /
-   * geological axes → no subdivision.
-   */
-  geotechSubLayersByInv?: ReadonlyMap<string, readonly GeotechSubLayer[]>
-  /**
-   * Geotech axis only — the investigation ids that are CPTs (real packing). A
-   * borehole (not in this set) has no measured packing, so a packing band chains
-   * THROUGH it by adopting the nearest CPT's classes. Forwarded to
-   * ``PartitionFillOverlay`` → ``subdivideRegionsByGeotech``.
-   */
-  geotechCptInvIds?: ReadonlySet<string>
-  /**
-   * Geotech axis only — fallback colour per formation id, merged into
-   * ``formationColorById`` for ids the NAD colour map doesn't cover. A geotech
-   * region the model never classified (deep substrate / no qc) keeps its LITHO
-   * formation id, which isn't an NAD formation, so without this it renders
-   * fallback grey. Passing the litho colours here makes those regions show their
-   * lithology colour instead (an unclassified area reads as its soil type).
-   */
-  extraColorById?: ReadonlyMap<string, string>
-  /**
-   * Geotech axis only — fallback label per formation id, merged into
-   * ``formationLabelById`` (companion to ``extraColorById``). Lets litho-keyed
-   * regions on the geotech axis show their lithology label instead of blank.
-   */
-  extraLabelById?: ReadonlyMap<string, string>
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -860,10 +829,6 @@ export default function SectionPanel({
   onRequestAcceptEdge,
   lenses,
   lithoLayers,
-  geotechSubLayersByInv,
-  geotechCptInvIds,
-  extraColorById,
-  extraLabelById,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -904,13 +869,11 @@ export default function SectionPanel({
   // the stored lithology colour.
   const formationLabelById = useMemo(() => {
     const m = new Map<string, string>()
-    // Litho-label fallback FIRST (geotech axis) so any geotech formation below
-    // overwrites it; litho-keyed regions (subdivision deferred) keep the litho
-    // label instead of rendering blank.
-    if (extraLabelById) for (const [id, lab] of extraLabelById) m.set(id, lab)
     for (const f of formations) {
       if (axisMode === 'geotechnical') {
-        // Geotech axis: label is the NAD class name.
+        // Geotech axis: label is the NAD class name. ``formations`` here is the
+        // geotech (NAD-stamped) formation set, so every partition region's
+        // formationId resolves to its NAD label.
         m.set(f.id, nadClassName(f.nad_class ?? null))
       } else {
         // Litho units carry the soil in ``litho_main_soil_code`` (e.g. ZAND);
@@ -920,7 +883,7 @@ export default function SectionPanel({
       }
     }
     return m
-  }, [formations, axisMode, extraLabelById])
+  }, [formations, axisMode])
 
   // formation_id → band fill colour.
   // Litho units: stored lithology colour (stamped at create + backfilled, #145).
@@ -928,10 +891,6 @@ export default function SectionPanel({
   // Geotech formations: NAD class colour (nadClassColor); null → neutral grey.
   const formationColorById = useMemo(() => {
     const m = new Map<string, string>()
-    // Litho-colour fallback FIRST (geotech axis) so any NAD formation below
-    // overwrites it; ids the NAD map omits (unclassified litho regions) keep the
-    // litho colour instead of falling back to grey.
-    if (extraColorById) for (const [id, col] of extraColorById) m.set(id, col)
     for (const f of formations) {
       m.set(
         f.id,
@@ -939,7 +898,7 @@ export default function SectionPanel({
       )
     }
     return m
-  }, [formations, axisMode, extraColorById])
+  }, [formations, axisMode])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -1525,13 +1484,15 @@ export default function SectionPanel({
       if (inv) investigationByContactId.set(c.id, inv)
     }
     // The correlation edges reference ``litho_layer`` ids (a layer's id keys its
-    // top contact), so also map every litho layer id → its investigation. On the
-    // GEOTECH axis ``contacts`` is the geotech contact set whose ids do NOT match
-    // the (litho) ``contactEdges`` — without this the edge→investigation lookup
-    // below finds nothing, no correlated pairs are detected, and the columns pack
-    // to the 4 px floor instead of getting the widened correlated-pair gap. That
-    // was the geotech "vertical sliver" bug (2026-06-24): identical partition, but
-    // the columns crammed together so every gap fill rendered as a thin strip.
+    // top contact), so also map every layer id → its investigation. ``contacts``
+    // (above) is the axis CONTACT set, whose ids do NOT match the edge endpoints
+    // (which are layer ids) — without this layer-id mapping the edge→investigation
+    // lookup below finds nothing, no correlated pairs are detected, and the columns
+    // pack to the 4 px floor instead of getting the widened correlated-pair gap.
+    // That was the geotech "vertical sliver" bug (2026-06-24). Both ``lithoLayers``
+    // and ``contactEdges`` are axis-consistent: on the litho axis they are the litho
+    // model's; on the geotech axis (Task 3 swap) they are the geotech model's, so
+    // the geotech layer ids here match the geotech edge endpoints.
     for (const layer of lithoLayers ?? []) {
       const inv = layer.cpt_id ?? layer.borehole_id
       if (inv) investigationByContactId.set(layer.id, inv)
@@ -3173,19 +3134,14 @@ export default function SectionPanel({
             {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
-                geotechSubLayersByInv={geotechSubLayersByInv}
-                geotechCptInvIds={geotechCptInvIds}
-                // The partition is ALWAYS framed by the litho-framed contactEdges,
-                // on BOTH axes — never the geotech overlay edges (regression guard,
-                // commit 7329738b). partitionEdgeSource makes that explicit.
+                // The partition is framed by ``contactEdges`` on BOTH axes. On the
+                // litho axis these are the litho edges; on the geotech axis (Task 3
+                // render swap, 2026-06-26) ``lithoLayers`` is the GEOTECH layers and
+                // ``contactEdges`` the GEOTECH packing edges, so ``computeSectionFill``
+                // renders the connected-body geotech partition DIRECTLY — the old
+                // per-CPT NAD carve (``subdivideRegionsByGeotech``) is retired.
+                // partitionEdgeSource keeps the source axis-explicit at the call site.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                // R1 engine carve DISABLED 2026-06-26 (clean interim). The carve
-                // fragmented real per-CPT packing into ~130 sub-resolution slivers
-                // (diagnostic on the dogfeed section). The whole carve is being RETIRED
-                // by the body-model rebuild — see docs/superpowers/plans/2026-06-26-
-                // geotech-packing-body-model.md Task 3. Until that lands, fall back to
-                // R0 (gap-free clean-split / dominant-NAD recolour — no slivers).
-                geotechEdges={undefined}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
