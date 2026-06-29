@@ -110,6 +110,8 @@ export default function SectionsToolbar(): JSX.Element {
       lithoContacts,
       // F4 — "Subdivide all bodies" toolbar verb on the geotech axis.
       handleSubdivideAllBodies,
+      // "Divide boreholes" toolbar verb — post-SAB borehole TIN-division.
+      handleDivideBoreholes,
     },
     visibleCpts,
     coordinator: {
@@ -147,6 +149,8 @@ export default function SectionsToolbar(): JSX.Element {
   const [reCorrelateAutoEdgeCount, setReCorrelateAutoEdgeCount] = useState(0)
   // F4 — "Subdivide all bodies" busy flag (geotech axis).
   const [subdividingBodies, setSubdividingBodies] = useState(false)
+  // "Divide boreholes" busy flag (geotech axis).
+  const [dividingBoreholes, setDividingBoreholes] = useState(false)
   // C1 (connecting-geotech-units §7) — confirm before a RE-subdivide, which
   // wipes + regenerates all geotech packing connections (manual ones lost).
   const [reSubdivideConfirmOpen, setReSubdivideConfirmOpen] = useState(false)
@@ -1205,6 +1209,30 @@ export default function SectionsToolbar(): JSX.Element {
                   : 'Derive NAD packing classes (1–31) for every litho body in the model. Creates the geotechnical model on first run.'
             }
             testid="geotech-subdivide-all-bodies"
+          />
+          {/* "Divide boreholes" — TIN-divide borehole columns using CPT
+              packing-transition surfaces.  Runs AFTER "Subdivide all bodies"
+              so CPT geotech layers already exist.  Idempotent: re-running
+              replaces the prior borehole bands.  Gated on activeGeotechModel
+              (SAB must have run at least once). */}
+          <ToolbarButton
+            icon={<Layers size={13} />}
+            label={dividingBoreholes ? 'Dividing…' : 'Divide boreholes'}
+            onClick={() => {
+              if (dividingBoreholes || activeGeotechModel === null) return
+              setDividingBoreholes(true)
+              void handleDivideBoreholes().finally(() => setDividingBoreholes(false))
+            }}
+            disabled={dividingBoreholes || activeGeotechModel === null}
+            busy={dividingBoreholes}
+            title={
+              activeGeotechModel === null
+                ? 'Run "Subdivide all bodies" first to create the geotech model'
+                : dividingBoreholes
+                  ? 'Dividing borehole columns…'
+                  : 'TIN-divide borehole columns into packing bands using CPT transition surfaces'
+            }
+            testid="geotech-divide-boreholes"
           />
           {/* "Correlate packing" — manual same-class/same-body packing connection.
               Reuses the litho correlate state machine (correlateMode) on the geotech
