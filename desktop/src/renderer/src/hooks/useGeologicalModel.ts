@@ -838,6 +838,30 @@ export interface UseGeologicalModelResult {
    * Promise<void>
    */
   handleSubdivideAllBodies: () => Promise<void>
+  // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
+  // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
+  // hook is model-agnostic (the voxel builder parameterises on ``model_id``),
+  // so the geotech 3D body solids reuse the same fetch / build / colour
+  // machinery as the litho ones.  Keys are renamed (``geotech*``) so both 3D
+  // surfaces coexist on the bus alongside the litho solids spread above.
+  /** All built body solids for the active geotech model. */
+  geotechSolids: UseLithoSolidsResult['lithoSolids']
+  /** True while the initial geotech-solids fetch is in flight. */
+  geotechSolidsLoading: UseLithoSolidsResult['lithoSolidsLoading']
+  /** True while a geotech-solids rebuild is in progress. */
+  geotechSolidsBuilding: UseLithoSolidsResult['lithoSolidsBuilding']
+  /** True when at least one geotech solid has triangles. */
+  hasGeotechSolids: UseLithoSolidsResult['hasLithoSolids']
+  /** True when any geotech solid has ``is_stale === true``. */
+  hasStaleGeotechSolid: UseLithoSolidsResult['hasStaleLithoSolid']
+  /** Build / rebuild solids for the active geotech model, toast the result. */
+  buildGeotechSolids: UseLithoSolidsResult['buildLithoSolids']
+  /** Set or clear a per-body display colour on the geotech model. */
+  setGeotechBodyColor: UseLithoSolidsResult['setBodyColor']
+  /** When ``true``, the geotech 3D viewer + inspector suppress flagged bodies. */
+  geotechHideMarkers: UseLithoSolidsResult['hideMarkers']
+  /** Toggle the geotech ``hideMarkers`` flag. */
+  setGeotechHideMarkers: UseLithoSolidsResult['setHideMarkers']
 }
 
 /**
@@ -2166,6 +2190,19 @@ export function useGeologicalModel({
     toast,
   )
 
+  // Geotech body solids — a SECOND useLithoSolids instance pointed at the
+  // active GEOTECH model.  ``useLithoSolids`` is model-agnostic (the voxel
+  // builder parameterises on ``model_id``; the geotech model id is accepted
+  // by the same ``buildVoxelLithoModel`` endpoint), so the geotech 3D body
+  // solids reuse the same fetch / build / colour machinery.  Called
+  // unconditionally here (above any early return) per the hook-order rule —
+  // mirrors the litho instance directly above it.
+  const geotechSolidsResult = useLithoSolids(
+    project?.id ?? null,
+    activeGeotechModel?.id ?? null,
+    toast,
+  )
+
   // F4 — "Subdivide all bodies" toolbar verb.  Called from the Geotechnical
   // stage toolbar (SectionsToolbar on the geotech axis).  The endpoint
   // creates or reuses the kind='geotechnical' child model and materialises
@@ -2343,5 +2380,18 @@ export function useGeologicalModel({
     requestGeotechLayersRefetch,
     // F4 — "Subdivide all bodies" toolbar verb.
     handleSubdivideAllBodies,
+    // Geotech body solids — second useLithoSolids instance (geotech model).
+    // Keys are renamed (the litho solids set is already spread above) so both
+    // 3D surfaces coexist on the bus.  The geotech 3D pane (GeotechnicalCanvas)
+    // + Build button (GeotechnicalToolbar) read these.
+    geotechSolids: geotechSolidsResult.lithoSolids,
+    geotechSolidsLoading: geotechSolidsResult.lithoSolidsLoading,
+    geotechSolidsBuilding: geotechSolidsResult.lithoSolidsBuilding,
+    hasGeotechSolids: geotechSolidsResult.hasLithoSolids,
+    hasStaleGeotechSolid: geotechSolidsResult.hasStaleLithoSolid,
+    buildGeotechSolids: geotechSolidsResult.buildLithoSolids,
+    setGeotechBodyColor: geotechSolidsResult.setBodyColor,
+    geotechHideMarkers: geotechSolidsResult.hideMarkers,
+    setGeotechHideMarkers: geotechSolidsResult.setHideMarkers,
   }
 }
