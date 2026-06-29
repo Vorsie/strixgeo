@@ -165,3 +165,33 @@ export function nadClassColor(n: number | null | undefined): string {
   if (n == null) return _NULL_CLASS_COLOR
   return _NAD_CLASS_COLORS[n] ?? _NULL_CLASS_COLOR
 }
+
+/**
+ * Return copies of the given formations with each ``color`` replaced by its
+ * NAD-class colour (``nadClassColor(nad_class)``).
+ *
+ * Presentation-boundary transform for the 3D geotech body viewer. A geotech
+ * (``kind='geotechnical'``) formation stores the *lithology* colour it inherited
+ * from its source litho formation (``SubdivideAllBodies._find_or_create_classified``
+ * copies ``source_litho.color``), but a geotech body must be coloured by its NAD
+ * packing class — the same translate-at-the-presentation-boundary rule the geotech
+ * inspector applies per row (it draws ``nadClassColor(f.nad_class)``, never
+ * ``f.color``). The 3D viewer (``Geology3DViewer``) colours each body solid by
+ * ``solid.display_color ?? formation.color`` matched on ``formation_id``, so passing
+ * NAD-coloured formations is the seam that makes the built geotech 3D bodies
+ * NAD-coloured without any backend or viewer change.
+ *
+ * The input is never mutated — a shallow copy is returned per formation. Non-colour
+ * fields are carried through verbatim.
+ *
+ * @typeParam T  Any object carrying a ``nad_class`` and a ``color`` field
+ *               (e.g. ``GeologicalFormationResponse``).
+ * @param formations  The geotech formations to recolour.
+ * @returns  A new array of shallow copies with ``color`` set to the NAD-class
+ *           colour; ``[]`` for empty input.
+ */
+export function nadColoredFormations<T extends { nad_class: number | null; color: string }>(
+  formations: readonly T[],
+): T[] {
+  return formations.map(f => ({ ...f, color: nadClassColor(f.nad_class) }))
+}
