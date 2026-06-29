@@ -587,7 +587,11 @@ async def divide_boreholes(
         * 422 — validation error in path/body parameters.
         * 500 — unexpected server error.
     """
-    await get_in_project_or_404(session, GeologicalModelOrm, model_id, project_id)
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
     try:
         result = await DivideBoreholes(session).execute(
             project_id=project_id,
