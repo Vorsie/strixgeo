@@ -27,6 +27,7 @@ import {
   useCorrelationOverlayVisible,
 } from '../../../utils/correlationOverlayStore'
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
+import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -53,6 +54,7 @@ export default function SectionsToolbar(): JSX.Element {
   // lets the user hide it to read the columns + contacts cleanly. (Store keeps
   // its historical formationFill name — see formationFillStore.)
   const formationFillVisible = useFormationFillVisible()
+  const geotechFillVisible = useGeotechFillVisible()
   const {
     project,
     visibleBoreholes,
@@ -1228,6 +1230,22 @@ export default function SectionsToolbar(): JSX.Element {
             }
             amber={correlateMode}
             testid="geotech-correlate-packing"
+          />
+          {/* View toggles — strip the NAD fill / correlation ribbons to inspect
+              the connectivity (the dense same-class auto-correlation can be busy). */}
+          <ToolbarButton
+            icon={geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+            label={geotechFillVisible ? 'Hide fill' : 'Show fill'}
+            onClick={() => toggleGeotechFill()}
+            title="Show or hide the NAD packing-band fill, so you can inspect the correlation ribbons underneath. Toggles on / off."
+            testid="geotech-toggle-fill"
+          />
+          <ToolbarButton
+            icon={<Network size={13} />}
+            label={correlationsVisible ? 'Hide correlations' : 'Show correlations'}
+            onClick={() => toggleCorrelationOverlay()}
+            title="Show or hide the correlation ribbons drawn across the section (2-D visualisation only). Toggles on / off."
+            testid="geotech-toggle-correlations"
           />
           {/* Separator after geotech-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
