@@ -96,6 +96,7 @@ function makeCtx(overrides: {
   sectionModelAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic' | 'geotechnical') => void
   handleSubdivideAllBodies?: () => Promise<void>
+  handleDivideBoreholes?: () => Promise<void>
   correlateMode?: boolean
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
@@ -289,6 +290,8 @@ function makeCtx(overrides: {
       markMutated: vi.fn(),
       // F4 — "Subdivide all bodies" verb handler.
       handleSubdivideAllBodies: overrides.handleSubdivideAllBodies ?? noopAsync,
+      // "Divide boreholes" verb handler.
+      handleDivideBoreholes: overrides.handleDivideBoreholes ?? noopAsync,
       requestGeotechLayersRefetch: vi.fn(),
     },
     sections: {
@@ -657,5 +660,70 @@ describe('SectionsToolbar "Correlate packing" verb (D)', () => {
     fireEvent.click(btn)
     expect(exitCorrelateMode).toHaveBeenCalled()
     expect(enterCorrelateMode).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// E — "Divide boreholes" verb
+// ---------------------------------------------------------------------------
+//
+// Pinned claims:
+//   BE1  The "Divide boreholes" button is present on the geotech axis when
+//        a geotech model exists.
+//   BE2  The button is disabled when activeGeotechModel is null (SAB must run
+//        first to create the model and CPT geotech layers).
+//   BE3  Clicking the enabled button calls handleDivideBoreholes.
+//   BE4  The button is absent on the geology and litho axes.
+
+describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
+  it('BE1 — button is present on geotech axis when a geotech model exists', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.getByTestId('geotech-divide-boreholes')).toBeTruthy()
+  })
+
+  it('BE2 — button is disabled when activeGeotechModel is null', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: null,
+      }),
+    )
+    expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled()
+  })
+
+  it('BE3 — clicking the enabled button calls handleDivideBoreholes', () => {
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        handleDivideBoreholes,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
+    expect(handleDivideBoreholes).toHaveBeenCalled()
+  })
+
+  it('BE4 — button is absent on the geology axis', () => {
+    renderToolbar(makeCtx({ sectionModelAxis: 'geological' }))
+    expect(screen.queryByTestId('geotech-divide-boreholes')).toBeNull()
+  })
+
+  it('BE4b — button is absent on the lithostratigraphic axis', () => {
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+      }),
+    )
+    expect(screen.queryByTestId('geotech-divide-boreholes')).toBeNull()
   })
 })
