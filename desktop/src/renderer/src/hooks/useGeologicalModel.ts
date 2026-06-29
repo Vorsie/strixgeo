@@ -44,6 +44,7 @@ import type {
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
+import { clearBoreholesStale, markBoreholesStale } from '../utils/boreholesStaleStore'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
 import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
@@ -2278,6 +2279,9 @@ export function useGeologicalModel({
         addToSessionImports('formation', result.created_formation_ids)
       }
       markMutated()
+      // Subdivide rebuilds the CPT bodies and writes NO borehole bands — the
+      // boreholes are now undivided, so amber the "Divide boreholes" button.
+      markBoreholesStale()
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
       const boreholeOnly = result.borehole_only_count ?? 0
       const boreholeNote = boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''
@@ -2328,6 +2332,8 @@ export function useGeologicalModel({
         addToSessionImports('formation', result.created_formation_ids)
       }
       markMutated()
+      // Boreholes now match the current bodies — clear the stale flag.
+      clearBoreholesStale()
       toast(
         'success',
         `Boreholes divided — ${result.divided_borehole_count} split, ` +
