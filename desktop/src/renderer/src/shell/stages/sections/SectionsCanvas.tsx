@@ -50,6 +50,7 @@ import type { ContactCopyPayload } from '../../../components/sections/ContactsLa
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
+import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 
 /**
@@ -876,6 +877,9 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
         markMutated()
+        // Bodies changed → the borehole division is now out of date (amber the
+        // "Divide boreholes" button until the engineer re-divides).
+        markBoreholesStale()
         toast('success', 'Packing correlation added.')
         log.success(
           'section',
@@ -947,6 +951,8 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
         markMutated()
+        // Bodies changed → the borehole division is now out of date.
+        markBoreholesStale()
         log.success(
           'section',
           `packing-disconnect: edge ${contactAId}(${contactASide}) ↔ ${contactBId}(${contactBSide}) removed`,
