@@ -66,6 +66,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -2491,7 +2492,7 @@ async def test_sab_borehole_extrapolation(
     borehole_extrapolation_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """BH-E1: a borehole-only body receives a skeleton band (nad_class=None).
+    """BH-E1: SAB leaves boreholes without geotech layers (deferred to DivideBoreholes).
 
     BH-ALONE is a standalone ZAND borehole in its own litho body — no CPT is
     correlated to it.  CPT-REF is a separate ZAND body.  After
@@ -2528,14 +2529,7 @@ async def test_sab_borehole_extrapolation(
         f"BH-ALONE (no CPT in body group) must be classified as borehole-only"
     )
 
-    # BH-E1b: no borehole was TIN-divided (CPT-free body → no split surfaces).
-    assert result.divided_borehole_count == 0, (
-        f"BH-E1b: expected divided_borehole_count == 0, "
-        f"got {result.divided_borehole_count}; "
-        f"BH-ALONE is in a CPT-free body — no TIN split surfaces exist to divide it"
-    )
-
-    # BH-E1c: BH-ALONE has exactly one skeleton band with nad_class=None.
+    # BH-E1c: SAB writes NO borehole geotech layers — borehole division is deferred.
     bh_layers = (
         (
             await db_session.execute(
@@ -2549,17 +2543,9 @@ async def test_sab_borehole_extrapolation(
         .scalars()
         .all()
     )
-    assert len(bh_layers) == 1, (
-        f"BH-E1c: expected exactly 1 accepted geotech layer for BH-ALONE, "
-        f"got {len(bh_layers)} (borehole_id={bh_alone_id}, model={geotech_model_id})"
-    )
-
-    # The single band must carry nad_class=None (skeleton — no qc to classify).
-    formation = await db_session.get(GeologicalFormationOrm, bh_layers[0].formation_id)
-    assert formation is not None, "BH-E1c: formation row not found for BH-ALONE's geotech layer"
-    assert formation.nad_class is None, (
-        f"BH-E1c: BH-ALONE's geotech layer formation has nad_class={formation.nad_class}; "
-        f"expected None — a borehole in a CPT-free body should keep the skeleton"
+    assert len(bh_layers) == 0, (
+        f"BH-E1c: expected 0 geotech layers for BH-ALONE after SAB alone, "
+        f"got {len(bh_layers)} — borehole bands must only appear after DivideBoreholes"
     )
 
 
@@ -2768,37 +2754,58 @@ async def test_sab_bh1_tin_geometric_division(
     borehole_tin_division_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """SAB-BH1: borehole is TIN-divided by its connected CPT body's split surface.
+    """SAB-BH1: SAB alone writes no borehole layers; DivideBoreholes TIN-divides them.
 
     CPT-S1 (matig 0-4 m / dicht 4-8 m) and CPT-S2 (matig 0-5 m / dicht 5-8 m)
-    are in the same litho body as BH-S.  After SubdivideAllBodies, BH-S must have
-    TWO geotech layers (matig over dicht) whose split depth is interpolated from
-    the two CPTs' packing-transition elevation at the borehole's XY coordinate.
+    are in the same litho body as BH-S.  SubdivideAllBodies must NOT write any
+    geotech layers for BH-S; DivideBoreholes must produce TWO geotech layers
+    (matig over dicht) whose split depth is interpolated from the two CPTs'
+    packing-transition elevation at the borehole's XY coordinate.
 
-    BH1-1  BH-S has exactly 2 accepted geotech litho_layer rows (the TIN split
-           produced one matig band and one dicht band, not a single skeleton).
-    BH1-2  Each of BH-S's geotech layers carries a non-null ``body_id`` that
-           matches one of CPT-S1's or CPT-S2's geotech layers for the same
-           NAD class (the borehole is folded into the CPT bodies, not a new body).
+    BH1-0  After SAB alone, BH-S has 0 geotech layers.
+    BH1-1  After DivideBoreholes, BH-S has exactly 2 accepted geotech layers.
+    BH1-2  Borehole layers have body_id=None (DivideBoreholes skips the resolver).
     BH1-3  The split depth on BH-S lies between 3.5 m and 5.5 m — within ±1 m
-           of the expected TIN interpolation (~4.5 m with a flat-mean surface
-           over 2 CPT control points or linear in x).
+           of the expected TIN interpolation (~4.5 m, mean of CPT splits).
     BH1-4  Tiling invariant: BH-S's two layers tile 0–8 m continuously (no gap
            or overlap > 1 mm).
     """
     project = borehole_tin_division_scene["project"]
     litho_model_id = UUID(borehole_tin_division_scene["litho_model_id"])
     bh_s_id = borehole_tin_division_scene["bh_s_id"]
-    cpt_s1_id = borehole_tin_division_scene["cpt_s1_id"]
-    cpt_s2_id = borehole_tin_division_scene["cpt_s2_id"]
 
-    result = await SubdivideAllBodies(db_session).execute(
+    sab_result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
         litho_model_id=litho_model_id,
     )
-    geotech_model_id = result.geotech_model_id
+    geotech_model_id = sab_result.geotech_model_id
 
-    # Load all accepted geotech layers for BH-S.
+    # BH1-0: SAB must NOT write borehole geotech layers.
+    bh_layers_after_sab = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_s_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(bh_layers_after_sab) == 0, (
+        f"BH1-0: expected 0 geotech layers for BH-S after SAB alone, "
+        f"got {len(bh_layers_after_sab)} — borehole division belongs in DivideBoreholes"
+    )
+
+    # Run DivideBoreholes and assert the TIN division is now materialised.
+    await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    # Load all accepted geotech layers for BH-S post-DivideBoreholes.
     bh_layers = (
         (
             await db_session.execute(
@@ -2814,48 +2821,23 @@ async def test_sab_bh1_tin_geometric_division(
     )
     bh_layers_sorted = sorted(bh_layers, key=lambda ll: ll.depth_top_m)
 
-    # BH1-1: exactly 2 geotech layers (TIN split produced two bands).
+    # BH1-1: exactly 2 geotech layers after DivideBoreholes.
     assert len(bh_layers_sorted) == 2, (
-        f"BH1-1: expected 2 geotech layers for BH-S after TIN division, "
+        f"BH1-1: expected 2 geotech layers for BH-S after DivideBoreholes, "
         f"got {len(bh_layers_sorted)}: "
         f"{[(ll.depth_top_m, ll.depth_base_m) for ll in bh_layers_sorted]}"
     )
 
-    # Load CPT geotech layers for body_id reference.
-    cpt_layers = (
-        (
-            await db_session.execute(
-                select(LithoLayerOrm).where(
-                    LithoLayerOrm.model_id == geotech_model_id,
-                    LithoLayerOrm.cpt_id.in_([cpt_s1_id, cpt_s2_id]),
-                    LithoLayerOrm.status == "accepted",
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    cpt_body_ids: set[UUID] = {ll.body_id for ll in cpt_layers if ll.body_id is not None}
-
-    # BH1-2: each BH-S layer's body_id matches a CPT body (borehole folded in).
+    # BH1-2: body_id is None — DivideBoreholes does not run the resolver.
     for ll in bh_layers_sorted:
-        assert ll.body_id is not None, (
+        assert ll.body_id is None, (
             f"BH1-2: BH-S geotech layer at [{ll.depth_top_m:.2f}, {ll.depth_base_m:.2f}] "
-            f"has body_id=None — TIN division must assign the CPT body_id"
-        )
-        assert ll.body_id in cpt_body_ids, (
-            f"BH1-2: BH-S geotech layer body_id={ll.body_id} not in CPT body ids "
-            f"{cpt_body_ids} — borehole was not folded into the CPT body"
+            f"has body_id={ll.body_id} — DivideBoreholes must not assign body_id"
         )
 
     # BH1-3: split depth lies between 3.5 m and 5.5 m.
-    # The two CPTs split at 4.0 m and 5.0 m; with a flat-mean surface
-    # (only 2 control points, < 3 needed for a TIN), both CPTs equally contribute
-    # → mean split elevation = (5 - 4 + 5 - 5) / 2 at elevation units.
-    # elevation_m = surface_elev_m - depth_m; surface_elev_m = 5.0 for both.
-    # CPT-S1 split at depth 4.0 m → elevation 1.0 m.
-    # CPT-S2 split at depth 5.0 m → elevation 0.0 m.
-    # Mean elevation = 0.5 m → depth on BH-S = 5.0 - 0.5 = 4.5 m.
+    # CPT-S1 splits at 4.0 m (elev 1.0 m), CPT-S2 at 5.0 m (elev 0.0 m).
+    # Mean elevation 0.5 m → BH-S split depth = 5.0 - 0.5 = 4.5 m.
     split_depth = bh_layers_sorted[0].depth_base_m  # base of top (matig) layer
     assert 3.5 <= split_depth <= 5.5, (
         f"BH1-3: BH-S split depth {split_depth:.3f} m is outside [3.5, 5.5] m — "
