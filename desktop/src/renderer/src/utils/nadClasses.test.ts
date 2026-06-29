@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { NAD_CLASS_NAMES, nadClassColor, nadClassName } from './nadClasses'
+import { NAD_CLASS_NAMES, nadClassColor, nadClassName, nadColoredFormations } from './nadClasses'
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
@@ -82,6 +82,41 @@ describe('nadClassColor', () => {
     for (let i = 1; i <= 31; i++) {
       expect(nadClassColor(i)).toMatch(HEX_RE)
     }
+  })
+})
+
+// ---- nadColoredFormations (3D viewer presentation-boundary transform) -------
+
+describe('nadColoredFormations', () => {
+  it('replaces each formation colour with its NAD-class colour, leaving other fields intact', () => {
+    const formations = [
+      { id: 'f-sand', nad_class: 6, color: '#fbbf24', name: 'ZAND (NAD 6)' },
+      { id: 'f-clay', nad_class: 22, color: '#aabbcc', name: 'KLEI (NAD 22)' },
+    ]
+    const out = nadColoredFormations(formations)
+    // colour becomes the NAD-class colour (NOT the stored lithology colour)…
+    expect(out[0].color).toBe(nadClassColor(6))
+    expect(out[1].color).toBe(nadClassColor(22))
+    // …every other field is carried through verbatim.
+    expect(out[0].id).toBe('f-sand')
+    expect(out[0].name).toBe('ZAND (NAD 6)')
+    expect(out[1].id).toBe('f-clay')
+  })
+
+  it('uses the neutral fallback colour for a null nad_class (degenerate, no qc)', () => {
+    const out = nadColoredFormations([{ id: 'f', nad_class: null, color: '#123456' }])
+    expect(out[0].color).toBe(nadClassColor(null))
+  })
+
+  it('does not mutate the input formations', () => {
+    const formations = [{ id: 'f', nad_class: 7, color: '#000000' }]
+    const out = nadColoredFormations(formations)
+    expect(formations[0].color).toBe('#000000') // original untouched
+    expect(out[0]).not.toBe(formations[0]) // a fresh copy is returned
+  })
+
+  it('returns an empty array for empty input', () => {
+    expect(nadColoredFormations([])).toEqual([])
   })
 })
 
