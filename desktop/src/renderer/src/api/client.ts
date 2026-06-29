@@ -164,6 +164,8 @@ export type {
   VoxelBuildRequest,
   // F4 — "Subdivide all bodies" endpoint response.
   SubdivideAllBodiesResponse,
+  // "Divide boreholes" endpoint response.
+  DivideBoreholeResponse,
 } from './clients/geology'
 export { DuplicateContactError } from './clients/geology'
 
