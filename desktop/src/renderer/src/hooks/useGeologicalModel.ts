@@ -35,6 +35,7 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  DivideBoreholeResponse,
   LithoLayerResponse,
   LithoLayerSuggestion,
   ProjectResponse,
@@ -838,6 +839,17 @@ export interface UseGeologicalModelResult {
    * Promise<void>
    */
   handleSubdivideAllBodies: () => Promise<void>
+  /**
+   * TIN-divide borehole columns using CPT packing-transition surfaces.
+   *
+   * Must be called after ``handleSubdivideAllBodies`` so CPT geotech layers
+   * already exist.  Idempotent: prior borehole bands are replaced.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   */
+  handleDivideBoreholes: () => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
   // hook is model-agnostic (the voxel builder parameterises on ``model_id``),
@@ -2237,7 +2249,6 @@ export function useGeologicalModel({
           ` split=${result.split_body_count}` +
           ` one_class=${result.one_class_body_count}` +
           ` borehole_only=${result.borehole_only_count}` +
-          ` divided_bh=${result.divided_borehole_count ?? 0}` +
           ` sections=${result.section_count ?? 0}`,
       )
       // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
@@ -2268,12 +2279,8 @@ export function useGeologicalModel({
       }
       markMutated()
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
-      const dividedBh = result.divided_borehole_count ?? 0
       const boreholeOnly = result.borehole_only_count ?? 0
-      const boreholeNote =
-        dividedBh > 0 || boreholeOnly > 0
-          ? `, ${dividedBh} borehole(s) divided${boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''}`
-          : ''
+      const boreholeNote = boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''
       toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}.`)
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
@@ -2282,6 +2289,55 @@ export function useGeologicalModel({
     // are all stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [project, refreshModels, refetchFormations, addToSessionImports, markMutated, toast],
+  )
+
+  // "Divide boreholes" — standalone post-SAB step that TIN-divides borehole
+  // columns using the CPT geotech layers already written by SAB.  Idempotent:
+  // prior borehole bands are replaced.  Must be called after SAB has run at
+  // least once (a 404 from the API means the geotech model doesn't exist yet).
+  const handleDivideBoreholes = useCallback(
+    async (): Promise<void> => {
+      const lithoModel = activeLithoModelRef.current
+      if (!project || !lithoModel) {
+        toast('error', 'Select a lithostratigraphic model first.')
+        return
+      }
+      if (!activeGeotechModel) {
+        toast('error', 'Run "Subdivide all bodies" before dividing boreholes.')
+        return
+      }
+      log.info('geology', `divideBoreholes entry lithoModel=${lithoModel.id}`)
+      let result: DivideBoreholeResponse
+      try {
+        result = await api.geology.divideBoreholes(project.id, lithoModel.id)
+      } catch (err) {
+        log.error('geology', 'divideBoreholes failed', err)
+        toast('error', 'Divide boreholes failed — see console.')
+        return
+      }
+      log.success(
+        'geology',
+        `divideBoreholes ok geotech_model=${result.geotech_model_id}` +
+          ` divided=${result.divided_borehole_count}` +
+          ` single=${result.single_band_borehole_count}` +
+          ` layers=${result.layer_count}`,
+      )
+      // Refresh geotech layers so the section canvas picks up the new borehole bands.
+      requestGeotechLayersRefetch()
+      if (result.created_formation_ids.length > 0) {
+        addToSessionImports('formation', result.created_formation_ids)
+      }
+      markMutated()
+      toast(
+        'success',
+        `Boreholes divided — ${result.divided_borehole_count} split, ` +
+          `${result.single_band_borehole_count} single-band.`,
+      )
+    },
+    // reason: activeLithoModelRef and activeGeotechModel are refs / stable
+    // objects; the other deps are all stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, activeGeotechModel, addToSessionImports, markMutated, toast],
   )
 
   return {
@@ -2380,6 +2436,8 @@ export function useGeologicalModel({
     requestGeotechLayersRefetch,
     // F4 — "Subdivide all bodies" toolbar verb.
     handleSubdivideAllBodies,
+    // "Divide boreholes" toolbar verb (post-SAB, geotech axis only).
+    handleDivideBoreholes,
     // Geotech body solids — second useLithoSolids instance (geotech model).
     // Keys are renamed (the litho solids set is already spread above) so both
     // 3D surfaces coexist on the bus.  The geotech 3D pane (GeotechnicalCanvas)
