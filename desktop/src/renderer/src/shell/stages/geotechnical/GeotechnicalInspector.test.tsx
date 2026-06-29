@@ -202,6 +202,7 @@ function makeCtx(overrides: {
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
       handleSubdivideAllBodies: noopAsync,
+      handleDivideBoreholes: noopAsync,
       requestGeotechLayersRefetch: vi.fn(),
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
