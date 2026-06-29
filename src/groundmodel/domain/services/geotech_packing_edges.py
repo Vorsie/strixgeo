@@ -1,47 +1,38 @@
-"""Pure helper: pair geotech sub-bands across two tests by shared NAD packing class.
+"""Pure helper: pair geotech sub-bands across two tests by identical packing sequence.
 
-Used by the geotech auto-correlation (``SubdivideAllBodies``): within ONE
-correlated litho unit, each packing band on the left test connects to EVERY band
-on the right test that shares its (non-null) NAD class -- regardless of count or
-order. The resolver's connected-components then unions a recurring class within
-the unit into ONE body (owner decision; the engineer splits manually). A
-``None`` class (skeleton / last-resort band) never auto-connects. See spec §5
-(2026-06-26).
+Used by the geotech auto-correlation (``SubdivideAllBodies``): within one litho
+body, two adjacent tests' packing sub-band stacks are connected 1:1 ONLY when
+their NAD-class sequences are identical (same count, same order). Any mismatch
+yields no pairs -- the engineer connects those manually. See spec section 4.
 """
 
 from __future__ import annotations
 
 
-def same_class_pairs(
+def aligned_same_sequence_pairs(
     left: list[tuple[str, int | None]],
     right: list[tuple[str, int | None]],
 ) -> list[tuple[str, str]]:
-    """Return (left_layer_id, right_layer_id) pairs for every same-NAD-class band.
-
-    Spec §5 (2026-06-26): within ONE correlated litho unit, connect each packing
-    band on the left test to EVERY band on the right test that shares its
-    (non-null) NAD class -- regardless of count or order. The resolver's
-    connected-components then unions a recurring class within the unit into ONE
-    body (owner decision; the engineer splits manually). A ``None`` class
-    (skeleton band) never auto-connects.
+    """Return aligned (left_layer_id, right_layer_id) pairs iff the sequences match.
 
     Parameters
     ----------
     left, right : list[tuple[str, int | None]]
-        Each test's packing sub-band stack as ``(layer_id, nad_class)`` for ONE
-        litho unit on that test (order irrelevant).
+        Each test's sub-band stack as ``(layer_id, nad_class)`` ordered top->base,
+        for ONE litho unit on that test.  A ``nad_class`` of ``None`` (skeleton /
+        last-resort band) is allowed and compares equal to another ``None`` here;
+        the spec section 8 null-skip lives in the caller, not in this helper.
 
     Returns
     -------
     list[tuple[str, str]]
-        One pair per same-class (left, right) combination; ``[]`` when either
-        side is empty.
+        One pair per band when the two NAD-class sequences are identical;
+        ``[]`` on any length or class mismatch (and when either side is empty).
+        ``None`` classes participate in the equality check; dropping aligned
+        null-class pairs is the caller's responsibility.
     """
-    out: list[tuple[str, str]] = []
-    for la, ca in left:
-        if ca is None:
-            continue
-        for rb, cb in right:
-            if cb == ca:
-                out.append((la, rb))
-    return out
+    if not left or not right or len(left) != len(right):
+        return []
+    if [c for _id, c in left] != [c for _id, c in right]:
+        return []
+    return [(la, rb) for (la, _lc), (rb, _rc) in zip(left, right)]
