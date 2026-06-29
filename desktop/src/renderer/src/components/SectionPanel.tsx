@@ -107,6 +107,7 @@ import type { SectionPlaneLine, SolidColumn, SectionPoly } from '../utils/sectio
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
+import { useGeotechFillVisible } from '../utils/geotechFillStore'
 import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
@@ -905,12 +906,14 @@ export default function SectionPanel({
   // Bodies dropdown. It never auto-draws — default off — so a half-finished
   // interpretation isn't shown as a misleading fill. Driven from the toolbar
   // via the shared bandFill store (sibling components, single view toggle).
-  // Geotech exception: the NAD-coloured bands ARE the geotechnical view's
-  // deliverable (not a half-finished litho interpretation), and the toggle
-  // lives in the litho-only Bodies dropdown — so the geotech axis would have no
-  // way to turn them on. Force bands on for the geotech axis.
+  // Geotech axis: the NAD-coloured bands ARE the geotechnical view's deliverable,
+  // so the view loads filled (default ON) — but a densely-correlated model can be
+  // busy, so the engineer can strip the fill to inspect the correlation ribbons
+  // via the geotech "Show / hide fill" toolbar toggle (its own store, separate
+  // from the litho bandFill toggle which defaults OFF). Other axes keep bandFill.
   const bandFillToggle = useBandFillVisible()
-  const showBands = axisMode === 'geotechnical' || bandFillToggle
+  const geotechFillVisible = useGeotechFillVisible()
+  const showBands = axisMode === 'geotechnical' ? geotechFillVisible : bandFillToggle
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
