@@ -32,6 +32,7 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     AcceptGeotechResponse,
     BuildGeotechRequest,
     BuildGeotechResponse,
+    DivideBoreholeResponse,
     GeotechGhostSubUnitItem,
     GeotechInvestigationSuggestionItem,
     GeotechSegmentSuggestionItem,
@@ -45,6 +46,7 @@ from groundmodel.application.accept_geotech_suggestions import (
     AcceptGeotechSuggestions,
 )
 from groundmodel.application.build_geotech_model_from_litho import BuildGeotechModelFromLitho
+from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.application.suggest_geotech_subdivision import (
     GeotechInvestigationSuggestion,
@@ -526,7 +528,6 @@ async def subdivide_all_bodies(
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
         f"borehole_only={result.borehole_only_count} "
-        f"divided_bh={result.divided_borehole_count} "
         f"sections={result.section_count}"
     )
     return SubdivideAllBodiesResponse(
@@ -537,6 +538,80 @@ async def subdivide_all_bodies(
         split_body_count=result.split_body_count,
         one_class_body_count=result.one_class_body_count,
         borehole_only_count=result.borehole_only_count,
-        divided_borehole_count=result.divided_borehole_count,
         section_count=result.section_count,
+    )
+
+
+@router.post(
+    "/models/{model_id}/geotech/divide-boreholes",
+    response_model=DivideBoreholeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="TIN-divide borehole columns using existing CPT geotech layers",
+    tags=["geotech"],
+)
+async def divide_boreholes(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DivideBoreholeResponse:
+    """Materialise TIN-divided geotech bands for all borehole columns.
+
+    Reads the CPT geotech layers already in the geotech model (written by
+    ``subdivide-all-bodies``), rebuilds the packing-transition surfaces, and
+    materialises matching borehole bands via TIN interpolation per litho body
+    group.  Prior borehole geotech layers are deleted before new ones are written
+    (idempotent re-run).
+
+    Run this **after** ``subdivide-all-bodies`` — and optionally after the
+    engineer has manually correlated packing bands — so borehole bands reflect
+    the final body membership and CPT packing structure.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope (path parameter from the router prefix).
+    model_id : UUID
+        The **lithostratigraphic** model whose geotech child model to update.
+    session : AsyncSession
+        Injected database session.
+
+    Returns
+    -------
+    DivideBoreholeResponse
+        Summary counts and newly created geotech formation ids.
+
+    Raises
+    ------
+    HTTPException
+        * 404 — litho model not found in project, or geotech model not yet created.
+        * 422 — validation error in path/body parameters.
+        * 500 — unexpected server error.
+    """
+    await get_in_project_or_404(session, GeologicalModelOrm, model_id, project_id)
+    try:
+        result = await DivideBoreholes(session).execute(
+            project_id=project_id,
+            litho_model_id=model_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"divide_boreholes error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "divide_boreholes_error", "message": str(exc)},
+        ) from exc
+
+    logger.info(
+        f"divide_boreholes ok geotech_model={result.geotech_model_id} "
+        f"divided_bh={result.divided_borehole_count} "
+        f"single_bh={result.single_band_borehole_count} "
+        f"layers={result.layer_count}"
+    )
+    return DivideBoreholeResponse(
+        geotech_model_id=result.geotech_model_id,
+        divided_borehole_count=result.divided_borehole_count,
+        single_band_borehole_count=result.single_band_borehole_count,
+        layer_count=result.layer_count,
+        created_formation_ids=result.created_formation_ids,
     )
