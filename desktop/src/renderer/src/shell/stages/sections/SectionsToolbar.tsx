@@ -28,6 +28,7 @@ import {
 } from '../../../utils/correlationOverlayStore'
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
+import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -55,6 +56,7 @@ export default function SectionsToolbar(): JSX.Element {
   // its historical formationFill name — see formationFillStore.)
   const formationFillVisible = useFormationFillVisible()
   const geotechFillVisible = useGeotechFillVisible()
+  const boreholesStale = useBoreholesStale()
   const {
     project,
     visibleBoreholes,
@@ -1225,12 +1227,15 @@ export default function SectionsToolbar(): JSX.Element {
             }}
             disabled={dividingBoreholes || activeGeotechModel === null}
             busy={dividingBoreholes}
+            amber={activeGeotechModel !== null && boreholesStale}
             title={
               activeGeotechModel === null
                 ? 'Run "Subdivide all bodies" first to create the geotech model'
                 : dividingBoreholes
                   ? 'Dividing borehole columns…'
-                  : 'TIN-divide borehole columns into packing bands using CPT transition surfaces'
+                  : boreholesStale
+                    ? 'Bodies or correlations changed — re-divide the boreholes to match'
+                    : 'TIN-divide borehole columns into packing bands using CPT transition surfaces'
             }
             testid="geotech-divide-boreholes"
           />
