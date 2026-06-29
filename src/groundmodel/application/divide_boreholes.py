@@ -196,11 +196,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         lowest_sampler = self._c1._make_lowest_boundary_sampler(geo_surfaces)
 
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
-        divided = divide_picks_by_geology(
-            shallow,
-            boundary_sampler=boundary_sampler,
-            snap_tolerance_m=snap_tol,
-        )
+        divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)
         self.debug(f"DivideBoreholes: {len(divided)} geo-bounded segment(s)")
 
         # Phase 4 — group by (body_id, source_geo_formation_id).
@@ -257,13 +253,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
             cpt_rows = (
                 await self._session.execute(
-                    select(CptOrm.id, CptOrm.x_m, CptOrm.y_m, CptOrm.surface_level_m).where(
-                        CptOrm.id.in_(cpt_ids_in_model)
-                    )
+                    select(
+                        CptOrm.id, CptOrm.location_x, CptOrm.location_y, CptOrm.elevation_m
+                    ).where(CptOrm.id.in_(cpt_ids_in_model))
                 )
             ).all()
             for cr in cpt_rows:
-                cpt_xy[cr.id] = (cr.x_m, cr.y_m, cr.surface_level_m or 0.0)
+                cpt_xy[cr.id] = (cr.location_x, cr.location_y, cr.elevation_m or 0.0)
 
         # Phase 7 — delete existing borehole geotech layers.
         # We do NOT delete CPT rows (those belong to SAB).
@@ -333,14 +329,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 await self._session.execute(
                     select(
                         BoreholeOrm.id,
-                        BoreholeOrm.x_m,
-                        BoreholeOrm.y_m,
-                        BoreholeOrm.surface_level_m,
+                        BoreholeOrm.location_x,
+                        BoreholeOrm.location_y,
+                        BoreholeOrm.elevation_m,
                     ).where(BoreholeOrm.id.in_(bh_ids))
                 )
             ).all()
             bh_xy: dict[UUID, tuple[float, float, float]] = {
-                br.id: (br.x_m, br.y_m, br.surface_level_m or 0.0) for br in bh_rows
+                br.id: (br.location_x, br.location_y, br.elevation_m or 0.0) for br in bh_rows
             }
 
             for bh_seg in borehole_segs:
