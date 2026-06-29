@@ -33,10 +33,8 @@ class SubdivideAllBodiesResponse(BaseModel):
         (inconsistent CPT profiles → thickness-dominant single class).
     borehole_only_count : int
         Number of body groups that were borehole-only (no CPT qc data →
-        skeleton sub-body with ``nad_class=None``; cannot be TIN-divided).
-    divided_borehole_count : int
-        Number of borehole columns TIN-divided into geotech sub-bands by their
-        connected CPT body's packing-transition surface (Phase 8c).
+        skeleton sub-body with ``nad_class=None``; use DivideBoreholes to
+        assign TIN-divided packing bands after SAB + manual correlations).
     section_count : int
         Number of project sections for which geotech correlation edges were
         derived from the litho model's approved edges.
@@ -68,13 +66,9 @@ class SubdivideAllBodiesResponse(BaseModel):
     )
     borehole_only_count: int = Field(
         ...,
-        description="Body groups that were borehole-only (no CPT qc data).",
-    )
-    divided_borehole_count: int = Field(
-        0,
         description=(
-            "Borehole columns TIN-divided into geotech sub-bands by their "
-            "connected CPT body's packing-transition surface (Phase 8c)."
+            "Body groups that were borehole-only (no CPT qc data). "
+            "Run DivideBoreholes to assign TIN-divided packing bands."
         ),
     )
     section_count: int = Field(
