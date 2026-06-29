@@ -12,12 +12,13 @@
 //   GC4  setSectionModelAxis is NOT called when axis is already 'geotechnical'
 //        (idempotency guard).
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { GeologicalModelResponse } from '../../../api/client'
+import { nadClassColor } from '../../../utils/nadClasses'
 import GeotechnicalCanvas from './GeotechnicalCanvas'
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,37 @@ import GeotechnicalCanvas from './GeotechnicalCanvas'
 vi.mock('../sections/SectionsCanvas', () => ({
   default: () => <div data-testid="sections-canvas" />,
 }))
+
+// Geology3DViewer imports Cesium + WebGL — mock it as a sentinel div that
+// mirrors the props the geotech 3D wiring drives (body count + the first
+// formation colour, so the NAD-recolour seam can be asserted without WebGL).
+vi.mock('../geology/Geology3DViewer', () => ({
+  default: (props: {
+    bodySolids?: { length: number }
+    formations?: { color: string }[]
+  }) => (
+    <div
+      data-testid="geology-3d-viewer"
+      data-body-count={String(props.bodySolids?.length ?? 0)}
+      data-first-formation-color={props.formations?.[0]?.color ?? ''}
+    />
+  ),
+}))
+
+// api.geology stubs — resolve empty so the 3D ground-surface / edge effects
+// never hang.
+vi.mock('../../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    api: {
+      geology: {
+        buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
+        listContactCorrelations: vi.fn().mockResolvedValue([]),
+      },
+    },
+  }
+})
 
 vi.mock('../../../utils/log', () => ({
   log: {
@@ -71,6 +103,9 @@ function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
   sectionModelAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic' | 'geotechnical') => void
+  hasGeotechSolids?: boolean
+  geotechSolids?: unknown[]
+  geotechFormations?: unknown[]
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -166,7 +201,7 @@ function makeCtx(overrides: {
       lithoCrossingPinchOuts: [],
       geotechLayers: [],
       geotechContacts: [],
-      geotechFormations: [],
+      geotechFormations: overrides.geotechFormations ?? [],
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
@@ -241,10 +276,10 @@ function makeCtx(overrides: {
       setBodyColor: vi.fn(),
       hideMarkers: false,
       setHideMarkers: vi.fn(),
-      geotechSolids: [],
+      geotechSolids: overrides.geotechSolids ?? [],
       geotechSolidsLoading: false,
       geotechSolidsBuilding: false,
-      hasGeotechSolids: false,
+      hasGeotechSolids: overrides.hasGeotechSolids ?? false,
       hasStaleGeotechSolid: false,
       buildGeotechSolids: noopAsync,
       setGeotechBodyColor: vi.fn(),
@@ -435,5 +470,40 @@ describe('GeotechnicalCanvas (F4 bootstrap requirement)', () => {
       }),
     )
     expect(setSectionModelAxis).not.toHaveBeenCalled()
+  })
+
+  it('GC5 — toggling to 3D with no built solids shows the Build hint, not the viewer', () => {
+    renderCanvas(makeCtx({ activeLithoModel: makeLithoModel(), hasGeotechSolids: false }))
+    // 2D is the default — SectionsCanvas renders.
+    expect(screen.getByTestId('sections-canvas')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('geotech-view-3d'))
+    // No solids yet → guided Build hint, not the 3D viewer.
+    expect(screen.getByText('No geotech body model yet')).toBeTruthy()
+    expect(screen.queryByTestId('geology-3d-viewer')).toBeNull()
+    expect(screen.queryByTestId('sections-canvas')).toBeNull()
+  })
+
+  it('GC6 — toggling to 3D with built solids renders the viewer fed NAD-coloured formations', () => {
+    // A geotech formation stores its inherited LITHOLOGY colour (#123456); the
+    // 3D pane must recolour it by NAD class (nadColoredFormations) before
+    // handing it to the viewer — proving the geotech NAD-colour seam is wired.
+    const geotechFormations = [{ id: 'g-1', nad_class: 6, color: '#123456' }]
+    const geotechSolids = [{ body_id: 'b-1', is_flagged: false }]
+    renderCanvas(
+      makeCtx({
+        activeLithoModel: makeLithoModel(),
+        hasGeotechSolids: true,
+        geotechSolids,
+        geotechFormations,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-view-3d'))
+    const viewer = screen.getByTestId('geology-3d-viewer')
+    expect(viewer).toBeTruthy()
+    // bodySolids forwarded.
+    expect(viewer.getAttribute('data-body-count')).toBe('1')
+    // Formation colour is the NAD-class colour, NOT the inherited litho colour.
+    expect(viewer.getAttribute('data-first-formation-color')).toBe(nadClassColor(6))
+    expect(viewer.getAttribute('data-first-formation-color')).not.toBe('#123456')
   })
 })
