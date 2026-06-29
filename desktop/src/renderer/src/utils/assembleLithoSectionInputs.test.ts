@@ -106,6 +106,52 @@ describe('assembleLithoSectionInputs', () => {
     expect(result[0].layers).toHaveLength(0)
   })
 
+  it('is model-agnostic: assembles a GEOTECH payload (geotech layer ids + geotech edges) unchanged', () => {
+    // The geotech voxel build (plan Task 4) feeds the geotech model's
+    // ``litho_layer`` rows + geotech correlation edges through this SAME
+    // assembler — no geotech-specific code path. A geotech layer id is a
+    // ``litho_layer.id`` on the geotech model; a geotech edge links two such
+    // ids (contact_a_id / contact_b_id). This pins that contract so the
+    // PartitionUnit.layerId / body_id / edges that ``buildVoxelRequest`` ->
+    // ``computeSectionFill`` consume reference the geotech layers, not litho.
+    const geotechLayers: LithoLayerLike[] = [
+      {
+        id: 'g-A-matig', // geotech litho_layer.id
+        cpt_id: 'A',
+        borehole_id: null,
+        formation_id: 'SAND-NAD6',
+        body_id: 'pack-6',
+        depth_top_m: 0,
+        depth_base_m: 3,
+        status: 'accepted',
+      },
+      {
+        id: 'g-B-matig',
+        cpt_id: 'B',
+        borehole_id: null,
+        formation_id: 'SAND-NAD6',
+        body_id: 'pack-6',
+        depth_top_m: 0,
+        depth_base_m: 3,
+        status: 'accepted',
+      },
+    ]
+    // Geotech same-class edge links the two geotech layer ids.
+    const geotechEdges: ApprovedEdge[] = [{ a: 'g-A-matig', b: 'g-B-matig' }]
+    const result = assembleLithoSectionInputs({
+      visibleSections: [section],
+      investigations,
+      lithoLayers: geotechLayers,
+      edgesBySectionId: new Map([['sec-1', geotechEdges]]),
+    })
+    // layerId carries the geotech litho_layer.id; body_id the packing body.
+    expect(result[0].layers.map(l => l.layerId)).toEqual(['g-A-matig', 'g-B-matig'])
+    expect(result[0].layers.map(l => l.bodyId)).toEqual(['pack-6', 'pack-6'])
+    expect(result[0].layers.map(l => l.formationId)).toEqual(['SAND-NAD6', 'SAND-NAD6'])
+    // Edges reference the geotech layer ids verbatim.
+    expect(result[0].edges).toEqual([{ a: 'g-A-matig', b: 'g-B-matig' }])
+  })
+
   it('attaches a section’s approved edges; missing section → no edges', () => {
     const edges: ApprovedEdge[] = [{ a: 'a1', b: 'b1' }]
     const result = assembleLithoSectionInputs({
