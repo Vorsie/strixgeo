@@ -959,13 +959,29 @@ export interface SubdivideAllBodiesResponse {
   one_class_body_count: number
   /** Body groups that were borehole-only (no CPT qc data). */
   borehole_only_count: number
-  /**
-   * Borehole columns TIN-divided into geotech sub-bands by their connected CPT
-   * body's packing-transition surface (Phase 8c).
-   */
-  divided_borehole_count: number
   /** Number of project sections for which geotech edges were derived. */
   section_count: number
+}
+
+/**
+ * Response of ``POST .../geotech/divide-boreholes``.
+ *
+ * DivideBoreholes is a standalone step run after SubdivideAllBodies.
+ * It reads the CPT geotech layers already in the model, rebuilds the
+ * packing-transition surfaces, and materialises borehole bands via TIN
+ * interpolation.
+ */
+export interface DivideBoreholeResponse {
+  /** The geotechnical model that was updated. */
+  geotech_model_id: string
+  /** Borehole columns that received ≥ 2 TIN-divided packing bands. */
+  divided_borehole_count: number
+  /** Borehole columns assigned a single band (no CPT split surfaces in their body group). */
+  single_band_borehole_count: number
+  /** Total litho_layer rows inserted for boreholes. */
+  layer_count: number
+  /** Newly created geotech geological_formation rows. */
+  created_formation_ids: string[]
 }
 
 /**
@@ -1990,6 +2006,21 @@ export const geologyClient = {
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-all-bodies`,
       { litho_model_id: lithoModelId },
+    ),
+
+  /**
+   * POST .../geotech/divide-boreholes — materialise TIN-divided borehole bands.
+   *
+   * Must be called AFTER ``subdivideAllBodies`` so the CPT geotech layers exist.
+   * Idempotent: prior borehole bands are replaced by the new division.
+   */
+  divideBoreholes: (
+    projectId: string,
+    lithoModelId: string,
+  ): Promise<DivideBoreholeResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes`,
+      {},
     ),
 
   /**
