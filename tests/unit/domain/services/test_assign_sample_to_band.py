@@ -8,6 +8,7 @@ unresolved), not in terms of internal variable names.
 from __future__ import annotations
 
 import pytest
+
 from groundmodel.domain.services.assign_sample_to_band import Band, assign_sample_to_band
 
 # ---------------------------------------------------------------------------
@@ -109,13 +110,12 @@ def test_single_band_sample_inside() -> None:
 
 
 def test_midpoint_at_band_base_edge() -> None:
-    """Midpoint landing exactly on a band's base edge is contained by that band."""
-    # Sample [1.0, 5.0]: mid=3.0, which is the exact base of band [0,3].
-    # The implementation uses top <= mid <= base, so mid=3.0 matches band [0,3]
-    # first (first-match wins in the iteration order).
+    """Midpoint on a band's base edge: first (shallowest) matching band wins."""
+    # Sample [1.0, 5.0]: mid=3.0, the exact base of band [0,3] and the top of
+    # [3,6]. Both satisfy top <= mid <= base; iteration order makes the
+    # shallower [0,3] the first match → it wins. This pins the documented,
+    # deterministic tie-break rather than accepting either band.
     bands = [Band(0.0, 3.0, "Bx", 6, "cpt_interpolated"), Band(3.0, 6.0, "By", 21, "body_min")]
     body_id, nad, _src = assign_sample_to_band(1.0, 5.0, bands)
-    # mid=3.0: first band whose [top,base] contains it wins; both are valid;
-    # assert one of them is returned (implementation may pick either).
-    assert body_id in ("Bx", "By")
-    assert nad in (6, 21)
+    assert body_id == "Bx"
+    assert nad == 6
