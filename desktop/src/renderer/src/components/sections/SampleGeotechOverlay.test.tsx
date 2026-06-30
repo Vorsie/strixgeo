@@ -51,7 +51,7 @@ function makeBoreholePlacedColumn(
     displaced: false,
     proj: {
       along,
-      distance: 0,
+      offset: 0,
       item: {
         id,
         name: id,
@@ -154,7 +154,7 @@ function renderOverlay(
 
 beforeEach(() => {
   mockToggle.mockReset()
-  // Reset selection store to null before each test.
+  // Reset selection store to null before each test (null = deselect).
   selectGeotechBody(null)
 })
 
@@ -209,7 +209,7 @@ describe('SampleGeotechOverlay', () => {
     const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
 
     // Select the body before render.
-    selectGeotechBody('body-selected')
+    selectGeotechBody({ bodyId: 'body-selected', assignmentSource: null })
     renderOverlay([col], details)
 
     const dot = screen.getByTestId('sample-dot-s-1')
@@ -251,7 +251,7 @@ describe('SampleGeotechOverlay', () => {
     const dot = screen.getByTestId('sample-dot-s-1')
     fireEvent.click(dot)
 
-    expect(mockToggle).toHaveBeenCalledWith('body-click')
+    expect(mockToggle).toHaveBeenCalledWith('body-click', 'cpt_interpolated')
     expect(mockToggle).toHaveBeenCalledTimes(1)
   })
 })
