@@ -2852,3 +2852,288 @@ async def test_sab_bh1_tin_geometric_division(
         f"layer[0].base={bh_layers_sorted[0].depth_base_m:.4f} m "
         f"!= layer[1].top={bh_layers_sorted[1].depth_top_m:.4f} m"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bug-3 — CPT with two segments in the same body group (profiles_by_inv overwrite)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def cpt_multi_segment_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Scene that reproduces the ``profiles_by_inv`` dict-overwrite bug (Bug-3).
+
+    CPT-P logs a uniform dense-sand profile over 0–10 m but has TWO accepted
+    litho layers: ZAND [0–4 m] and ZAND [6–10 m] (a 2 m gap at 4–6 m).
+    CPT-Q has one large ZAND layer over 0–10 m.
+
+    The two layers are correlated so that:
+        P-layer-1 (0–4 m)  ↔  Q-layer (0–10 m)
+        P-layer-2 (6–10 m) ↔  Q-layer (0–10 m)
+
+    The resolver places all three layers in the SAME connected component (same
+    ``body_id``).  After ``divide_picks_by_geology`` (no geo surfaces → no-op),
+    CPT-P contributes TWO ``BodyLayerPick`` segments to the body group:
+
+    * seg1: top=0.0 m, base=4.0 m  — from P-layer-1
+    * seg2: top=6.0 m, base=10.0 m — from P-layer-2
+
+    The profile-building loop appends two ``BandProfile`` entries for CPT-P
+    (same ``investigation_id``).  Before the fix, ``_build_column_plans``
+    constructs::
+
+        profiles_by_inv = {p.investigation_id: p for p in profiles}
+
+    — a plain dict keyed only on ``investigation_id``.  The second profile
+    (for 6–10 m) silently overwrites the first (for 0–4 m).  When the first
+    segment (0–4 m) looks up its profile, it receives splits centred on
+    6–10 m; every split clamps entirely outside [0, 4] so ``sub_intervals``
+    is empty and the skeleton fallback fires: ``nad_class = None``.
+
+    After the fix, each segment must be matched to its OWN profile and both
+    must receive a non-None NAD class.
+    """
+    proj = ProjectOrm(id=uuid7(), name="Bug3 multi-seg", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "B3-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "B3-Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model_id,
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    # Section wide enough to cover both CPTs; both sit on y=200_000.
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "B3-Section",
+            "start_x": 148_800.0,
+            "start_y": 200_000.0,
+            "end_x": 150_000.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    # CPT-P: 500 samples at 0.02 m step covering 0–9.98 m, uniform qc = 15 MPa.
+    # Two ZAND layers will be accepted: [0–4 m] and [6–10 m].
+    n_pts = 500
+    depths_p = [round(i * 0.02, 3) for i in range(n_pts)]
+    qc_p = [15.0] * n_pts  # dense sand throughout
+
+    cpt_p = CptOrm(
+        id=uuid7(),
+        name="CPT-P-multi",
+        cpt_type="CPTU",
+        project_id="B3",
+        test_id="B3/CPT-P",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=10.0,
+    )
+    cpt_p.series = CptSeriesOrm(
+        depths_m=depths_p,
+        qc_mpa=qc_p,
+        fs_mpa=[0.05] * n_pts,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # CPT-Q: same depth range and qc — serves as the shared hub that ties
+    # both of CPT-P's layers into one body via correlation edges.
+    cpt_q = CptOrm(
+        id=uuid7(),
+        name="CPT-Q-anchor",
+        cpt_type="CPTU",
+        project_id="B3",
+        test_id="B3/CPT-Q",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=10.0,
+    )
+    cpt_q.series = CptSeriesOrm(
+        depths_m=depths_p,
+        qc_mpa=qc_p,
+        fs_mpa=[0.05] * n_pts,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    db_session.add_all([cpt_p, cpt_q])
+    await db_session.commit()
+
+    # Accept CPT-P layer 1: ZAND [0–4 m]
+    p1 = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_p.id),
+        top=0.0,
+        base=4.0,
+        soil="ZAND",
+    )
+    # Accept CPT-P layer 2: ZAND [6–10 m]
+    p2 = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_p.id),
+        top=6.0,
+        base=10.0,
+        soil="ZAND",
+    )
+    # Accept CPT-Q: one big ZAND [0–10 m]
+    q1 = await _accept_cpt_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_q.id),
+        top=0.0,
+        base=10.0,
+        soil="ZAND",
+    )
+
+    # Correlate p1 ↔ q1 and p2 ↔ q1.  The resolver places all three layers
+    # in the same connected component → same body_id → CPT-P has TWO segments
+    # in the same body group after divide_picks_by_geology.
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=p1,
+        contact_b=q1,
+        section_id=section_id,
+    )
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=p2,
+        contact_b=q1,
+        section_id=section_id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "cpt_p_id": cpt_p.id,
+        "cpt_q_id": cpt_q.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_bug3_cpt_multi_segment_profile_overwrite(
+    cpt_multi_segment_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Bug-3 regression: a CPT with two segments in the same body group gets classified.
+
+    Without the fix, ``_build_column_plans`` builds::
+
+        profiles_by_inv = {p.investigation_id: p for p in profiles}
+
+    For CPT-P — which produces TWO ``BandProfile`` entries (one per segment) —
+    this keeps only the LAST profile.  The FIRST segment receives the wrong
+    profile; every split clamps outside the first segment's depth range →
+    ``sub_intervals`` is empty → skeleton fallback → ``nad_class = None``.
+
+    With the fix, each segment is looked up by ``(investigation_id, top_depth_m)``
+    so it always receives its own profile.  Both CPT-P segments must be classified.
+
+    B3-1  CPT-P's geotech layer closest to 0 m has a non-None nad_class.
+    B3-2  CPT-P's geotech layer closest to 6 m has a non-None nad_class.
+    """
+    project = cpt_multi_segment_scene["project"]
+    litho_model_id = UUID(cpt_multi_segment_scene["litho_model_id"])
+    cpt_p_id: UUID = cpt_multi_segment_scene["cpt_p_id"]
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    # Load all accepted geotech layers for CPT-P, sorted shallowest-first.
+    p_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id == cpt_p_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    p_layers_sorted = sorted(p_layers, key=lambda ll: ll.depth_top_m)
+
+    assert len(p_layers_sorted) >= 1, (
+        "Bug-3: expected at least one geotech layer for CPT-P, got 0 — "
+        "SubdivideAllBodies must materialise at least the two accepted segments"
+    )
+
+    # B3-1: the layer covering [0–4 m] must have a classified nad_class.
+    # It is the shallowest accepted layer (depth_top_m closest to 0.0).
+    first_layer = p_layers_sorted[0]
+    assert first_layer.depth_top_m < 1.0, (
+        f"B3-1: shallowest CPT-P geotech layer starts at "
+        f"{first_layer.depth_top_m:.3f} m — expected near 0.0 m"
+    )
+    first_formation = await db_session.get(GeologicalFormationOrm, first_layer.formation_id)
+    assert first_formation is not None
+    assert first_formation.nad_class is not None, (
+        f"B3-1: CPT-P ZAND [0–4 m] has nad_class=None (skeleton fallback). "
+        f"The profiles_by_inv dict-overwrite bug is not fixed: CPT-P's two-segment "
+        f"body group caused the 6–10 m profile to overwrite the 0–4 m profile, "
+        f"leaving the 0–4 m segment with splits that clamp outside its range → null. "
+        f"Formation: {first_formation.name!r}"
+    )
+
+    # B3-2: the layer covering [6–10 m] must also be classified.
+    # Without the fix whichever segment is overwritten in profiles_by_inv gets null;
+    # depending on iteration order either B3-1 or B3-2 fails — we assert both.
+    deep_layers = [ll for ll in p_layers_sorted if ll.depth_top_m >= 5.5]
+    assert len(deep_layers) >= 1, (
+        "B3-2: no CPT-P geotech layer starts at or below 5.5 m — "
+        "the 6–10 m segment must materialise at least one geotech layer"
+    )
+    deep_layer = deep_layers[0]
+    deep_formation = await db_session.get(GeologicalFormationOrm, deep_layer.formation_id)
+    assert deep_formation is not None
+    assert deep_formation.nad_class is not None, (
+        f"B3-2: CPT-P ZAND [6–10 m] has nad_class=None (skeleton fallback). "
+        f"Formation: {deep_formation.name!r}"
+    )
