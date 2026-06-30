@@ -51,8 +51,9 @@ const stripQuery = (p: string): string => p.split('?')[0]
 export async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${_base}${path}`)
   if (!res.ok) {
-    log.error('api', 'GET', stripQuery(path), res.status)
-    throw new Error(`GET ${path} → ${res.status}`)
+    const detail = await res.json().catch(() => ({}))
+    log.error('api', 'GET', stripQuery(path), res.status, detail.detail)
+    throw new Error(detail.detail ?? `GET ${path} → ${res.status}`)
   }
   return res.json()
 }
