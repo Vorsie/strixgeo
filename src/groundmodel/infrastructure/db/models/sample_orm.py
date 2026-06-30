@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Date, Double, ForeignKey, Index, String, Text
+from sqlalchemy import Date, Double, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,7 +43,12 @@ class SampleOrm(Base):
     """
 
     __tablename__ = "sample"
-    __table_args__ = (Index("idx_sample_borehole_id", "borehole_id"),)
+    __table_args__ = (
+        Index("idx_sample_borehole_id", "borehole_id"),
+        # Index on geotech_body_id supports joins from the geotech inspector
+        # that wants all samples in a body group without a full table scan.
+        Index("idx_sample_geotech_body_id", "geotech_body_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     borehole_id: Mapped[UUID] = mapped_column(
@@ -68,6 +73,18 @@ class SampleOrm(Base):
     composition: Mapped[str | None] = mapped_column(String(50), nullable=True)
     instrument: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sampling_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Geotech assignment — written by DivideBoreholes (Task 4).
+    # NOT a hard FK: body_id is a resolver connected-component value that
+    # lives in application memory and on LithoLayerOrm rows; there is no
+    # dedicated "geotech_body" table to reference.
+    geotech_body_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=True,
+    )
+    geotech_nad_class: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Provenance tier: "cpt_interpolated" | "body_min" | "absolute_min" | "unresolved"
+    geotech_assignment_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "BoreholeOrm", back_populates="samples"
