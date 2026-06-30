@@ -845,7 +845,10 @@ export default function SectionsCanvas(): JSX.Element {
       contactASide: 'top' | 'base' = 'top',
       contactBSide: 'top' | 'base' = 'top',
     ): Promise<void> => {
-      if (!activeGeotechModel) return
+      if (!activeGeotechModel) {
+        log.warn('section', 'packing-connect: no geotech model — run Subdivide all bodies first')
+        return
+      }
       const modelId = activeGeotechModel.id
       // Clear arm state regardless so the gesture always resets cleanly.
       const clearArm = () => {
@@ -855,6 +858,7 @@ export default function SectionsCanvas(): JSX.Element {
       }
       // Self-correlate short-circuit: a band cannot correlate to itself.
       if (contactAId === contactBId) {
+        log.debug('section', 'packing-connect: self-correlate — no-op', { contactAId })
         clearArm()
         return
       }
@@ -1833,6 +1837,11 @@ export default function SectionsCanvas(): JSX.Element {
           lithoGeoSnapPrompt.field,
         )
       } catch (err) {
+        log.error('section', 'handleSnapLithoToGeo: snap failed', {
+          lithoContactId: lithoGeoSnapPrompt.lithoContactId,
+          geoContactId,
+          err,
+        })
         toast('error', `Snap failed: ${(err as Error).message}`)
       } finally {
         setLithoGeoSnapBusy(false)
@@ -1859,6 +1868,11 @@ export default function SectionsCanvas(): JSX.Element {
         await handleLoadBackdropSurfaces(geo.model_id)
         toast('success', 'Geological contact moved; surfaces rebuilt.')
       } catch (err) {
+        log.error('section', 'handleMoveGeoToLitho: move failed', {
+          geoContactId,
+          lithoDepth: lithoGeoSnapPrompt.rawDepthM,
+          err,
+        })
         toast('error', `Move failed: ${(err as Error).message}`)
         // Best-effort rollback of the geological-contact depth.  Swallow
         // a secondary failure — the user already saw the primary error.

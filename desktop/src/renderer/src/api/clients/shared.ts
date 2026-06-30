@@ -80,7 +80,7 @@ export async function del(path: string): Promise<void> {
     // Surface the server's `detail` (e.g. the 409 "delete the dependent
     // model first" guard) instead of an opaque "→ 409" — mirrors patch/put.
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'DELETE', stripQuery(path), res.status)
+    log.error('api', 'DELETE', stripQuery(path), res.status, detail.detail)
     throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
   }
 }
@@ -113,7 +113,7 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PATCH', stripQuery(path), res.status)
+    log.error('api', 'PATCH', stripQuery(path), res.status, detail.detail)
     throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
   }
   return res.json()
@@ -147,7 +147,7 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PUT', stripQuery(path), res.status)
+    log.error('api', 'PUT', stripQuery(path), res.status, detail.detail)
     throw new Error(detail.detail ?? `PUT ${path} → ${res.status}`)
   }
   return res.json()
@@ -182,7 +182,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${_base}${path}`, init)
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    log.error('api', 'POST', stripQuery(path), res.status)
+    log.error('api', 'POST', stripQuery(path), res.status, detail.detail)
     throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
   }
   return res.json()

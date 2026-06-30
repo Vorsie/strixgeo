@@ -78,7 +78,9 @@ export function useShellState(): UseShellStateResult {
   const [inspectorOpen, setInspectorOpenRaw] = useState<boolean>(readStoredInspectorOpen)
 
   const setActiveStage = useCallback((id: StageId): void => {
-    log.debug('shell', `stage → ${id}`)
+    // info (not debug): visible in packaged builds so "user was on stage X"
+    // frames every log that follows in a dogfeed session.
+    log.info('shell', `stage → ${id}`)
     try {
       localStorage.setItem(STAGE_KEY, id)
     } catch {
@@ -88,7 +90,7 @@ export function useShellState(): UseShellStateResult {
   }, [])
 
   const setInspectorOpen = useCallback((open: boolean): void => {
-    log.debug('shell', `inspector ${open ? 'open' : 'closed'}`)
+    log.info('shell', `inspector ${open ? 'open' : 'closed'}`)
     try {
       localStorage.setItem(INSPECTOR_KEY, String(open))
     } catch {
@@ -100,7 +102,7 @@ export function useShellState(): UseShellStateResult {
   const toggleInspector = useCallback((): void => {
     setInspectorOpenRaw(prev => {
       const next = !prev
-      log.debug('shell', `inspector toggle → ${next ? 'open' : 'closed'}`)
+      log.info('shell', `inspector toggle → ${next ? 'open' : 'closed'}`)
       try {
         localStorage.setItem(INSPECTOR_KEY, String(next))
       } catch {

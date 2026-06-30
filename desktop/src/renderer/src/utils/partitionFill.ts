@@ -70,6 +70,8 @@
  * The overlay maps ``fraction → screenX`` and ``elevation → screenY``.
  */
 
+import { log } from './log'
+
 /** One unit (accepted litho layer) on a column, in depth-below-surface metres. */
 export interface PartitionUnit {
   topDepthM: number
@@ -3686,6 +3688,11 @@ export function computeSectionFill(
   )
 
   mergeSplitBodyRegions(out)
+
+  log.debug(
+    'partition',
+    `section fill: ${columns.length} cols, ${edges.length} edges → ${out.length} regions`,
+  )
 
   return out
 }

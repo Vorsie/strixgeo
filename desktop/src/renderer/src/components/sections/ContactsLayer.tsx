@@ -1954,7 +1954,7 @@ export default function ContactsLayer({
           }
         }
         if (creates.length > 0) {
-          log.debug('contacts', '[drag-commit] shift-paint-through', {
+          log.info('contacts', '[drag-commit] shift-paint-through', {
             count: creates.length,
             stampColumns: stamps.length,
           })
@@ -1970,7 +1970,7 @@ export default function ContactsLayer({
         // boundary so the user can paste a console dump showing exactly
         // what FE sent on a buggy drag.
         const original = final.contactsInDrag.find(c => c.contactId === final.contactId)?.originalDepthM
-        log.debug('contacts', '[drag-commit] single-no-anchor', {
+        log.info('contacts', '[drag-commit] single-no-anchor', {
           contactId: final.contactId,
           originalDepthM: original,
           newDepthM: final.currentDepthM,
@@ -2003,7 +2003,7 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
-        log.debug('contacts', '[drag-commit] batch-same-column', {
+        log.info('contacts', '[drag-commit] batch-same-column', {
           deltaM,
           direction: deltaM < 0 ? 'UP' : 'DOWN',
           count: updates.length,
@@ -2038,7 +2038,7 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
-        log.debug('contacts', '[drag-commit] cross-column-alt-move', {
+        log.info('contacts', '[drag-commit] cross-column-alt-move', {
           deltaM,
           direction: deltaM < 0 ? 'UP' : 'DOWN',
           count: updates.length,
@@ -2081,7 +2081,7 @@ export default function ContactsLayer({
             ? 'high'
             : 'medium',
       }))
-      log.debug('contacts', '[drag-commit] cross-column-copy', {
+      log.info('contacts', '[drag-commit] cross-column-copy', {
         deltaM,
         direction: deltaM < 0 ? 'UP' : 'DOWN',
         count: creates.length,
