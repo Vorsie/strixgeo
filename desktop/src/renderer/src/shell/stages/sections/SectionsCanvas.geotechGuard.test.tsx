@@ -455,7 +455,7 @@ describe('handleCreateGeotechPackingCorrelation — guard rejection UX', () => {
     expect(capturedContactGestureState?.onContactCorrelate).toBeDefined()
 
     await act(async () => {
-      await capturedContactGestureState!.onContactCorrelate!('contact-a', 'contact-b')
+      await capturedContactGestureState!.onContactCorrelate!('contact-a', 'contact-b', 'top', 'top')
     })
 
     // GG1: toast fires with the exact server message, NOT a generic string.
@@ -480,7 +480,7 @@ describe('handleCreateGeotechPackingCorrelation — guard rejection UX', () => {
     )
 
     await act(async () => {
-      await capturedContactGestureState!.onContactCorrelate!('contact-a', 'contact-b')
+      await capturedContactGestureState!.onContactCorrelate!('contact-a', 'contact-b', 'top', 'top')
     })
 
     // GG2: no success toast — the edge was NOT optimistically added.
