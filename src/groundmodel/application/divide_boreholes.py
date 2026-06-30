@@ -64,7 +64,11 @@ from uuid6 import uuid7
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.domain.services.borehole_packing_fill import fill_borehole_litho_body_extent
+from groundmodel.domain.services.assign_sample_to_band import Band, assign_sample_to_band
+from groundmodel.domain.services.borehole_packing_fill import (
+    FillBand,
+    fill_borehole_litho_body_extent,
+)
 from groundmodel.domain.services.geotech_split_surface import ColumnXY, interpolate_split_elevations
 from groundmodel.domain.services.geotech_subdivision_constants import LITHO_ABSOLUTE_MIN_NAD
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
@@ -76,6 +80,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 
 # 1 mm guard so a split doesn't land exactly on the geo-bounded boundary
 # (which would produce a zero-thickness band at the edge).
@@ -322,6 +327,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         total_layers = 0
         divided_borehole_count = 0
         single_band_borehole_count = 0
+        # borehole_fill_bands: accumulates Band objects per borehole across ALL
+        # body groups so Phase 9 (sample assignment) has the complete picture for
+        # each borehole even when it spans multiple litho bodies.
+        borehole_fill_bands: dict[str, list[Band]] = defaultdict(list)
 
         for (body_id_str, source_geo_fid), group_segs in groups.items():
             source_litho_fid = UUID(group_segs[0].formation_id) if group_segs else uuid7()
@@ -379,7 +388,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 if geo_base <= geo_top:
                     continue
 
-                bands = await self._materialise_borehole_bands_litho_confined(
+                n_bands, fill_band_list = await self._materialise_borehole_bands_litho_confined(
                     project_id=project_id,
                     geotech_model_id=geotech_model.id,
                     inv_id=inv_id,
@@ -399,11 +408,61 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     cpt_xy=cpt_xy,
                 )
-                total_layers += bands
-                if bands >= 2:
+                total_layers += n_bands
+                if n_bands >= 2:
                     divided_borehole_count += 1
                 else:
                     single_band_borehole_count += 1
+                # Accumulate Band objects for Phase 9 (sample assignment).
+                # body_id_str comes from the group key and is the resolver's
+                # connected-component id; it is the same for all bands in one
+                # litho-body extent on this borehole.
+                for fb in fill_band_list:
+                    borehole_fill_bands[inv_id].append(
+                        Band(
+                            top=fb.top,
+                            base=fb.base,
+                            body_id=body_id_str,
+                            nad_class=fb.nad_class,
+                            source=fb.source,
+                        )
+                    )
+
+        # Phase 9 — assign samples to geotech bands.
+        # For each borehole that received bands, load its samples and stamp the
+        # three geotech assignment columns using the midpoint lookup.
+        all_bh_ids = {UUID(inv_id) for inv_id in borehole_fill_bands}
+        if all_bh_ids:
+            sample_rows = (
+                (
+                    await self._session.execute(
+                        select(SampleOrm).where(SampleOrm.borehole_id.in_(all_bh_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            assigned = 0
+            unresolved = 0
+            for sample in sample_rows:
+                inv_id_str = str(sample.borehole_id)
+                bands_for_bh = borehole_fill_bands.get(inv_id_str, [])
+                body_id, nad_class, source = assign_sample_to_band(
+                    sample.depth_top_m,
+                    sample.depth_base_m,
+                    bands_for_bh,
+                )
+                sample.geotech_body_id = UUID(body_id) if body_id else None
+                sample.geotech_nad_class = nad_class
+                sample.geotech_assignment_source = source
+                if body_id is not None:
+                    assigned += 1
+                else:
+                    unresolved += 1
+            self.info(
+                f"DivideBoreholes: sample assignment assigned={assigned} unresolved={unresolved}"
+            )
 
         await self._session.flush()
         await self._session.commit()
@@ -449,7 +508,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         created_formation_ids: list[UUID],
         geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
         cpt_xy: dict[UUID, tuple[float, float, float]],
-    ) -> int:
+    ) -> tuple[int, list[FillBand]]:
         """Fill one borehole's litho-body extent with litho-confined CPT packing.
 
         For each CPT segment in the body group, restricts the CPT's geotech
@@ -502,8 +561,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         Returns
         -------
-        int
-            Number of ``LithoLayerOrm`` rows inserted.
+        tuple[int, list[FillBand]]
+            ``(count, fill_bands)`` — count of ``LithoLayerOrm`` rows inserted
+            and the corresponding :class:`~groundmodel.domain.services.borehole_packing_fill.FillBand`
+            objects (caller uses these to build :class:`~groundmodel.domain.services.assign_sample_to_band.Band`
+            objects for Phase 9 sample assignment).
         """
         bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
 
@@ -693,4 +755,4 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 f"(no same-lithology CPT data)"
             )
 
-        return inserted
+        return inserted, fill_bands
