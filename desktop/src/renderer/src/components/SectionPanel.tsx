@@ -109,6 +109,10 @@ import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
 import { useGeotechFillVisible } from '../utils/geotechFillStore'
 import SampleGeotechOverlay from './sections/SampleGeotechOverlay'
+import {
+  useSelectedGeotechBodyId,
+  selectGeotechBody,
+} from '../utils/geotechBodySelectionStore'
 import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
@@ -2070,6 +2074,10 @@ export default function SectionPanel({
   // hooks because it consumes contextMenu + focusedColumn; the open/
   // focus states are passed as booleans so the hook stays decoupled
   // from the menu shapes.
+  // S4/S5: geotech body selection — reactive read drives the Esc cascade and
+  // the axis-switch clear effect below.
+  const selectedGeotechBodyId = useSelectedGeotechBodyId()
+
   useSectionKeyboardShortcuts({
     bodyMenuOpen: bodyCtxMenu !== null,
     columnMenuOpen: contextMenu !== null,
@@ -2078,7 +2086,24 @@ export default function SectionPanel({
     dismissContextMenu,
     exitFocus,
     onClose,
+    // S4: Esc clears a geotech body selection before peeling to column focus
+    // or section close, so one Esc dismisses the highlight without losing the
+    // section context.
+    geotechBodySelected: selectedGeotechBodyId !== null,
+    clearGeotechBody: () => selectGeotechBody(null),
   })
+
+  // S5: switching away from the geotech axis clears a stale body selection so
+  // the sample-dot highlight doesn't bleed into the litho / geology axes.
+  // reason: axisMode is the only dep — we intentionally run only when it
+  // changes, not on every re-render, and selectGeotechBody is a stable module
+  // function (not a closure over component state).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (axisMode !== 'geotechnical') {
+      selectGeotechBody(null)
+    }
+  }, [axisMode])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -3172,6 +3197,9 @@ export default function SectionPanel({
                 // (esp. the bottom-of-test handles at the floor) — dogfeed
                 // 2026-06-19: the floor add-strips intercepted bottom-marker clicks.
                 correlateMode={Boolean(contactGestureState?.contactCorrelateMode)}
+                // S1: fade non-matching bodies when a sample dot is selected.
+                // Only meaningful on the geotech axis; harmless (null) on litho.
+                selectedBodyId={axisMode === 'geotechnical' ? selectedGeotechBodyId : null}
               />
             )}
 
