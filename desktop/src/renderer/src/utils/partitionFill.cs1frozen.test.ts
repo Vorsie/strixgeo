@@ -70,6 +70,12 @@ import {
 // ---------------------------------------------------------------------------
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+// Frozen anonymised real CS1 slice (snapshot 2026-07-01). REGENERATE TRIGGER:
+// re-run `scripts/throwaway_cs1_partition_extract.py` + re-anonymise when CS1's
+// topology meaningfully changes (many new approved correlations / contact edits),
+// or when the env-gated companion (`partitionFill.cs1void.test.ts`, CS1_GATE=1)
+// fails on live data while this frozen one passes — that divergence means the
+// snapshot has drifted from current CS1 and must be refreshed.
 const FIXTURE_PATH = resolve(HERE, './__fixtures__/cs1_partition_frozen.json')
 
 interface FrozenInput {
@@ -258,10 +264,26 @@ describe('CS1 frozen real-data partition gate (always-on)', () => {
     expect(frozen.edges).toHaveLength(112)
   })
 
-  it('computeSectionFill produces regions (engine ran)', () => {
-    // Sanity: the engine must emit at least one region. A zero-length output
-    // means the input was rejected or the algorithm short-circuited.
-    expect(regions.length).toBeGreaterThan(0)
+  it('computeSectionFill produces regions in EVERY gap (no vacuous pass)', () => {
+    // Teeth: a zero/degenerate output would make every structural test below
+    // pass vacuously (empty loops emit no offenders). 24 columns → 23 gaps,
+    // all populated, so the engine must emit at least one region per gap.
+    expect(regions.length).toBeGreaterThanOrEqual(23)
+    // The load-bearing guard: no gap may silently drop ALL its regions, which
+    // would make the void/overlap/lithology tests vacuously green for that gap.
+    expect(byGap.size).toBe(23)
+  })
+
+  it('GAP-19 over-match is absent in this frozen slice (the carve-out is a no-op here)', () => {
+    // The interior-void + lithology tests keep a GAP-19 carve-out for parity
+    // with the env-gated companion (which DOES see the live over-match). This
+    // frozen 2026-07-01 slice is cleaner — gap 19 has NO above-tie void — so the
+    // carve-out excludes nothing here. Pin that, so: (a) the carve-out isn't
+    // silently masking a real gap-19 substrate regression (a substrate void sits
+    // BELOW the tie line and is NOT excluded), and (b) if a regeneration ever
+    // reintroduces the over-match, this goes RED and flags it for review.
+    const v19 = largestInteriorVoid(byGap.get(GAP19_KNOWN_ABOVE_TIE) ?? [], gapBottom(19))
+    expect(v19.cells).toBeLessThan(CELL_THRESHOLD)
   })
 
   it('has no interior voids in any gap (true partition, no uncovered space)', () => {
@@ -405,6 +427,16 @@ describe('CS1 frozen real-data partition gate (always-on)', () => {
         bandedFormations.add(ua.formationId)
       }
     }
+
+    // Teeth: the lithology exemption is `singleCoverage && banded`. If EVERY
+    // formation is banded the exemption becomes vacuous (a single wrong-formation
+    // region in a sub-TD wedge would slip through). Currently 3/4 are banded
+    // (peat is not). Fail loudly if a future fixture regeneration makes it vacuous.
+    const allFormations = new Set(cols.flatMap((c) => c.units.map((u) => u.formationId)))
+    expect(
+      bandedFormations.size,
+      'banded-formation exemption has become vacuous — regenerated fixture is fully correlated',
+    ).toBeLessThan(allFormations.size)
 
     const BAND_TOL = 0.5
     const offenders: string[] = []
