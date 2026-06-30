@@ -3100,17 +3100,18 @@ async def test_sab_bug3_cpt_multi_segment_profile_overwrite(
     )
     p_layers_sorted = sorted(p_layers, key=lambda ll: ll.depth_top_m)
 
-    assert len(p_layers_sorted) >= 1, (
-        "Bug-3: expected at least one geotech layer for CPT-P, got 0 — "
-        "SubdivideAllBodies must materialise at least the two accepted segments"
+    assert len(p_layers_sorted) >= 2, (
+        f"Bug-3: expected at least two geotech layers for CPT-P (one for 0–4 m, "
+        f"one for 6–10 m), got {len(p_layers_sorted)} — both accepted segments "
+        "must be materialised"
     )
 
     # B3-1: the layer covering [0–4 m] must have a classified nad_class.
     # It is the shallowest accepted layer (depth_top_m closest to 0.0).
     first_layer = p_layers_sorted[0]
-    assert first_layer.depth_top_m < 1.0, (
+    assert first_layer.depth_top_m < 0.01, (
         f"B3-1: shallowest CPT-P geotech layer starts at "
-        f"{first_layer.depth_top_m:.3f} m — expected near 0.0 m"
+        f"{first_layer.depth_top_m:.3f} m — expected ≈ 0.0 m"
     )
     first_formation = await db_session.get(GeologicalFormationOrm, first_layer.formation_id)
     assert first_formation is not None
