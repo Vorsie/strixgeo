@@ -685,3 +685,78 @@ async def test_sample_network_error_does_not_abort_borehole_commit(
     # The whole permkey-map size is reported as samples_failed at the API.
     assert result.samples_failed == 1
     use_case._session.commit.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Download-failure count conservation (Tg2 — borehole twin of CPT PF-1/PF-2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_borehole_all_download_failures_counted(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """BH-PF-1: all N boreholes lost during download → result.failed == N.
+
+    ``discovered_count=3`` (WFS returned 3 entries), ``parsed=[]`` (none
+    survived download).  Pins the count-conservation invariant:
+
+        imported + failed + duplicates == discovered_count
+
+    Without the fix, ``download_failed = discovered_count - len(parsed)``
+    was NOT carried into ``result.failed`` — the caller received
+    ``ImportBoreholeDovResult(imported=0, failed=0, duplicates=0)``, a lie.
+    """
+    with patch(
+        "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+        new=AsyncMock(return_value=(3, [])),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # BH-PF-1a: every download-lost borehole counted as failed.
+    assert result.failed == 3, f"expected failed=3 (all 3 lost in download), got {result.failed}"
+    # BH-PF-1b: count conservation.
+    total_accounted = result.imported + result.failed + result.duplicates
+    assert total_accounted == 3, (
+        f"count conservation violated: {result.imported}+{result.failed}+{result.duplicates}"
+        f"={total_accounted} ≠ 3"
+    )
+    # No commit because nothing was persisted.
+    use_case._session.commit.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_borehole_partial_download_failure_survivor_imported(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """BH-PF-2: 2 of 3 boreholes lost in download, 1 survives and is imported.
+
+    ``discovered_count=3``, ``parsed`` contains 1 survivor → ``download_failed=2``.
+    The survivor goes through the persist loop successfully → ``imported=1``.
+    Combined ``result.failed = persist_failed(0) + download_failed(2) = 2``.
+
+    This is the borehole twin of CPT PF-2: verifies that a non-zero
+    ``download_failed`` is NOT zeroed out when a surviving item persists.
+    """
+    survivor = (
+        _wfs_row(test_id="BH-SURVIVE-001", permkey="2025-SURVIVE-001"),
+        _parse_result(test_id="BH-SURVIVE-001"),
+    )
+    with patch(
+        "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+        new=AsyncMock(return_value=(3, [survivor])),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # BH-PF-2a: the survivor was imported.
+    assert result.imported == 1, f"expected imported=1 (survivor persisted), got {result.imported}"
+    # BH-PF-2b: 2 download losses counted as failed (persist succeeded for survivor).
+    assert result.failed == 2, (
+        f"expected failed=2 (download_failed=2, persist_failed=0), got {result.failed}"
+    )
+    # BH-PF-2c: count conservation.
+    total_accounted = result.imported + result.failed + result.duplicates
+    assert total_accounted == 3, (
+        f"count conservation violated: {result.imported}+{result.failed}+{result.duplicates}"
+        f"={total_accounted} ≠ 3"
+    )
