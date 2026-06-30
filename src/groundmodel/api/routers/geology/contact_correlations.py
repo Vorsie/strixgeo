@@ -79,6 +79,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.exceptions import CrossLithoBodyCorrelationError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 router = APIRouter()
@@ -126,8 +127,10 @@ async def create_contact_correlation(
     404
         When the model does not exist or does not belong to ``project_id``.
     422
-        When contact_a_id == contact_b_id (self-loop), or when either
-        contact does not belong to the model / project.
+        When contact_a_id == contact_b_id (self-loop), when either contact
+        does not belong to the model / project, or when a geotech packing
+        correlation crosses lithostratigraphic body boundaries
+        (``CrossLithoBodyCorrelationError``).
     """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
@@ -146,6 +149,11 @@ async def create_contact_correlation(
             contact_a_side=body.contact_a_side,
             contact_b_side=body.contact_b_side,
         )
+    except CrossLithoBodyCorrelationError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
     except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
