@@ -94,6 +94,9 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
     organic_content_tests: [],
     water_content_tests: [],
     scalar_lab_tests: [],
+    geotech_body_id: null,
+    geotech_nad_class: null,
+    geotech_assignment_source: null,
   }
 
   const sampleB: SampleResponse = {
@@ -111,6 +114,9 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
     caco3_content_tests: [],
     organic_content_tests: [],
     water_content_tests: [],
+    geotech_body_id: null,
+    geotech_nad_class: null,
+    geotech_assignment_source: null,
     scalar_lab_tests: [
       {
         id: 'sl-B',

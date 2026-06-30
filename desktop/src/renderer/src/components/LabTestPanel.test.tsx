@@ -30,6 +30,9 @@ function makeSample(overrides: Partial<SampleResponse> = {}): SampleResponse {
     organic_content_tests: [],
     water_content_tests: [],
     scalar_lab_tests: [],
+    geotech_body_id: null,
+    geotech_nad_class: null,
+    geotech_assignment_source: null,
     ...overrides,
   }
 }
