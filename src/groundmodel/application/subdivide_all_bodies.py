@@ -402,6 +402,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         split_body_count = 0
         one_class_body_count = 0
         borehole_only_count = 0
+        # Materialise-phase counters (L6).
+        cpt_band_count = 0
+        skeleton_band_count = 0
+        skipped_empty_plan_count = 0
 
         for group_idx, (group_key, group_segs) in enumerate(groups.items()):
             body_id_str, source_geo_fid = group_key
@@ -435,11 +439,19 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             for seg in cpt_segs:
                 series = cpt_series.get(UUID(seg.investigation_id))
                 if series is None:
+                    self.debug(
+                        f"SubdivideAllBodies: inv={seg.investigation_id} seg_top={seg.top_depth_m:.2f}m "
+                        f"→ skeleton band (no qc series row in DB)"
+                    )
                     bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
                     profiles.append(bp)
                     profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
                     continue
                 if soil_code is None or soil_code not in BASE_LITHOLOGIES:
+                    self.debug(
+                        f"SubdivideAllBodies: inv={seg.investigation_id} seg_top={seg.top_depth_m:.2f}m "
+                        f"→ skeleton band (soil_code={soil_code!r} not in BASE_LITHOLOGIES)"
+                    )
                     bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
                     profiles.append(bp)
                     profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
@@ -490,6 +502,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             # the final body membership.
             for col_plan in cpt_column_plans:
                 if not col_plan.sub_intervals:
+                    skipped_empty_plan_count += 1
                     continue
                 inv_id = col_plan.investigation_id
                 inv_uuid = UUID(inv_id)
@@ -498,6 +511,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     nad_class = col_plan.nad_classes[k] if k < len(col_plan.nad_classes) else None
                     if nad_class is None:
                         # CPT with no usable qc — one skeleton band.
+                        skeleton_band_count += 1
                         formation = await self._find_or_create_skeleton(
                             project_id=project_id,
                             skeleton_by_key=skeleton_by_key,
@@ -505,6 +519,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                             source_geo_formation_id=source_geo_fid,
                         )
                     else:
+                        cpt_band_count += 1
                         formation = await self._find_or_create_formation(
                             project_id=project_id,
                             classified_by_key=classified_by_key,
@@ -533,6 +548,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     total_layers += 1
 
             await self._session.flush()
+
+        # Phase 8 summary — materialise totals across all groups.
+        self.info(
+            f"SubdivideAllBodies: Phase-8 CPT materialise complete — "
+            f"cpt_bands={cpt_band_count} skeleton_bands={skeleton_band_count} "
+            f"skipped_empty_plan={skipped_empty_plan_count}"
+        )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
         sections = await self._load_project_sections(project_id)
@@ -599,7 +621,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"layers={total_layers} bodies={body_count} "
             f"split={split_body_count} one_class={one_class_body_count} "
             f"borehole_only={borehole_only_count} "
-            f"sections={len(sections)} elapsed={elapsed:.1f}s"
+            f"sections_with_edges={sections_with_edges}/{len(sections)} "
+            f"elapsed={elapsed:.1f}s"
         )
         return result
 
@@ -814,6 +837,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         edge_count = 0
         skipped_no_litho_depth = 0
         skipped_no_lcs = 0
+        skipped_empty_stack = 0
 
         for litho_a_id, litho_b_id in litho_approved_edges:
             entry_a = litho_layer_depths.get(litho_a_id)
@@ -850,8 +874,18 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     self.debug(
                         f"_derive_geotech_edges_from_litho: litho_edge "
                         f"{litho_a_id}↔{litho_b_id} "
+                        f"inv_a={inv_a_str} inv_b={inv_b_str} "
                         f"left_classes={left_classes} right_classes={right_classes} "
                         f"→ no LCS (disjoint classes — engineer connects manually)"
+                    )
+                else:
+                    skipped_empty_stack += 1
+                    self.debug(
+                        f"_derive_geotech_edges_from_litho: litho_edge "
+                        f"{litho_a_id}↔{litho_b_id} "
+                        f"inv_a={inv_a_str} inv_b={inv_b_str} "
+                        f"left_bands={len(left_stack)} right_bands={len(right_stack)} "
+                        f"→ skipped (empty geotech stack — run SubdivideAllBodies first?)"
                     )
                 continue
 
@@ -910,7 +944,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"{edge_count} geotech edge(s) emitted from "
             f"{len(litho_approved_edges)} litho edge(s) "
             f"(skipped_no_depth={skipped_no_litho_depth}, "
-            f"skipped_no_lcs={skipped_no_lcs})"
+            f"skipped_no_lcs={skipped_no_lcs}, "
+            f"skipped_empty_stack={skipped_empty_stack})"
         )
 
     # ------------------------------------------------------------------
