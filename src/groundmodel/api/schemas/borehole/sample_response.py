@@ -49,6 +49,12 @@ class SampleResponse(BaseModel):
     composition: str | None
     instrument: str | None
     sampling_date: date | None
+    # Geotech provenance — populated by Task 1 (AssignGeotechBodiesToSamples).
+    # All three default to None so existing bundles deserialise without change.
+    geotech_body_id: UUID | None = None
+    geotech_nad_class: int | None = None
+    # "cpt_interpolated" | "body_min" | "absolute_min" | "unresolved"
+    geotech_assignment_source: str | None = None
     grain_sizes: list[GrainSizeResponse]
     atterberg_limits_tests: list[AtterbergLimitsResponse]
     caco3_content_tests: list[CaCO3ContentResponse]
