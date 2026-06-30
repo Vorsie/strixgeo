@@ -64,6 +64,10 @@ from uuid6 import uuid7
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.domain.services.assign_borehole_band_body import (
+    CptBandRef,
+    assign_borehole_band_body,
+)
 from groundmodel.domain.services.assign_sample_to_band import Band, assign_sample_to_band
 from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
@@ -256,6 +260,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         anchor_kind = await self._resolve_anchor_kinds(all_inv_ids)
 
         # Phase 6 — load all CPT geotech layers from the geotech model.
+        # body_id is included so each CPT band's geotech connected-component
+        # identity is available for borehole band assignment (Task B).  SAB
+        # runs ResolveLithoInstances (Phase 10) before committing, so every
+        # CPT band already has its body_id stamped when DivideBoreholes reads it.
         cpt_layer_rows = (
             await self._session.execute(
                 select(
@@ -265,6 +273,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     LithoLayerOrm.id,
                     LithoLayerOrm.formation_id,
                     GeologicalFormationOrm.nad_class,
+                    LithoLayerOrm.body_id,
                 )
                 .join(
                     GeologicalFormationOrm,
@@ -280,17 +289,27 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         self.info(f"DivideBoreholes: {len(cpt_layer_rows)} CPT geotech layer(s) found in model")
 
         # geotech_layer_by_inv_depth: ALL geotech layers for every CPT across
-        # ALL body groups.  The litho-confined filter (see
+        # ALL body groups.  6-tuple: (top, base, layer_id, formation_id,
+        # nad_class, geotech_body_id).  The litho-confined filter (see
         # _materialise_borehole_bands_litho_confined) restricts each CPT's
         # contribution to the depth range of the CPT's litho-body extent for
-        # the current group.
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = (
-            defaultdict(list)
-        )
+        # the current group.  geotech_body_id is the resolver-stamped body_id
+        # from SAB, used by assign_borehole_band_body to pick the correct
+        # geotech body for each borehole fill band.
+        geotech_layer_by_inv_depth: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ] = defaultdict(list)
         for row in cpt_layer_rows:
             inv_str = str(row.cpt_id)
             geotech_layer_by_inv_depth[inv_str].append(
-                (row.depth_top_m, row.depth_base_m, row.id, row.formation_id, row.nad_class)
+                (
+                    row.depth_top_m,
+                    row.depth_base_m,
+                    row.id,
+                    row.formation_id,
+                    row.nad_class,
+                    row.body_id,
+                )
             )
 
         # CPT XY lookup — needed to build ColumnXY for TIN interpolation.
@@ -388,7 +407,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 if geo_base <= geo_top:
                     continue
 
-                n_bands, fill_band_list = await self._materialise_borehole_bands_litho_confined(
+                (
+                    n_bands,
+                    fill_band_list,
+                    fill_band_body_ids,
+                ) = await self._materialise_borehole_bands_litho_confined(
                     project_id=project_id,
                     geotech_model_id=geotech_model.id,
                     inv_id=inv_id,
@@ -414,15 +437,17 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 else:
                     single_band_borehole_count += 1
                 # Accumulate Band objects for Phase 9 (sample assignment).
-                # body_id_str comes from the group key and is the resolver's
-                # connected-component id; it is the same for all bands in one
-                # litho-body extent on this borehole.
-                for fb in fill_band_list:
+                # fill_band_body_ids[k] is the GEOTECH packing body_id for
+                # fill_band_list[k] — the resolver-connected body the borehole
+                # band joins, determined by nearest-same-class CPT proximity.
+                # None when the band is a body_min/absolute_min fallback with
+                # no same-class CPT evidence in the group.
+                for fb, geotech_body_id in zip(fill_band_list, fill_band_body_ids):
                     borehole_fill_bands[inv_id].append(
                         Band(
                             top=fb.top,
                             base=fb.base,
-                            body_id=body_id_str,
+                            body_id=str(geotech_body_id) if geotech_body_id is not None else None,
                             nad_class=fb.nad_class,
                             source=fb.source,
                         )
@@ -518,9 +543,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
         skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
         created_formation_ids: list[UUID],
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
+        geotech_layer_by_inv_depth: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ],
         cpt_xy: dict[UUID, tuple[float, float, float]],
-    ) -> tuple[int, list[FillBand]]:
+    ) -> tuple[int, list[FillBand], list[UUID | None]]:
         """Fill one borehole's litho-body extent with litho-confined CPT packing.
 
         For each CPT segment in the body group, restricts the CPT's geotech
@@ -573,11 +600,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         Returns
         -------
-        tuple[int, list[FillBand]]
-            ``(count, fill_bands)`` — count of ``LithoLayerOrm`` rows inserted
-            and the corresponding ``FillBand`` objects (the caller builds
-            ``assign_sample_to_band.Band`` objects from these for the Phase 9
-            sample assignment).
+        tuple[int, list[FillBand], list[UUID | None]]
+            ``(count, fill_bands, fill_band_body_ids)`` — count of
+            ``LithoLayerOrm`` rows inserted, the corresponding ``FillBand``
+            objects (the caller builds ``assign_sample_to_band.Band`` objects
+            from these for the Phase 9 sample assignment), and the per-band
+            geotech body_id list (parallel to ``fill_bands``; ``None`` for
+            conservative fallback bands with no same-class CPT evidence).
         """
         bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
 
@@ -588,8 +617,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # KLEI 4–8 m contributes its geotech bands for ZAND [0,4] only (not
         # the KLEI ones) when the body group is the ZAND body.
         # -------------------------------------------------------------------
-        # filtered_cpt_layers: inv_id_str -> list[(top, base, lid, fid, nc)]
-        filtered_cpt_layers: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = {}
+        # filtered_cpt_layers: inv_id_str -> list[(top, base, lid, fid, nc, body_id)]
+        filtered_cpt_layers: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ] = {}
         for cpt_seg in cpt_segs:
             cpt_inv = cpt_seg.investigation_id
             seg_top = cpt_seg.top_depth_m
@@ -622,7 +653,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 continue
             x_m, y_m, surface_elev = cpt_xy.get(UUID(cpt_inv), (0.0, 0.0, 0.0))
             col_xy = ColumnXY(investigation_id=cpt_inv, x_m=x_m, y_m=y_m)
-            for k, (top_m, base_m, _lid, _fid, _nc) in enumerate(layers_for_inv):
+            for k, (top_m, base_m, _lid, _fid, _nc, _bid) in enumerate(layers_for_inv):
                 if k < len(layers_for_inv) - 1:
                     base_elev = surface_elev - base_m
                     while len(transition_surfaces) <= k:
@@ -673,7 +704,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             mid = (band_top + band_base) / 2.0
             counts: dict[int, int] = {}
             for layers in filtered_cpt_layers.values():
-                for t, b, _lid, _fid, nc in layers:
+                for t, b, _lid, _fid, nc, _bid in layers:
                     if t <= mid <= b and nc is not None:
                         counts[nc] = counts.get(nc, 0) + 1
             if not counts:
@@ -693,7 +724,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         all_classes = [
             nc
             for layers in filtered_cpt_layers.values()
-            for (_t, _b, _lid, _fid, nc) in layers
+            for (_t, _b, _lid, _fid, nc, _bid) in layers
             if nc is not None
         ]
         body_min_class: int | None = min(all_classes) if all_classes else None
@@ -717,10 +748,27 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         # -------------------------------------------------------------------
+        # Step 6.5: build CptBandRef list for geotech body_id assignment.
+        # One entry per (CPT, band) pair in filtered_cpt_layers — the resolver
+        # already stamped body_id on each CPT geotech layer during SAB Phase 10
+        # (ResolveLithoInstances), so the 6th tuple element carries it.
+        # -------------------------------------------------------------------
+        cpt_band_refs: list[CptBandRef] = []
+        for cpt_inv_str, layers in filtered_cpt_layers.items():
+            cpt_inv_uuid = UUID(cpt_inv_str)
+            x_m, y_m, _surf = cpt_xy.get(cpt_inv_uuid, (0.0, 0.0, 0.0))
+            for _t, _b, _lid, _fid, nc, bid in layers:
+                if nc is not None:
+                    cpt_band_refs.append(
+                        CptBandRef(cpt_x=x_m, cpt_y=y_m, nad_class=nc, body_id=bid)
+                    )
+
+        # -------------------------------------------------------------------
         # Step 7: persist each FillBand as a LithoLayerOrm row.
         # Confidence: cpt_interpolated → high; body_min / absolute_min → low
         # (see _BOREHOLE_CONFIDENCE_MAP at module level).
         # -------------------------------------------------------------------
+        fill_band_body_ids: list[UUID | None] = []
         inserted = 0
         for fb in fill_bands:
             # All FillBand.nad_class values are concrete (no None) — the
@@ -737,6 +785,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 source_litho_formation_id=source_litho_formation_id,
                 source_geo_formation_id=source_geo_formation_id,
             )
+            # Assign the geotech packing body_id: nearest same-class CPT in
+            # the group.  None for conservative fallbacks that have no
+            # same-class CPT evidence (body_min / absolute_min).
+            geotech_body_id = assign_borehole_band_body(
+                band_nad_class=nad_class,
+                borehole_x=bh_x,
+                borehole_y=bh_y,
+                cpt_bands_in_group=cpt_band_refs,
+            )
             layer = LithoLayerOrm(
                 id=uuid7(),
                 model_id=geotech_model_id,
@@ -747,10 +804,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 source="segmenter",
                 confidence=_BOREHOLE_CONFIDENCE_MAP.get(fb.source, "low"),
                 borehole_id=inv_uuid,
+                body_id=geotech_body_id,
             )
             self._session.add(layer)
+            fill_band_body_ids.append(geotech_body_id)
             geotech_layer_by_inv_depth[inv_id].append(
-                (fb.top, fb.base, layer.id, formation.id, nad_class)
+                (fb.top, fb.base, layer.id, formation.id, nad_class, geotech_body_id)
             )
             inserted += 1
 
@@ -767,4 +826,4 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 f"(no same-lithology CPT data)"
             )
 
-        return inserted, fill_bands
+        return inserted, fill_bands, fill_band_body_ids
