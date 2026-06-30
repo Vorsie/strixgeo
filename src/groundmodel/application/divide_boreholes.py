@@ -472,6 +472,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
 
             assigned = 0
+            fallback_no_body = 0  # matched a band, but body_id None (no same-class CPT)
             unresolved = 0
             total = len(sample_rows)
             for i, sample in enumerate(sample_rows, 1):
@@ -485,20 +486,25 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 sample.geotech_body_id = UUID(body_id) if body_id else None
                 sample.geotech_nad_class = nad_class
                 sample.geotech_assignment_source = source
-                if body_id is not None:
+                # source != "unresolved" means a band WAS matched (nad_class +
+                # source persisted), even when body_id is None for a conservative
+                # body_min / absolute_min fallback band — those are not failures.
+                if source != "unresolved":
                     assigned += 1
+                    if body_id is None:
+                        fallback_no_body += 1
                 else:
                     unresolved += 1
-                    # A sample whose midpoint fell in no band (e.g. outside every
-                    # litho-body extent on its borehole) — log which one + the
-                    # band count so the gap is diagnosable without a re-run.
+                    # Midpoint fell outside every litho-body extent on this
+                    # borehole — log it so the gap is diagnosable without a re-run.
                     self.debug(
                         f"[{i}/{total}] sample {sample.id} "
                         f"depth=[{sample.depth_top_m},{sample.depth_base_m}]: "
                         f"unresolved (borehole has {len(bands_for_bh)} band(s))"
                     )
             self.info(
-                f"DivideBoreholes: sample assignment assigned={assigned} unresolved={unresolved}"
+                f"DivideBoreholes: sample assignment assigned={assigned} "
+                f"(fallback_no_body={fallback_no_body}) unresolved={unresolved}"
             )
 
         await self._session.flush()
