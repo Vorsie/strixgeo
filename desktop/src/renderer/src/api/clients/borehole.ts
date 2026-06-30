@@ -167,6 +167,12 @@ export interface SampleResponse {
   composition: string | null
   instrument: string | null
   sampling_date: string | null
+  // Geotech provenance — null when not yet subdivided or borehole has no
+  // CPT within the body corridor.
+  geotech_body_id: string | null
+  geotech_nad_class: number | null
+  /** "cpt_interpolated" | "body_min" | "absolute_min" | "unresolved" | null */
+  geotech_assignment_source: string | null
   grain_sizes: GrainSizeResponse[]
   atterberg_limits_tests: AtterbergLimitsResponse[]
   caco3_content_tests: CaCO3ContentResponse[]
