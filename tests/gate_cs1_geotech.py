@@ -98,7 +98,19 @@ def _load() -> dict[str, Any]:
         Parsed gate JSON with ``meta``, ``bands``, ``litho_bh_bands``, and
         ``samples`` keys.
     """
-    return json.loads(_INPUT.read_text())
+    data = json.loads(_INPUT.read_text())
+    # Guard against a vacuous pass: an empty extract (geotech model not
+    # materialised, or a stale/blank JSON) would make every "== 0 violations"
+    # assertion trivially true. Require real CS1 content.
+    assert data.get("bands"), (
+        "Gate input has no bands — regenerate it before trusting the gate: "
+        "uv run python scripts/rematerialise_dev_geotech.py "
+        "then uv run python scripts/throwaway_cs1_geotech_gate_extract.py"
+    )
+    assert data.get("samples"), (
+        "Gate input has no samples — regenerate it (see the bands message above)."
+    )
+    return data
 
 
 def _nad_family(nad_class: int | None) -> str | None:
