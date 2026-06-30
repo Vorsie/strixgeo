@@ -75,9 +75,13 @@ class SampleOrm(Base):
     sampling_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Geotech assignment — written by DivideBoreholes (Task 4).
-    # NOT a hard FK: body_id is a resolver connected-component value that
-    # lives in application memory and on LithoLayerOrm rows; there is no
-    # dedicated "geotech_body" table to reference.
+    # Stores the LITHO resolver connected-component body_id (the same value as
+    # LithoLayerOrm.body_id for the enclosing litho body). Geotech borehole
+    # layers carry body_id=None in the geotech model, so the litho body_id is
+    # the stable group key linking a sample to its body; geotech_nad_class below
+    # carries the packing class within that body.
+    # NOT a hard FK: there is no dedicated body table; the id is a resolver
+    # in-memory construct also persisted on LithoLayerOrm rows.
     geotech_body_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         nullable=True,
