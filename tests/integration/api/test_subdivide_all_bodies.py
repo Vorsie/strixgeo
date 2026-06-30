@@ -2764,7 +2764,8 @@ async def test_sab_bh1_tin_geometric_division(
 
     BH1-0  After SAB alone, BH-S has 0 geotech layers.
     BH1-1  After DivideBoreholes, BH-S has exactly 2 accepted geotech layers.
-    BH1-2  Borehole layers have body_id=None (DivideBoreholes skips the resolver).
+    BH1-2  Borehole layers inherit the nearest same-class CPT's geotech body_id
+           (Task B); a no-same-class-CPT fallback band stays None.
     BH1-3  The split depth on BH-S lies between 3.5 m and 5.5 m — within ±1 m
            of the expected TIN interpolation (~4.5 m, mean of CPT splits).
     BH1-4  Tiling invariant: BH-S's two layers tile 0–8 m continuously (no gap
@@ -2828,12 +2829,37 @@ async def test_sab_bh1_tin_geometric_division(
         f"{[(ll.depth_top_m, ll.depth_base_m) for ll in bh_layers_sorted]}"
     )
 
-    # BH1-2: body_id is None — DivideBoreholes does not run the resolver.
-    for ll in bh_layers_sorted:
-        assert ll.body_id is None, (
-            f"BH1-2: BH-S geotech layer at [{ll.depth_top_m:.2f}, {ll.depth_base_m:.2f}] "
-            f"has body_id={ll.body_id} — DivideBoreholes must not assign body_id"
+    # BH1-2: borehole geotech layers inherit the nearest same-class CPT's
+    # geotech body_id (Task B — DivideBoreholes stamps body_id via
+    # assign_borehole_band_body, so a sample in the band resolves to the TRUE
+    # geotech packing body, not the litho stand-in). A band with no same-class
+    # CPT (a body_min / absolute_min fallback) keeps body_id=None.
+    cpt_body_ids = {
+        ll.body_id
+        for ll in (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id.isnot(None),
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
         )
+        .scalars()
+        .all()
+        if ll.body_id is not None
+    }
+    assert any(ll.body_id is not None for ll in bh_layers_sorted), (
+        "BH1-2: at least one BH-S geotech layer must inherit a CPT geotech "
+        "body_id (Task B); all were None"
+    )
+    for ll in bh_layers_sorted:
+        if ll.body_id is not None:
+            assert ll.body_id in cpt_body_ids, (
+                f"BH1-2: BH-S geotech layer at [{ll.depth_top_m:.2f}, {ll.depth_base_m:.2f}] "
+                f"has body_id={ll.body_id} not matching any CPT geotech body — it must "
+                "inherit the nearest same-class CPT's geotech body"
+            )
 
     # BH1-3: split depth lies between 3.5 m and 5.5 m.
     # CPT-S1 splits at 4.0 m (elev 1.0 m), CPT-S2 at 5.0 m (elev 0.0 m).
@@ -3265,16 +3291,30 @@ async def sab_lcs_scene(
     # Accept one ZAND litho layer 0-8 m on each CPT, then correlate them
     # so they land in the same litho body after the resolver.
     cg_id = await _accept_cpt_litho(
-        async_client, pid, litho_model_id,
-        cpt_id=str(cpt_g.id), top=0.0, base=8.0, soil="ZAND",
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_g.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
     )
     ch_id = await _accept_cpt_litho(
-        async_client, pid, litho_model_id,
-        cpt_id=str(cpt_h.id), top=0.0, base=8.0, soil="ZAND",
+        async_client,
+        pid,
+        litho_model_id,
+        cpt_id=str(cpt_h.id),
+        top=0.0,
+        base=8.0,
+        soil="ZAND",
     )
     await _correlate(
-        async_client, pid, litho_model_id,
-        contact_a=cg_id, contact_b=ch_id, section_id=section_id,
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=cg_id,
+        contact_b=ch_id,
+        section_id=section_id,
     )
 
     return {
@@ -3374,12 +3414,10 @@ async def test_sab_lcs_connectivity(
 
     # LCS-1c: CPT-G and CPT-H share at least one geotech body_id.
     g_body_ids = {
-        layer.body_id for layer in geotech_layers
-        if layer.cpt_id == cpt_g_uuid and layer.body_id
+        layer.body_id for layer in geotech_layers if layer.cpt_id == cpt_g_uuid and layer.body_id
     }
     h_body_ids = {
-        layer.body_id for layer in geotech_layers
-        if layer.cpt_id == cpt_h_uuid and layer.body_id
+        layer.body_id for layer in geotech_layers if layer.cpt_id == cpt_h_uuid and layer.body_id
     }
     shared_bodies = g_body_ids & h_body_ids
     assert len(shared_bodies) >= 1, (
