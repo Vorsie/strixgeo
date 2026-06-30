@@ -64,7 +64,7 @@ import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
-import { nadClassColor, nadClassName } from '../../utils/nadClasses'
+import { nadClassColor, nadClassName, nadCompactFromName } from '../../utils/nadClasses'
 import {
   clamp,
   columnUnderCursor,
@@ -3067,7 +3067,15 @@ export default function ContactsLayer({
         }
         const showLabel = labelPieceHeight >= LAYER_LABEL_MIN_HEIGHT_PX
         const labelWidth = layer.segRightX - layer.segLeftX
-        const display = showLabel ? truncateToWidth(layer.formationName, labelWidth) : ''
+        // Geotech axis: show the COMPACT "SAND·MD" form so a litho unit's packing
+        // sub-bands stay distinguishable in a narrow column (the full
+        // "SAND, medium dense" truncates to "SAND", leaving only colour shade to
+        // tell loose/medium/dense apart). The <title> tooltip keeps the full name.
+        const labelText =
+          axisMode === 'geotechnical'
+            ? nadCompactFromName(layer.formationName)
+            : layer.formationName
+        const display = showLabel ? truncateToWidth(labelText, labelWidth) : ''
         const isDragged = drag !== null && drag.contactId === layer.contactId
         const isSelected = selection.has(layer.contactId)
         const isFocused = focusedContactIds?.has(layer.contactId) ?? false
