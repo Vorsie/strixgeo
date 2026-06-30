@@ -222,7 +222,13 @@ class ImportCptDov(GroundModelLogger):
                 f"per-item ERROR lines above carry the cause"
             )
         if total == 0:
-            self.info("DOV import: no CPTs found in bbox — nothing to persist")
+            if download_failed > 0:
+                self.info(
+                    f"DOV import: 0 CPTs survived download/parse "
+                    f"({download_failed} of {len(index)} lost) — nothing to persist"
+                )
+            else:
+                self.info("DOV import: no CPTs found in bbox — nothing to persist")
             return ImportCptDovResult(imported=0, duplicates=0, failed=download_failed, cpt_ids=[])
 
         # Per-CPT failures during download/parse are captured in download_failed above.
