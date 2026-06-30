@@ -7,9 +7,10 @@ of truth for the unit + the casting (perf_counter returns float seconds, the
 log format is integer milliseconds).
 
 The ``phase_timer`` context manager provides a higher-level bracket:
-``with phase_timer(self, "label voxels")`` logs an INFO line on exit
-(``"label voxels [2.3s]"``), matching the convention that each build phase
-records its own wall-clock so a hung Build is diagnosable without a profiler.
+``with phase_timer(self, "label voxels")`` logs an INFO line on clean exit
+(``"label voxels [2.3s]"``) or a WARNING line on exception exit
+(``"label voxels FAILED [1.2s]"``), re-raising the exception either way.
+This makes a crashing phase diagnosable from the log without a re-run.
 """
 
 from __future__ import annotations
@@ -21,10 +22,14 @@ from typing import Protocol
 
 
 class _InfoLogger(Protocol):
-    """Minimal structural protocol for a logger: any object with ``info``."""
+    """Minimal structural protocol for a logger: ``info`` + ``warning``."""
 
     def info(self, msg: str) -> None:
         """Log an informational message."""
+        ...
+
+    def warning(self, msg: str) -> None:
+        """Log a warning-level message (used when a phase fails)."""
         ...
 
 
@@ -79,15 +84,28 @@ def phase_timer(logger: _InfoLogger, label: str) -> Generator[None, None, None]:
     ------
     None
 
+    On exception the block logs ``WARNING "<label> FAILED [<elapsed>s]"`` and
+    re-raises.  On clean exit it logs ``INFO "<label> [<elapsed>s]"``.  The two
+    paths are distinguishable so a hung or crashing phase is diagnosable from
+    the log without a re-run.
+
     Examples
     --------
     >>> with phase_timer(self, "phase-2 label_voxels"):
     ...     grid = label_voxels(domain, grid_spacing_m, sections)
     # → INFO "phase-2 label_voxels [38.6s]"
+    # (on exception) → WARNING "phase-2 label_voxels FAILED [1.2s]"
     """
     t0 = time.perf_counter()
+    _raised = False
     try:
         yield
+    except BaseException:
+        _raised = True
+        raise
     finally:
         elapsed = time.perf_counter() - t0
-        logger.info(f"{label} [{elapsed:.1f}s]")
+        if _raised:
+            logger.warning(f"{label} FAILED [{elapsed:.1f}s]")
+        else:
+            logger.info(f"{label} [{elapsed:.1f}s]")
