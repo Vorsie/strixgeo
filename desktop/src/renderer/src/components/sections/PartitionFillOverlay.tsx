@@ -142,6 +142,13 @@ export interface Props {
    * is always display-only (root is ``pointer-events: none``).
    */
   correlateMode?: boolean
+  /**
+   * When set, non-matching regions fade to 0.25 opacity; the selected body
+   * renders at its natural opacity.  Implements S1 (band fill highlights on
+   * sample selection — the "soft coupling, demote never remove" precedent).
+   * Absent or null → no fade (normal render).
+   */
+  selectedBodyId?: string | null
 }
 
 const FILL_OPACITY = 0.62
@@ -526,6 +533,7 @@ export default function PartitionFillOverlay({
   bodies,
   onBodyContextMenu,
   correlateMode = false,
+  selectedBodyId,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -1169,7 +1177,7 @@ export default function PartitionFillOverlay({
   // them contiguously from TD downward — closing any vertical gap (a lens spot) by
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
-    type Fill = { key: string; points: string; color: string }
+    type Fill = { key: string; points: string; color: string; formationId: string }
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
@@ -1197,7 +1205,7 @@ export default function PartitionFillOverlay({
           `L ${rightX.toFixed(2)},${yTR.toFixed(2)} ` +
           `L ${rightX.toFixed(2)},${yBR.toFixed(2)} ` +
           `L ${leftX.toFixed(2)},${yBL.toFixed(2)} Z`
-        out.push({ key: `uc-${f.columnIndex}-${qi}`, points, color })
+        out.push({ key: `uc-${f.columnIndex}-${qi}`, points, color, formationId: q.formationId })
       }
     }
     return out
@@ -1554,24 +1562,45 @@ export default function PartitionFillOverlay({
           test's column strip paints OVER that column's under-column matrix sliver
           instead of being hidden by it. For non-overlapping columns the two groups
           occupy disjoint x-ranges, so the order is visually inert there. */}
-      {underColumnFills.map((f) => (
-        <path
-          key={f.key}
-          data-testid="partition-undercol"
-          d={f.points}
-          fill={f.color}
-          fillOpacity={FILL_OPACITY}
-          stroke={f.color}
-          strokeOpacity={STROKE_OPACITY}
-          strokeWidth={0.5}
-        />
-      ))}
+      {/* S1: when a geotech body is selected via a sample dot, derive the
+          matching formationId from screenRegions so under-column fills (which
+          carry formationId but not bodyId) can fade non-matching bodies too. */}
+      {(() => {
+        const selFormId = selectedBodyId
+          ? (screenRegions.find(sr => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
+          : null
+        return underColumnFills.map((f) => {
+          // Fade non-matching under-column fills when a body is selected.
+          const ucOpacity = (selectedBodyId && selFormId !== null && f.formationId !== selFormId)
+            ? 0.25
+            : FILL_OPACITY
+          return (
+            <path
+              key={f.key}
+              data-testid="partition-undercol"
+              d={f.points}
+              fill={f.color}
+              fillOpacity={ucOpacity}
+              stroke={f.color}
+              strokeOpacity={ucOpacity * STROKE_OPACITY}
+              strokeWidth={0.5}
+            />
+          )
+        })
+      })()}
 
       {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
         const interactive = Boolean(onBodyContextMenu && body)
+        // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
+        // when a body is selected; the selected body renders at natural opacity
+        // ("demote, never remove" precedent — the fill stays visible, just dimmed).
+        const naturalOpacity = sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY
+        const regionOpacity = (selectedBodyId && sr.region.bodyId !== selectedBodyId)
+          ? 0.25
+          : naturalOpacity
         return (
           <path
             key={`pf-${i}`}
@@ -1582,7 +1611,7 @@ export default function PartitionFillOverlay({
             // solid so it reads as a unit cut out of the continuous matrix. Same
             // convention on both axes — the geotech bodies connect now (backend
             // Tasks 1+2), so no axis-specific opacity override is needed.
-            fillOpacity={sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY}
+            fillOpacity={regionOpacity}
             stroke={color}
             strokeOpacity={STROKE_OPACITY}
             strokeWidth={0.75}
