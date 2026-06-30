@@ -32,17 +32,8 @@ def test_real_case_mismatched_packing_sequences():
     right = [("RB0", 6), ("RB1", 8), ("RB2", 5)]
     pairs = aligned_same_class_pairs(left, right)
     assert len(pairs) == 2, f"Expected 2 LCS pairs, got {len(pairs)}: {pairs}"
-    # Both pairs must be same-class (6↔6 and 8↔8, never 6↔8 or 7↔5).
-    assert all(
-        any(
-            lid == lid_r
-            for lid_r, _ in right
-            if _r == left[i][1]
-            for i, (lid, _) in enumerate(left)
-        )
-        for _ in pairs  # structural: just checking count + ordering below
-    )
     # Verify the matched classes are [6, 8] in order (LCS = [6, 8]).
+    # This also confirms both pairs are same-class (6↔6 and 8↔8, never 6↔8).
     left_by_id = {lid: cls for lid, cls in left}
     right_by_id = {rid: cls for rid, cls in right}
     matched_classes = [(left_by_id[la], right_by_id[rb]) for la, rb in pairs]
