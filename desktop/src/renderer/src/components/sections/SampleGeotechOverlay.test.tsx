@@ -4,9 +4,10 @@
 // SGO2 — renders one dot per sample that has a geotech_body_id
 // SGO3 — skips samples whose geotech_body_id is null
 // SGO4 — skips columns not present in boreholeDetails
-// SGO5 — selected body id highlights the matching dot (amber fill)
+// SGO5 — selected body id highlights the matching dot (amber fill, larger r, amber stroke)
 // SGO6 — dots outside [plotTop, plotBottom] are clipped (not rendered)
-// SGO7 — clicking a dot calls toggleGeotechBodySelection with the body id
+// SGO7 — clicking the hit circle calls toggleGeotechBodySelection with the body id
+// SGO8 — pressing Enter on the hit circle calls toggleGeotechBodySelection (keyboard access)
 
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -203,7 +204,7 @@ describe('SampleGeotechOverlay', () => {
     expect(screen.queryByTestId(/^sample-dot-/)).toBeNull()
   })
 
-  it('SGO5 — selected body id gives the matching dot the amber fill colour', () => {
+  it('SGO5 — selected body id gives the matching dot amber fill, larger r, and amber stroke (B1)', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
     const sample = makeSample('s-1', 'body-selected')
     const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
@@ -213,8 +214,12 @@ describe('SampleGeotechOverlay', () => {
     renderOverlay([col], details)
 
     const dot = screen.getByTestId('sample-dot-s-1')
-    // The selected colour is amber-500 (#f59e0b).
-    expect(dot.getAttribute('fill')).toBe('#f59e0b')
+    // B1: amber fill (hue), larger r (size), amber stroke (third cue) — three
+    // orthogonal selection cues, not just colour.
+    expect(dot.getAttribute('fill')).toBe('#f59e0b')    // amber-500
+    expect(dot.getAttribute('r')).toBe('6')              // DOT_RADIUS(4) + 2
+    expect(dot.getAttribute('stroke')).toBe('#f59e0b')  // amber stroke
+    expect(dot.getAttribute('stroke-width')).toBe('2')
   })
 
   it('SGO6 — dots outside [plotTop, plotBottom] are not rendered', () => {
@@ -241,17 +246,34 @@ describe('SampleGeotechOverlay', () => {
     expect(screen.queryByTestId('sample-dot-s-clip')).toBeNull()
   })
 
-  it('SGO7 — clicking a dot fires toggleGeotechBodySelection with the body id', () => {
+  it('SGO7 — clicking the hit circle fires toggleGeotechBodySelection with the body id', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
     const sample = makeSample('s-1', 'body-click')
     const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
 
     renderOverlay([col], details)
 
-    const dot = screen.getByTestId('sample-dot-s-1')
-    fireEvent.click(dot)
+    // B3: the visible dot has pointer-events:none; the hit circle (sample-hit-*)
+    // is the interactive element and receives the click.
+    const hit = screen.getByTestId('sample-hit-s-1')
+    fireEvent.click(hit)
 
     expect(mockToggle).toHaveBeenCalledWith('body-click', 'cpt_interpolated')
+    expect(mockToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('SGO8 — pressing Enter on the hit circle fires toggleGeotechBodySelection (B4 keyboard access)', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const sample = makeSample('s-1', 'body-kb')
+    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
+
+    renderOverlay([col], details)
+
+    const hit = screen.getByTestId('sample-hit-s-1')
+    // role="button" + tabIndex=0 makes this accessible; Enter activates it.
+    fireEvent.keyDown(hit, { key: 'Enter' })
+
+    expect(mockToggle).toHaveBeenCalledWith('body-kb', 'cpt_interpolated')
     expect(mockToggle).toHaveBeenCalledTimes(1)
   })
 })
