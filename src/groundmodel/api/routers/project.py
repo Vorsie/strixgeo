@@ -266,6 +266,16 @@ async def restore_project(
     single "ensure exists" semantic regardless of how many rows we
     actually inserted.
     """
+    n_cpts = len(request.cpts) if request.cpts else 0
+    n_bh = len(request.boreholes) if request.boreholes else 0
+    n_formations = len(request.geological_formations) if request.geological_formations else 0
+    n_models = len(request.geological_models) if request.geological_models else 0
+    logger.info(
+        f"POST /projects/{project_id}/restore: format_version={request.format_version} "
+        f"replace={replace} cpts={n_cpts} boreholes={n_bh} "
+        f"formations={n_formations} models={n_models}"
+    )
+
     # Reject unsupported versions loudly. v1/v2 were dev-only; opening
     # one now means the file pre-dates the principle that decisions
     # live in the bundle, and silently materialising the partial state
@@ -273,6 +283,10 @@ async def restore_project(
     # will stay in SUPPORTED_BUNDLE_VERSIONS with an upgrade step
     # before reaching restore_project_bundle.
     if request.format_version not in SUPPORTED_BUNDLE_VERSIONS:
+        logger.warning(
+            f"POST /projects/{project_id}/restore: rejected — "
+            f"format_version={request.format_version} not in {sorted(SUPPORTED_BUNDLE_VERSIONS)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -308,12 +322,17 @@ async def restore_project(
         # replace-restore guard refuses to wipe the DB in this state —
         # the actionable error reaches the user instead of a silent
         # 833-layer wipe (2026-05-31 dogfeed).
+        logger.warning(f"POST /projects/{project_id}/restore: BundleIntegrityError — {err}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
         ) from err
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.
+        logger.warning(
+            f"POST /projects/{project_id}/restore: invalid bundle shape — "
+            f"{type(err).__name__}: {err}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid bundle payload: {err}",
@@ -354,6 +373,10 @@ async def restore_project(
 
     await session.commit()
     await session.refresh(project)
+    logger.info(
+        f"POST /projects/{project_id}/restore → ok: "
+        f"cpts={n_cpts} boreholes={n_bh} replace={replace}"
+    )
     return project
 
 

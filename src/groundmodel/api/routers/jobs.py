@@ -77,14 +77,22 @@ async def import_cpt_job(
     HTTPException(500)
         When the job fails during execution.
     """
-    suffix = Path(file.filename or "").suffix.lower()
+    filename = file.filename or ""
+    suffix = Path(filename).suffix.lower()
+    logger.info(f"POST /jobs/import-cpt: filename={filename!r} suffix={suffix!r}")
+
     if suffix not in {".gef"}:
+        logger.warning(
+            f"POST /jobs/import-cpt: rejected — unsupported extension {suffix!r} "
+            f"(filename={filename!r})"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported file type '{suffix}'. Supported: .gef",
         )
 
     content = await file.read()
+    logger.info(f"POST /jobs/import-cpt: read {len(content):,} bytes from {filename!r}")
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(content)
@@ -98,12 +106,19 @@ async def import_cpt_job(
         tmp_path.unlink(missing_ok=True)
 
     if job.status.value == "FAILED":
+        error_msg = job.result.get("error", "Job failed") if job.result else "Job failed"
+        logger.error(
+            f"POST /jobs/import-cpt: job {job.id} FAILED — {error_msg} (filename={filename!r})"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=job.result.get("error", "Job failed") if job.result else "Job failed",
+            detail=error_msg,
         )
 
     cpt_id = UUID(job.result["cpt_id"]) if job.result else None
+    logger.info(
+        f"POST /jobs/import-cpt: job {job.id} DONE → cpt_id={cpt_id} (filename={filename!r})"
+    )
     return ImportCptJobResponse(
         job_id=job.id,
         job_status=job.status.value,
