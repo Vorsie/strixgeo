@@ -41,11 +41,18 @@ const ASSIGNMENT_SOURCE_LABELS: Record<string, string> = {
   unresolved: 'Unresolved',
 }
 
-/** Tailwind classes for each aggregated confidence tier. */
+/**
+ * Tailwind classes for each aggregated confidence tier.
+ *
+ * B2 (WCAG): amber is reserved for unsaved-state markers (memory
+ * project_dirty_amber_color); red is reserved for errors. Use neutral slate for
+ * medium (attention without error connotation) and orange for low (attention
+ * without error connotation).
+ */
 const CONFIDENCE_BADGE_CLASS: Record<'low' | 'medium' | 'high', string> = {
   high: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  low: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  medium: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
+  low: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
 }
 
 /** Capitalised label for a confidence tier (for badge text). */
@@ -103,6 +110,11 @@ interface GeotechnicalUnitRowProps {
    * layers exist (no badge rendered).
    */
   confidenceLevel: 'low' | 'medium' | 'high' | null
+  /**
+   * Whether this row is the currently-selected body's formation (S2 — blue
+   * selection tint + ring so the roster highlights the selected body).
+   */
+  isSelected?: boolean
 }
 
 /**
@@ -129,6 +141,7 @@ function GeotechnicalUnitRow({
   f,
   geotechContacts,
   confidenceLevel,
+  isSelected = false,
 }: GeotechnicalUnitRowProps): JSX.Element {
   const contactCount = geotechContacts.filter(c => c.formation_id === f.id).length
   // Translate at the presentation boundary: nadClassName + nadClassColor
@@ -137,9 +150,14 @@ function GeotechnicalUnitRow({
   const label = nadClassName(f.nad_class)
   const nadLabel = f.nad_class !== null ? `NAD ${f.nad_class}` : undefined
 
+  // S2: blue tint + ring when this row's formation matches the selected body.
+  const selectedClass = isSelected
+    ? 'bg-blue-50 ring-1 ring-blue-400 dark:bg-blue-900/20 dark:ring-blue-500'
+    : ''
+
   return (
     <li
-      className="flex items-center gap-2 px-1 py-0.5 rounded text-xs text-text-primary"
+      className={`flex items-center gap-2 px-1 py-0.5 rounded text-xs text-text-primary ${selectedClass}`}
       data-testid={`geotech-unit-row-${f.id}`}
     >
       {/* NAD class colour swatch — nadClassColor(nad_class), NOT f.color.
@@ -208,6 +226,11 @@ interface GeotechnicalUnitRosterProps {
   geotechContacts: readonly FormationContactResponse[]
   /** All geotech layers — used to aggregate per-formation confidence. */
   geotechLayers: readonly LithoLayerResponse[]
+  /**
+   * Formation id of the body currently selected via the sample dot (S2).
+   * When set, the matching row receives a blue selection tint + ring.
+   */
+  selectedFormationId?: string | null
 }
 
 /**
@@ -232,6 +255,7 @@ function GeotechnicalUnitRoster({
   geotechFormations,
   geotechContacts,
   geotechLayers,
+  selectedFormationId,
 }: GeotechnicalUnitRosterProps): JSX.Element {
   // Sort ascending by display_order (superposition convention, oldest first),
   // then by nad_class ascending as a stable tiebreaker.
@@ -251,6 +275,7 @@ function GeotechnicalUnitRoster({
           f={f}
           geotechContacts={geotechContacts}
           confidenceLevel={aggregateConfidence(geotechLayers, f.id)}
+          isSelected={selectedFormationId !== undefined && selectedFormationId !== null && f.id === selectedFormationId}
         />
       ))}
     </ul>
@@ -284,6 +309,15 @@ export default function GeotechnicalInspector(): JSX.Element {
   // Reactive: re-renders when the engineer clicks a sample dot.
   const bodySelection = useGeotechBodySelection()
 
+  // S2: derive the formation for the selected body so the inspector can name it
+  // and highlight its roster row.
+  const selectedLayer = bodySelection !== null
+    ? geotechLayers.find(l => l.body_id === bodySelection.bodyId) ?? null
+    : null
+  const selectedFormation = selectedLayer !== null
+    ? geotechFormations.find(f => f.id === selectedLayer.formation_id) ?? null
+    : null
+
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="text-xs font-semibold text-text-primary">Geotech units</div>
@@ -300,6 +334,7 @@ export default function GeotechnicalInspector(): JSX.Element {
           geotechFormations={geotechFormations}
           geotechContacts={geotechContacts}
           geotechLayers={geotechLayers}
+          selectedFormationId={selectedFormation?.id ?? null}
         />
       )}
 
@@ -312,13 +347,34 @@ export default function GeotechnicalInspector(): JSX.Element {
           data-testid="geotech-sample-source"
         >
           <span className="font-semibold text-text-primary">Selected body</span>
+
+          {/* S2: show packing-class name + NAD number for the selected body so the
+              inspector identifies the unit by name, not just by dot position. */}
+          {selectedFormation !== null && (
+            <div
+              className="mt-0.5 font-medium text-text-secondary"
+              data-testid="geotech-sample-source-formation"
+            >
+              {nadClassName(selectedFormation.nad_class)}
+              {selectedFormation.nad_class !== null && (
+                <span className="ml-1 text-text-muted font-normal">
+                  (NAD {selectedFormation.nad_class})
+                </span>
+              )}
+            </div>
+          )}
+
           {bodySelection.assignmentSource !== null && (
             <div className="mt-0.5 text-text-muted">
               {/* Display the human-readable translation; fall back to the raw token
-                  if a future token is added before the lookup table is updated. */}
+                  if a future token is added before the lookup table is updated.
+                  S3: title exposes the raw backend token so domain experts can
+                  verify the mapping without opening DevTools. */}
               Sample source:{' '}
-              {ASSIGNMENT_SOURCE_LABELS[bodySelection.assignmentSource] ??
-                bodySelection.assignmentSource}
+              <span title={bodySelection.assignmentSource}>
+                {ASSIGNMENT_SOURCE_LABELS[bodySelection.assignmentSource] ??
+                  bodySelection.assignmentSource}
+              </span>
             </div>
           )}
         </div>
