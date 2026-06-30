@@ -639,6 +639,84 @@ describe('GeotechnicalInspector confidence badge (PI)', () => {
   })
 })
 
+describe('GeotechnicalInspector confidence badge colours (B2)', () => {
+  it('B2-medium — medium badge uses slate classes, not amber', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layers = [makeLayer('f-1', 'medium')]
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: layers }),
+    )
+
+    const badge = screen.getByTestId('confidence-badge-f-1')
+    // B2: amber is reserved for unsaved-state; medium uses neutral slate.
+    expect(badge.className).toContain('bg-slate-100')
+    expect(badge.className).toContain('text-slate-600')
+    expect(badge.className).not.toContain('amber')
+  })
+
+  it('B2-low — low badge uses orange classes, not red', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layers = [makeLayer('f-1', 'low')]
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: layers }),
+    )
+
+    const badge = screen.getByTestId('confidence-badge-f-1')
+    // B2: red is reserved for errors; low confidence uses orange.
+    expect(badge.className).toContain('bg-orange-100')
+    expect(badge.className).toContain('text-orange-700')
+    expect(badge.className).not.toContain('red')
+  })
+})
+
+describe('GeotechnicalInspector selected body panel (S2/S3)', () => {
+  it('S2 — shows packing-class name + NAD number when a body has a matching layer', () => {
+    // NAD class 6 = "SAND, medium dense" in nadClassName.
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layer = makeLayer('f-1', 'high')
+    // Override body_id so the selection lookup finds this layer.
+    ;(layer as any).body_id = 'body-s2'
+
+    selectGeotechBody({ bodyId: 'body-s2', assignmentSource: 'cpt_interpolated' })
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: [layer] }),
+    )
+
+    const formationLabel = screen.getByTestId('geotech-sample-source-formation')
+    // Shows the class name + NAD number.
+    expect(formationLabel.textContent).toContain('SAND, medium dense')
+    expect(formationLabel.textContent).toContain('NAD 6')
+  })
+
+  it('S2 — matching roster row receives selection highlight when body is selected', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layer = makeLayer('f-1', 'high')
+    ;(layer as any).body_id = 'body-s2-row'
+
+    selectGeotechBody({ bodyId: 'body-s2-row', assignmentSource: null })
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: [layer] }),
+    )
+
+    const row = screen.getByTestId('geotech-unit-row-f-1')
+    // Blue selection tint class applied to the matching row.
+    expect(row.className).toContain('bg-blue-50')
+  })
+
+  it('S3 — assignment source label carries the raw token as a title attribute', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    selectGeotechBody({ bodyId: 'body-s3', assignmentSource: 'body_min' })
+    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+
+    const panel = screen.getByTestId('geotech-sample-source')
+    // S3: the raw token 'body_min' must appear as a title attribute on the
+    // translated label so domain experts can verify the mapping.
+    const span = panel.querySelector('[title="body_min"]')
+    expect(span).not.toBeNull()
+    expect(span!.textContent).toContain('Body minimum')
+  })
+})
+
 describe('GeotechnicalInspector assignment source panel (PI)', () => {
   it('PI5 — shows no assignment source panel when no body is selected', () => {
     const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
