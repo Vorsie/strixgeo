@@ -7,7 +7,15 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { NAD_CLASS_NAMES, nadClassColor, nadClassName, nadColoredFormations } from './nadClasses'
+import {
+  NAD_CLASS_ABBR,
+  NAD_CLASS_NAMES,
+  nadClassColor,
+  nadClassCompactName,
+  nadClassName,
+  nadColoredFormations,
+  nadCompactFromName,
+} from './nadClasses'
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
@@ -49,6 +57,87 @@ describe('nadClassName', () => {
   it('out-of-range class returns a safe fallback containing the number', () => {
     const result = nadClassName(99)
     expect(result).toContain('99')
+  })
+})
+
+// ---- compact class name (geotech band label) -------------------------------
+
+describe('nadClassCompactName', () => {
+  it('class 6 — "SAND·MD" (compact of "SAND, medium dense")', () => {
+    expect(nadClassCompactName(6)).toBe('SAND·MD')
+  })
+
+  it('class 5 — "SAND·L" (loose)', () => {
+    expect(nadClassCompactName(5)).toBe('SAND·L')
+  })
+
+  it('class 8 — "SAND·VD" (very dense)', () => {
+    expect(nadClassCompactName(8)).toBe('SAND·VD')
+  })
+
+  it('class 9 — "SAND(f)·L" (silty/clayey fines marker)', () => {
+    expect(nadClassCompactName(9)).toBe('SAND(f)·L')
+  })
+
+  it('class 24 — "CLAY·F" (firm)', () => {
+    expect(nadClassCompactName(24)).toBe('CLAY·F')
+  })
+
+  it('class 17 — "SILT(s)·SF" (sandy marker)', () => {
+    expect(nadClassCompactName(17)).toBe('SILT(s)·SF')
+  })
+
+  it('null returns empty string (same degenerate path as nadClassName)', () => {
+    expect(nadClassCompactName(null)).toBe('')
+    expect(nadClassCompactName(undefined)).toBe('')
+  })
+
+  it('out-of-range class returns a safe fallback containing the number', () => {
+    expect(nadClassCompactName(99)).toContain('99')
+  })
+
+  it('every compact label is shorter than its full name (the whole point)', () => {
+    for (let i = 1; i <= 31; i++) {
+      expect(NAD_CLASS_ABBR[i].length).toBeLessThan(NAD_CLASS_NAMES[i].length)
+    }
+  })
+
+  it('all 31 compact labels are distinct (sub-bands stay distinguishable)', () => {
+    const labels = Array.from({ length: 31 }, (_, i) => NAD_CLASS_ABBR[i + 1])
+    expect(new Set(labels).size).toBe(31)
+  })
+})
+
+// ---- full name → compact translation (render-site helper) -------------------
+
+describe('nadCompactFromName', () => {
+  it('translates a known full NAD name to its compact form', () => {
+    expect(nadCompactFromName('SAND, medium dense')).toBe('SAND·MD')
+    expect(nadCompactFromName('CLAY, firm')).toBe('CLAY·F')
+  })
+
+  it('round-trips every NAD class: nadClassName → nadCompactFromName === nadClassCompactName', () => {
+    for (let i = 1; i <= 31; i++) {
+      expect(nadCompactFromName(nadClassName(i))).toBe(nadClassCompactName(i))
+    }
+  })
+
+  it('returns an unknown name verbatim (e.g. the "ZAND (geotech)" unclassified fallback)', () => {
+    expect(nadCompactFromName('ZAND (geotech)')).toBe('ZAND (geotech)')
+    expect(nadCompactFromName('Diest Zand')).toBe('Diest Zand')
+  })
+})
+
+// ---- NAD_CLASS_ABBR dictionary completeness ---------------------------------
+
+describe('NAD_CLASS_ABBR', () => {
+  it('covers all 31 classes with no extra keys', () => {
+    const keys = Object.keys(NAD_CLASS_ABBR).map(Number)
+    expect(keys.length).toBe(31)
+    expect(keys.every((k) => k >= 1 && k <= 31)).toBe(true)
+    for (let i = 1; i <= 31; i++) {
+      expect(NAD_CLASS_ABBR[i]).toBeTruthy()
+    }
   })
 })
 
