@@ -7,8 +7,6 @@ unresolved), not in terms of internal variable names.
 
 from __future__ import annotations
 
-import pytest
-
 from groundmodel.domain.services.assign_sample_to_band import Band, assign_sample_to_band
 
 # ---------------------------------------------------------------------------
