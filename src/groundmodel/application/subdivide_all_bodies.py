@@ -706,6 +706,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             sub_intervals: list[tuple[float, float]] = []
             nad_classes: list[int | None] = []
 
+            # Safe float key: ``seg`` here is the same frozen BodyLayerPick
+            # instance that populated ``profile_by_seg_key`` (no arithmetic
+            # between set and get), so ``top_depth_m`` matches exactly.
             profile = profile_by_seg_key.get((seg.investigation_id, seg.top_depth_m))
             if kind == "cpt" and profile is not None and profile.splits:
                 # PER-CPT (owner directive 2026-06-25): each test segments by its
