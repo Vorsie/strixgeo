@@ -108,6 +108,7 @@ import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
 import { useGeotechFillVisible } from '../utils/geotechFillStore'
+import SampleGeotechOverlay from './sections/SampleGeotechOverlay'
 import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
@@ -3171,6 +3172,26 @@ export default function SectionPanel({
                 // (esp. the bottom-of-test handles at the floor) — dogfeed
                 // 2026-06-19: the floor add-strips intercepted bottom-marker clicks.
                 correlateMode={Boolean(contactGestureState?.contactCorrelateMode)}
+              />
+            )}
+
+            {/* Lab sample dots — geotech axis only.  One dot per sample that
+                carries a geotech_body_id, positioned at the borehole column
+                + sample mid-depth.  Clicking a dot selects the body for
+                cross-referencing with the inspector.  Rendered above the
+                partition fill so dots are always clickable.  Uses
+                warpedXToScreen so dots follow column spacing nudging. */}
+            {axisMode === 'geotechnical' && (
+              <SampleGeotechOverlay
+                boreholePlacedColumns={visibleColumns.filter(
+                  (c): c is typeof visibleColumns[number] & { kind: 'borehole' } =>
+                    c.kind === 'borehole',
+                )}
+                boreholeDetails={boreholeDetails}
+                warpedXToScreen={warpedXToScreen}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
               />
             )}
 
