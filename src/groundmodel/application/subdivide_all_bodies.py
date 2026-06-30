@@ -43,11 +43,12 @@ The new design:
     overlapping that depth range and assigns its nad_class.  Falls back to
     nearest CPT of any lithology, then (last resort) nad_class=None.
 7. **Edges — PER SECTION:** loads each project section's approved litho edges
-   and derives geotech edges by full-sequence packing match within each litho
-   body (``_derive_geotech_edges_from_litho``): a correlated litho-unit pair's
-   geotech sub-band stacks connect 1:1 ONLY when their NAD-class sequences are
-   identical; any mismatch connects nothing.  Edges are tagged with that
-   section's id.
+   and derives geotech edges by LCS packing match within each litho body
+   (``_derive_geotech_edges_from_litho``): for each correlated litho-unit pair,
+   the LCS of the two NAD-class sequences is computed (``aligned_same_class_pairs``)
+   and each position in the LCS becomes a geotech edge.  Bands absent from the LCS
+   stay unconnected (the engineer connects those manually).  Edges are tagged with
+   that section's id.
 8. Runs the resolver model-wide.
 9. ONE commit.
 
@@ -89,17 +90,17 @@ CPT-bearing groups are classified, each borehole-only sub-body is resolved:
    (last resort; the frontend should not show a "No qc" ghost when a
    same-lithology CPT exists anywhere in the model).
 
-Edge derivation — full-sequence packing match
-----------------------------------------------
+Edge derivation — LCS packing match
+-------------------------------------
 For each approved litho ``litho_contact_correlation_edge`` (layer_A ↔ layer_B),
 the geotech sub-band stacks within that litho unit on both tests are compared.
 A stack is the list of ``(layer_id, nad_class)`` tuples top→base for all geotech
 sub-layers whose ``[top, base]`` interval is contained within the litho unit's
 ``[depth_top_m, depth_base_m]`` (1 mm tolerance for geo-band divide noise).
-Two stacks are connected 1:1 via ``aligned_same_sequence_pairs`` ONLY when their
-NAD-class sequences are identical (same count, same order).  Any mismatch → no
-auto-connect for that litho pair; the engineer connects those manually.
-Null-class bands (skeleton / last-resort) are skipped per spec §8.
+The LCS of the two NAD-class sequences is computed via ``aligned_same_class_pairs``;
+each position in the LCS emits one geotech edge.  Bands absent from the LCS are
+left unconnected (the engineer connects those manually).  Null-class bands
+(skeleton / last-resort) never match per spec §8.
 """
 
 from __future__ import annotations
@@ -120,7 +121,7 @@ from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
     plan_body_subdivision,
 )
-from groundmodel.domain.services.geotech_packing_edges import aligned_same_sequence_pairs
+from groundmodel.domain.services.geotech_packing_edges import aligned_same_class_pairs
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -756,26 +757,25 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         litho_layer_depths: dict[UUID, tuple[str, float, float]],
         geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
     ) -> None:
-        """Derive geotech edges by full-sequence packing match within each litho body.
+        """Derive geotech edges by LCS packing match within each litho body.
 
         Each approved litho edge already identifies a correlated litho-unit
         pair (the same litho body, traced across two adjacent tests).  For each
-        such pair this method compares the FULL geotech packing sub-band STACKS
-        within that litho unit on both tests:
+        such pair this method:
 
-        1. Resolve each endpoint's ``(investigation_id, depth_top_m,
+        1. Resolves each endpoint's ``(investigation_id, depth_top_m,
            depth_base_m)`` from ``litho_layer_depths`` — the litho unit's depth
            extent on each test.
-        2. Collect the geotech sub-band stack (``layer_id, nad_class`` top→base)
+        2. Collects the geotech sub-band stack (``layer_id, nad_class`` top→base)
            that falls within that litho unit on each test.
-        3. If the two NAD-class sequences are IDENTICAL (same count, same order)
-           — via ``aligned_same_sequence_pairs`` — emit a 1:1 geotech edge for
-           every aligned band.  Any mismatch (different count or order) → emit
-           nothing for that pair (the engineer connects those manually).
+        3. Computes the LCS of the two NAD-class sequences via
+           ``aligned_same_class_pairs`` and emits one geotech edge per LCS
+           position.  Bands absent from the LCS stay unconnected (the engineer
+           connects those manually).
 
-        Per spec §8, an aligned band whose ``nad_class`` is ``None`` cannot
-        auto-connect and is skipped.  Canonical ``a < b`` ordering; dedup on
-        layer-pair within this section.
+        Per spec §8, a band whose ``nad_class`` is ``None`` never matches
+        (skeleton bands are excluded from auto-connection).  Canonical ``a < b``
+        ordering; dedup on layer-pair within this section.
 
         Parameters
         ----------
@@ -813,7 +813,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         seen_layer_pairs: set[tuple[UUID, UUID]] = set()
         edge_count = 0
         skipped_no_litho_depth = 0
-        skipped_seq_mismatch = 0
+        skipped_no_lcs = 0
 
         for litho_a_id, litho_b_id in litho_approved_edges:
             entry_a = litho_layer_depths.get(litho_a_id)
@@ -829,25 +829,43 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             left_stack = _stack(inv_a_str, top_a, base_a)
             right_stack = _stack(inv_b_str, top_b, base_b)
 
-            # The helper aligns the two stacks by NAD-class sequence equality
-            # (None compares equal to None); it does NOT skip null-class bands.
-            # The §8 null-skip guard below is what drops any aligned null-class
-            # pair, so the auto-connect never emits one.
-            aligned = aligned_same_sequence_pairs(left_stack, right_stack)
-            if not aligned:
-                # Both sides have bands but the NAD-class sequences differ
-                # (count or order) — no auto-connect for this litho pair.
+            # LCS match: connects each same-class band pair in the order-
+            # preserving LCS.  None classes never match (spec §8 null-skip is
+            # baked into the helper itself, so no post-filter needed).
+            aligned = aligned_same_class_pairs(left_stack, right_stack)
+
+            left_classes = [c for _, c in left_stack]
+            right_classes = [c for _, c in right_stack]
+            if aligned:
+                self.debug(
+                    f"_derive_geotech_edges_from_litho: litho_edge "
+                    f"{litho_a_id}↔{litho_b_id} "
+                    f"left_classes={left_classes} right_classes={right_classes} "
+                    f"→ {len(aligned)} LCS pair(s)"
+                )
+            else:
+                # No LCS: disjoint classes or empty stacks.
                 if left_stack and right_stack:
-                    skipped_seq_mismatch += 1
+                    skipped_no_lcs += 1
+                    self.debug(
+                        f"_derive_geotech_edges_from_litho: litho_edge "
+                        f"{litho_a_id}↔{litho_b_id} "
+                        f"left_classes={left_classes} right_classes={right_classes} "
+                        f"→ no LCS (disjoint classes — engineer connects manually)"
+                    )
                 continue
 
-            # nad_class lookup for the §8 null-skip (identical sequences mean la
-            # and rb share the class, so one side suffices).
+            # nad_class lookup for human-readable skip messages.
             nad_by_layer = dict(left_stack) | dict(right_stack)
+            pairs_emitted = 0
+            pairs_skipped_null = 0
 
             for la, rb in aligned:
-                # Spec §8: a null-class band cannot auto-connect; skip it.
+                # Defensive null-skip: aligned_same_class_pairs already excludes
+                # None classes, but guard explicitly so a future helper change
+                # cannot silently emit a skeleton auto-edge.
                 if nad_by_layer.get(la) is None:
+                    pairs_skipped_null += 1
                     continue
 
                 geotech_a_id = UUID(la)
@@ -878,14 +896,21 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 )
                 self._session.add(edge)
                 edge_count += 1
+                pairs_emitted += 1
+
+            if pairs_skipped_null:
+                self.debug(
+                    f"_derive_geotech_edges_from_litho: {pairs_skipped_null} null-class "
+                    f"band(s) skipped on litho_edge {litho_a_id}↔{litho_b_id} (spec §8)"
+                )
 
         await self._session.flush()
         self.info(
             f"_derive_geotech_edges_from_litho: section={section_id} "
-            f"{edge_count} geotech edge(s) derived from "
+            f"{edge_count} geotech edge(s) emitted from "
             f"{len(litho_approved_edges)} litho edge(s) "
             f"(skipped_no_depth={skipped_no_litho_depth}, "
-            f"skipped_seq_mismatch={skipped_seq_mismatch})"
+            f"skipped_no_lcs={skipped_no_lcs})"
         )
 
     # ------------------------------------------------------------------
