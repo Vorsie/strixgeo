@@ -120,8 +120,9 @@ def test_midpoint_at_band_base_edge() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SA-8  band with body_id=None (conservative fallback) — sample still gets
+# SB-8  band with body_id=None (conservative fallback) — sample still gets
 #        nad_class + source, but body_id is None
+#        (SB-N here = Sample-to-Band unit suite; the integration suite uses SA-N)
 # ---------------------------------------------------------------------------
 
 
