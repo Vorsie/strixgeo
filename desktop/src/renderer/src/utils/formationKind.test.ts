@@ -112,4 +112,23 @@ describe('formationKind', () => {
     // Must appear in the geotech roster even without a NAD class.
     expect(isGeotechUnit(skeleton)).toBe(true)
   })
+
+  // F-MIX: the geology badge uses isGeologicalFormation to filter
+  // visibleFormations — a project-scoped list that contains geological,
+  // litho, and geotech rows.  The filter must return only the geological
+  // formations so the badge shows 2, not 4.
+  it('F-MIX — mixed formation list filtered to geological only counts 2', () => {
+    const geo1 = makeFormation({ name: 'Quartair' })
+    const geo2 = makeFormation({ name: 'Tertiair' })
+    const litho = makeFormation({ name: 'ZAND', litho_main_soil_code: 'ZAND', source_litho_formation_id: null })
+    const geotech = makeFormation({
+      name: 'ZAND-NAD-21',
+      litho_main_soil_code: 'ZAND',
+      nad_class: 21,
+      source_litho_formation_id: 'litho-form-uuid',
+    })
+    const allFormations = [geo1, geo2, litho, geotech]
+    const geologicalCount = allFormations.filter(isGeologicalFormation).length
+    expect(geologicalCount).toBe(2)
+  })
 })
