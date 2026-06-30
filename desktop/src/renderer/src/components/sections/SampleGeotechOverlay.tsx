@@ -16,6 +16,8 @@ import {
   toggleGeotechBodySelection,
   useSelectedGeotechBodyId,
 } from '../../utils/geotechBodySelectionStore'
+// useSelectedGeotechBodyId gives the raw id; the store record also carries
+// assignmentSource, read by GeotechnicalInspector.
 import { sampleGeotechScreenPos } from '../../utils/sampleGeotechScreenPos'
 
 // Dot appearance constants.
@@ -24,8 +26,13 @@ const DOT_RADIUS = 4
 const DOT_COLOR_DEFAULT = '#0d9488' // teal-600
 /** Fill colour for a dot whose body is currently selected. */
 const DOT_COLOR_SELECTED = '#f59e0b' // amber-500
-/** Stroke colour for all dots. */
+/** Stroke colour for unselected dots. */
 const DOT_STROKE = '#fff'
+/**
+ * Minimum hit-target radius (px) for the invisible pointer-events circle.
+ * WCAG 2.5.8 requires a ≥24 px touch target; 12 px radius gives 24 px diameter.
+ */
+const HIT_RADIUS = 12
 
 // ---------------------------------------------------------------------------
 // Props
@@ -122,27 +129,69 @@ export default function SampleGeotechOverlay({
 
             const isSelected = sample.geotech_body_id === selectedBodyId
             const fill = isSelected ? DOT_COLOR_SELECTED : DOT_COLOR_DEFAULT
+            // B1: two orthogonal selection cues (size + stroke colour) alongside hue,
+            // so selection is never conveyed by colour alone (WCAG 1.4.1).
+            const dotRadius = isSelected ? DOT_RADIUS + 2 : DOT_RADIUS
+            const strokeColor = isSelected ? DOT_COLOR_SELECTED : DOT_STROKE
+            const strokeWidth = isSelected ? 2 : 1
+            const label = sample.sample_number !== null
+              ? String(sample.sample_number)
+              : sample.id.slice(0, 8)
 
             return (
-              <circle
-                key={`sample-dot-${sample.id}`}
-                data-testid={`sample-dot-${sample.id}`}
-                cx={pos.x}
-                cy={pos.y}
-                r={DOT_RADIUS}
-                fill={fill}
-                stroke={DOT_STROKE}
-                strokeWidth={1}
-                style={{ cursor: 'pointer' }}
-                onClick={() => {
-                  // geotech_body_id is guaranteed non-null here (filtered above).
-                  toggleGeotechBodySelection(sample.geotech_body_id!)
-                }}
-              >
-                <title>
-                  {`Sample ${sample.sample_number ?? sample.id.slice(0, 8)}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m`}
-                </title>
-              </circle>
+              <g key={`sample-group-${sample.id}`}>
+                {/* B3/B4: invisible hit circle — large enough for WCAG 2.5.8 (≥24 px
+                    touch target) with full keyboard access.  Rendered BEFORE the
+                    visible dot so it sits below in z-order; the visible dot's
+                    pointer-events:none lets clicks fall through to this circle. */}
+                <circle
+                  data-testid={`sample-hit-${sample.id}`}
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={HIT_RADIUS}
+                  fill="transparent"
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Sample ${label} — click to highlight body`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    // geotech_body_id is guaranteed non-null here (filtered above).
+                    toggleGeotechBodySelection(
+                      sample.geotech_body_id!,
+                      sample.geotech_assignment_source,
+                    )
+                  }}
+                  onKeyDown={(e: React.KeyboardEvent) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      toggleGeotechBodySelection(
+                        sample.geotech_body_id!,
+                        sample.geotech_assignment_source,
+                      )
+                    }
+                  }}
+                >
+                  {/* C1: title advertises the click action so assistive tech + tooltips
+                      expose the gesture surface. */}
+                  <title>
+                    {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m\nClick to highlight packing body`}
+                  </title>
+                </circle>
+
+                {/* Visual dot — B1: r + strokeWidth encode selection alongside fill hue.
+                    pointer-events:none ensures the hit circle above receives all clicks. */}
+                <circle
+                  data-testid={`sample-dot-${sample.id}`}
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={dotRadius}
+                  fill={fill}
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
+                  style={{ pointerEvents: 'none' }}
+                  aria-hidden="true"
+                />
+              </g>
             )
           })
       })}
