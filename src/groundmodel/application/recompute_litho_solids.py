@@ -249,6 +249,10 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
         The outer ``commit`` at the end owns the transaction boundary.
         """
         self.info(f"RecomputeLithoSolids(strat): model={model_id} force={force}")
+        # Start the wall-clock here so the total=[…s] covers ResolveLithoInstances
+        # and the three DB reads before dispatch — the sub-methods' own total= lines
+        # only count from inside the sub-method and undercount those round-trips.
+        t_total = time.perf_counter()
 
         # Step 1: ensure body_id stamps are current before assembling inputs.
         await ResolveLithoInstances(self._session).execute(model_id=model_id, commit=False)
@@ -276,7 +280,7 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 f"RecomputeLithoSolids: model={model_id} — "
                 f"parent geo model={parent_geo_model_id} → attempting per-band build"
             )
-            return await self._execute_per_band(
+            result = await self._execute_per_band(
                 model_id=model_id,
                 picks=picks,
                 grid_spacing_m=grid_spacing_m,
@@ -285,20 +289,26 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 assembler=assembler,
                 force=force,
             )
+        else:
+            # --- Single flat-block path (no parent geo model) ---
+            self.info(
+                f"RecomputeLithoSolids: model={model_id} — no parent geo model, "
+                "using single-flat-block path"
+            )
+            result = await self._execute_flat(
+                model_id=model_id,
+                picks=picks,
+                grid_spacing_m=grid_spacing_m,
+                formation_by_body=formation_by_body,
+                assembler=assembler,
+                force=force,
+            )
 
-        # --- Single flat-block path (no parent geo model) ---
         self.info(
-            f"RecomputeLithoSolids: model={model_id} — no parent geo model, "
-            "using single-flat-block path"
+            f"RecomputeLithoSolids(strat): model={model_id} "
+            f"execute total=[{time.perf_counter() - t_total:.1f}s]"
         )
-        return await self._execute_flat(
-            model_id=model_id,
-            picks=picks,
-            grid_spacing_m=grid_spacing_m,
-            formation_by_body=formation_by_body,
-            assembler=assembler,
-            force=force,
-        )
+        return result
 
     # -----------------------------------------------------------------
     # Per-band (geology-bounded) build path
@@ -539,16 +549,25 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 f"RecomputeLithoSolids: model={model_id} — carving "
                 f"{len(assembly.lens_carve_inputs)} lens(es) into {len(meshes)} matrix mesh(es)"
             )
-            with phase_timer(self, "RecomputeLithoSolids carve_lenses"):
-                gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
-                meshes = carve_lenses(
-                    assembly.lens_carve_inputs,
-                    meshes,
-                    gx,
-                    gy,
-                    node_inside,
-                    host_height_fields=host_height_fields,
+            try:
+                with phase_timer(self, "RecomputeLithoSolids carve_lenses"):
+                    gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
+                    meshes = carve_lenses(
+                        assembly.lens_carve_inputs,
+                        meshes,
+                        gx,
+                        gy,
+                        node_inside,
+                        host_height_fields=host_height_fields,
+                    )
+            except Exception as err:
+                self.exception(
+                    f"RecomputeLithoSolids: model={model_id} carve_lenses raised "
+                    f"{type(err).__name__} — {err}; "
+                    f"lens_count={len(assembly.lens_carve_inputs)} "
+                    f"matrix_meshes={len(meshes)}"
                 )
+                raise
 
         meshes = merge_meshes_by_body_id(meshes)
         mesh_body_ids = {m.body_id for m in meshes}
