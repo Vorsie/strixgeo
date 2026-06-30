@@ -48,3 +48,22 @@ class LithoLayerOverlapError(GroundModelError):
             f"litho layer {layer_id} edit would overlap an accepted layer on the same investigation"
         )
         self.layer_id = layer_id
+
+
+class CrossLithoBodyCorrelationError(GroundModelError):
+    """Raised when a geotech packing correlation crosses lithostratigraphic body boundaries.
+
+    A NAD packing class is always a subdivision inside ONE lithostratigraphic
+    body; a packing edge must never connect two bands that belong to different
+    litho bodies.  "Same lithology" alone is insufficient — two separate sand
+    bodies must not be allowed to merge into one packing body.
+
+    The router maps this exception to HTTP 422 (Unprocessable Entity).
+    """
+
+    def __init__(self) -> None:
+        """Initialise with a fixed diagnostic message."""
+        super().__init__(
+            "these bands are in different litho bodies — "
+            "correlate the lithology first in the litho stage"
+        )
