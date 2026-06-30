@@ -339,6 +339,16 @@ interface SectionKeyboardShortcutsParams {
   exitFocus: () => void
   /** Deselect the section (final Esc peel), if a handler is wired. */
   onClose?: () => void
+  /**
+   * Whether a geotech body is currently selected (S4 — Esc clears it before
+   * proceeding to the column-focus peel).
+   */
+  geotechBodySelected?: boolean
+  /**
+   * Callback to clear the geotech body selection.  Only called when
+   * ``geotechBodySelected`` is true.
+   */
+  clearGeotechBody?: () => void
 }
 
 /**
@@ -367,6 +377,8 @@ export function useSectionKeyboardShortcuts({
   dismissContextMenu,
   exitFocus,
   onClose,
+  geotechBodySelected,
+  clearGeotechBody,
 }: SectionKeyboardShortcutsParams): void {
   // Esc exits focus + dismisses any open context menu. Skip when the
   // user is typing into an input so we don't steal text-editing Esc.
@@ -387,6 +399,11 @@ export function useSectionKeyboardShortcuts({
         dismissBodyCtxMenu()
       } else if (columnMenuOpen) {
         dismissContextMenu()
+      } else if (geotechBodySelected && clearGeotechBody) {
+        // S4: geotech body selected → clear it before peeling to column focus
+        // or section close, so the user can Esc the sample highlight without
+        // losing their section context.
+        clearGeotechBody()
       } else if (columnFocused) {
         exitFocus()
       } else if (onClose) {
@@ -407,5 +424,7 @@ export function useSectionKeyboardShortcuts({
     dismissContextMenu,
     dismissBodyCtxMenu,
     onClose,
+    geotechBodySelected,
+    clearGeotechBody,
   ])
 }
