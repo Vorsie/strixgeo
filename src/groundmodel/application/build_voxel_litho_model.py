@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import time
 from collections import defaultdict
 from uuid import UUID
 
@@ -88,6 +89,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
+from groundmodel.shared.timing import phase_timer
 
 # Default litho↔geology snap tolerance (metres) when the project view-state does
 # not configure one — mirrors ``AssembleStratInputs._GEO_SNAP_TOLERANCE_M`` and the
@@ -359,6 +361,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"BuildVoxelLithoModel: model={model_id} sections={len(sections)} "
             f"grid_spacing={grid_spacing_m} vertical_spacing={vertical_spacing_m} force={force}"
         )
+        t_total = time.perf_counter()
 
         if not sections:
             self.warning(f"BuildVoxelLithoModel: model={model_id} — no sections; clearing cache")
@@ -366,7 +369,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
 
         # --- Phase 1: domain footprint from the section columns ---------------
         try:
-            domain = build_domain_from_sections(sections)
+            with phase_timer(self, "BuildVoxelLithoModel phase-1 domain"):
+                domain = build_domain_from_sections(sections)
         except ValueError as err:
             self.warning(
                 f"BuildVoxelLithoModel: model={model_id} domain unbuildable — {err}; "
@@ -456,15 +460,16 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
 
         # --- Phase 2: label the 3-D voxel grid --------------------------------
         try:
-            grid = label_voxels(
-                domain,
-                grid_spacing_m,
-                sections,
-                vertical_spacing_m=vertical_spacing_m,
-                investigation_columns=investigation_columns,
-                geo_surfaces=geo_surfaces,
-                litho_snap_tolerance_m=snap_tol,
-            )
+            with phase_timer(self, "BuildVoxelLithoModel phase-2 label_voxels"):
+                grid = label_voxels(
+                    domain,
+                    grid_spacing_m,
+                    sections,
+                    vertical_spacing_m=vertical_spacing_m,
+                    investigation_columns=investigation_columns,
+                    geo_surfaces=geo_surfaces,
+                    litho_snap_tolerance_m=snap_tol,
+                )
         except ValueError as err:
             self.warning(
                 f"BuildVoxelLithoModel: model={model_id} label_voxels failed — {err}; "
@@ -478,7 +483,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         )
 
         # --- Phase 3: extract the greedy-meshed watertight per-body solids ----
-        meshes = extract_body_solids(grid)  # greedy=True (production default)
+        with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
+            meshes = extract_body_solids(grid)  # greedy=True (production default)
         # An empty body slot (no voxel labelled with it) yields no mesh — drop it.
         meshes = [m for m in meshes if m.vertices and m.triangles]
         self.info(f"BuildVoxelLithoModel: model={model_id} — extracted {len(meshes)} body solid(s)")
@@ -510,20 +516,32 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         bodies_considered = len(wanted_storage_ids)
 
         # --- Phase 5: upsert + orphan-delete + commit -------------------------
-        rows = self._mesh_rows(meshes, model_id, new_checksum)
-        bodies_built = len(rows)
-        chunks_written = await self._batch_upsert(rows)
-        self.info(
-            f"BuildVoxelLithoModel: model={model_id} — "
-            f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
-        )
+        with phase_timer(self, "BuildVoxelLithoModel phase-5 upsert"):
+            rows = self._mesh_rows(meshes, model_id, new_checksum)
+            bodies_built = len(rows)
+            chunks_written = await self._batch_upsert(rows)
+            self.info(
+                f"BuildVoxelLithoModel: model={model_id} — "
+                f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
+            )
+            orphans_deleted = await self._delete_orphans(
+                model_id, existing_by_body, wanted_storage_ids
+            )
+            await self._session.commit()
 
-        orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
-        await self._session.commit()
+        total_tris = sum(len(m.triangles) for m in meshes)
+        total_verts = sum(len(m.vertices) for m in meshes)
+        total_elapsed = time.perf_counter() - t_total
+        # bodies_flagged is structurally zero on the voxel path: every labelled
+        # voxel belongs to a real body (the label grid is a partition by
+        # construction), so no empty placeholder rows are written; the field
+        # exists for API-shape parity with RecomputeLithoSolids.
         self.success(
             f"BuildVoxelLithoModel: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
-            f"orphans_deleted={orphans_deleted}"
+            f"orphans_deleted={orphans_deleted} "
+            f"tris={total_tris:,} verts={total_verts:,} "
+            f"total=[{total_elapsed:.1f}s]"
         )
         return LithoSolidsOutcome(
             bodies_considered=bodies_considered,
