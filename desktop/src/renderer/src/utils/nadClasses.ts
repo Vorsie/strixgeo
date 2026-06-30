@@ -72,6 +72,62 @@ export const NAD_CLASS_NAMES: Readonly<Record<number, string>> = {
   31: 'PEAT, firm',
 } as const
 
+/**
+ * NAD class number (1..31) → compact ``{LITHO}·{packing-abbr}`` label.
+ *
+ * Parallel to ``NAD_CLASS_NAMES`` (the full names) — same shape + ordering as
+ * the ``_NAD_CLASS_COLORS`` table below — for the geotech per-column section
+ * bands. The full name ("SAND, medium dense") truncates to the lithology alone
+ * ("SAND") in a narrow column, so a litho unit subdivided into several packing
+ * classes shows bands that read identically and differ only by near-adjacent
+ * NAD colour shades — "correlating on colour alone". The compact form keeps the
+ * packing class on one short line that survives truncation.
+ *
+ * Abbreviations — density: loose=L, medium dense=MD, dense=D, very dense=VD;
+ * firmness: slightly firm=SF, moderately firm=MF, fairly firm=FF, firm=F.
+ * Admixture marker: ``(f)`` = silty/clayey fines (gravel/sand), ``(s)`` = sandy
+ * (silt/clay). The FULL name stays available via ``nadClassName`` for the band's
+ * hover tooltip, so the abbreviations are never the only expansion.
+ */
+export const NAD_CLASS_ABBR: Readonly<Record<number, string>> = {
+  // GRAVEL
+  1: 'GRAVEL·MD',
+  2: 'GRAVEL·D',
+  3: 'GRAVEL(f)·MD',
+  4: 'GRAVEL(f)·D',
+  // SAND
+  5: 'SAND·L',
+  6: 'SAND·MD',
+  7: 'SAND·D',
+  8: 'SAND·VD',
+  9: 'SAND(f)·L',
+  10: 'SAND(f)·MD',
+  11: 'SAND(f)·D',
+  12: 'SAND(f)·VD',
+  // SILT
+  13: 'SILT·SF',
+  14: 'SILT·MF',
+  15: 'SILT·FF',
+  16: 'SILT·F',
+  17: 'SILT(s)·SF',
+  18: 'SILT(s)·MF',
+  19: 'SILT(s)·FF',
+  20: 'SILT(s)·F',
+  // CLAY
+  21: 'CLAY·SF',
+  22: 'CLAY·MF',
+  23: 'CLAY·FF',
+  24: 'CLAY·F',
+  25: 'CLAY(s)·SF',
+  26: 'CLAY(s)·MF',
+  27: 'CLAY(s)·FF',
+  28: 'CLAY(s)·F',
+  // PEAT
+  29: 'PEAT·SF',
+  30: 'PEAT·MF',
+  31: 'PEAT·F',
+} as const
+
 // ---------------------------------------------------------------------------
 // Colour table
 // ---------------------------------------------------------------------------
@@ -194,4 +250,46 @@ export function nadColoredFormations<T extends { nad_class: number | null; color
   formations: readonly T[],
 ): T[] {
   return formations.map(f => ({ ...f, color: nadClassColor(f.nad_class) }))
+}
+
+/**
+ * Return the compact ``{LITHO}·{packing-abbr}`` label for a NAD class number.
+ *
+ * Mirrors ``nadClassName`` but yields the short form ("SAND·MD") for the geotech
+ * per-column band label, where the full name truncates to the lithology alone in
+ * a narrow column. The full name stays the band's hover tooltip.
+ *
+ * @param n  NAD class (1..31), null, or undefined.
+ * @returns  The compact label for a valid class; ``""`` for null/undefined
+ *           (degenerate — no label); or ``"NAD {n}"`` for any out-of-range integer.
+ */
+export function nadClassCompactName(n: number | null | undefined): string {
+  if (n == null) return ''
+  return NAD_CLASS_ABBR[n] ?? `NAD ${n}`
+}
+
+// Reverse map full NAD name → compact label, built once from the two parallel
+// 1..31 tables (no string parsing — an exact-name lookup). Lets a render site
+// that holds only the full ``formationName`` string (the section band label)
+// derive the compact form without re-plumbing ``nad_class`` through the band.
+const _FULLNAME_TO_COMPACT: ReadonlyMap<string, string> = new Map(
+  Object.entries(NAD_CLASS_NAMES).map(([key, fullName]) => [
+    fullName,
+    NAD_CLASS_ABBR[Number(key)],
+  ]),
+)
+
+/**
+ * Translate a full NAD name ("SAND, medium dense") to its compact form
+ * ("SAND·MD"). Any string that is not a known NAD name (e.g. the
+ * "ZAND (geotech)" fallback for an unclassified band, or a non-geotech
+ * formation name) is returned unchanged, so the caller can apply this
+ * unconditionally on the geotech axis.
+ *
+ * @param fullName  A formation display name.
+ * @returns  The compact label if ``fullName`` is a known NAD name; otherwise
+ *           ``fullName`` verbatim.
+ */
+export function nadCompactFromName(fullName: string): string {
+  return _FULLNAME_TO_COMPACT.get(fullName) ?? fullName
 }
