@@ -483,8 +483,15 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         )
 
         # --- Phase 3: extract the greedy-meshed watertight per-body solids ----
-        with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
-            meshes = extract_body_solids(grid)  # greedy=True (production default)
+        try:
+            with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
+                meshes = extract_body_solids(grid)  # greedy=True (production default)
+        except Exception as err:
+            self.exception(
+                f"BuildVoxelLithoModel: model={model_id} extract_body_solids raised "
+                f"{type(err).__name__} — {err}"
+            )
+            raise
         # An empty body slot (no voxel labelled with it) yields no mesh — drop it.
         meshes = [m for m in meshes if m.vertices and m.triangles]
         self.info(f"BuildVoxelLithoModel: model={model_id} — extracted {len(meshes)} body solid(s)")
@@ -515,8 +522,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
         bodies_considered = len(wanted_storage_ids)
 
-        # --- Phase 5: upsert + orphan-delete + commit -------------------------
-        with phase_timer(self, "BuildVoxelLithoModel phase-5 upsert"):
+        # --- Phase 4: upsert + orphan-delete + commit -------------------------
+        with phase_timer(self, "BuildVoxelLithoModel phase-4 upsert"):
             rows = self._mesh_rows(meshes, model_id, new_checksum)
             bodies_built = len(rows)
             chunks_written = await self._batch_upsert(rows)
@@ -539,6 +546,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         self.success(
             f"BuildVoxelLithoModel: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
+            f"bodies_flagged=0 "
             f"orphans_deleted={orphans_deleted} "
             f"tris={total_tris:,} verts={total_verts:,} "
             f"total=[{total_elapsed:.1f}s]"
