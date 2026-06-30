@@ -1,0 +1,1816 @@
+{
+ "columns": [
+  {
+   "investigationId": "col-00",
+   "surfaceElevM": 0.64,
+   "units": [
+    {
+     "layerId": "lay-000",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.75,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-001",
+     "topDepthM": 1.75,
+     "baseDepthM": 2.52,
+     "formationId": "formation-sand",
+     "bodyId": "body-01"
+    },
+    {
+     "layerId": "lay-002",
+     "topDepthM": 2.52,
+     "baseDepthM": 2.9,
+     "formationId": "formation-silt",
+     "bodyId": "body-02"
+    },
+    {
+     "layerId": "lay-003",
+     "topDepthM": 2.9,
+     "baseDepthM": 4.73,
+     "formationId": "formation-sand",
+     "bodyId": "body-03"
+    },
+    {
+     "layerId": "lay-004",
+     "topDepthM": 4.73,
+     "baseDepthM": 5.35,
+     "formationId": "formation-silt",
+     "bodyId": "body-04"
+    },
+    {
+     "layerId": "lay-005",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.59,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-006",
+     "topDepthM": 6.59,
+     "baseDepthM": 7.11,
+     "formationId": "formation-silt",
+     "bodyId": "body-06"
+    },
+    {
+     "layerId": "lay-007",
+     "topDepthM": 7.11,
+     "baseDepthM": 7.76,
+     "formationId": "formation-sand",
+     "bodyId": "body-07"
+    },
+    {
+     "layerId": "lay-008",
+     "topDepthM": 7.76,
+     "baseDepthM": 9.91,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-009",
+     "topDepthM": 9.91,
+     "baseDepthM": 10.36,
+     "formationId": "formation-sand",
+     "bodyId": "body-09"
+    },
+    {
+     "layerId": "lay-010",
+     "topDepthM": 10.36,
+     "baseDepthM": 11.16,
+     "formationId": "formation-silt",
+     "bodyId": "body-10"
+    },
+    {
+     "layerId": "lay-011",
+     "topDepthM": 11.16,
+     "baseDepthM": 11.7,
+     "formationId": "formation-sand",
+     "bodyId": "body-11"
+    },
+    {
+     "layerId": "lay-012",
+     "topDepthM": 11.7,
+     "baseDepthM": 12.57,
+     "formationId": "formation-silt",
+     "bodyId": "body-12"
+    },
+    {
+     "layerId": "lay-013",
+     "topDepthM": 12.57,
+     "baseDepthM": 16.97,
+     "formationId": "formation-sand",
+     "bodyId": "body-13"
+    },
+    {
+     "layerId": "lay-014",
+     "topDepthM": 16.97,
+     "baseDepthM": 20.18,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-01",
+   "surfaceElevM": 0.34,
+   "units": [
+    {
+     "layerId": "lay-015",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.74,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-016",
+     "topDepthM": 7.74,
+     "baseDepthM": 8.72,
+     "formationId": "formation-sand",
+     "bodyId": "body-07"
+    },
+    {
+     "layerId": "lay-017",
+     "topDepthM": 8.72,
+     "baseDepthM": 9.34,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-018",
+     "topDepthM": 9.34,
+     "baseDepthM": 10.26,
+     "formationId": "formation-silt",
+     "bodyId": "body-15"
+    },
+    {
+     "layerId": "lay-019",
+     "topDepthM": 10.26,
+     "baseDepthM": 12.42,
+     "formationId": "formation-sand",
+     "bodyId": "body-11"
+    },
+    {
+     "layerId": "lay-020",
+     "topDepthM": 12.42,
+     "baseDepthM": 13.0,
+     "formationId": "formation-silt",
+     "bodyId": "body-12"
+    },
+    {
+     "layerId": "lay-021",
+     "topDepthM": 13.0,
+     "baseDepthM": 15.48,
+     "formationId": "formation-sand",
+     "bodyId": "body-13"
+    },
+    {
+     "layerId": "lay-022",
+     "topDepthM": 15.48,
+     "baseDepthM": 21.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-02",
+   "surfaceElevM": 0.38,
+   "units": [
+    {
+     "layerId": "lay-023",
+     "topDepthM": 1.5,
+     "baseDepthM": 6.891649,
+     "formationId": "formation-clay",
+     "bodyId": "body-16"
+    },
+    {
+     "layerId": "lay-024",
+     "topDepthM": 6.891649,
+     "baseDepthM": 8.147279,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-025",
+     "topDepthM": 8.147279,
+     "baseDepthM": 9.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-026",
+     "topDepthM": 9.5,
+     "baseDepthM": 12.916769,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-027",
+     "topDepthM": 12.916769,
+     "baseDepthM": 13.016769,
+     "formationId": "formation-silt",
+     "bodyId": "body-12"
+    },
+    {
+     "layerId": "lay-028",
+     "topDepthM": 13.016769,
+     "baseDepthM": 14.75,
+     "formationId": "formation-sand",
+     "bodyId": "body-13"
+    },
+    {
+     "layerId": "lay-029",
+     "topDepthM": 14.75,
+     "baseDepthM": 20.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-03",
+   "surfaceElevM": 0.34,
+   "units": [
+    {
+     "layerId": "lay-030",
+     "topDepthM": 0.0,
+     "baseDepthM": 5.621479,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-031",
+     "topDepthM": 5.621479,
+     "baseDepthM": 6.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-032",
+     "topDepthM": 6.0,
+     "baseDepthM": 8.42542,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-033",
+     "topDepthM": 8.42542,
+     "baseDepthM": 9.070825,
+     "formationId": "formation-silt",
+     "bodyId": "body-18"
+    },
+    {
+     "layerId": "lay-034",
+     "topDepthM": 9.070825,
+     "baseDepthM": 12.465289,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-035",
+     "topDepthM": 12.465289,
+     "baseDepthM": 12.898452,
+     "formationId": "formation-silt",
+     "bodyId": "body-12"
+    },
+    {
+     "layerId": "lay-036",
+     "topDepthM": 12.898452,
+     "baseDepthM": 15.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-13"
+    },
+    {
+     "layerId": "lay-037",
+     "topDepthM": 15.5,
+     "baseDepthM": 17.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-04",
+   "surfaceElevM": 0.58,
+   "units": [
+    {
+     "layerId": "lay-038",
+     "topDepthM": 0.81,
+     "baseDepthM": 1.42,
+     "formationId": "formation-sand",
+     "bodyId": "body-19"
+    },
+    {
+     "layerId": "lay-039",
+     "topDepthM": 1.42,
+     "baseDepthM": 8.16,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-040",
+     "topDepthM": 8.16,
+     "baseDepthM": 9.69,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-041",
+     "topDepthM": 9.69,
+     "baseDepthM": 15.16,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-042",
+     "topDepthM": 15.16,
+     "baseDepthM": 23.06,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-05",
+   "surfaceElevM": 0.56,
+   "units": [
+    {
+     "layerId": "lay-043",
+     "topDepthM": 1.51,
+     "baseDepthM": 6.91,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-044",
+     "topDepthM": 6.91,
+     "baseDepthM": 7.62,
+     "formationId": "formation-sand",
+     "bodyId": "body-20"
+    },
+    {
+     "layerId": "lay-045",
+     "topDepthM": 7.62,
+     "baseDepthM": 9.801089,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-046",
+     "topDepthM": 9.801089,
+     "baseDepthM": 15.64,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-047",
+     "topDepthM": 15.64,
+     "baseDepthM": 23.06,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-06",
+   "surfaceElevM": 0.32,
+   "units": [
+    {
+     "layerId": "lay-048",
+     "topDepthM": 1.52,
+     "baseDepthM": 1.98,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-049",
+     "topDepthM": 1.98,
+     "baseDepthM": 6.74,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-050",
+     "topDepthM": 6.74,
+     "baseDepthM": 7.32,
+     "formationId": "formation-silt",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-051",
+     "topDepthM": 7.32,
+     "baseDepthM": 7.92,
+     "formationId": "formation-sand",
+     "bodyId": "body-22"
+    },
+    {
+     "layerId": "lay-052",
+     "topDepthM": 7.92,
+     "baseDepthM": 9.04,
+     "formationId": "formation-silt",
+     "bodyId": "body-23"
+    },
+    {
+     "layerId": "lay-053",
+     "topDepthM": 9.04,
+     "baseDepthM": 11.71,
+     "formationId": "formation-clay",
+     "bodyId": "body-24"
+    },
+    {
+     "layerId": "lay-054",
+     "topDepthM": 11.71,
+     "baseDepthM": 15.17,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-055",
+     "topDepthM": 15.17,
+     "baseDepthM": 21.44,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-07",
+   "surfaceElevM": 0.18,
+   "units": [
+    {
+     "layerId": "lay-056",
+     "topDepthM": 1.6,
+     "baseDepthM": 7.01,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-057",
+     "topDepthM": 7.01,
+     "baseDepthM": 7.96,
+     "formationId": "formation-silt",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-058",
+     "topDepthM": 7.96,
+     "baseDepthM": 11.715816,
+     "formationId": "formation-clay",
+     "bodyId": "body-24"
+    },
+    {
+     "layerId": "lay-059",
+     "topDepthM": 11.715816,
+     "baseDepthM": 15.19,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-060",
+     "topDepthM": 15.19,
+     "baseDepthM": 22.82,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-08",
+   "surfaceElevM": 0.0,
+   "units": [
+    {
+     "layerId": "lay-061",
+     "topDepthM": 1.52,
+     "baseDepthM": 2.94,
+     "formationId": "formation-sand",
+     "bodyId": "body-25"
+    },
+    {
+     "layerId": "lay-062",
+     "topDepthM": 2.94,
+     "baseDepthM": 3.5,
+     "formationId": "formation-silt",
+     "bodyId": "body-26"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-09",
+   "surfaceElevM": 0.08,
+   "units": [
+    {
+     "layerId": "lay-063",
+     "topDepthM": 1.61,
+     "baseDepthM": 3.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-064",
+     "topDepthM": 3.0,
+     "baseDepthM": 4.03,
+     "formationId": "formation-silt",
+     "bodyId": "body-26"
+    },
+    {
+     "layerId": "lay-065",
+     "topDepthM": 4.03,
+     "baseDepthM": 6.39,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-066",
+     "topDepthM": 6.39,
+     "baseDepthM": 10.36,
+     "formationId": "formation-silt",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-067",
+     "topDepthM": 10.36,
+     "baseDepthM": 16.75,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-068",
+     "topDepthM": 16.75,
+     "baseDepthM": 23.12,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-10",
+   "surfaceElevM": 0.06,
+   "units": [
+    {
+     "layerId": "lay-069",
+     "topDepthM": 2.0,
+     "baseDepthM": 3.002348,
+     "formationId": "formation-silt",
+     "bodyId": "body-26"
+    },
+    {
+     "layerId": "lay-070",
+     "topDepthM": 3.002348,
+     "baseDepthM": 7.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-071",
+     "topDepthM": 7.5,
+     "baseDepthM": 17.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-072",
+     "topDepthM": 17.5,
+     "baseDepthM": 21.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-11",
+   "surfaceElevM": 0.12,
+   "units": [
+    {
+     "layerId": "lay-073",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.44,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-074",
+     "topDepthM": 7.44,
+     "baseDepthM": 9.49,
+     "formationId": "formation-silt",
+     "bodyId": "body-27"
+    },
+    {
+     "layerId": "lay-075",
+     "topDepthM": 9.49,
+     "baseDepthM": 11.12,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-076",
+     "topDepthM": 11.12,
+     "baseDepthM": 17.69,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-077",
+     "topDepthM": 17.69,
+     "baseDepthM": 23.34,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-12",
+   "surfaceElevM": 0.19,
+   "units": [
+    {
+     "layerId": "lay-078",
+     "topDepthM": 0.0,
+     "baseDepthM": 1.0,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-079",
+     "topDepthM": 1.0,
+     "baseDepthM": 4.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-080",
+     "topDepthM": 4.5,
+     "baseDepthM": 7.0,
+     "formationId": "formation-silt",
+     "bodyId": "body-27"
+    },
+    {
+     "layerId": "lay-081",
+     "topDepthM": 7.0,
+     "baseDepthM": 9.0,
+     "formationId": "formation-sand",
+     "bodyId": "body-30"
+    },
+    {
+     "layerId": "lay-082",
+     "topDepthM": 9.0,
+     "baseDepthM": 10.089821,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-083",
+     "topDepthM": 10.089821,
+     "baseDepthM": 10.629456,
+     "formationId": "formation-silt",
+     "bodyId": "body-31"
+    },
+    {
+     "layerId": "lay-084",
+     "topDepthM": 10.629456,
+     "baseDepthM": 17.7,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-085",
+     "topDepthM": 17.7,
+     "baseDepthM": 19.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-13",
+   "surfaceElevM": 0.15,
+   "units": [
+    {
+     "layerId": "lay-086",
+     "topDepthM": 1.21,
+     "baseDepthM": 8.1,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-087",
+     "topDepthM": 8.1,
+     "baseDepthM": 9.14,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-088",
+     "topDepthM": 9.14,
+     "baseDepthM": 9.68,
+     "formationId": "formation-silt",
+     "bodyId": "body-31"
+    },
+    {
+     "layerId": "lay-089",
+     "topDepthM": 9.68,
+     "baseDepthM": 17.64,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-090",
+     "topDepthM": 17.64,
+     "baseDepthM": 20.05,
+     "formationId": "formation-silt",
+     "bodyId": "body-32"
+    },
+    {
+     "layerId": "lay-091",
+     "topDepthM": 20.05,
+     "baseDepthM": 23.3,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-14",
+   "surfaceElevM": 0.16,
+   "units": [
+    {
+     "layerId": "lay-092",
+     "topDepthM": 1.21,
+     "baseDepthM": 6.07,
+     "formationId": "formation-clay",
+     "bodyId": "body-33"
+    },
+    {
+     "layerId": "lay-093",
+     "topDepthM": 6.07,
+     "baseDepthM": 7.83,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-094",
+     "topDepthM": 7.83,
+     "baseDepthM": 9.75,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-095",
+     "topDepthM": 9.75,
+     "baseDepthM": 17.4,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-096",
+     "topDepthM": 17.4,
+     "baseDepthM": 19.27,
+     "formationId": "formation-silt",
+     "bodyId": "body-32"
+    },
+    {
+     "layerId": "lay-097",
+     "topDepthM": 19.27,
+     "baseDepthM": 20.59,
+     "formationId": "formation-sand",
+     "bodyId": "body-34"
+    },
+    {
+     "layerId": "lay-098",
+     "topDepthM": 20.59,
+     "baseDepthM": 23.15,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-15",
+   "surfaceElevM": 0.13,
+   "units": [
+    {
+     "layerId": "lay-099",
+     "topDepthM": 1.52,
+     "baseDepthM": 4.8,
+     "formationId": "formation-clay",
+     "bodyId": "body-33"
+    },
+    {
+     "layerId": "lay-100",
+     "topDepthM": 4.8,
+     "baseDepthM": 8.13,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-101",
+     "topDepthM": 8.13,
+     "baseDepthM": 8.83,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-102",
+     "topDepthM": 8.83,
+     "baseDepthM": 13.18,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-103",
+     "topDepthM": 13.18,
+     "baseDepthM": 14.09,
+     "formationId": "formation-silt",
+     "bodyId": "body-35"
+    },
+    {
+     "layerId": "lay-104",
+     "topDepthM": 14.09,
+     "baseDepthM": 16.16,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-16",
+   "surfaceElevM": 0.26,
+   "units": [
+    {
+     "layerId": "lay-105",
+     "topDepthM": 0.0,
+     "baseDepthM": 3.0,
+     "formationId": "formation-clay",
+     "bodyId": "body-33"
+    },
+    {
+     "layerId": "lay-106",
+     "topDepthM": 3.0,
+     "baseDepthM": 5.0,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-107",
+     "topDepthM": 5.0,
+     "baseDepthM": 8.8,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-108",
+     "topDepthM": 8.8,
+     "baseDepthM": 17.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-17",
+   "surfaceElevM": 0.28,
+   "units": [
+    {
+     "layerId": "lay-109",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.65,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-18",
+   "surfaceElevM": 0.31,
+   "units": [
+    {
+     "layerId": "lay-110",
+     "topDepthM": 1.21,
+     "baseDepthM": 2.99,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-111",
+     "topDepthM": 2.99,
+     "baseDepthM": 5.35,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-112",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.45,
+     "formationId": "formation-silt",
+     "bodyId": "body-36"
+    },
+    {
+     "layerId": "lay-113",
+     "topDepthM": 6.45,
+     "baseDepthM": 7.07,
+     "formationId": "formation-clay",
+     "bodyId": "body-37"
+    },
+    {
+     "layerId": "lay-114",
+     "topDepthM": 7.07,
+     "baseDepthM": 7.64,
+     "formationId": "formation-silt",
+     "bodyId": "body-38"
+    },
+    {
+     "layerId": "lay-115",
+     "topDepthM": 7.64,
+     "baseDepthM": 8.05,
+     "formationId": "formation-peat",
+     "bodyId": "body-39"
+    },
+    {
+     "layerId": "lay-116",
+     "topDepthM": 8.05,
+     "baseDepthM": 8.87,
+     "formationId": "formation-clay",
+     "bodyId": "body-40"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-19",
+   "surfaceElevM": 0.24,
+   "units": [
+    {
+     "layerId": "lay-117",
+     "topDepthM": 1.6,
+     "baseDepthM": 2.38,
+     "formationId": "formation-sand",
+     "bodyId": "body-41"
+    },
+    {
+     "layerId": "lay-118",
+     "topDepthM": 2.38,
+     "baseDepthM": 3.79,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-119",
+     "topDepthM": 3.79,
+     "baseDepthM": 6.002908,
+     "formationId": "formation-clay",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-120",
+     "topDepthM": 6.002908,
+     "baseDepthM": 12.18,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-121",
+     "topDepthM": 12.18,
+     "baseDepthM": 12.99,
+     "formationId": "formation-clay",
+     "bodyId": "body-42"
+    },
+    {
+     "layerId": "lay-122",
+     "topDepthM": 12.99,
+     "baseDepthM": 18.9,
+     "formationId": "formation-sand",
+     "bodyId": "body-43"
+    },
+    {
+     "layerId": "lay-123",
+     "topDepthM": 18.9,
+     "baseDepthM": 22.99,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-20",
+   "surfaceElevM": 0.19,
+   "units": [
+    {
+     "layerId": "lay-124",
+     "topDepthM": 1.6,
+     "baseDepthM": 1.91,
+     "formationId": "formation-sand",
+     "bodyId": "body-44"
+    },
+    {
+     "layerId": "lay-125",
+     "topDepthM": 1.91,
+     "baseDepthM": 2.39,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-126",
+     "topDepthM": 2.39,
+     "baseDepthM": 2.84,
+     "formationId": "formation-clay",
+     "bodyId": "body-45"
+    },
+    {
+     "layerId": "lay-127",
+     "topDepthM": 2.84,
+     "baseDepthM": 3.37,
+     "formationId": "formation-sand",
+     "bodyId": "body-46"
+    },
+    {
+     "layerId": "lay-128",
+     "topDepthM": 3.37,
+     "baseDepthM": 5.07,
+     "formationId": "formation-silt",
+     "bodyId": "body-47"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-21",
+   "surfaceElevM": 0.2,
+   "units": [
+    {
+     "layerId": "lay-129",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.63,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-130",
+     "topDepthM": 2.63,
+     "baseDepthM": 3.23,
+     "formationId": "formation-sand",
+     "bodyId": "body-46"
+    },
+    {
+     "layerId": "lay-131",
+     "topDepthM": 3.23,
+     "baseDepthM": 3.76,
+     "formationId": "formation-silt",
+     "bodyId": "body-47"
+    },
+    {
+     "layerId": "lay-132",
+     "topDepthM": 3.76,
+     "baseDepthM": 4.11,
+     "formationId": "formation-sand",
+     "bodyId": "body-48"
+    },
+    {
+     "layerId": "lay-133",
+     "topDepthM": 4.11,
+     "baseDepthM": 5.03,
+     "formationId": "formation-silt",
+     "bodyId": "body-47"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-22",
+   "surfaceElevM": 0.27,
+   "units": [
+    {
+     "layerId": "lay-134",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.61,
+     "formationId": "formation-sand",
+     "bodyId": "body-49"
+    },
+    {
+     "layerId": "lay-135",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.64,
+     "formationId": "formation-silt",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-136",
+     "topDepthM": 2.64,
+     "baseDepthM": 3.23,
+     "formationId": "formation-sand",
+     "bodyId": "body-46"
+    },
+    {
+     "layerId": "lay-137",
+     "topDepthM": 3.23,
+     "baseDepthM": 4.14,
+     "formationId": "formation-silt",
+     "bodyId": "body-47"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-23",
+   "surfaceElevM": 0.17,
+   "units": [
+    {
+     "layerId": "lay-138",
+     "topDepthM": 1.52,
+     "baseDepthM": 6.221446,
+     "formationId": "formation-silt",
+     "bodyId": "body-50"
+    },
+    {
+     "layerId": "lay-139",
+     "topDepthM": 6.221446,
+     "baseDepthM": 19.17,
+     "formationId": "formation-sand",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-140",
+     "topDepthM": 19.17,
+     "baseDepthM": 20.49,
+     "formationId": "formation-silt",
+     "bodyId": "body-51"
+    },
+    {
+     "layerId": "lay-141",
+     "topDepthM": 20.49,
+     "baseDepthM": 26.33,
+     "formationId": "formation-clay",
+     "bodyId": "body-14"
+    }
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "a": "lay-128",
+   "b": "lay-119",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-125",
+   "b": "lay-118",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-130",
+   "b": "lay-127",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-129",
+   "b": "lay-125",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-131",
+   "b": "lay-128",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-073",
+   "b": "lay-079",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-075",
+   "b": "lay-082",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-085",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-029",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-030",
+   "b": "lay-024",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-053",
+   "b": "lay-044",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-067",
+   "b": "lay-071",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-074",
+   "b": "lay-080",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-091",
+   "b": "lay-085",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-102",
+   "b": "lay-095",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-100",
+   "b": "lay-093",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-101",
+   "b": "lay-107",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-087",
+   "b": "lay-082",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-099",
+   "b": "lay-092",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-101",
+   "b": "lay-094",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-094",
+   "b": "lay-087",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-098",
+   "b": "lay-091",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-017",
+   "b": "lay-025",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-072",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-063",
+   "b": "lay-056",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-060",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-049",
+   "b": "lay-056",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-053",
+   "b": "lay-058",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-060",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-065",
+   "b": "lay-070",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-072",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-047",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-141",
+   "b": "lay-123",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-017",
+   "b": "lay-008",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-014",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-040",
+   "b": "lay-031",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-042",
+   "b": "lay-037",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-045",
+   "b": "lay-040",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-047",
+   "b": "lay-042",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-102",
+   "b": "lay-108",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-076",
+   "b": "lay-084",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-089",
+   "b": "lay-084",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-095",
+   "b": "lay-089",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-036",
+   "b": "lay-028",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-021",
+   "b": "lay-028",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-067",
+   "b": "lay-059",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-054",
+   "b": "lay-059",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-054",
+   "b": "lay-046",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-139",
+   "b": "lay-120",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-016",
+   "b": "lay-007",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-021",
+   "b": "lay-013",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-046",
+   "b": "lay-041",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-086",
+   "b": "lay-078",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-088",
+   "b": "lay-083",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-018",
+   "b": "lay-009",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-018",
+   "b": "lay-026",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-015",
+   "b": "lay-024",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-031",
+   "b": "lay-025",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-037",
+   "b": "lay-029",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-041",
+   "b": "lay-032",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-076",
+   "b": "lay-071",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-073",
+   "b": "lay-070",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-093",
+   "b": "lay-086",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-123",
+   "b": "lay-098",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-099",
+   "b": "lay-105",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-100",
+   "b": "lay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-096",
+   "b": "lay-090",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-035",
+   "b": "lay-027",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-020",
+   "b": "lay-027",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-066",
+   "b": "lay-057",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-050",
+   "b": "lay-057",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-064",
+   "b": "lay-069",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-048",
+   "b": "lay-043",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-019",
+   "b": "lay-011",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-032",
+   "b": "lay-026",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-015",
+   "b": "lay-000",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-020",
+   "b": "lay-012",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-039",
+   "b": "lay-030",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-043",
+   "b": "lay-039",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-129",
+   "b": "lay-135",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-131",
+   "b": "lay-137",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-104",
+   "b": "lay-096",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-130",
+   "b": "lay-136",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-104",
+   "b": "lay-108",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-118",
+   "b": "lay-110",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-133",
+   "b": "lay-128",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-116",
+   "b": "lay-108",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-098",
+   "b": "lay-091",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-072",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-047",
+   "b": "lay-042",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-014",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-120",
+   "b": "lay-116",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-111",
+   "b": "lay-109",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-109",
+   "b": "lay-107",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-139",
+   "b": "lay-137",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-141",
+   "b": "lay-123",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-085",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-060",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-037",
+   "b": "lay-029",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-119",
+   "b": "lay-111",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-109",
+   "b": "lay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-123",
+   "b": "lay-098",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-072",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-047",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-029",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-110",
+   "b": "lay-109",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-133",
+   "b": "lay-137",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-091",
+   "b": "lay-085",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-060",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-042",
+   "b": "lay-037",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-062",
+   "b": "lay-064",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-062",
+   "b": "lay-065",
+   "aSide": "base",
+   "bSide": "top"
+  }
+ ]
+}
