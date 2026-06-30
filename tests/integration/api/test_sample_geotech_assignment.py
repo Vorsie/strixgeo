@@ -10,16 +10,19 @@ ZAND-over-KLEI borehole) and adds two samples to BH-1:
   ZAND extent [0, 4] → must resolve to a ZAND NAD class (5–12) with a
   non-null ``geotech_body_id`` and ``geotech_assignment_source``.
 * CLAY sample: depth_top=5.0, depth_base=5.5 m → midpoint 5.25 m inside the
-  KLEI extent [4, 8] → must resolve to a KLEI NAD class (21–28) with a
-  non-null ``geotech_body_id`` and ``geotech_assignment_source``.
+  KLEI extent [4, 8] → must resolve to a KLEI NAD class (21–28).  The KLEI
+  body has NO CPT members in this fixture (CPT-1 and CPT-2 are ZAND-only),
+  so ``geotech_body_id`` is ``None`` (the conservative fallback path).
 
 Assertions (SA = sample-assignment)
 -------------------------------------
 SA-1  sand sample ``geotech_nad_class`` is in [5, 12] (ZAND family).
-SA-2  sand sample ``geotech_body_id`` is non-null (matched a body).
+SA-2  sand sample ``geotech_body_id`` is non-null (CPT-backed ZAND body).
 SA-3  sand sample ``geotech_assignment_source`` is non-null.
 SA-4  clay sample ``geotech_nad_class`` is in [21, 28] (KLEI family).
-SA-5  clay sample ``geotech_body_id`` is non-null.
+SA-5  clay sample ``geotech_body_id`` is ``None`` — the KLEI body in this
+      fixture has no CPT members, so the borehole band is a conservative
+      fallback with no same-class CPT evidence.
 SA-6  clay sample ``geotech_assignment_source`` is non-null.
 SA-7  NAD-class family of each sample does not contradict the sample's
       own depth interval (litho coherence: a ZAND depth must not get a
@@ -47,6 +50,8 @@ from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 
@@ -470,15 +475,17 @@ async def test_sample_geotech_assignment(
     sa_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """SA-1..SA-7: samples are assigned to the correct geotech body and NAD class.
+    """SA-1..SA-8: samples are assigned to the correct geotech body and NAD class.
 
     SA-1  sand sample nad_class is in ZAND range [5, 12].
     SA-2  sand sample geotech_body_id is non-null.
     SA-3  sand sample geotech_assignment_source is non-null.
     SA-4  clay sample nad_class is in KLEI range [21, 28].
-    SA-5  clay sample geotech_body_id is non-null.
+    SA-5  clay sample geotech_body_id is None (no CPT backing for this KLEI body).
     SA-6  clay sample geotech_assignment_source is non-null.
     SA-7  neither sample has a NAD class that contradicts its own lithology.
+    SA-8  sand sample geotech_body_id is one of the CPT geotech body_ids for
+          the same NAD class (TRUE geotech body, not the litho body_id).
     """
     project = sa_scene["project"]
     litho_model_id = UUID(sa_scene["litho_model_id"])
@@ -497,6 +504,7 @@ async def test_sample_geotech_assignment(
         litho_model_id=litho_model_id,
     )
     assert db_result.layer_count >= 1, f"Expected borehole layers, got {db_result.layer_count}"
+    geotech_model_id = db_result.geotech_model_id
 
     # Expire all cached state so the SELECT below reads from DB, not the
     # identity map (DivideBoreholes committed; the session's in-memory copy of
@@ -536,9 +544,13 @@ async def test_sample_geotech_assignment(
         f"SA-4: clay sample nad_class={clay.geotech_nad_class!r} is not in KLEI range [21, 28]"
     )
 
-    # --- SA-5: clay sample has a non-null body id ---
-    assert clay.geotech_body_id is not None, (
-        "SA-5: clay sample geotech_body_id is None — expected a matched body"
+    # --- SA-5: clay sample body id is None (no CPT backing for this KLEI body) ---
+    # The KLEI body in this fixture has no CPT members — CPT-1 and CPT-2 are
+    # both ZAND 0–8 m with no KLEI correlation.  The borehole's KLEI fill band
+    # is therefore a conservative fallback, and the true geotech body_id is None.
+    assert clay.geotech_body_id is None, (
+        f"SA-5: clay sample geotech_body_id={clay.geotech_body_id!r} should be None "
+        "(no CPT-backed KLEI body in this fixture — conservative fallback path)"
     )
 
     # --- SA-6: clay sample has a non-null source ---
@@ -553,4 +565,38 @@ async def test_sample_geotech_assignment(
     )
     assert not _in_zand(clay.geotech_nad_class), (
         f"SA-7 (KLEI↔ZAND contamination): clay sample got ZAND NAD class {clay.geotech_nad_class}"
+    )
+
+    # --- SA-8: sand sample body_id is one of the TRUE CPT geotech body_ids ---
+    # Query all CPT geotech layers (cpt_id IS NOT NULL) in the geotech model
+    # that share the sand sample's NAD class.  The sand sample's body_id must
+    # come from this set — this proves DivideBoreholes stamped the geotech
+    # resolver body_id (set by ResolveLithoInstances during SAB) instead of
+    # the litho body_id.
+    cpt_layer_rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.body_id)
+                .join(
+                    GeologicalFormationOrm, LithoLayerOrm.formation_id == GeologicalFormationOrm.id
+                )
+                .where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id.is_not(None),
+                    GeologicalFormationOrm.nad_class == sand.geotech_nad_class,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cpt_body_ids = {row for row in cpt_layer_rows if row is not None}
+    assert cpt_body_ids, (
+        f"SA-8 precondition: no CPT geotech layers with nad_class={sand.geotech_nad_class} "
+        "found — cannot verify body_id provenance"
+    )
+    assert sand.geotech_body_id in cpt_body_ids, (
+        f"SA-8: sand sample geotech_body_id={sand.geotech_body_id} "
+        f"is not in CPT geotech body_ids {cpt_body_ids} "
+        f"(expected a TRUE geotech body_id from SAB/ResolveLithoInstances)"
     )
