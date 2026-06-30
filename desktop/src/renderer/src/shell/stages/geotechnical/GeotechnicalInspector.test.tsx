@@ -20,8 +20,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
-import type { FormationContactResponse, GeologicalFormationResponse } from '../../../api/client'
+import type {
+  FormationContactResponse,
+  GeologicalFormationResponse,
+  LithoLayerConfidence,
+  LithoLayerResponse,
+} from '../../../api/client'
 import GeotechnicalInspector from './GeotechnicalInspector'
+import { selectGeotechBody } from '../../../utils/geotechBodySelectionStore'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -75,6 +81,31 @@ function makeFormation(
   }
 }
 
+/** Build a minimal LithoLayerResponse for testing. */
+let _layerSeq = 0
+function makeLayer(formationId: string, confidence: LithoLayerConfidence): LithoLayerResponse {
+  _layerSeq += 1
+  return {
+    id: `layer-${_layerSeq}`,
+    model_id: 'geotech-1',
+    formation_id: formationId,
+    borehole_id: null,
+    cpt_id: 'cpt-1',
+    depth_top_m: 1.0,
+    depth_base_m: 3.0,
+    status: 'accepted',
+    source: 'segmenter',
+    confidence,
+    observation_id: null,
+    observation_layer_id: null,
+    parent_geo_contact_id: null,
+    body_id: null,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 /** Build a minimal FormationContactResponse for testing. */
 function makeContact(id: string, formationId: string): FormationContactResponse {
   return {
@@ -104,6 +135,7 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
 function makeCtx(overrides: {
   geotechFormations?: GeologicalFormationResponse[]
   geotechContacts?: FormationContactResponse[]
+  geotechLayers?: LithoLayerResponse[]
 } = {}): ShellContextValue {
   return {
     project: {
@@ -195,7 +227,7 @@ function makeCtx(overrides: {
       handleClearSuggestions: noopAsync,
       lithoCrossingPinchOuts: [],
       activeGeotechModel: null,
-      geotechLayers: [],
+      geotechLayers: overrides.geotechLayers ?? [],
       geotechContacts: overrides.geotechContacts ?? [],
       geotechFormations: overrides.geotechFormations ?? [],
       handleCreateManualLithoGhost: vi.fn(),
@@ -419,11 +451,14 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  // Reset the selection store so tests that set a selection don't bleed.
+  selectGeotechBody(null)
 })
 
 afterEach(() => {
   consoleErrorSpy.mockRestore()
   cleanup()
+  selectGeotechBody(null)
 })
 
 // ---------------------------------------------------------------------------
@@ -553,5 +588,91 @@ describe('GeotechnicalInspector contact count badge (R5)', () => {
 
     const badge = screen.getByTestId('geotech-unit-contact-count-f-empty')
     expect(badge.textContent).toBe('0')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PI — Part 3: confidence badge + assignment source display
+// ---------------------------------------------------------------------------
+
+describe('GeotechnicalInspector confidence badge (PI)', () => {
+  it('PI1 — shows "High" confidence badge when all geotechLayers for the formation are high confidence', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layers = [makeLayer('f-1', 'high'), makeLayer('f-1', 'high')]
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: layers }),
+    )
+
+    const badge = screen.getByTestId('confidence-badge-f-1')
+    expect(badge.textContent).toContain('High')
+  })
+
+  it('PI2 — shows "Low" confidence badge when any layer is low confidence', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layers = [makeLayer('f-1', 'low'), makeLayer('f-1', 'high')]
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: layers }),
+    )
+
+    const badge = screen.getByTestId('confidence-badge-f-1')
+    expect(badge.textContent).toContain('Low')
+  })
+
+  it('PI3 — shows "Medium" confidence badge when any layer is medium and none are low', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    const layers = [makeLayer('f-1', 'medium'), makeLayer('f-1', 'high')]
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: layers }),
+    )
+
+    const badge = screen.getByTestId('confidence-badge-f-1')
+    expect(badge.textContent).toContain('Medium')
+  })
+
+  it('PI4 — shows no confidence badge when no geotechLayers exist for the formation', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: [] }),
+    )
+
+    expect(screen.queryByTestId('confidence-badge-f-1')).toBeNull()
+  })
+})
+
+describe('GeotechnicalInspector assignment source panel (PI)', () => {
+  it('PI5 — shows no assignment source panel when no body is selected', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+
+    expect(screen.queryByTestId('geotech-sample-source')).toBeNull()
+  })
+
+  it('PI6 — shows translated "CPT interpolated" when selection assignmentSource is cpt_interpolated', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    selectGeotechBody({ bodyId: 'body-1', assignmentSource: 'cpt_interpolated' })
+    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+
+    const panel = screen.getByTestId('geotech-sample-source')
+    expect(panel.textContent).toContain('CPT interpolated')
+  })
+
+  it('PI7 — shows translated "Body minimum" when selection assignmentSource is body_min', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    selectGeotechBody({ bodyId: 'body-1', assignmentSource: 'body_min' })
+    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+
+    const panel = screen.getByTestId('geotech-sample-source')
+    expect(panel.textContent).toContain('Body minimum')
+  })
+
+  it('PI8 — shows no assignment source text when assignmentSource is null', () => {
+    const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
+    selectGeotechBody({ bodyId: 'body-1', assignmentSource: null })
+    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+
+    // Panel renders but assignment source line is absent.
+    const panel = screen.getByTestId('geotech-sample-source')
+    expect(panel.textContent).not.toContain('CPT interpolated')
+    expect(panel.textContent).not.toContain('Body minimum')
   })
 })
