@@ -440,8 +440,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 series = cpt_series.get(UUID(seg.investigation_id))
                 if series is None:
                     self.debug(
-                        f"SubdivideAllBodies: inv={seg.investigation_id} seg_top={seg.top_depth_m:.2f}m "
-                        f"→ skeleton band (no qc series row in DB)"
+                        f"SubdivideAllBodies: inv={seg.investigation_id} "
+                        f"seg_top={seg.top_depth_m:.2f}m → skeleton band "
+                        "(no qc series row in DB)"
                     )
                     bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
                     profiles.append(bp)
@@ -449,8 +450,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     continue
                 if soil_code is None or soil_code not in BASE_LITHOLOGIES:
                     self.debug(
-                        f"SubdivideAllBodies: inv={seg.investigation_id} seg_top={seg.top_depth_m:.2f}m "
-                        f"→ skeleton band (soil_code={soil_code!r} not in BASE_LITHOLOGIES)"
+                        f"SubdivideAllBodies: inv={seg.investigation_id} "
+                        f"seg_top={seg.top_depth_m:.2f}m → skeleton band "
+                        f"(soil_code={soil_code!r} not in BASE_LITHOLOGIES)"
                     )
                     bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
                     profiles.append(bp)
