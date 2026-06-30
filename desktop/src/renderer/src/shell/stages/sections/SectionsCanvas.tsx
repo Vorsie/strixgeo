@@ -888,7 +888,14 @@ export default function SectionsCanvas(): JSX.Element {
       } catch (err) {
         log.warn('section', 'handleCreateGeotechPackingCorrelation: POST failed', err)
         clearArm()
-        toast('error', 'Could not create the packing correlation — try again.')
+        // Propagate the server's detail string verbatim (post() throws
+        // new Error(detail.detail) for non-2xx responses, so err.message
+        // IS the server message — e.g. CrossLithoBodyCorrelationError).
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Could not create the packing correlation — try again.'
+        toast('error', message)
       }
     },
     [
