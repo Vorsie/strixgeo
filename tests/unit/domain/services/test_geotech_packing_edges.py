@@ -42,3 +42,32 @@ def test_none_class_sequences_still_pair():
     left = [("LA0", 6), ("LA1", None)]
     right = [("RB0", 6), ("RB1", None)]
     assert aligned_same_sequence_pairs(left, right) == [("LA0", "RB0"), ("LA1", "RB1")]
+
+
+def test_body_isolation_is_callers_responsibility():
+    """aligned_same_sequence_pairs pairs identical sequences regardless of body membership.
+
+    The function knows nothing about litho bodies — it only compares NAD-class
+    sequences.  Two ZAND columns from DIFFERENT litho bodies (Body-X and Body-Y)
+    with the same sequence [6, 7] would produce pairs here.
+
+    This is intentional: the function is called PER BODY GROUP by
+    ``_derive_geotech_edges_from_litho`` (which pre-filters to within-body
+    columns), so the body isolation lives in the CALLER, not in this pure helper.
+
+    The HTTP-layer guard (``CrossLithoBodyCorrelationError``) is the load-bearing
+    defence that stops a MANUAL geotech correlate from crossing body boundaries
+    after the automatic per-body grouping has already run.  This test documents
+    that the guard is NECESSARY: without the HTTP guard, a user could manually
+    tie bands from Body-X to Body-Y even though the auto-edge logic never would.
+    """
+    # Two SAND columns, same NAD sequence, belonging to different litho bodies
+    # (pretend "LX0"/"LX1" are from Body-X and "LY0"/"LY1" are from Body-Y).
+    body_x_left = [("LX0", 6), ("LX1", 7)]
+    body_y_right = [("LY0", 6), ("LY1", 7)]
+
+    # The function pairs them — it cannot distinguish by body membership.
+    pairs = aligned_same_sequence_pairs(body_x_left, body_y_right)
+    assert pairs == [("LX0", "LY0"), ("LX1", "LY1")], (
+        "Function pairs by sequence only; body isolation is the caller's responsibility"
+    )
