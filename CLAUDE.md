@@ -225,7 +225,9 @@ Skip in emergencies with `git commit --no-verify` / `git push --no-verify`
 
 ## Subagents
 
-See [docs/subagents.md](docs/subagents.md) — The 6 project-scoped subagents (senior-code-reviewer, system-architect, staff-engineer, security-reviewer, product-strategy-advisor, ux-reviewer) and when to reach for each.
+See [docs/subagents.md](docs/subagents.md) — The 9 project-scoped subagents (senior-code-reviewer, system-architect, staff-engineer, security-reviewer, product-strategy-advisor, ux-reviewer, **logging-reviewer**, **testing-reviewer**, **debugging-scientist**) and when to reach for each. The last three (added 2026-06-30) run the observability/testing/scientific-debugging gates — use the Combined Workflow (implement → logging-review → testing-review → revise) on substantive changes.
+
+**Engineering lessons:** [docs/lessons-learned.md](docs/lessons-learned.md) — transferable, hard-won rules (all-or-nothing matching fails on real data; never trust a truncated UUID; integration tests need an automated trigger; the real-data gate must assert the invariant the feature protects; verify a regression test goes RED on old code; load-bearing logs belong at INFO not DEBUG). Read before repeating a class of mistake; append when a bug teaches a new one.
 
 ---
 
