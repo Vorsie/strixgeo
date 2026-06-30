@@ -433,6 +433,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # three geotech assignment columns using the midpoint lookup.
         all_bh_ids = {UUID(inv_id) for inv_id in borehole_fill_bands}
         if all_bh_ids:
+            self.info(
+                f"DivideBoreholes: Phase 9 — assigning samples for {len(all_bh_ids)} borehole(s)"
+            )
             sample_rows = (
                 (
                     await self._session.execute(
@@ -445,7 +448,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
             assigned = 0
             unresolved = 0
-            for sample in sample_rows:
+            total = len(sample_rows)
+            for i, sample in enumerate(sample_rows, 1):
                 inv_id_str = str(sample.borehole_id)
                 bands_for_bh = borehole_fill_bands.get(inv_id_str, [])
                 body_id, nad_class, source = assign_sample_to_band(
@@ -460,6 +464,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     assigned += 1
                 else:
                     unresolved += 1
+                    # A sample whose midpoint fell in no band (e.g. outside every
+                    # litho-body extent on its borehole) — log which one + the
+                    # band count so the gap is diagnosable without a re-run.
+                    self.debug(
+                        f"[{i}/{total}] sample {sample.id} "
+                        f"depth=[{sample.depth_top_m},{sample.depth_base_m}]: "
+                        f"unresolved (borehole has {len(bands_for_bh)} band(s))"
+                    )
             self.info(
                 f"DivideBoreholes: sample assignment assigned={assigned} unresolved={unresolved}"
             )
@@ -563,9 +575,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         -------
         tuple[int, list[FillBand]]
             ``(count, fill_bands)`` — count of ``LithoLayerOrm`` rows inserted
-            and the corresponding :class:`~groundmodel.domain.services.borehole_packing_fill.FillBand`
-            objects (caller uses these to build :class:`~groundmodel.domain.services.assign_sample_to_band.Band`
-            objects for Phase 9 sample assignment).
+            and the corresponding ``FillBand`` objects (the caller builds
+            ``assign_sample_to_band.Band`` objects from these for the Phase 9
+            sample assignment).
         """
         bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
 
