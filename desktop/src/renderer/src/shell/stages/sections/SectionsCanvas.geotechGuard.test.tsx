@@ -436,6 +436,36 @@ describe('handleCreateGeotechPackingCorrelation — guard rejection UX', () => {
     cleanup()
   })
 
+  it('GG0 — activeGeotechModel null → correlate gesture is a silent no-op (no API call, no toast)', async () => {
+    // The geotech axis is still selected so contactGestureState exists and
+    // onContactCorrelate is wired to handleCreateGeotechPackingCorrelation.
+    // The handler guards `if (!activeGeotechModel) { log.warn; return }` —
+    // no API call, no toast: the user must run "Subdivide all bodies" first.
+    const baseCtx = makeGeotechCtx()
+    const ctx: ShellContextValue = {
+      ...baseCtx,
+      geoModel: { ...baseCtx.geoModel, activeGeotechModel: null },
+    }
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedContactGestureState?.onContactCorrelate).toBeDefined()
+
+    await act(async () => {
+      await capturedContactGestureState!.onContactCorrelate!('contact-a', 'contact-b', 'top', 'top')
+    })
+
+    // GG0a: no API call — the guard returned before reaching the endpoint.
+    expect(mockCreateContactCorrelation).not.toHaveBeenCalled()
+
+    // GG0b: no toast of any kind — the guard is truly silent (log.warn only).
+    expect(ctx.toasts.toast).not.toHaveBeenCalled()
+  })
+
   it('GG1 — 422 cross-body error surfaces the server message verbatim, not a generic fallback', async () => {
     // The server sends the CrossLithoBodyCorrelationError detail string.
     // post() throws: new Error(detail.detail) — so err.message IS the server string.
