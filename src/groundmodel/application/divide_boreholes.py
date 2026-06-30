@@ -86,6 +86,17 @@ _CLAMP_GUARD = 0.001
 # is still included (avoids dropping bands snapped to the extent edge).
 _DEPTH_OVERLAP_EPS = _CLAMP_GUARD
 
+# FillBand.source → litho_layer.confidence. Both conservative fallback sources
+# (body_min, absolute_min) map to 'low': they are engineer-acknowledged
+# estimates with no CPT data at that borehole, not CPT-anchored values. The
+# full 3-tier provenance lives on FillBand.source and (Task 4) on the sample;
+# 'confidence' is a confidence rating, not a provenance ledger.
+_BOREHOLE_CONFIDENCE_MAP: dict[str, str] = {
+    "cpt_interpolated": "high",
+    "body_min": "low",
+    "absolute_min": "low",
+}
+
 
 @dataclass(frozen=True)
 class DivideBoreholeResult:
@@ -96,7 +107,8 @@ class DivideBoreholeResult:
     geotech_model_id : UUID
         The geotech model that was updated.
     divided_borehole_count : int
-        Number of borehole columns that received ≥ 2 TIN-divided bands.
+        Number of borehole columns that received ≥ 2 packing bands from
+        ``fill_borehole_litho_body_extent``.
     single_band_borehole_count : int
         Number of borehole columns that received exactly 1 band (no CPT split
         surfaces existed or all splits were clamped out).
@@ -344,6 +356,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             soil_code: str | None = (
                 source_litho_orm.litho_main_soil_code if source_litho_orm is not None else None
             )
+            if soil_code not in LITHO_ABSOLUTE_MIN_NAD:
+                self.warning(
+                    f"DivideBoreholes: formation {source_litho_fid} has "
+                    f"soil_code={soil_code!r} not in LITHO_ABSOLUTE_MIN_NAD — "
+                    "falling back to the ZAND floor (NAD 5)"
+                )
             litho_abs_min_class = LITHO_ABSOLUTE_MIN_NAD.get(soil_code or "", 5)
 
             self.debug(
@@ -626,13 +644,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         # -------------------------------------------------------------------
         # Step 7: persist each FillBand as a LithoLayerOrm row.
-        # Confidence: cpt_interpolated → high; body_min / absolute_min → low.
+        # Confidence: cpt_interpolated → high; body_min / absolute_min → low
+        # (see _BOREHOLE_CONFIDENCE_MAP at module level).
         # -------------------------------------------------------------------
-        _CONFIDENCE_MAP = {
-            "cpt_interpolated": "high",
-            "body_min": "low",
-            "absolute_min": "low",
-        }
         inserted = 0
         for fb in fill_bands:
             # All FillBand.nad_class values are concrete (no None) — the
@@ -657,7 +671,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 depth_base_m=fb.base,
                 status="accepted",
                 source="segmenter",
-                confidence=_CONFIDENCE_MAP.get(fb.source, "low"),
+                confidence=_BOREHOLE_CONFIDENCE_MAP.get(fb.source, "low"),
                 borehole_id=inv_uuid,
             )
             self._session.add(layer)
