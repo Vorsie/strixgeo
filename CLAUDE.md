@@ -202,14 +202,24 @@ A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enfor
 `.githooks/pre-commit` that runs `uv run pytest tests/unit -q` whenever
 any `.py` file is staged, plus the desktop `npm test` (Vitest) suite
 when any `desktop/*.{ts,tsx}` is staged. Doc-only / config-only commits
-skip the test layer. Enable it once per clone:
+skip the test layer.
+
+**Git pre-push hook:** `.githooks/pre-push` fires when the commits being
+pushed touch `src/groundmodel/**` or `tests/integration/**`.  It invokes
+`.\scripts\run-integration-tests.ps1` and blocks the push on any pytest
+failure.  Doc-only, desktop-only, and config-only pushes skip the gate
+automatically.  The hook was added after a RED integration test (`BH1-2`)
+shipped undetected — the structural reason was that integration tests ran
+nowhere automatically.
+
+Enable both hooks once per clone:
 
 ```
 git config core.hooksPath .githooks
 ```
 
-Skip in emergencies with `git commit --no-verify` — but treat that as
-a flag that something needs a follow-up commit.
+Skip in emergencies with `git commit --no-verify` / `git push --no-verify`
+— treat either as a flag that something needs a follow-up commit/fix.
 
 ---
 

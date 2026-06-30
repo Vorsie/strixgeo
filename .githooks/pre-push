@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Pre-push guard — runs the integration test layer when commits being pushed
+# touch Python source or integration test files.
+#
+# Motivation
+# ----------
+# The pre-commit hook (unit + Vitest) runs fast but cannot catch regressions
+# that only manifest when the full application layer + live database path is
+# exercised together.  The integration suite fills that gap, but it runs
+# nowhere automatically — until this hook.  That structural gap is the reason
+# a RED integration test (BH1-2) shipped on the develop branch.
+#
+# Strategy
+# --------
+# * Read each pushed ref from stdin: ``<local_ref> <local_sha> <remote_ref> <remote_sha>``
+# * For each ref, collect the set of files changed between remote and local.
+#   - Existing branch: ``git diff --name-only <remote_sha>..<local_sha>``
+#   - New branch (remote_sha is the null SHA): scan commits not yet on any
+#     known remote via ``git log --name-only``.
+# * If ANY changed path matches ``src/groundmodel/**`` or
+#   ``tests/integration/**``, the gate fires.
+# * Invoke the PowerShell integration wrapper (sets DATABASE_URL, runs
+#   alembic upgrade, then pytest).  Parse output for pytest's failure
+#   summary line (``N failed``) as a belt-and-suspenders check in case
+#   the PowerShell exit code isn't propagated reliably by Git Bash.
+#
+# Skip in dire emergencies with ``git push --no-verify`` — mark the reason
+# in a follow-up commit.  ``--no-verify`` on push is a weaker safety
+# violation than on commit (tests will catch it in CI eventually), but
+# treat it as a flag that something needs a fix.
+#
+# Install (one-time): ``git config core.hooksPath .githooks``
+
+set -e
+
+NULL_SHA="0000000000000000000000000000000000000000"
+
+py_integration_changed=""
+
+# stdin delivers one line per pushed ref.
+while IFS=" " read -r local_ref local_sha remote_ref remote_sha; do
+  # Deletion push — nothing to inspect.
+  if [ "$local_sha" = "$NULL_SHA" ]; then
+    continue
+  fi
+
+  if [ "$remote_sha" = "$NULL_SHA" ]; then
+    # New branch: enumerate commits not yet on any remote tracking ref.
+    # ``git log --name-only`` walks the commits and lists their files.
+    changed="$(git log --name-only --pretty=format: "$local_sha" \
+                  --not --remotes 2>/dev/null || true)"
+  else
+    # Existing branch: diff between what is on the remote and what we push.
+    changed="$(git diff --name-only "${remote_sha}..${local_sha}" 2>/dev/null || true)"
+  fi
+
+  if echo "$changed" | grep -qE '^(src/groundmodel/|tests/integration/)'; then
+    py_integration_changed="yes"
+    break
+  fi
+done
+
+if [ -z "$py_integration_changed" ]; then
+  # Doc-only / desktop-only / config-only push — skip the gate.
+  exit 0
+fi
+
+echo "[pre-push] Python source or integration-test files changed — running integration tests…"
+echo "[pre-push] Budget: ~30–120 s.  Skip urgently with: git push --no-verify (flag reason)"
+
+# Invoke the PowerShell wrapper so DATABASE_URL + alembic upgrade run
+# exactly as the manual integration suite does.  Capture output so we
+# can parse the pytest summary line even when Git Bash doesn't correctly
+# propagate the PowerShell exit code.
+output="$(powershell.exe -NonInteractive -File scripts/run-integration-tests.ps1 2>&1 || true)"
+ps_exit=$?
+echo "$output"
+
+# Primary gate — non-zero PowerShell exit code (pytest returned non-zero).
+if [ "$ps_exit" -ne 0 ]; then
+  echo ""
+  echo "[pre-push] Integration tests FAILED (exit ${ps_exit}) — push blocked."
+  echo "[pre-push] Fix the failures or use --no-verify to bypass (document the reason)."
+  exit 1
+fi
+
+# Secondary gate — parse pytest's summary line as a belt-and-suspenders
+# check.  Pytest's own exit code is the authority, but a shell-level
+# subprocess issue on Windows can swallow a non-zero exit.  The summary
+# line ``N failed`` is unambiguous.
+if echo "$output" | grep -qE '[[:space:]][0-9]+ failed'; then
+  echo ""
+  echo "[pre-push] Integration tests reported failures — push blocked."
+  echo "[pre-push] Fix the failures or use --no-verify to bypass (document the reason)."
+  exit 1
+fi
+
+echo "[pre-push] Integration tests passed — push continuing."
+exit 0
