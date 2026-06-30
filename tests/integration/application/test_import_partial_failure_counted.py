@@ -8,12 +8,17 @@ without any accounting.  A bbox returning N=3 CPTs where all 3 fail to download
 produced ``ImportCptDovResult(imported=0, duplicates=0, failed=0)`` — telling the
 caller "nothing failed" when 3 items were lost.
 
-This test pins the count-conservation invariant::
+This file pins two cases of the count-conservation invariant::
 
     imported + failed + duplicates == len(WFS_index)
 
-It patches the DOV client so the WFS index reports N=3 items but the download
-returns an empty list (all 3 lost), then asserts ``result.failed == 3``.
+PF-1: all 3 lost during download → failed=3, imported=0.
+PF-2: 2 of 3 lost during download, 1 survives and is imported → imported=1, failed=2.
+      This is the LOAD-BEARING path that was previously untested: it exercises the
+      ``total > 0`` branch where ``total_failed = failed + download_failed`` combines
+      a non-zero ``download_failed`` with a successful persist, confirming the two
+      failure categories are summed correctly.  The pre-fix code set ``download_failed``
+      correctly but the "survived + imported" case was never asserted.
 
 Run via the integration wrapper (needs a live DB for the session):
     .\\scripts\\run-integration-tests.ps1 \\
@@ -25,6 +30,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -32,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from groundmodel.application.import_cpt_dov import ImportCptDov
+from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
 from groundmodel.shared.config import settings
@@ -140,16 +147,35 @@ async def test_download_failures_counted_in_failed(db_session: AsyncSession) -> 
 
 
 @pytest.mark.asyncio
-async def test_partial_download_failure_counted(db_session: AsyncSession) -> None:
-    """PF-2: 2 of 3 WFS items lost during download → result.failed == 2.
+async def test_partial_download_failure_survivor_imported(db_session: AsyncSession) -> None:
+    """PF-2: 2 of 3 WFS items lost during download, 1 survives and is imported.
 
-    Simulates a realistic partial-failure scenario where some CPTs download
-    successfully and others fail. The surviving CPT goes through the persist
-    loop where it also fails (no real DB row for an existing CPT), so the
-    persist-level failed count stays 0 for this test.
+    This is the LOAD-BEARING path that was previously untested: it exercises the
+    ``total > 0`` branch of ``ImportCptDov.execute`` where:
+
+    * ``download_failed = 2``   (3 WFS entries, only 1 made it through download)
+    * ``imported = 1``          (the survivor persists successfully)
+    * ``total_failed = 0 + 2 = 2``  (persist_failed=0, download_failed=2)
+
+    The pre-fix code set ``download_failed`` correctly but this combined path was
+    never asserted, so a regression could silently zero out ``download_failed``
+    whenever a survivor exists.
+
+    ``ImportCpt.persist`` is patched to avoid DB I/O for the survivor; the
+    dedup check (``find_existing_test_ids``) is also mocked so the survivor
+    does not look like a duplicate.
     """
     discovered_count = 3
     index = _fake_wfs_index(discovered_count)
+
+    # Build a minimal survivor parse result. MagicMock suffices because
+    # persist() is patched below — only .header.test_id and .has_errors
+    # are accessed by the use-case code before the persist call.
+    survivor_name = "CPT-SURVIVE-001"
+    survivor_parse_result = MagicMock()
+    survivor_parse_result.header.test_id = "CPT-SURVIVE-001"
+    survivor_parse_result.has_errors = False
+    survivor_parse_result.issues = []
 
     @asynccontextmanager
     async def _fake_dov_http() -> Any:
@@ -157,9 +183,15 @@ async def test_partial_download_failure_counted(db_session: AsyncSession) -> Non
 
     mock_client = MagicMock()
     mock_client.fetch_wfs_index = AsyncMock(return_value=index)
-    # Only 1 of 3 survives download — simulate with an empty list so the
-    # total=1-case triggers the "nothing to persist" early exit (simplest path).
-    mock_client.fetch_bbox_processed = AsyncMock(return_value=[])
+    # 1 of 3 survives download — the other 2 are silently dropped by the
+    # download phase, giving download_failed = 3 - 1 = 2.
+    mock_client.fetch_bbox_processed = AsyncMock(
+        return_value=[(survivor_name, survivor_parse_result)]
+    )
+
+    # Persist the survivor successfully so imported increments to 1.
+    survivor_cpt_id = UUID("00000000-0000-0000-0000-000000000099")
+    mock_persist_result = ImportCptResult(cpt_id=survivor_cpt_id, issues=[])
 
     project_id = "00000000-0000-0000-0000-000000000002"
 
@@ -173,6 +205,15 @@ async def test_partial_download_failure_counted(db_session: AsyncSession) -> Non
             return_value=mock_client,
         ),
         patch("groundmodel.application.import_cpt_dov.DovXmlCache"),
+        patch(
+            "groundmodel.application.import_cpt_dov.ImportCpt.persist",
+            new=AsyncMock(return_value=mock_persist_result),
+        ),
+        patch.object(
+            CptRepository,
+            "find_existing_test_ids",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         use_case = ImportCptDov(db_session)
         result = await use_case.execute(
@@ -183,6 +224,19 @@ async def test_partial_download_failure_counted(db_session: AsyncSession) -> Non
             app_project_id=project_id,  # type: ignore[arg-type]
         )
 
-    # PF-2: 3 discovered, 0 survived → 3 failed.
-    assert result.failed == discovered_count
-    assert result.imported + result.failed + result.duplicates == discovered_count
+    # PF-2a: 1 CPT imported (the survivor).
+    assert result.imported == 1, (
+        f"expected imported=1 (survivor was persisted), got {result.imported}"
+    )
+    # PF-2b: 2 CPTs failed (both lost during download; persist succeeded for the survivor).
+    assert result.failed == 2, (
+        f"expected failed=2 (download_failed=2, persist_failed=0), got {result.failed} "
+        "(download-phase losses may not be summed with persist failures correctly)"
+    )
+    # PF-2c: count conservation — imported + failed + duplicates == WFS index size.
+    total_accounted = result.imported + result.failed + result.duplicates
+    assert total_accounted == discovered_count, (
+        f"count conservation violated: "
+        f"{result.imported} + {result.failed} + {result.duplicates} "
+        f"= {total_accounted} ≠ {discovered_count}"
+    )
