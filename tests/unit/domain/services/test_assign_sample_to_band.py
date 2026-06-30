@@ -117,3 +117,24 @@ def test_midpoint_at_band_base_edge() -> None:
     body_id, nad, _src = assign_sample_to_band(1.0, 5.0, bands)
     assert body_id == "Bx"
     assert nad == 6
+
+
+# ---------------------------------------------------------------------------
+# SA-8  band with body_id=None (conservative fallback) — sample still gets
+#        nad_class + source, but body_id is None
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_band_none_body_id_still_assigns_nad_class() -> None:
+    """A matched band whose body_id=None: nad_class + source still assigned, body_id=None.
+
+    Conservative fallback bands (body_min / absolute_min) have no geotech
+    body to join; the sample still receives the packing class + provenance
+    so it can be rendered in the inspector, but geotech_body_id on the
+    sample row is None.
+    """
+    fallback = Band(top=0.0, base=5.0, body_id=None, nad_class=21, source="absolute_min")
+    body_id, nad_class, source = assign_sample_to_band(1.0, 2.0, [fallback])
+    assert body_id is None, f"Expected None body_id for fallback band, got {body_id!r}"
+    assert nad_class == 21
+    assert source == "absolute_min"
