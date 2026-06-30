@@ -20,6 +20,7 @@ import pytest
 
 from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.application.import_cpt_result import ImportCptResult
+from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
@@ -138,6 +139,10 @@ async def test_progress_callback_fires_with_monotonic_done_lte_total(
 
     with (
         patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=[MagicMock(spec=WfsIndexEntry) for _ in parsed]),
+        ),
+        patch(
             "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
             new=AsyncMock(return_value=parsed),
         ),
@@ -181,6 +186,10 @@ async def test_progress_callback_fires_dedup_event(use_case: ImportCptDov) -> No
         events.append((phase, done, total))
 
     with (
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=[MagicMock(spec=WfsIndexEntry) for _ in parsed]),
+        ),
         patch(
             "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
             new=AsyncMock(return_value=parsed),
@@ -229,6 +238,10 @@ async def test_progress_callback_fires_for_every_row_including_duplicates(
 
     with (
         patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=[MagicMock(spec=WfsIndexEntry) for _ in parsed]),
+        ),
+        patch(
             "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
             new=AsyncMock(return_value=parsed),
         ),
@@ -270,6 +283,10 @@ async def test_omitting_progress_cb_gives_identical_result(use_case: ImportCptDo
     persist_mock = AsyncMock(side_effect=[ImportCptResult(cpt_id=cid, issues=[]) for cid in ids])
 
     with (
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=[MagicMock(spec=WfsIndexEntry) for _ in parsed]),
+        ),
         patch(
             "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
             new=AsyncMock(return_value=parsed),

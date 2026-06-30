@@ -145,7 +145,7 @@ async def test_empty_bbox_returns_zeros_and_skips_commit(
     """No boreholes in bbox → all-zero result, commit never called."""
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=[]),
+        new=AsyncMock(return_value=(0, [])),
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -173,7 +173,7 @@ async def test_all_new_boreholes_imported_with_single_commit(
     ]
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -209,7 +209,7 @@ async def test_all_duplicates_skip_save_but_return_existing_ids(
     ]
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -242,7 +242,7 @@ async def test_mixed_new_and_duplicate_counts_both(
     ]
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -276,7 +276,7 @@ async def test_persist_failure_for_one_borehole_does_not_abort_batch(
 
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -309,7 +309,7 @@ async def test_wfs_drill_method_fills_when_xml_omitted_it(
     )
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -334,7 +334,7 @@ async def test_wfs_z_fills_when_boring_xml_omitted_elevation(
     )
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -359,7 +359,7 @@ async def test_xml_elevation_wins_over_wfs_z(
     )
     with patch(
         "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-        new=AsyncMock(return_value=parsed),
+        new=AsyncMock(return_value=(len(parsed), parsed)),
     ):
         await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
@@ -411,7 +411,7 @@ async def test_interpretation_orchestrator_invoked_with_full_borehole_map(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
@@ -467,7 +467,7 @@ async def test_interpretation_phase_runs_for_all_duplicates(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
@@ -504,7 +504,7 @@ async def test_interpretation_network_error_does_not_abort_borehole_commit(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
@@ -576,7 +576,7 @@ async def test_sample_orchestrator_invoked_with_full_permkey_map(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
@@ -633,7 +633,7 @@ async def test_sample_phase_runs_for_all_duplicates(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
@@ -670,7 +670,7 @@ async def test_sample_network_error_does_not_abort_borehole_commit(
     with (
         patch(
             "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
-            new=AsyncMock(return_value=parsed),
+            new=AsyncMock(return_value=(len(parsed), parsed)),
         ),
         patch(
             "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",

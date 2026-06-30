@@ -156,12 +156,25 @@ class ImportBoreholeDov(GroundModelLogger):
         # connect-handshake latency. Tuning lives in
         # ``dov_http.make_dov_async_client``.
         async with make_dov_async_client() as http:
-            parsed = await self._fetch_boreholes(http, west, south, east, north, progress_cb)
+            discovered_count, parsed = await self._fetch_boreholes(
+                http, west, south, east, north, progress_cb
+            )
 
             total = len(parsed)
+            # Count conservation: boreholes lost during download/parse are the
+            # gap between the WFS index size and the parsed count.
+            download_failed = discovered_count - total
+            if download_failed > 0:
+                self.warning(
+                    f"DOV import: {download_failed} borehole(s) lost during download/parse "
+                    f"({total} of {discovered_count} survived) — "
+                    f"per-item ERROR lines above carry the cause"
+                )
             if total == 0:
                 self.info("DOV import: no boreholes found in bbox — nothing to persist")
-                return ImportBoreholeDovResult(imported=0, duplicates=0, failed=0, borehole_ids=[])
+                return ImportBoreholeDovResult(
+                    imported=0, duplicates=0, failed=download_failed, borehole_ids=[]
+                )
 
             for wfs_row, result in parsed:
                 if result.has_errors:
@@ -297,10 +310,12 @@ class ImportBoreholeDov(GroundModelLogger):
                 )
             await fire_progress(progress_cb, "commit", imported, imported)
 
+        total_failed = failed + download_failed
         self.success(
             f"DOV borehole import done in {ms_since(t_total)} ms: "
-            f"{imported} imported, {duplicates} duplicates, {failed} failed  "
-            f"(total={total}); "
+            f"{imported} imported, {duplicates} duplicates, {total_failed} failed "
+            f"({download_failed} download/parse + {failed} persist)  "
+            f"(total={discovered_count}); "
             f"interpretations: {interp_result.attached} attached, "
             f"{interp_result.failed} failed; "
             f"samples: {samples_result.samples_attached} attached, "
@@ -318,7 +333,7 @@ class ImportBoreholeDov(GroundModelLogger):
         return ImportBoreholeDovResult(
             imported=imported,
             duplicates=duplicates,
-            failed=failed,
+            failed=total_failed,
             interpretations_attached=interp_result.attached,
             interpretations_failed=interp_result.failed,
             samples_attached=samples_result.samples_attached,
@@ -346,7 +361,7 @@ class ImportBoreholeDov(GroundModelLogger):
         east: float,
         north: float,
         progress_cb: ProgressCallback | None = None,
-    ) -> list[tuple[BoreholeWfsRow, BoreholeParseResult]]:
+    ) -> tuple[int, list[tuple[BoreholeWfsRow, BoreholeParseResult]]]:
         """Run Phase 1+2 — WFS discovery + parallel download + stream-parse.
 
         Parameters
@@ -358,10 +373,18 @@ class ImportBoreholeDov(GroundModelLogger):
         progress_cb : ProgressCallback | None
             Optional progress callback forwarded to the borehole client
             so WFS and download phase ticks surface to the UI.
+
+        Returns
+        -------
+        tuple[int, list[tuple[BoreholeWfsRow, BoreholeParseResult]]]
+            ``(discovered, pairs)`` where *discovered* is the raw WFS feature
+            count and *pairs* are ``(wfs_row, parse_result)`` tuples for
+            boreholes that survived download and parse.
+            ``discovered - len(pairs)`` is the count lost to failures.
         """
         parser = DovBoringParser()
         t_fetch = time.perf_counter()
-        parsed = await fetch_wfs_or_raise(
+        discovered, parsed = await fetch_wfs_or_raise(
             DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
                 west, south, east, north, parser.parse, progress_cb=progress_cb
             ),
@@ -370,9 +393,9 @@ class ImportBoreholeDov(GroundModelLogger):
         )
         self.info(
             f"DOV phase 1+2 (WFS + download + parse): {ms_since(t_fetch)} ms — "
-            f"{len(parsed)} boreholes ready"
+            f"{len(parsed)} of {discovered} boreholes ready"
         )
-        return parsed
+        return discovered, parsed
 
     async def _fetch_and_attach_interpretations(
         self,

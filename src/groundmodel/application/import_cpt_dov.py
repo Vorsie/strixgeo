@@ -211,13 +211,21 @@ class ImportCptDov(GroundModelLogger):
             )
 
         total = len(parsed)
+        # Count conservation: CPTs lost during download/parse are the gap
+        # between the WFS index size and the successfully-parsed count.
+        # Each individual failure already has a per-item ERROR line from DovClient.
+        download_failed = len(index) - total
+        if download_failed > 0:
+            self.warning(
+                f"DOV import: {download_failed} CPT(s) lost during download/parse "
+                f"({total} of {len(index)} survived) — "
+                f"per-item ERROR lines above carry the cause"
+            )
         if total == 0:
             self.info("DOV import: no CPTs found in bbox — nothing to persist")
-            return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
+            return ImportCptDovResult(imported=0, duplicates=0, failed=download_failed, cpt_ids=[])
 
-        # Per-CPT failures during download/parse are logged inside DovClient and
-        # excluded from `parsed`. We don't have a separate count here without
-        # threading it through; absent CPTs vs. expected count is the diff.
+        # Per-CPT failures during download/parse are captured in download_failed above.
         for name, result in parsed:
             if result.has_errors:
                 self.warning(
@@ -288,13 +296,16 @@ class ImportCptDov(GroundModelLogger):
             self.info(f"DOV phase 5 (commit batch of {imported} CPTs): {ms_since(t_commit)} ms")
         await fire_progress(progress_cb, "commit", imported, imported)
 
+        total_failed = failed + download_failed
         self.success(
             f"DOV import done in {ms_since(t_total)} ms: {imported} imported, "
-            f"{duplicates} duplicates, {failed} failed  (total={total})"
+            f"{duplicates} duplicates, {total_failed} failed "
+            f"({download_failed} download/parse + {failed} persist)  "
+            f"(total={len(index)})"
         )
         return ImportCptDovResult(
             imported=imported,
             duplicates=duplicates,
-            failed=failed,
+            failed=total_failed,
             cpt_ids=cpt_ids,
         )

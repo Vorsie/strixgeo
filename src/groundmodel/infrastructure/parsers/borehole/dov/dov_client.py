@@ -100,7 +100,7 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         process: ProcessFn[_T],
         *,
         progress_cb: ProgressCallback | None = None,
-    ) -> list[tuple[BoreholeWfsRow, _T]]:
+    ) -> tuple[int, list[tuple[BoreholeWfsRow, _T]]]:
         """Stream-parse: download every boring XML in the bbox and process inline.
 
         For each borehole inside the WGS84 bbox, downloads the boring XML
@@ -123,11 +123,14 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
 
         Returns
         -------
-        list[tuple[BoreholeWfsRow, _T]]
-            (wfs_row, process_result) pairs — one per borehole successfully
-            downloaded and processed. The orchestrator uses ``wfs_row`` to
-            enrich the parse result with WFS-only metadata
-            (``drill_method``, the eight stream flags, Z fallback, etc.).
+        tuple[int, list[tuple[BoreholeWfsRow, _T]]]
+            ``(discovered, pairs)`` where *discovered* is the raw WFS feature
+            count and *pairs* are ``(wfs_row, process_result)`` tuples — one
+            per borehole that was successfully downloaded and processed.
+            ``discovered - len(pairs)`` is the count lost to download/parse
+            failures.  The orchestrator uses ``wfs_row`` to enrich the parse
+            result with WFS-only metadata (``drill_method``, the eight stream
+            flags, Z fallback, etc.).
         """
         x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
         x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
@@ -158,7 +161,7 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         # orchestrator wires ``DovBoringParser().parse`` straight into it).
         # A one-line lambda bridges the two without rippling the change
         # outward.
-        return await parallel_download_and_process(
+        results = await parallel_download_and_process(
             http=self._http,
             cache=self._cache,
             rows=rows,
@@ -170,6 +173,7 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
             error_id_of=lambda r: f"'{r.test_id}'",
             progress_cb=progress_cb,
         )
+        return len(rows), results
 
     # ------------------------------------------------------------------
     # DovWfsClientBase hooks — typed-row construction + per-client
