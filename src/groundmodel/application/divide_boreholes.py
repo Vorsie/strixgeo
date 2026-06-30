@@ -384,13 +384,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             soil_code: str | None = (
                 source_litho_orm.litho_main_soil_code if source_litho_orm is not None else None
             )
-            if soil_code not in LITHO_ABSOLUTE_MIN_NAD:
+            litho_abs_min_class = LITHO_ABSOLUTE_MIN_NAD.get(soil_code or "")
+            if litho_abs_min_class is None:
+                # Cannot determine the lithology floor for an unknown soil code.
+                # SKIP this group's borehole fill rather than default to a
+                # specific lithology (a ZAND-5 floor stamped on a KLEI/VEEN body
+                # would violate the very litho-class invariant this fill enforces
+                # — Data Integrity Rule 3). Real DOV formations always carry one
+                # of the five families; this guards a malformed/manual formation.
                 self.warning(
                     f"DivideBoreholes: formation {source_litho_fid} has "
                     f"soil_code={soil_code!r} not in LITHO_ABSOLUTE_MIN_NAD — "
-                    "falling back to the ZAND floor (NAD 5)"
+                    "skipping this group's borehole fill (no lithology floor)"
                 )
-            litho_abs_min_class = LITHO_ABSOLUTE_MIN_NAD.get(soil_code or "", 5)
+                continue
 
             self.debug(
                 f"DivideBoreholes: group body={body_id_str} "
