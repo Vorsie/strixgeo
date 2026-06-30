@@ -29,6 +29,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.exceptions import CrossLithoBodyCorrelationError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -250,7 +251,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         #     Applies only to kind='geotechnical' models; litho and            #
         #     geological paths are unchanged.                                  #
         # ------------------------------------------------------------------ #
-        if model.kind == "geotechnical":
+        if model.kind == MODEL_KIND_GEOTECHNICAL:
             litho_body_of = await self._resolve_litho_bodies_for_geotech(
                 geotech_model=model,
                 contact_ids=[ca.id, cb.id],
@@ -434,6 +435,11 @@ class CorrelateLithoContacts(GroundModelLogger):
                         >= geotech_layer.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
                     )
                 )
+                # At most one accepted litho layer can contain a geotech band on
+                # this anchor (the ``litho_layer_accepted_no_overlap`` exclusion
+                # constraint). The ``order_by`` keeps the pick deterministic if
+                # that constraint is ever relaxed or bypassed by a migration.
+                .order_by(LithoLayerOrm.depth_top_m)
                 .limit(1)
             )
             litho_layer = (await self._session.execute(stmt)).scalars().first()
