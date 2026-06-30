@@ -422,14 +422,26 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             admixtures = await self._formation_admixtures(source_litho_fid)
 
             # Build a BandProfile per CPT member.
+            # ``profile_by_seg_key`` is keyed by ``(investigation_id, top_depth_m)``
+            # so a CPT with multiple segments in the same body group (e.g. two
+            # non-adjacent ZAND layers correlated transitively to the same body)
+            # always receives the profile computed for ITS OWN depth window — a
+            # plain ``investigation_id``-only dict would overwrite the first entry
+            # with the second, causing the first segment's splits to clamp entirely
+            # outside its depth range and fall back to skeleton (nad_class = None).
             profiles: list[BandProfile] = []
+            profile_by_seg_key: dict[tuple[str, float], BandProfile] = {}
             for seg in cpt_segs:
                 series = cpt_series.get(UUID(seg.investigation_id))
                 if series is None:
-                    profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=[]))
+                    bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
+                    profiles.append(bp)
+                    profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
                     continue
                 if soil_code is None or soil_code not in BASE_LITHOLOGIES:
-                    profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=[]))
+                    bp = BandProfile(investigation_id=seg.investigation_id, splits=[])
+                    profiles.append(bp)
+                    profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
                     continue
                 splits = suggest_geotech_subdivision(
                     soil=soil_code,  # type: ignore[arg-type]
@@ -442,7 +454,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     gradient_snap=gradient_snap,
                     gradient_snap_window_m=gradient_snap_window_m,
                 )
-                profiles.append(BandProfile(investigation_id=seg.investigation_id, splits=splits))
+                bp = BandProfile(investigation_id=seg.investigation_id, splits=splits)
+                profiles.append(bp)
+                profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
 
             plan = plan_body_subdivision(profiles)
 
@@ -466,7 +480,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             cpt_column_plans = self._build_column_plans(
                 group_segs=cpt_segs,
                 anchor_kind=anchor_kind,
-                profiles=profiles,
+                profile_by_seg_key=profile_by_seg_key,
             )
 
             # Phase 8 CPT pass — materialise one band per CPT's own A3 splits.
@@ -648,7 +662,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         *,
         group_segs: list[BodyLayerPick],
         anchor_kind: dict[str, str],
-        profiles: list[BandProfile],
+        profile_by_seg_key: dict[tuple[str, float], BandProfile],
     ) -> list[_ColumnPlan]:
         """Build per-column sub-interval plans for one body group.
 
@@ -662,18 +676,24 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         Parameters
         ----------
         group_segs : list[BodyLayerPick]
-            All geo-bounded segment picks for the group.
+            All geo-bounded segment picks for the group (CPT segments only when
+            called from the main loop; each seg is a unique ``(investigation_id,
+            top_depth_m)`` pair).
         anchor_kind : dict[str, str]
             ``investigation_id (str) -> "borehole" | "cpt"``.
-        profiles : list[BandProfile]
-            Per-CPT packing-band profiles (the A3 segmentation per test).
+        profile_by_seg_key : dict[tuple[str, float], BandProfile]
+            Per-segment packing profiles keyed by ``(investigation_id,
+            top_depth_m)``.  Using the segment's top depth as part of the key
+            ensures that a CPT with multiple segments in the same body group
+            (each with a distinct depth window) always retrieves its OWN profile
+            — a plain ``investigation_id``-only dict would silently overwrite the
+            first entry with the second.
 
         Returns
         -------
         list[_ColumnPlan]
             One entry per column in the group, carrying per-band NAD classes.
         """
-        profiles_by_inv = {p.investigation_id: p for p in profiles}
         col_plans: list[_ColumnPlan] = []
 
         for seg in group_segs:
@@ -686,7 +706,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             sub_intervals: list[tuple[float, float]] = []
             nad_classes: list[int | None] = []
 
-            profile = profiles_by_inv.get(seg.investigation_id)
+            profile = profile_by_seg_key.get((seg.investigation_id, seg.top_depth_m))
             if kind == "cpt" and profile is not None and profile.splits:
                 # PER-CPT (owner directive 2026-06-25): each test segments by its
                 # OWN qc (the A3 ``profile.splits``), NOT a body-consensus class. A
