@@ -7,7 +7,7 @@ Three CPTs form a non-collinear triangle; a borehole sits inside it::
     CPT-A  (0, 0) :  ZAND dense 0–8 m
     CPT-B  (20, 0):  ZAND dense 0–4 m  /  KLEI soft 4–8 m
     CPT-C  (10, 20): ZAND dense 0–8 m
-    BH-1   (10, 5):  ZAND 0–4 m  /  KLEI 4–8 m   ← inside the CPT triangle
+    BH-1   (10, 4):  ZAND 0–4 m  /  KLEI 4–8 m   ← inside the CPT triangle
 
 All investigations sit at surface elevation 1.0 m (depth → elevation: d m →
 (1 − d) m).
@@ -35,7 +35,7 @@ Cases
 GVW-1  Happy path — every ``LithoBodySolidOrm`` in the geotech model is
        ``is_flagged=False`` / ``method='voxel'``; no two bodies overlap over
        a footprint sample grid.
-GVW-2  Honour-borehole wins over the ZAND partition — at BH-1's ``(10, 5)``
+GVW-2  Honour-borehole wins over the ZAND partition — at BH-1's ``(10, 4)``
        within the KLEI depth range (elevation −5 m, mid of 4–8 m) the built
        solid carries a KLEI-family formation (``litho_main_soil_code='KLEI'``),
        never a ZAND-family one.
@@ -322,7 +322,7 @@ async def gvw_scene(
         dense qc=22     dense top / soft  dense qc=22
                         KLEI 4–8 m
 
-        BH-1 (10, 5) inside the triangle:
+        BH-1 (10, 4) inside the triangle:
         ZAND 0–4 m / KLEI 4–8 m
 
     Litho correlations build two bodies::
@@ -760,8 +760,8 @@ async def test_geotech_voxel_watertight(
     #   Section 0: CPT-A (0, 0) → CPT-B (20, 0)
     #   Section 1: CPT-B (20, 0) → CPT-C (10, 20)
     #
-    # BH-1 (10, 5) is NOT a section column.  The honour-borehole mechanism
-    # overrides the ZAND label at (10, 5) in the KLEI depth range because
+    # BH-1 (10, 4) is NOT a section column.  The honour-borehole mechanism
+    # overrides the ZAND label at (10, 4) in the KLEI depth range because
     # BH-1's KLEI layer now carries body_id (via DivideBoreholes).
     #
     # Elevation arithmetic (surface = 1.0 m):
@@ -843,6 +843,14 @@ async def test_geotech_voxel_watertight(
         )
         .scalars()
         .all()
+    )
+
+    # GVW-1c: the aggregated ZAND body is ONE connected solid across both
+    # gaps (A→B and B→C share the same zand_body_id), not two fragments.
+    zand_solid_rows = [r for r in rows if str(r.body_id) == zand_body_id]
+    assert len(zand_solid_rows) == 1, (
+        f"GVW-1: the ZAND body must produce exactly one connected solid across "
+        f"both sections; got {len(zand_solid_rows)} rows for body_id={zand_body_id}"
     )
 
     # GVW-1b: every persisted row is a real, non-flagged voxel solid.
