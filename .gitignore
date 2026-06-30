@@ -165,3 +165,7 @@ desktop/scripts/voxel_oracle_inputs.json
 # regenerable artifact (scripts/dump_voxel_viewer_model.py rebuilds it from the
 # persisted solids). Never commit the viewer or its generated model/screenshots.
 voxel_viewer/
+
+# Real-data geotech gate input — extracted from dev DB; regenerable.
+# Regenerate: scripts/rematerialise_dev_geotech.py + scripts/throwaway_cs1_geotech_gate_extract.py
+scripts/cs1_geotech_gate.json
