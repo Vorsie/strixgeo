@@ -62,10 +62,11 @@ done
 
 if [ -z "$py_integration_changed" ]; then
   # Doc-only / desktop-only / config-only push — skip the gate.
+  echo "[pre-push] No Python/integration files changed — gate skipped."
   exit 0
 fi
 
-echo "[pre-push] Python source or integration-test files changed — running integration tests…"
+echo "[pre-push] Gate triggered by $local_ref ($local_sha) — running integration tests…"
 echo "[pre-push] Budget: ~30–120 s.  Skip urgently with: git push --no-verify (flag reason)"
 
 # Invoke the PowerShell wrapper so DATABASE_URL + alembic upgrade run
