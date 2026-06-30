@@ -16,18 +16,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.domain.services.litho_body_guard import same_litho_body
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.shared.exceptions import CrossLithoBodyCorrelationError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Containment tolerance for matching a geotech band's depth range to the
+# parent litho layer that it subdivides.  The geotech band depths come from
+# the same arithmetic pipeline (divide_picks_by_geology + A3 segmenter), so
+# a tight numeric guard is sufficient.
+_DEPTH_CONTAINMENT_EPS_M: float = 1e-3
 
 
 def canonical_contact_order(
@@ -190,7 +199,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 2. Validate the model belongs to this project.                       #
         # ------------------------------------------------------------------ #
-        await load_scoped_or_raise(
+        model = await load_scoped_or_raise(
             self._session, GeologicalModelOrm, model_id, project_id, label="Model"
         )
 
@@ -230,6 +239,33 @@ class CorrelateLithoContacts(GroundModelLogger):
         # renderer draws it as a line, not a body ribbon. There is therefore   #
         # no same-lithology guard at creation (thread B, 2026-06-07).          #
         # ------------------------------------------------------------------ #
+
+        # ------------------------------------------------------------------ #
+        # 4b. Geotech-only litho-body guard.                                   #
+        #     A NAD packing class is always a subdivision of ONE               #
+        #     lithostratigraphic body; a manual packing correlation must       #
+        #     never cross a body boundary (two separate sand bodies must not   #
+        #     merge into one packing body by this gesture).                    #
+        #                                                                      #
+        #     Applies only to kind='geotechnical' models; litho and            #
+        #     geological paths are unchanged.                                  #
+        # ------------------------------------------------------------------ #
+        if model.kind == "geotechnical":
+            litho_body_of = await self._resolve_litho_bodies_for_geotech(
+                geotech_model=model,
+                contact_ids=[ca.id, cb.id],
+            )
+            if not same_litho_body(
+                litho_body_of,
+                str(ca.id),
+                str(cb.id),
+            ):
+                self.warning(
+                    f"CorrelateLithoContacts: cross-litho-body geotech correlation blocked — "
+                    f"contact_a={ca.id} body={litho_body_of.get(str(ca.id))!r} "
+                    f"contact_b={cb.id} body={litho_body_of.get(str(cb.id))!r}"
+                )
+                raise CrossLithoBodyCorrelationError()
 
         # ------------------------------------------------------------------ #
         # 5. Canonical ordering: (min, max), sides paired with their ids.      #
@@ -301,6 +337,131 @@ class CorrelateLithoContacts(GroundModelLogger):
             f"contact_a={a_id} contact_b={b_id} source={source!r}"
         )
         return ContactCorrelateResult(edge=edge, was_created=True)
+
+    # ---------------------------------------------------------------------- #
+    # Private helpers                                                          #
+    # ---------------------------------------------------------------------- #
+
+    async def _resolve_litho_bodies_for_geotech(
+        self,
+        *,
+        geotech_model: GeologicalModelOrm,
+        contact_ids: list[UUID],
+    ) -> dict[str, str | None]:
+        """Build a ``{contact_id_str: litho_body_id_str | None}`` map.
+
+        For each geotech contact (whose UUID equals the corresponding
+        ``litho_layer`` row via the LL→FC trigger), look up the parent
+        litho model and find the accepted litho layer on the SAME
+        investigation whose depth range CONTAINS the geotech band. The
+        litho layer's ``body_id`` is the parent litho body.
+
+        Conservative: a contact that cannot be resolved (no matching
+        litho layer, or the litho layer's ``body_id`` is not yet
+        stamped) maps to ``None`` so ``same_litho_body`` blocks the
+        correlation.
+
+        Parameters
+        ----------
+        geotech_model : GeologicalModelOrm
+            The geotechnical model whose ``parent_geological_model_id``
+            points to the lithostratigraphic model.
+        contact_ids : list[UUID]
+            Geotech contact (= litho_layer) ids to resolve.
+
+        Returns
+        -------
+        dict[str, str | None]
+            Keys are string representations of each contact id; values
+            are the parent litho ``body_id`` as a string, or ``None``
+            when resolution fails.
+        """
+        litho_model_id = geotech_model.parent_geological_model_id
+        result: dict[str, str | None] = {}
+
+        for contact_id in contact_ids:
+            key = str(contact_id)
+
+            if litho_model_id is None:
+                # Geotechnical model has no litho parent — block conservatively.
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"geotech model {geotech_model.id} has no parent litho model"
+                )
+                result[key] = None
+                continue
+
+            # The geotech LithoLayerOrm has the same UUID as the FormationContactOrm
+            # (SAB-8 invariant: the LL→FC trigger writes matching ids).
+            geotech_layer = await self._session.get(LithoLayerOrm, contact_id)
+            if geotech_layer is None:
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"no LithoLayerOrm found for geotech contact {contact_id}"
+                )
+                result[key] = None
+                continue
+
+            # Build the investigation filter for the litho query.
+            if geotech_layer.cpt_id is not None:
+                inv_filter = LithoLayerOrm.cpt_id == geotech_layer.cpt_id
+            elif geotech_layer.borehole_id is not None:
+                inv_filter = LithoLayerOrm.borehole_id == geotech_layer.borehole_id
+            else:
+                # Geotech layer has no investigation anchor — should not happen.
+                self.warning(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"geotech layer {contact_id} has no cpt_id or borehole_id"
+                )
+                result[key] = None
+                continue
+
+            # Find the litho layer on the same investigation that CONTAINS this
+            # geotech band (depth_top_m ≤ geotech.top + ε  and
+            # depth_base_m ≥ geotech.base − ε).  A small tolerance accounts for
+            # the geo-band divide arithmetic that produces the geotech band from
+            # the original litho layer.
+            stmt = (
+                select(LithoLayerOrm)
+                .where(
+                    and_(
+                        LithoLayerOrm.model_id == litho_model_id,
+                        LithoLayerOrm.status == "accepted",
+                        inv_filter,
+                        LithoLayerOrm.depth_top_m
+                        <= geotech_layer.depth_top_m + _DEPTH_CONTAINMENT_EPS_M,
+                        LithoLayerOrm.depth_base_m
+                        >= geotech_layer.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
+                    )
+                )
+                .limit(1)
+            )
+            litho_layer = (await self._session.execute(stmt)).scalars().first()
+
+            if litho_layer is None:
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"no containing litho layer found for geotech contact {contact_id} "
+                    f"(top={geotech_layer.depth_top_m}, base={geotech_layer.depth_base_m})"
+                )
+                result[key] = None
+                continue
+
+            if litho_layer.body_id is None:
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"litho layer {litho_layer.id} has no body_id stamped yet "
+                    f"(resolver not yet run or layer not in a correlated body)"
+                )
+                result[key] = None
+            else:
+                result[key] = str(litho_layer.body_id)
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: "
+                    f"geotech contact {contact_id} → litho body {litho_layer.body_id}"
+                )
+
+        return result
 
 
 class UncorrelateLithoContacts(GroundModelLogger):
