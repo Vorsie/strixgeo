@@ -3138,3 +3138,253 @@ async def test_sab_bug3_cpt_multi_segment_profile_overwrite(
         f"B3-2: CPT-P ZAND [6–10 m] has nad_class=None (skeleton fallback). "
         f"Formation: {deep_formation.name!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# LCS connectivity -- two CPTs, same litho body, differing packing sequences
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def sab_lcs_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Scene for the LCS geotech-connectivity regression test.
+
+    Two CPTs share ONE litho body (a ZAND correlation edge) but have
+    DIFFERENT packing-class sequences:
+
+    * **CPT-G** has a two-layer qc profile: loose (3 MPa, 0-4 m) then
+      dense (22 MPa, 4-8 m) -- geotech segments [<loose>, <dense>].
+    * **CPT-H** has a uniform-dense qc profile (22 MPa, 0-8 m) --
+      geotech segment [<dense>].
+
+    The old ``aligned_same_sequence_pairs`` rule returned [] (length mismatch
+    -- no auto-connect).  The new LCS rule computes
+    ``LCS([loose,dense],[dense]) = [dense]`` and emits ONE edge between
+    CPT-G's dense band and CPT-H's band.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model_id``, ``section_id``,
+        ``cpt_g_id``, ``cpt_h_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="SAB-LCS test project", status="active")
+    db_session.add(proj)
+    await db_session.flush()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "LCS-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "LCS-Litho",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model_id,
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "LCS-Section",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_600.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    # CPT-G: two-layer qc (loose top 0-4 m @ 3 MPa / dense base 4-8 m @ 22 MPa).
+    depths_g, qc_g = _two_layer_qc(n_top=200, n_bot=200, qc_top=3.0, qc_bot=22.0)
+    cpt_g = CptOrm(
+        id=uuid7(),
+        name="CPT-G",
+        cpt_type="CPTU",
+        project_id="LCS",
+        test_id="LCS/CPT-G",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_g.series = CptSeriesOrm(
+        depths_m=depths_g,
+        qc_mpa=qc_g,
+        fs_mpa=[0.05] * len(depths_g),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    # CPT-H: uniform dense (22 MPa, 0-8 m) -- one packing band only.
+    depths_h, qc_h = _qc_series(n=400, qc_mpa=22.0)
+    cpt_h = CptOrm(
+        id=uuid7(),
+        name="CPT-H",
+        cpt_type="CPTU",
+        project_id="LCS",
+        test_id="LCS/CPT-H",
+        app_project_id=proj.id,
+        location_x=149_300.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_h.series = CptSeriesOrm(
+        depths_m=depths_h,
+        qc_mpa=qc_h,
+        fs_mpa=[0.05] * len(depths_h),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+
+    db_session.add_all([cpt_g, cpt_h])
+    await db_session.commit()
+
+    # Accept one ZAND litho layer 0-8 m on each CPT, then correlate them
+    # so they land in the same litho body after the resolver.
+    cg_id = await _accept_cpt_litho(
+        async_client, pid, litho_model_id,
+        cpt_id=str(cpt_g.id), top=0.0, base=8.0, soil="ZAND",
+    )
+    ch_id = await _accept_cpt_litho(
+        async_client, pid, litho_model_id,
+        cpt_id=str(cpt_h.id), top=0.0, base=8.0, soil="ZAND",
+    )
+    await _correlate(
+        async_client, pid, litho_model_id,
+        contact_a=cg_id, contact_b=ch_id, section_id=section_id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "cpt_g_id": str(cpt_g.id),
+        "cpt_h_id": str(cpt_h.id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_sab_lcs_connectivity(
+    sab_lcs_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """LCS-1: differing packing sequences connect via the shared dense class.
+
+    CPT-G segments [<loose>, <dense>] and CPT-H has [<dense>].
+    With the old full-sequence rule the length mismatch yields 0 auto-edges.
+    With the new LCS rule the shared dense class yields >= 1 geotech edge
+    connecting CPT-G's dense band to CPT-H's band, placing them in the same
+    geotech body instead of two isolated bodies.
+
+    LCS-1a  At least one geotech edge exists between CPT-G and CPT-H.
+    LCS-1b  Every geotech edge between CPT-G and CPT-H connects same-class bands.
+    LCS-1c  CPT-G and CPT-H share at least one geotech body_id (dense bands end
+            up in the same resolved body).
+    """
+    project = sab_lcs_scene["project"]
+    litho_model_id = UUID(sab_lcs_scene["litho_model_id"])
+    cpt_g_uuid = UUID(sab_lcs_scene["cpt_g_id"])
+    cpt_h_uuid = UUID(sab_lcs_scene["cpt_h_id"])
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    # Load all accepted geotech layers for both CPTs.
+    geotech_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id.in_([cpt_g_uuid, cpt_h_uuid]),
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    g_layer_ids = {layer.id for layer in geotech_layers if layer.cpt_id == cpt_g_uuid}
+    h_layer_ids = {layer.id for layer in geotech_layers if layer.cpt_id == cpt_h_uuid}
+    layer_formation = {layer.id: layer.formation_id for layer in geotech_layers}
+
+    all_geotech_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cross_edges = [
+        e
+        for e in all_geotech_edges
+        if (e.contact_a_id in g_layer_ids and e.contact_b_id in h_layer_ids)
+        or (e.contact_b_id in g_layer_ids and e.contact_a_id in h_layer_ids)
+    ]
+
+    # LCS-1a: at least one geotech edge connects CPT-G to CPT-H.
+    assert len(cross_edges) >= 1, (
+        f"LCS-1a: expected >= 1 geotech edge between CPT-G and CPT-H after "
+        f"LCS alignment, got 0.  CPT-G layers={len(g_layer_ids)}, "
+        f"CPT-H layers={len(h_layer_ids)}.  Regression case: the old "
+        f"full-sequence rule returned [] because stacks differ in length "
+        f"([loose,dense] vs [dense])."
+    )
+
+    # LCS-1b: every CPT-G <-> CPT-H edge connects same-class bands.
+    cross_class_edges = [
+        e
+        for e in cross_edges
+        if layer_formation.get(e.contact_a_id) != layer_formation.get(e.contact_b_id)
+    ]
+    assert len(cross_class_edges) == 0, (
+        f"LCS-1b: {len(cross_class_edges)} cross-class edge(s) between "
+        f"CPT-G and CPT-H -- every auto-edge must connect same-NAD-class "
+        f"bands only."
+    )
+
+    # LCS-1c: CPT-G and CPT-H share at least one geotech body_id.
+    g_body_ids = {
+        layer.body_id for layer in geotech_layers
+        if layer.cpt_id == cpt_g_uuid and layer.body_id
+    }
+    h_body_ids = {
+        layer.body_id for layer in geotech_layers
+        if layer.cpt_id == cpt_h_uuid and layer.body_id
+    }
+    shared_bodies = g_body_ids & h_body_ids
+    assert len(shared_bodies) >= 1, (
+        f"LCS-1c: CPT-G and CPT-H have no shared geotech body_id -- "
+        f"dense bands should resolve into the same body after the LCS "
+        f"edge connects them.  CPT-G bodies={g_body_ids}, "
+        f"CPT-H bodies={h_body_ids}."
+    )
