@@ -171,7 +171,13 @@ class ImportBoreholeDov(GroundModelLogger):
                     f"per-item ERROR lines above carry the cause"
                 )
             if total == 0:
-                self.info("DOV import: no boreholes found in bbox — nothing to persist")
+                if download_failed > 0:
+                    self.info(
+                        f"DOV import: 0 boreholes survived download/parse "
+                        f"({download_failed} of {discovered_count} lost) — nothing to persist"
+                    )
+                else:
+                    self.info("DOV import: no boreholes found in bbox — nothing to persist")
                 return ImportBoreholeDovResult(
                     imported=0, duplicates=0, failed=download_failed, borehole_ids=[]
                 )
