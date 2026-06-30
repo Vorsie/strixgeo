@@ -9,6 +9,7 @@ import { Mountain } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import GeologyCanvas from './GeologyCanvas'
 import GeologyToolbar from './GeologyToolbar'
 import GeologyInspector from './GeologyInspector'
@@ -19,15 +20,15 @@ import GeologyInspector from './GeologyInspector'
  * Returns
  * -------
  * StageSummary
- *     Reports formation count + stale surface count.
+ *     Reports geological formation count + stale surface count.
  */
 function useGeologyStageSummary(): StageSummary {
   const { geoModel } = useShell()
-  // Use visibleFormations (manifest-filtered) so the badge count matches the
-  // inspector list and drops to 0 after Delete model. Previously read
-  // formations.length (unfiltered) which stayed stale after delete because
-  // orphan rows remained in the DB pre-Fix-1.
-  const count = geoModel.visibleFormations.length
+  // Filter to geological-kind formations only.  visibleFormations is
+  // project-scoped and contains litho + geotech rows alongside geological
+  // ones; without the filter the badge counted all 100+ formations instead
+  // of the handful of actual geological units (dogfeed 2026-06-30).
+  const count = geoModel.visibleFormations.filter(isGeologicalFormation).length
   const stale = geoModel.staleSurfaceCount
   const label = `${count} formation${count !== 1 ? 's' : ''}`
   const badge = stale > 0 ? `${stale} stale` : count > 0 ? `${count}` : null
