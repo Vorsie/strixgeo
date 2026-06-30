@@ -44,6 +44,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { log } from '../../utils/log'
 import type {
   BodyBoundaryNode,
   BodyBoundaryResponse,
@@ -890,6 +891,10 @@ export default function PartitionFillOverlay({
     // geotech bodies connect (backend Tasks 1+2), so this is the geotech fill
     // directly, with NAD-class colours/labels resolved by the parent maps.
     const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
+    log.debug(
+      'partition',
+      `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions`,
+    )
 
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
   }, [
