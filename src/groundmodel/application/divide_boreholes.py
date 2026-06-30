@@ -287,6 +287,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
         ).all()
         self.info(f"DivideBoreholes: {len(cpt_layer_rows)} CPT geotech layer(s) found in model")
+        if len(cpt_layer_rows) == 0:
+            self.warning(
+                "DivideBoreholes: 0 CPT geotech layers in model — every borehole band will fall "
+                "to the conservative litho-floor (absolute_min) fallback with no geotech body_id. "
+                "Run SubdivideAllBodies first."
+            )
 
         # geotech_layer_by_inv_depth: ALL geotech layers for every CPT across
         # ALL body groups.  6-tuple: (top, base, layer_id, formation_id,
@@ -408,7 +414,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for bh_seg in borehole_segs:
                 inv_id = bh_seg.investigation_id
                 inv_uuid = UUID(inv_id)
-                bh_x, bh_y, bh_elev = bh_xy.get(inv_uuid, (0.0, 0.0, 0.0))
+                _bh_xy_lookup = bh_xy.get(inv_uuid)
+                if _bh_xy_lookup is None:
+                    self.warning(
+                        f"DivideBoreholes: borehole={inv_id} has no XY location in DB — "
+                        "defaulting to (0,0,0); TIN interpolation and body assignment will be wrong"
+                    )
+                bh_x, bh_y, bh_elev = (
+                    _bh_xy_lookup if _bh_xy_lookup is not None else (0.0, 0.0, 0.0)
+                )
                 geo_top = bh_seg.top_depth_m
                 geo_base = bh_seg.base_depth_m
                 if geo_base <= geo_top:
@@ -664,7 +678,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
             if not layers_for_inv:
                 continue
-            x_m, y_m, surface_elev = cpt_xy.get(UUID(cpt_inv), (0.0, 0.0, 0.0))
+            _cpt_xy_lookup = cpt_xy.get(UUID(cpt_inv))
+            if _cpt_xy_lookup is None:
+                self.warning(
+                    f"DivideBoreholes: CPT={cpt_inv} has no XY location — "
+                    "defaulting to (0,0,0); transition surface TIN will be wrong"
+                )
+            x_m, y_m, surface_elev = (
+                _cpt_xy_lookup if _cpt_xy_lookup is not None else (0.0, 0.0, 0.0)
+            )
             col_xy = ColumnXY(investigation_id=cpt_inv, x_m=x_m, y_m=y_m)
             for k, (top_m, base_m, _lid, _fid, _nc, _bid) in enumerate(layers_for_inv):
                 if k < len(layers_for_inv) - 1:
@@ -769,7 +791,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         cpt_band_refs: list[CptBandRef] = []
         for cpt_inv_str, layers in filtered_cpt_layers.items():
             cpt_inv_uuid = UUID(cpt_inv_str)
-            x_m, y_m, _surf = cpt_xy.get(cpt_inv_uuid, (0.0, 0.0, 0.0))
+            _cpt_band_xy = cpt_xy.get(cpt_inv_uuid)
+            if _cpt_band_xy is None:
+                self.warning(
+                    f"DivideBoreholes: CPT={cpt_inv_str} has no XY location for body assignment — "
+                    "defaulting to (0,0,0); nearest-CPT body_id selection will be wrong"
+                )
+            x_m, y_m, _surf = _cpt_band_xy if _cpt_band_xy is not None else (0.0, 0.0, 0.0)
             for _t, _b, _lid, _fid, nc, bid in layers:
                 if nc is not None:
                     cpt_band_refs.append(
