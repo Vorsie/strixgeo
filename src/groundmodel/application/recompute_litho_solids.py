@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import time
 from typing import Any, cast
 from uuid import UUID
 
@@ -102,6 +103,7 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
+from groundmodel.shared.timing import phase_timer
 
 # Backwards-compatible aliases: the outcome dataclass + storage-id helper were
 # promoted to ``litho_solid_persistence`` when the voxel builder became a second
@@ -342,10 +344,12 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
         RecomputeLithoSolidsOutcome
             Build outcome.
         """
+        t_total = time.perf_counter()
         try:
-            per_band = await assembler.assemble_with_geo(
-                picks, parent_geo_model_id, grid_spacing_m=grid_spacing_m
-            )
+            with phase_timer(self, "RecomputeLithoSolids assemble_with_geo"):
+                per_band = await assembler.assemble_with_geo(
+                    picks, parent_geo_model_id, grid_spacing_m=grid_spacing_m
+                )
         except (NonConformableError, LensClassificationError) as err:
             err_type = type(err).__name__
             self.warning(
@@ -390,7 +394,8 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
 
         # Build the per-band meshes.
         try:
-            meshes = build_strat_model_per_band(per_band.bands, grid_spacing_m)
+            with phase_timer(self, "RecomputeLithoSolids build_strat_model_per_band"):
+                meshes = build_strat_model_per_band(per_band.bands, grid_spacing_m)
         except ValueError as err:
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} per-band build failed — {err}; "
@@ -426,20 +431,27 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 marked_test_ids=[],
             )
 
-        rows = self._mesh_rows(meshes, model_id, new_checksum)
-        bodies_built = len(rows)
-        chunks_written = await self._batch_upsert(rows)
-        self.info(
-            f"RecomputeLithoSolids: model={model_id} — "
-            f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s) (per-band)"
-        )
-
-        orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
-        await self._session.commit()
+        with phase_timer(self, "RecomputeLithoSolids upsert (per-band)"):
+            rows = self._mesh_rows(meshes, model_id, new_checksum)
+            bodies_built = len(rows)
+            chunks_written = await self._batch_upsert(rows)
+            self.info(
+                f"RecomputeLithoSolids: model={model_id} — "
+                f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s) (per-band)"
+            )
+            orphans_deleted = await self._delete_orphans(
+                model_id, existing_by_body, wanted_storage_ids
+            )
+            await self._session.commit()
+        total_tris = sum(len(m.triangles) for m in meshes)
+        total_verts = sum(len(m.vertices) for m in meshes)
+        total_elapsed = time.perf_counter() - t_total
         self.success(
             f"RecomputeLithoSolids: model={model_id} — per-band "
             f"considered={bodies_considered} built={bodies_built} "
-            f"orphans_deleted={orphans_deleted}"
+            f"orphans_deleted={orphans_deleted} "
+            f"tris={total_tris:,} verts={total_verts:,} "
+            f"total=[{total_elapsed:.1f}s]"
         )
         return RecomputeLithoSolidsOutcome(
             bodies_considered=bodies_considered,
@@ -489,8 +501,10 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
         RecomputeLithoSolidsOutcome
             Build outcome.
         """
+        t_total = time.perf_counter()
         try:
-            assembly = assembler.assemble(picks, grid_spacing_m=grid_spacing_m)
+            with phase_timer(self, "RecomputeLithoSolids assemble"):
+                assembly = assembler.assemble(picks, grid_spacing_m=grid_spacing_m)
         except (NonConformableError, LensClassificationError) as err:
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} is non-conformable — {err}; "
@@ -506,12 +520,13 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
             return await self._handle_flag_all(model_id, formation_by_body)
 
         try:
-            meshes, host_height_fields = build_strat_model_with_fields(
-                assembly.control,
-                assembly.domain,
-                blocks=[assembly.domain],
-                grid_spacing_m=grid_spacing_m,
-            )
+            with phase_timer(self, "RecomputeLithoSolids build_strat_model_with_fields"):
+                meshes, host_height_fields = build_strat_model_with_fields(
+                    assembly.control,
+                    assembly.domain,
+                    blocks=[assembly.domain],
+                    grid_spacing_m=grid_spacing_m,
+                )
         except ValueError as err:
             self.warning(
                 f"RecomputeLithoSolids: model={model_id} field unfittable — {err}; "
@@ -524,15 +539,16 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 f"RecomputeLithoSolids: model={model_id} — carving "
                 f"{len(assembly.lens_carve_inputs)} lens(es) into {len(meshes)} matrix mesh(es)"
             )
-            gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
-            meshes = carve_lenses(
-                assembly.lens_carve_inputs,
-                meshes,
-                gx,
-                gy,
-                node_inside,
-                host_height_fields=host_height_fields,
-            )
+            with phase_timer(self, "RecomputeLithoSolids carve_lenses"):
+                gx, gy, node_inside = build_shared_grid(assembly.domain, grid_spacing_m)
+                meshes = carve_lenses(
+                    assembly.lens_carve_inputs,
+                    meshes,
+                    gx,
+                    gy,
+                    node_inside,
+                    host_height_fields=host_height_fields,
+                )
 
         meshes = merge_meshes_by_body_id(meshes)
         mesh_body_ids = {m.body_id for m in meshes}
@@ -566,20 +582,27 @@ class RecomputeLithoSolids(LithoSolidPersistenceMixin):
                 marked_test_ids=[],
             )
 
-        rows = self._mesh_rows(meshes, model_id, new_checksum)
-        bodies_built = len(rows)
-        chunks_written = await self._batch_upsert(rows)
-        self.info(
-            f"RecomputeLithoSolids: model={model_id} — "
-            f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
-        )
-
-        orphans_deleted = await self._delete_orphans(model_id, existing_by_body, wanted_storage_ids)
-        await self._session.commit()
+        with phase_timer(self, "RecomputeLithoSolids upsert"):
+            rows = self._mesh_rows(meshes, model_id, new_checksum)
+            bodies_built = len(rows)
+            chunks_written = await self._batch_upsert(rows)
+            self.info(
+                f"RecomputeLithoSolids: model={model_id} — "
+                f"upserted {bodies_built} mesh(es) in {chunks_written} chunk(s)"
+            )
+            orphans_deleted = await self._delete_orphans(
+                model_id, existing_by_body, wanted_storage_ids
+            )
+            await self._session.commit()
+        total_tris = sum(len(m.triangles) for m in meshes)
+        total_verts = sum(len(m.vertices) for m in meshes)
+        total_elapsed = time.perf_counter() - t_total
         self.success(
             f"RecomputeLithoSolids: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
-            f"orphans_deleted={orphans_deleted}"
+            f"orphans_deleted={orphans_deleted} "
+            f"tris={total_tris:,} verts={total_verts:,} "
+            f"total=[{total_elapsed:.1f}s]"
         )
         return RecomputeLithoSolidsOutcome(
             bodies_considered=bodies_considered,
