@@ -23,8 +23,9 @@ class Band:
 
     Carries the minimum fields needed to assign a sample to a band.  Callers
     build this from the :class:`~groundmodel.domain.services.borehole_packing_fill.FillBand`
-    rows persisted during "Divide boreholes", augmented with the resolver
-    ``body_id`` from the owning body group.
+    rows persisted during "Divide boreholes", augmented with the geotech
+    resolver ``body_id`` determined by
+    :func:`~groundmodel.domain.services.assign_borehole_band_body.assign_borehole_band_body`.
 
     Parameters
     ----------
@@ -32,8 +33,10 @@ class Band:
         Band top depth (m, positive down).
     base : float
         Band base depth (m, positive down).  Must satisfy ``base > top``.
-    body_id : str
-        Resolver connected-component body identifier.
+    body_id : str | None
+        Geotech resolver connected-component body_id, or ``None`` when the
+        band was filled by a conservative fallback (``body_min`` /
+        ``absolute_min``) and no same-class CPT exists in the group.
     nad_class : int
         NAD packing class 1–31.
     source : str
@@ -43,7 +46,7 @@ class Band:
 
     top: float
     base: float
-    body_id: str
+    body_id: str | None
     nad_class: int
     source: str
 
