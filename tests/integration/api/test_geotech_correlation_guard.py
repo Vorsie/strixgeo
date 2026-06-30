@@ -438,6 +438,32 @@ async def test_gc_all(
         f"GC-1 FAIL: expected 200/201 for same-body geotech correlation, "
         f"got {resp_same.status_code}: {resp_same.text}"
     )
+    # GC-1 DB symmetry with GC-3: the same-body edge row must actually be
+    # committed (a 2xx that silently rolled back would otherwise pass).
+    same_edge = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id),
+                    or_(
+                        and_(
+                            LithoContactCorrelationEdgeOrm.contact_a_id == layer_a.id,
+                            LithoContactCorrelationEdgeOrm.contact_b_id == layer_b.id,
+                        ),
+                        and_(
+                            LithoContactCorrelationEdgeOrm.contact_a_id == layer_b.id,
+                            LithoContactCorrelationEdgeOrm.contact_b_id == layer_a.id,
+                        ),
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert same_edge is not None, (
+        "GC-1 FAIL: no edge row committed for the same-body CPT-A ↔ CPT-B pair"
+    )
 
     # ------------------------------------------------------------------ #
     # GC-2: cross litho body → correlation blocked (422)                  #
