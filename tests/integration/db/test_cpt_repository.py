@@ -314,3 +314,53 @@ async def test_set_elevation_clear_restores_imported_z(
     assert cleared.elevation_source == "dov"
     assert cleared.original_elevation_source is None
     assert cleared.original_elevation_m is None
+
+
+# ---------------------------------------------------------------------------
+# q_total_mpa (CPTM) — the one resistance column the DB actually stores
+# ---------------------------------------------------------------------------
+
+
+async def test_cptm_series_round_trips_q_total_mpa_distinct_from_qc(
+    db_session: AsyncSession,
+) -> None:
+    """A CPTM's source-measured total resistance persists as a DISTINCT array.
+
+    q_total_mpa (Begemann/CPTM combined tip+sleeve resistance) is genuinely
+    source-measured and stored. The CPTU corrected cone resistance qt_mpa is
+    intentionally NOT a stored column — it is derived on read via
+    ``calculate_qt_series`` per Data Integrity Rule §1, so it must never leak
+    into storage. This pins that q_total_mpa round-trips exactly, stays
+    distinct from qc_mpa (never conflated), and that qt is not persisted.
+
+    (project_qt_vs_qtotal: the two quantities are physically distinct and the
+    DB holds only the measured one.)
+    """
+    from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+
+    repo = CptRepository(db_session)
+    cptm = _cpt(test_id="cptm-qtotal")
+    # CPTM (mechanical) — the only cone type that reports q_total.
+    cptm.cpt_type = "CPTM"
+    cptm.series = CptSeriesOrm(
+        depths_m=[0.0, 0.5, 1.0],
+        qc_mpa=[1.2, 2.4, 3.6],
+        fs_mpa=None,
+        u2_mpa=None,
+        rf_pct=None,
+        # Deliberately distinct from qc so a column-conflation regression fails.
+        q_total_mpa=[10.0, 20.0, 30.0],
+    )
+    await repo.save(cptm)
+    await db_session.commit()
+
+    out = await repo.get_many_with_series([cptm.id])
+    assert len(out) == 1
+    series = out[0].series
+    assert series is not None
+    # q_total round-trips exactly and stays a separate array from qc.
+    assert series.q_total_mpa == [10.0, 20.0, 30.0]
+    assert series.qc_mpa == [1.2, 2.4, 3.6]
+    assert series.q_total_mpa != series.qc_mpa
+    # qt is not a stored column — it is derived on read, never persisted.
+    assert not hasattr(series, "qt_mpa")
