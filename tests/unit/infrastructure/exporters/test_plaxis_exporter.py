@@ -350,3 +350,40 @@ def test_returns_utf8_bytes_for_unicode_formation_names() -> None:
     assert isinstance(payload, bytes)
     decoded = payload.decode("utf-8")
     assert "Tielt — Egem" in decoded
+
+
+# ---------------------------------------------------------------------------
+# Dropped-borehole tally (no surface Z)
+# ---------------------------------------------------------------------------
+
+
+def test_emit_boreholes_counts_columns_with_no_surface_z() -> None:
+    """A column whose surface elevation is None can't be placed in PLAXIS 3D;
+    it is skipped with a script comment AND counted. The count feeds the
+    export WARNING + success line, so pin it at the source (_emit_boreholes)
+    so a refactor can't silently desync ``emitted = total - skipped``."""
+    formations = [FormationDisplay(name="Boom Klei", code=None, display_order=0, color="#ccc")]
+    ordered_columns = [(0.0, 0.0), (10.0, 10.0)]
+    columns_layers = {
+        (0.0, 0.0): [_layer(formation_name="Boom Klei", top=0.0, base=5.0, x=0.0, y=0.0)],
+        # No surface Z → this column is not emittable to PLAXIS 3D.
+        (10.0, 10.0): [
+            _layer(
+                formation_name="Boom Klei",
+                top=0.0,
+                base=5.0,
+                x=10.0,
+                y=10.0,
+                surface_z=None,  # type: ignore[arg-type]
+            )
+        ],
+    }
+
+    lines, skipped = PlaxisExporter()._emit_boreholes(ordered_columns, columns_layers, formations)
+
+    assert skipped == 1
+    # The emittable column produced a borehole; the no-Z one produced a comment.
+    assert any("g_i.borehole(" in ln for ln in lines)
+    assert any("# Skipped column" in ln for ln in lines)
+    emitted = len(ordered_columns) - skipped
+    assert emitted == 1
