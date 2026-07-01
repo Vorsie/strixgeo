@@ -19,6 +19,7 @@ the lesson).
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -31,6 +32,7 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     cql_bbox_predicate,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.timing import ms_since
 
 
 async def wfs_count(
@@ -78,6 +80,7 @@ async def wfs_count(
     params["resultType"] = "hits"
     logger.trace(f"DOV {label} WFS count request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
 
+    t0 = time.perf_counter()
     try:
         resp = await http.get(DOV_WFS_URL, params=params)
     except httpx.RequestError as exc:
@@ -98,7 +101,18 @@ async def wfs_count(
         )
         return 0
 
-    return int(match.group(1))
+    count = int(match.group(1))
+    # Response outcome: status + payload size + latency + the matched count.
+    # DOV WFS is payload-size-bound (see CLAUDE.local.md), so size + latency are
+    # the load-bearing "why was this import slow" signal; the count is what the
+    # recursive bbox-split engine reacts to, so it belongs on the same line (0
+    # matched also catches the valid empty-bbox case). DEBUG, not INFO — a
+    # recursive split issues many of these per import.
+    logger.debug(
+        f"DOV {label} WFS count response: HTTP {resp.status_code} "
+        f"{len(resp.content)}B {ms_since(t0)}ms — {count} matched"
+    )
+    return count
 
 
 async def wfs_features_json(
@@ -131,6 +145,7 @@ async def wfs_features_json(
     params["count"] = str(count)
     logger.trace(f"DOV {label} WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
 
+    t0 = time.perf_counter()
     try:
         resp = await http.get(DOV_WFS_URL, params=params)
     except httpx.RequestError as exc:
@@ -145,7 +160,13 @@ async def wfs_features_json(
 
     data = resp.json()
     features = data.get("features", [])
-    logger.debug(f"DOV {label} WFS: {len(features)} features in response")
+    # Response outcome: status + payload size + latency + feature count. Size +
+    # latency are the load-bearing "why was this slow" signal (DOV WFS is
+    # payload-size-bound); the count catches a truncated / empty result.
+    logger.debug(
+        f"DOV {label} WFS features response: HTTP {resp.status_code} "
+        f"{len(resp.content)}B {ms_since(t0)}ms — {len(features)} features"
+    )
     return features
 
 
