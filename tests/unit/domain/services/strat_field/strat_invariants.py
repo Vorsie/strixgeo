@@ -368,6 +368,63 @@ def assert_no_overlap_sampled(
                     )
 
 
+def assert_no_overlap_rastered(
+    meshes: Sequence[object],
+    *,
+    nx: int = 16,
+    ny: int = 16,
+) -> None:
+    """Assert no two bodies interpenetrate, sampling a DENSE grid over the hull.
+
+    :func:`assert_no_overlap_sampled` only checks the ``(x, y)`` points the
+    caller supplies — typically a handful (~6), so an overlap confined to a
+    region BETWEEN those points slips through undetected.  This variant derives
+    the map-plane bounding box from every mesh's vertices and rasters an
+    ``nx x ny`` grid of CELL-CENTRE sample points across it, so a localised
+    interpenetration (a corner overlap, a thin sliver) is caught without the
+    caller having to guess where it is.
+
+    Cell centres (``(i + 0.5) / nx``) are used rather than grid nodes so a
+    sample never lands exactly on a box edge / shared vertical seam, where a
+    grazing ray could spuriously read a contact as an overlap (the half-open
+    seam convention that :func:`assert_no_overlap_sampled` documents).
+
+    Parameters
+    ----------
+    meshes : Sequence[object]
+        Objects exposing ``body_id``, ``vertices``, ``triangles``.
+    nx, ny : int
+        Grid resolution across the x / y extent of the combined hull.
+
+    Raises
+    ------
+    AssertionError
+        Via :func:`assert_no_overlap_sampled` — naming the offending sample,
+        the two bodies, and the overlap length.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    for m in meshes:
+        for vx, vy, _vz in m.vertices:  # type: ignore[attr-defined]
+            xs.append(vx)
+            ys.append(vy)
+    if not xs:
+        return  # no geometry → nothing to sample
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    samples = [
+        (
+            x_min + (i + 0.5) / nx * x_span,
+            y_min + (j + 0.5) / ny * y_span,
+        )
+        for i in range(nx)
+        for j in range(ny)
+    ]
+    assert_no_overlap_sampled(meshes, samples)
+
+
 # ---------------------------------------------------------------------------
 # Section-column diff value objects
 # ---------------------------------------------------------------------------
