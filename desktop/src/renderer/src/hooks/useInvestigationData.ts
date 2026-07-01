@@ -339,40 +339,47 @@ export function useInvestigationData({
   // hidden and the user sees no change.
   const unhideCpts = useCallback(
     (ids: Iterable<string>) => {
-      const touched: string[] = []
+      // Compute the touched ids from the CURRENT removed-set BEFORE calling
+      // setState. A React 18 functional updater is deferred to the render
+      // phase, so a `touched` array mutated inside the updater is still empty
+      // when read synchronously below — that silently skipped the is_hidden
+      // upsert, so a 409-re-imported CPT came back hidden on the next project
+      // load (the exact failure this logic exists to prevent). Reads state
+      // directly, mirroring handleRestoreAllCpts.
+      const touched = Array.from(ids).filter(id => removedCptIds.has(id))
+      if (touched.length === 0) return
       setRemovedCptIds(prev => {
         const next = new Set(prev)
-        for (const id of ids) {
-          if (next.delete(id)) touched.push(id)
-        }
-        return touched.length > 0 ? next : prev
+        for (const id of touched) next.delete(id)
+        return next
       })
-      if (!project || touched.length === 0) return
+      if (!project) return
       void Promise.allSettled(
         touched.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
       )
     },
-    [project],
+    [project, removedCptIds],
   )
 
   const unhideBoreholes = useCallback(
     (ids: Iterable<string>) => {
-      const touched: string[] = []
+      // See unhideCpts: touched must be computed from current state before the
+      // deferred setState, or the is_hidden=false upsert silently never fires.
+      const touched = Array.from(ids).filter(id => removedBoreholeIds.has(id))
+      if (touched.length === 0) return
       setRemovedBoreholeIds(prev => {
         const next = new Set(prev)
-        for (const id of ids) {
-          if (next.delete(id)) touched.push(id)
-        }
-        return touched.length > 0 ? next : prev
+        for (const id of touched) next.delete(id)
+        return next
       })
-      if (!project || touched.length === 0) return
+      if (!project) return
       void Promise.allSettled(
         touched.map(id =>
           api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
         ),
       )
     },
-    [project],
+    [project, removedBoreholeIds],
   )
 
   // selectedId / selectedBoreholeId are injected from App. When removing
