@@ -110,21 +110,23 @@ Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
 >   in the A3 batch.
 
 **STILL OPEN — Backend:**
-- ~~A3: `get_project_bundle` + `duplicate_project` unlogged~~ — DONE `93258940`
-  (A3 now 100% complete).
-- B: double-`execute()` refresh-on-duplicate round-trip; three-level export gap (#104)
-  across all 4 exporters; PDF geometry (not just `%PDF`+size); Numba object-mode-fallback
-  detection; raster the hull for watertight/overlap (current ~6-point sample misses
-  between-sample overlaps).
+- ~~A3: `get_project_bundle` + `duplicate_project` unlogged~~ — DONE `93258940` (A3 100%).
+- ~~PDF geometry (not just `%PDF`+size)~~ — DONE `4ef595bb` (PE7 embedded-figure XObject +
+  PE8 populated>empty size-delta).
+- ~~Numba object-mode-fallback detection~~ — DONE `45963c7f` (greedy-mesh kernel asserts a
+  nopython signature; mutation-verified by removing `@njit`).
+- STILL OPEN B: double-`execute()` refresh-on-duplicate round-trip; three-level export gap
+  (#104) across all 4 exporters; raster the hull for watertight/overlap (current ~6-point
+  sample misses between-sample overlaps — the `assert_no_overlap_sampled` helper in
+  `tests/unit/domain/services/strat_field/strat_invariants.py`).
 
 **Frontend testing (D):**
-- **All FIVE untested hooks DONE** (94 tests total). `useBoundaryDrag` (`4827be5e`, 8 —
-  drag-commit lifecycle + zero-thickness auto-reject + double-absorb partner suppression)
-  and `useSectionCanvasGestures` (`e24d6262`, 16 — Esc-peel priority cascade + wheel
-  zoom direction/bail/non-passive) landed via jsdom DOM-event synthesis
-  (document mousemove/mouseup + keydown + wheel, each `act()`-wrapped).
-- STILL OPEN: Stage-badge count-filter tests (`ExportStage`); `useDovImportStream` SSE
-  error/abort; `SectionsCanvas` (2761 LOC) populated-state TDZ smoke; DEFERRED render-warp
+- **All FIVE untested hooks DONE** (94 tests). `useBoundaryDrag` (`4827be5e`, 8) and
+  `useSectionCanvasGestures` (`e24d6262`, 16) via jsdom DOM-event synthesis.
+- ~~`useDovImportStream` SSE error/abort~~ — DONE `54847f46` (7 tests, real ReadableStream
+  SSE mock). ~~Stage-badge count-filter (`ExportStage`)~~ — DONE `1c10f9ea` (the
+  "counts-wrong-kind" anti-leak guard).
+- STILL OPEN: `SectionsCanvas` (2761 LOC) populated-state TDZ smoke; DEFERRED render-warp
   tests for `ContactsLayer` + `CorrelationEdgesOverlay`.
 
 **The #1 multiplier (owner decision needed):** integration tests run NOWHERE in CI.
