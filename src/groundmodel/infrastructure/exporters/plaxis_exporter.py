@@ -109,11 +109,21 @@ class PlaxisExporter(ProjectExporter):
         lines.extend(emit_imports_and_connect())
         if not formations_top_down or not ordered_columns:
             lines.append('print("Strix → PLAXIS: nothing to export (empty snapshot).")')
-            self.warning("Empty snapshot — emitted no-op script")
+            # Carry the project identity + which half was empty so the no-op
+            # export is attributable (was a bare "empty snapshot" with no way to
+            # tell WHICH project or whether formations vs columns were missing).
+            self.warning(
+                f"Plaxis 3D empty snapshot — emitted no-op script "
+                f"(project={snapshot.project_name!r} id={snapshot.project_id} "
+                f"{len(formations_top_down)} formations, {len(ordered_columns)} columns)"
+            )
             return "\n".join(lines).encode("utf-8")
         lines.extend(emit_materials(formations_top_down))
         lines.extend(emit_global_layers(formations_top_down))
-        lines.extend(self._emit_boreholes(ordered_columns, columns, formations_top_down))
+        borehole_lines, skipped_columns = self._emit_boreholes(
+            ordered_columns, columns, formations_top_down
+        )
+        lines.extend(borehole_lines)
         lines.append("")
         lines.append(
             f'print("Strix → PLAXIS: imported {len(ordered_columns)} borehole(s) '
@@ -122,7 +132,21 @@ class PlaxisExporter(ProjectExporter):
         lines.append("")
 
         script = "\n".join(lines)
-        self.success(f"Plaxis 3D script emitted: {len(script)} bytes")
+        # A dropped borehole (no surface Z) was previously only a comment INSIDE
+        # the emitted script — invisible to an operator who never opens the file.
+        # Surface it as a WARNING with the project identity + count.
+        if skipped_columns:
+            self.warning(
+                f"Plaxis 3D export skipped {skipped_columns} borehole(s) with no "
+                f"surface elevation (project={snapshot.project_name!r} id={snapshot.project_id})"
+            )
+        emitted_columns = len(ordered_columns) - skipped_columns
+        self.success(
+            f"Plaxis 3D script emitted: {len(script)} bytes "
+            f"(project={snapshot.project_name!r}, "
+            f"{emitted_columns}/{len(ordered_columns)} boreholes, "
+            f"{len(formations_top_down)} formations, {skipped_columns} skipped)"
+        )
         return script.encode("utf-8")
 
     # ------------------------------------------------------------------
@@ -179,7 +203,7 @@ class PlaxisExporter(ProjectExporter):
         ordered_columns: list[tuple[float, float]],
         columns_layers: dict[tuple[float, float], list[LayerGeometry]],
         formations_top_down: list[FormationDisplay],
-    ) -> list[str]:
+    ) -> tuple[list[str], int]:
         """Emit one borehole + per-layer setsoillayerlevel block per column.
 
         For each borehole, walks the global formation list in order
@@ -194,6 +218,7 @@ class PlaxisExporter(ProjectExporter):
         """
         lines = ["# ---- Boreholes ----"]
         formation_names_top_down = [f.name for f in formations_top_down]
+        skipped = 0
 
         for i, (x, y) in enumerate(ordered_columns):
             column_layers = columns_layers[(x, y)]
@@ -202,8 +227,12 @@ class PlaxisExporter(ProjectExporter):
             surface_z = column_layers[0].surface_elevation_m
             if surface_z is None:
                 # Defensive — the builder filters these out, but if
-                # the snapshot is hand-built skip with a comment.
+                # the snapshot is hand-built skip with a comment. The comment
+                # lands in the emitted script; the count is returned so the
+                # caller can also log it (a script comment is invisible to an
+                # operator who never opens the file).
                 lines.append(f"# Skipped column ({x:.3f}, {y:.3f}) — no surface elevation.")
+                skipped += 1
                 continue
 
             # Map formation_name → depth_top_m for O(1) lookups while
@@ -238,4 +267,4 @@ class PlaxisExporter(ProjectExporter):
                 lines.append(f"g_i.setsoillayerlevel({bh_var}, {idx}, {top_z!r}){tag}")
             lines.append("")
 
-        return lines
+        return lines, skipped
