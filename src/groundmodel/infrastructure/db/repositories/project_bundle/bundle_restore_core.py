@@ -20,10 +20,13 @@ _restore_boreholes
 _restore_formations
     Insert geological formation rows.
 _restore_geotech_units
-    Insert geotechnical unit rows (FK to formations).
+    Insert geotechnical unit rows with a formation-scope guard (SECURITY:
+    drops any unit whose ``geological_formation_id`` is not in this
+    project's valid formation set — prevents cross-project FK injection).
 _restore_flat_rows
-    Generic dedup+insert loop shared by formations, geotech units, and
-    cross-sections.
+    Generic dedup+insert loop shared by ``_restore_formations`` and
+    ``_restore_cross_sections`` (geotech units now have their own
+    guarded loop).
 _build_valid_formation_ids
     Return the union of DB + payload formation ids for FK guards.
 _build_valid_model_ids
@@ -305,12 +308,22 @@ async def _restore_geotech_units(
     session: AsyncSession,
     project_id: UUID,
     geotechnical_units_payload: list[dict[str, Any]],
+    valid_formation_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
 ) -> int:
-    """Insert geotechnical unit rows from the bundle.
+    """Insert geotechnical unit rows from the bundle with a formation-scope guard.
 
-    Flat array — each row carries its own ``geological_formation_id``.
-    Restore order must be "formations first, then units" so the FK
-    resolves (the caller ensures this ordering).
+    SECURITY: each unit's ``geological_formation_id`` is validated against
+    ``valid_formation_ids`` (the union of DB + bundle formation ids for this
+    project) before insert.  A bundle restored into project A that carries a
+    unit with ``geological_formation_id`` pointing at project B's formation
+    would otherwise be inserted — the DB FK accepts it because B's formation
+    exists.  The guard drops any such row and logs a warning.
+
+    Restore order must be "formations first, then units" so the FK resolves and
+    the DB query inside ``_build_valid_formation_ids`` sees the queued formation
+    rows (the payload-id union covers rows not yet flushed).
 
     Parameters
     ----------
@@ -320,15 +333,68 @@ async def _restore_geotech_units(
         Owning project.
     geotechnical_units_payload : list[dict[str, Any]]
         Raw geotech unit dicts from the bundle.
+    valid_formation_ids : set[UUID]
+        Pre-computed union of DB + payload formation ids for this project.
+        Built by ``_build_valid_formation_ids`` after the formations phase.
+    logger : GroundModelLogger
+        Caller's logger (per-drop warnings + phase summary).
 
     Returns
     -------
     int
         Number of unit rows newly inserted.
     """
-    return await _restore_flat_rows(
-        session, project_id, GeotechnicalUnitOrm, geotechnical_units_payload
+    existing = set(
+        (
+            await session.execute(
+                select(GeotechnicalUnitOrm.id).where(
+                    GeotechnicalUnitOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
+    inserted = 0
+    dropped = 0
+    total = len(geotechnical_units_payload)
+    logger.info(f"restoring {total} geotechnical unit(s) for project {project_id}")
+    for i, item in enumerate(geotechnical_units_payload, start=1):
+        item_id = _uuid(item.get("id"))
+        if item_id is None or item_id in existing:
+            continue
+        fid = _uuid(item.get("geological_formation_id"))
+        if fid is None:
+            logger.warning(
+                f"[{i}/{total}] geotech unit {item_id} has no geological_formation_id — dropped"
+            )
+            dropped += 1
+            continue
+        if fid not in valid_formation_ids:
+            # Cross-project FK injection guard: the formation belongs to a
+            # different project (or is absent from the bundle entirely).
+            # Dropping silently would hide the attack; log at WARNING.
+            logger.warning(
+                f"[{i}/{total}] geotech unit {item_id} → geological_formation_id {fid} "
+                f"not in this project — dropped (bundle-injection guard)"
+            )
+            dropped += 1
+            continue
+        kwargs = _apply_json_to_kwargs(GeotechnicalUnitOrm, item)
+        kwargs["app_project_id"] = project_id
+        session.add(GeotechnicalUnitOrm(**kwargs))
+        inserted += 1
+        logger.debug(f"[{i}/{total}] geotech unit {item_id} queued for insert")
+    if dropped:
+        logger.warning(
+            f"geotech unit restore: dropped {dropped} unit(s) with unknown "
+            f"geological_formation_id for project {project_id} (bundle-injection guard)"
+        )
+    logger.info(
+        f"geotech unit restore: {inserted} new, {dropped} dropped (of {total}) "
+        f"for project {project_id}"
+    )
+    return inserted
 
 
 async def _restore_flat_rows(
@@ -767,7 +833,10 @@ async def _restore_project_bundle_impl(
                     orphan_layer_count += 1
                     orphan_fids.add(fid)
         for u_payload in geotechnical_units_payload:
-            fid = _uuid(u_payload.get("formation_id"))
+            # The ORM column is ``geological_formation_id``, NOT ``formation_id``.
+            # Using the wrong key here would make the orphan check a dead letter
+            # (always reads None → never fires).
+            fid = _uuid(u_payload.get("geological_formation_id"))
             if fid is not None and fid not in bundle_fids:
                 orphan_fids.add(fid)
         if orphan_fids:
@@ -793,13 +862,23 @@ async def _restore_project_bundle_impl(
     # ---- Phase 3: Geological formations ----------------------------------
     new_formations = await _restore_formations(session, project_id, geological_formations_payload)
 
-    # ---- Phase 4: Geotechnical units (FK → formations) -------------------
-    new_units = await _restore_geotech_units(session, project_id, geotechnical_units_payload)
-
-    # ---- Pre-model validation set ----------------------------------------
-    # Computed AFTER formations so newly-queued payload ids are included.
+    # ---- Pre-phase guard: build valid_formation_ids ----------------------
+    # Computed AFTER formations (Phase 3) so the payload-id union covers rows
+    # that are queued-not-yet-flushed.  Used by BOTH Phase 4 (geotech units)
+    # and Phase 5 (geological models + nested contacts/surfaces/layers).
+    # NOTE: moved before Phase 4 to enable the cross-project FK guard on
+    # geotechnical units (security fix — ``geological_formation_id`` must be
+    # in this project's valid set before any unit row is accepted).
     valid_formation_ids = await _build_valid_formation_ids(
         session, project_id, geological_formations_payload
+    )
+
+    # ---- Phase 4: Geotechnical units (FK → formations) -------------------
+    # Formation-scope guard is applied inside _restore_geotech_units: any unit
+    # whose geological_formation_id is not in valid_formation_ids is dropped
+    # with a WARNING (cross-project FK injection prevention).
+    new_units = await _restore_geotech_units(
+        session, project_id, geotechnical_units_payload, valid_formation_ids, logger=logger
     )
 
     # ---- Phase 5: Geological models + nested contacts / surfaces / layers -
