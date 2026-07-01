@@ -117,14 +117,15 @@ Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
   detection; raster the hull for watertight/overlap (current ~6-point sample misses
   between-sample overlaps).
 
-**STILL OPEN — Frontend testing (D):**
-- **Two untested DOM-event hooks:** `useBoundaryDrag` (652 — document mousemove/mouseup
-  synthesis; zero-thickness auto-reject; shared-boundary partner propagation),
-  `useSectionCanvasGestures` (430 — Shift-marquee priority). These need jsdom DOM-event
-  synthesis (see `memory/feedback_playwright_section_drag_synthesis` for the failure layers).
-- Stage-badge count-filter tests (`ExportStage` still open); `useDovImportStream` SSE
-  error/abort; `SectionsCanvas` (2761 LOC) populated-state TDZ smoke.
-- DEFERRED render-warp tests still owed for `ContactsLayer` + `CorrelationEdgesOverlay`.
+**Frontend testing (D):**
+- **All FIVE untested hooks DONE** (94 tests total). `useBoundaryDrag` (`4827be5e`, 8 —
+  drag-commit lifecycle + zero-thickness auto-reject + double-absorb partner suppression)
+  and `useSectionCanvasGestures` (`e24d6262`, 16 — Esc-peel priority cascade + wheel
+  zoom direction/bail/non-passive) landed via jsdom DOM-event synthesis
+  (document mousemove/mouseup + keydown + wheel, each `act()`-wrapped).
+- STILL OPEN: Stage-badge count-filter tests (`ExportStage`); `useDovImportStream` SSE
+  error/abort; `SectionsCanvas` (2761 LOC) populated-state TDZ smoke; DEFERRED render-warp
+  tests for `ContactsLayer` + `CorrelationEdgesOverlay`.
 
 **The #1 multiplier (owner decision needed):** integration tests run NOWHERE in CI.
 This session added `.githooks/pre-push` as the stopgap; the durable fix is a
