@@ -107,10 +107,12 @@ async def collect_wfs_features_recursive(
             # Hit recursion cap before count fell below the per-bbox cap —
             # we will silently miss the overflow features. Surfaced as a
             # WARNING so dense-bbox imports flag this in the operator log.
+            # Carry the Lambert-72 bbox corners so the operator can see WHERE
+            # rows are being missed (to sub-split that box or investigate).
             logger.warning(
                 f"{label}: bbox at max recursion depth={depth} still has "
                 f"{count} features (> {DOV_WFS_FEATURE_LIMIT}) — some rows "
-                f"may be missed"
+                f"may be missed  bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
             )
         logger.debug(f"{label}: fetching {count} features (depth={depth})")
         return await fetch_features(x1, y1, x2, y2)
