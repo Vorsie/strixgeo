@@ -118,13 +118,11 @@ Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
 - ~~raster the hull for watertight/overlap~~ — DONE `c06b445d`/`e9115571` (additive
   `assert_no_overlap_rastered` dense-grid helper + a test where a corner overlap passes the
   sparse centre sample but fires the raster).
-- STILL OPEN B (both need heavier setup — good for a fresh session):
-  - **double-`execute()` refresh-on-duplicate round-trip** — needs REAL CPT parse+persist
-    (not the mocked-persist PF pattern) so the second run's dedup path is exercised; assert
-    DB row count == N after two runs (imported=N/dup=0 then imported=0/dup=N).
-  - **three-level export gap (#104)** across all 4 exporters — pin the current
-    geological-only export boundary so the eventual litho/geotech export is a deliberate
-    change (lower value: pinning a known Tier-D limitation, not catching a bug).
+- ~~double-`execute()` refresh-on-duplicate round-trip~~ — DONE `2bff7962` (synthetic-GEF
+  persist twice → second raises DuplicateCptError, DB row count stays 1).
+- STILL OPEN B: **three-level export gap (#104)** across all 4 exporters — pin the current
+  geological-only export boundary so the eventual litho/geotech export is a deliberate
+  change (lower value: pinning a known Tier-D limitation, not catching a bug).
 
 **Frontend testing (D):**
 - **All FIVE untested hooks DONE** (94 tests). `useBoundaryDrag` (`4827be5e`, 8) and
