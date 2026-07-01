@@ -18,7 +18,7 @@ How to verify this test has teeth: comment out the ``is_flagged=True`` line
 (recompute_litho_solids.py:680) → the assertion on line 70 of this file fails.
 
 Run via:
-    .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_flagged_bodies.py
+    .\\scripts\\run-integration-tests.ps1 tests/integration/db/test_flagged_bodies.py
 """
 
 from __future__ import annotations
