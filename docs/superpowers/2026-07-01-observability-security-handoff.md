@@ -84,40 +84,46 @@ From `docs/superpowers/2026-06-30-observability-testing-audit.md`:
 ## 3. What's PENDING — the backlog tail (open)
 
 Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
-**dedicated reviewer agents** (see §5). Roughly in the audit's suggested order, still open:
+**dedicated reviewer agents** (see §5). Roughly in the audit's suggested order.
 
-**Backend logging (A2 ingest / A3 exports):**
-- A2 ingest gaps: WFS response logging (status/size/latency after the call), per-item
-  download-size TRACE, `_parse_cone_metadata` `(None,None)` routing trace (qt vs
-  q_total), scalar/Atterberg dropped-value reasons, empty-curve grain-size per-row,
-  process-pool vs network failure distinction, WFS recursion-saturation bbox corners,
-  GEF latin-1 decode-fallback success.
-- A3 exports: DXF dropped-contact tally on the success line, Plaxis empty-snapshot
-  project identity, Plaxis dropped-borehole count as a log (not a script comment),
-  `get_project_bundle` (~10 MB export) + `duplicate_project` deep-clone unlogged.
+> **Session 2 progress (2026-07-01 cont.) — DONE this session (commits `89cc6f9b`→`b82db732`):**
+> - **A2 ingest logging: COMPLETE (all 8 gaps).** WFS response status/size/latency/count
+>   (`1c58a907`), per-item download size+latency TRACE (`6ca3bb97`), `_parse_cone_metadata`
+>   `(None,None)` + empty-conustype routing traces (`bda6164b`), scalar/Atterberg
+>   dropped-value reasons + empty-curve grain-size (`10313625`), WFS recursion-saturation
+>   bbox corners (`c1a56bd9`), GEF latin-1 fallback INFO (`91e47f09`), process-pool-vs-
+>   network failure classifier + test (`88754336`/`eda6ae38`).
+> - **A3 exports: DXF/Plaxis DONE.** DXF dropped-contact tally + split WARNING (`93e4c223`),
+>   Plaxis empty-snapshot identity + dropped-borehole log (`531b7700`), + tally-arithmetic
+>   tests (`059a1869`/`e586ef7b`). STILL OPEN: `get_project_bundle` (~10 MB) + `duplicate_project`
+>   deep-clone unlogged.
+> - **Frontend hooks: 3 of 5 DONE** (50 tests). `useLithoSuggestions` (`89cc6f9b`, 23),
+>   `useContactCrud` create/delete (`d6778ad8`, 10), `useInvestigationData` (`b0682a77`, 17).
+>   **The last found a REAL shipped bug** — `unhide` built `touched` inside a deferred React
+>   setState updater so the `is_hidden=false` upsert never fired → a 409-re-imported CPT
+>   came back hidden on next project load. Fixed (`8f5723dc`) + lesson #10 (`2550a0aa`).
+>   `debugging-scientist` PROVED it real (not a harness artifact) across 3 call contexts.
+> - **B testing:** the A2 "0 failed" lie + count-conservation was already done/verified
+>   (`test_import_partial_failure_counted.py` PF-1/PF-2 green); qt/q_total DB round-trip
+>   pinned (`b82db732` — note: qt is NOT a stored column, it's derived-on-read; the real
+>   gap was a populated-q_total round-trip); Plaxis-3D no-surface skip count + test done
+>   in the A3 batch.
 
-**Backend testing (B):**
-- The A2 "0 failed" import-count lie: log `download_failed = len(index) - len(parsed)`
-  + count-conservation test `imported+failed+duplicates == len(index)`. (NOTE: a
-  `test_import_partial_failure_counted.py` PF-1/2/3 was drafted earlier in the wider
-  effort — verify its state before re-doing.)
-- qt_mpa vs q_total_mpa pinned at the **DB** boundary (CPTM vs CPTU stored column).
-- Full double-`execute()` refresh-on-duplicate round-trip; Plaxis-3D no-surface-column
-  dead branch + skip count; three-level export gap (#104) across all 4 exporters;
-  PDF geometry (not just `%PDF`+size); Numba object-mode-fallback detection; raster the
-  hull for watertight/overlap (current ~6-point sample misses between-sample overlaps).
+**STILL OPEN — Backend:**
+- A3: `get_project_bundle` (~10 MB export) + `duplicate_project` deep-clone unlogged.
+- B: double-`execute()` refresh-on-duplicate round-trip; three-level export gap (#104)
+  across all 4 exporters; PDF geometry (not just `%PDF`+size); Numba object-mode-fallback
+  detection; raster the hull for watertight/overlap (current ~6-point sample misses
+  between-sample overlaps).
 
-**Frontend testing (D) — the biggest gap:**
-- **Five large untested hooks** (~4,200 LOC): `useLithoSuggestions` (1790 — #149
-  admixture-sig find-or-create key + #57 sectionId/applyUpdatedSection invariant),
-  `useContactCrud` (1229 — COPY/Alt-MOVE, multi-select shift, 422-rollback),
-  `useInvestigationData` (872 — stale-async scope guard), `useBoundaryDrag` (652),
-  `useSectionCanvasGestures` (430 — Shift-marquee priority).
-- Stage-badge count-filter tests (the "101 counts wrong kind" bug class —
-  `GeologyStage` fixed this session, `ExportStage` still open); `useDovImportStream`
-  SSE error/abort; `SectionsCanvas` (2761 LOC) populated-state TDZ smoke.
-- DEFERRED render-warp tests still owed for `ContactsLayer` + `CorrelationEdgesOverlay`
-  (only `PartitionFillOverlay` got one this session).
+**STILL OPEN — Frontend testing (D):**
+- **Two untested DOM-event hooks:** `useBoundaryDrag` (652 — document mousemove/mouseup
+  synthesis; zero-thickness auto-reject; shared-boundary partner propagation),
+  `useSectionCanvasGestures` (430 — Shift-marquee priority). These need jsdom DOM-event
+  synthesis (see `memory/feedback_playwright_section_drag_synthesis` for the failure layers).
+- Stage-badge count-filter tests (`ExportStage` still open); `useDovImportStream` SSE
+  error/abort; `SectionsCanvas` (2761 LOC) populated-state TDZ smoke.
+- DEFERRED render-warp tests still owed for `ContactsLayer` + `CorrelationEdgesOverlay`.
 
 **The #1 multiplier (owner decision needed):** integration tests run NOWHERE in CI.
 This session added `.githooks/pre-push` as the stopgap; the durable fix is a
