@@ -316,6 +316,64 @@ def test_contact_without_level_is_skipped() -> None:
     assert len(list(doc.modelspace().query("CIRCLE"))) == 0
 
 
+def test_draw_formation_surfaces_returns_drop_tally() -> None:
+    """The dropped-contact counts on the success/warning lines derive from
+    this return tuple; pin the arithmetic so a third drop reason can't
+    silently desync ``drawn = total - no_level - no_formation``.
+
+    One valid contact, one with no level, one referencing a formation that
+    isn't in the snapshot (unresolvable) → (no_level=1, no_formation=1)."""
+    f_id = uuid4()
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=f_id,
+                name="Boom Klei",
+                code=None,
+                color="#ff8800",
+                display_order=0,
+            )
+        ],
+        contacts=[
+            # valid — has a level and a known formation.
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=f_id,
+                investigation_id=uuid4(),
+                along_distance_m=10.0,
+                depth_m=2.0,
+                level_m=8.0,
+            ),
+            # no level — can't sit on the absolute-level axis.
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=f_id,
+                investigation_id=uuid4(),
+                along_distance_m=20.0,
+                depth_m=2.0,
+                level_m=None,
+            ),
+            # unresolvable formation — id not present in snapshot.formations.
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=uuid4(),
+                investigation_id=uuid4(),
+                along_distance_m=30.0,
+                depth_m=2.0,
+                level_m=6.0,
+            ),
+        ],
+    )
+    msp = ezdxf.new(dxfversion="R2018", setup=True).modelspace()
+    dropped_no_level, dropped_no_formation = DxfSectionExporter()._draw_formation_surfaces(
+        msp, snap
+    )
+    assert dropped_no_level == 1
+    assert dropped_no_formation == 1
+    drawn = len(snap.contacts) - dropped_no_level - dropped_no_formation
+    assert drawn == 1
+
+
 # ---------------------------------------------------------------------------
 # Layer colours + naming
 # ---------------------------------------------------------------------------
