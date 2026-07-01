@@ -415,3 +415,88 @@ def test_section_without_contacts_renders_investigation_columns_only() -> None:
 
     assert pdf_bytes[:4] == b"%PDF", "PE6: section with no contacts must produce valid PDF"
     assert len(pdf_bytes) > 512, "PE6: PDF with investigation columns must be non-trivial"
+
+
+# ---------------------------------------------------------------------------
+# PE7 / PE8: the section GEOMETRY is actually rendered — not just %PDF + size
+# ---------------------------------------------------------------------------
+
+
+def _populated_snapshot() -> SectionSnapshot:
+    """A section with 3 investigations + a formation surface across them."""
+    fid = _formation_id()
+    formation = _formation(fid, name="Boom Klei", color="#336699")
+    inv_ids = [_investigation_id() for _ in range(3)]
+    investigations = [
+        SectionInvestigationProjection(
+            investigation_id=iid,
+            kind="cpt",
+            name=f"CPT-{i + 1:02d}",
+            along_distance_m=float(i * 40),
+            surface_elevation_m=5.0,
+            total_depth_m=20.0,
+        )
+        for i, iid in enumerate(inv_ids)
+    ]
+    contacts = [
+        _contact(fid, iid, along_distance_m=float(i * 40), depth_m=4.0 + i)
+        for i, iid in enumerate(inv_ids)
+    ]
+    return _minimal_snapshot(
+        project_name="Geometry Test",
+        section_name="G-1",
+        section_length_m=100.0,
+        investigations=investigations,
+        formations=[formation],
+        contacts=contacts,
+        end_x=150_100.0,
+    )
+
+
+def test_pdf_embeds_the_section_figure_image() -> None:
+    """The report embeds the rendered section FIGURE as an image XObject — the
+    geometry is drawn, not merely described in text.
+
+    matplotlib renders the section (columns + formation surfaces) to a PNG that
+    ReportLab places as an image XObject. The ``/XObject`` + ``/Subtype /Image``
+    dictionary keys are written uncompressed, so a populated report must carry
+    them — proving the geometry figure is present rather than a text-only page.
+    """
+    pdf_bytes = SectionPdfReportExporter().export(
+        _populated_snapshot(), ReportMetadata(title="Geometry")
+    )
+
+    assert pdf_bytes[:4] == b"%PDF"
+    assert b"/XObject" in pdf_bytes, "PE7: report must embed an image XObject (the section figure)"
+    assert b"/Subtype /Image" in pdf_bytes, "PE7: the embedded XObject must be an image"
+
+
+def test_pdf_with_geometry_is_larger_than_empty_section() -> None:
+    """The drawn geometry (columns + formation polylines) contributes to the
+    embedded figure — a populated section renders a strictly larger PDF than an
+    otherwise-identical EMPTY section.
+
+    This guards against the geometry being silently dropped while still emitting
+    a valid %PDF of similar size (the exact "not just %PDF + size" gap): if the
+    columns/contacts were skipped, the two figures would be near-identical.
+    """
+    metadata = ReportMetadata(title="Geometry")
+    populated = SectionPdfReportExporter().export(_populated_snapshot(), metadata)
+    empty = SectionPdfReportExporter().export(
+        _minimal_snapshot(
+            project_name="Geometry Test",
+            section_name="G-1",
+            section_length_m=100.0,
+            investigations=[],
+            formations=[],
+            contacts=[],
+            end_x=150_100.0,
+        ),
+        metadata,
+    )
+
+    assert populated[:4] == b"%PDF" and empty[:4] == b"%PDF"
+    assert len(populated) > len(empty), (
+        f"PE8: populated-geometry PDF ({len(populated)} B) must exceed the "
+        f"empty-section PDF ({len(empty)} B) — the drawn columns/contacts were dropped"
+    )
