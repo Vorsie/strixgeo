@@ -38,6 +38,7 @@ What this helper does NOT do
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
@@ -47,6 +48,7 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_DOWNLOAD_PARALLELISM
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
+from groundmodel.shared.timing import ms_since
 
 RowT = TypeVar("RowT")
 ResultT = TypeVar("ResultT")
@@ -252,6 +254,7 @@ async def _download_one(
         from_cache = xml_bytes is not None
 
     if xml_bytes is None:
+        t0 = time.perf_counter()
         async with sem:
             try:
                 resp = await http.get(xml_url)
@@ -265,6 +268,12 @@ async def _download_one(
                 )
                 resp.raise_for_status()
             xml_bytes = resp.content
+        # Per-item download size + latency — payload size is the dominant DOV
+        # import cost (a typical CPT export decodes to ~0.5 MB; see
+        # CLAUDE.local.md), and size + latency together point straight at a slow
+        # oversized record. The timer spans the semaphore wait too, so it is the
+        # total "how long did this item take" signal. TRACE (per-byte/per-row).
+        logger.trace(f"{label}: fetched {ident} — {len(xml_bytes)}B {ms_since(t0)}ms url={xml_url}")
         if cache is not None:
             cache.put(permkey, xml_bytes)
 
