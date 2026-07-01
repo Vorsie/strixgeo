@@ -531,6 +531,57 @@ async def _build_valid_model_ids(
     return db_ids | payload_ids  # type: ignore[return-value]
 
 
+async def _build_valid_inv_ids(
+    session: AsyncSession,
+    project_id: UUID,
+    cpts_payload: list[dict[str, Any]],
+    boreholes_payload: list[dict[str, Any]],
+) -> set[UUID]:
+    """Return the union of DB-persisted + bundle-carried investigation ids.
+
+    Mirrors ``_build_valid_formation_ids`` for investigations (CPTs + boreholes).
+    Must be called AFTER the CPT and borehole insert phases so the DB query
+    covers rows committed in this transaction. Payload ids are unioned in to
+    cover investigations queued-but-not-yet-flushed when downstream phases
+    (contacts, absences, bodies) validate their investigation FK references.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    cpts_payload : list[dict[str, Any]]
+        Raw CPT dicts from the bundle.
+    boreholes_payload : list[dict[str, Any]]
+        Raw borehole dicts from the bundle.
+
+    Returns
+    -------
+    set[UUID]
+        All valid CPT + borehole ids for this project (DB rows ∪ payload ids).
+    """
+    db_cpt_ids = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    db_bh_ids = set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    payload_cpt_ids = {_uuid(c.get("id")) for c in cpts_payload if c.get("id") is not None} - {None}
+    payload_bh_ids = {_uuid(b.get("id")) for b in boreholes_payload if b.get("id") is not None} - {
+        None
+    }
+    return db_cpt_ids | db_bh_ids | payload_cpt_ids | payload_bh_ids  # type: ignore[return-value]
+
+
 async def _restore_cross_sections(
     session: AsyncSession,
     project_id: UUID,
@@ -657,6 +708,22 @@ async def _restore_investigation_reviews(
         target_kind = r_payload.get("target_kind")
         target_id = _uuid(r_payload.get("target_id"))
         if target_kind is None or target_id is None:
+            dropped += 1
+            continue
+        # FIX 4: allow-list before the id-scope dispatch.  Without this, an
+        # unknown kind (e.g. a garbage string from a crafted bundle) falls
+        # through to the ``else`` branch → valid_bh_ids.  If the garbage-kind
+        # review carries a locally-valid borehole id it passes the id-scope
+        # check and reaches the INSERT, where the DB CHECK constraint
+        # (``target_kind IN ('cpt', 'borehole')``) fires → IntegrityError →
+        # the whole restore 500s.  The allow-list guard drops the row cleanly
+        # before any DB interaction.
+        if target_kind not in ("cpt", "borehole"):
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropping review {r_id} "
+                f"with unknown target_kind {target_kind!r} — "
+                "allow-listed kinds are 'cpt' and 'borehole'"
+            )
             dropped += 1
             continue
         valid_targets = valid_cpt_ids if target_kind == "cpt" else valid_bh_ids
@@ -859,6 +926,13 @@ async def _restore_project_bundle_impl(
     # ---- Phase 2: Boreholes ----------------------------------------------
     new_boreholes = await _restore_boreholes(session, project_id, boreholes_payload, logger=logger)
 
+    # ---- Pre-phase guard: build valid_inv_ids ----------------------------
+    # Built AFTER CPTs (Phase 1) and boreholes (Phase 2) so the DB query
+    # covers all rows for this project.  Payload ids are unioned in to cover
+    # investigations queued-but-not-yet-flushed when downstream phases
+    # (contacts, absences, bodies) validate their investigation FK references.
+    valid_inv_ids = await _build_valid_inv_ids(session, project_id, cpts_payload, boreholes_payload)
+
     # ---- Phase 3: Geological formations ----------------------------------
     new_formations = await _restore_formations(session, project_id, geological_formations_payload)
 
@@ -887,6 +961,7 @@ async def _restore_project_bundle_impl(
         project_id,
         geological_models_payload,
         valid_formation_ids,
+        valid_inv_ids,
         logger=logger,
     )
 
@@ -912,8 +987,7 @@ async def _restore_project_bundle_impl(
         session,
         project_id,
         bodies_payload,
-        cpts_payload,
-        boreholes_payload,
+        valid_inv_ids,
         valid_formation_ids,
         valid_model_ids,
         logger=logger,
@@ -932,6 +1006,7 @@ async def _restore_project_bundle_impl(
         project_id,
         formation_absences_payload,
         valid_formation_ids,
+        valid_inv_ids,
         logger=logger,
     )
 
