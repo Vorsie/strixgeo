@@ -14,7 +14,7 @@ This test verifies the invariant end-to-end for the public API surface:
 
 ``is_flagged=True`` IS emitted by ``RecomputeLithoSolids._handle_flag_all``
 (the strat-builder fall-back path) — that path is exercised in
-``tests/integration/api/test_flagged_bodies.py`` (T-A integration).
+``tests/integration/db/test_flagged_bodies.py`` (T-A integration).
 
 How to verify this test has teeth: if ``extract_body_solids`` were modified to
 set ``is_flagged=True`` on any body, the assertions below would immediately
@@ -51,7 +51,12 @@ def _single_body_2x2x2_grid() -> LabelGrid:
 
 
 def _two_body_1x1x2_grid() -> LabelGrid:
-    """A 1×1×2 grid: body 0 in the top cell, body 1 in the bottom cell.
+    """A 1×1×2 grid: body 0 in the BOTTOM cell (gz=−1.0), body 1 in the TOP cell (gz=0.0).
+
+    gz is an elevation coordinate (increases upward), so gz=−1.0 is the deeper
+    cell and gz=0.0 is the shallower cell.  The body ids ("body-top" for the
+    bottom cell, "body-bot" for the top cell) are inverted relative to their
+    elevations — they are stable test identifiers, not semantic labels.
 
     Produces two touching cubes.  The shared face cancels (each body's XOR
     rule drops interior faces), so each body's mesh is a closed 5-faced box
