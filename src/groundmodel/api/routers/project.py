@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -41,6 +42,7 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+from groundmodel.shared.timing import ms_since
 
 # Module-level logger — routers are stateless functions, not classes.
 logger = LoggerFactory.get_logger(__name__)
@@ -214,21 +216,39 @@ async def get_project_bundle(
     them from the bundle, so the ~10 MB of vertices/triangles was pure
     over-the-wire waste that made every save slow.
     """
+    # File → Save round-trips this ~10 MB export on every save; log its
+    # entry + outcome (counts + latency) so a slow or failed save is
+    # diagnosable without a re-run.
+    logger.info(f"GET /projects/{project_id}/bundle: include_solids={include_solids}")
     repo = ProjectRepository(session)
     project = await repo.get_by_id(project_id)
     if project is None:
+        logger.warning(f"GET /projects/{project_id}/bundle: 404 — project not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    t0 = time.perf_counter()
     try:
-        return await build_project_bundle(session, project, include_solids=include_solids)
+        bundle = await build_project_bundle(session, project, include_solids=include_solids)
     except BundleIntegrityError as err:
         # 422: the DB is self-inconsistent (layers reference formations
         # that no longer exist) so the bundle cannot be safely written.
         # 500 would suggest a server bug; 422 says "your data is bad,
         # here's what's wrong" — actionable.
+        logger.warning(f"GET /projects/{project_id}/bundle: 422 BundleIntegrityError — {err}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
         ) from err
+    # Bundle values are typed ``object``; guard the len() so mypy stays clean
+    # and a shape change can't crash the log line.
+    cpts = bundle.get("cpts")
+    boreholes = bundle.get("boreholes")
+    n_cpts = len(cpts) if isinstance(cpts, list) else 0
+    n_boreholes = len(boreholes) if isinstance(boreholes, list) else 0
+    logger.success(
+        f"GET /projects/{project_id}/bundle ok: {n_cpts} CPTs, {n_boreholes} boreholes, "
+        f"include_solids={include_solids} in {ms_since(t0)} ms"
+    )
+    return bundle
 
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
@@ -398,10 +418,20 @@ async def duplicate_project(
 
     Returns 404 when the source id is unknown.
     """
+    # File → Save As deep-clones the whole CPT + borehole tree — a heavy write;
+    # log entry + outcome (new id + latency) so a slow/failed Save As is
+    # diagnosable.
+    logger.info(f"POST /projects/{project_id}/duplicate: name={request.name!r}")
+    t0 = time.perf_counter()
     repo = ProjectRepository(session)
     duplicate = await repo.duplicate(project_id, new_name=request.name)
     if duplicate is None:
+        logger.warning(f"POST /projects/{project_id}/duplicate: 404 — source project not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     await session.commit()
     await session.refresh(duplicate)
+    logger.success(
+        f"POST /projects/{project_id}/duplicate ok → {duplicate.id} "
+        f"(name={duplicate.name!r}) in {ms_since(t0)} ms"
+    )
     return duplicate
