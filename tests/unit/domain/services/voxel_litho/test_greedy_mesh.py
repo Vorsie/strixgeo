@@ -21,6 +21,7 @@ import numpy as np
 
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
 from groundmodel.domain.services.voxel_litho.greedy_mesh import (
+    _maximal_rectangles_njit,
     maximal_rectangles,
     subdivision_nodes,
     triangulate_subdivided_rect,
@@ -52,6 +53,28 @@ def _covers_exactly(mask: np.ndarray, rects: list[tuple[int, int, int, int]]) ->
         painted[u0:u1, v0:v1] += 1
     # Every True cell painted exactly once; every False cell never.
     return bool(np.array_equal(painted, mask.astype(int)))
+
+
+def test_kernel_compiles_in_numba_nopython_mode() -> None:
+    """The greedy-mesh kernel must JIT-compile in Numba NOPYTHON mode.
+
+    An object-mode fallback (or an accidentally-removed ``@njit``) would
+    silently regress the voxel-build hotspot — 38.6x on the real 113k-mask
+    workload (CLAUDE.local.md) — while every geometric test in this file still
+    passes on the slow pure-Python path. Pin the perf-critical compilation:
+    after a real call the Numba dispatcher must register a nopython signature.
+    """
+    mask = np.array([[True, True], [True, False]], dtype=np.bool_)
+    maximal_rectangles(mask)  # triggers JIT compilation of the kernel
+    # A plain Python function has no ``nopython_signatures``; a nopython @njit
+    # dispatcher registers the compiled signature here. An object-mode fallback
+    # would leave this list empty.
+    assert hasattr(_maximal_rectangles_njit, "nopython_signatures"), (
+        "kernel is not a Numba dispatcher — was @njit removed?"
+    )
+    assert len(_maximal_rectangles_njit.nopython_signatures) > 0, (
+        "greedy-mesh kernel did not compile in nopython mode (object-mode fallback?)"
+    )
 
 
 def test_full_mask_is_one_rectangle() -> None:
