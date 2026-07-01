@@ -38,7 +38,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -99,6 +99,33 @@ class WfsIndexEntry:
     xml_url: str
     x_lambert72: float
     y_lambert72: float
+
+
+def _classify_download_failure(exc: BaseException) -> str:
+    """Categorise a per-CPT download/parse failure for the operator log.
+
+    The three categories map to three different fixes: a network/HTTP
+    failure means DOV was slow or unreachable (retry / check the endpoint);
+    a broken parse-pool means a worker process crashed (an OOM or a native
+    parser fault — reduce parallelism / investigate the offending XML); an
+    XML parse/processing failure means the document itself was malformed
+    (a parser bug or an upstream schema drift).
+
+    Parameters
+    ----------
+    exc : BaseException
+        The exception captured by ``asyncio.gather(return_exceptions=True)``.
+
+    Returns
+    -------
+    str
+        A short human-readable failure-class label for the log line.
+    """
+    if isinstance(exc, httpx.HTTPStatusError | httpx.RequestError):
+        return "network/HTTP download failed"
+    if isinstance(exc, BrokenExecutor):
+        return "parse-pool worker crashed"
+    return "XML parse/processing failed"
 
 
 class DovClient(GroundModelLogger):
@@ -309,8 +336,11 @@ class DovClient(GroundModelLogger):
         out: list[tuple[str, _T]] = []
         for entry, result in zip(index, raw):
             if isinstance(result, BaseException):
+                # Distinguish the failure class so an operator can tell whether
+                # DOV was unreachable (network), a parse-pool worker crashed, or
+                # the XML itself failed to parse — three very different fixes.
                 self.error(
-                    f"DOV: download/process failed for '{entry.name}'  "
+                    f"DOV: {_classify_download_failure(result)} for '{entry.name}'  "
                     f"url={entry.xml_url}  error={type(result).__name__}: {result}"
                 )
             else:
