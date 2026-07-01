@@ -256,17 +256,38 @@ class DovParser(GroundModelLogger):
         Note: code 0 covers both pure-electric (CPTE) and piezocone (CPTU). The
         CPTE vs CPTU distinction is made later in _detect_type using the data.
         """
+        # A (None, None) return leaves cone_type_code unknown, which drives the
+        # mechanical-vs-electric routing that decides q_total_mpa (CPTM) vs
+        # qt_mpa (CPTU) downstream — physically distinct columns, never derived
+        # from each other (see project_qt_vs_qtotal). So log WHAT was found when
+        # the expected structure is absent, at DEBUG (cone metadata is
+        # legitimately absent on older records — not an error), naming the
+        # actual child tags so the mismatch is visible without a re-run.
         # sondeonderzoek = the test data container; sondeerapparaat = sounding apparatus
         test_data_elem = cpt_elem.find("sondeonderzoek")
         if test_data_elem is None:
+            self.debug(
+                f"DOV XML '{name}': no <sondeonderzoek> for cone metadata — "
+                f"cone type unknown. <sondering> children: {[c.tag for c in cpt_elem]}"
+            )
             return None, None
 
         apparatus_elem = test_data_elem.find("sondeerapparaat")
         if apparatus_elem is None:
+            self.debug(
+                f"DOV XML '{name}': no <sondeerapparaat> for cone metadata — "
+                f"cone type unknown. <sondeonderzoek> children: "
+                f"{[c.tag for c in test_data_elem]}"
+            )
             return None, None
 
         cone_elem = apparatus_elem.find("sondeerconus")  # sondeerconus = sounding cone
         if cone_elem is None:
+            self.debug(
+                f"DOV XML '{name}': no <sondeerconus> for cone metadata — "
+                f"cone type unknown. <sondeerapparaat> children: "
+                f"{[c.tag for c in apparatus_elem]}"
+            )
             return None, None
 
         net_area_ratio = float_value(cone_elem, "net_area_ratio")
@@ -281,6 +302,14 @@ class DovParser(GroundModelLogger):
             cone_type_code = None
             if cone_type_str:
                 self.debug(f"DOV XML '{name}': unknown <conustype>={cone_type_str!r}")
+            else:
+                # <sondeerconus> present but <conustype> empty — cone type still
+                # unknown, so the CPTM/CPTU routing loses its hint. Name the
+                # cone children so the missing/empty field is visible.
+                self.debug(
+                    f"DOV XML '{name}': <conustype> present but empty — cone type "
+                    f"unknown. <sondeerconus> children: {[c.tag for c in cone_elem]}"
+                )
 
         return net_area_ratio, cone_type_code
 
