@@ -105,7 +105,7 @@ class DxfSectionExporter(SectionExporter):
 
         self._setup_layers(doc, snapshot)
         self._draw_investigation_columns(msp, snapshot)
-        self._draw_formation_surfaces(msp, snapshot)
+        dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(msp, snapshot)
         self._draw_title_block(msp, snapshot)
 
         # ezdxf writes to a text stream; we wrap in StringIO and
@@ -113,13 +113,35 @@ class DxfSectionExporter(SectionExporter):
         sink = io.StringIO()
         doc.write(sink)
         payload = sink.getvalue().encode("utf-8")
+        # Fold the dropped-contact tally onto the success line so a silently-
+        # thinned export is visible without diffing the file against the
+        # section. The two drop reasons are NOT the same severity:
+        #   - no-level is a DESIGNED-FOR condition — a contact whose anchor has
+        #     no surface Z can't sit on the absolute-level axis, which is common
+        #     (not every import carries Z) and already noted in the title block.
+        #     It stays on the SUCCESS tally only, or the WARNING would cry wolf.
+        #   - no-formation means a contact referenced a formation that vanished
+        #     between snapshot assembly and export (shouldn't happen in one
+        #     transaction) — genuinely anomalous, so THAT gets a WARNING.
+        drawn_contacts = len(snapshot.contacts) - dropped_no_level - dropped_no_formation
+        dropped_total = dropped_no_level + dropped_no_formation
+        if dropped_no_formation:
+            self.warning(
+                f"DXF section export dropped {dropped_no_formation} contact(s) with "
+                f"unresolvable formation (deleted between snapshot assembly and export?) "
+                f"project={snapshot.project_name!r} project_id={snapshot.project_id} "
+                f"section={snapshot.section_name!r} section_id={snapshot.section_id}"
+            )
         self.success(
             f"DXF section exported: project={snapshot.project_name!r} "
-            f"section={snapshot.section_name!r} "
+            f"project_id={snapshot.project_id} "
+            f"section={snapshot.section_name!r} section_id={snapshot.section_id} "
             f"size={len(payload)} bytes "
             f"({len(snapshot.investigations)} columns, "
             f"{len(snapshot.formations)} formations, "
-            f"{len(snapshot.contacts)} contacts)"
+            f"{drawn_contacts}/{len(snapshot.contacts)} contacts drawn, "
+            f"{dropped_total} dropped [{dropped_no_level} no-level, "
+            f"{dropped_no_formation} no-formation])"
         )
         return payload
 
@@ -193,7 +215,7 @@ class DxfSectionExporter(SectionExporter):
     # Formation top surfaces — one polyline per formation.
     # ------------------------------------------------------------------
 
-    def _draw_formation_surfaces(self, msp, snapshot: SectionSnapshot) -> None:  # type: ignore[no-untyped-def]
+    def _draw_formation_surfaces(self, msp, snapshot: SectionSnapshot) -> tuple[int, int]:  # type: ignore[no-untyped-def]
         """For each formation with contacts on the section, emit one
         LWPOLYLINE through (along_distance_m, level_m) sorted by
         along-distance.
@@ -202,17 +224,29 @@ class DxfSectionExporter(SectionExporter):
         None) are skipped — without an absolute Y we can't place the
         contact on the level-axis DXF. Future work could emit a
         depth-axis variant of the export for that case.
+
+        Returns
+        -------
+        tuple[int, int]
+            ``(dropped_no_level, dropped_no_formation)`` — contacts
+            excluded from the DXF because they had no absolute level or
+            no resolvable formation. The caller folds these onto the
+            success line so a silently-thinned export is visible.
         """
+        dropped_no_level = 0
+        dropped_no_formation = 0
         # Group contacts by formation.
         by_formation: dict[str, list[tuple[float, float]]] = {}
         for c in snapshot.contacts:
             if c.level_m is None:
+                dropped_no_level += 1
                 continue
             # Use the formation name as the dict key — we already
             # have the layer registered under that name and don't
             # need to re-walk the formations list.
             formation_name = _formation_name_for_contact(c, snapshot)
             if formation_name is None:
+                dropped_no_formation += 1
                 continue
             by_formation.setdefault(formation_name, []).append((c.along_distance_m, c.level_m))
 
@@ -235,6 +269,8 @@ class DxfSectionExporter(SectionExporter):
                 points,
                 dxfattribs={"layer": _formation_layer_name(formation_name)},
             )
+
+        return dropped_no_level, dropped_no_formation
 
     # ------------------------------------------------------------------
     # Title block — bottom-left text annotation.
