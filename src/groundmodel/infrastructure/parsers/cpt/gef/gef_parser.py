@@ -112,9 +112,18 @@ class GEFParser(GroundModelLogger):
         """
         for encoding in ("utf-8", "windows-1252", "latin-1"):
             try:
-                return self.parse(content.decode(encoding))
+                text = content.decode(encoding)
             except UnicodeDecodeError:
                 continue
+            # Log a successful FALLBACK decode (not clean UTF-8). The file
+            # parsed fine, but non-ASCII header text (company / project name)
+            # may show mojibake, so surface the encoding used at INFO — it is
+            # the breadcrumb for a later "why is this name garbled" report.
+            # decode(str)→parse never raises UnicodeDecodeError, so moving
+            # parse outside the try is behaviour-preserving.
+            if encoding != "utf-8":
+                self.info(f"GEF decoded with fallback encoding {encoding!r} (not UTF-8)")
+            return self.parse(text)
         raise ParseError("Cannot decode GEF file — tried UTF-8, Windows-1252, Latin-1")
 
     # ------------------------------------------------------------------
