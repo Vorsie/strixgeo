@@ -37,8 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
-from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -86,6 +84,7 @@ async def _restore_geological_models(
     project_id: UUID,
     geological_models_payload: list[dict[str, Any]],
     valid_formation_ids: set[UUID],
+    valid_inv_ids: set[UUID],
     *,
     logger: GroundModelLogger,
 ) -> tuple[int, int]:
@@ -112,6 +111,10 @@ async def _restore_geological_models(
     valid_formation_ids : set[UUID]
         Pre-computed union of DB + payload formation ids (from
         ``_build_valid_formation_ids``).
+    valid_inv_ids : set[UUID]
+        Pre-computed union of DB + payload investigation ids (CPTs +
+        boreholes, from ``_build_valid_inv_ids``). Used to reject a contact
+        whose investigation anchor points at another project's investigation.
     logger : GroundModelLogger
         Caller's logger.
 
@@ -158,6 +161,19 @@ async def _restore_geological_models(
         for c in contacts_payload:
             fid = _uuid(c.get("formation_id"))
             if fid is None or fid not in valid_formation_ids:
+                skipped_orphan_contacts += 1
+                continue
+            # IDOR guard: a contact's investigation anchor (borehole_id / cpt_id)
+            # is a cross-project FK the DB happily satisfies whenever the
+            # referenced row exists under ANOTHER project. Drop a contact whose
+            # non-null anchor is not in THIS project's investigation set.
+            # Synthetic contacts (borehole_id AND cpt_id both null, anchored by
+            # the synthetic_* coords) carry no investigation FK → pass through.
+            bh_id = _uuid(c.get("borehole_id"))
+            cpt_id = _uuid(c.get("cpt_id"))
+            if (bh_id is not None and bh_id not in valid_inv_ids) or (
+                cpt_id is not None and cpt_id not in valid_inv_ids
+            ):
                 skipped_orphan_contacts += 1
                 continue
             valid_contacts.append(
@@ -361,8 +377,7 @@ async def _restore_bodies(
     session: AsyncSession,
     project_id: UUID,
     bodies_payload: list[dict[str, Any]],
-    cpts_payload: list[dict[str, Any]],
-    boreholes_payload: list[dict[str, Any]],
+    valid_inv_ids: set[UUID],
     valid_formation_ids: set[UUID],
     valid_model_ids: set[UUID],
     *,
@@ -384,11 +399,10 @@ async def _restore_bodies(
         Owning project.
     bodies_payload : list[dict[str, Any]]
         Raw body dicts from the bundle.
-    cpts_payload : list[dict[str, Any]]
-        Raw CPT dicts — included to cover investigations queued in this
-        transaction but not yet flushed.
-    boreholes_payload : list[dict[str, Any]]
-        Raw borehole dicts — same reason.
+    valid_inv_ids : set[UUID]
+        Pre-computed union of DB + payload investigation ids (CPTs +
+        boreholes, from ``_build_valid_inv_ids``) — used to reject a body
+        whose ``source_investigation_id`` points outside this project.
     valid_formation_ids : set[UUID]
         Pre-computed union of DB + payload formation ids.
     valid_model_ids : set[UUID]
@@ -401,29 +415,8 @@ async def _restore_bodies(
     tuple[int, int, int]
         ``(new_lenses, skipped_lenses, dropped_lenses)``.
     """
-    # Build the valid investigation set (DB rows + payload ids not yet flushed).
-    valid_inv_ids: set[UUID] = set(
-        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
-        .scalars()
-        .all()
-    ) | set(
-        (
-            await session.execute(
-                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for cpt_p in cpts_payload:
-        cid = _uuid(cpt_p.get("id"))
-        if cid is not None:
-            valid_inv_ids.add(cid)
-    for bh_p in boreholes_payload:
-        bid = _uuid(bh_p.get("id"))
-        if bid is not None:
-            valid_inv_ids.add(bid)
-
+    # valid_inv_ids is now built once by the caller (_build_valid_inv_ids) and
+    # shared across contacts / bodies / absences — no per-function rebuild.
     existing = set(
         (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
         .scalars()
@@ -511,6 +504,7 @@ async def _restore_formation_absences(
     project_id: UUID,
     formation_absences_payload: list[dict[str, Any]],
     valid_formation_ids: set[UUID],
+    valid_inv_ids: set[UUID],
     *,
     logger: GroundModelLogger,
 ) -> tuple[int, int, int]:
@@ -526,6 +520,10 @@ async def _restore_formation_absences(
         Raw formation-absence dicts from the bundle.
     valid_formation_ids : set[UUID]
         Pre-computed union of DB + payload formation ids.
+    valid_inv_ids : set[UUID]
+        Pre-computed union of DB + payload investigation ids (CPTs +
+        boreholes, from ``_build_valid_inv_ids``). ``investigation_id`` is a
+        polymorphic UUID with no DB FK, so it must be scope-checked here.
     logger : GroundModelLogger
         Caller's logger.
 
@@ -572,6 +570,19 @@ async def _restore_formation_absences(
             logger.warning(
                 f"[{i}/{total}] formation absence {ab_id} → formation {ab_fid} "
                 f"not in this project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        # IDOR guard: investigation_id is a polymorphic UUID with NO DB FK, so
+        # a crafted bundle can point it at another project's investigation and
+        # nothing at the DB layer objects. Drop an absence whose investigation
+        # anchor is not in THIS project's CPT/borehole set (None also fails —
+        # the column is NOT NULL, so a missing anchor cannot be inserted).
+        ab_inv_id = _uuid(ab_payload.get("investigation_id"))
+        if ab_inv_id is None or ab_inv_id not in valid_inv_ids:
+            logger.warning(
+                f"[{i}/{total}] formation absence {ab_id} → investigation "
+                f"{ab_inv_id} not in this project — dropped (cross-project anchor)"
             )
             dropped += 1
             continue
@@ -895,6 +906,21 @@ async def _restore_litho_solids(
             continue
 
         kwargs = _apply_json_to_kwargs(LithoBodySolidOrm, solid_payload)
+        # Debt #19 parity with the surface path: cap untrusted TIN blobs. An
+        # unbounded vertices/triangles JSONB array from a crafted bundle would
+        # OOM the asyncio worker before the first write. Blank the geometry +
+        # force is_stale rather than inserting it verbatim; the solid keeps its
+        # metadata and the user rebuilds it on the next on-click Build.
+        raw_verts = kwargs.get("vertices")
+        raw_tris = kwargs.get("triangles")
+        n_verts = len(raw_verts) if isinstance(raw_verts, list) else 0
+        n_tris = len(raw_tris) if isinstance(raw_tris, list) else 0
+        if n_verts > _MAX_TIN_ARRAY_LEN or n_tris > _MAX_TIN_ARRAY_LEN:
+            logger.warning(
+                f"[{i}/{total}] litho solid {solid_id}: geometry exceeds size caps "
+                f"(verts={n_verts}, tris={n_tris}) — geometry dropped, is_stale forced"
+            )
+            _blank_surface_geometry(kwargs)
         session.add(LithoBodySolidOrm(**kwargs))
         existing.add((model_id, body_id))
         new_solids += 1
