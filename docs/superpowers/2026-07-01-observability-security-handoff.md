@@ -131,7 +131,12 @@ Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
   SSE mock). ~~Stage-badge count-filter (`ExportStage`)~~ — DONE `1c10f9ea` (the
   "counts-wrong-kind" anti-leak guard).
 - STILL OPEN: `SectionsCanvas` (2761 LOC) populated-state TDZ smoke; DEFERRED render-warp
-  tests for `ContactsLayer` + `CorrelationEdgesOverlay`.
+  tests for `ContactsLayer` (3821 LOC, 82-line Props) + `CorrelationEdgesOverlay` (1887 LOC).
+  Both are large with heavy prop surfaces — copy the working pattern in
+  `PartitionFillOverlay.warp.test.tsx` (a piecewise `fwdWarp` where the MIDDLE column is
+  packed to 340px vs a linear 400px, then assert rendered x-coords land in the packed
+  gap [310,330]), and invoke the `strix-section-geometry-check` skill. Deferred from this
+  session as the highest-setup-cost remaining item.
 
 **The #1 multiplier (owner decision needed):** integration tests run NOWHERE in CI.
 This session added `.githooks/pre-push` as the stopgap; the durable fix is a
