@@ -24,6 +24,7 @@ from .strat_invariants import (
     AuthoredUnit,
     assert_closed_manifold,
     assert_model_matches_columns,
+    assert_no_overlap_rastered,
     assert_no_overlap_sampled,
     vertical_ray_intervals,
 )
@@ -215,6 +216,41 @@ def test_two_bodies_abutting_on_a_vertical_seam_do_not_overlap_when_sampled_on_t
     host = _box_mesh("host", "KLEI", 0.0, 4.0, 1.0, 3.0, -4.75, -4.25)
     # Sample EXACTLY on the shared seam (y = 1.0) — the degenerate ray position.
     assert_no_overlap_sampled([lens, host], [(2.0, 1.0)])  # must NOT raise
+
+
+# ---------------------------------------------------------------------------
+# assert_no_overlap_rastered — dense grid catches between-sample overlaps
+# ---------------------------------------------------------------------------
+
+
+def test_rastered_overlap_catches_a_corner_overlap_the_sparse_sample_misses() -> None:
+    """A corner-confined overlap slips past a sparse centre sample but the
+    rastered grid catches it.
+
+    Body A fills the whole 10x10 footprint; body B fills only the [0,3]x[0,3]
+    corner and interpenetrates A on z in [-5,-2] there. A vertical ray at the
+    footprint CENTRE (5, 5) hits A but misses B entirely, so the sparse
+    single-point check passes — the exact "~6-point sample misses between-sample
+    overlaps" gap. The rastered grid samples the corner and fires.
+    """
+    a = _box_mesh("b-a", "ZAND", _X0, _X1, _Y0, _Y1, -5.0, 0.0)
+    # Corner body overlapping A on [-5, -2] but only over x,y in [0, 3].
+    b = _box_mesh("b-b", "KLEI", 0.0, 3.0, 0.0, 3.0, -10.0, -2.0)
+
+    # Sparse centre sample MISSES the corner overlap → passes (the blind spot).
+    assert_no_overlap_sampled([a, b], [(_MID_X, _MID_Y)])  # must NOT raise
+
+    # Dense raster over the hull HITS the corner → fires.
+    with pytest.raises(AssertionError, match="overlap"):
+        assert_no_overlap_rastered([a, b])
+
+
+def test_rastered_overlap_passes_for_stacked_disjoint_bodies() -> None:
+    """Two vertically disjoint bodies (touching faces) pass the rastered check
+    everywhere across the hull — a contact seam is not an overlap."""
+    upper = _box_mesh("b-up", "ZAND", _X0, _X1, _Y0, _Y1, -5.0, 0.0)
+    lower = _box_mesh("b-lo", "KLEI", _X0, _X1, _Y0, _Y1, -10.0, -5.0)
+    assert_no_overlap_rastered([upper, lower])  # must NOT raise
 
 
 # ---------------------------------------------------------------------------
