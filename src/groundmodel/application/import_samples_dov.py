@@ -321,8 +321,18 @@ class ImportSamplesDov(GroundModelLogger):
                 continue
             if not parse_result.grain_size.diameters_mm:
                 # Empty curves were a parse-level error; record as failed
-                # so the API surfaces something countable.
+                # so the API surfaces something countable. Log the per-row
+                # reason (parser flagged INVALID_CURVE) so a non-zero failed
+                # count is explainable without a re-run.
                 result.grain_sizes_failed += 1
+                # DEBUG, not WARNING — the phase-3 parse-error scan above already
+                # WARNs once per has_errors record (INVALID_CURVE included). This
+                # is the per-row breadcrumb explaining the failed count at the
+                # persist branch; a second WARNING would double-alert per drop.
+                self.debug(
+                    f"DOV grain-size [{i}/{len(parsed)}]: '{row.permkey}' dropped — "
+                    f"empty curve (parser flagged INVALID_CURVE); counted as failed"
+                )
                 continue
             sample_id = permkey_to_sample_id.get(row.parent_sample_permkey)
             if sample_id is None:
@@ -564,6 +574,14 @@ class ImportSamplesDov(GroundModelLogger):
                 orm = _atterberg_to_orm(kind_to_row, sample_id)
                 if orm is None:
                     result.atterberg_failed += len(kind_to_row)
+                    # Counted as failed — log why: no usable LL/PL value and no
+                    # non-plastic flag (nothing to persist beyond metadata).
+                    # ll / pl are already bound at the top of the loop body.
+                    self.debug(
+                        f"DOV atterberg [{i}/{total}]: sample '{sample_permkey}' dropped — "
+                        f"no usable LL/PL value (LL={ll.resultaat if ll else None!r} "
+                        f"PL={pl.resultaat if pl else None!r})"
+                    )
                     continue
                 self._session.add(orm)
                 result.atterberg_attached += 1
@@ -750,11 +768,26 @@ class ImportSamplesDov(GroundModelLogger):
         sample_id = permkey_to_sample_id.get(row.parent_sample_permkey)
         if sample_id is None:
             setattr(result, failed_attr, getattr(result, failed_attr) + 1)
+            # Counted as failed — log why (parent sample not in this import).
+            self.debug(
+                f"DOV {test_label} {prefix}'{row.permkey}' dropped — parent sample "
+                f"'{row.parent_sample_permkey}' not in this import"
+            )
             return
         try:
             orm = builder(row, sample_id)
             if orm is None:
                 setattr(result, failed_attr, getattr(result, failed_attr) + 1)
+                # The builder returns None for a null/unusable value (range
+                # violation or null resultaat with no method/date metadata).
+                # Log the raw value + detection condition so a low attached
+                # count is explainable without a re-run (was silently counted
+                # as failed with no per-value reason).
+                self.debug(
+                    f"DOV {test_label} {prefix}'{row.permkey}' dropped — no usable value "
+                    f"(parameter={row.parameter!r} resultaat={row.resultaat!r} "
+                    f"detectieconditie={row.detectieconditie!r})"
+                )
                 return
             self._session.add(orm)
             setattr(result, attached_attr, getattr(result, attached_attr) + 1)
