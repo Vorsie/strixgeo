@@ -110,7 +110,8 @@ Work `docs/superpowers/2026-06-30-observability-testing-audit.md` down with the
 >   in the A3 batch.
 
 **STILL OPEN — Backend:**
-- A3: `get_project_bundle` (~10 MB export) + `duplicate_project` deep-clone unlogged.
+- ~~A3: `get_project_bundle` + `duplicate_project` unlogged~~ — DONE `93258940`
+  (A3 now 100% complete).
 - B: double-`execute()` refresh-on-duplicate round-trip; three-level export gap (#104)
   across all 4 exporters; PDF geometry (not just `%PDF`+size); Numba object-mode-fallback
   detection; raster the hull for watertight/overlap (current ~6-point sample misses
