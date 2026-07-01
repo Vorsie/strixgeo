@@ -1061,9 +1061,15 @@ def _oversized_solid_bundle(
     ]
     bundle["geological_models"] = [
         {
+            # 'geological' (not 'lithostratigraphic'): a litho/geotech model
+            # requires a non-null parent_model_id (CHECK
+            # ck_geological_model_kind_parent_null), and this fixture exercises
+            # the litho-SOLID size cap, which is indifferent to model kind — it
+            # only needs model_id to land in valid_model_ids. Matches every
+            # other model fixture in this file.
             "id": str(model_id),
             "name": "Litho Model",
-            "kind": "lithostratigraphic",
+            "kind": "geological",
             "is_active": True,
             "excluded_borehole_ids": [],
             "contacts": [],
