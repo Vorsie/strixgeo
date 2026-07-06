@@ -5683,5 +5683,61 @@ save-guard and the format-version work, not piecemeal.
 header + gzip + checksum; keep the plaintext-JSON reader for old files. Relates to
 [[project_strix_file_format_version_decoupled]], #47.
 
+## 227. Geotech-stage manual edits inside a litho body — merge/split/drag/delete sub-bands + small-lens merge suggestion (Tier G-geotech — owner directive 2026-07-06)
+
+**What.** The geotech stage needs the same manual gesture surface the litho stage
+has, scoped INSIDE a litho body (the geotech partition is a refinement of the
+litho partition — owner design lock 2026-07-06, brainstorm on real CS1): drag
+packing-surface boundaries with clamping barriers at the litho envelope (a packing
+surface can never cross a litho boundary), delete/merge/split sub-bands, and a
+**"merge small lens into encompassing body" suggestion** (owner idea, same
+brainstorm): tiny enclosed class lenses (e.g. the thin greener lens under a
+shallow n21 on CS1) get an inspector affordance suggesting the merge, mirroring
+the litho stage's assisted-manual philosophy. Note the CS1 zoom showed much of
+the "mess" at GEO-22/115-S10 is thin litho interbeds — the merge suggestion may
+belong at BOTH levels (litho interbeds + geotech class lenses).
+
+**Why deferred.** The geotech render/model redesign (fraction-space refinement of
+the litho partition + litho-content-aware geo boundary, decided 2026-07-06) must
+land first — the gesture surface edits the structures that redesign defines.
+
+**When to revisit.** Immediately after the fraction-space geotech refinement
+ships and survives dogfeed. Supersedes the stale #13 framing (pre-body-model).
+
+## 228. Litho fill-bands partition has sliver overlaps at dense interbedded stacks (Tier G — engine watertightness, owner "perfection not 95%")
+
+**What.** `computeSectionFill`'s RAW region polygons overlap by hairline slivers
+on dense interbedded stacks — proven 2026-07-06 on the real CS1 during the
+geotech brainstorm: non-lens `quad × quad` overlaps in gap 0 (the GEO-22/115-S10
+interbed cluster), e.g. silt×sand and sand×clay raw-polygon overlaps at ~2/25
+grid-sample hits each. Invisible on the litho axis (adjacent litho colours are
+near-identical at hairline widths) but ANY differing colouring amplifies them —
+they surfaced the moment the geotech class carve coloured sub-bands. They also
+feed the 3D voxel labelling (hairline mislabel columns) and would leak into any
+future exporter of the partition geometry.
+
+**Evidence / repro.** The brainstorm throwaway
+`desktop/src/renderer/src/utils/partitionFill.geotechBrainstorm.test.ts` (untracked
+— do not delete) carries a polygon-overlap detector with blame attribution
+(`raw@…` tags = engine polygons). Run
+`GEOTECH_BRAINSTORM=1 npx vitest run src/renderer/src/utils/partitionFill.geotechBrainstorm.test.ts`
+(needs `scripts/throwaway_cs1_input.json` + `scripts/throwaway_geotech_brainstorm.json`,
+regenerable via `scripts/throwaway_cs1_partition_extract.py` +
+`scripts/throwaway_geotech_brainstorm_extract.py` against the dev DB) and read
+`scripts/throwaway_carve_overlaps.txt` — the `raw@` lines are the engine's.
+The CS1 gate (`partitionFill.cs1void.test.ts`) did NOT catch these — its
+sampling resolution is coarser than the slivers.
+
+**Why deferred (hours, not blocking).** Root-causing needs a focused engine dig
+(emitGap / emitInterval / carveOverlays interval arithmetic on the S10 stack);
+running in a PARALLEL research session alongside the geotech-stage
+implementation (owner directive 2026-07-06). That session OWNS
+`partitionFill.ts`; the geotech implementation session must not touch it.
+
+**When to revisit.** NOW (parallel session). Definition of done: a dense
+polygon-overlap invariant (rasterised or exact intersection) added to the CS1
+gate + unit suite, engine fixed so raw non-lens regions are pairwise disjoint
+on CS1 AND the synthetic suite, no visual regression on the litho axis.
+
 ## (end)
 
