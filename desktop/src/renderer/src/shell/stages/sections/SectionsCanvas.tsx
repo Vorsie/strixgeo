@@ -275,26 +275,46 @@ export default function SectionsCanvas(): JSX.Element {
   // them), which would churn the contact-edge refetch unnecessarily.
   const lithoModelId = activeLithoModel?.id ?? null
 
-  // The partition SHAPE is axis-conditional. On the litho axis it comes from the
-  // LITHO model (layers + edges). On the GEOTECH axis it now comes from the
-  // GEOTECH model directly — the connected-body partition built by backend Tasks
-  // 1+2 (geotech `litho_layer` rows + geotech packing edges + resolver `body_id`).
-  // The old approach (build the litho partition then carve it per-CPT by NAD class
-  // — `subdivideRegionsByGeotech`) fragmented into ~459 slivers; it is RETIRED
-  // (plan Task 3, 2026-06-26). The geotech bodies are well-connected after Tasks
-  // 1+2, so running the SAME `computeSectionFill` engine on the geotech layers +
-  // geotech edges yields a clean partition without any carve geometry.
-  const activeSectionModelId = isGeotech ? (activeGeotechModel?.id ?? null) : lithoModelId
-  const sectionLayers = isGeotech ? geotechLayers : lithoLayers
+  // The partition SHAPE always comes from the LITHO model (layers + edges).
+  //
+  // On the geotech axis (owner-locked 2026-07-06 — the fraction-space
+  // refinement) the LITHO partition is the base: `PartitionFillOverlay` builds
+  // it here, then REFINES it by NAD packing class internally (each litho region
+  // subdivided by the geotech sub-bands — litho boundaries invariant). This
+  // REPLACES the 2026-06-26 "Task-3 render swap" that ran `computeSectionFill`
+  // on the geotech layers + geotech packing edges directly — that approach
+  // could not express lens-in-pack, deformed litho boundaries, and dropped all
+  // borehole-mediated connectivity (proven on the real CS1). The geotech
+  // packing OVERLAY edges (`geotechPackingEdges`) stay separate — see below.
+  const activeSectionModelId = lithoModelId
+  const sectionLayers = lithoLayers
 
   // The contact-edge list FRAMES the partition fill (`computeSectionFill` builds
-  // the connected bands from it) and the correlated-pair column spacing. It now
-  // follows the active axis: on the litho axis it fetches the LITHO model's edges;
-  // on the GEOTECH axis it fetches the GEOTECH model's packing edges (the same
-  // model `sectionLayers` comes from), so the partition is the connected-body
-  // geotech partition. Endpoint ids stay consistent (geotech edges reference
-  // geotech `litho_layer.id`s, which match the geotech `sectionLayers`).
+  // the connected bands from it) and the correlated-pair column spacing. It is
+  // ALWAYS the LITHO model's edges now (on both axes — the geotech partition is
+  // the litho partition refined). The geotech "Correlate packing" overlay reads
+  // `geotechPackingEdges` (fetched separately from `geotechPackingModelId`);
+  // nothing here feeds that overlay.
   const correlationModelId = activeSectionModelId
+
+  // Geotech fraction-space refinement bundle (owner-locked 2026-07-06). On the
+  // geotech axis PartitionFillOverlay refines the litho partition by NAD packing
+  // class using these three maps: the geotech sub-band rows, the geotech
+  // formation → (NAD class, soil code) metadata, and the litho formation → soil
+  // code map (the hard soil-code guard so a sand region never carries a foreign
+  // class). `undefined` off the geotech axis → normal litho render.
+  const geotechRefinement = useMemo(() => {
+    if (!isGeotech) return undefined
+    const nadMeta = new Map<string, { nadClass: number | null; soilCode: string | null }>()
+    for (const f of geotechFormations) {
+      nadMeta.set(f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null })
+    }
+    const lithoSoilByFormationId = new Map<string, string | null>()
+    for (const f of lithoFormations) {
+      lithoSoilByFormationId.set(f.id, f.litho_main_soil_code ?? null)
+    }
+    return { geotechLayers, nadMeta, lithoSoilByFormationId }
+  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
 
   // The geotech model id for the SEPARATE packing-edge fetch that feeds the
   // correlate OVERLAY ribbons + gesture on the geotech axis. After the Task-3
@@ -2545,11 +2565,13 @@ export default function SectionsCanvas(): JSX.Element {
                 : undefined
           }
           // Frames the partition columns. On the litho axis these are the litho
-          // layers; on the geotech axis `sectionLayers` is the GEOTECH layers, so
-          // `computeSectionFill` renders the connected-body geotech partition
-          // directly (Task 3 swap — no per-CPT carve). The geotech edges
-          // referenced by the partition match these geotech `litho_layer.id`s.
+          // layers; on the geotech axis it is ALSO the litho layers now — the
+          // geotech partition is the litho partition REFINED by NAD packing
+          // class (see `geotechRefinement`, owner-locked 2026-07-06), not a
+          // direct geotech-model fill. `sectionLayers` == `lithoLayers` on both
+          // axes; the refinement bundle carries the geotech sub-bands.
           lithoLayers={(isLitho || isGeotech) ? sectionLayers : undefined}
+          refinement={geotechRefinement}
           lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
