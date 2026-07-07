@@ -904,12 +904,26 @@ function extractIntervalMinorities(
       }
 
       // (3) Onlap-base — the bottommost unit touches the base bracket, matrix above.
+      //
+      // The interval BASE is the matched band below (a correlated pair — that is
+      // what bounds the interval), so this bottom unit's BASE contact sits on a
+      // correlated contact: it is genuinely 1-tie → an ONLAP that laps DOWN onto
+      // the band (owner's 2/1/0 model). This holds regardless of whether the
+      // unit ABOVE (``m``) also bands across the gap. When ``m`` IS on the other
+      // column it grows down as a connected matrix; when it is NOT, ``m`` itself
+      // is a minority that pinches out as a boundary pinch on the next pass (its
+      // grown extent tapers to the surface/floor apex). Requiring ``m`` on the
+      // other column (the old ``otherFormations.has(m)`` guard) wrongly dropped
+      // this onlap for a stack of uncorrelated units above a correlated band
+      // (e.g. S8's sand+silt over the KLEI band): the silt then fell through to
+      // ``emitOneSidedPinch`` and shared the surface apex, RISING into the sand
+      // above it — the "onlap + lens double gesture" dogfeed bug (2026-07-07).
       if (belowLith !== null && stack.length >= 2) {
         const last = stack.length - 1
         const u = stack[last]
         const above = stack[last - 1]
         const m = above.formationId
-        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId && otherFormations.has(m)) {
+        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId) {
           out.push({ unit: { ...u }, kind: 'onlap', edge: 'base' })
           above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
           stack.splice(last, 1)
