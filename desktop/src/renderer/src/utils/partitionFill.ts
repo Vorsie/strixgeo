@@ -1137,7 +1137,15 @@ interface TieSets {
  * ties nor terminate with their own gesture.
  */
 const isSyntheticLayer = (layerId: string): boolean =>
-  layerId.startsWith('bridge:') || layerId.startsWith('geo-proj:') || layerId.startsWith('flood:')
+  layerId.startsWith('bridge:') ||
+  layerId.startsWith('geo-proj:') ||
+  layerId.startsWith('flood:') ||
+  // 'gapfill:' units are formation-correct synthetic fillers injected between
+  // bridge units below a shallow column's TD (see the gap-fill pre-pass). They
+  // carry a synthetic top-tie so the band machinery treats them as band/onlap;
+  // the 2/1/0 tie-gesture extraction MUST NOT pull them as lenses (doing so put
+  // a spurious clay lens in S8's deep substrate — dogfeed 2026-07-07).
+  layerId.startsWith('gapfill:')
 
 /**
  * How a unit terminates toward ONE neighbour, derived from its bounding-contact
