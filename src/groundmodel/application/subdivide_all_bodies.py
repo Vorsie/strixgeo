@@ -115,13 +115,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.geotech_edge_derivation import (
+    EdgeDerivationCounts,
+    derive_geotech_edges_from_litho,
+    load_approved_litho_edges,
+    load_litho_layer_depths,
+    load_project_sections,
+)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
     plan_body_subdivision,
 )
-from groundmodel.domain.services.geotech_packing_edges import aligned_same_class_pairs
 from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
@@ -135,7 +141,6 @@ from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
-from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -559,7 +564,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
-        sections = await self._load_project_sections(project_id)
+        # This pass sees ONLY the CPT geotech bands (materialised above); a litho
+        # edge with a borehole endpoint finds an empty geotech stack and is
+        # skipped here. DivideBoreholes re-runs the SAME shared derivation after
+        # it materialises the borehole bands, adding the borehole-mediated edges
+        # (groundmodel.application.geotech_edge_derivation).
+        sections = await load_project_sections(self._session, project_id)
         self.info(
             f"SubdivideAllBodies: deriving edges for {len(sections)} section(s) "
             f"[{time.monotonic() - t0:.1f}s]"
@@ -567,14 +577,17 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
 
         # Build the model-wide litho layer depth index once (all accepted litho
         # layers across all investigations — no section restriction).
-        litho_layer_depths = await self._load_litho_layer_depths(litho_model_id, None)
+        litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         self.debug(
             f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
         )
 
+        edge_totals = EdgeDerivationCounts()
         sections_with_edges = 0
         for section in sections:
-            litho_approved_edges = await self._load_approved_litho_edges(litho_model_id, section.id)
+            litho_approved_edges = await load_approved_litho_edges(
+                self._session, litho_model_id, section.id
+            )
             if not litho_approved_edges:
                 continue
             sections_with_edges += 1
@@ -582,13 +595,24 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
                 f"{len(litho_approved_edges)} approved litho edge(s)"
             )
-            await self._derive_geotech_edges_from_litho(
-                geotech_model_id=geotech_model.id,
-                section_id=section.id,
-                litho_approved_edges=litho_approved_edges,
-                litho_layer_depths=litho_layer_depths,
-                geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+            # Fresh dedup set per section (matches the original per-section scope).
+            edge_totals.add(
+                await derive_geotech_edges_from_litho(
+                    self._session,
+                    self,
+                    geotech_model_id=geotech_model.id,
+                    section_id=section.id,
+                    litho_approved_edges=litho_approved_edges,
+                    litho_layer_depths=litho_layer_depths,
+                    geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+                    seen_layer_pairs=set(),
+                )
             )
+        self.info(
+            f"SubdivideAllBodies: {edge_totals.edges_emitted} geotech edge(s) emitted "
+            f"(skipped_empty_stack={edge_totals.skipped_empty_stack} — borehole-mediated, "
+            f"deferred to DivideBoreholes; skipped_no_lcs={edge_totals.skipped_no_lcs})"
+        )
 
         # Phase 10 — run resolver model-wide: creates BodyOrm + stamps
         # litho_layer.body_id.
@@ -769,217 +793,6 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
 
         return col_plans
 
-    # ------------------------------------------------------------------
-    # Phase 9 — edge derivation by full-sequence packing match
-    # ------------------------------------------------------------------
-
-    async def _derive_geotech_edges_from_litho(
-        self,
-        *,
-        geotech_model_id: UUID,
-        section_id: UUID,
-        litho_approved_edges: set[tuple[UUID, UUID]],
-        litho_layer_depths: dict[UUID, tuple[str, float, float]],
-        geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
-    ) -> None:
-        """Derive geotech edges by LCS packing match within each litho body.
-
-        Each approved litho edge already identifies a correlated litho-unit
-        pair (the same litho body, traced across two adjacent tests).  For each
-        such pair this method:
-
-        1. Resolves each endpoint's ``(investigation_id, depth_top_m,
-           depth_base_m)`` from ``litho_layer_depths`` — the litho unit's depth
-           extent on each test.
-        2. Collects the geotech sub-band stack (``layer_id, nad_class`` top→base)
-           that falls within that litho unit on each test.
-        3. Computes the LCS of the two NAD-class sequences via
-           ``aligned_same_class_pairs`` and emits one geotech edge per LCS
-           position.  Bands absent from the LCS stay unconnected (the engineer
-           connects those manually).
-
-        Per spec §8, a band whose ``nad_class`` is ``None`` never matches
-        (skeleton bands are excluded from auto-connection).  Canonical ``a < b``
-        ordering; dedup on layer-pair within this section.
-
-        Parameters
-        ----------
-        geotech_model_id : UUID
-            The geotech model id for the edge rows.
-        section_id : UUID
-            Section id tagged on each emitted edge row.
-        litho_approved_edges : set[tuple[UUID, UUID]]
-            Canonical ``(min_id, max_id)`` pairs of approved litho edges for
-            this section.  Each pair is a correlated litho-unit pair.
-        litho_layer_depths : dict[UUID, tuple[str, float, float]]
-            ``litho_layer_id → (investigation_id_str, depth_top_m, depth_base_m)``
-            for every accepted litho layer in the model.
-        geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID, int | None]]]
-            ``investigation_id_str →
-            [(depth_top_m, depth_base_m, geotech_layer_id, geotech_formation_id, nad_class)]``
-            accumulated during materialisation (all geotech sub-layers, any order).
-        """
-        sorted_geotech: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = {
-            inv_id: sorted(intervals, key=lambda t: t[0])
-            for inv_id, intervals in geotech_layer_by_inv_depth.items()
-        }
-
-        # 1 mm tolerance for geo-band divide floating-point noise.
-        _DEPTH_TOL_M = 0.001
-
-        def _stack(inv_str: str, lit_top: float, lit_base: float) -> list[tuple[str, int | None]]:
-            """Geotech sub-band stack (layer_id, nad_class) within a litho unit, top->base."""
-            out: list[tuple[str, int | None]] = []
-            for top, base, layer_id, _fid, nad in sorted_geotech.get(inv_str, []):
-                if top >= lit_top - _DEPTH_TOL_M and base <= lit_base + _DEPTH_TOL_M:
-                    out.append((str(layer_id), nad))
-            return out
-
-        seen_layer_pairs: set[tuple[UUID, UUID]] = set()
-        edge_count = 0
-        skipped_no_litho_depth = 0
-        skipped_no_lcs = 0
-        skipped_empty_stack = 0
-
-        for litho_a_id, litho_b_id in litho_approved_edges:
-            entry_a = litho_layer_depths.get(litho_a_id)
-            entry_b = litho_layer_depths.get(litho_b_id)
-            if entry_a is None or entry_b is None:
-                # One or both endpoints are not in the model — skip.
-                skipped_no_litho_depth += 1
-                continue
-
-            inv_a_str, top_a, base_a = entry_a
-            inv_b_str, top_b, base_b = entry_b
-
-            left_stack = _stack(inv_a_str, top_a, base_a)
-            right_stack = _stack(inv_b_str, top_b, base_b)
-
-            # LCS match: connects each same-class band pair in the order-
-            # preserving LCS.  None classes never match (spec §8 null-skip is
-            # baked into the helper itself, so no post-filter needed).
-            aligned = aligned_same_class_pairs(left_stack, right_stack)
-
-            left_classes = [c for _, c in left_stack]
-            right_classes = [c for _, c in right_stack]
-            if aligned:
-                self.debug(
-                    f"_derive_geotech_edges_from_litho: litho_edge "
-                    f"{litho_a_id}↔{litho_b_id} "
-                    f"left_classes={left_classes} right_classes={right_classes} "
-                    f"→ {len(aligned)} LCS pair(s)"
-                )
-            else:
-                # No LCS: disjoint classes or empty stacks.
-                if left_stack and right_stack:
-                    skipped_no_lcs += 1
-                    self.debug(
-                        f"_derive_geotech_edges_from_litho: litho_edge "
-                        f"{litho_a_id}↔{litho_b_id} "
-                        f"inv_a={inv_a_str} inv_b={inv_b_str} "
-                        f"left_classes={left_classes} right_classes={right_classes} "
-                        f"→ no LCS (disjoint classes — engineer connects manually)"
-                    )
-                else:
-                    skipped_empty_stack += 1
-                    self.debug(
-                        f"_derive_geotech_edges_from_litho: litho_edge "
-                        f"{litho_a_id}↔{litho_b_id} "
-                        f"inv_a={inv_a_str} inv_b={inv_b_str} "
-                        f"left_bands={len(left_stack)} right_bands={len(right_stack)} "
-                        f"→ skipped (empty geotech stack — run SubdivideAllBodies first?)"
-                    )
-                continue
-
-            # nad_class lookup for human-readable skip messages.
-            nad_by_layer = dict(left_stack) | dict(right_stack)
-            pairs_emitted = 0
-            pairs_skipped_null = 0
-
-            for la, rb in aligned:
-                # Defensive null-skip: aligned_same_class_pairs already excludes
-                # None classes, but guard explicitly so a future helper change
-                # cannot silently emit a skeleton auto-edge.
-                if nad_by_layer.get(la) is None:
-                    pairs_skipped_null += 1
-                    continue
-
-                geotech_a_id = UUID(la)
-                geotech_b_id = UUID(rb)
-                if geotech_a_id == geotech_b_id:
-                    # Same layer — intra-investigation edge (forbidden); skip.
-                    continue
-
-                canonical_a, canonical_b = (
-                    (geotech_a_id, geotech_b_id)
-                    if geotech_a_id < geotech_b_id
-                    else (geotech_b_id, geotech_a_id)
-                )
-                if (canonical_a, canonical_b) in seen_layer_pairs:
-                    continue
-                seen_layer_pairs.add((canonical_a, canonical_b))
-
-                edge = LithoContactCorrelationEdgeOrm(
-                    id=uuid7(),
-                    model_id=geotech_model_id,
-                    section_id=section_id,
-                    contact_a_id=canonical_a,
-                    contact_b_id=canonical_b,
-                    contact_a_side="top",
-                    contact_b_side="top",
-                    source="manual",
-                    user_approved=True,
-                )
-                self._session.add(edge)
-                edge_count += 1
-                pairs_emitted += 1
-
-            if pairs_skipped_null:
-                self.debug(
-                    f"_derive_geotech_edges_from_litho: {pairs_skipped_null} null-class "
-                    f"band(s) skipped on litho_edge {litho_a_id}↔{litho_b_id} (spec §8)"
-                )
-
-        await self._session.flush()
-        self.info(
-            f"_derive_geotech_edges_from_litho: section={section_id} "
-            f"{edge_count} geotech edge(s) emitted from "
-            f"{len(litho_approved_edges)} litho edge(s) "
-            f"(skipped_no_depth={skipped_no_litho_depth}, "
-            f"skipped_no_lcs={skipped_no_lcs}, "
-            f"skipped_empty_stack={skipped_empty_stack})"
-        )
-
-    # ------------------------------------------------------------------
-    # DB helpers
-    # ------------------------------------------------------------------
-
-    async def _load_project_sections(self, project_id: UUID) -> list[CrossSectionOrm]:
-        """Load all cross-sections for the project, ordered by display_order.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Owning project.
-
-        Returns
-        -------
-        list[CrossSectionOrm]
-            All project sections, ordered by display_order then name.
-        """
-        rows = (
-            (
-                await self._session.execute(
-                    select(CrossSectionOrm)
-                    .where(CrossSectionOrm.app_project_id == project_id)
-                    .order_by(CrossSectionOrm.display_order, CrossSectionOrm.name)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        return list(rows)
-
     async def _load_cpt_series(self, cpt_ids: set[UUID]) -> dict[UUID, CptSeriesOrm]:
         """Load qc series rows for a set of CPT ids.
 
@@ -1039,82 +852,6 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             if row.total_depth_m is not None:
                 total_depths[row.id] = row.total_depth_m
         return total_depths
-
-    async def _load_litho_layer_depths(
-        self,
-        litho_model_id: UUID,
-        investigation_ids: set[UUID] | None,
-    ) -> dict[UUID, tuple[str, float, float]]:
-        """Load top and base depths for accepted litho layers in the model.
-
-        When ``investigation_ids`` is ``None``, loads all accepted litho layers
-        for the model (model-wide, no investigation restriction).
-
-        Parameters
-        ----------
-        litho_model_id : UUID
-            The litho model to query.
-        investigation_ids : set[UUID] | None
-            Investigation ids to restrict to, or ``None`` for all.
-
-        Returns
-        -------
-        dict[UUID, tuple[str, float, float]]
-            ``litho_layer_id → (investigation_id_str, depth_top_m, depth_base_m)``
-            for every accepted litho layer.
-        """
-        stmt = select(
-            LithoLayerOrm.id,
-            LithoLayerOrm.borehole_id,
-            LithoLayerOrm.cpt_id,
-            LithoLayerOrm.depth_top_m,
-            LithoLayerOrm.depth_base_m,
-        ).where(
-            LithoLayerOrm.model_id == litho_model_id,
-            LithoLayerOrm.status == "accepted",
-        )
-        if investigation_ids is not None:
-            stmt = stmt.where(
-                LithoLayerOrm.borehole_id.in_(investigation_ids)
-                | LithoLayerOrm.cpt_id.in_(investigation_ids)
-            )
-        rows = (await self._session.execute(stmt)).all()
-        result: dict[UUID, tuple[str, float, float]] = {}
-        for r in rows:
-            inv_id = str(r.borehole_id if r.borehole_id is not None else r.cpt_id)
-            result[r.id] = (inv_id, r.depth_top_m, r.depth_base_m)
-        return result
-
-    async def _load_approved_litho_edges(
-        self, litho_model_id: UUID, section_id: UUID
-    ) -> set[tuple[UUID, UUID]]:
-        """Load approved litho edges for one section as canonical pairs.
-
-        Parameters
-        ----------
-        litho_model_id : UUID
-            The litho model.
-        section_id : UUID
-            The section to restrict to (edges are section-scoped).
-
-        Returns
-        -------
-        set[tuple[UUID, UUID]]
-            Canonical ``(min_id, max_id)`` pairs of approved litho edges.
-        """
-        rows = (
-            await self._session.execute(
-                select(
-                    LithoContactCorrelationEdgeOrm.contact_a_id,
-                    LithoContactCorrelationEdgeOrm.contact_b_id,
-                ).where(
-                    LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
-                    LithoContactCorrelationEdgeOrm.section_id == section_id,
-                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-                )
-            )
-        ).all()
-        return {(min(a, b), max(a, b)) for a, b in rows}
 
     async def _read_min_thickness_m(self, project_id: UUID) -> float:
         """Read the geotech minimum sub-unit thickness from the project view-state.

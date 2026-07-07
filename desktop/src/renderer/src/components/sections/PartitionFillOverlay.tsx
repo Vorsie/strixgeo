@@ -64,7 +64,44 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
+import {
+  clipPolygonToElevBand,
+  refineLithoPartition,
+  refineSubstrateQuads,
+  type GeotechColumn,
+  type NadFormationMeta,
+} from '../../utils/refineLithoPartition'
 import type { PlacedColumn } from './utils'
+
+/**
+ * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
+ * present (the geotech axis), the overlay renders the LITHO partition REFINED
+ * by NAD packing class instead of the raw region fills: the litho partition is
+ * built from ``lithoLayers`` + ``contactEdges`` (flipped back to the LITHO
+ * model in SectionsCanvas), then ``refineLithoPartition`` subdivides each
+ * region by the geotech sub-bands here. Colours come from the parent
+ * ``formationColorById`` (geotech formations → NAD colour). Geotech is
+ * view-only, so the interactive lens/boundary handles + per-body labels are
+ * suppressed in refined mode (labels live on the column strips, matching the
+ * owner-accepted rev-8 render).
+ */
+export interface GeotechRefinement {
+  /** Geotech-model ``litho_layer`` rows (the NAD sub-bands), any order. */
+  geotechLayers: readonly LithoLayerResponse[]
+  /** Geotech formation id → NAD class + soil code. */
+  nadMeta: ReadonlyMap<string, NadFormationMeta>
+  /** Litho formation id → soil code (the hard soil-code guard). */
+  lithoSoilByFormationId: ReadonlyMap<string, string | null>
+  /**
+   * Litho formation id → lithology colour. Used to colour the ``fallback``
+   * refined polygons (a litho region with NO geotech sub-band data on either
+   * side — those carry the LITHO formation id) and the no-donor substrate
+   * quads, so an unpacked interval renders in its lithology colour rather than
+   * the neutral fallback grey (``formationColorById`` on the geotech axis only
+   * knows GEOTECH formation ids).
+   */
+  lithoFormationColorById: ReadonlyMap<string, string>
+}
 
 /**
  * Props for the partition fill overlay. Self-contained since the retirement
@@ -150,6 +187,13 @@ export interface Props {
    * Absent or null → no fade (normal render).
    */
   selectedBodyId?: string | null
+  /**
+   * Geotech fraction-space refinement (owner-locked 2026-07-06). When present,
+   * the overlay renders the litho partition REFINED by NAD packing class
+   * instead of the raw region fills. Absent → normal litho/geotech-direct
+   * render. See {@link GeotechRefinement}.
+   */
+  refinement?: GeotechRefinement
 }
 
 const FILL_OPACITY = 0.62
@@ -535,6 +579,7 @@ export default function PartitionFillOverlay({
   onBodyContextMenu,
   correlateMode = false,
   selectedBodyId,
+  refinement,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // In correlate mode every interactive partition element drops its pointer
@@ -884,12 +929,11 @@ export default function PartitionFillOverlay({
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    // The partition itself. On the litho axis the columns + edges are the litho
-    // model's; on the geotech axis they are the GEOTECH model's connected bodies
-    // (Task 3 render swap, 2026-06-26) — the same engine renders both. The old
-    // per-CPT NAD carve (``subdivideRegionsByGeotech``) is retired now that the
-    // geotech bodies connect (backend Tasks 1+2), so this is the geotech fill
-    // directly, with NAD-class colours/labels resolved by the parent maps.
+    // The partition itself is built from the LITHO model's columns + edges on
+    // BOTH axes now (the geotech partition is the litho partition refined). On
+    // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
+    // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
+    // ``sectionRegions`` here stay the litho partition.
     const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
     log.debug(
       'partition',
@@ -1215,6 +1259,182 @@ export default function PartitionFillOverlay({
     }
     return out
   }, [
+    sectionFillData,
+    orderedInvs,
+    colByInv,
+    screenByInv,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+    formationColorById,
+  ])
+
+  // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
+  //
+  // When `refinement` is set (the geotech axis), the litho partition
+  // (sectionFillData.sectionRegions, built from the LITHO model) is refined by
+  // NAD packing class: each region is subdivided by the geotech sub-bands, the
+  // under-TD substrate is class-extrapolated, and the litho envelopes are drawn
+  // as dark outlines on top. Geotech is view-only, so this replaces the
+  // interactive litho fill + handles. Combined domain+screen memo (no per-frame
+  // drag to protect from recompute here — unlike the litho axis's #209 split).
+  const refinedScreen = useMemo(() => {
+    const empty = {
+      fillPolys: [] as { key: string; d: string; color: string }[],
+      substratePolys: [] as { key: string; d: string; color: string }[],
+      outlines: [] as { key: string; d: string }[],
+    }
+    if (!refinement || !showBands) return empty
+    const { sectionRegions, orderedColumns, gapXs } = sectionFillData
+    if (orderedColumns.length < 2) return empty
+    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const columnOrder = orderedColumns.map((c) => c.investigationId)
+
+    // Geotech columns keyed by investigation, sharing each litho column's
+    // surface elevation (same investigation → same ground surface).
+    const geoByInv = new Map<string, GeotechColumn['units'][number][]>()
+    for (const l of refinement.geotechLayers) {
+      const inv = (l.borehole_id ?? l.cpt_id) as string | null
+      if (!inv) continue
+      const arr = geoByInv.get(inv) ?? []
+      arr.push({
+        layerId: l.id,
+        topDepthM: l.depth_top_m,
+        baseDepthM: l.depth_base_m,
+        formationId: l.formation_id,
+        bodyId: l.body_id ?? null,
+      })
+      geoByInv.set(inv, arr)
+    }
+    const geoColByInv = new Map<string, GeotechColumn>()
+    for (const c of orderedColumns) {
+      geoColByInv.set(c.investigationId, {
+        investigationId: c.investigationId,
+        surfaceElevM: c.surfaceElevM,
+        units: geoByInv.get(c.investigationId) ?? [],
+      })
+    }
+
+    const refined = refineLithoPartition(
+      sectionRegions,
+      columnOrder,
+      geoColByInv,
+      refinement.nadMeta,
+      refinement.lithoSoilByFormationId,
+    )
+
+    // Refined region fills + litho outlines (per gap, degenerate gaps skipped).
+    const fillPolys: { key: string; d: string; color: string }[] = []
+    const outlines: { key: string; d: string }[] = []
+    let fi = 0
+    for (const p of refined) {
+      const g = gapXs[p.gapIndex]
+      if (!g || g.rightX - g.leftX < 1) continue // degenerate-gap guard (mirror-spill)
+      const d =
+        p.points
+          .map((q, j) => {
+            const x = g.leftX + q.fraction * (g.rightX - g.leftX)
+            const y = clampY(levelToScreen(q.elevation))
+            return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
+          })
+          .join(' ') + ' Z'
+      // A `fallback` polygon carries the LITHO formation id (no packing data
+      // anywhere at these elevations) → colour it by lithology, not NAD.
+      const color =
+        p.tag === 'fallback'
+          ? (refinement.lithoFormationColorById.get(p.formationId) ?? FALLBACK_COLOR)
+          : (formationColorById.get(p.formationId) ?? FALLBACK_COLOR)
+      fillPolys.push({ key: `gr-${fi++}`, d, color })
+    }
+    // Litho region envelopes on top (dark) — "litho boundaries persist".
+    let oi = 0
+    for (const r of sectionRegions) {
+      if (r.kind === 'lens') continue
+      const g = gapXs[r.gapIndex]
+      if (!g || g.rightX - g.leftX < 1) continue
+      const d =
+        r.polygon
+          .map((q, j) => {
+            const x = g.leftX + q.fraction * (g.rightX - g.leftX)
+            const y = clampY(levelToScreen(q.elevation))
+            return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
+          })
+          .join(' ') + ' Z'
+      outlines.push({ key: `go-${oi++}`, d })
+    }
+
+    // Refined under-TD substrate: class-extrapolated donor slices, strips
+    // clipped to the midpoints toward neighbours (rule 6 — coincident-cluster
+    // strips otherwise overlap visibly).
+    const fills = computeUnderColumnSubstrate(orderedColumns, sectionRegions)
+    const subSlices = refineSubstrateQuads(
+      fills,
+      columnOrder,
+      geoColByInv,
+      refinement.nadMeta,
+      refinement.lithoSoilByFormationId,
+    )
+    const sliceByKey = new Map<string, (typeof subSlices)[number]>()
+    for (const s of subSlices) sliceByKey.set(`${s.columnIndex}-${s.quadIndex}`, s)
+    const centreX = (i: number): number | null => {
+      const sc = screenByInv.get(valid[i])
+      return sc ? (sc.leftX + sc.rightX) / 2 : null
+    }
+    const substratePolys: { key: string; d: string; color: string }[] = []
+    let si = 0
+    for (const f of fills) {
+      const sc = screenByInv.get(valid[f.columnIndex])
+      if (!sc) continue
+      const rawX0 = sc.leftX
+      const rawX1 = sc.rightX
+      if (rawX1 - rawX0 <= 0.5) continue
+      const c = centreX(f.columnIndex)
+      const cl = centreX(f.columnIndex - 1)
+      const cr = centreX(f.columnIndex + 1)
+      const x0 = Math.max(rawX0, cl != null && c != null ? (cl + c) / 2 : -Infinity)
+      const x1 = Math.min(rawX1, cr != null && c != null ? (c + cr) / 2 : Infinity)
+      if (x1 - x0 < 0.5) continue
+      for (let qi = 0; qi < f.quads.length; qi++) {
+        const q = f.quads[qi]
+        const fx = (xa: number): number => (xa - rawX0) / (rawX1 - rawX0)
+        const topAt = (xa: number): number =>
+          q.topLeftElev + (q.topRightElev - q.topLeftElev) * fx(xa)
+        const baseAt = (xa: number): number =>
+          q.baseLeftElev + (q.baseRightElev - q.baseLeftElev) * fx(xa)
+        // Quad in (x, elevation) space at the clipped strip range.
+        const quadPts = [
+          { x: x0, e: topAt(x0) },
+          { x: x1, e: topAt(x1) },
+          { x: x1, e: baseAt(x1) },
+          { x: x0, e: baseAt(x0) },
+        ]
+        const toPath = (pts: { x: number; e: number }[], color: string): void => {
+          if (pts.length < 3) return
+          const d =
+            pts
+              .map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${clampY(levelToScreen(p.e)).toFixed(2)}`)
+              .join(' ') + ' Z'
+          substratePolys.push({ key: `gs-${si++}`, d, color })
+        }
+        const rq = sliceByKey.get(`${f.columnIndex}-${qi}`)
+        if (!rq || rq.slices == null) {
+          // No classified donor anywhere → the quad's LITHO formation colour.
+          toPath(quadPts, refinement.lithoFormationColorById.get(q.formationId) ?? FALLBACK_COLOR)
+          continue
+        }
+        for (const sl of rq.slices) {
+          toPath(
+            clipPolygonToElevBand(quadPts, sl.topElev, sl.baseElev),
+            formationColorById.get(sl.formationId) ?? FALLBACK_COLOR,
+          )
+        }
+      }
+    }
+
+    return { fillPolys, substratePolys, outlines }
+  }, [
+    refinement,
+    showBands,
     sectionFillData,
     orderedInvs,
     colByInv,
@@ -1558,6 +1778,48 @@ export default function PartitionFillOverlay({
 
   return (
     <g ref={rootRef} data-testid="partition-fill-overlay" style={{ pointerEvents: 'none' }}>
+      {/* GEOTECH REFINEMENT (view-only): the litho partition refined by NAD
+          packing class. Substrate BENEATH the region fills; litho envelopes as
+          dark outlines on top. Replaces the interactive litho fill + handles. */}
+      {refinement && (
+        <g data-testid="partition-refined">
+          {refinedScreen.substratePolys.map((p) => (
+            <path
+              key={p.key}
+              data-testid="partition-refined-substrate"
+              d={p.d}
+              fill={p.color}
+              fillOpacity={FILL_OPACITY}
+              stroke={p.color}
+              strokeOpacity={STROKE_OPACITY}
+              strokeWidth={0.4}
+            />
+          ))}
+          {refinedScreen.fillPolys.map((p) => (
+            <path
+              key={p.key}
+              data-testid="partition-refined-fill"
+              d={p.d}
+              fill={p.color}
+              fillOpacity={FILL_OPACITY}
+              stroke={p.color}
+              strokeOpacity={STROKE_OPACITY}
+              strokeWidth={0.4}
+            />
+          ))}
+          {refinedScreen.outlines.map((p) => (
+            <path
+              key={p.key}
+              data-testid="partition-refined-outline"
+              d={p.d}
+              fill="none"
+              stroke="#0d1117"
+              strokeOpacity={0.85}
+              strokeWidth={0.8}
+            />
+          ))}
+        </g>
+      )}
       {/* Under-column substrate fill: closes the gap exactly below each test's TD
           (the column-width sliver the edge-to-edge gap partition never covered),
           sloped to continue the straight deep-test→deep-test bridge line.
@@ -1570,7 +1832,7 @@ export default function PartitionFillOverlay({
       {/* S1: when a geotech body is selected via a sample dot, derive the
           matching formationId from screenRegions so under-column fills (which
           carry formationId but not bodyId) can fade non-matching bodies too. */}
-      {(() => {
+      {!refinement && (() => {
         const selFormId = selectedBodyId
           ? (screenRegions.find(sr => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
           : null
@@ -1594,7 +1856,7 @@ export default function PartitionFillOverlay({
         })
       })()}
 
-      {screenRegions.map((sr, i) => {
+      {!refinement && screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
@@ -1639,7 +1901,7 @@ export default function PartitionFillOverlay({
         )
       })}
 
-      {labels.map((l) => (
+      {!refinement && labels.map((l) => (
         <text
           key={`pf-label-${l.key}`}
           data-testid={`partition-label-${l.key}`}
@@ -1672,7 +1934,7 @@ export default function PartitionFillOverlay({
 
           Each handle's testid encodes [upperBodyId]-[lowerBodyId]-[i] so tests
           can assert N handles independently. */}
-      {sharedBoundaries.map((sb) => {
+      {!refinement && sharedBoundaries.map((sb) => {
         const [ne0, ne1] = sb.naturalEdge
         return (
           // Key by per-gap-unique region indices, NOT the body-pair: the same
@@ -1783,7 +2045,7 @@ export default function PartitionFillOverlay({
 
           Handle testid: partition-lens-handle-<bodyId>-<edge>-<i>
           Add-strip testid: partition-lens-addstrip-<bodyId>-<edge> */}
-      {screenLenses.map((sl) => {
+      {!refinement && screenLenses.map((sl) => {
         // Current polygon points from screenRegions (after post-lens rebuild).
         const sr = screenRegions[sl.regionIdx]
         if (!sr) return null

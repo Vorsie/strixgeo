@@ -895,6 +895,162 @@ async def test_sab_all(
 
 
 # ---------------------------------------------------------------------------
+# ADB — borehole-mediated geotech edge derivation (DivideBoreholes)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_divide_boreholes_derives_borehole_mediated_edges(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """ADB-1..4: a borehole-mediated litho edge yields geotech edges ONLY after
+    DivideBoreholes — and the resolver then connects the borehole chain.
+
+    The scene correlates BH-A to CPT-A (a borehole-mediated litho edge).
+    ``SubdivideAllBodies`` derives geotech edges BEFORE the borehole geotech
+    bands exist, so that edge is skipped (empty geotech stack) — the CS1
+    S13↔B4↔B6↔S6 bug in miniature.  ``DivideBoreholes`` materialises BH-A's
+    bands and re-runs the SAME shared derivation, adding the borehole-involving
+    edges and re-resolving body_id.
+
+    ADB-1  After SAB alone, NO geotech edge references a BH-A geotech layer
+           (BH-A has no geotech layers yet — the derivation could not connect it).
+    ADB-2  After DivideBoreholes, BH-A has ≥1 accepted geotech layer.
+    ADB-3  After DivideBoreholes, ≥1 geotech edge references a BH-A geotech
+           layer — the borehole-mediated edge that SAB could not derive.
+    ADB-4  BH-A's classified bands connect: a BH-A geotech layer shares a
+           body_id with a CPT-A geotech layer (the resolver joined the chain),
+           and no edge-connected BH-A band is left with a NULL body_id orphan.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+    bh_a_id = UUID(sab_scene["bh_a_id"])
+    cpt_a_id = UUID(sab_scene["cpt_a_id"])
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = sab_result.geotech_model_id
+
+    async def _bh_a_layer_ids() -> set[UUID]:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.id).where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.borehole_id == bh_a_id,
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return set(rows)
+
+    async def _edges_touching(layer_ids: set[UUID]) -> list[LithoContactCorrelationEdgeOrm]:
+        if not layer_ids:
+            return []
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                        LithoContactCorrelationEdgeOrm.contact_a_id.in_(layer_ids)
+                        | LithoContactCorrelationEdgeOrm.contact_b_id.in_(layer_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    # ADB-1: SAB leaves BH-A unconnected (no geotech layers → no edges).
+    assert await _bh_a_layer_ids() == set(), (
+        "ADB-1 precondition: SAB must defer borehole geotech layers to DivideBoreholes"
+    )
+
+    # Run DivideBoreholes — materialises BH-A bands + derives the edges SAB skipped.
+    await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    bh_a_layers_after = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_a_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    bh_a_layer_ids = {ll.id for ll in bh_a_layers_after}
+
+    # ADB-2: BH-A now has geotech bands.
+    assert len(bh_a_layers_after) >= 1, (
+        "ADB-2: DivideBoreholes must materialise ≥1 geotech layer for BH-A"
+    )
+
+    # ADB-3: at least one geotech edge now references a BH-A geotech layer.
+    bh_edges = await _edges_touching(bh_a_layer_ids)
+    assert len(bh_edges) >= 1, (
+        "ADB-3: DivideBoreholes must derive ≥1 borehole-mediated geotech edge "
+        "for BH-A (the edge SubdivideAllBodies skipped with an empty stack). "
+        f"Found {len(bh_edges)}."
+    )
+
+    # ADB-4: the resolver connected BH-A to CPT-A — a BH-A band shares a body_id
+    # with a CPT-A band, and no edge-connected BH-A band is a NULL orphan.
+    cpt_a_body_ids = {
+        ll.body_id
+        for ll in (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.cpt_id == cpt_a_id,
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if ll.body_id is not None
+    }
+    bh_a_body_ids = {ll.body_id for ll in bh_a_layers_after if ll.body_id is not None}
+    assert bh_a_body_ids & cpt_a_body_ids, (
+        "ADB-4: after edge derivation + re-resolve, a BH-A geotech band must share "
+        f"a body_id with a CPT-A band. BH-A body_ids={bh_a_body_ids}, "
+        f"CPT-A body_ids={cpt_a_body_ids}"
+    )
+    # No edge-connected BH-A layer may be a NULL-body orphan (the B6-top-KLEI bug).
+    connected_bh_layer_ids = (
+        {e.contact_a_id for e in bh_edges} | {e.contact_b_id for e in bh_edges}
+    ) & bh_a_layer_ids
+    # Guard against a vacuous pass: on the OLD code (0 borehole edges) this set is
+    # empty and the loop below never runs → ADB-4 would pass for the wrong reason.
+    assert len(connected_bh_layer_ids) >= 1, (
+        "ADB-4 precondition: no BH-A geotech layer is edge-connected — the "
+        "NULL-orphan assertion would be vacuous"
+    )
+    for ll in bh_a_layers_after:
+        if ll.id in connected_bh_layer_ids:
+            assert ll.body_id is not None, (
+                f"ADB-4: BH-A geotech layer {ll.id} is edge-connected but has a NULL "
+                "body_id — the resolver must have stamped it (no orphan)"
+            )
+
+
+# ---------------------------------------------------------------------------
 # C1 regression — geo-band group-local layer map
 # ---------------------------------------------------------------------------
 
