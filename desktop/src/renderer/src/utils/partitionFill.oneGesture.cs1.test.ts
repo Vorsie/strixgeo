@@ -156,9 +156,14 @@ describe('CS1 one-gesture arbiters (real frozen data)', () => {
       if (minE < ownBase - TOL) {
         offenders.push(`${soil} ${r.kind} extends to ${minE.toFixed(2)} below its own base ${ownBase}`)
       }
-      // Lens gesture: anchored at S8's edge (f=1), reaching left a bounded
-      // distance — never spanning toward S11's half of the gap.
-      if (minF < 0.35) {
+      // BOTH S8 units are 0-tie → a horizontal LENS overlay, never a pinch
+      // that tapers to a mid-gap seam (the sand did this: pinch frac[0.50..1]).
+      if (r.kind !== 'lens') {
+        offenders.push(`${soil} is a ${r.kind}, not a lens (owner: both S8 units pinch out as lenses)`)
+      }
+      // Lens gesture: anchored at S8's edge (f=1), reaching left only the lens
+      // reach (LENS_PINCH_FRACTION 0.45 → f ≥ 0.55) — never toward S11's half.
+      if (minF < 0.5) {
         offenders.push(
           `${soil} ${r.kind} reaches to f=${minF.toFixed(2)} — a gap-spanning wedge, not a lens`,
         )

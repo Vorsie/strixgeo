@@ -1043,23 +1043,28 @@ function runIntervalExtraction(
         }
       }
 
-      // (4) Lone one-sided unit — the whole stack on this side reduced to one
-      // minority with a matrix bracket (e.g. S8's sand after its silt was
-      // pulled). A 0-tie lone unit is a LENS at its own elevation (owner
-      // 2/1/0); the caller floods the vacated interval with the bracket matrix
-      // and the carve cuts the lens out. Restricted to a ONE-SIDED interval
-      // (other stack empty): two-sided intervals are opposing-pinch /
-      // mismatched-matrix territory and keep their geometry. Tie-set callers
-      // only — legacy paths keep the pinch machinery.
+      // (4) Lone remaining CANDIDATE — the side's stack has reduced to exactly
+      // one real (non-placeholder) unit, the rest already matrix placeholders
+      // from earlier lens extractions. A 0-tie unit here is a LENS at its own
+      // elevation (owner 2/1/0); the placeholder floods behind it and the carve
+      // cuts the lens out. This catches the TOP unit at a SURFACE interval
+      // (aboveLith === null → onlap-top can't fire): S8's SAND after its SILT
+      // was pulled left [sand, silt-placeholder] — length 2, so the old
+      // ``stack.length === 1`` guard missed it and the sand fell through to a
+      // mid-gap pinch (gap-7 dogfeed 2026-07-07). Restricted to a ONE-SIDED
+      // interval (other stack empty) so opposing-pinch geometry is untouched.
+      // Tie-set callers only — legacy paths keep the pinch machinery.
+      const candidateIdxs: number[] = []
+      for (let ci = 0; ci < stack.length; ci++) if (isCandidate(stack[ci])) candidateIdxs.push(ci)
       if (
         ties !== undefined &&
-        stack.length === 1 &&
+        candidateIdxs.length === 1 &&
         other.length === 0 &&
         (aboveLith !== null || belowLith !== null)
       ) {
-        const u = stack[0]
+        const ci = candidateIdxs[0]
+        const u = stack[ci]
         if (
-          isCandidate(u) &&
           !mixedTiedLayerIds?.has(u.layerId) &&
           !ties.top.has(u.layerId) &&
           !ties.base.has(u.layerId) &&
@@ -1068,7 +1073,7 @@ function runIntervalExtraction(
         ) {
           out.push({ unit: { ...u }, kind: 'lens' })
           // LENS: matrix placeholder — see the onlap-top branch.
-          stack.splice(0, 1, {
+          stack.splice(ci, 1, {
               layerId: `flood:${u.layerId}`,
               formationId: (belowLith ?? aboveLith)!,
               bodyId: null,
