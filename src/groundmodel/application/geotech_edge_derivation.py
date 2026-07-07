@@ -26,6 +26,7 @@ containment + canonical-ordering logic single-source, per the project's
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -208,7 +209,7 @@ async def derive_geotech_edges_from_litho(
     section_id: UUID,
     litho_approved_edges: set[tuple[UUID, UUID]],
     litho_layer_depths: dict[UUID, tuple[str, float, float]],
-    geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
+    geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by LCS packing match within each correlated litho unit.
@@ -240,7 +241,9 @@ async def derive_geotech_edges_from_litho(
     litho_layer_depths : dict[UUID, tuple[str, float, float]]
         ``litho_layer_id → (investigation_id_str, top_m, base_m)``.
     geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID, int | None]]]
-        ``investigation_id_str → [(top_m, base_m, geotech_layer_id, formation_id, nad_class)]``.
+        ``investigation_id_str → [(top_m, base_m, layer_id, formation_id, nad_class, ...)]``.
+        Only the first five elements are read; trailing elements (DivideBoreholes
+        appends a sixth ``body_id``) are ignored.
     seen_layer_pairs : set[tuple[UUID, UUID]]
         Dedup set, MUTATED in place. Preload with existing edges to add only new
         pairs; pass a fresh set for an independent pass.
@@ -256,9 +259,16 @@ async def derive_geotech_edges_from_litho(
     }
 
     def _stack(inv_str: str, lit_top: float, lit_base: float) -> list[tuple[str, int | None]]:
-        """Geotech sub-band stack (layer_id, nad_class) within a litho unit, top→base."""
+        """Geotech sub-band stack (layer_id, nad_class) within a litho unit, top→base.
+
+        Tolerates trailing tuple elements past the first five: SAB passes
+        ``(top, base, layer_id, formation_id, nad_class)`` while DivideBoreholes
+        passes a sixth ``body_id`` — both flow through ``*_rest`` unchanged.
+        """
         out: list[tuple[str, int | None]] = []
-        for top, base, layer_id, _fid, nad in sorted_geotech.get(inv_str, []):
+        for row in sorted_geotech.get(inv_str, []):
+            # (top, base, layer_id, formation_id, nad_class, [body_id, ...]).
+            top, base, layer_id, nad = row[0], row[1], row[2], row[4]
             if top >= lit_top - _DEPTH_TOL_M and base <= lit_base + _DEPTH_TOL_M:
                 out.append((str(layer_id), nad))
         return out
