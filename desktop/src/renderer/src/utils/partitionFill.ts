@@ -4068,6 +4068,19 @@ function mergePiecesByCancellation(pieces: PartitionPoint[][]): PartitionPoint[]
   return loops
 }
 
+/** Merge convex pieces to clean boundary rings, but fall back to the
+ *  fragmented-but-area-exact pieces if cancellation dropped or double-counted
+ *  area (a float-snap edge case) — never trade a clean boundary for a void. */
+function mergeOrFallback(kept: PartitionPoint[][]): PartitionPoint[][] {
+  if (kept.length === 0) return []
+  const merged = mergePiecesByCancellation(kept)
+  if (merged.length === 0) return kept
+  const areaSum = (ps: PartitionPoint[][]): number => ps.reduce((s, p) => s + Math.abs(ringSignedArea2(p)) / 2, 0)
+  const keptArea = areaSum(kept)
+  if (Math.abs(areaSum(merged) - keptArea) > 1e-7 + 1e-4 * keptArea) return kept
+  return merged
+}
+
 /**
  * Repair a possibly self-intersecting ring into simple polygon ring(s) whose
  * union is the ring's NONZERO-WINDING filled area — i.e. exactly what the SVG
@@ -4122,9 +4135,7 @@ export function simplifyRing(ring: readonly PartitionPoint[]): PartitionPoint[][
     }
     return ringWinding(cf / p.length, ce / p.length, clean) !== 0
   })
-  if (kept.length === 0) return []
-  const merged = mergePiecesByCancellation(kept)
-  return merged.length > 0 ? merged : kept
+  return mergeOrFallback(kept)
 }
 
 /**
@@ -4199,9 +4210,7 @@ export function subtractPolygon(
       if (!insideAny) kept.push(p)
     }
   }
-  if (kept.length === 0) return []
-  const merged = mergePiecesByCancellation(kept)
-  return merged.length > 0 ? merged : kept
+  return mergeOrFallback(kept)
 }
 
 /** Exact overlap area of two rings, measured via subtraction from whichever
