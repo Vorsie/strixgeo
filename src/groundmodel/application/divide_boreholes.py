@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -63,6 +63,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.geotech_edge_derivation import (
+    EdgeDerivationCounts,
+    derive_geotech_edges_from_litho,
+    load_approved_litho_edges,
+    load_existing_geotech_edge_pairs,
+    load_litho_layer_depths,
+    load_project_sections,
+)
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.assign_borehole_band_body import (
     CptBandRef,
@@ -473,6 +482,93 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                             source=fb.source,
                         )
                     )
+
+        # Phase 8.5 — derive the borehole-mediated geotech edges + re-resolve.
+        #
+        # SubdivideAllBodies derives geotech edges BEFORE boreholes exist, so
+        # every litho edge with a borehole endpoint is skipped (empty geotech
+        # stack). Now that the borehole geotech bands are materialised (and in
+        # `geotech_layer_by_inv_depth`), run the SAME shared derivation to add
+        # exactly those borehole-involving edges — a chain like S13↔B4↔B6↔S6
+        # (CPT↔borehole↔borehole↔CPT) is entirely borehole-mediated and gets 0
+        # edges without this pass. The persisted edge graph feeds the resolver
+        # (body identity), the inspector, and the 3D geotech build.
+        #
+        # Phase 7 already cascade-deleted any borehole-involving edges when it
+        # deleted the prior borehole layers (edge→layer FK is ON DELETE CASCADE),
+        # so the surviving edges are the CPT↔CPT set from SubdivideAllBodies —
+        # preload the dedup set with them so this pass ADDS only new pairs.
+        seen_pairs = await load_existing_geotech_edge_pairs(self._session, geotech_model.id)
+        litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
+        sections = await load_project_sections(self._session, project_id)
+        edge_totals = EdgeDerivationCounts()
+        for section in sections:
+            approved = await load_approved_litho_edges(self._session, litho_model_id, section.id)
+            if not approved:
+                continue
+            edge_totals.add(
+                await derive_geotech_edges_from_litho(
+                    self._session,
+                    self,
+                    geotech_model_id=geotech_model.id,
+                    section_id=section.id,
+                    litho_approved_edges=approved,
+                    litho_layer_depths=litho_layer_depths,
+                    geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+                    seen_layer_pairs=seen_pairs,
+                )
+            )
+        self.info(
+            f"DivideBoreholes: Phase 8.5 — {edge_totals.edges_emitted} borehole-mediated "
+            f"geotech edge(s) added (skipped_empty_stack={edge_totals.skipped_empty_stack}, "
+            f"skipped_no_lcs={edge_totals.skipped_no_lcs})"
+        )
+
+        # Re-run the resolver over the geotech model so body_id spans the newly
+        # connected borehole chains. This is what fixes an orphan borehole band
+        # (body_id NULL because no same-class CPT sat in its group) — once it is
+        # edge-connected to a CPT band, the resolver puts them in one body.
+        if edge_totals.edges_emitted:
+            await ResolveLithoInstances(self._session).execute(
+                model_id=geotech_model.id, commit=False
+            )
+            # Re-read the resolver-stamped body_id for each borehole geotech
+            # layer and reconcile the in-memory fill bands, so Phase 9 assigns
+            # each sample the SAME body the layer now belongs to (Band is frozen
+            # — rebuild via replace). Keyed on (borehole, top, base): the layer
+            # was created from the same fill band, so the depths match to mm.
+            bh_layer_rows = (
+                await self._session.execute(
+                    select(
+                        LithoLayerOrm.borehole_id,
+                        LithoLayerOrm.depth_top_m,
+                        LithoLayerOrm.depth_base_m,
+                        LithoLayerOrm.body_id,
+                    ).where(
+                        LithoLayerOrm.model_id == geotech_model.id,
+                        LithoLayerOrm.borehole_id.is_not(None),
+                    )
+                )
+            ).all()
+            body_by_key: dict[tuple[str, float, float], UUID | None] = {
+                (str(r.borehole_id), round(r.depth_top_m, 3), round(r.depth_base_m, 3)): r.body_id
+                for r in bh_layer_rows
+            }
+            reconciled = 0
+            for inv_id, bands in borehole_fill_bands.items():
+                new_bands: list[Band] = []
+                for b in bands:
+                    key = (inv_id, round(b.top, 3), round(b.base, 3))
+                    resolved = body_by_key.get(key)
+                    new_body = str(resolved) if resolved is not None else b.body_id
+                    if new_body != b.body_id:
+                        reconciled += 1
+                    new_bands.append(replace(b, body_id=new_body))
+                borehole_fill_bands[inv_id] = new_bands
+            self.info(
+                f"DivideBoreholes: reconciled {reconciled} fill-band body_id(s) to the "
+                f"resolver after edge derivation"
+            )
 
         # Phase 9 — assign samples to geotech bands.
         # For each borehole that received bands, load its samples and stamp the
