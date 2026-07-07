@@ -938,27 +938,30 @@ function runIntervalExtraction(
         const u = stack[0]
         const below = stack[1]
         const m = below.formationId
-        // Reach guard (same rule as the interior-lens branch): only a facing
-        // column that actually observed the unit's depth may terminate it. A
-        // too-shallow neighbour is a DATA VOID — the unit continues sideways.
+        // Tie count decides the gesture: top contact tied → ONLAP on that
+        // bracket (the below-unit grows up behind the overlay); untied →
+        // LENS at its own elevation with NO growth — the vacated span
+        // belongs to the interval matrix (flood/closing fill), never to a
+        // different-formation neighbour (the S8 sand absorbed the silt's
+        // span and wedged over BOTH levels — dogfeed 2026-07-07).
+        const kind = kindFor(u, 'top')
+        // Full-observation reach guard, per gesture. A LENS (untied) needs the
+        // facing column to reach the unit's BASE — a straddle unit (top
+        // observed, base in the void) continues sideways per the 2026-06-16
+        // directive (gap-17's spurious 11 m VEEN onlap was this class). An
+        // ONLAP is TIED on its TOP contact, so the facing column demonstrably
+        // reached that tied contact; the base tapering into the void below the
+        // shallow neighbour's TD is fine (onlap_one_corr: a top-tied PEAT whose
+        // base sits below the neighbour's TD still laps up onto its tied top
+        // bracket — guarding on its BASE wrongly banded it).
+        const reachDepth = kind === 'onlap' ? u.ownTopDepth : u.ownBaseDepth
         if (
           !mixedTiedLayerIds?.has(u.layerId) &&
           isCandidate(u) &&
           m !== u.formationId &&
           otherFormations.has(m) &&
-          // Full-observation guard: the facing column must reach the unit's
-          // BASE before it may terminate it — a straddle unit (top observed,
-          // base in the void) continues sideways per the 2026-06-16 directive
-          // and defers to the next reaching test (owner rule 5).
-          neighbourReaches(otherTD, u.ownBaseDepth)
+          neighbourReaches(otherTD, reachDepth)
         ) {
-          // Tie count decides the gesture: top contact tied → ONLAP on that
-          // bracket (the below-unit grows up behind the overlay); untied →
-          // LENS at its own elevation with NO growth — the vacated span
-          // belongs to the interval matrix (flood/closing fill), never to a
-          // different-formation neighbour (the S8 sand absorbed the silt's
-          // span and wedged over BOTH levels — dogfeed 2026-07-07).
-          const kind = kindFor(u, 'top')
           out.push(
             kind === 'onlap' ? { unit: { ...u }, kind, edge: 'top' } : { unit: { ...u }, kind },
           )
