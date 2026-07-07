@@ -3817,9 +3817,11 @@ function mergeSplitBodyRegions(regions: SectionRegion[]): void {
 // but a broken partition for the 3D voxel labelling that consumes this output.
 // This pass makes same-gap non-lens regions pairwise disjoint by subtracting the
 // LATER-in-array region (the one the renderer draws on top) from the earlier one
-// — so the rendered result is byte-for-byte unchanged while the polygons become a
-// true partition. Subtraction outputs clean minimal boundary rings (no internal
-// edges), so a region never fragments into visible same-colour hairlines.
+// — so on the common path the rendered result is unchanged while the polygons
+// become a true partition (the rare non-simple-ring swap can flip which region
+// owns a sub-pixel overlap, still invisible). Subtraction outputs clean minimal
+// boundary rings (no internal edges), so a region never fragments into visible
+// same-colour hairlines. Verified zero rendered-pixel change on real CS1.
 // ---------------------------------------------------------------------------
 
 /** Snap tolerance for merging coincident subtraction vertices (fraction·elev). */
@@ -4051,6 +4053,9 @@ function mergePiecesByCancellation(pieces: PartitionPoint[][]): PartitionPoint[]
     while (outs.length > 0) {
       const loop: string[] = [start]
       let cur = outs.shift() as string
+      // Guard bound: a boundary from N convex pieces has O(N) edges total and
+      // partition rings have tens of vertices — 1e5 is orders of magnitude above
+      // any real input, so it only backstops a malformed (non-closing) edge set.
       let guard = 0
       while (cur !== start && guard++ < 100000) {
         loop.push(cur)
@@ -4186,8 +4191,11 @@ export function subtractPolygon(
       for (let i = 0; i < s.length; i++) {
         const a = s[i]
         const b = s[(i + 1) % s.length]
-        // Only cut by an edge whose segment bbox meets the triangle bbox — a
-        // far-away edge's supporting line cannot change winding inside the tri.
+        // Only cut by an edge whose segment bbox meets the triangle bbox. If the
+        // segment's bbox doesn't overlap the triangle it cannot physically cross
+        // it, so the centroid of the unsplit triangle still classifies the whole
+        // piece correctly; cutting by the infinite supporting line would only add
+        // zero-area noise on both sides (discarded anyway).
         const eBox = carveBbox([a, b])
         if (!bboxesOverlap(triBox, eBox)) continue
         const next: PartitionPoint[][] = []
@@ -4266,6 +4274,11 @@ export function makeGapRegionsDisjoint(regions: SectionRegion[]): void {
     regions[i] = { ...r, polygon: simple[0] }
     for (let k = 1; k < simple.length; k++) repairExtras.push({ ...r, polygon: simple[k] })
   }
+  // Repair extras carry the SAME identity (formation/body/kind) as their source,
+  // so appending them last (making them "later" = drawn on top) is colour-neutral.
+  // It does mean a repaired extra wins overlap z-order against any original region;
+  // benign for the current inputs (simplifyRing only splits genuinely
+  // self-intersecting rings), but revisit if it ever emits large fragments.
   if (repairExtras.length > 0) regions.push(...repairExtras)
 
   const byGap = new Map<number, number[]>()
@@ -4316,7 +4329,11 @@ export function makeGapRegionsDisjoint(regions: SectionRegion[]): void {
         if (overlap > SLIVER_MAX_AREA) continue // gross defect — leave for the gate
         // Later (j) wins → subtract j from i. If i is not a simple ring it cannot
         // be a minuend, so swap: subtract i from j (the simple one loses; the
-        // self-intersecting ring survives as a winding-defined subtrahend).
+        // self-intersecting ring survives as a winding-defined subtrahend). The
+        // swap reverses z-order for this pair (the earlier region wins the overlap
+        // pixels), so the render is not strictly byte-identical there — but the
+        // overlap is < SLIVER_MAX_AREA (sub-pixel), so it is invisible, and Phase 0
+        // already repaired every repairable ring so the swap is a rare fallback.
         if (si) pushSub(i, regions[j].polygon)
         else if (sj) pushSub(j, regions[i].polygon)
         // both non-simple → cannot resolve safely; leave intact.
