@@ -99,7 +99,7 @@ import {
   partitionEdgeSource,
   shouldMountCorrelationOverlay,
 } from './sections/correlationOverlayAxis'
-import PartitionFillOverlay from './sections/PartitionFillOverlay'
+import PartitionFillOverlay, { type GeotechRefinement } from './sections/PartitionFillOverlay'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
 import { sampleSolidColumns, sliceSolidsAtPlane } from '../utils/sectionFromSolids'
@@ -729,6 +729,12 @@ interface Props {
    * correlation-graph derivation.
    */
   lithoLayers?: readonly LithoLayerResponse[]
+  /**
+   * Geotech fraction-space refinement bundle (owner-locked 2026-07-06). When
+   * set (the geotech axis), forwarded to PartitionFillOverlay which refines the
+   * litho partition by NAD packing class. See ``GeotechRefinement``.
+   */
+  refinement?: GeotechRefinement
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
@@ -835,6 +841,7 @@ export default function SectionPanel({
   onRequestAcceptEdge,
   lenses,
   lithoLayers,
+  refinement,
   lensBoundaries,
   onSaveLensShape,
   onDeleteLens,
@@ -3156,21 +3163,21 @@ export default function SectionPanel({
                 defines the 3D model). Renders the tiled partition + labels +
                 open-end stubs when Fill bands is on.
                 On the litho axis: bands coloured by lithology colour.
-                On the geotech axis: bands coloured by NAD class (nadClassColor);
-                  a formation with nad_class === null renders in neutral grey with
-                  no label (degenerate — zero CPTs; never amber).
+                On the geotech axis: the LITHO partition REFINED by NAD packing
+                  class (``refinement`` bundle) — each litho region subdivided by
+                  the geotech sub-bands, coloured by NAD class (nadClassColor);
+                  a formation with nad_class === null renders in neutral grey.
                 Geotech axis is view-only (no drag handles wired). */}
             {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay
                 lithoLayers={lithoLayers ?? []}
-                // The partition is framed by ``contactEdges`` on BOTH axes. On the
-                // litho axis these are the litho edges; on the geotech axis (Task 3
-                // render swap, 2026-06-26) ``lithoLayers`` is the GEOTECH layers and
-                // ``contactEdges`` the GEOTECH packing edges, so ``computeSectionFill``
-                // renders the connected-body geotech partition DIRECTLY — the old
-                // per-CPT NAD carve (``subdivideRegionsByGeotech``) is retired.
-                // partitionEdgeSource keeps the source axis-explicit at the call site.
+                // The partition is framed by ``contactEdges`` — the LITHO model's
+                // edges on BOTH axes now (the geotech partition is the litho
+                // partition refined; ``lithoLayers`` is the litho layers on both
+                // axes). ``refinement`` (geotech axis only) subdivides each region
+                // by NAD packing class inside the overlay.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
+                refinement={refinement}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
