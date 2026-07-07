@@ -3944,7 +3944,16 @@ export function computeSectionFill(
       false, // skipCarve
       preInjectionBaseTD[i], // observed TDs — immune to bridge/gap-close inflation
       preInjectionBaseTD[i + 1],
-      true, // useTieGestures — the owner 2/1/0 model applies on the primary loop
+      // useTieGestures — the owner 2/1/0 tie-count model needs correlations to
+      // exist: a unit lenses because the engineer did NOT tie it (0 of 2
+      // contacts). In a section with NO edges at all there are no ties to count,
+      // so the model is undefined — defer entirely to the GEOMETRY tier (same-
+      // lithology banding + sideways continuation), which owns the uncorrelated
+      // case (owner rule 4: SEC3 stays green). A gap with 0 ties inside a
+      // section that HAS edges (e.g. gap-7 S11→S8) still uses tie-mode — the
+      // engineer's decision NOT to correlate there is meaningful. The gate is
+      // the whole SECTION's edge count, not this gap's tie count.
+      edges.length > 0,
     )
     for (const r of gapRegions) {
       // Lens/onlap overlays are observed-region overlays — never clipped at the
