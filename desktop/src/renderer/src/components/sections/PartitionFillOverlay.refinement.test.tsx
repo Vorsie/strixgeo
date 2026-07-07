@@ -98,6 +98,7 @@ const REFINEMENT: GeotechRefinement = {
     ['nad-zand-7', { nadClass: 7, soilCode: 'ZAND' }],
   ]),
   lithoSoilByFormationId: new Map([['formation-sand', 'ZAND']]),
+  lithoFormationColorById: new Map([['formation-sand', '#fbbf24']]),
 }
 
 // formationColorById maps GEOTECH formation ids → NAD colour (what SectionPanel
