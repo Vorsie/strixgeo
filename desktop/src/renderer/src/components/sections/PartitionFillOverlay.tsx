@@ -92,6 +92,15 @@ export interface GeotechRefinement {
   nadMeta: ReadonlyMap<string, NadFormationMeta>
   /** Litho formation id → soil code (the hard soil-code guard). */
   lithoSoilByFormationId: ReadonlyMap<string, string | null>
+  /**
+   * Litho formation id → lithology colour. Used to colour the ``fallback``
+   * refined polygons (a litho region with NO geotech sub-band data on either
+   * side — those carry the LITHO formation id) and the no-donor substrate
+   * quads, so an unpacked interval renders in its lithology colour rather than
+   * the neutral fallback grey (``formationColorById`` on the geotech axis only
+   * knows GEOTECH formation ids).
+   */
+  lithoFormationColorById: ReadonlyMap<string, string>
 }
 
 /**
@@ -920,12 +929,11 @@ export default function PartitionFillOverlay({
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    // The partition itself. On the litho axis the columns + edges are the litho
-    // model's; on the geotech axis they are the GEOTECH model's connected bodies
-    // (Task 3 render swap, 2026-06-26) — the same engine renders both. The old
-    // per-CPT NAD carve (``subdivideRegionsByGeotech``) is retired now that the
-    // geotech bodies connect (backend Tasks 1+2), so this is the geotech fill
-    // directly, with NAD-class colours/labels resolved by the parent maps.
+    // The partition itself is built from the LITHO model's columns + edges on
+    // BOTH axes now (the geotech partition is the litho partition refined). On
+    // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
+    // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
+    // ``sectionRegions`` here stay the litho partition.
     const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
     log.debug(
       'partition',
@@ -1330,7 +1338,12 @@ export default function PartitionFillOverlay({
             return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
           })
           .join(' ') + ' Z'
-      const color = formationColorById.get(p.formationId) ?? FALLBACK_COLOR
+      // A `fallback` polygon carries the LITHO formation id (no packing data
+      // anywhere at these elevations) → colour it by lithology, not NAD.
+      const color =
+        p.tag === 'fallback'
+          ? (refinement.lithoFormationColorById.get(p.formationId) ?? FALLBACK_COLOR)
+          : (formationColorById.get(p.formationId) ?? FALLBACK_COLOR)
       fillPolys.push({ key: `gr-${fi++}`, d, color })
     }
     // Litho region envelopes on top (dark) — "litho boundaries persist".
@@ -1405,7 +1418,8 @@ export default function PartitionFillOverlay({
         }
         const rq = sliceByKey.get(`${f.columnIndex}-${qi}`)
         if (!rq || rq.slices == null) {
-          toPath(quadPts, formationColorById.get(q.formationId) ?? FALLBACK_COLOR)
+          // No classified donor anywhere → the quad's LITHO formation colour.
+          toPath(quadPts, refinement.lithoFormationColorById.get(q.formationId) ?? FALLBACK_COLOR)
           continue
         }
         for (const sl of rq.slices) {
