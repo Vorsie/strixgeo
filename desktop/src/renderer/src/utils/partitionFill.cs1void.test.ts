@@ -31,6 +31,7 @@ import {
   type PartitionColumn,
   type SectionRegion,
 } from './partitionFill'
+import { findNonLensOverlaps, formatOverlapReports } from './partitionOverlapCheck'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
@@ -472,6 +473,21 @@ describe('CS1 real-data partition void gate', () => {
       console.info('[CS1-OVERLAP] offending gaps:\n  ' + offenders.join('\n  '))
     }
     expect(offenders, `quad overlaps found:\n${offenders.join('\n')}`).toEqual([])
+  })
+
+  it('has zero pairwise non-lens overlap area in any gap (sliver-dense, debt #228)', () => {
+    // The raster checks in this gate (120×320 grid, 30-cell floor) are blind
+    // to hairline slivers — proven on real CS1 gap 0 (2026-07-06, the
+    // GEO-22/115-S10 interbed cluster). Exact pairwise intersection area of
+    // every same-gap non-lens pair must be zero: touching edges are fine,
+    // shared area is not.
+    const reports = findNonLensOverlaps(regions)
+    const lines = formatOverlapReports(reports)
+    if (lines.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-SLIVER] overlaps:\n  ' + lines.join('\n  '))
+    }
+    expect(lines, `sliver overlaps found:\n${lines.join('\n')}`).toEqual([])
   })
 
   it('has no cross-formation overlap in any gap (true partition, one lithology per point)', () => {

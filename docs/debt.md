@@ -5704,40 +5704,59 @@ land first — the gesture surface edits the structures that redesign defines.
 **When to revisit.** Immediately after the fraction-space geotech refinement
 ships and survives dogfeed. Supersedes the stale #13 framing (pre-body-model).
 
-## 228. Litho fill-bands partition has sliver overlaps at dense interbedded stacks (Tier G — engine watertightness, owner "perfection not 95%")
+## 228. Litho fill-bands partition sliver overlaps — RESOLVED 2026-07-07
 
-**What.** `computeSectionFill`'s RAW region polygons overlap by hairline slivers
-on dense interbedded stacks — proven 2026-07-06 on the real CS1 during the
-geotech brainstorm: non-lens `quad × quad` overlaps in gap 0 (the GEO-22/115-S10
-interbed cluster), e.g. silt×sand and sand×clay raw-polygon overlaps at ~2/25
-grid-sample hits each. Invisible on the litho axis (adjacent litho colours are
-near-identical at hairline widths) but ANY differing colouring amplifies them —
-they surfaced the moment the geotech class carve coloured sub-bands. They also
-feed the 3D voxel labelling (hairline mislabel columns) and would leak into any
-future exporter of the partition geometry.
+**What (was).** `computeSectionFill`'s RAW region polygons overlapped by hairline
+slivers on dense interbedded stacks — proven on the real CS1: non-lens overlaps
+in gaps 16/18/22 (≤ 8e-3 fraction·m, sub-pixel). Invisible on the litho axis but
+a broken partition for the 3D voxel labelling that consumes `computeSectionFill`.
 
-**Evidence / repro.** The brainstorm throwaway
-`desktop/src/renderer/src/utils/partitionFill.geotechBrainstorm.test.ts` (untracked
-— do not delete) carries a polygon-overlap detector with blame attribution
-(`raw@…` tags = engine polygons). Run
-`GEOTECH_BRAINSTORM=1 npx vitest run src/renderer/src/utils/partitionFill.geotechBrainstorm.test.ts`
-(needs `scripts/throwaway_cs1_input.json` + `scripts/throwaway_geotech_brainstorm.json`,
-regenerable via `scripts/throwaway_cs1_partition_extract.py` +
-`scripts/throwaway_geotech_brainstorm_extract.py` against the dev DB) and read
-`scripts/throwaway_carve_overlaps.txt` — the `raw@` lines are the engine's.
-The CS1 gate (`partitionFill.cs1void.test.ts`) did NOT catch these — its
-sampling resolution is coarser than the slivers.
+**Root cause (proven, not guessed — instrumented on the frozen CS1 slice).** A
+single geological contact drawn as TWO slightly-different lines by two independent
+emit paths: (a) GAP-18 — a matched-band base (clay flooding the shallow void,
+sloping to the deep-left floor) vs. the floor-walk pinch directly beneath it
+(sloping to its own apex); both clip at the shallow-TD cap at different fractions,
+leaving a thin double-covered wedge above the cap. (b) GAP-16 + GAP-22 —
+`carveOverlays` inserting a DEGENERATE lens/onlap notch whose clipped chain rides
+the matrix's own boundary edge, producing a self-intersecting / self-touching ring
+whose winding fold reads as a phantom overlap with a sibling.
 
-**Why deferred (hours, not blocking).** Root-causing needs a focused engine dig
-(emitGap / emitInterval / carveOverlays interval arithmetic on the S10 stack);
-running in a PARALLEL research session alongside the geotech-stage
-implementation (owner directive 2026-07-06). That session OWNS
-`partitionFill.ts`; the geotech implementation session must not touch it.
+**Fix.** New always-run `makeGapRegionsDisjoint` pass at the end of
+`computeSectionFill` (partitionFill.ts):
+1. **Repair** every self-intersecting / degenerate non-lens ring
+   (`simplifyRing`) — keeps the nonzero-winding filled area (identical render)
+   but re-emits it as a SIMPLE polygon, dissolving the degenerate self-touch that
+   was the GAP-16/GAP-22 phantom slivers.
+2. **Subtract** the later-in-array (drawn-on-top) region from the earlier one for
+   each remaining hairline overlap (`subtractPolygon`) — so the rendered pixels
+   are unchanged (later already won the z-order) while the polygons become a true
+   partition. Subtraction outputs clean minimal boundary rings (directed-edge
+   cancellation → no internal edges → no same-colour hairlines), honours a
+   self-intersecting subtrahend by nonzero winding, and only touches overlaps up
+   to a hairline area cap `SLIVER_MAX_AREA` (a gross overlap is a distinct defect
+   left for the gate to surface, not silently papered over).
 
-**When to revisit.** NOW (parallel session). Definition of done: a dense
-polygon-overlap invariant (rasterised or exact intersection) added to the CS1
-gate + unit suite, engine fixed so raw non-lens regions are pairwise disjoint
-on CS1 AND the synthetic suite, no visual regression on the litho axis.
+**Verification.**
+- New exact pairwise-overlap invariant (`partitionOverlapCheck.ts` — ear-clip +
+  triangle-clip exact area, sampled fallback for non-simple rings) wired into
+  BOTH the always-on frozen-CS1 gate (`partitionFill.cs1frozen.test.ts`) and the
+  live CS1 gate (`partitionFill.cs1void.test.ts`, `CS1_GATE=1`). Went RED on the
+  old engine (gaps 16/18/22), GREEN after the fix.
+- Zero rendered-pixel change proven on real CS1 at ~5.5M samples/gap
+  (top-visible-formation identical with the pass on vs off).
+- Geometry pinned in `partitionDisjoint.test.ts` + `partitionOverlapCheck.test.ts`.
+- Full desktop vitest suite green (2143 passed); tsc clean.
+
+**Left as-is (documented, render-only — NOT a partition defect).** The
+`computeUnderColumnSubstrate` below-TD fills are drawn per-column in COLUMN-STRIP
+screen space (not part of the `computeSectionFill` gap partition, and per
+CLAUDE.md 2D-render-only — NOT carried to the 3D voxel labelling). At coincident
+cluster columns (closer than a strip width) adjacent strips can overlap; observed
+cases are same-colour (invisible). Fix if ever visible (different-formation
+cluster): clip each strip's `leftX/rightX` to the midpoints toward its neighbours
+in `PartitionFillOverlay.underColumnFills` (the recipe already prototyped in the
+geotech-brainstorm `carvePanel` substrate render). Deferred here to avoid editing
+the shared overlay component while the parallel geotech session renders through it.
 
 ## (end)
 
