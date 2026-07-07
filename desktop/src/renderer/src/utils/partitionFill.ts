@@ -894,7 +894,15 @@ function extractIntervalMinorities(
         const u = stack[0]
         const below = stack[1]
         const m = below.formationId
-        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId && otherFormations.has(m)) {
+        // Reach guard (same rule as the interior-lens branch): only a facing
+        // column that actually observed the unit's depth may terminate it. A
+        // too-shallow neighbour is a DATA VOID — the unit continues sideways.
+        if (
+          !mixedTiedLayerIds?.has(u.layerId) &&
+          m !== u.formationId &&
+          otherFormations.has(m) &&
+          neighbourReaches(otherTD, u.ownTopDepth)
+        ) {
           out.push({ unit: { ...u }, kind: 'onlap', edge: 'top' })
           below.ownTopDepth = u.ownTopDepth // matrix grows up to the bracket
           stack.splice(0, 1)
@@ -923,7 +931,16 @@ function extractIntervalMinorities(
         const u = stack[last]
         const above = stack[last - 1]
         const m = above.formationId
-        if (!mixedTiedLayerIds?.has(u.layerId) && m !== u.formationId) {
+        // Reach guard (same rule as the interior-lens branch): only a facing
+        // column that actually observed the unit's depth may terminate it. A
+        // too-shallow neighbour is a DATA VOID — the unit continues sideways
+        // (gap-17 dogfeed: a thin VEEN below the facing column's TD was
+        // extracted as an 11 m onlap down to the far interval base).
+        if (
+          !mixedTiedLayerIds?.has(u.layerId) &&
+          m !== u.formationId &&
+          neighbourReaches(otherTD, u.ownTopDepth)
+        ) {
           out.push({ unit: { ...u }, kind: 'onlap', edge: 'base' })
           above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
           stack.splice(last, 1)
@@ -2146,6 +2163,8 @@ function emitGap(
   layerBaseElevLookup: ReadonlyMap<string, number> = new Map(),
   capElev = -Infinity,
   skipCarve = false,
+  observedLeftTD?: number,
+  observedRightTD?: number,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2154,10 +2173,26 @@ function emitGap(
   // Layer ids named by a mixed (top↔base) tie — these units must NOT be
   // lens/onlap-extracted in the interval walk; they survive to the floor walk
   // that raises them to the tied contact (GAP-18 clay-on-sand fix).
+  //
+  // Protection scope (owner 2/1/0 model, 2026-07-07):
+  //   - TOP-side keys: protected GLOBALLY — the floor walk may raise a tied
+  //     unit in any gap the tie applies to (incl. non-adjacent jump ties).
+  //   - BASE-side values: protected ONLY in the gap their tie straddles (the
+  //     tie's top-side unit sits on THIS gap's other column). A base-side unit
+  //     (the shallow test's TD unit, e.g. S8's silt) is banded via its top tie
+  //     in the gap where the tie applies; protecting it in EVERY gap blocked
+  //     its termination toward an untied neighbour — the gap-7 rising-pinch
+  //     double gesture (owner dogfeed 2026-07-07).
   const mixedTiedLayerIds = new Set<string>()
-  for (const [k, v] of mixedTiedTopToBase) {
-    mixedTiedLayerIds.add(k)
-    mixedTiedLayerIds.add(v)
+  {
+    const leftIds = new Set(leftUnits.map((u) => u.layerId))
+    const rightIds = new Set(rightUnits.map((u) => u.layerId))
+    for (const [k, v] of mixedTiedTopToBase) {
+      mixedTiedLayerIds.add(k)
+      if ((leftIds.has(k) && rightIds.has(v)) || (rightIds.has(k) && leftIds.has(v))) {
+        mixedTiedLayerIds.add(v)
+      }
+    }
   }
 
   // Each column's total depth — the reach guard for interval-minority
@@ -2165,6 +2200,16 @@ function emitGap(
   // floor unit), so this equals the pre-reduction TD.
   const leftTD = columnTotalDepth(leftUnits)
   const rightTD = columnTotalDepth(rightUnits)
+  // OBSERVED TDs for the extraction reach guard: what each column actually
+  // drilled, immune to bridge injection + gap-close(a) base extensions (both
+  // mutate the units BEFORE emitGap, inflating columnTotalDepth). Reach is
+  // about observed evidence — an interpolated bridge below a shallow test must
+  // not make it "reach" depths it never saw (gap-17 VEEN: the facing S7A, TD
+  // 2.65 m, appeared to reach a 7.6 m-deep unit via its bridges → a many-metre
+  // spurious onlap). Callers thread the pre-injection snapshot; fall back to
+  // the computed TDs when absent (substrate anchors carry no bridges).
+  const extractLeftTD = observedLeftTD ?? leftTD
+  const extractRightTD = observedRightTD ?? rightTD
 
   // -------------------------------------------------------------------------
   // Step 1: Edge-driven monotonic alignment (post-reduction units). An explicit
@@ -2305,8 +2350,8 @@ function emitGap(
       rightStack,
       aboveMatrix?.formationId ?? null,
       belowMatrix?.formationId ?? null,
-      leftTD,
-      rightTD,
+      extractLeftTD,
+      extractRightTD,
       mixedTiedLayerIds,
     )) {
       if (min.kind === 'lens') {
@@ -3203,16 +3248,22 @@ export function computeSectionFill(
       mixedTiedTopToBase.set(e.b, e.a)
     }
   }
-  // Every layerId named by a mixed (top↔base) tie. Such a unit is the engineer's
-  // explicit "this unit continues to the tied contact" declaration (e.g. the
-  // GAP-18 bottom tie S6-ZAND-top ↔ S7-TD), so it must NOT be lens/onlap-extracted
-  // — doing so deletes it BEFORE the floor walk applies the tie, and the matrix
-  // floods its space (the clay-on-sand bug). Threaded into reduceColumn +
-  // extractIntervalMinorities so a mixed-tied unit survives to the floor walk.
+  // Every TOP-side layerId named by a mixed (top↔base) tie. Such a unit is the
+  // engineer's explicit "this unit continues to the tied contact" declaration
+  // (e.g. the GAP-18 bottom tie S6-ZAND-top ↔ S7-TD), so it must NOT be
+  // lens/onlap-extracted — doing so deletes it BEFORE the floor walk applies
+  // the tie, and the matrix floods its space (the clay-on-sand bug).
+  //
+  // Protection scope (owner 2/1/0 model, 2026-07-07): TOP-side keys are
+  // protected GLOBALLY (the floor walk may raise them in any gap, incl.
+  // non-adjacent jump ties). BASE-side values are protected PER-GAP — only
+  // where their tie straddles the gap's two columns (built in the gap loop
+  // below as ``gapMixedTied``). Protecting a base-side unit (the shallow
+  // test's TD unit, e.g. S8's silt) in EVERY gap blocked its termination
+  // toward an untied neighbour — the gap-7 rising-pinch double gesture.
   const mixedTiedLayerIds = new Set<string>()
-  for (const [k, v] of mixedTiedTopToBase) {
+  for (const [k] of mixedTiedTopToBase) {
     mixedTiedLayerIds.add(k)
-    mixedTiedLayerIds.add(v)
   }
   const correlated: Correlated = (a, b) => edgeSet.has(edgeKey(a, b))
   // baseTied is always a closure over baseTiedSet (not gated on size > 0) so that
@@ -3611,8 +3662,16 @@ export function computeSectionFill(
     // used by reduceColumn and the floor-interval carry-through.
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
-    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds, mixedTiedLayerIds)
-    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds, mixedTiedLayerIds)
+    // Per-gap mixed-tie protection: global TOP-side keys + the BASE-side values
+    // whose tie straddles THIS gap's two columns (see the set's doc above).
+    const gapMixedTied = new Set(mixedTiedLayerIds)
+    for (const [k, v] of mixedTiedTopToBase) {
+      if ((leftIds.has(k) && rightIds.has(v)) || (rightIds.has(k) && leftIds.has(v))) {
+        gapMixedTied.add(v)
+      }
+    }
+    const lensesLeft = reduceColumn(left.units, rightIds, correlated, rightTD, baseTied, allEdgedLayerIds, gapMixedTied)
+    const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds, gapMixedTied)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
     // Side context for the carry-through, NEAREST-FIRST from each facing column
@@ -3650,9 +3709,20 @@ export function computeSectionFill(
       mixedTiedTopToBase,
       layerBaseElevLookup,
       shallowTd,
+      false, // skipCarve
+      preInjectionBaseTD[i], // observed TDs — immune to bridge/gap-close inflation
+      preInjectionBaseTD[i + 1],
     )
     for (const r of gapRegions) {
-      // Lens/onlap overlays are observed-region (above-TD) overlays — never clipped.
+      // Lens/onlap overlays are observed-region overlays — never clipped at the
+      // cap. An extracted overlay CAN extend below the facing column's TD (a
+      // deep-column minority lapping a band that dips under the shallow TD —
+      // gap-17 VEEN, 2026-07-07); its OBSERVED data outranks the interpolated
+      // substrate there, so the SUBSTRATE is carved around below-cap overlays
+      // after its pass (the overlay-carve block below) rather than the overlay
+      // being truncated. (Clipping the overlay instead broke the edge
+      // configuration where no substrate bracket exists and the overlay is the
+      // SOLE cover below the cap — VOID-B.)
       if (r.kind === 'lens') {
         out.push({ ...r, gapIndex: i })
         continue
@@ -3692,6 +3762,7 @@ export function computeSectionFill(
   // accepted only when it matches the original column count.
   const along =
     alongM && alongM.length === columns.length ? alongM : columns.map((_, i) => i)
+  const substrateStart = out.length
   out.push(
     ...computeBracketSubstrate(columns, edges, along, {
       correlated,
@@ -3700,6 +3771,41 @@ export function computeSectionFill(
       allEdgedLayerIds,
     }),
   )
+
+  // Carve the substrate around the gap phase's OVERLAYS (2026-07-07). An
+  // extracted lens/onlap overlay is observed data and is never cap-clipped, so
+  // it can extend below the shallow TD into the space the tie-blind substrate
+  // fills independently — double-covering it with a different formation (the
+  // gap-17 VEEN cross-class overlap on the geotech refinement gate). Observed
+  // data wins: subtract each same-gap overlay from every substrate region it
+  // overlaps. A fully-above-cap overlay never intersects the substrate (the
+  // subtraction is a no-op), and a gap with no substrate bracket (VOID-B) has
+  // nothing to carve — the overlay stays the sole below-cap cover there.
+  {
+    const overlaysByGap = new Map<number, PartitionPoint[][]>()
+    for (let idx = 0; idx < substrateStart; idx++) {
+      const r = out[idx]
+      if (r.kind !== 'lens') continue
+      const g = overlaysByGap.get(r.gapIndex) ?? []
+      g.push(r.polygon)
+      overlaysByGap.set(r.gapIndex, g)
+    }
+    if (overlaysByGap.size > 0 && out.length > substrateStart) {
+      const carved: SectionRegion[] = []
+      for (let idx = substrateStart; idx < out.length; idx++) {
+        const r = out[idx]
+        const ov = r.kind === 'lens' ? undefined : overlaysByGap.get(r.gapIndex)
+        if (ov === undefined) {
+          carved.push(r)
+          continue
+        }
+        const pieces = subtractPolygon(r.polygon, ov)
+        for (const p of pieces) carved.push({ ...r, polygon: p })
+      }
+      out.length = substrateStart
+      out.push(...carved)
+    }
+  }
 
   mergeSplitBodyRegions(out)
 
@@ -4734,10 +4840,16 @@ export function computeBracketSubstrate(
   const tdElev = cols.map((c) => c.surface - columnTotalDepth(c.units))
 
   // Layer ids named by a mixed (top↔base) tie — never lens/onlap-extracted.
+  // Protect ONLY the TOP-side unit of each mixed tie (the map key) — that is
+  // the unit the floor walk RAISES to the tied contact, which must survive
+  // extraction. The BASE-side unit (the map value — the shallow test's TD unit,
+  // e.g. S8's silt) needs no protection: in the gap where its tie applies it is
+  // banded via its top tie anyway, and protecting it GLOBALLY blocked its
+  // termination toward its OTHER, untied neighbour (the gap-7 rising-pinch
+  // double gesture, owner dogfeed 2026-07-07).
   const mixedTiedLayerIds = new Set<string>()
-  for (const [k, v] of mixedTiedTopToBase) {
+  for (const [k] of mixedTiedTopToBase) {
     mixedTiedLayerIds.add(k)
-    mixedTiedLayerIds.add(v)
   }
 
   // Section-wide layerId → base elevation, from the unmodified pre-gap columns
@@ -4795,6 +4907,18 @@ export function computeBracketSubstrate(
     const rightIds = new Set(right.units.map((u) => u.layerId))
     const leftTD = columnTotalDepth(left.units)
     const rightTD = columnTotalDepth(right.units)
+    // Per-bracket mixed-tie protection: global TOP-side keys + the BASE-side
+    // values whose tie straddles THIS bracket's two anchors (mirrors the
+    // computeSectionFill per-gap rule). A deep anchor's unit that is TD-tied to
+    // the OTHER anchor (e.g. B2-ZAND ↔ S7-CLAY-base) must survive extraction so
+    // the floor walk can raise it — extracting it produced a many-metre onlap
+    // spanning down to the far interval base (gap-17 VEEN, 2026-07-07).
+    const bracketMixedTied = new Set(mixedTiedLayerIds)
+    for (const [k, v] of mixedTiedTopToBase) {
+      if ((leftIds.has(k) && rightIds.has(v)) || (rightIds.has(k) && leftIds.has(v))) {
+        bracketMixedTied.add(v)
+      }
+    }
     const lensesLeft = reduceColumn(
       left.units,
       rightIds,
@@ -4802,7 +4926,7 @@ export function computeBracketSubstrate(
       rightTD,
       baseTied,
       allEdgedLayerIds,
-      mixedTiedLayerIds,
+      bracketMixedTied,
     )
     const lensesRight = reduceColumn(
       right.units,
@@ -4811,7 +4935,7 @@ export function computeBracketSubstrate(
       leftTD,
       baseTied,
       allEdgedLayerIds,
-      mixedTiedLayerIds,
+      bracketMixedTied,
     )
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
