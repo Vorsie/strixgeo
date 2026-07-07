@@ -119,10 +119,12 @@ describe('CS1 frozen geotech-refinement gate (always-on)', () => {
   it('the pinch/lens single-fill covers every non-quad region with exactly one class', () => {
     // A pinch/lens region is filled with its single dominant class (no internal
     // stratification) — so it contributes exactly one refined polygon and no
-    // cross-class overlap can arise inside it.
+    // cross-class overlap can arise inside it. A `pinch` is a disjoint wedge
+    // (`band`); a `lens` is an opaque overlay (`hlens`) — both are single-fill.
     const nonQuad = refined.filter((p) => p.regionKind !== 'quad')
     expect(nonQuad.length).toBeGreaterThan(0)
-    for (const p of nonQuad) expect(p.tag === 'band' || p.tag === 'fallback').toBe(true)
+    for (const p of nonQuad)
+      expect(p.tag === 'band' || p.tag === 'fallback' || p.tag === 'hlens').toBe(true)
   })
 
   it('no refined polygon escapes its litho region envelope (boundaries invariant)', () => {

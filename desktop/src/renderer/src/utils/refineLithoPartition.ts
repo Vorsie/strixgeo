@@ -316,11 +316,21 @@ export function refineLithoPartition(
       const all = [...L, ...R]
       let fatty = all[0]
       for (const sp of all) if (sp.fBase - sp.fTop > fatty.fBase - fatty.fTop) fatty = sp
+      // A `pinch` is a DISJOINT partition wedge (tag `band` — it tiles with its
+      // neighbours). A `lens` is an OPAQUE OVERLAY drawn OVER the gap's matrix
+      // fill (the engine floods the vacated span with the bracket matrix behind
+      // it) — that is exactly `hlens`. Tagging it `band` made a 0-tie cross-
+      // lithology lens (e.g. gap-22's ZAND over the SILT matrix, produced by the
+      // 2/1/0 model) read as a real cross-class polygon and trip the
+      // watertightness gate; the same-class case (SILT lens over SILT matrix)
+      // was merely tolerated as self-overlap. Tag it `hlens` so the gate treats
+      // it as the by-design overlay it is (render z-order is unchanged — lens
+      // regions are already sorted last and paint on top).
       out.push({
         gapIndex: r.gapIndex,
         regionKind: r.kind,
         formationId: fatty.formationId,
-        tag: 'band',
+        tag: r.kind === 'lens' ? 'hlens' : 'band',
         points: r.polygon.map((p) => ({ fraction: p.fraction, elevation: p.elevation })),
       })
       continue
