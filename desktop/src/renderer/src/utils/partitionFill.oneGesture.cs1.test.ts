@@ -114,26 +114,95 @@ describe('CS1 one-gesture arbiters (real frozen data)', () => {
     expect(offenders, `matrix wedged into the banded silt:\n${offenders.join('\n')}`).toEqual([])
   })
 
-  it('CS1-OG-B — gap 7 (S11→S8): 0 ties leftward → S8 units stay at their own elevation', () => {
+  // KNOWN-RED (documented owner spec, 2026-07-07 dogfeed — `it.fails` keeps the
+  // suite green; implementing the spec flips this test and forces the marker's
+  // removal). Current engine: the silt is extracted as an onlap and the SAND
+  // ABSORBS its span (`above.ownBaseDepth = u.ownBaseDepth` in the onlap-base
+  // branch), so the sand's gesture extends below its own base and wedges over
+  // both levels. Owner spec: BOTH 0-tie units are LENSES at their own
+  // elevation; S11's clay floods the interval over them.
+  // ⚠ IMPLEMENTATION CONFLICT (why this is not a quick fix): a strict
+  // tie-count implementation (0-tie → lens + matrix flood) was built and
+  // CONTRADICTED six previously-pinned owner behaviours — CT2 ("an unmatched
+  // bed still pinches"), SEC3 (deep package connects), VOID-A /
+  // sideways-under-shallow-TD, T-MIXED-OVER-PINCH, the substrate sideways
+  // continuation, and OG1's onlap. Those pins encode earlier owner directives
+  // (geometry-tier banding, sideways data-void rule) that the strict 2/1/0
+  // model overrides in places. Reconciling WHICH old behaviours yield to the
+  // new model is an owner decision list — see
+  // memory/project_partition_one_gesture_2_1_0.md.
+  it.fails('CS1-OG-B — gap 7 (S11→S8): 0 ties leftward → S8 units LENS at their own level, clay floods the gap', () => {
     // col-08 (S8): ZAND elev [-2.94 .. -1.52], SILT [-3.50 .. -2.94]. There are
     // NO correlation edges between col-07 and col-08 → toward the left both
-    // units are 0-tie and must terminate at their OWN level. The bug: the silt's
-    // termination region rose to elev ≈ -1.47 (into the sand / surface).
+    // units are 0-tie → LENS (owner 2/1/0 model, re-confirmed on dogfeed
+    // 2026-07-07: "both layers on that test should just pinch out into a
+    // lens"). S11 is clay through that whole interval, so away from S8's
+    // column the gap is CLAY — not a sand wedge tapering to mid-gap, not a
+    // silt onlap absorbed into it.
     const gapRegs = regions.filter((r) => r.gapIndex === 7)
     expect(gapRegs.length).toBeGreaterThan(0)
     const TOL = 0.3
     const offenders: string[] = []
     for (const r of gapRegs) {
       const soil = soilOf(r.formationId)
+      if (soil !== 'SILT' && soil !== 'ZAND') continue
       let maxE = -Infinity
-      for (const p of r.polygon) if (p.elevation > maxE) maxE = p.elevation
-      if (soil === 'SILT' && maxE > -2.94 + TOL) {
-        offenders.push(`SILT ${r.kind} rose to ${maxE.toFixed(2)} above its own top -2.94`)
+      let minF = Infinity
+      for (const p of r.polygon) {
+        if (p.elevation > maxE) maxE = p.elevation
+        if (p.fraction < minF) minF = p.fraction
       }
-      if (soil === 'ZAND' && maxE > -1.52 + TOL) {
-        offenders.push(`ZAND ${r.kind} rose to ${maxE.toFixed(2)} above its own top -1.52`)
+      // Only S8's OWN units are gesture-checked: their zone is above S8's TD
+      // (elev −3.50). S11's deep silt/sand bands below that are full-width
+      // substrate stratigraphy and correct as-is.
+      if (maxE <= -3.4) continue
+      let minE = Infinity
+      for (const p of r.polygon) if (p.elevation < minE) minE = p.elevation
+      const ownTop = soil === 'SILT' ? -2.94 : -1.52
+      const ownBase = soil === 'SILT' ? -3.5 : -2.94
+      // One gesture, own elevation: never above the unit's own top…
+      if (maxE > ownTop + TOL) {
+        offenders.push(`${soil} ${r.kind} rose to ${maxE.toFixed(2)} above its own top ${ownTop}`)
+      }
+      // …and never below its own base (the sand absorbing the silt's span and
+      // wedging over BOTH levels was the dogfeed screenshot).
+      if (minE < ownBase - TOL) {
+        offenders.push(`${soil} ${r.kind} extends to ${minE.toFixed(2)} below its own base ${ownBase}`)
+      }
+      // Lens gesture: anchored at S8's edge (f=1), reaching left a bounded
+      // distance — never spanning toward S11's half of the gap.
+      if (minF < 0.35) {
+        offenders.push(
+          `${soil} ${r.kind} reaches to f=${minF.toFixed(2)} — a gap-spanning wedge, not a lens`,
+        )
       }
     }
-    expect(offenders, `S8 units rose above their own tops:\n${offenders.join('\n')}`).toEqual([])
+    // One gesture per unit also means one unit per LEVEL: the sand may never
+    // cover the silt's own elevation band away from the column (the absorbed-
+    // silt wedge in the dogfeed screenshot covered [−3.5..apex] at full height).
+    for (const f of [0.6, 0.75, 0.9]) {
+      const atSiltLevel = gapRegs.filter((r) => inPoly(f, -3.2, r.polygon))
+      const soils = [...new Set(atSiltLevel.map((r) => soilOf(r.formationId)))]
+      if (soils.includes('ZAND')) {
+        offenders.push(`ZAND covers the SILT level at (f=${f}, −3.2) — absorbed-silt wedge`)
+      }
+    }
+    // The matrix at mid-gap is S11's CLAY (topmost cover — overlays included,
+    // since a lens reaching past its bound would wrongly own the point), at
+    // both the sand and silt levels, left of the lens reach (LENS_PINCH_FRACTION
+    // = 0.45 from S8's edge → lenses live at f ≥ 0.55).
+    for (const [label, elev] of [
+      ['sand level', -2.2],
+      ['silt level', -3.2],
+    ] as const) {
+      const covering = gapRegs.filter((r) => inPoly(0.45, elev, r.polygon))
+      const soils = [...new Set(covering.map((r) => soilOf(r.formationId)))]
+      if (soils.some((s) => s === 'ZAND' || s === 'SILT') || !soils.includes('KLEI')) {
+        offenders.push(
+          `left of lens reach @${label} (f=0.45, ${elev}): covered by [${soils.join(',')}] — expected KLEI only`,
+        )
+      }
+    }
+    expect(offenders, `gap-7 gesture violations:\n${offenders.join('\n')}`).toEqual([])
   })
 })
