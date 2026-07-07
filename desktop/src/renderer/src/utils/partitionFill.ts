@@ -3357,6 +3357,15 @@ export function computeUnderColumnSubstrate(
     for (const r of regions) {
       if (r.gapIndex !== gapIdx || r.kind === 'lens') continue
       for (const [lo, hi] of slicePolygonAtFraction(r.polygon, frac)) {
+        // A region whose slice extends ABOVE this column's TD is a SHALLOW band
+        // dipping below the TD (e.g. S8's silt banded to a deeper neighbour), not
+        // deep-bridge stratigraphy. Its below-TD portion belongs to the band (it
+        // fills down in the gap); repainting it here made it a SEPARATE floating
+        // silt strip below the column that pinched out (dogfeed 2026-07-08). Fill
+        // the under-column strip only with stratigraphy that genuinely lies below
+        // the TD — the deep-test→deep-test bridge — so the strip is clay/sand as
+        // the neighbours log there, and the band alone owns the shallow silt.
+        if (hi > tdElev + EPS) continue
         const top = Math.min(hi, tdElev)
         if (top - lo > EPS) segs.push({ lo, hi: top, formationId: r.formationId })
       }
