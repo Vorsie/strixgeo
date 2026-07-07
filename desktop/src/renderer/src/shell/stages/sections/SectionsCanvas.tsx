@@ -310,21 +310,22 @@ export default function SectionsCanvas(): JSX.Element {
       nadMeta.set(f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null })
     }
     const lithoSoilByFormationId = new Map<string, string | null>()
+    const lithoFormationColorById = new Map<string, string>()
     for (const f of lithoFormations) {
       lithoSoilByFormationId.set(f.id, f.litho_main_soil_code ?? null)
+      lithoFormationColorById.set(f.id, f.color)
     }
-    return { geotechLayers, nadMeta, lithoSoilByFormationId }
+    return { geotechLayers, nadMeta, lithoSoilByFormationId, lithoFormationColorById }
   }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
 
   // The geotech model id for the SEPARATE packing-edge fetch that feeds the
-  // correlate OVERLAY ribbons + gesture on the geotech axis. After the Task-3
-  // render swap the geotech partition is framed by `correlationModelId` (now the
-  // geotech model too), so the overlay edges and the partition edges happen to
-  // come from the same model — that's fine and consistent. The fetch is kept
-  // separate (rather than reusing `contactCorrelationEdges`) to avoid rewiring the
-  // overlay's gesture/ribbon plumbing; it's one redundant request, no behaviour
-  // change. A string (or null) so the fetch callback + effect depend on the
-  // stable id, not the `activeGeotechModel` object identity.
+  // correlate OVERLAY ribbons + gesture on the geotech axis. After the
+  // fraction-space refinement, `correlationModelId` is ALWAYS the litho model
+  // (both axes use litho edges for the partition shape), so the packing overlay
+  // fetches from a DIFFERENT model than the partition — kept separate on purpose
+  // (reusing `contactCorrelationEdges` would pull litho edges into the geotech
+  // overlay; it's not a redundant request). A string (or null) so the fetch
+  // callback + effect depend on the stable id, not the object identity.
   const geotechPackingModelId = activeGeotechModel?.id ?? null
 
   // Transient pulse state — set on a successful contact correlate, cleared
@@ -556,8 +557,9 @@ export default function SectionsCanvas(): JSX.Element {
     // reason: (isLitho || isGeotech) + correlationModelId + selectedSectionId are
     // the three axes that require a re-fetch; refetchContactEdges captures project.id
     // + correlationModelId in its closure so they don't need to be listed separately.
-    // correlationModelId switches between the litho model (litho axis) and the geotech
-    // model (geotech axis) so fetching the correct edge set per axis.
+    // correlationModelId is always the litho model now (both litho and geotech axes
+    // use litho edges to frame the partition; the geotech packing overlay uses a
+    // separate fetch via geotechPackingModelId), so this fetches the litho edge set.
     // correlationEdgesRefetchNonce (#163c) is bumped after a successful auto-correlate
     // so the new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
