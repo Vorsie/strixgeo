@@ -64,6 +64,7 @@ import {
   type PartitionColumn,
   type SectionRegion,
 } from './partitionFill'
+import { findNonLensOverlaps, formatOverlapReports } from './partitionOverlapCheck'
 
 // ---------------------------------------------------------------------------
 // Fixture loading
@@ -370,6 +371,18 @@ describe('CS1 frozen real-data partition gate (always-on)', () => {
         offenders.push(`GAP-${gap}: ${overlapCells} overlap cells`)
     }
     expect(offenders, `quad overlaps found:\n${offenders.join('\n')}`).toEqual([])
+  })
+
+  it('has zero pairwise non-lens overlap area in any gap (sliver-dense, debt #228)', () => {
+    // The raster checks above (120×320 grid, 30-cell floor) are blind to
+    // hairline slivers — proven on real CS1 gap 0 (2026-07-06), where the
+    // engine emitted raw SILT×ZAND / ZAND×KLEI polygon overlaps thinner than
+    // a raster cell. This computes the EXACT pairwise intersection area of
+    // every same-gap non-lens pair: a partition must be a partition, so the
+    // shared area must be zero (touching edges are fine; area is not).
+    const reports = findNonLensOverlaps(regions)
+    const lines = formatOverlapReports(reports)
+    expect(lines, `sliver overlaps found:\n${lines.join('\n')}`).toEqual([])
   })
 
   it('has correct lithology below shallow tests (no wrong formation in sub-TD wedge)', () => {
