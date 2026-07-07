@@ -160,9 +160,6 @@ export function refineLithoPartition(
   const N = options?.samples ?? DEFAULT_SAMPLES
   const out: RefinedPolygon[] = []
 
-  const nadClassOf = (formationId: string): number | null =>
-    nadMeta.get(formationId)?.nadClass ?? null
-
   /**
    * Vertical slice of a region polygon at fraction f. Returns the flattened
    * envelope PLUS the actual solid intervals (even-odd pairing) — a CONCAVE
@@ -307,6 +304,28 @@ export function refineLithoPartition(
     if (L.length === 0) L = R.map((x) => ({ ...x }))
     if (R.length === 0) R = L.map((x) => ({ ...x }))
 
+    // A pinch / lens litho region is a thin wedge that converges to a point;
+    // stratifying it internally by packing class produces the "small dark
+    // sliver wedges" the owner circled (rev-8 §5) and the ONLY cross-class
+    // carve overlaps on the real CS1 (all four lived in pinch regions — proven
+    // by the overlap classifier, 2026-07-07). A pinching wedge is too thin to
+    // meaningfully show internal packing — fill it with its single DOMINANT
+    // (thickest) class, coloured like a normal band. The full fraction carve
+    // is reserved for quad regions, which have the vertical room to stratify.
+    if (r.kind !== 'quad') {
+      const all = [...L, ...R]
+      let fatty = all[0]
+      for (const sp of all) if (sp.fBase - sp.fTop > fatty.fBase - fatty.fTop) fatty = sp
+      out.push({
+        gapIndex: r.gapIndex,
+        regionKind: r.kind,
+        formationId: fatty.formationId,
+        tag: 'band',
+        points: r.polygon.map((p) => ({ fraction: p.fraction, elevation: p.elevation })),
+      })
+      continue
+    }
+
     // Reduce enclosed minorities → lenses; merge their brackets.
     type LensRec = { span: Span; side: 'left' | 'right' }
     const lenses: LensRec[] = []
@@ -425,8 +444,7 @@ export function refineLithoPartition(
         // neighbouring region (the cross-region overlaps the brainstorm's
         // detector caught). Outside → the piece closes vertically at its
         // sample.
-        const xfMid = (A3.xf + B3.xf) / 2
-        const apexInside = (e: number): boolean => {
+        const insideAt = (fx: number, e: number): boolean => {
           let inside = false
           const poly = r.polygon
           for (let q2 = 0, q3 = poly.length - 1; q2 < poly.length; q3 = q2++) {
@@ -434,7 +452,7 @@ export function refineLithoPartition(
             const pb = poly[q3]
             if (
               pa.elevation > e !== pb.elevation > e &&
-              xfMid <
+              fx <
                 pa.fraction +
                   ((e - pa.elevation) / (pb.elevation - pa.elevation)) *
                     (pb.fraction - pa.fraction)
@@ -443,18 +461,42 @@ export function refineLithoPartition(
           }
           return inside
         }
+        // A die/born piece tapers to an apex toward the midpoint. The apex must
+        // stay INSIDE the region polygon — reaching past the boundary pokes
+        // into the neighbour region (the cross-region overlap the reference's
+        // guard prevented). But the reference SUPPRESSED the whole triangle
+        // when the midpoint apex fell outside, which left the die-out wedge as
+        // a dark VOID (rev-8 §5 "small dark sliver wedges"). Instead CLAMP the
+        // apex back along source→midpoint to the region boundary (binary
+        // search: the source sample is inside, the midpoint may be outside), so
+        // the taper FILLS the wedge up to the boundary and never crosses it.
+        const clampReach = (srcF: number, e: number): number => {
+          if (insideAt(midX, e)) return midX
+          let lo = srcF // inside — the piece belongs to the region's solid here
+          let hi = midX // outside
+          for (let it = 0; it < 14; it++) {
+            const mid = (lo + hi) / 2
+            if (insideAt(mid, e)) lo = mid
+            else hi = mid
+          }
+          return lo
+        }
         const closeTri = (a: Piece): void => {
-          if (!apexInside((a[0] + a[1]) / 2)) return
+          const e = (a[0] + a[1]) / 2
+          const apexF = clampReach(A3.sx, e)
+          if (apexF - A3.sx < 1e-4) return // no room to taper (degenerate)
           emitPts([
             { fraction: A3.sx, elevation: a[0] },
-            { fraction: midX, elevation: (a[0] + a[1]) / 2 },
+            { fraction: apexF, elevation: e },
             { fraction: A3.sx, elevation: a[1] },
           ])
         }
         const openTri = (b: Piece): void => {
-          if (!apexInside((b[0] + b[1]) / 2)) return
+          const e = (b[0] + b[1]) / 2
+          const apexF = clampReach(B3.sx, e)
+          if (B3.sx - apexF < 1e-4) return // no room to taper (degenerate)
           emitPts([
-            { fraction: midX, elevation: (b[0] + b[1]) / 2 },
+            { fraction: apexF, elevation: e },
             { fraction: B3.sx, elevation: b[0] },
             { fraction: B3.sx, elevation: b[1] },
           ])
