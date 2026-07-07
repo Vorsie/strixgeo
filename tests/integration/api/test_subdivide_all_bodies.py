@@ -1033,7 +1033,15 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
         f"CPT-A body_ids={cpt_a_body_ids}"
     )
     # No edge-connected BH-A layer may be a NULL-body orphan (the B6-top-KLEI bug).
-    connected_bh_layer_ids = {e.contact_a_id for e in bh_edges} | {e.contact_b_id for e in bh_edges}
+    connected_bh_layer_ids = (
+        {e.contact_a_id for e in bh_edges} | {e.contact_b_id for e in bh_edges}
+    ) & bh_a_layer_ids
+    # Guard against a vacuous pass: on the OLD code (0 borehole edges) this set is
+    # empty and the loop below never runs → ADB-4 would pass for the wrong reason.
+    assert len(connected_bh_layer_ids) >= 1, (
+        "ADB-4 precondition: no BH-A geotech layer is edge-connected — the "
+        "NULL-orphan assertion would be vacuous"
+    )
     for ll in bh_a_layers_after:
         if ll.id in connected_bh_layer_ids:
             assert ll.body_id is not None, (
