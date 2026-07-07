@@ -842,18 +842,61 @@ function extractIntervalMinorities(
   leftTD: number,
   rightTD: number,
   mixedTiedLayerIds?: ReadonlySet<string>,
+  leftTies?: TieSets,
+  rightTies?: TieSets,
+): ExtractedMinority[] {
+  return runIntervalExtraction(
+    leftStack,
+    rightStack,
+    aboveLith,
+    belowLith,
+    leftTD,
+    rightTD,
+    mixedTiedLayerIds,
+    leftTies,
+    rightTies,
+  )
+}
+
+/** Worker for ``extractIntervalMinorities`` — one extraction pass. */
+function runIntervalExtraction(
+  leftStack: PinchUnit[],
+  rightStack: PinchUnit[],
+  aboveLith: string | null,
+  belowLith: string | null,
+  leftTD: number,
+  rightTD: number,
+  mixedTiedLayerIds?: ReadonlySet<string>,
+  leftTies?: TieSets,
+  rightTies?: TieSets,
 ): ExtractedMinority[] {
   const out: ExtractedMinority[] = []
-  const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[], number]> = [
+  const sides: Array<['left' | 'right', PinchUnit[], PinchUnit[], number, TieSets | undefined]> = [
     // The reach guard reads the OTHER column's TD (side 'left' → rightTD).
-    ['left', leftStack, rightStack, rightTD],
-    ['right', rightStack, leftStack, leftTD],
+    ['left', leftStack, rightStack, rightTD, leftTies],
+    ['right', rightStack, leftStack, leftTD, rightTies],
   ]
-  for (const [side, stack, other, otherTD] of sides) {
+  for (const [side, stack, other, otherTD, ties] of sides) {
     // `other` is read-only within this side's loop (only `stack` is spliced),
     // so the formation set is invariant across while-iterations — build it once
     // per side instead of every pass (perf: hot-loop allocation).
     const otherFormations = new Set(other.map((u) => u.formationId))
+    // Tie-count gesture (owner 2/1/0, locked 2026-07-07): with tie sets
+    // available, a unit UNtied on the bracketing contact terminates as a LENS
+    // at its own elevation; a tied one ONLAPS that bracket. Without tie sets
+    // (legacy callers: reduceColumn-era paths, substrate anchors), keep the
+    // structural onlap default so their geometry is unchanged.
+    const kindFor = (u: PinchUnit, edge: 'top' | 'base'): 'onlap' | 'lens' => {
+      if (ties === undefined) return 'onlap'
+      return (edge === 'top' ? ties.top.has(u.layerId) : ties.base.has(u.layerId))
+        ? 'onlap'
+        : 'lens'
+    }
+    // Synthetic bridge / projection units are matrix carriers — never gesture
+    // candidates (a bridge extracted as a lens anchored a wedge at a column
+    // with NO data there — the GAP7 deep-zone dogfeed artifact).
+    const isCandidate = (u: PinchUnit): boolean =>
+      ties === undefined || !isSyntheticLayer(u.layerId)
     let changed = true
     while (changed) {
       changed = false
@@ -866,6 +909,7 @@ function extractIntervalMinorities(
         // A mixed-tied unit is an explicit continuity declaration — never extract
         // it; it must reach the floor walk that raises it to the tied contact.
         if (mixedTiedLayerIds?.has(u.layerId)) continue
+        if (!isCandidate(u)) continue
         if (above.formationId !== below.formationId) continue
         const m = above.formationId
         if (m === u.formationId) continue
@@ -899,13 +943,45 @@ function extractIntervalMinorities(
         // too-shallow neighbour is a DATA VOID — the unit continues sideways.
         if (
           !mixedTiedLayerIds?.has(u.layerId) &&
+          isCandidate(u) &&
           m !== u.formationId &&
           otherFormations.has(m) &&
-          neighbourReaches(otherTD, u.ownTopDepth)
+          // Full-observation guard: the facing column must reach the unit's
+          // BASE before it may terminate it — a straddle unit (top observed,
+          // base in the void) continues sideways per the 2026-06-16 directive
+          // and defers to the next reaching test (owner rule 5).
+          neighbourReaches(otherTD, u.ownBaseDepth)
         ) {
-          out.push({ unit: { ...u }, kind: 'onlap', edge: 'top' })
-          below.ownTopDepth = u.ownTopDepth // matrix grows up to the bracket
-          stack.splice(0, 1)
+          // Tie count decides the gesture: top contact tied → ONLAP on that
+          // bracket (the below-unit grows up behind the overlay); untied →
+          // LENS at its own elevation with NO growth — the vacated span
+          // belongs to the interval matrix (flood/closing fill), never to a
+          // different-formation neighbour (the S8 sand absorbed the silt's
+          // span and wedged over BOTH levels — dogfeed 2026-07-07).
+          const kind = kindFor(u, 'top')
+          out.push(
+            kind === 'onlap' ? { unit: { ...u }, kind, edge: 'top' } : { unit: { ...u }, kind },
+          )
+          if (kind === 'onlap') {
+            below.ownTopDepth = u.ownTopDepth // matrix grows up to the bracket
+            stack.splice(0, 1)
+          } else {
+            // LENS: replace the unit with a MATRIX-formation placeholder of the
+            // same span. The interval walk then emits its usual tiling geometry
+            // (identical polygons, matrix colour) behind the lens overlay, and
+            // the carve cuts the lens out — the owner's "clay behind the
+            // lenses" picture with tiling preserved BY CONSTRUCTION. (A bare
+            // removal left holes; an interval-wide flood double-covered fill
+            // triangles — SEC3.)
+            stack.splice(0, 1, {
+              layerId: `flood:${u.layerId}`,
+              formationId: (belowLith ?? aboveLith)!,
+              bodyId: null,
+              side: u.side,
+              ownTopDepth: u.ownTopDepth,
+              ownBaseDepth: u.ownBaseDepth,
+            })
+          }
           changed = true
           continue
         }
@@ -938,12 +1014,68 @@ function extractIntervalMinorities(
         // extracted as an 11 m onlap down to the far interval base).
         if (
           !mixedTiedLayerIds?.has(u.layerId) &&
+          isCandidate(u) &&
           m !== u.formationId &&
-          neighbourReaches(otherTD, u.ownTopDepth)
+          // Full-observation guard — see the onlap-top branch.
+          neighbourReaches(otherTD, u.ownBaseDepth)
         ) {
-          out.push({ unit: { ...u }, kind: 'onlap', edge: 'base' })
-          above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
-          stack.splice(last, 1)
+          // Tie count decides the gesture — see the onlap-top branch's comment.
+          const kind = kindFor(u, 'base')
+          out.push(
+            kind === 'onlap' ? { unit: { ...u }, kind, edge: 'base' } : { unit: { ...u }, kind },
+          )
+          if (kind === 'onlap') {
+            above.ownBaseDepth = u.ownBaseDepth // matrix grows down to the bracket
+            stack.splice(last, 1)
+          } else {
+            // LENS: matrix placeholder — see the onlap-top branch.
+            stack.splice(last, 1, {
+              layerId: `flood:${u.layerId}`,
+              formationId: (belowLith ?? aboveLith)!,
+              bodyId: null,
+              side: u.side,
+              ownTopDepth: u.ownTopDepth,
+              ownBaseDepth: u.ownBaseDepth,
+            })
+          }
+          changed = true
+          continue
+        }
+      }
+
+      // (4) Lone one-sided unit — the whole stack on this side reduced to one
+      // minority with a matrix bracket (e.g. S8's sand after its silt was
+      // pulled). A 0-tie lone unit is a LENS at its own elevation (owner
+      // 2/1/0); the caller floods the vacated interval with the bracket matrix
+      // and the carve cuts the lens out. Restricted to a ONE-SIDED interval
+      // (other stack empty): two-sided intervals are opposing-pinch /
+      // mismatched-matrix territory and keep their geometry. Tie-set callers
+      // only — legacy paths keep the pinch machinery.
+      if (
+        ties !== undefined &&
+        stack.length === 1 &&
+        other.length === 0 &&
+        (aboveLith !== null || belowLith !== null)
+      ) {
+        const u = stack[0]
+        if (
+          isCandidate(u) &&
+          !mixedTiedLayerIds?.has(u.layerId) &&
+          !ties.top.has(u.layerId) &&
+          !ties.base.has(u.layerId) &&
+          // Full-observation guard — see the onlap-top branch.
+          neighbourReaches(otherTD, u.ownBaseDepth)
+        ) {
+          out.push({ unit: { ...u }, kind: 'lens' })
+          // LENS: matrix placeholder — see the onlap-top branch.
+          stack.splice(0, 1, {
+              layerId: `flood:${u.layerId}`,
+              formationId: (belowLith ?? aboveLith)!,
+              bodyId: null,
+              side: u.side,
+              ownTopDepth: u.ownTopDepth,
+              ownBaseDepth: u.ownBaseDepth,
+            })
           changed = true
           continue
         }
@@ -978,6 +1110,26 @@ export interface MatchUnit {
 
 /** True iff an approved correlation edge directly connects layers ``a`` and ``b``. */
 export type Correlated = (a: string, b: string) => boolean
+
+/**
+ * Per-unit USER-tie lookup toward one facing column (owner 2/1/0 model):
+ * ``top`` / ``base`` hold the layer ids whose top / base contact the engineer
+ * explicitly tied to that neighbour. Built by ``emitGap``'s ``buildTieSets``;
+ * synthetic bridge edges never contribute.
+ */
+interface TieSets {
+  top: ReadonlySet<string>
+  base: ReadonlySet<string>
+}
+
+/**
+ * True for engine-injected units that carry the matrix across data voids —
+ * bridge-injection copies (``'bridge:a:b:k'``) and borehole projections
+ * (``'geo-proj:'``). They are never USER declarations: they neither count as
+ * ties nor terminate with their own gesture.
+ */
+const isSyntheticLayer = (layerId: string): boolean =>
+  layerId.startsWith('bridge:') || layerId.startsWith('geo-proj:') || layerId.startsWith('flood:')
 
 /**
  * How a unit terminates toward ONE neighbour, derived from its bounding-contact
@@ -1429,11 +1581,28 @@ function buildOnlapPolygon(
 ): PartitionPoint[] {
   const surface = unit.side === 'left' ? leftSurface : rightSurface
   const colFrac = unit.side === 'left' ? 0 : 1
-  const tipFrac = unit.side === 'left' ? INTERIOR_PINCH_FRACTION : 1 - INTERIOR_PINCH_FRACTION
+  let tipFrac = unit.side === 'left' ? INTERIOR_PINCH_FRACTION : 1 - INTERIOR_PINCH_FRACTION
   const topElev = surface - unit.ownTopDepth
   const baseElev = surface - unit.ownBaseDepth
   const anchor = edge === 'top' ? topIface : baseIface
-  const tipElev = ifaceElev(anchor, tipFrac, leftSurface, rightSurface)
+  let tipElev = ifaceElev(anchor, tipFrac, leftSurface, rightSurface)
+  // Own-elevation clamp (owner rule 2, locked 2026-07-07): a gesture never
+  // leaves the unit's own [base..top] band — the onlap terminates ON its tied
+  // line WHERE that line passes through the band, not by following it beyond
+  // (OG1 dogfeed: a silt lapping a clay-top line that rises above the silt's
+  // own top must die where the line crosses that top, not climb to elev 9).
+  // Solve the linear crossing between the anchor line and the exceeded bound
+  // along the column→tip segment.
+  if (tipElev > topElev || tipElev < baseElev) {
+    const bound = tipElev > topElev ? topElev : baseElev
+    const e0 = ifaceElev(anchor, colFrac, leftSurface, rightSurface)
+    const denom = tipElev - e0
+    // Degenerate (flat line entirely outside the band): keep a minimal wedge
+    // at the column edge rather than dividing by ~0.
+    const t = Math.abs(denom) < EPS ? 0 : Math.max(0, Math.min(1, (bound - e0) / denom))
+    tipFrac = colFrac + t * (tipFrac - colFrac)
+    tipElev = bound
+  }
   return [
     { fraction: colFrac, elevation: topElev },
     { fraction: tipFrac, elevation: tipElev },
@@ -2165,6 +2334,7 @@ function emitGap(
   skipCarve = false,
   observedLeftTD?: number,
   observedRightTD?: number,
+  useTieGestures = false,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2210,6 +2380,61 @@ function emitGap(
   // the computed TDs when absent (substrate anchors carry no bridges).
   const extractLeftTD = observedLeftTD ?? leftTD
   const extractRightTD = observedRightTD ?? rightTD
+
+  // Per-side USER-tie sets toward the facing column (owner 2/1/0 model, locked
+  // 2026-07-07): which of a unit's two bounding contacts the ENGINEER tied to
+  // the facing neighbour. The count decides the termination gesture in the
+  // interval extraction: 0 → LENS at own elevation, 1 → ONLAP on the tied
+  // contact (2 = band, handled by matchColumns). A TD-tie (mixed base↔top
+  // edge) counts exactly like any other tie: the base-side unit's BASE is
+  // tied, the top-side unit's TOP is tied. Synthetic bridge units and their
+  // auto-chained edges NEVER count — they band the matrix but are not
+  // declarations (counting them made S8's silt look base-tied via the bridge
+  // below it — the gap-7 dogfeed).
+  const buildTieSets = (
+    units: readonly PartitionUnit[],
+    facingUnits: readonly PartitionUnit[],
+  ): TieSets => {
+    const facingIds = new Set(
+      facingUnits.filter((u) => !isSyntheticLayer(u.layerId)).map((u) => u.layerId),
+    )
+    const top = new Set<string>()
+    const base = new Set<string>()
+    for (let ui = 0; ui < units.length; ui++) {
+      const u = units[ui]
+      if (isSyntheticLayer(u.layerId)) continue
+      for (const f of facingUnits) {
+        if (isSyntheticLayer(f.layerId)) continue
+        if (correlated(u.layerId, f.layerId)) top.add(u.layerId)
+        if (baseTied?.(u.layerId, f.layerId)) base.add(u.layerId)
+      }
+      // The layer BELOW's top contact IS this unit's base contact (a contact
+      // is a shared boundary; the app keys it by the lower layer's id). A
+      // synthetic bridge below means the REAL column ENDED here (TD): no user
+      // contact there, so no tie.
+      const below = units[ui + 1]
+      if (below !== undefined && !isSyntheticLayer(below.layerId) && !below.virtual) {
+        for (const f of facingUnits) {
+          if (isSyntheticLayer(f.layerId)) continue
+          if (correlated(below.layerId, f.layerId)) {
+            base.add(u.layerId)
+            break
+          }
+        }
+      }
+    }
+    for (const [k, v] of mixedTiedTopToBase) {
+      if (facingIds.has(v)) top.add(k)
+      if (facingIds.has(k)) base.add(v)
+    }
+    return { top, base }
+  }
+  // Tie-gesture mode is enabled by the PRIMARY per-gap loop only. The
+  // substrate/bracket path keeps the legacy extraction so the deep-zone
+  // carry-through behaviour is unchanged (its refinement is the rule-5
+  // void-deferral work, tracked in the memory file).
+  const leftTies = useTieGestures ? buildTieSets(leftUnits, rightUnits) : undefined
+  const rightTies = useTieGestures ? buildTieSets(rightUnits, leftUnits) : undefined
 
   // -------------------------------------------------------------------------
   // Step 1: Edge-driven monotonic alignment (post-reduction units). An explicit
@@ -2353,6 +2578,8 @@ function emitGap(
       extractLeftTD,
       extractRightTD,
       mixedTiedLayerIds,
+      leftTies,
+      rightTies,
     )) {
       if (min.kind === 'lens') {
         ;(min.unit.side === 'left' ? leftLenses : rightLenses).push({
@@ -3712,6 +3939,7 @@ export function computeSectionFill(
       false, // skipCarve
       preInjectionBaseTD[i], // observed TDs — immune to bridge/gap-close inflation
       preInjectionBaseTD[i + 1],
+      true, // useTieGestures — the owner 2/1/0 model applies on the primary loop
     )
     for (const r of gapRegions) {
       // Lens/onlap overlays are observed-region overlays — never clipped at the

@@ -516,9 +516,13 @@ describe('computePartitionFill', () => {
     expect(presentAt(0.95, -10)).toBe(false) // pinched out — absent on the shallow side
   })
 
-  // CT2 — a same-depth extra bed (NOT below the neighbour's floor) still pinches
-  // (a genuine thinning-out, not a data gap).
-  it('CT2: an unmatched bed within both columns depth still pinches', () => {
+  // CT2 — a same-depth extra bed (NOT below the neighbour's floor) terminates
+  // as a LENS at its own elevation (owner 2/1/0 model, REWRITTEN 2026-07-07:
+  // 0 user ties + a reaching neighbour → lens, superseding the earlier
+  // "still pinches" directive — owner: "right pane if there are no
+  // correlations; for a homogeneous clay à la Roubaix I'd correlate the top
+  // anyway", which routes through the normal band path instead).
+  it('CT2: an unmatched bed within both columns depth terminates as a lens at its own level', () => {
     const left = col('L', 10, [
       { top: 0, base: 9, f: 'clay', b: 'clay' },
       { top: 9, base: 14, f: 'silt', b: 'silt' },
@@ -527,11 +531,16 @@ describe('computePartitionFill', () => {
     const regions = pf(left, right)
     const silt = regions.filter((r) => r.formationId === 'silt')
     expect(silt).toHaveLength(1)
-    expect(silt[0].kind).toBe('pinch')
-    // It is a tapering triangle, NOT a flat full-width band.
+    expect(silt[0].kind).toBe('lens')
+    // One gesture at its OWN elevation: the silt is 1..6 m above base elevation
+    // (surface 10, depths 9..14 → elev -4..1); the lens polygon stays within
+    // that band and never spans to the far column.
     const elevs = silt[0].polygon.map((p) => p.elevation)
-    const isFlat = Math.abs(Math.max(...elevs) - Math.min(...elevs)) < 1e-6
-    expect(isFlat).toBe(false)
+    expect(Math.max(...elevs)).toBeLessThanOrEqual(1 + 1e-6)
+    expect(Math.min(...elevs)).toBeGreaterThanOrEqual(-4 - 1e-6)
+    const fracs = silt[0].polygon.map((p) => p.fraction)
+    expect(Math.min(...fracs)).toBeGreaterThanOrEqual(0) // anchored at its own (left) column
+    expect(Math.max(...fracs)).toBeLessThanOrEqual(0.6) // lens reach, not a gap-spanning wedge
   })
 
   // CT3 — below the matched SILT band, L has a deep KLEI and R has an even deeper

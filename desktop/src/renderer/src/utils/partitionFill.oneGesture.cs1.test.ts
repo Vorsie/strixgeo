@@ -114,24 +114,11 @@ describe('CS1 one-gesture arbiters (real frozen data)', () => {
     expect(offenders, `matrix wedged into the banded silt:\n${offenders.join('\n')}`).toEqual([])
   })
 
-  // KNOWN-RED (documented owner spec, 2026-07-07 dogfeed — `it.fails` keeps the
-  // suite green; implementing the spec flips this test and forces the marker's
-  // removal). Current engine: the silt is extracted as an onlap and the SAND
-  // ABSORBS its span (`above.ownBaseDepth = u.ownBaseDepth` in the onlap-base
-  // branch), so the sand's gesture extends below its own base and wedges over
-  // both levels. Owner spec: BOTH 0-tie units are LENSES at their own
-  // elevation; S11's clay floods the interval over them.
-  // ⚠ IMPLEMENTATION CONFLICT (why this is not a quick fix): a strict
-  // tie-count implementation (0-tie → lens + matrix flood) was built and
-  // CONTRADICTED six previously-pinned owner behaviours — CT2 ("an unmatched
-  // bed still pinches"), SEC3 (deep package connects), VOID-A /
-  // sideways-under-shallow-TD, T-MIXED-OVER-PINCH, the substrate sideways
-  // continuation, and OG1's onlap. Those pins encode earlier owner directives
-  // (geometry-tier banding, sideways data-void rule) that the strict 2/1/0
-  // model overrides in places. Reconciling WHICH old behaviours yield to the
-  // new model is an owner decision list — see
+  // GREEN since the locked 2/1/0 implementation (2026-07-07 evening): user-tie
+  // count with observed-reach guard, no span absorption, matrix flood. The
+  // full spec + decision history lives in
   // memory/project_partition_one_gesture_2_1_0.md.
-  it.fails('CS1-OG-B — gap 7 (S11→S8): 0 ties leftward → S8 units LENS at their own level, clay floods the gap', () => {
+  it('CS1-OG-B — gap 7 (S11→S8): 0 ties leftward → S8 units LENS at their own level, clay floods the gap', () => {
     // col-08 (S8): ZAND elev [-2.94 .. -1.52], SILT [-3.50 .. -2.94]. There are
     // NO correlation edges between col-07 and col-08 → toward the left both
     // units are 0-tie → LENS (owner 2/1/0 model, re-confirmed on dogfeed
