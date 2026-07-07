@@ -746,12 +746,29 @@ function reduceColumn(
         // shape via its own (sideways-default) path.
         above.baseDepthM = u.baseDepthM // absorb only the vacated space
         units.splice(i, 1) // remove u; keep below
-      } else if (above.formationId === below.formationId) {
+      } else if (
+        above.formationId === below.formationId &&
+        // Merge into ONE continuous band ONLY if the lithology actually bands
+        // ACROSS to the neighbour — a bounding contact of the enclosing matrix
+        // is correlated (a silt lens inside a sand that CONTINUES on the other
+        // column). If NEITHER bracket correlates, the two same-lithology beds do
+        // NOT continue across (the neighbour has a different lithology at that
+        // elevation): they are DISTINCT bodies that each pinch/lens on their own
+        // — fusing them was the dogfeed 2026-07-07 bug where S5B's two ZAND beds
+        // (a SILT between, neither correlated to S11's silt) merged into one big
+        // sand lens instead of reading as two.
+        (correlatedToNeighbour.has(above.layerId) ||
+          correlatedToNeighbour.has(below.layerId) ||
+          baseTiedToNeighbour.has(above.layerId) ||
+          baseTiedToNeighbour.has(below.layerId))
+      ) {
         above.baseDepthM = below.baseDepthM // same matrix both sides → merge so it connects continuously
         units.splice(i, 2) // remove u + below (below folded into above)
       } else {
-        // Between two DIFFERENT bands → the thicker neighbour floods over the
-        // vacated space (closes the gap); the bed pinches out as a lens.
+        // Between two DIFFERENT bands (different formation, OR same lithology
+        // that does not band across) → the thicker neighbour floods over the
+        // vacated space (closes the gap); the bed pinches out as a lens, and the
+        // two brackets stay separate (each terminates on its own).
         if (thick(above) >= thick(below)) above.baseDepthM = u.baseDepthM
         else below.topDepthM = u.topDepthM
         units.splice(i, 1)
