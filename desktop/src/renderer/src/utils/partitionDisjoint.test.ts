@@ -170,6 +170,41 @@ describe('makeGapRegionsDisjoint', () => {
     makeGapRegionsDisjoint([a, b])
     expect(area(a.polygon)).toBeCloseTo(beforeA, 9)
   })
+
+  it('repairs a self-intersecting ring in place (Phase 0) preserving its fill area', () => {
+    // An asymmetric bowtie (nonzero net area): repairing it to a simple ring must
+    // preserve the nonzero-winding fill and leave a disjoint result.
+    const bowtie = region(0, 'sand', [
+      { fraction: 0, elevation: 10 },
+      { fraction: 1, elevation: 2 },
+      { fraction: 1, elevation: 6 },
+      { fraction: 0, elevation: 2 },
+    ])
+    const other = region(0, 'clay', rect(0, 1, 1, -4))
+    const regions = [bowtie, other]
+    makeGapRegionsDisjoint(regions)
+    // No pairwise overlap remains, and the sand still covers a clearly-inside point.
+    expect(findNonLensOverlaps(regions)).toEqual([])
+    const sandRegions = regions.filter((r) => r.formationId === 'sand')
+    expect(sandRegions.some((r) => sampledPointInPoly(0.2, 5, r.polygon))).toBe(true)
+  })
+
+  it('resolves an overlap where the earlier region is concave (notched matrix)', () => {
+    // Earlier region is a concave (notched) quad — the matrix shape after a lens
+    // carve; later region is a clean quad poking a hairline into its base. The
+    // pass must still make the pair disjoint through the concave minuend.
+    const earlier = region(0, 'sand', [
+      { fraction: 0, elevation: 10 },
+      { fraction: 1, elevation: 10 },
+      { fraction: 1, elevation: 0 },
+      { fraction: 0.5, elevation: 5 }, // concave notch pointing inward
+      { fraction: 0, elevation: 0 },
+    ])
+    const later = region(0, 'clay', rect(0, 1, -0.02, -6))
+    const regions = [earlier, later]
+    makeGapRegionsDisjoint(regions)
+    expect(findNonLensOverlaps(regions)).toEqual([])
+  })
 })
 
 // --- local sampled helpers (independent of the production winding code) ---
