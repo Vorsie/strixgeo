@@ -1,5 +1,26 @@
 # Handoff — Geotech Fraction-Space Refinement: IMPLEMENT NOW — 2026-07-06
 
+> **✅ IMPLEMENTED 2026-07-07** on worktree branch `feat-geotech-fraction-refinement`
+> (off `feat-geotech-body-samples-3d`, UNPUSHED). Engine
+> `desktop/.../utils/refineLithoPartition.ts` (pure port of the rev-8 `carvePanel`
+> + two polish wins: pinch/lens → single dominant class, apex-reach void clamp).
+> Frozen-CS1 gate (`refineLithoPartition.cs1frozen.test.ts`) at **zero cross-class
+> overlap** ("one packing class per point" — same-class self-overlaps excluded as
+> harmless + present in the accepted rev-8). Render harness
+> (`refineLithoPartition.render.test.ts`, `GEOTECH_RENDER=1` →
+> `geotech_refine_preview.html`) = the eyeball surface. In-app wiring done
+> (SectionsCanvas flip + bundle → SectionPanel → PartitionFillOverlay, RF1-4 tests);
+> **the in-app VISUAL is owner-dogfeed-pending** (green vitest/tsc/hook-order don't
+> catch this god-component's TDZ/visual bugs). Backend bug FIXED (shared
+> `application/geotech_edge_derivation.py`; DivideBoreholes derives borehole-mediated
+> edges + re-resolves body_id; ADB-1..4 + 11 SAB/BH integration tests green). Full
+> suite: 2149 vitest + 1583 backend unit + tsc + hook-order all green. §5 artifact
+> classification: the pinch slivers + cross-class overlaps are eliminated (pinch
+> single-fill); residual sub-visual voids are a mix of small carve-tapers (apex
+> clamp reduces them) + engine #228 gaps (parallel session). §1 rule-8 (geo
+> policy-b) + §4 #227 remain DEFERRED as designed.
+
+
 **For a fresh implementation session.** The design was locked tonight in an
 8-revision browser brainstorm with the owner on the REAL CS1 (dev DB). Every
 rule below was forced by a real defect the owner caught — none is speculative.
