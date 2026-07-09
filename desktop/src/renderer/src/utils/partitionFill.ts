@@ -3749,6 +3749,15 @@ export function computeSectionFill(
       bodyId: string | null
       naturalTopElev: number
       naturalBaseElev: number
+      // Mixed-tie wedge (rewriteB): when the LO unit's lithology differs from the
+      // bridge formation (deeper endpoint), the LO lithology is what actually
+      // continues across and tapers to the tie point (e.g. S11 mid-clay top+base both
+      // tie to S10's sand-top → a CLAY wedge pinching to that point, NOT a sand band).
+      loFormationId: string
+      // Base converged toward hi's TOP elevation (the tie point) so top AND base meet
+      // at a single point → a clean wedge, not a sand-shaped bridge that follows hi's
+      // base. Only used when loFormationId !== formationId (mixed tie).
+      wedgeBaseElev: number
     }
     const candidatesByCol = new Map<number, BridgeCandidate[]>()
 
@@ -3770,12 +3779,26 @@ export function computeSectionFill(
         const t = (k - lo.colIndex) / span
         const naturalTopElev = lo.topElev + t * (hi.topElev - lo.topElev)
         const naturalBaseElev = lo.baseElev + t * (hi.baseElev - lo.baseElev)
+        // Wedge base = lo's base interpolated toward hi's TOP (the tie point) so a
+        // mixed-tie band tapers to a point instead of following hi's (different-litho)
+        // base. Combined with naturalTopElev (already → hi.topElev) this gives a clean
+        // wedge that pinches out at hi.
+        const wedgeBaseElev = lo.baseElev + t * (hi.topElev - lo.baseElev)
         const cands = candidatesByCol.get(k) ?? []
         // Dedup by (loId, hiId): the same pair may appear as both a top-tie and a
         // base-tie edge record — the bridge unit shape is identical regardless of
         // edge kind, so keep only one candidate per (lo, hi) pair.
         if (!cands.some((c) => c.loId === loId && c.hiId === hiId)) {
-          cands.push({ loId, hiId, formationId, bodyId, naturalTopElev, naturalBaseElev })
+          cands.push({
+            loId,
+            hiId,
+            formationId,
+            bodyId,
+            naturalTopElev,
+            naturalBaseElev,
+            loFormationId: lo.formationId,
+            wedgeBaseElev,
+          })
         }
         candidatesByCol.set(k, cands)
       }
@@ -3802,8 +3825,18 @@ export function computeSectionFill(
       const kSurf = cols[k].surface
       let currentTopDepth = realBaseTD[k]
       for (const cand of cands) {
+        // Mixed-tie wedge (correlate-or-gap only): a bridge whose LO lithology differs
+        // from the deeper-endpoint formation is a CONTACT tie, not a shared band — the
+        // LO unit continues and tapers to the tie point. Carry the LO lithology and the
+        // converged wedge base so it renders as (e.g.) a clay wedge pinching out toward
+        // the sand, instead of a sand-shaped bridge that overwrites the clay (gap-7
+        // S11 mid-clay → S10 sand-top, owner dogfeed 2026-07-10). The substrate path
+        // keeps the old deeper-formation bridge (the substrate owns below-TD shape).
+        const mixedWedge = rewriteB && cand.loFormationId !== cand.formationId
+        const bridgeFormationId = mixedWedge ? cand.loFormationId : cand.formationId
+        const baseElev = mixedWedge ? cand.wedgeBaseElev : cand.naturalBaseElev
         const naturalTopDepth = kSurf - cand.naturalTopElev
-        const naturalBaseDepth = kSurf - cand.naturalBaseElev
+        const naturalBaseDepth = kSurf - baseElev
         // Clip top to be no shallower than real data and no shallower than the previous
         // bridge's base (the fill frontier). Also respect the natural top so a single
         // deep bridge does not get anchored at realBaseTD and create an artificial gap.
@@ -3815,7 +3848,7 @@ export function computeSectionFill(
           cols[k].units.push({
             topDepthM: bridgeTopDepth,
             baseDepthM: naturalBaseDepth,
-            formationId: cand.formationId,
+            formationId: bridgeFormationId,
             bodyId: cand.bodyId,
             layerId: bridgeLayerId,
             // Bridge units carry a real formation and are correlated via synthetic
