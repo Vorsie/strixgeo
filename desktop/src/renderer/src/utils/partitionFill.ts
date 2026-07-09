@@ -5659,7 +5659,13 @@ export function computeBracketSubstrate(
             u.layerId !== capDeep.layerId &&
             (correlated(u.layerId, capDeep.layerId) || (baseTied?.(u.layerId, capDeep.layerId) ?? false))
           if (!tied) return u
-          const below = units[idx + 1] ?? units[idx - 1]
+          // Demote ONLY into the matrix directly BELOW (the substrate re-bridges a
+          // shallow tied band member that has deeper stratigraphy under it — S8). A
+          // DEEPEST tied unit (e.g. a basal clay that is itself a both-sides-tied band,
+          // GEO-23/125-S9 gap 12) has nothing below it and must NOT be demoted — doing so
+          // reclassified it to the unit ABOVE (silt) and drooped the silt through the
+          // basal clay to the section floor.
+          const below = units[idx + 1]
           return below ? { ...u, formationId: below.formationId, bodyId: below.bodyId } : u
         })
       }
