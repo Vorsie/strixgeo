@@ -231,6 +231,14 @@ export interface PartitionRegion {
    * ``undefined``; the renderer ignores it (both tiers draw as overlays).
    */
   overlayTier?: 'onlap' | 'lens'
+  /**
+   * Set on a matched-band quad that is an EXPLICIT user correlation (the pair
+   * carries a correlation/base-tie edge) AND dips below the gap's shallow-TD cap.
+   * A user correlation is absolute (owner directive 2026-07-08) — the cap MUST NOT
+   * chop it flat; it is kept down to this elevation (its own tied base) and the
+   * deep-to-deep substrate is carved around it. Undefined for every other region.
+   */
+  tiedBandBase?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -2068,6 +2076,7 @@ function emitOneSidedPinch(
   rightSurface: number,
   f: number,
   apexElevFloor = -Infinity,
+  belowIsTiedBand = false,
 ): PartitionRegion[] {
   const apexFraction = side === 'left' ? f : 1 - f
 
@@ -2146,7 +2155,32 @@ function emitOneSidedPinch(
   } else if (above) {
     out.push({ formationId: above.formationId, bodyId: above.bodyId, kind: 'quad', polygon: [topCorner, conv, apex] })
   } else if (below) {
-    out.push({ formationId: below.formationId, bodyId: below.bodyId, kind: 'quad', polygon: [baseCorner, apex, conv] })
+    // At the surface the below matrix normally RISES to fill the interval. But a
+    // user-correlated (tagged) band ENDS at its ties — it must not rise above its
+    // own top (owner directive 2026-07-09: "onlap the clay on the band and fill
+    // above with clay"). When the below unit is such a band AND the interval apex
+    // bulges ABOVE the band's top on the opposite (degenerate) column
+    // (``apex.elevation > conv.elevation``: the pinch-side surface sits higher than
+    // the band top, so a rising band would overshoot its tie), fill the wedge with
+    // the ADJACENT pinch material (the overlying lithology that onlaps the band)
+    // instead of the band's own material — so the band stays a clean quad and the
+    // overlying unit closes down to its top tie, with no spurious below-band bulge
+    // and no coincident-edge sliver. When ``apex.elevation == conv.elevation`` the
+    // band already reaches the interval top on the opposite side (a genuine surface
+    // pinch, e.g. a lone Veen over a continuous Klei) — the below-rise is correct,
+    // so the guard leaves it untouched.
+    const deepestPinch = sorted.length > 0 ? sorted[sorted.length - 1] : null
+    const bandOvershoots = belowIsTiedBand && apex.elevation > conv.elevation + EPS
+    const surfaceFill =
+      bandOvershoots && deepestPinch !== null
+        ? { formationId: deepestPinch.formationId, bodyId: deepestPinch.bodyId }
+        : below
+    out.push({
+      formationId: surfaceFill.formationId,
+      bodyId: surfaceFill.bodyId,
+      kind: 'quad',
+      polygon: [baseCorner, apex, conv],
+    })
   }
   return out
 }
@@ -2591,10 +2625,19 @@ function emitGap(
       ? { formationId: prevQuadFormationId!, bodyId: prevQuadBodyId }
       : null
     let belowMatrix: { formationId: string; bodyId: string | null } | null = null
+    // Whether the below matched pair carries an explicit user correlation/base-tie
+    // (a tagged band). A tagged band must not RISE into a surface interval — the
+    // surface fill uses the overlying pinch material instead (owner directive
+    // 2026-07-09). Only meaningful when ``above`` is null (surface interval); a
+    // deeper interval always has an above matrix so the ``below``-rise never fires.
+    let belowIsTiedBand = false
     if (!isFloor) {
-      const [mli] = matchedPairs[pairIdx]
+      const [mli, mri] = matchedPairs[pairIdx]
       const u = leftUnits[mli]
       belowMatrix = { formationId: u.formationId, bodyId: u.bodyId }
+      belowIsTiedBand =
+        correlated(u.layerId, rightUnits[mri].layerId) ||
+        (baseTied?.(u.layerId, rightUnits[mri].layerId) ?? false)
     }
 
     // Interval-scoped minority extraction: pull lenses (enclosed by the matrix)
@@ -2643,6 +2686,7 @@ function emitGap(
       base: Interface,
       above: { formationId: string; bodyId: string | null } | null,
       below: { formationId: string; bodyId: string | null } | null,
+      belowIsTiedBand = false,
     ): void => {
       if (pool.length === 0) return
       const sides = new Set(pool.map((p) => p.side))
@@ -2660,6 +2704,7 @@ function emitGap(
             rightSurface,
             INTERIOR_PINCH_FRACTION,
             capElev,
+            belowIsTiedBand,
           ),
         )
       } else {
@@ -3048,7 +3093,7 @@ function emitGap(
       finalAbove = runAbove
     }
 
-    emitPinchRun(pinchPool, finalTop, intervalBase, finalAbove, belowMatrix)
+    emitPinchRun(pinchPool, finalTop, intervalBase, finalAbove, belowMatrix, belowIsTiedBand)
 
     // Emit the quad (if not the floor sentinel).
     if (!isFloor) {
@@ -3136,13 +3181,57 @@ function emitGap(
         const leftH = quadBase.leftDepth - quadTop.leftDepth
         const rightH = quadBase.rightDepth - quadTop.rightDepth
         if (leftH >= EPS || rightH >= EPS) {
+          // A user correlation is absolute: when this matched pair carries an
+          // explicit edge (correlation or base-tie) AND its base dips below the
+          // gap's shallow-TD cap, tag it so the cap keeps it whole down to its own
+          // base and the substrate is carved around it (owner directive 2026-07-08).
+          // Tag ONLY a band both columns genuinely OBSERVE — a real user
+          // correlation. A synthetic bridge/gapfill unit (a jump tie injected across
+          // a shallow test that lies BETWEEN two correlated deep tests, e.g. the
+          // S11↔S10 sand/silt over the shallow S8) is an AUTOFILL, not a per-gap
+          // observation: exempting it keeps a mis-shaped pinch-triangle toward the
+          // shallow column's data void. Leaving it un-tagged caps it at the shallow
+          // TD so the deep-to-deep substrate bridges it straight across UNDER the
+          // shallow test (owner directive 2026-07-09: user correlations > autofills —
+          // the real correlation is honoured by the substrate bridge, not the
+          // per-gap injection artifact).
+          const isCorrBand =
+            (correlated(lu.layerId, ru.layerId) || (baseTied?.(lu.layerId, ru.layerId) ?? false)) &&
+            !isSyntheticLayer(lu.layerId) &&
+            !isSyntheticLayer(ru.layerId)
+          // Keep the band down to the OBSERVED-DEEPER column's matched-unit base —
+          // NOT min(lu,ru) base: the bridge/floor injection can extend the SHALLOW
+          // column's TD unit far below its real base (a jump-tie artifact), which
+          // would drag the tied base into interpolated space (case-4 S7A→4.65). The
+          // observed-deeper column's unit carries the real tie contact.
+          const obsDeepIsLeft = (observedLeftTD ?? leftFloor) > (observedRightTD ?? rightFloor)
+          const tiedBase = obsDeepIsLeft ? leftBaseE : rightBaseE
+          const tiedBandBase = isCorrBand && tiedBase < capElev - EPS ? tiedBase : undefined
+          // For a tagged band, rebuild the base from OBSERVED depths (clamp each
+          // side to its column's observed TD). Otherwise the injection's extension
+          // of the shallow TD unit (S7A silt → depth of elev 4.65) slants the band
+          // base into interpolated space; clipping it flat then leaves the base
+          // below the shallow test's real base, inside the neighbouring clay
+          // (GAP-17 case-3 overlap). The band must dip only between the two
+          // OBSERVED contacts (S7A 10.42 → S7c 10.11).
+          const bandBase =
+            tiedBandBase !== undefined
+              ? clampIface(
+                  {
+                    leftDepth: Math.min(lu.baseDepthM, observedLeftTD ?? lu.baseDepthM),
+                    rightDepth: Math.min(ru.baseDepthM, observedRightTD ?? ru.baseDepthM),
+                  },
+                  quadTop,
+                )
+              : quadBase
           regions.push({
             formationId: lu.formationId,
             bodyId: lu.bodyId,
             kind: 'quad',
-            polygon: buildQuadPolygon(quadTop, quadBase, leftSurface, rightSurface),
+            polygon: buildQuadPolygon(quadTop, bandBase, leftSurface, rightSurface),
+            ...(tiedBandBase !== undefined ? { tiedBandBase } : {}),
           })
-          prevQuadBase = quadBase
+          prevQuadBase = bandBase
           prevQuadFormationId = lu.formationId
           prevQuadBodyId = lu.bodyId
         } else {
@@ -3921,6 +4010,11 @@ export function computeSectionFill(
   }
 
   const out: SectionRegion[] = []
+  // Correlated bands kept below the shallow-TD cap (per gap), collected in the cap
+  // loop from ``tiedBandBase``-tagged regions. The deep-to-deep substrate — MATRIX
+  // *and* its own lenses — is carved around these absolute user correlations so
+  // nothing double-draws below the cap (owner directive 2026-07-08).
+  const exemptBandsByGap = new Map<number, PartitionPoint[][]>()
   for (let i = 0; i < cols.length - 1; i++) {
     const left = { surface: cols[i].surface, units: cols[i].units.map((u) => ({ ...u })) }
     const right = { surface: cols[i + 1].surface, units: cols[i + 1].units.map((u) => ({ ...u })) }
@@ -4006,6 +4100,19 @@ export function computeSectionFill(
         out.push({ ...r, gapIndex: i })
         continue
       }
+      // Absolute correlated band: the cap MUST NOT chop it. Keep it whole down to
+      // its own tied base (clip only the part BELOW the tie, which no data reaches)
+      // and register it so the substrate is carved around it.
+      if (r.tiedBandBase !== undefined) {
+        const kept = clipPolyAboveElev(r.polygon, r.tiedBandBase)
+        if (hasArea(kept)) {
+          out.push({ ...r, polygon: kept, gapIndex: i })
+          const g = exemptBandsByGap.get(i) ?? []
+          g.push(kept)
+          exemptBandsByGap.set(i, g)
+        }
+        continue
+      }
       let minE = Infinity
       for (const p of r.polygon) if (p.elevation < minE) minE = p.elevation
       // Entirely at-or-above the shallow TD: pass through UNCHANGED (running it
@@ -4050,6 +4157,29 @@ export function computeSectionFill(
       allEdgedLayerIds,
     }),
   )
+  // Sanitize substrate polygons: the deep-to-deep pass can emit a SELF-INTERSECTING
+  // ring (e.g. two enclosing-clay pinches fused into one bad loop), which
+  // ``subtractPolygon`` returns UNCHANGED — so an absolute band could not carve it
+  // and ended up overlapping it (the synthetic "band floods the substrate" +
+  // real-data geotech cross-class gate, owner 2026-07-08). Repair each into simple
+  // nonzero-winding rings (same filled area → render unchanged) so the carve below
+  // can bite. A simple ring passes through cleaned; a zero-area ring drops.
+  {
+    const sanitized: SectionRegion[] = []
+    for (let idx = substrateStart; idx < out.length; idx++) {
+      const r = out[idx]
+      // Only repair genuinely self-intersecting rings — a simple ring (``earClip``
+      // succeeds) passes through untouched so a valid concave substrate polygon
+      // (e.g. the deep sand) is never split.
+      if (earClip(r.polygon) !== null) {
+        sanitized.push(r)
+        continue
+      }
+      for (const ring of simplifyRing(r.polygon)) sanitized.push({ ...r, polygon: ring })
+    }
+    out.length = substrateStart
+    out.push(...sanitized)
+  }
 
   // Carve the substrate around the gap phase's OVERLAYS (2026-07-07). An
   // extracted lens/onlap overlay is observed data and is never cap-clipped, so
@@ -4061,29 +4191,66 @@ export function computeSectionFill(
   // subtraction is a no-op), and a gap with no substrate bracket (VOID-B) has
   // nothing to carve — the overlay stays the sole below-cap cover there.
   {
-    const overlaysByGap = new Map<number, PartitionPoint[][]>()
+    const lensOverlaysByGap = new Map<number, PartitionPoint[][]>()
     for (let idx = 0; idx < substrateStart; idx++) {
       const r = out[idx]
       if (r.kind !== 'lens') continue
-      const g = overlaysByGap.get(r.gapIndex) ?? []
+      const g = lensOverlaysByGap.get(r.gapIndex) ?? []
       g.push(r.polygon)
-      overlaysByGap.set(r.gapIndex, g)
+      lensOverlaysByGap.set(r.gapIndex, g)
     }
-    if (overlaysByGap.size > 0 && out.length > substrateStart) {
+    if ((lensOverlaysByGap.size > 0 || exemptBandsByGap.size > 0) && out.length > substrateStart) {
       const carved: SectionRegion[] = []
       for (let idx = substrateStart; idx < out.length; idx++) {
         const r = out[idx]
-        const ov = r.kind === 'lens' ? undefined : overlaysByGap.get(r.gapIndex)
-        if (ov === undefined) {
-          carved.push(r)
-          continue
+        let polys: PartitionPoint[][] = [r.polygon]
+        // An absolute correlated band carves EVERY substrate region it overlaps,
+        // INCLUDING the substrate's own lenses — the deep-to-deep pass has no idea
+        // the engineer tied that band across, so it double-derives it (the case-4
+        // double-draw). The user correlation wins.
+        const bands = exemptBandsByGap.get(r.gapIndex)
+        if (bands && bands.length > 0) {
+          polys = polys.flatMap((p) => subtractPolygon(p, bands))
         }
-        const pieces = subtractPolygon(r.polygon, ov)
-        for (const p of pieces) carved.push({ ...r, polygon: p })
+        // Regular lens/onlap overlays carve only substrate MATRIX (a substrate lens
+        // is itself observed data and must not be carved by another overlay).
+        if (r.kind !== 'lens') {
+          const lo = lensOverlaysByGap.get(r.gapIndex)
+          if (lo && lo.length > 0) {
+            polys = polys.flatMap((p) => subtractPolygon(p, lo))
+          }
+        }
+        for (const p of polys) carved.push({ ...r, polygon: p })
       }
       out.length = substrateStart
       out.push(...carved)
     }
+  }
+
+  // Absolute-correlation final carve (owner directive 2026-07-08). A tagged band
+  // is the engineer's correlation and WINS over every OTHER same-gap region —
+  // primary OR substrate. Subtract each gap's kept bands from every non-lens
+  // region that is not itself a kept band, so nothing double-covers the band
+  // below the cap (GAP-17 case-3 clay over the kept silt band; the earlier
+  // substrate-only carve missed a region the substrate pass tagged to a different
+  // gapIndex). Above the cap the bands only share contact lines with their tiled
+  // neighbours, so the subtraction is a no-op there; the final makeGapRegionsDisjoint
+  // still cleans any hairline residue.
+  if (exemptBandsByGap.size > 0) {
+    const rebuilt: SectionRegion[] = []
+    for (const r of out) {
+      const bands =
+        r.kind !== 'lens' && r.tiedBandBase === undefined
+          ? exemptBandsByGap.get(r.gapIndex)
+          : undefined
+      if (bands && bands.length > 0) {
+        for (const p of subtractPolygon(r.polygon, bands)) rebuilt.push({ ...r, polygon: p })
+      } else {
+        rebuilt.push(r)
+      }
+    }
+    out.length = 0
+    out.push(...rebuilt)
   }
 
   mergeSplitBodyRegions(out)
@@ -5469,8 +5636,41 @@ export function computeBracketSubstrate(
       // deep anchors, clip to the band, slice to gap i's fraction within [L, R].
       // lensApexOverrides is undefined (substrate is straight deep-to-deep, not
       // lens-shaped); the band's gapIndex is set on each sliced region.
-      const left = { surface: cols[L].surface, units: truncateToBand(cols[L], bandBottom, bandTop) }
-      const right = { surface: cols[R].surface, units: truncateToBand(cols[R], bandBottom, bandTop) }
+      //
+      // CAP-BAND DOUBLE-DRAW GUARD (item-a, S8 dogfeed 2026-07-09). The intervening
+      // shallow column that caps this gap (its TD == bandTop in the first band) has a
+      // deepest unit the engineer may have CORRELATED across to an anchor — that
+      // pairing is the PRIMARY tagged band (emitGap keeps it below the cap down to its
+      // tied base). The deep-to-deep substrate must NOT re-bridge that same shallow
+      // lithology below the cap, or it double-draws the unit ~0.16 m under the shallow
+      // TD (a merged sliver: S8 silt to 9.13 instead of its own base 9.29). So on the
+      // FIRST (cap-touching) band, demote the anchor's tied partner unit to the matrix
+      // directly beneath it — the bridge then runs matrix↔matrix at that level and the
+      // clay fills under the cap, matching the owner's Panel-3 target (band ends at its
+      // tie; clay below). The exempt-band carve keeps the primary band non-overlapping
+      // at the anchor edge.
+      const firstBand = bandTop <= shallowTdElev(i) + SPAN_EPS
+      const capCol = tdElev[i] >= tdElev[i + 1] ? i : i + 1
+      const capDeep = cols[capCol].units[cols[capCol].units.length - 1]
+      const demoteCapPartner = (units: PartitionUnit[]): PartitionUnit[] => {
+        if (!firstBand || capDeep == null) return units
+        return units.map((u, idx) => {
+          const tied =
+            u.layerId !== capDeep.layerId &&
+            (correlated(u.layerId, capDeep.layerId) || (baseTied?.(u.layerId, capDeep.layerId) ?? false))
+          if (!tied) return u
+          const below = units[idx + 1] ?? units[idx - 1]
+          return below ? { ...u, formationId: below.formationId, bodyId: below.bodyId } : u
+        })
+      }
+      const left = {
+        surface: cols[L].surface,
+        units: demoteCapPartner(truncateToBand(cols[L], bandBottom, bandTop)),
+      }
+      const right = {
+        surface: cols[R].surface,
+        units: demoteCapPartner(truncateToBand(cols[R], bandBottom, bandTop)),
+      }
       if (left.units.length === 0 || right.units.length === 0) {
         // One anchor has no data in this band — continue whichever anchor DOES have
         // data flat-sideways across the band, so the band is never left void.
