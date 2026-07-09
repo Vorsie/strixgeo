@@ -5636,47 +5636,8 @@ export function computeBracketSubstrate(
       // deep anchors, clip to the band, slice to gap i's fraction within [L, R].
       // lensApexOverrides is undefined (substrate is straight deep-to-deep, not
       // lens-shaped); the band's gapIndex is set on each sliced region.
-      //
-      // CAP-BAND DOUBLE-DRAW GUARD (item-a, S8 dogfeed 2026-07-09). The intervening
-      // shallow column that caps this gap (its TD == bandTop in the first band) has a
-      // deepest unit the engineer may have CORRELATED across to an anchor — that
-      // pairing is the PRIMARY tagged band (emitGap keeps it below the cap down to its
-      // tied base). The deep-to-deep substrate must NOT re-bridge that same shallow
-      // lithology below the cap, or it double-draws the unit ~0.16 m under the shallow
-      // TD (a merged sliver: S8 silt to 9.13 instead of its own base 9.29). So on the
-      // FIRST (cap-touching) band, demote the anchor's tied partner unit to the matrix
-      // directly beneath it — the bridge then runs matrix↔matrix at that level and the
-      // clay fills under the cap, matching the owner's Panel-3 target (band ends at its
-      // tie; clay below). The exempt-band carve keeps the primary band non-overlapping
-      // at the anchor edge.
-      const firstBand = bandTop <= shallowTdElev(i) + SPAN_EPS
-      const capCol = tdElev[i] >= tdElev[i + 1] ? i : i + 1
-      const capDeep = cols[capCol].units[cols[capCol].units.length - 1]
-      const demoteCapPartner = (units: PartitionUnit[]): PartitionUnit[] => {
-        if (!firstBand || capDeep == null) return units
-        return units.map((u, idx) => {
-          const tied =
-            u.layerId !== capDeep.layerId &&
-            (correlated(u.layerId, capDeep.layerId) || (baseTied?.(u.layerId, capDeep.layerId) ?? false))
-          if (!tied) return u
-          // Demote ONLY into the matrix directly BELOW (the substrate re-bridges a
-          // shallow tied band member that has deeper stratigraphy under it — S8). A
-          // DEEPEST tied unit (e.g. a basal clay that is itself a both-sides-tied band,
-          // GEO-23/125-S9 gap 12) has nothing below it and must NOT be demoted — doing so
-          // reclassified it to the unit ABOVE (silt) and drooped the silt through the
-          // basal clay to the section floor.
-          const below = units[idx + 1]
-          return below ? { ...u, formationId: below.formationId, bodyId: below.bodyId } : u
-        })
-      }
-      const left = {
-        surface: cols[L].surface,
-        units: demoteCapPartner(truncateToBand(cols[L], bandBottom, bandTop)),
-      }
-      const right = {
-        surface: cols[R].surface,
-        units: demoteCapPartner(truncateToBand(cols[R], bandBottom, bandTop)),
-      }
+      const left = { surface: cols[L].surface, units: truncateToBand(cols[L], bandBottom, bandTop) }
+      const right = { surface: cols[R].surface, units: truncateToBand(cols[R], bandBottom, bandTop) }
       if (left.units.length === 0 || right.units.length === 0) {
         // One anchor has no data in this band — continue whichever anchor DOES have
         // data flat-sideways across the band, so the band is never left void.
