@@ -3917,7 +3917,17 @@ export function computeSectionFill(
           const lastReal = c.units[lastRealIdx]
           const firstBridge = c.units[firstBridgeIdx]
           if (firstBridge.topDepthM > lastReal.baseDepthM + EPS) {
-            lastReal.baseDepthM = firstBridge.topDepthM
+            // Case A (bridge crosses ABOVE the column's real data — its top is at/above
+            // the real TD): weld the real unit up to it (no gap). Case B (bridge sits
+            // BELOW the real TD): a genuine data void. In the correlate-or-gap model
+            // (rewriteB) that void MUST stay a gap — do NOT drag the real unit down to a
+            // DISTANT correlation's deep bridge (gap-15: a far clay bridge over-extended
+            // S10's sand from -3.24 to -7.29). The substrate path keeps welding because
+            // the substrate owns/redraws below-TD.
+            const bridgeBelowRealTD = firstBridge.topDepthM > realBaseTD[ci] + EPS
+            if (!(rewriteB && bridgeBelowRealTD)) {
+              lastReal.baseDepthM = firstBridge.topDepthM
+            }
           }
         }
       }
@@ -4062,6 +4072,34 @@ export function computeSectionFill(
     const lensesRight = reduceColumn(right.units, leftIds, correlated, leftTD, baseTied, allEdgedLayerIds, gapMixedTied)
     collapseAdjacentSameFormation(left.units)
     collapseAdjacentSameFormation(right.units)
+    // DIAGNOSTIC GAP_PROBE (env-gated; keep — owner directive to keep diagnostics):
+    // GAP_PROBE=<i>[,<i>...] dumps the post-reduce match structure for those gaps so a
+    // cross-column band/onlap defect can be read directly. Run with
+    // `--disableConsoleIntercept` under vitest.
+    if (
+      typeof process !== 'undefined' &&
+      process.env?.GAP_PROBE &&
+      process.env.GAP_PROBE.split(',').includes(String(i))
+    ) {
+      const gl = (f: string): string =>
+        ({ '38d1bc': 'ZAND', '19bb43': 'KLEI', '0f2e06': 'SILT', '512af4': 'VEEN' })[f.slice(-6)] ?? f.slice(-6)
+      const gd = (u: { layerId: string; topDepthM: number; baseDepthM: number; formationId: string }, s: number): string =>
+        `${gl(u.formationId)} [${(s - u.topDepthM).toFixed(2)}..${(s - u.baseDepthM).toFixed(2)}] ${u.layerId.slice(0, 12)}`
+      // eslint-disable-next-line no-console
+      console.error(`\n=== GAP ${i} PROBE  L=cols[${i}] R=cols[${i + 1}] ===`)
+      // eslint-disable-next-line no-console
+      console.error('LEFT :', left.units.map((u) => gd(u, left.surface)))
+      // eslint-disable-next-line no-console
+      console.error('RIGHT:', right.units.map((u) => gd(u, right.surface)))
+      for (const lu of left.units)
+        for (const ru of right.units) {
+          const cc = correlated(lu.layerId, ru.layerId)
+          const bt = baseTied?.(lu.layerId, ru.layerId) ?? false
+          if (cc || bt)
+            // eslint-disable-next-line no-console
+            console.error(`  ${gd(lu, left.surface)} <> ${gd(ru, right.surface)} corr=${cc} baseTied=${bt}`)
+        }
+    }
     // Side context for the carry-through, NEAREST-FIRST from each facing column
     // outward: leftward starts with col i and walks toward index 0; rightward
     // starts with col i+1 and walks toward the section end. The facing columns
