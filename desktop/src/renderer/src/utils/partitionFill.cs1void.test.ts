@@ -602,6 +602,46 @@ describe('CS1 real-data partition void gate', () => {
     expect(offenders, `home-column over-draws found:\n${offenders.join('\n')}`).toEqual([])
   })
 
+  it("each column's deepest observed lithology renders at its own TD (no droop through the basal unit)", () => {
+    // Explicit-content invariant the other gate cases miss: at a column's OWN fraction,
+    // just above its TD, the rendered non-lens lithology MUST equal the column's deepest
+    // observed unit — the column drilled to there, so that lithology is ground truth. The
+    // GEO-23/125-S9 dogfeed (2026-07-09): the deep-to-deep substrate drooped a silt
+    // straight through S9's both-sides-tied basal clay to the section floor — a wrong
+    // lithology at the basal unit that produced NO void and NO cross-formation overlap
+    // (it replaced the clay), so every other gate case stayed green. This is that guard.
+    const inPoly = inPolygon
+    const offenders: string[] = []
+    for (let c = 0; c < cols.length; c++) {
+      const col = cols[c]
+      const surf = col.surfaceElevM
+      const deepest = col.units.reduce((a, b) => (b.baseDepthM > a.baseDepthM ? b : a))
+      const tdElev = surf - deepest.baseDepthM
+      const sampleY = tdElev + 0.1 // just inside the deepest observed unit
+      // c is the left edge (frac 0) of gap c and the right edge (frac 1) of gap c-1.
+      for (const [gap, frac] of [
+        [c, 0.02],
+        [c - 1, 0.98],
+      ] as const) {
+        const regs = byGap.get(gap)
+        if (!regs) continue
+        const cover = regs.filter((r) => r.kind !== 'lens' && inPoly(frac, sampleY, r.polygon))
+        if (cover.length === 0) continue // void is caught by the coverage test.
+        if (!cover.some((r) => r.formationId === deepest.formationId)) {
+          const got = [...new Set(cover.map((r) => r.formationId.slice(-6)))].join(',')
+          offenders.push(
+            `col${c} gap${gap} @${sampleY.toFixed(2)}: got …${got} expected deepest …${deepest.formationId.slice(-6)}`,
+          )
+        }
+      }
+    }
+    if (offenders.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-BASAL] wrong lithology at TD:\n  ' + offenders.join('\n  '))
+    }
+    expect(offenders, `basal-lithology droops found:\n${offenders.join('\n')}`).toEqual([])
+  })
+
   it('has no cross-formation overlap in any gap (true partition, one lithology per point)', () => {
     const offenders: string[] = []
     for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
