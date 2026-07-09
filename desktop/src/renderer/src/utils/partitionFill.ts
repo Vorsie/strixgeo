@@ -4216,7 +4216,12 @@ export function computeSectionFill(
       baseTied,
       mixedTiedTopToBase,
       layerBaseElevLookup,
-      shallowTd, // cap: phantom bands extend below via tiedBandBase (not the apex-clamp)
+      // rewriteB: pass -Infinity so emitGap never clamps a one-sided pinch apex to the
+      // shallow TD (the "silt spike" bug — an uncapped pinch tapers past the TD to a
+      // clean point). Without the substrate the cap has no function; with it on,
+      // tiedBandBase already guards exempt bands, so the apex-clamp is only needed
+      // for the non-rewriteB path.
+      rewriteB ? -Infinity : shallowTd,
       false, // skipCarve
       preInjectionBaseTD[i], // observed TDs — immune to bridge/gap-close inflation
       preInjectionBaseTD[i + 1],
@@ -4232,6 +4237,14 @@ export function computeSectionFill(
       edges.length > 0,
     )
     for (const r of gapRegions) {
+      // rewriteB: no substrate → no cap-clip needed. Push every region as-is so
+      // the intentional voids below shallow TDs remain empty (the "correlate here"
+      // cue). The tiedBandBase / exempt-band / clipPolyAboveElev paths all exist
+      // to coordinate with the substrate, which is OFF under rewriteB.
+      if (rewriteB) {
+        out.push({ ...r, gapIndex: i })
+        continue
+      }
       // Lens/onlap overlays are observed-region overlays — never clipped at the
       // cap. An extracted overlay CAN extend below the facing column's TD (a
       // deep-column minority lapping a band that dips under the shallow TD —
@@ -4294,14 +4307,20 @@ export function computeSectionFill(
   const along =
     alongM && alongM.length === columns.length ? alongM : columns.map((_, i) => i)
   const substrateStart = out.length
-  out.push(
-    ...computeBracketSubstrate(columns, edges, along, {
-      correlated,
-      baseTied,
-      mixedTiedTopToBase,
-      allEdgedLayerIds,
-    }),
-  )
+  // rewriteB: correlate-or-gap model — no automatic below-TD interpolation.
+  // Uncorrelated space below a shallow TD is an INTENTIONAL GAP (the "correlate
+  // here" cue). Owner directive 2026-07-09: get rid of the interpolation altogether;
+  // do NOT mix automatic interpolation with manual correlation bands.
+  if (!rewriteB) {
+    out.push(
+      ...computeBracketSubstrate(columns, edges, along, {
+        correlated,
+        baseTied,
+        mixedTiedTopToBase,
+        allEdgedLayerIds,
+      }),
+    )
+  }
   // Sanitize substrate polygons: the deep-to-deep pass can emit a SELF-INTERSECTING
   // ring (e.g. two enclosing-clay pinches fused into one bad loop), which
   // ``subtractPolygon`` returns UNCHANGED — so an absolute band could not carve it
