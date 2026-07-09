@@ -45,6 +45,11 @@ interface RawColumn {
 interface RawInput {
   columns: RawColumn[]
   edges: CorrelationEdge[]
+  /** Real along-section metre position per column (index-aligned to ``columns``).
+   *  The app passes this to computeSectionFill; WITHOUT it the deep-to-deep
+   *  substrate uses uniform spacing and the geometry diverges from the live
+   *  render (the gate then validates a partition the user never sees). */
+  along?: number[]
 }
 
 /** Nonzero-winding point-in-polygon (x=fraction, y=elevation) — matches the SVG
@@ -179,14 +184,16 @@ describe('CS1 real-data partition void gate', () => {
   }
 
   const raw = JSON.parse(readFileSync(INPUT_PATH, 'utf8')) as RawInput
-  const columns: PartitionColumn[] = raw.columns
-    .filter((c) => c.surfaceElevM != null)
-    .map((c) => ({
-      investigationId: c.investigationId,
-      surfaceElevM: c.surfaceElevM as number,
-      units: c.units,
-    }))
-  const regions = computeSectionFill(columns, raw.edges)
+  const keep = raw.columns.map((c, i) => ({ c, i })).filter(({ c }) => c.surfaceElevM != null)
+  const columns: PartitionColumn[] = keep.map(({ c }) => ({
+    investigationId: c.investigationId,
+    surfaceElevM: c.surfaceElevM as number,
+    units: c.units,
+  }))
+  // Real along-section spacing (matches the app). computeSectionFill accepts an
+  // alongM aligned to the FULL column list, so index by the pre-filter position.
+  const alongM = raw.along ? keep.map(({ i }) => (raw.along as number[])[i]) : undefined
+  const regions = computeSectionFill(columns, raw.edges, undefined, alongM)
 
   // Gap g is between cols[g] and cols[g+1] (computeSectionFill drops empty columns).
   const cols = columns.filter((c) => c.units.length > 0)
@@ -488,6 +495,111 @@ describe('CS1 real-data partition void gate', () => {
       console.info('[CS1-SLIVER] overlaps:\n  ' + lines.join('\n  '))
     }
     expect(lines, `sliver overlaps found:\n${lines.join('\n')}`).toEqual([])
+  })
+
+  it('no unit renders past its own observed [top,base] at its home column (same-formation shape guard)', () => {
+    // The void/overlap tests are BLIND to a same-formation shape bug: a unit drawn
+    // CONTIGUOUSLY past its own observed base at its home column (no void, no
+    // cross-formation overlap — just too much of one lithology). This was the S8
+    // dogfeed (2026-07-09): the deep-to-deep substrate double-drew S8's tied silt
+    // 0.16 m below its observed base 9.29 (to 9.13), merging with the band into a
+    // silt reaching lower than S8 ever saw. The earlier under-column fix (32dc292e)
+    // shipped without a guard here and silently regressed — this test is that guard.
+    //
+    // Invariant: at a column's own fraction, a non-lens region that IS the rendering
+    // of one of that column's OBSERVED units — same formation AND capping at that
+    // unit's observed TOP — must not extend below the unit's observed BASE (± tol).
+    //
+    // The "caps at the observed top" match is the load-bearing guard that exempts the
+    // legitimate deep-to-deep substrate (which renders the SAME LITHOLOGY far below a
+    // shallow test's TD — a deeper, separate unit the test never saw). A dipping band
+    // reaches its home column's observed contacts exactly (top == observed top, base ==
+    // observed base), so a region whose top coincides with the observed top IS that
+    // unit's rendering and its base must coincide too. A deep-bridge quad caps at the
+    // unit's UNDERSIDE (well below the observed top), so it is not matched. bodyId is
+    // useless here — it over-lumps a column's shallow and deep same-lithology units
+    // into one body. The S8 double-draw capped at the silt's observed top 9.85 but
+    // reached 9.13, 0.16 m below its observed base 9.29 — matched + flagged.
+    const TOL = 0.05 // m — a real over-draw (0.16 m at S8) clears this; a band bases exactly at TOL=0.
+    const TOP_TOL = 0.1 // m — region top must coincide with the observed unit top to match.
+
+    // Min/max rendered elevation of a region at a fraction (max over crossing edges).
+    const spanAt = (r: SectionRegion, f: number): [number, number] | null => {
+      const ys: number[] = []
+      const p = r.polygon
+      for (let i = 0; i < p.length; i++) {
+        const a = p[i]
+        const b = p[(i + 1) % p.length]
+        const lo = Math.min(a.fraction, b.fraction)
+        const hi = Math.max(a.fraction, b.fraction)
+        if (f < lo - 1e-9 || f > hi + 1e-9) continue
+        if (Math.abs(hi - lo) < 1e-9) ys.push(a.elevation, b.elevation)
+        else ys.push(a.elevation + ((f - a.fraction) / (b.fraction - a.fraction)) * (b.elevation - a.elevation))
+      }
+      if (ys.length < 2) return null
+      return [Math.min(...ys), Math.max(...ys)]
+    }
+
+    const offenders: string[] = []
+    for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
+      // A gap's two edges are its own columns: frac 0 → cols[gap], frac 1 → cols[gap+1].
+      for (const [frac, colIdx] of [
+        [0.0, gap],
+        [1.0, gap + 1],
+      ] as const) {
+        const c = cols[colIdx]
+        if (c === undefined) continue
+        const surf = c.surfaceElevM
+        // Deepest observed base per formation on this column — the floor a rendering of
+        // that formation may reach at its home column (merged multi-unit quads legitimately
+        // span from the shallowest same-lithology top to the DEEPEST same-lithology base).
+        const tops = new Map<string, number[]>()
+        const deepestBase = new Map<string, number>()
+        for (const u of c.units) {
+          const topE = surf - u.topDepthM
+          const baseE = surf - u.baseDepthM
+          ;(tops.get(u.formationId) ?? tops.set(u.formationId, []).get(u.formationId)!).push(topE)
+          deepestBase.set(u.formationId, Math.min(deepestBase.get(u.formationId) ?? Infinity, baseE))
+        }
+        for (const r of regs) {
+          if (r.kind === 'lens') continue // overlays are observed data on their own column.
+          const span = spanAt(r, frac)
+          if (span === null) continue
+          const [rlo, rhi] = span
+          const observedTops = tops.get(r.formationId)
+          if (observedTops === undefined) continue // formation not observed here → interpolated.
+          // The region must CAP at an observed top of its formation to be that formation's
+          // rendering on this column — a deep-bridge quad of the same lithology tops out
+          // below every observed top and is exempt.
+          if (!observedTops.some((t) => Math.abs(rhi - t) <= TOP_TOL)) continue
+          const floor = deepestBase.get(r.formationId)!
+          if (rlo < floor - TOL) {
+            // The over-draw is a BUG only when the lithology sliver sits on top of a
+            // DIFFERENT lithology below it (a false extra layer — the S8 silt over clay).
+            // The deepest matrix unit legitimately continuing DOWN to the bottom-tie line
+            // has nothing (or the same lithology) below it. Require a different-formation
+            // non-lens region just below the over-drawn base.
+            const belowY = rlo - 0.1
+            const different = regs.some(
+              (o) =>
+                o.kind !== 'lens' &&
+                o.formationId !== r.formationId &&
+                inPolygon(frac === 0 ? 0.02 : 0.98, belowY, o.polygon),
+            )
+            if (different) {
+              offenders.push(
+                `GAP-${gap} col${colIdx} f=${frac} …${r.formationId.slice(-6)}: base ${rlo.toFixed(2)} < deepest observed ${floor.toFixed(2)} over a different lithology`,
+              )
+            }
+          }
+        }
+      }
+    }
+    if (offenders.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-HOMECOL] over-draws:\n  ' + offenders.join('\n  '))
+    }
+    expect(offenders, `home-column over-draws found:\n${offenders.join('\n')}`).toEqual([])
   })
 
   it('has no cross-formation overlap in any gap (true partition, one lithology per point)', () => {
