@@ -1163,11 +1163,6 @@ interface TieSets {
  */
 const isSyntheticLayer = (layerId: string): boolean =>
   layerId.startsWith('bridge:') ||
-  // 'phantom:' units are interpolated cross-column injections for mixed-tie edges
-  // (e.g. S11 KLEI tied top+base to S10 ZAND, so the KLEI band is interpolated
-  // onto the intervening shallow S8). Like bridges they must never be extracted
-  // as interval minorities — they ARE the cross-column band, not a lens.
-  layerId.startsWith('phantom:') ||
   layerId.startsWith('geo-proj:') ||
   layerId.startsWith('flood:') ||
   // 'gapfill:' units are formation-correct synthetic fillers injected between
@@ -3200,15 +3195,10 @@ function emitGap(
           // shallow test (owner directive 2026-07-09: user correlations > autofills —
           // the real correlation is honoured by the substrate bridge, not the
           // per-gap injection artifact).
-          // Phantom layers injected by the cross-column bridge pass ARE correlated
-          // (they carry bridgeTopEdges into the edgeSet) and must reach tiedBandBase
-          // so they render below the shallow TD cap and get registered as exempt bands
-          // (preventing the substrate from overlapping them). All other synthetic kinds
-          // (bridge:, geo-proj:, flood:, gapfill:) still don't qualify.
           const isCorrBand =
             (correlated(lu.layerId, ru.layerId) || (baseTied?.(lu.layerId, ru.layerId) ?? false)) &&
-            (!isSyntheticLayer(lu.layerId) || lu.layerId.startsWith('phantom:')) &&
-            (!isSyntheticLayer(ru.layerId) || ru.layerId.startsWith('phantom:'))
+            !isSyntheticLayer(lu.layerId) &&
+            !isSyntheticLayer(ru.layerId)
           // Keep the band down to the OBSERVED-DEEPER column's matched-unit base —
           // NOT min(lu,ru) base: the bridge/floor injection can extend the SHALLOW
           // column's TD unit far below its real base (a jump-tie artifact), which
@@ -3673,7 +3663,14 @@ export function computeSectionFill(
   }
   // THROWAWAY REWRITE_B prototype flag (owner 2026-07-09): correlate-or-gap model —
   // uncapped emitGap (no apex-clamp-to-shallow-TD), no substrate. Remove after build.
-  const rewriteB = typeof process !== 'undefined' && !!process.env?.REWRITE_B
+  // DOGFEED TOGGLE (uncommitted, 2026-07-09): the app (Electron renderer) has no
+  // process.env.REWRITE_B, so to let the owner dogfeed the new model LIVE it is ON
+  // by default EVERYWHERE EXCEPT under vitest (process.env.VITEST), where the gates
+  // still need the old substrate path. A test can force the new path with REWRITE_B=1.
+  // Stage 2 makes this the permanent default and deletes the flag + substrate.
+  const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
+  const rewriteB =
+    (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
   cols.forEach((c) => closeColumnGaps(c.units))
 
   // Snapshot of each column's total depth BEFORE bridge injection AND before
@@ -3741,19 +3738,6 @@ export function computeSectionFill(
     // injected only once; both edge kinds register their synthetic chain edges.
     const injectedBridgeIds = new Set<string>()
 
-    // Real along-section positions for the filtered `cols` array, mirroring the
-    // substrate's `keep.map(i => alongM[i])` approach (feedback_partitionfill_needs_alongm).
-    // Used by the phantom injection (rewriteB mixed-formation case) to interpolate
-    // geometry using true spatial fractions rather than column-index fractions.
-    const colsAlong: readonly number[] = (() => {
-      if (!alongM || alongM.length !== columns.length) return cols.map((_, i) => i)
-      const result: number[] = []
-      for (let oi = 0; oi < columns.length; oi++) {
-        if (columns[oi].units.length > 0) result.push(alongM[oi])
-      }
-      return result
-    })()
-
     // Pass 1: collect bridge candidates per intermediate column. Multiple edges can
     // target the same intermediate column k; collecting first prevents the overlapping
     // injection bug (a shallow bridge from one edge can be entirely contained inside a
@@ -3765,17 +3749,6 @@ export function computeSectionFill(
       bodyId: string | null
       naturalTopElev: number
       naturalBaseElev: number
-      // Extra fields for the rewriteB phantom injection (mixed-formation TOP tie).
-      // When lo's formation ≠ the bridge formationId (which picks hi's formation for
-      // a deeper hi), the normal bridge would carry the wrong lithology.  Instead a
-      // phantom with lo's formation is injected, with geometry converging toward
-      // hi's top elevation (the natural convergence point for the mixed tie).
-      loFormationId: string
-      loTopElev: number
-      loBaseElev: number
-      hiTopElev: number
-      hiColIndex: number // column index of the hi endpoint (for phantom counterpart injection)
-      tAlongFrac: number // along-fraction for col k between lo and hi
     }
     const candidatesByCol = new Map<number, BridgeCandidate[]>()
 
@@ -3802,27 +3775,7 @@ export function computeSectionFill(
         // base-tie edge record — the bridge unit shape is identical regardless of
         // edge kind, so keep only one candidate per (lo, hi) pair.
         if (!cands.some((c) => c.loId === loId && c.hiId === hiId)) {
-          // True along-fraction for k between lo and hi (uses real metre spacing when
-          // available; falls back to column-index fraction when along is uniform).
-          const loAlongM = colsAlong[lo.colIndex]
-          const hiAlongM = colsAlong[hi.colIndex]
-          const kAlongM = colsAlong[k]
-          const tAlongFrac =
-            hiAlongM > loAlongM ? (kAlongM - loAlongM) / (hiAlongM - loAlongM) : t
-          cands.push({
-            loId,
-            hiId,
-            formationId,
-            bodyId,
-            naturalTopElev,
-            naturalBaseElev,
-            loFormationId: lo.formationId,
-            loTopElev: lo.topElev,
-            loBaseElev: lo.baseElev,
-            hiTopElev: hi.topElev,
-            hiColIndex: hi.colIndex,
-            tAlongFrac,
-          })
+          cands.push({ loId, hiId, formationId, bodyId, naturalTopElev, naturalBaseElev })
         }
         candidatesByCol.set(k, cands)
       }
@@ -3856,75 +3809,6 @@ export function computeSectionFill(
         // deep bridge does not get anchored at realBaseTD and create an artificial gap.
         const bridgeTopDepth = Math.max(naturalTopDepth, currentTopDepth)
         if (naturalBaseDepth <= bridgeTopDepth + EPS) continue // zero or negative thickness
-
-        // Under rewriteB: mixed-formation TOP tie (lo's formation ≠ bridge formationId
-        // means the normal path would inject hi's formation instead of lo's).  Inject a
-        // phantom with lo's formation whose geometry converges toward hi's top elevation
-        // (the natural convergence point for the mixed tie — e.g. S11 KLEI top ↔ S10
-        // ZAND top means the KLEI band narrows to a point at S10's ZAND surface).
-        //
-        // Two-phantom strategy (2026-07-09):
-        //   phantom_k — on the intervening shallow column k; starts at the fill frontier
-        //     (currentTopDepth) to eliminate any gap above it that would cause a void or
-        //     a spurious gap-fill unit; base converges toward hi's top elevation.
-        //   phantom_hi — zero-thickness counterpart on the hi column, placed exactly at
-        //     the convergence depth (hi's top).  matchColumns pairs phantom_k ↔ phantom_hi
-        //     (same formation, direct edge) → emits as a BAND degenerate quad (triangle)
-        //     converging to a POINT at the hi column.  Without this counterpart, phantom_k
-        //     is unmatched in gap (k, hi) and falls into emitOneSidedPinch at the
-        //     INTERIOR_PINCH_FRACTION (f=0.5) instead of converging to f=1 (hi).
-        if (rewriteB && cand.loFormationId !== cand.formationId) {
-          const t = cand.tAlongFrac
-          const phantomTopElev = cand.loTopElev + t * (cand.hiTopElev - cand.loTopElev)
-          // Base converges toward hiTopElev (the convergence point for the mixed tie).
-          const phantomBaseElev = cand.loBaseElev + t * (cand.hiTopElev - cand.loBaseElev)
-          const kSurfPh = cols[k].surface
-          const phTopDepth = kSurfPh - phantomTopElev
-          const phBaseDepth = kSurfPh - phantomBaseElev
-          // Start phantom at the fill frontier (currentTopDepth), not its interpolated
-          // natural top. This closes the gap between the preceding bridge unit's base
-          // and the phantom's natural top — no void between SILT bridge and KLEI phantom,
-          // no spurious gap-fill unit inserted by Fix(b), clean SILT→KLEI transition.
-          const effectiveTopDepth = currentTopDepth
-          if (phBaseDepth > effectiveTopDepth + EPS) {
-            const phantomLayerId = `phantom:${cand.loId}:${cand.hiId}:${k}`
-            const phantomHiLayerId = `phantom:${cand.loId}:${cand.hiId}:${cand.hiColIndex}`
-            if (!injectedBridgeIds.has(phantomLayerId)) {
-              // Phantom on the intervening column k.
-              cols[k].units.push({
-                topDepthM: effectiveTopDepth,
-                baseDepthM: phBaseDepth,
-                formationId: cand.loFormationId,
-                bodyId: null,
-                layerId: phantomLayerId,
-              })
-              injectedBridgeIds.add(phantomLayerId)
-            }
-            if (!injectedBridgeIds.has(phantomHiLayerId)) {
-              // Zero-thickness counterpart on the hi column at the convergence depth.
-              // matchColumns pairs phantom_k ↔ phantom_hi (same formation + direct edge)
-              // → emits as a degenerate quad (triangle) converging to a point at hi.
-              const hiSurf = cols[cand.hiColIndex].surface
-              const hiConvergenceDepth = hiSurf - cand.hiTopElev
-              cols[cand.hiColIndex].units.push({
-                topDepthM: hiConvergenceDepth,
-                baseDepthM: hiConvergenceDepth,
-                formationId: cand.loFormationId,
-                bodyId: null,
-                layerId: phantomHiLayerId,
-              })
-              injectedBridgeIds.add(phantomHiLayerId)
-            }
-            // Tie phantom_k ↔ lo (enables BAND in gap lo→k; lo's unit is correlated
-            // to phantom_k so classifyTermination returns 'band' on both sides).
-            bridgeTopEdges.push({ a: phantomLayerId, b: cand.loId })
-            // Tie phantom_k ↔ phantom_hi (enables matching in gap k→hi; gives the
-            // phantom 2 correlated ties toward hi → 'band' → not pulled as a lens).
-            bridgeTopEdges.push({ a: phantomLayerId, b: phantomHiLayerId })
-            currentTopDepth = phBaseDepth
-          }
-          continue // skip the wrong-formation normal bridge for this candidate
-        }
 
         const bridgeLayerId = `bridge:${cand.loId}:${cand.hiId}:${k}`
         if (!injectedBridgeIds.has(bridgeLayerId)) {
@@ -4023,11 +3907,7 @@ export function computeSectionFill(
         let firstBridgeIdx = -1
         for (let bi = 0; bi < c.units.length; bi++) {
           const u = c.units[bi]
-          if (
-            !u.layerId.startsWith('bridge:') &&
-            !u.layerId.startsWith('gapfill:') &&
-            !u.layerId.startsWith('phantom:')
-          ) {
+          if (!u.layerId.startsWith('bridge:') && !u.layerId.startsWith('gapfill:')) {
             lastRealIdx = bi
           } else if (firstBridgeIdx === -1) {
             firstBridgeIdx = bi
@@ -4046,8 +3926,8 @@ export function computeSectionFill(
       for (let bi = 0; bi < c.units.length - 1; bi++) {
         const curr = c.units[bi]
         const next = c.units[bi + 1]
-        if (!curr.layerId.startsWith('bridge:') && !curr.layerId.startsWith('phantom:')) continue
-        if (!next.layerId.startsWith('bridge:') && !next.layerId.startsWith('phantom:')) continue
+        if (!curr.layerId.startsWith('bridge:')) continue
+        if (!next.layerId.startsWith('bridge:')) continue
         const gapTopDepth = curr.baseDepthM
         const gapBaseDepth = next.topDepthM
         if (gapBaseDepth <= gapTopDepth + EPS) continue // no real gap
