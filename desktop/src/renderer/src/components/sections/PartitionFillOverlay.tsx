@@ -940,6 +940,64 @@ export default function PartitionFillOverlay({
       `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions`,
     )
 
+    // TEMP-DEVTOOLS: auto-fires for GEO-23/125-S9 (override by setting
+    // `window.__FILLLOG='<name substring>'`). Logs every region in gaps touching a
+    // matching column + the correlations, with lithology + spatial extents. Deduped
+    // to once per distinct region set. Remove after the dogfeed.
+    const fillLog = ((globalThis as Record<string, unknown>).__FILLLOG as string | undefined) ?? 'GEO-23/125-S9'
+    const dbg = globalThis as Record<string, unknown>
+    const fillSig = `${fillLog}|${sectionRegions.length}|${edges.length}`
+    if (fillLog && dbg.__FILLLOG_SIG !== fillSig) {
+      dbg.__FILLLOG_SIG = fillSig
+      const LITHO: Record<string, string> = { '38d1bc': 'ZAND', '19bb43': 'KLEI', '0f2e06': 'SILT', '512af4': 'VEEN' }
+      const lith = (fid: string): string => LITHO[fid.slice(-6)] ?? fid.slice(-6)
+      const nameById = new Map<string, string>()
+      for (const col of placedColumns as readonly PlacedColumn[]) nameById.set(col.proj.item.id, col.proj.item.name ?? col.proj.item.id.slice(-6))
+      const nm = (i: number): string => nameById.get(orderedColumns[i]?.investigationId ?? '') ?? `col${i}`
+      const surfById = new Map<string, number>()
+      for (const c of orderedColumns) surfById.set(c.investigationId, c.surfaceElevM)
+      const layerInfo = new Map<string, { inv: string; te: number; be: number; fid: string }>()
+      for (const layer of lithoLayers) {
+        if (layer.status !== 'accepted') continue
+        const inv = layer.cpt_id ?? layer.borehole_id
+        const surf = inv ? surfById.get(inv) : undefined
+        if (surf === undefined || !inv) continue
+        layerInfo.set(layer.id, { inv, te: surf - layer.depth_top_m, be: surf - layer.depth_base_m, fid: layer.formation_id })
+      }
+      const gapsOfInterest = new Set<number>()
+      orderedColumns.forEach((c, i) => {
+        if ((nameById.get(c.investigationId) ?? '').includes(fillLog)) {
+          if (i > 0) gapsOfInterest.add(i - 1)
+          gapsOfInterest.add(i)
+        }
+      })
+      const lines: string[] = [`\n\n🟩🟩🟩 FILL LOG (focus "${fillLog}") 🟩🟩🟩`]
+      for (const g of [...gapsOfInterest].sort((a, b) => a - b)) {
+        if (g >= orderedColumns.length - 1) continue
+        lines.push(`\n--- GAP ${g}  ${nm(g)} → ${nm(g + 1)} ---`)
+        for (const r of sectionRegions.filter((x) => x.gapIndex === g)) {
+          const L = r.polygon.filter((p) => p.fraction < 0.001).map((p) => p.elevation)
+          const R = r.polygon.filter((p) => p.fraction > 0.999).map((p) => p.elevation)
+          const ls = L.length ? `L[${Math.min(...L).toFixed(2)}..${Math.max(...L).toFixed(2)}]` : 'L[·]'
+          const rs = R.length ? `R[${Math.min(...R).toFixed(2)}..${Math.max(...R).toFixed(2)}]` : 'R[·]'
+          const tb = (r as { tiedBandBase?: number }).tiedBandBase
+          lines.push(`  ${lith(r.formationId).padEnd(4)} ${r.kind.padEnd(5)} ${ls} ${rs}${tb !== undefined ? ` tied=${tb.toFixed(2)}` : ''}`)
+        }
+      }
+      lines.push('\n--- CORRELATIONS touching focus columns ---')
+      for (const e of edges) {
+        const a = layerInfo.get(e.a)
+        const b = layerInfo.get(e.b)
+        if (!a || !b) continue
+        const an = nameById.get(a.inv) ?? ''
+        const bn = nameById.get(b.inv) ?? ''
+        if (!an.includes(fillLog) && !bn.includes(fillLog)) continue
+        lines.push(`  ${an}(${(e as { aSide?: string }).aSide ?? '?'}) ${lith(a.fid)}[${a.te.toFixed(2)}..${a.be.toFixed(2)}] <-> ${bn}(${(e as { bSide?: string }).bSide ?? '?'}) ${lith(b.fid)}[${b.te.toFixed(2)}..${b.be.toFixed(2)}]`)
+      }
+      // eslint-disable-next-line no-console
+      console.log(lines.join('\n'))
+    }
+
     return { sectionRegions, orderedColumns, gapXs, apexOverrides }
   }, [
     orderedInvs,
@@ -1227,6 +1285,18 @@ export default function PartitionFillOverlay({
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
     type Fill = { key: string; points: string; color: string; formationId: string }
+    // Correlate-or-gap model (rewriteB): the strip below each shallow test's TD is an
+    // intentional GAP ("correlate here"), NOT automatic substrate. computeSectionFill
+    // no longer emits the deep-to-deep fill there, but this SEPARATE under-column pass
+    // (computeUnderColumnSubstrate) kept painting the old interpolated fill on top —
+    // the "clay spilling over silt/sand" dogfeed (owner 2026-07-10). Gate it off with
+    // the SAME rewriteB toggle as computeSectionFill: in the app (renderer, no VITEST)
+    // this is always on → no under-column substrate; under vitest the overlay tests
+    // keep the old behaviour. (The geotech refinement pass is separate and unchanged.)
+    const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
+    const rewriteB =
+      (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
+    if (rewriteB) return [] as Fill[]
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
