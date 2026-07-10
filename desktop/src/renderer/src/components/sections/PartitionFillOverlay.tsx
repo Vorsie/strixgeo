@@ -944,7 +944,7 @@ export default function PartitionFillOverlay({
     // `window.__FILLLOG='<name substring>'`). Logs every region in gaps touching a
     // matching column + the correlations, with lithology + spatial extents. Deduped
     // to once per distinct region set. Remove after the dogfeed.
-    const fillLog = ((globalThis as Record<string, unknown>).__FILLLOG as string | undefined) ?? 'GEO-23/125-S9'
+    const fillLog = ((globalThis as Record<string, unknown>).__FILLLOG as string | undefined) ?? 'GEO-10/170-S8'
     const dbg = globalThis as Record<string, unknown>
     const fillSig = `${fillLog}|${sectionRegions.length}|${edges.length}`
     if (fillLog && dbg.__FILLLOG_SIG !== fillSig) {
@@ -1285,18 +1285,6 @@ export default function PartitionFillOverlay({
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
     type Fill = { key: string; points: string; color: string; formationId: string }
-    // Correlate-or-gap model (rewriteB): the strip below each shallow test's TD is an
-    // intentional GAP ("correlate here"), NOT automatic substrate. computeSectionFill
-    // no longer emits the deep-to-deep fill there, but this SEPARATE under-column pass
-    // (computeUnderColumnSubstrate) kept painting the old interpolated fill on top —
-    // the "clay spilling over silt/sand" dogfeed (owner 2026-07-10). Gate it off with
-    // the SAME rewriteB toggle as computeSectionFill: in the app (renderer, no VITEST)
-    // this is always on → no under-column substrate; under vitest the overlay tests
-    // keep the old behaviour. (The geotech refinement pass is separate and unchanged.)
-    const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
-    const rewriteB =
-      (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
-    if (rewriteB) return [] as Fill[]
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
