@@ -1475,20 +1475,44 @@ export default function PartitionFillOverlay({
       const host = rootRef.current?.ownerSVGElement
       const ctm = host?.getScreenCTM()
       const found: string[] = []
+      const hitGaps = new Set<number>()
       if (host && ctm) {
         const hp = new DOMPoint(px, py).matrixTransform(ctm.inverse())
         const elev = screenToLevel ? screenToLevel(hp.y) : null
         for (const sr of screenRegions) {
           if (!inPoly(hp.x, hp.y, sr.points)) continue
           const g = (sr.region as { gapIndex?: number }).gapIndex ?? -1
+          hitGaps.add(g)
           found.push(
             `${lith(sr.region.formationId)} ${sr.region.kind} in GAP ${g} (${nm(g)} → ${nm(g + 1)})${elev != null ? ` @ elev≈${elev.toFixed(2)}` : ''}`,
           )
         }
       }
+      // SCREEN-GEOMETRY DUMP: for each gap the click landed in, list EVERY region's
+      // ACTUAL screen polygon (post-bend + post-lens + clamp applied — the app's
+      // literal painted corners), each corner annotated with its elevation. This is
+      // the "same code" view: comparing an upper region's base-edge screen y against
+      // the lower region's top-edge screen y shows immediately whether the render
+      // (not the data) pushed one band across a tie into its neighbour.
+      const gapDump: string[] = []
+      for (const g of [...hitGaps].sort((a, b) => a - b)) {
+        gapDump.push(`  ── GAP ${g} (${nm(g)} → ${nm(g + 1)}) screen polygons ──`)
+        for (const sr of screenRegions) {
+          if ((sr.region as { gapIndex?: number }).gapIndex !== g) continue
+          const pts = sr.points
+            .map((p) => {
+              const e = screenToLevel ? screenToLevel(p.y) : null
+              return `(${p.x.toFixed(0)},${p.y.toFixed(0)}${e != null ? `≈${e.toFixed(2)}m` : ''})`
+            })
+            .join(' ')
+          gapDump.push(
+            `    ${lith(sr.region.formationId).padEnd(4)} ${sr.region.kind.padEnd(5)} yScreen[${sr.minY.toFixed(0)}..${sr.maxY.toFixed(0)}] ${pts}`,
+          )
+        }
+      }
       // eslint-disable-next-line no-console
       console.log(
-        `\n🖱️🖱️🖱️ ALT-CLICK @ (${px},${py})\n  PARTITION REGION(S) HERE: ${found.length ? found.join(' | ') : '(none — a gap/void)'}\n  raw elements:\n    ${rows.join('\n    ')}`,
+        `\n🖱️🖱️🖱️ ALT-CLICK @ (${px},${py})\n  PARTITION REGION(S) HERE: ${found.length ? found.join(' | ') : '(none — a gap/void)'}\n${gapDump.join('\n')}\n  raw elements:\n    ${rows.join('\n    ')}`,
       )
     }
     document.addEventListener('click', onClick, true)
