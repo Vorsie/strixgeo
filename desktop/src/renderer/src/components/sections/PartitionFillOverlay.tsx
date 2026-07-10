@@ -1419,6 +1419,41 @@ export default function PartitionFillOverlay({
     console.log(lines.join('\n'))
   }, [screenRegions, underColumnFills, orderedInvs, screenByInv, placedColumns, plotTop, plotBottom, formationColorById])
 
+  // TEMP-DEVTOOLS ALT-CLICK INSPECTOR (owner dogfeed 2026-07-10): offline diagnostics
+  // disagree with what the owner SEES, so let the owner point at the exact spilling
+  // pixel. ALT+click anywhere → the console lists EVERY SVG geometry (fill AND stroke)
+  // drawn at that exact client point, in paint order (last = on top), with its
+  // data-testid + colours. The element painting the clay is right there, named.
+  useEffect(() => {
+    const onClick = (e: MouseEvent): void => {
+      if (!e.altKey) return
+      const px = e.clientX
+      const py = e.clientY
+      const rows: string[] = []
+      for (const el of Array.from(document.querySelectorAll('polygon,path,rect,line')) as SVGGeometryElement[]) {
+        const scm = el.getScreenCTM?.()
+        if (!scm) continue
+        const lp = new DOMPoint(px, py).matrixTransform(scm.inverse())
+        let hit = false
+        try {
+          hit = (el.isPointInFill?.(lp) ?? false) || (el.isPointInStroke?.(lp) ?? false)
+        } catch {
+          hit = false
+        }
+        if (!hit) continue
+        const tid = el.getAttribute('data-testid') ?? el.tagName
+        const fill = el.getAttribute('fill') ?? ''
+        const stroke = el.getAttribute('stroke') ?? ''
+        const op = el.getAttribute('fill-opacity') ?? el.getAttribute('opacity') ?? ''
+        rows.push(`${tid}  fill=${fill} stroke=${stroke} op=${op}`)
+      }
+      // eslint-disable-next-line no-console
+      console.log(`\n🖱️🖱️🖱️ ALT-CLICK @ (${px},${py}) — elements drawn here (top = last):\n  ${rows.join('\n  ')}`)
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [])
+
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
   // When `refinement` is set (the geotech axis), the litho partition
