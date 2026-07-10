@@ -3744,6 +3744,22 @@ function computeSpanningBands(
     const totalSpan = hiAlong - loAlong
     if (Math.abs(totalSpan) < EPS) continue
 
+    // Is this the DEEPEST band at BOTH endpoints — i.e. a deep-to-deep substrate
+    // bridging band whose base is each endpoint column's own floor? For such a
+    // band the fill must reach the FLAT bottom-tie floor of every intervening gap
+    // (the deeper of the gap's two column floors), not the sloping line between
+    // the two endpoints' bases. The linear base interpolation leaves a triangular
+    // wedge above the flat floor at the shallower column of each gap (the CS1
+    // gap-7/gap-8 deep-floor void: S11↔S10 base-tied across the shallow S8, the
+    // band base slopes -9.85→-10.25 but the gate floor is flat at the deeper
+    // column). Flattening the base to that floor fills the wedge continuously with
+    // the correlated formation. Only applies to the deepest band; a mid-stack
+    // bridging band keeps its sloping base so it does not flood the band below it.
+    const loFloor = cols[band.loColIndex].surface - preInjectionBaseTD[band.loColIndex]
+    const hiFloor = cols[band.hiColIndex].surface - preInjectionBaseTD[band.hiColIndex]
+    const isDeepestBridge =
+      Math.abs(band.loBaseElev - loFloor) < EPS && Math.abs(band.hiBaseElev - hiFloor) < EPS
+
     for (let g = band.loColIndex; g < band.hiColIndex; g++) {
       // Global fractions of this gap's two columns within [loAlong, hiAlong].
       const fL = (colsAlong[g] - loAlong) / totalSpan
@@ -3752,8 +3768,17 @@ function computeSpanningBands(
       // Interpolate the spanning quad's elevations at this gap's columns.
       const topL = band.loTopElev + fL * (band.hiTopElev - band.loTopElev)
       const topR = band.loTopElev + fR * (band.hiTopElev - band.loTopElev)
-      const baseL = band.loBaseElev + fL * (band.hiBaseElev - band.loBaseElev)
-      const baseR = band.loBaseElev + fR * (band.hiBaseElev - band.loBaseElev)
+      let baseL = band.loBaseElev + fL * (band.hiBaseElev - band.loBaseElev)
+      let baseR = band.loBaseElev + fR * (band.hiBaseElev - band.loBaseElev)
+
+      // Deepest bridging band: flatten the base to this gap's flat bottom-tie floor
+      // (the deeper of the two gap-column bases) so the shallow-column wedge is
+      // filled rather than left as an interior void.
+      if (isDeepestBridge) {
+        const flatFloor = Math.min(baseL, baseR)
+        baseL = flatFloor
+        baseR = flatFloor
+      }
 
       // Quad in LOCAL gap fraction space (fraction 0 = left col, fraction 1 = right).
       const quad: PartitionPoint[] = [
