@@ -69,17 +69,17 @@ function inPoly(
 }
 
 describe('CS1 one-gesture arbiters (real frozen data)', () => {
-  // KNOWN-RED (documented open defect, 2026-07-07 — `it.fails` keeps the suite
-  // green while pinning the defect; fixing it flips this test and forces the
-  // marker's removal). The 2-tie silt band IS matched, but the per-gap CAP
-  // (shallow-TD) clips its below-cap half and the tie-blind SUBSTRATE refills
-  // that space from deep-to-deep stratigraphy — placing KLEI above the
-  // interpolated silt, inside the declared band. A first fix attempt
-  // (cap-exempt TD-tied bands + substrate carve) regressed 4 gate checks and
-  // was reverted; the real fix must teach the cap/substrate contract that a
-  // TD-tie pins the band's base line AT the shallow column. See
-  // memory/project_partition_one_gesture_2_1_0.md for the full design notes.
-  it.fails('CS1-OG-A — gap 16 (B2→S7A): 2-tie silt bands; no clay wedge between the tie lines', () => {
+  // FIXED 2026-07-08 (was KNOWN-RED / `it.fails`). The follow-the-base-tie redesign
+  // makes the 2-tie silt band survive the cap: the matched pair is tagged
+  // (``tiedBandBase``) at emit time when it carries a real edge and dips below the
+  // gap's shallow-TD cap; the cap keeps it whole down to its OBSERVED-deep tied
+  // base (rebuilt from observed depths so the injection's extension of the shallow
+  // TD unit can't drag it into interpolated space), and the deep-to-deep substrate
+  // — matrix AND its own lenses, self-intersecting rings repaired via
+  // ``simplifyRing`` first — is carved around it so the tie-blind substrate can no
+  // longer refill KLEI inside the declared band. See
+  // memory/project_fill_bands_dogfeed_2026_07.md.
+  it('CS1-OG-A — gap 16 (B2→S7A): 2-tie silt bands; no clay wedge between the tie lines', () => {
     // col-16 (B2): SILT elev [-4.74 .. -2.74]. col-17 (S7A): SILT [-2.37 .. -1.33].
     // Ties: top↔top (silt tops) + S7A-silt base (TD) ↔ B2 lower clay top (= the
     // B2 silt's base contact). Band lines:
