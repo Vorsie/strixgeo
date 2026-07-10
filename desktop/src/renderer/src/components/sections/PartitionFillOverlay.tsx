@@ -1435,6 +1435,23 @@ export default function PartitionFillOverlay({
   // drawn at that exact client point, in paint order (last = on top), with its
   // data-testid + colours. The element painting the clay is right there, named.
   useEffect(() => {
+    const LI: Record<string, string> = { '38d1bc': 'ZAND', '19bb43': 'KLEI', '0f2e06': 'SILT', '512af4': 'VEEN' }
+    const lith = (fid: string): string => LI[fid.slice(-6)] ?? fid.slice(-6)
+    const nameByInv = new Map<string, string>()
+    for (const col of placedColumns as readonly PlacedColumn[]) nameByInv.set(col.proj.item.id, col.proj.item.name ?? '')
+    const { orderedColumns } = sectionFillData
+    const nm = (i: number): string => nameByInv.get(orderedColumns[i]?.investigationId ?? '') ?? `col${i}`
+    const inPoly = (px: number, py: number, poly: { x: number; y: number }[]): boolean => {
+      let inside = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x
+        const yi = poly[i].y
+        const xj = poly[j].x
+        const yj = poly[j].y
+        if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+      }
+      return inside
+    }
     const onClick = (e: MouseEvent): void => {
       if (!e.altKey) return
       const px = e.clientX
@@ -1453,16 +1470,31 @@ export default function PartitionFillOverlay({
         if (!hit) continue
         const tid = el.getAttribute('data-testid') ?? el.tagName
         const fill = el.getAttribute('fill') ?? ''
-        const stroke = el.getAttribute('stroke') ?? ''
-        const op = el.getAttribute('fill-opacity') ?? el.getAttribute('opacity') ?? ''
-        rows.push(`${tid}  fill=${fill} stroke=${stroke} op=${op}`)
+        rows.push(`${tid}  fill=${fill}`)
+      }
+      // Which litho partition REGION + which gap + elevation is under the click?
+      const host = rootRef.current?.ownerSVGElement
+      const ctm = host?.getScreenCTM()
+      const found: string[] = []
+      if (host && ctm) {
+        const hp = new DOMPoint(px, py).matrixTransform(ctm.inverse())
+        const elev = screenToLevel ? screenToLevel(hp.y) : null
+        for (const sr of screenRegions) {
+          if (!inPoly(hp.x, hp.y, sr.points)) continue
+          const g = (sr.region as { gapIndex?: number }).gapIndex ?? -1
+          found.push(
+            `${lith(sr.region.formationId)} ${sr.region.kind} in GAP ${g} (${nm(g)} → ${nm(g + 1)})${elev != null ? ` @ elev≈${elev.toFixed(2)}` : ''}`,
+          )
+        }
       }
       // eslint-disable-next-line no-console
-      console.log(`\n🖱️🖱️🖱️ ALT-CLICK @ (${px},${py}) — elements drawn here (top = last):\n  ${rows.join('\n  ')}`)
+      console.log(
+        `\n🖱️🖱️🖱️ ALT-CLICK @ (${px},${py})\n  PARTITION REGION(S) HERE: ${found.length ? found.join(' | ') : '(none — a gap/void)'}\n  raw elements:\n    ${rows.join('\n    ')}`,
+      )
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
-  }, [])
+  }, [screenRegions, sectionFillData, placedColumns, screenToLevel])
 
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
