@@ -3530,14 +3530,38 @@ export function computeUnderColumnSubstrate(
       }
     }
     segs.sort((a, b) => b.hi - a.hi)
-    let cursorTop = tdElev
     const out: Array<{ top: number; base: number; formationId: string }> = []
+    let cursor = tdElev // top of the next band to place
+    let aboveForm: string | null = null // formation of the band directly above the cursor
     for (const s of segs) {
-      if (cursorTop - s.lo <= EPS) continue // already covered by a higher segment
-      out.push({ top: cursorTop, base: s.lo, formationId: s.formationId })
-      cursorTop = s.lo
+      if (cursor - s.lo <= EPS) continue // already covered by a higher segment
+      if (s.hi < cursor - EPS) {
+        // A vertical VOID between the band above (cursor) and this segment's top.
+        // Fill it with the OVERLYING formation (extend the band ABOVE downward), NOT
+        // this segment's — a narrowing clay above a thickening silt leaves this gap,
+        // and the neighbours log the clay there (owner dogfeed 2026-07-10: "there's
+        // clay to the left and to the right"). Extending the silt UP painted silt
+        // where clay belongs. For a lens pinch-out the matrix is the same above and
+        // below, so extend-above-down is identical to the old extend-below-up there.
+        out.push({ top: cursor, base: s.hi, formationId: aboveForm ?? s.formationId })
+        cursor = s.hi
+      }
+      out.push({ top: cursor, base: s.lo, formationId: s.formationId })
+      cursor = s.lo
+      aboveForm = s.formationId
     }
-    return out
+    // Merge consecutive same-formation bands: a void filled with the overlying
+    // formation is adjacent to that overlying band, so they form one contiguous band.
+    const merged: Array<{ top: number; base: number; formationId: string }> = []
+    for (const b of out) {
+      const last = merged[merged.length - 1]
+      if (last && last.formationId === b.formationId && Math.abs(last.base - b.top) < EPS) {
+        last.base = b.base
+      } else {
+        merged.push({ ...b })
+      }
+    }
+    return merged
   }
 
   const out: UnderColumnFill[] = []
