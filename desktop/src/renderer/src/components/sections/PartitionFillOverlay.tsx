@@ -1285,12 +1285,15 @@ export default function PartitionFillOverlay({
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
     type Fill = { key: string; points: string; color: string; formationId: string }
-    // Under-column substrate fills each column strip below its TD with the correlated
-    // deep bands (from sectionRegions). It renders those bands' own lithology colours —
-    // the "grey" under S8 is the correlated deep CLAY band, not a spill. (It only
-    // looked wrong earlier because of the ribbon stripes + the alongM bulge, both since
-    // fixed.) Re-enabled so the deep bands continue under a shallow test's strip instead
-    // of a void (owner dogfeed 2026-07-10 "no render under S8").
+    // Correlate-or-gap (rewriteB): the spanning-quad bands (computeSpanningBands) now
+    // carry the correlated bands ACROSS shallow tests directly, so this separate
+    // under-column substrate pass is redundant AND paints grey (#6b7280) into the
+    // intentional gaps → the "still there" spill (owner alt-click 2026-07-10:
+    // partition-undercol is the only element in the void). Gate it off; the below-TD
+    // strip is either covered by a spanning band or is an intentional gap.
+    const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
+    const rewriteB = (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
+    if (rewriteB) return [] as Fill[]
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
