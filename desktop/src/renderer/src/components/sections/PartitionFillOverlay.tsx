@@ -1547,6 +1547,12 @@ export default function PartitionFillOverlay({
             const crossed: string[] = []
             for (const sr of gapRegions) {
               let inside = 0
+              // Require the sample to be CLEARLY inside (≥ MARGIN px vertically),
+              // not merely on the boundary — a tie that sits exactly ON a band's
+              // top/base edge (the correct, tangent result of the warp-aware fix) is
+              // NOT a crossing. Boundaries here are ~horizontal, so a vertical margin
+              // check distinguishes tangent from a real interior penetration.
+              const MARGIN = 1.5
               for (let seg = 0; seg + 1 < verts.length; seg += 1) {
                 const a = verts[seg]
                 const b = verts[seg + 1]
@@ -1556,7 +1562,12 @@ export default function PartitionFillOverlay({
                   const pxp = a.x + (b.x - a.x) * t
                   const pyp = a.y + (b.y - a.y) * t
                   if (pxp < sr.minX - 0.5 || pxp > sr.maxX + 0.5) continue
-                  if (inPoly(pxp, pyp, sr.points)) inside += 1
+                  if (
+                    inPoly(pxp, pyp, sr.points) &&
+                    inPoly(pxp, pyp - MARGIN, sr.points) &&
+                    inPoly(pxp, pyp + MARGIN, sr.points)
+                  )
+                    inside += 1
                 }
               }
               if (inside >= 2) crossed.push(`${lith(sr.region.formationId)}/${sr.region.kind}`)
