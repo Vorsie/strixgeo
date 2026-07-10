@@ -3763,6 +3763,21 @@ export function computeSectionFill(
     // injected only once; both edge kinds register their synthetic chain edges.
     const injectedBridgeIds = new Set<string>()
 
+    // Real along-section position per FILTERED column (1:1 with `cols`), so the bridge
+    // interpolation matches where the render actually PLACES each column. Without this
+    // the boundary is interpolated by COLUMN INDEX (uniform) but drawn at the real
+    // along-metre X → the injected clay/silt boundary bulges OFF the straight tie line
+    // the engineer drew (owner dogfeed 2026-07-10: "clay crossing the correlation
+    // band"). Uniform fallback (index) when no alongM, matching the substrate pass.
+    const colsAlong: readonly number[] =
+      alongM && alongM.length === columns.length
+        ? (() => {
+            const r: number[] = []
+            for (let oi = 0; oi < columns.length; oi++) if (columns[oi].units.length > 0) r.push(alongM[oi])
+            return r
+          })()
+        : cols.map((_, i) => i)
+
     // Pass 1: collect bridge candidates per intermediate column. Multiple edges can
     // target the same intermediate column k; collecting first prevents the overlapping
     // injection bug (a shallow bridge from one edge can be entirely contained inside a
@@ -3801,7 +3816,11 @@ export function computeSectionFill(
       const bodyId = lo.baseElev <= hi.baseElev ? lo.bodyId : hi.bodyId
 
       for (let k = lo.colIndex + 1; k < hi.colIndex; k++) {
-        const t = (k - lo.colIndex) / span
+        // Interpolate by REAL along-fraction (not column index) so the boundary lands
+        // on the straight tie line at each column's true screen position.
+        const loA = colsAlong[lo.colIndex]
+        const hiA = colsAlong[hi.colIndex]
+        const t = hiA !== loA ? (colsAlong[k] - loA) / (hiA - loA) : (k - lo.colIndex) / span
         const naturalTopElev = lo.topElev + t * (hi.topElev - lo.topElev)
         const naturalBaseElev = lo.baseElev + t * (hi.baseElev - lo.baseElev)
         // Wedge base = lo's base interpolated toward hi's TOP (the tie point) so a
