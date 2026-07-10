@@ -1315,9 +1315,21 @@ export default function CorrelationEdgesOverlay({
                   .filter(c => c.proj.along > loA + 1e-6 && c.proj.along < hiA - 1e-6)
                   .sort((a, b) => a.proj.along - b.proj.along)
                 const ordered = ptA.along <= ptB.along ? mids : mids.reverse()
+                // A column occupies a SINGLE along-position but renders with WIDTH,
+                // and the per-gap fill runs edge→edge (a column's own width carries
+                // no fill — the log glyph sits there). So the tie must be FLAT across
+                // each intervening column at that column's interpolated elevation,
+                // meeting the gap fill exactly at the inner edges. Emit BOTH edge
+                // vertices (A-facing first) — bending at the centre instead leaves the
+                // tie already sloping away by the time it reaches the gap boundary, so
+                // it dips below the band and still appears to cross (dogfeed 2026-07-10).
+                const dir = ptA.along <= ptB.along ? 1 : -1
                 for (const c of ordered) {
                   const f = (c.proj.along - ptA.along) / (ptB.along - ptA.along)
-                  tieVerts.push({ x: c.nudgedX, y: yA + f * (yB - yA) })
+                  const yK = yA + f * (yB - yA)
+                  const hw = c.width / 2
+                  tieVerts.push({ x: c.nudgedX - dir * hw, y: yK })
+                  tieVerts.push({ x: c.nudgedX + dir * hw, y: yK })
                 }
               }
               tieVerts.push({ x: tieX2, y: yB })
