@@ -3929,15 +3929,13 @@ export function computeSectionFill(
   // Margin (m) below a cross-litho tie line at which an emitGap region is treated as
   // straddling it and clipped to the above-tie part (gap-void fill, 2026-07-10).
   const TIE_CLIP_MARGIN = 0.02
-  // Continuous-fill (owner directive 2026-07-10, "we need a continuous fill over the
-  // whole section"): under rewriteB, also run the deep-to-deep substrate as the
-  // BACKGROUND filler so uncorrelated deep space below the shallow TDs is filled
-  // (no voids). It is carved around the correlated fill (emitGap real data + spanning
-  // bands) so correlations win and the substrate fills only the remainder. This
-  // re-enables the interpolation the correlate-or-gap model had dropped, now made
-  // safe by the cross-litho tie-line clip. Env-overridable for A/B during bring-up.
-  const SUBSTRATE_CONTINUITY =
-    rewriteB && !(typeof process !== 'undefined' && process.env?.NO_SUBSTRATE_CONTINUITY)
+  // Continuous-fill via deep-to-deep substrate — REVERTED 2026-07-10 (owner dogfeed):
+  // the substrate is TIE-BLIND interpolation and floods clay into space where the
+  // geology says a unit pinches out and the SAND matrix should onlap + connect (the
+  // "clay spilling over the correlation band" bug). Continuous fill must come from the
+  // matrix onlapping/connecting, NOT interpolation. Kept behind an opt-IN env only so
+  // the mechanism can still be A/B-inspected; OFF by default.
+  const SUBSTRATE_CONTINUITY = typeof process !== 'undefined' && !!process.env?.SUBSTRATE_CONTINUITY
   cols.forEach((c) => closeColumnGaps(c.units))
 
   // Snapshot of each column's total depth BEFORE bridge injection AND before
