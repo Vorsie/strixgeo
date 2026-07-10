@@ -33,7 +33,7 @@ For a unit, per facing side:
   continuous body that spans across every intervening shallow column. Its tied contacts
   interpolate **smoothly by along-distance** from the deep column on one side to the deep
   column on the other, so the band passes *under* the shallow column with **no kink or
-  shift at the shallow column** (the S8 continuity requirement).
+  shift at the shallow column** (the S8 continuity requirement). When 2 contacts on one test correlate to one point on  the other test this logic also holds.
 - **1 correlated contact → ONLAP.** The unit's tied contact follows the correlation to
   the reaching column; its untied contact tapers, so the unit thins/thickens to meet the
   tie. (Example: below the deep silt, the S11 clay is tied only at its top → it pinches
@@ -75,7 +75,7 @@ Result: continuous fill under S8, all real lithologies, no voids, no clay spilli
 - The deep-to-deep **substrate** (`computeBracketSubstrate`) as a fill source under
   rewriteB — reverted; it is interpolation and must not return.
 - Any invented lithology to plug a void. A residual void means a missing correlation, not
-  a fill bug — surface it, don't interpolate over it.
+  a fill bug — surface it, don't interpolate over it. we'll walk over this on test.strix later and see if we can fix any holes manually
 
 ## Invariants (validated by the real-CS1 gates)
 
