@@ -1522,37 +1522,53 @@ export default function PartitionFillOverlay({
         // crosses a tie" bug the owner sees). No data-model untangling — the DOM line
         // IS the tie the app painted.
         if (hostInv) {
-          const ties = Array.from(document.querySelectorAll('line[data-testid^="tie-hit-"]')) as SVGLineElement[]
+          // Ties render as warp-aware POLYLINES now (bend at each intervening
+          // column). Read every tie-hit polyline's vertices into this overlay's
+          // user space and sample EACH segment against every region — so a tie that
+          // bends is tested along its real painted path, not a straight chord.
+          const ties = Array.from(
+            document.querySelectorAll('polyline[data-testid^="tie-hit-"]'),
+          ) as SVGPolylineElement[]
           for (const ln of ties) {
             const lscm = ln.getScreenCTM()
             if (!lscm) continue
-            const rd = (a: string): number => parseFloat(ln.getAttribute(a) ?? 'NaN')
-            const c1 = new DOMPoint(rd('x1'), rd('y1')).matrixTransform(lscm)
-            const c2 = new DOMPoint(rd('x2'), rd('y2')).matrixTransform(lscm)
-            const h1 = new DOMPoint(c1.x, c1.y).matrixTransform(hostInv)
-            const h2 = new DOMPoint(c2.x, c2.y).matrixTransform(hostInv)
-            const xlo = Math.min(h1.x, h2.x)
-            const xhi = Math.max(h1.x, h2.x)
+            const verts: { x: number; y: number }[] = []
+            for (let vi = 0; vi < ln.points.numberOfItems; vi += 1) {
+              const p = ln.points.getItem(vi)
+              const cp = new DOMPoint(p.x, p.y).matrixTransform(lscm)
+              verts.push(new DOMPoint(cp.x, cp.y).matrixTransform(hostInv))
+            }
+            if (verts.length < 2) continue
+            const xlo = Math.min(...verts.map((v) => v.x))
+            const xhi = Math.max(...verts.map((v) => v.x))
             if (xhi < gL - 2 || xlo > gR + 2) continue // tie not in this gap
-            const e1 = screenToLevel ? screenToLevel(h1.y) : null
-            const e2 = screenToLevel ? screenToLevel(h2.y) : null
             const eid = (ln.getAttribute('data-testid') ?? '').replace('tie-hit-', '').slice(0, 8)
-            // Which regions does this straight tie line pass THROUGH (interior)?
+            // Which regions does this (possibly bent) tie pass THROUGH (interior)?
             const crossed: string[] = []
             for (const sr of gapRegions) {
               let inside = 0
-              const N = 24
-              for (let s = 1; s < N; s += 1) {
-                const t = s / N
-                const px = h1.x + (h2.x - h1.x) * t
-                const py = h1.y + (h2.y - h1.y) * t
-                if (px < sr.minX - 0.5 || px > sr.maxX + 0.5) continue
-                if (inPoly(px, py, sr.points)) inside += 1
+              for (let seg = 0; seg + 1 < verts.length; seg += 1) {
+                const a = verts[seg]
+                const b = verts[seg + 1]
+                const N = 24
+                for (let s = 1; s < N; s += 1) {
+                  const t = s / N
+                  const pxp = a.x + (b.x - a.x) * t
+                  const pyp = a.y + (b.y - a.y) * t
+                  if (pxp < sr.minX - 0.5 || pxp > sr.maxX + 0.5) continue
+                  if (inPoly(pxp, pyp, sr.points)) inside += 1
+                }
               }
               if (inside >= 2) crossed.push(`${lith(sr.region.formationId)}/${sr.region.kind}`)
             }
+            const vstr = verts
+              .map((v) => {
+                const e = screenToLevel ? screenToLevel(v.y) : null
+                return `(${v.x.toFixed(0)}${e != null ? `≈${e.toFixed(2)}m` : ''})`
+              })
+              .join('→')
             gapDump.push(
-              `    TIE ${eid} (${h1.x.toFixed(0)},${h1.y.toFixed(0)}${e1 != null ? `≈${e1.toFixed(2)}m` : ''})→(${h2.x.toFixed(0)},${h2.y.toFixed(0)}${e2 != null ? `≈${e2.toFixed(2)}m` : ''})${crossed.length ? `  ⚠ CROSSES: ${[...new Set(crossed)].join(', ')}` : '  ✓ crosses nothing'}`,
+              `    TIE ${eid} ${vstr}${crossed.length ? `  ⚠ CROSSES: ${[...new Set(crossed)].join(', ')}` : '  ✓ crosses nothing'}`,
             )
           }
         }
