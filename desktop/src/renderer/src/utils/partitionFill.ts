@@ -3771,6 +3771,13 @@ function computeSpanningBands(
       const clipped = clipPolyBelowElev(quad, shallowTd)
       if (!hasArea(clipped)) continue
 
+      if (process.env.SPAN_TRACE) {
+        const es = clipped.map((p) => p.elevation)
+        // eslint-disable-next-line no-console
+        console.error(
+          `SPAN emit gap${g} ${band.formationId} elev[${Math.min(...es).toFixed(2)}..${Math.max(...es).toFixed(2)}] shallowTd=${shallowTd.toFixed(2)}`,
+        )
+      }
       result.push({ formationId: band.formationId, bodyId: band.bodyId, kind: 'quad', polygon: clipped, gapIndex: g })
     }
   }
