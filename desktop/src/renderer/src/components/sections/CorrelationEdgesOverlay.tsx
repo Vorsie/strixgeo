@@ -72,6 +72,12 @@ const BASE_TIE_DASH = '6 3'
  *  again 2026-05-31 from 6 → 3 px so the band stops fighting the
  *  lithology stripes for visual weight). */
 const RIBBON_HALF_HEIGHT_PX = 3
+/** The lithology-coloured ±H stripes are drawn along the raw TIE LINE, which does
+ *  not follow the fill's band edges — so a stripe bleeds a DIFFERENT lithology over
+ *  the partition fill (clay over silt/sand, owner dogfeed 2026-07-10, proven with the
+ *  whole-document OVERLAP LOG). Disabled: the correlation stays fully visible via the
+ *  ``ribbon-seam`` line below. Flip to re-enable the coloured seam ribbon (#131-c). */
+const RIBBON_STRIPES_ENABLED = false
 /** Minimum on-screen ribbon width (px). Closely-spaced columns leave only the
  *  ~4 px nudge edge-gap between their inner edges, so the gap-bridging ribbon
  *  collapses to an invisible sliver — and zoom can't widen it (the gap is a
@@ -1367,29 +1373,31 @@ export default function CorrelationEdgesOverlay({
                 data-interpretive={isInterpretive ? 'true' : 'false'}
                 pointerEvents="none"
               >
-                <defs>
-                  {showAbove && (
-                    <linearGradient
-                      id={`ribbon-above-grad-${ce.id}`}
-                      gradientUnits="userSpaceOnUse"
-                      x1={xA} y1={0} x2={xB} y2={0}
-                    >
-                      <stop offset="0" stopColor={aboveA as string} />
-                      <stop offset="1" stopColor={aboveB as string} />
-                    </linearGradient>
-                  )}
-                  {showBelow && (
-                    <linearGradient
-                      id={`ribbon-below-grad-${ce.id}`}
-                      gradientUnits="userSpaceOnUse"
-                      x1={xA} y1={0} x2={xB} y2={0}
-                    >
-                      <stop offset="0" stopColor={belowA as string} />
-                      <stop offset="1" stopColor={belowB as string} />
-                    </linearGradient>
-                  )}
-                </defs>
-                {showAbove && (
+                {RIBBON_STRIPES_ENABLED && (
+                  <defs>
+                    {showAbove && (
+                      <linearGradient
+                        id={`ribbon-above-grad-${ce.id}`}
+                        gradientUnits="userSpaceOnUse"
+                        x1={xA} y1={0} x2={xB} y2={0}
+                      >
+                        <stop offset="0" stopColor={aboveA as string} />
+                        <stop offset="1" stopColor={aboveB as string} />
+                      </linearGradient>
+                    )}
+                    {showBelow && (
+                      <linearGradient
+                        id={`ribbon-below-grad-${ce.id}`}
+                        gradientUnits="userSpaceOnUse"
+                        x1={xA} y1={0} x2={xB} y2={0}
+                      >
+                        <stop offset="0" stopColor={belowA as string} />
+                        <stop offset="1" stopColor={belowB as string} />
+                      </linearGradient>
+                    )}
+                  </defs>
+                )}
+                {RIBBON_STRIPES_ENABLED && showAbove && (
                   <polygon
                     data-testid={`ribbon-above-${ce.id}`}
                     points={`${xA},${yA - H} ${xB},${yB - H} ${xB},${yB} ${xA},${yA}`}
@@ -1397,7 +1405,7 @@ export default function CorrelationEdgesOverlay({
                     fillOpacity={fillOpacity}
                   />
                 )}
-                {showBelow && (
+                {RIBBON_STRIPES_ENABLED && showBelow && (
                   <polygon
                     data-testid={`ribbon-below-${ce.id}`}
                     points={`${xA},${yA} ${xB},${yB} ${xB},${yB + H} ${xA},${yA + H}`}
