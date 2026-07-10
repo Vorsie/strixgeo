@@ -2104,8 +2104,15 @@ function emitOneSidedPinch(
   // taper the unit STRAIGHT to that far point — "colour between the two converging
   // lines" (owner directive 2026-07-10). Gated (taperToConvergence = rewriteB) so the
   // substrate path's goldens/gate are untouched. A lens keeps its own-elevation apex.
+  // Requires both above AND below to be non-null: a surface pinch (above=null) or
+  // floor pinch (below=null) has no enclosing matrix to converge between — the EPS
+  // guard would mis-fire there because the shared-TD interface depths happen to be equal.
   const convergesOnOpp =
-    taperToConvergence && !isLens && Math.abs(topOppDepth - baseOppDepth) < EPS
+    taperToConvergence &&
+    !isLens &&
+    above !== null &&
+    below !== null &&
+    Math.abs(topOppDepth - baseOppDepth) < EPS
   const apexFraction = convergesOnOpp ? oppFrac : side === 'left' ? f : 1 - f
 
   let apexElev: number
@@ -2922,6 +2929,37 @@ function emitGap(
         // unit is a genuine pinch (band=false, sideways=false). Fall through to the
         // quad-emission path whenever mixedTiedFacingTopElev is non-null.
         if (!it.band && !it.sideways && it.mixedTiedFacingTopElev === null) {
+          // 2/1/0 tie model: a STRADDLE unit with 0 ties toward the facing column
+          // is a LENS at its own elevation. The facing column reached the unit's
+          // depth and observed a different (or absent) lithology — the engineer's
+          // decision NOT to correlate here is a positive geological statement, not
+          // a data void. Emit directly to the lens list; do NOT go through
+          // pendingPinches / emitInterval which would produce a degenerate triangle
+          // reaching the wrong column edge (gap-7 S8 SAND/SILT dogfeed 2026-07-07).
+          // Restriction: straddle zone only (ownTopDepth < shallowFloor) — deep
+          // units are data-void sideways, handled above. Synthetic bridge units
+          // carry matrix continuity, not user gestures; never pull them as lenses.
+          const p = it.unit
+          if (
+            useTieGestures &&
+            // taperWedgesToConvergence === rewriteB: the 0-tie → lens redirect is
+            // NEW behaviour (owner 2/1/0 model, locked 2026-07-07). Gate it on the
+            // rewriteB path so the old substrate path stays byte-identical.
+            taperWedgesToConvergence &&
+            p.ownTopDepth < shallowFloor - EPS &&
+            !isSyntheticLayer(p.layerId)
+          ) {
+            const ties = p.side === 'left' ? leftTies : rightTies
+            if (ties !== undefined && !ties.top.has(p.layerId) && !ties.base.has(p.layerId)) {
+              ;(p.side === 'left' ? leftLenses : rightLenses).push({
+                bodyId: p.bodyId,
+                formationId: p.formationId,
+                depthTopM: p.ownTopDepth,
+                depthBaseM: p.ownBaseDepth,
+              })
+              continue
+            }
+          }
           pendingPinches.push(it.unit)
           continue
         }
@@ -3549,6 +3587,145 @@ export function computeUnderColumnSubstrate(
 }
 
 /**
+ * Spanning-band pass for the ``rewriteB`` (tie-gesture) model.
+ *
+ * For every non-adjacent correlation edge (span ≥ 2 in the filtered-column array),
+ * computes the sub-shallowTd portion of the spanning quad across each gap between
+ * the edge's endpoints and returns them as ``SectionRegion`` fragments.
+ *
+ * **Split of responsibility:**
+ * - ``emitGap`` + ``clipPolyAboveElev(shallowTd)`` handles the ABOVE-shallowTd
+ *   portion — the real adjacent geometry, same as the non-rewriteB path.
+ * - ``computeSpanningBands`` + ``clipPolyBelowElev(shallowTd)`` handles the
+ *   BELOW-shallowTd portion — the deep region that only the non-adjacent endpoints
+ *   actually reach (the intervening shallow column has no data there).
+ *
+ * Mixed-tie wedge (lo.formationId ≠ hi.formationId): the lo formation CONTINUES
+ * and tapers to hi's top contact (the tie point).  Both TR and BR collapse to
+ * ``hi.topElev`` → a triangular shape instead of a full quad.
+ *
+ * @param cols - Filtered, gap-closed columns (1:1 with ``colsAlong``).
+ * @param edges - Approved correlation edges, same reference as computeSectionFill.
+ * @param colsAlong - Real along-metre position per filtered column.
+ * @param preInjectionBaseTD - Total depth (m) per filtered column BEFORE any
+ *   bridge injection; used to compute each gap's shallowTd.
+ * @returns SectionRegion[] with ``gapIndex`` set to the gap's index in ``cols``.
+ */
+function computeSpanningBands(
+  cols: readonly { readonly surface: number; readonly units: readonly PartitionUnit[] }[],
+  edges: readonly CorrelationEdge[],
+  colsAlong: readonly number[],
+  preInjectionBaseTD: readonly number[],
+): SectionRegion[] {
+  // Build layerId → position in the filtered-column array.
+  interface LayerLoc {
+    colIndex: number
+    topElev: number
+    baseElev: number
+    formationId: string
+    bodyId: string | null
+  }
+  const layerLoc = new Map<string, LayerLoc>()
+  for (let ci = 0; ci < cols.length; ci++) {
+    const c = cols[ci]
+    for (const u of c.units) {
+      layerLoc.set(u.layerId, {
+        colIndex: ci,
+        topElev: c.surface - u.topDepthM,
+        baseElev: c.surface - u.baseDepthM,
+        formationId: u.formationId,
+        bodyId: u.bodyId,
+      })
+    }
+  }
+
+  // Collect unique (loLayerId, hiLayerId) band shapes.  A top-tie + a base-tie
+  // for the SAME unit pair both describe the same quad; dedup to one entry.
+  interface SpanBand {
+    loColIndex: number
+    hiColIndex: number
+    loTopElev: number
+    loBaseElev: number
+    hiTopElev: number
+    /** hiTopElev when mixed-tie (lo.formationId ≠ hi.formationId) → wedge. */
+    hiBaseElev: number
+    /** lo.formationId — lo continues and tapers toward hi. */
+    formationId: string
+    bodyId: string | null
+  }
+  const seen = new Set<string>()
+  const bands: SpanBand[] = []
+
+  for (const e of edges) {
+    const locA = layerLoc.get(e.a)
+    const locB = layerLoc.get(e.b)
+    if (locA === undefined || locB === undefined) continue
+    const [lo, hi] = locA.colIndex <= locB.colIndex ? [locA, locB] : [locB, locA]
+    const [loId, hiId] = locA.colIndex <= locB.colIndex ? [e.a, e.b] : [e.b, e.a]
+    if (hi.colIndex - lo.colIndex < 2) continue // adjacent — emitGap handles it
+
+    // Dedup: the same unit pair may appear as a top-tie AND a base-tie edge.
+    const key = `${loId}:${hiId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    // Mixed-tie wedge: lo formation continues, converging to hi's top contact.
+    const mixedWedge = lo.formationId !== hi.formationId
+    bands.push({
+      loColIndex: lo.colIndex,
+      hiColIndex: hi.colIndex,
+      loTopElev: lo.topElev,
+      loBaseElev: lo.baseElev,
+      hiTopElev: hi.topElev,
+      hiBaseElev: mixedWedge ? hi.topElev : hi.baseElev,
+      formationId: lo.formationId,
+      bodyId: lo.bodyId,
+    })
+  }
+
+  const result: SectionRegion[] = []
+
+  for (const band of bands) {
+    const loAlong = colsAlong[band.loColIndex]
+    const hiAlong = colsAlong[band.hiColIndex]
+    const totalSpan = hiAlong - loAlong
+    if (Math.abs(totalSpan) < EPS) continue
+
+    for (let g = band.loColIndex; g < band.hiColIndex; g++) {
+      // Global fractions of this gap's two columns within [loAlong, hiAlong].
+      const fL = (colsAlong[g] - loAlong) / totalSpan
+      const fR = (colsAlong[g + 1] - loAlong) / totalSpan
+
+      // Interpolate the spanning quad's elevations at this gap's columns.
+      const topL = band.loTopElev + fL * (band.hiTopElev - band.loTopElev)
+      const topR = band.loTopElev + fR * (band.hiTopElev - band.loTopElev)
+      const baseL = band.loBaseElev + fL * (band.hiBaseElev - band.loBaseElev)
+      const baseR = band.loBaseElev + fR * (band.hiBaseElev - band.loBaseElev)
+
+      // Quad in LOCAL gap fraction space (fraction 0 = left col, fraction 1 = right).
+      const quad: PartitionPoint[] = [
+        { fraction: 0, elevation: topL },
+        { fraction: 1, elevation: topR },
+        { fraction: 1, elevation: baseR },
+        { fraction: 0, elevation: baseL },
+      ]
+
+      // Clip to the sub-shallowTd region (elevation ≤ shallowTd): emitGap + cap
+      // already cover the above-shallowTd portion; spanning bands fill the deep rest.
+      const leftFloorElev = cols[g].surface - preInjectionBaseTD[g]
+      const rightFloorElev = cols[g + 1].surface - preInjectionBaseTD[g + 1]
+      const shallowTd = Math.max(leftFloorElev, rightFloorElev)
+      const clipped = clipPolyBelowElev(quad, shallowTd)
+      if (!hasArea(clipped)) continue
+
+      result.push({ formationId: band.formationId, bodyId: band.bodyId, kind: 'quad', polygon: clipped, gapIndex: g })
+    }
+  }
+
+  return result
+}
+
+/**
  * Resolve the WHOLE section at once: reduce each column ONCE against BOTH its
  * neighbours, then emit each gap from the shared reduced columns.
  *
@@ -3705,6 +3882,19 @@ export function computeSectionFill(
   // appear much deeper than the column's actual observed data).
   const preInjectionBaseTD: number[] = cols.map((c) => columnTotalDepth(c.units))
 
+  // Real along-section positions per filtered column (1:1 with `cols`): used by
+  // both the bridge-injection interpolation and the spanning-band pass so boundaries
+  // land on the straight tie-line at each column's actual screen position.
+  // Uniform fallback (column index) when no `alongM` is provided (tests, CS1 gate).
+  const colsAlong: readonly number[] =
+    alongM && alongM.length === columns.length
+      ? (() => {
+          const r: number[] = []
+          for (let oi = 0; oi < columns.length; oi++) if (columns[oi].units.length > 0) r.push(alongM[oi])
+          return r
+        })()
+      : cols.map((_, i) => i)
+
   // -------------------------------------------------------------------------
   // Bridge injection pre-pass (owner directive 2026-06-20, correction after
   // first build): for every correlation edge (a, b) whose two endpoints land on
@@ -3717,8 +3907,11 @@ export function computeSectionFill(
   // explicit correlations. This replaces the single-formation substrate post-pass,
   // which incorrectly filled all wedges with the deepest tied formation (KLEI/clay
   // everywhere) instead of each band's own formation.
+  //
+  // rewriteB: skipped — non-adjacent edges are handled by computeSpanningBands
+  // (direct spanning quads below the shallowTd cap) instead.
   // -------------------------------------------------------------------------
-  {
+  if (!rewriteB) {
     // Build a layerId → { colIndex, topElev, baseElev, formationId, bodyId } map
     // from the CLOSED-GAP cols (post-closeColumnGaps) so elevations are accurate.
     interface LayerLoc {
@@ -3762,21 +3955,6 @@ export function computeSectionFill(
     // each have two edge records with different aSide/bSide). The bridge unit is
     // injected only once; both edge kinds register their synthetic chain edges.
     const injectedBridgeIds = new Set<string>()
-
-    // Real along-section position per FILTERED column (1:1 with `cols`), so the bridge
-    // interpolation matches where the render actually PLACES each column. Without this
-    // the boundary is interpolated by COLUMN INDEX (uniform) but drawn at the real
-    // along-metre X → the injected clay/silt boundary bulges OFF the straight tie line
-    // the engineer drew (owner dogfeed 2026-07-10: "clay crossing the correlation
-    // band"). Uniform fallback (index) when no alongM, matching the substrate pass.
-    const colsAlong: readonly number[] =
-      alongM && alongM.length === columns.length
-        ? (() => {
-            const r: number[] = []
-            for (let oi = 0; oi < columns.length; oi++) if (columns[oi].units.length > 0) r.push(alongM[oi])
-            return r
-          })()
-        : cols.map((_, i) => i)
 
     // Pass 1: collect bridge candidates per intermediate column. Multiple edges can
     // target the same intermediate column k; collecting first prevents the overlapping
@@ -4121,6 +4299,20 @@ export function computeSectionFill(
     }
   }
 
+  // Spanning-band pass (rewriteB only): pre-computed here — BEFORE the per-gap
+  // loop — so the per-gap loop can gate the emitGap uncapped-push and the
+  // apexElevFloor per-gap param on whether actual below-shallowTd spanning content
+  // exists for that gap.  A shallow non-adjacent edge (e.g. a topA band at 0-2 m
+  // that shares a body across 3 columns) produces an EMPTY region after
+  // clipPolyBelowElev inside computeSpanningBands → it is filtered out of the
+  // result → its gapIndex does NOT appear in spanningGapIndices.  This prevents
+  // mis-classifying a gap as "spanning" when the only non-adjacent edge is a
+  // surface unit that doesn't actually reach below the shallow TD (CASE 6 guard).
+  const spanningBandRegions: SectionRegion[] = rewriteB
+    ? computeSpanningBands(cols, edges, colsAlong, preInjectionBaseTD)
+    : []
+  const spanningGapIndices = new Set(spanningBandRegions.map((r) => r.gapIndex))
+
   const out: SectionRegion[] = []
   // Correlated bands kept below the shallow-TD cap (per gap), collected in the cap
   // loop from ``tiedBandBase``-tagged regions. The deep-to-deep substrate — MATRIX
@@ -4211,12 +4403,14 @@ export function computeSectionFill(
       baseTied,
       mixedTiedTopToBase,
       layerBaseElevLookup,
-      // rewriteB: pass -Infinity so emitGap never clamps a one-sided pinch apex to the
-      // shallow TD (the "silt spike" bug — an uncapped pinch tapers past the TD to a
-      // clean point). Without the substrate the cap has no function; with it on,
-      // tiedBandBase already guards exempt bands, so the apex-clamp is only needed
-      // for the non-rewriteB path.
-      rewriteB ? -Infinity : shallowTd,
+      // apexElevFloor: cap for one-sided pinch apex (the GAP-19 "square end" fix).
+      // All gaps (rewriteB or not, spanning or not) clamp the apex UP to shallowTd
+      // so a boundary pinch tapers to a clean POINT at the halfway fraction ON the
+      // cap line rather than to an off-centre abrupt tip below it. The previous
+      // -Infinity specialcase for non-spanning rewriteB gaps was wrong: the apex
+      // must taper to shallowTd regardless of whether the output is clipped or
+      // pushed uncapped (PINCH-POINT test, 2026-07-10).
+      shallowTd,
       false, // skipCarve
       preInjectionBaseTD[i], // observed TDs — immune to bridge/gap-close inflation
       preInjectionBaseTD[i + 1],
@@ -4236,14 +4430,6 @@ export function computeSectionFill(
       rewriteB,
     )
     for (const r of gapRegions) {
-      // rewriteB: no substrate → no cap-clip needed. Push every region as-is so
-      // the intentional voids below shallow TDs remain empty (the "correlate here"
-      // cue). The tiedBandBase / exempt-band / clipPolyAboveElev paths all exist
-      // to coordinate with the substrate, which is OFF under rewriteB.
-      if (rewriteB) {
-        out.push({ ...r, gapIndex: i })
-        continue
-      }
       // Lens/onlap overlays are observed-region overlays — never clipped at the
       // cap. An extracted overlay CAN extend below the facing column's TD (a
       // deep-column minority lapping a band that dips under the shallow TD —
@@ -4270,6 +4456,15 @@ export function computeSectionFill(
         }
         continue
       }
+      // rewriteB non-spanning gap: emitGap owns ALL geometry for this gap —
+      // including floor-interval sideways / one-sided-pinch regions below the
+      // shallow TD.  No spanning band competes here, so push uncapped.
+      // (Spanning gaps clip at shallowTd below; computeSpanningBands fills the
+      // sub-shallowTd portion for them.)
+      if (rewriteB && !spanningGapIndices.has(i)) {
+        out.push({ ...r, gapIndex: i })
+        continue
+      }
       let minE = Infinity
       for (const p of r.polygon) if (p.elevation < minE) minE = p.elevation
       // Entirely at-or-above the shallow TD: pass through UNCHANGED (running it
@@ -4286,6 +4481,14 @@ export function computeSectionFill(
       const clipped = clipPolyAboveElev(r.polygon, shallowTd)
       if (hasArea(clipped)) out.push({ ...r, polygon: clipped, gapIndex: i })
     }
+  }
+
+  // Spanning-band pass (rewriteB only): append the pre-computed spanning-band
+  // regions for every non-adjacent correlation edge whose below-shallowTd portion
+  // is non-empty.  These were computed before the per-gap loop so that
+  // spanningGapIndices could gate the per-gap uncapped-push and apexElevFloor.
+  if (rewriteB) {
+    out.push(...spanningBandRegions)
   }
 
   // The sub-TD region is now EMPTY (voids) after the per-gap cap above. The
