@@ -484,8 +484,12 @@ describe('computePartitionFill', () => {
     // left reaches 23 m; right (a shallow borehole) stops at 17 m.
     // left:  Clay 0-10 | Sand 10-17 | Silt 17-23
     // right: Clay 0-10 | Sand 10-17           (no data below 17)
-    // The Silt is below the right's floor and uncorrelated → no reaching
-    // neighbour can carry it → it pinches out toward the shallow right.
+    // The Silt is below the right's floor and uncorrelated. The deep-to-deep
+    // substrate needs a deep anchor on BOTH sides to bracket-fill; here only the
+    // left column is deep (a section-edge topology), so the substrate cannot carry
+    // the silt across and it still pinches out toward the shallow right. (Real
+    // sections bracket on both sides — CS1's continuous fill is void-free; this
+    // 2-column edge case is the degenerate exception.)
     const left = col('L', 10, [
       { top: 0, base: 10, f: 'clay', b: 'clay' },
       { top: 10, base: 17, f: 'sand', b: 'sand' },
@@ -497,27 +501,29 @@ describe('computePartitionFill', () => {
     ])
     const regions = pf(left, right)
 
-    const silt = regions.filter((r) => r.formationId === 'silt')
-    expect(silt).toHaveLength(1)
-    // It is the base truth, not deleted: the Silt is present near its OWN (left)
-    // column edge (fraction 0) at its mid-elevation (-20). But it does NOT carry
-    // through to the shallow right side — it is ABSENT at the right column edge.
-    const presentAt = (frac: number, elev: number): boolean => {
-      let inside = false
-      const poly = silt[0].polygon
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const xi = poly[i].fraction
-        const yi = poly[i].elevation
-        const xj = poly[j].fraction
-        const yj = poly[j].elevation
-        if (yi > elev !== yj > elev && frac < ((xj - xi) * (elev - yi)) / (yj - yi) + xi)
-          inside = !inside
-      }
-      return inside
-    }
+    const silt = regions.filter((r) => r.formationId === 'silt' && r.kind !== 'lens')
+    expect(silt.length).toBeGreaterThanOrEqual(1)
+    // The Silt is the base truth near its OWN (left) edge but does NOT carry through
+    // to the shallow right (it pinches out). It may be emitted as more than one
+    // region under the continuous-fill substrate pass (its own body + a substrate
+    // fragment), so check ALL silt regions rather than a single one.
+    const siltCovers = (frac: number, elev: number): boolean =>
+      silt.some((r) => {
+        let inside = false
+        const poly = r.polygon
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].fraction
+          const yi = poly[i].elevation
+          const xj = poly[j].fraction
+          const yj = poly[j].elevation
+          if (yi > elev !== yj > elev && frac < ((xj - xi) * (elev - yi)) / (yj - yi) + xi)
+            inside = !inside
+        }
+        return inside
+      })
     // Silt is 17-23 m below surface 10 mTAW → elevations -7 to -13, mid -10.
-    expect(presentAt(0.05, -10)).toBe(true) // present near its own (left) edge
-    expect(presentAt(0.95, -10)).toBe(false) // pinched out — absent on the shallow side
+    expect(siltCovers(0.05, -10)).toBe(true) // present near its own (left) edge
+    expect(siltCovers(0.95, -10)).toBe(false) // pinched out — absent on the shallow side
   })
 
   // CT2 — a same-depth extra bed (NOT below the neighbour's floor) terminates
@@ -1839,15 +1845,15 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // that band and the sand is evicted to a decorative overlay lens.
     expect(coverAt(regions, 0, 0.02, -10)).toEqual(['SAND'])
     // The bottom CLAY (12-20 m → elev -16) has DIFFERENT body IDs on L (botL)
-    // and R (botR) — no user correlation → no spanning band → correctly absent
-    // in gap 0 (spanning gap: emitGap is clipped at shallowTd=-3.5 for this gap,
-    // and the uncorrelated CLAY has nothing below shallowTd to carry through).
-    // This is the "matrix does not flood" invariant: only EXPLICITLY CORRELATED
-    // units bridge the shallow column.
-    // With rewriteB=false (old substrate path) computeBracketSubstrate fills
-    // CLAY at -16 m via the deep-to-deep bracket pass. With rewriteB=true the
-    // substrate pass is disabled ("correlate-or-gap"), so the point is uncovered.
-    expect(coverAt(regions, 0, 0.02, -16)).toEqual(rewriteB ? [] : ['CLAY'])
+    // and R (botR) — no user correlation → no spanning band. Under the CONTINUOUS-
+    // FILL directive (owner 2026-07-10, "we need a continuous fill over the whole
+    // section") the deep-to-deep substrate is the BACKGROUND filler on BOTH paths,
+    // so this sub-shallow-TD point is filled with the deep neighbour's CLAY (matching
+    // the CS1 lithology gate: below a shallow TD the fill continues the deep
+    // stratigraphy). The "matrix does not flood" invariant is unchanged — it is about
+    // the CLAY not flooding OVER the correlated deep SAND (the -10 assertion above),
+    // which still holds; the bottom CLAY simply fills its own space instead of a void.
+    expect(coverAt(regions, 0, 0.02, -16)).toEqual(['CLAY'])
   })
 
   // CASE 2 — a GENUINE pinch-out must still pinch. The facing neighbour REACHES
