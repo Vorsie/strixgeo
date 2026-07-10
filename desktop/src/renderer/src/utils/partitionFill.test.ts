@@ -2947,10 +2947,13 @@ describe('computeUnderColumnSubstrate (under-column substrate fill)', () => {
     expect(fills.find((f) => f.columnIndex === 1)).toBeUndefined()
   })
 
-  it('closes a lens-spot gap by extending the band below it upward', () => {
+  it('closes a lens-spot gap by extending the OVERLYING band downward', () => {
     // Edge column (only a right gap) with CLAY[4..8], a LENS SILT[2..4], SAND[-2..2]
-    // at the edge. The matrix alone leaves [2..4] uncovered (the lens); the fill
-    // must close it by extending SAND up to 4 — contiguous, no vertical gap.
+    // at the edge. The matrix alone leaves [2..4] uncovered (the lens spot); the fill
+    // must close it by extending the OVERLYING band (CLAY) DOWN to 2 — the overlying
+    // unit drapes into a pinch-out void, matching the neighbours on real data (owner
+    // dogfeed 2026-07-10: a void under a shallow test was painted silt/sand when the
+    // neighbours logged clay above it). CLAY and the void merge into one band.
     const columns = [shallowCol('S', 9.5), shallowCol('R', -2)]
     const regions: SectionRegion[] = [
       reg(0, 'CLAY', 8, 4, 8, 4),
@@ -2966,8 +2969,9 @@ describe('computeUnderColumnSubstrate (under-column substrate fill)', () => {
     expect(lower.formationId).toBe('SAND')
     // Contiguous: CLAY base meets SAND top (no vertical gap where the lens sat).
     expect(upper.baseLeftElev).toBeCloseTo(lower.topLeftElev, 1)
-    // SAND extended UP to 4 (the lens spot), not left at its own top of 2.
-    expect(lower.topLeftElev).toBeCloseTo(4, 1)
+    // CLAY extended DOWN to 2 (over the lens spot); SAND stays at its own top of 2.
+    expect(lower.topLeftElev).toBeCloseTo(2, 1)
+    expect(upper.baseLeftElev).toBeCloseTo(2, 1)
   })
 
   it('fills a run of 2+ consecutive shallow tests', () => {
