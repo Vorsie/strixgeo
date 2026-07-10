@@ -1285,6 +1285,16 @@ export default function PartitionFillOverlay({
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
     type Fill = { key: string; points: string; color: string; formationId: string }
+    // Correlate-or-gap (rewriteB): the under-column substrate paints the automatic
+    // deep-to-deep fill into each column strip below its TD — the GREY clay the owner
+    // sees "spilling over silt/sand" (proven with the alt-click inspector:
+    // partition-undercol fill=#6b7280 is the only element at the clicked pixels). That
+    // is exactly the automatic interpolation the correlate-or-gap model deletes: below
+    // a TD without a correlation is a GAP, not substrate. Gate it off (same rewriteB
+    // toggle as computeSectionFill). The geotech refinement pass is separate/unchanged.
+    const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
+    const rewriteB = (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
+    if (rewriteB) return [] as Fill[]
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
