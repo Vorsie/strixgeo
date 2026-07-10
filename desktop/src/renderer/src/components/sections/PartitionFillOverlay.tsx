@@ -1327,6 +1327,81 @@ export default function PartitionFillOverlay({
     formationColorById,
   ])
 
+  // TEMP-DEVTOOLS OVERLAP LOG (owner dogfeed 2026-07-10): the region DATA verifies
+  // correct + tiling, yet the app shows "clay spilling over silt/sand". So the spill
+  // is in the actual RENDER. This samples every drawn quad (gap partition + the
+  // separate under-column pass) in SCREEN space across the focus columns and reports
+  // any pixel covered by 2+ DIFFERENT lithologies — the real overlap, and which pass
+  // draws each. If it finds none, the spill is a DIFFERENT overlay (not these passes).
+  useEffect(() => {
+    const dbg = globalThis as Record<string, unknown>
+    const fillLog = (dbg.__FILLLOG as string | undefined) ?? 'GEO-10/170-S8'
+    const sig = `OVL|${fillLog}|${screenRegions.length}|${underColumnFills.length}`
+    if (dbg.__OVL_SIG === sig) return
+    dbg.__OVL_SIG = sig
+    const LITHO: Record<string, string> = { '38d1bc': 'ZAND', '19bb43': 'KLEI', '0f2e06': 'SILT', '512af4': 'VEEN' }
+    const lith = (fid: string): string => LITHO[fid.slice(-6)] ?? fid.slice(-6)
+    const nameByInv = new Map<string, string>()
+    for (const col of placedColumns as readonly PlacedColumn[]) nameByInv.set(col.proj.item.id, col.proj.item.name ?? col.proj.item.id.slice(-6))
+    type Q = { pass: string; litho: string; pts: { x: number; y: number }[] }
+    const quads: Q[] = []
+    for (const sr of screenRegions) {
+      if (sr.region.kind === 'lens') continue // lenses are intentional overlays
+      quads.push({ pass: 'gap', litho: lith(sr.region.formationId), pts: sr.points })
+    }
+    for (const f of underColumnFills) {
+      const nums = (f.points.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+      const pts: { x: number; y: number }[] = []
+      for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
+      quads.push({ pass: 'undercol', litho: lith(f.formationId), pts })
+    }
+    const focusXs: number[] = []
+    for (const id of orderedInvs) {
+      if ((nameByInv.get(id) ?? '').includes(fillLog)) {
+        const sc = screenByInv.get(id)
+        if (sc) focusXs.push(sc.leftX, sc.rightX)
+      }
+    }
+    if (focusXs.length === 0) return
+    const x0 = Math.min(...focusXs) - 260
+    const x1 = Math.max(...focusXs) + 20
+    const inPoly = (px: number, py: number, poly: { x: number; y: number }[]): boolean => {
+      let inside = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x
+        const yi = poly[i].y
+        const xj = poly[j].x
+        const yj = poly[j].y
+        if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+      }
+      return inside
+    }
+    const overlaps: string[] = []
+    const seen = new Set<string>()
+    for (let x = x0; x <= x1; x += 4) {
+      for (let y = plotTop; y <= plotBottom; y += 4) {
+        const hits = quads.filter((q) => inPoly(x, y, q.pts))
+        const lset = new Set(hits.map((h) => h.litho))
+        if (lset.size > 1) {
+          const key = hits.map((h) => `${h.pass}:${h.litho}`).sort().join(' + ')
+          if (!seen.has(key)) {
+            seen.add(key)
+            overlaps.push(`e.g. screen(${x.toFixed(0)},${y.toFixed(0)}) covered by  ${key}`)
+          }
+        }
+      }
+    }
+    const lines = [
+      `\n\n🟥🟥🟥 OVERLAP LOG (focus "${fillLog}", x[${x0.toFixed(0)}..${x1.toFixed(0)}]) 🟥🟥🟥`,
+      `quads sampled: ${quads.length} (gap ${quads.filter((q) => q.pass === 'gap').length} + undercol ${quads.filter((q) => q.pass === 'undercol').length})`,
+      overlaps.length
+        ? `⚠ OVERLAPS — pixels covered by 2+ lithologies:\n  ${overlaps.join('\n  ')}`
+        : '✓ NO overlaps among gap+undercol quads → the spill is a DIFFERENT overlay (not these passes)',
+    ]
+    // eslint-disable-next-line no-console
+    console.log(lines.join('\n'))
+  }, [screenRegions, underColumnFills, orderedInvs, screenByInv, placedColumns, plotTop, plotBottom])
+
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
   // When `refinement` is set (the geotech axis), the litho partition
