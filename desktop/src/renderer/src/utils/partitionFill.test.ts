@@ -1845,15 +1845,14 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // that band and the sand is evicted to a decorative overlay lens.
     expect(coverAt(regions, 0, 0.02, -10)).toEqual(['SAND'])
     // The bottom CLAY (12-20 m → elev -16) has DIFFERENT body IDs on L (botL)
-    // and R (botR) — no user correlation → no spanning band. Under the CONTINUOUS-
-    // FILL directive (owner 2026-07-10, "we need a continuous fill over the whole
-    // section") the deep-to-deep substrate is the BACKGROUND filler on BOTH paths,
-    // so this sub-shallow-TD point is filled with the deep neighbour's CLAY (matching
-    // the CS1 lithology gate: below a shallow TD the fill continues the deep
-    // stratigraphy). The "matrix does not flood" invariant is unchanged — it is about
-    // the CLAY not flooding OVER the correlated deep SAND (the -10 assertion above),
-    // which still holds; the bottom CLAY simply fills its own space instead of a void.
-    expect(coverAt(regions, 0, 0.02, -16)).toEqual(['CLAY'])
+    // and R (botR) — no user correlation → no bridging band. Under the continuous-fill
+    // model (spec 2026-07-10) fill comes ONLY from real correlations; a genuinely
+    // UNcorrelated deep unit does not bridge, so on rewriteB it is a void left for
+    // manual correlation (the engineer draws the tie), NOT interpolated. The old
+    // non-rewriteB substrate path fills it via the deep-to-deep bracket → CLAY. This
+    // is path-aware, like the rest of CASE 1. The "matrix does not flood OVER the
+    // correlated deep SAND" invariant (the -10 assertion above) is what has teeth.
+    expect(coverAt(regions, 0, 0.02, -16)).toEqual(rewriteB ? [] : ['CLAY'])
   })
 
   it('CASE 1b — a bridged deep band is CONTINUOUS: present at the middle column from BOTH gaps', () => {
