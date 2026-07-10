@@ -240,6 +240,13 @@ export interface PartitionRegion {
    */
   tiedBandBase?: number
   /**
+   * Set on an emitGap region that was CLIPPED at a sloping cross-litho tie line (the
+   * rewriteB "colour between the lines" pass). Such a region was deliberately kept
+   * only ABOVE its tie, so ``mergeSplitBodyRegions`` must never re-merge it across
+   * that tie (which would reconstruct the removed "clay spilling over" wedge).
+   */
+  tieClipped?: boolean
+  /**
    * DIAGNOSTIC (owner directive — keep diagnostics): which emission pass produced
    * this region — ``'emit'`` (per-gap emitGap), ``'span'`` (computeSpanningBands),
    * or ``'substrate'`` (computeBracketSubstrate deep-to-deep). Lets the CS1
@@ -3137,11 +3144,26 @@ function emitGap(
         const polygon: PartitionPoint[] = ring.filter(
           (pt, i) => !coincident(pt, ring[(i + ring.length - 1) % ring.length]),
         )
+        // A mixed-tied region (its top RISES to an on-section top↔base tie point) is
+        // an EXPLICIT engineer correlation the same as a top↔top band pair — it must
+        // NOT be chopped by the gap's shallow-TD cap when a spanning gap clips its
+        // emitGap output. Tag it with ``tiedBandBase`` = its own base elevation so the
+        // ``computeSectionFill`` clip loop keeps it whole down to its base AND registers
+        // it in ``exemptBandsByGap`` (so the redundant spanning sliver of the same unit
+        // is carved around it). Without this, gap 8's S10 mid-clay — emitted here via
+        // the S8-silt-base↔S10-clay-top tie — is discarded by the cap into a void that
+        // no spanning band covers (its band correlation is to off-section B9). The base
+        // is the polygon's deepest point, so keeping ABOVE it keeps the whole region.
         regions.push({
           formationId: p.formationId,
           bodyId: p.bodyId,
           kind: 'quad',
           polygon,
+          // Gate on the rewriteB path (``taperWedgesToConvergence`` === rewriteB): the
+          // legacy substrate path handles below-cap fill itself and must stay
+          // byte-identical, so only the correlate-or-gap path marks mixed-tie regions.
+          tiedBandBase:
+            taperWedgesToConvergence && it.mixedTiedFacingTopElev !== null ? bandBaseElev : undefined,
         })
         runTop = clampIface(elevToIface(bandBaseElev), runTop)
         // Advance the above-matrix cursor ONLY past a genuine BAND — a band is a
@@ -3904,6 +3926,18 @@ export function computeSectionFill(
   const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
   const rewriteB =
     (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
+  // Margin (m) below a cross-litho tie line at which an emitGap region is treated as
+  // straddling it and clipped to the above-tie part (gap-void fill, 2026-07-10).
+  const TIE_CLIP_MARGIN = 0.02
+  // Continuous-fill (owner directive 2026-07-10, "we need a continuous fill over the
+  // whole section"): under rewriteB, also run the deep-to-deep substrate as the
+  // BACKGROUND filler so uncorrelated deep space below the shallow TDs is filled
+  // (no voids). It is carved around the correlated fill (emitGap real data + spanning
+  // bands) so correlations win and the substrate fills only the remainder. This
+  // re-enables the interpolation the correlate-or-gap model had dropped, now made
+  // safe by the cross-litho tie-line clip. Env-overridable for A/B during bring-up.
+  const SUBSTRATE_CONTINUITY =
+    rewriteB && !(typeof process !== 'undefined' && process.env?.NO_SUBSTRATE_CONTINUITY)
   cols.forEach((c) => closeColumnGaps(c.units))
 
   // Snapshot of each column's total depth BEFORE bridge injection AND before
@@ -4350,6 +4384,74 @@ export function computeSectionFill(
   // *and* its own lenses — is carved around these absolute user correlations so
   // nothing double-draws below the cap (owner directive 2026-07-08).
   const exemptBandsByGap = new Map<number, PartitionPoint[][]>()
+
+  // ---------------------------------------------------------------------------
+  // Cross-lithology surface ties (along/elev space) — the "lines" the fill must
+  // stay between (owner directive 2026-07-10, "colour between the lines"). A
+  // spanning gap caps emitGap output at the shallow TD and relies on
+  // ``computeSpanningBands`` to fill below; but that horizontal cap discards
+  // emitGap's REAL deep data that sits ABOVE a sloping correlation tie — the
+  // S8-flanking mid-clay voids (gaps 7 + 8). The fix: clip emitGap regions at the
+  // sloping TIE LINE, not the horizontal cap — keep the real data above every
+  // cross-litho tie it would otherwise straddle, and let spanning own only the
+  // space BELOW the tie. Built from the ORIGINAL (pre-closeColumnGaps) ``columns``
+  // + ``colsAlong`` so the tie geometry matches the app / the CS1 tie-cross gate
+  // exactly (closeColumnGaps mutates base elevations). Only CROSS-litho ties (the
+  // app's tie-hit condition, ``lithoA !== lithoB``); a same-litho tie is a band
+  // boundary the fill legitimately sits on, not a surface it must not cross.
+  interface CrossLithoTie {
+    a1: number
+    e1: number
+    a2: number
+    e2: number
+  }
+  const crossLithoTies: CrossLithoTie[] = (() => {
+    // layerId → {along, top, base, topFid, belowFid} from the raw non-empty columns.
+    const layerElev = new Map<
+      string,
+      { along: number; top: number; base: number; topFid: string; belowFid: string | null }
+    >()
+    let ci = 0
+    for (const c of columns) {
+      if (c.units.length === 0) continue
+      const along = colsAlong[ci]
+      ci++
+      const sorted = [...c.units].sort((a, b) => a.topDepthM - b.topDepthM)
+      for (let k = 0; k < sorted.length; k++) {
+        const u = sorted[k]
+        layerElev.set(u.layerId, {
+          along,
+          top: c.surfaceElevM - u.topDepthM,
+          base: c.surfaceElevM - u.baseDepthM,
+          topFid: u.formationId,
+          belowFid: k + 1 < sorted.length ? sorted[k + 1].formationId : null,
+        })
+      }
+    }
+    // A base-side contact sits ON the lithology BELOW it (matches lithoByContactId);
+    // a top-side contact on its own lithology.
+    const sideLitho = (
+      l: { topFid: string; belowFid: string | null },
+      side: string | undefined,
+    ): string | null => (side === 'base' ? l.belowFid : l.topFid)
+    const ties: CrossLithoTie[] = []
+    for (const e of edges) {
+      const la = layerElev.get(e.a)
+      const lb = layerElev.get(e.b)
+      if (!la || !lb) continue
+      const litA = sideLitho(la, e.aSide)
+      const litB = sideLitho(lb, e.bSide)
+      if (litA === null || litB === null || litA === litB) continue
+      ties.push({
+        a1: la.along,
+        e1: e.aSide === 'base' ? la.base : la.top,
+        a2: lb.along,
+        e2: e.bSide === 'base' ? lb.base : lb.top,
+      })
+    }
+    return ties
+  })()
+
   for (let i = 0; i < cols.length - 1; i++) {
     const left = { surface: cols[i].surface, units: cols[i].units.map((u) => ({ ...u })) }
     const right = { surface: cols[i + 1].surface, units: cols[i + 1].units.map((u) => ({ ...u })) }
@@ -4504,13 +4606,74 @@ export function computeSectionFill(
         out.push({ ...r, gapIndex: i })
         continue
       }
-      // Crosses or lies below the shallow TD: keep only the at-or-above part.
-      // A backing matrix quad that wraps a lens notch is CONCAVE — clipPolyAboveElev
-      // walks it with the concave-aware Sutherland–Hodgman so the lens backing above
-      // the cap survives whole (the lens overlay is kept whole above the cap, so its
-      // tiling backing must be too).
-      const clipped = clipPolyAboveElev(r.polygon, shallowTd)
-      if (hasArea(clipped)) out.push({ ...r, polygon: clipped, gapIndex: i })
+      if (!rewriteB) {
+        // Legacy substrate path: clip at the horizontal shallow-TD cap; the
+        // deep-to-deep substrate owns everything below. Byte-identical to before the
+        // tie-line-clip work (which is a rewriteB-only, correlate-or-gap behaviour).
+        const clipped = clipPolyAboveElev(r.polygon, shallowTd)
+        if (hasArea(clipped)) out.push({ ...r, polygon: clipped, gapIndex: i })
+        continue
+      }
+      // rewriteB spanning gap, region dips below the shallow TD: clip at the sloping
+      // CROSS-LITHO TIE LINE(s), not the horizontal shallow-TD cap ("colour between
+      // the lines", owner 2026-07-10). Keep the emitGap real data ABOVE every tie it
+      // would otherwise straddle — this is the mid-clay + real deep data the old
+      // horizontal cap discarded into voids (gaps 7 + 8) — and let
+      // ``computeSpanningBands`` own only the space BELOW the tie. A region entirely
+      // below a tie clips to nothing (spanning owns it); one above all ties is kept
+      // whole. Kept regions register as exempt bands so spanning is carved around
+      // them (no double-cover). Falls back to the horizontal cap when the gap has NO
+      // cross-litho ties (nothing to stay between).
+      const aL = colsAlong[i]
+      const aR = colsAlong[i + 1]
+      const gLo = Math.min(aL, aR)
+      const gHi = Math.max(aL, aR)
+      // Ties overlapping THIS gap's along-span. When there are none, there is no
+      // correlation line to colour between — fall back to the horizontal cap so the
+      // legacy spanning + merge machinery owns the below-cap fill (a gap with only
+      // same-lithology correlations, e.g. the synthetic dipping-silt band, produces
+      // NO cross-litho ties and must stay byte-identical to before this pass).
+      const gapTies = crossLithoTies.filter(
+        (t) => Math.min(gHi, Math.max(t.a1, t.a2)) - Math.max(gLo, Math.min(t.a1, t.a2)) > 0,
+      )
+      if (gapTies.length === 0) {
+        const clipped = clipPolyAboveElev(r.polygon, shallowTd)
+        if (hasArea(clipped)) out.push({ ...r, polygon: clipped, gapIndex: i })
+        continue
+      }
+      let poly: PartitionPoint[] = r.polygon as PartitionPoint[]
+      for (const t of gapTies) {
+        const slope = (t.e2 - t.e1) / (t.a2 - t.a1 || 1)
+        const m = slope * (aR - aL)
+        const b = t.e1 + slope * (aL - t.a1)
+        let below = false
+        for (const p of poly) {
+          if (p.elevation < m * p.fraction + b - TIE_CLIP_MARGIN) {
+            below = true
+            break
+          }
+        }
+        if (!below) continue
+        poly = clipPolyAboveLine(poly, m, b)
+        if (poly.length < 3) break
+      }
+      // A region NOT clipped by any tie is above every overlapping tie — real data
+      // with no correlation line beneath it — so keep it WHOLE (do NOT fall back to
+      // the horizontal cap, which discarded the real deep data into the gap-7 void).
+      // Its below-cap part does not straddle any tie, so it is tie-cross safe. A
+      // region clipped to nothing (entirely below its tie) drops through to spanning.
+      if (hasArea(poly)) {
+        // Mark as an absolute kept region (``tiedBandBase`` = its own deepest point):
+        // the final carve then treats it as a SUBTRAHEND only (carves spanning bands
+        // around it) and NOT a minuend, so it does not subtract itself into oblivion
+        // — the same contract the branch-2 mixed-tie / band regions use.
+        let keptMinE = Infinity
+        for (const p of poly) if (p.elevation < keptMinE) keptMinE = p.elevation
+        out.push({ ...r, polygon: poly, gapIndex: i, tiedBandBase: keptMinE, tieClipped: true })
+        const g = exemptBandsByGap.get(i) ?? []
+        g.push(poly)
+        exemptBandsByGap.set(i, g)
+      }
     }
   }
 
@@ -4544,14 +4707,14 @@ export function computeSectionFill(
   // Uncorrelated space below a shallow TD is an INTENTIONAL GAP (the "correlate
   // here" cue). Owner directive 2026-07-09: get rid of the interpolation altogether;
   // do NOT mix automatic interpolation with manual correlation bands.
-  if (!rewriteB) {
+  if (!rewriteB || SUBSTRATE_CONTINUITY) {
     out.push(
       ...computeBracketSubstrate(columns, edges, along, {
         correlated,
         baseTied,
         mixedTiedTopToBase,
         allEdgedLayerIds,
-      }),
+      }).map((r) => ({ ...r, debugSrc: 'substrate' })),
     )
   }
   // Sanitize substrate polygons: the deep-to-deep pass can emit a SELF-INTERSECTING
@@ -4576,6 +4739,36 @@ export function computeSectionFill(
     }
     out.length = substrateStart
     out.push(...sanitized)
+  }
+
+  // Continuous-fill background carve (2026-07-10, owner "continuous fill over the
+  // whole section"): the deep-to-deep substrate is the BACKGROUND filler — it fills
+  // only where the correlated fill (emitGap real data + spanning bands) leaves a
+  // void. Subtract every non-substrate region in the gap from each substrate region,
+  // so the substrate never double-covers the correlated fill (which otherwise makes
+  // the whole deep stack overlap twice). Correlations win; the substrate fills the
+  // uncorrelated remainder → a true continuous partition.
+  if (SUBSTRATE_CONTINUITY && out.length > substrateStart) {
+    const aboveByGap = new Map<number, PartitionPoint[][]>()
+    for (let idx = 0; idx < substrateStart; idx++) {
+      const r = out[idx]
+      if (r.kind === 'lens') continue
+      const g = aboveByGap.get(r.gapIndex) ?? []
+      g.push(r.polygon)
+      aboveByGap.set(r.gapIndex, g)
+    }
+    const carved: SectionRegion[] = []
+    for (let idx = substrateStart; idx < out.length; idx++) {
+      const r = out[idx]
+      const above = aboveByGap.get(r.gapIndex)
+      if (!above || above.length === 0) {
+        carved.push(r)
+        continue
+      }
+      for (const p of subtractPolygon(r.polygon, above)) carved.push({ ...r, polygon: p })
+    }
+    out.length = substrateStart
+    out.push(...carved)
   }
 
   // Carve the substrate around the gap phase's OVERLAYS (2026-07-07). An
@@ -4650,7 +4843,14 @@ export function computeSectionFill(
     out.push(...rebuilt)
   }
 
-  mergeSplitBodyRegions(out)
+  // The straddle guard is only needed on the rewriteB tie-line-clip path (it stops a
+  // tie-clipped body being re-merged across its tie). The legacy substrate path never
+  // tie-clips, so pass no ties there to keep its merges byte-identical.
+  mergeSplitBodyRegions(
+    out,
+    rewriteB ? crossLithoTies : [],
+    rewriteB ? cols.map((_, gi) => ({ l: colsAlong[gi], r: colsAlong[gi + 1] })).slice(0, cols.length - 1) : [],
+  )
 
   // Final partition guarantee: make same-gap non-lens regions pairwise disjoint.
   // emitGap's independent emit paths compute a shared contact line twice (a
@@ -4697,7 +4897,38 @@ export function computeSectionFill(
  *     The full region list; mutated in place — merged groups are collapsed to a
  *     single region (the first member's slot), the other members removed.
  */
-function mergeSplitBodyRegions(regions: SectionRegion[]): void {
+function mergeSplitBodyRegions(
+  regions: SectionRegion[],
+  crossLithoTies: readonly { a1: number; e1: number; a2: number; e2: number }[] = [],
+  gapAlong: readonly { l: number; r: number }[] = [],
+): void {
+  // Straddle test: would ``quad`` (fraction/elev, in gap ``gi``) have interior both
+  // clearly above AND below a cross-litho tie line? Re-merging a body split by the
+  // tie-line clip would reconstruct the "clay spilling over the correlation" wedge
+  // the clip removed (gaps 7 + 8), so any merge that straddles a tie is skipped.
+  const straddlesTie = (quad: readonly PartitionPoint[], gi: number): boolean => {
+    const g = gapAlong[gi]
+    if (!g) return false
+    const gLo = Math.min(g.l, g.r)
+    const gHi = Math.max(g.l, g.r)
+    for (const t of crossLithoTies) {
+      const tLo = Math.min(t.a1, t.a2)
+      const tHi = Math.max(t.a1, t.a2)
+      if (Math.min(gHi, tHi) - Math.max(gLo, tLo) <= 0) continue
+      const slope = (t.e2 - t.e1) / (t.a2 - t.a1 || 1)
+      const m = slope * (g.r - g.l)
+      const b = t.e1 + slope * (g.l - t.a1)
+      let above = false
+      let below = false
+      for (const p of quad) {
+        const d = p.elevation - (m * p.fraction + b)
+        if (d > 0.05) above = true
+        else if (d < -0.05) below = true
+      }
+      if (above && below) return true
+    }
+    return false
+  }
   // Group non-lens region INDICES by (gapIndex, bodyId). A null bodyId can never
   // be a single geological unit split across the cap, so skip it.
   const groups = new Map<string, number[]>()
@@ -4752,6 +4983,14 @@ function mergeSplitBodyRegions(regions: SectionRegion[]): void {
     // a neighbouring body — skip the merge and keep the parts as-is.
     if (Math.abs(quadArea - partAreaSum) > SPAN_EPS) continue
     if (quadArea < SPAN_EPS) continue
+    // Do NOT re-merge across a cross-litho tie when the group joins an emitGap region
+    // (tie-clipped, kept ABOVE the tie) with a SPANNING band (owns BELOW the tie): the
+    // bounding quad would straddle the sloping tie and reconstruct the "clay spilling
+    // over the correlation" wedge the tie-line clip removed (gaps 7 + 8). A pure
+    // emit↔emit merge (a genuine dipping band) is left untouched — only the
+    // emit↔span reconstruction is blocked.
+    const hasTieClipped = idxs.some((i) => regions[i].tieClipped)
+    if (hasTieClipped && straddlesTie(mergedQuad, first.gapIndex)) continue
 
     // Collapse the group: replace the first member with the merged quad, drop the
     // rest. Preserve the first member's kind/formation/body/gap so downstream
@@ -5402,6 +5641,41 @@ function clipPolyAboveElev(
     }
   }
   // Clipping along the cut line emits coincident points; dedup like clipToConvex.
+  return dedupeRing(out)
+}
+
+/**
+ * Clip a (fraction, elevation) polygon to the half-plane ABOVE a SLOPING line
+ * ``elevation >= m*fraction + b`` (Sutherland–Hodgman) — the sloped generalisation
+ * of ``clipPolyAboveElev``. Used to clip emitGap fill at a sloping cross-litho tie
+ * line ("colour between the lines") instead of a horizontal cap. Returns ``[]`` when
+ * the whole polygon lies below the line.
+ */
+function clipPolyAboveLine(poly: readonly PartitionPoint[], m: number, b: number): PartitionPoint[] {
+  const out: PartitionPoint[] = []
+  const n = poly.length
+  if (n === 0) return out
+  const lineAt = (f: number): number => m * f + b
+  const inside = (p: PartitionPoint): boolean => p.elevation >= lineAt(p.fraction) - SPAN_EPS
+  const intersect = (a: PartitionPoint, c: PartitionPoint): PartitionPoint => {
+    // Signed distance to the line at each endpoint; the crossing is where it is zero.
+    const da = a.elevation - lineAt(a.fraction)
+    const dc = c.elevation - lineAt(c.fraction)
+    const t = Math.abs(da - dc) < SPAN_EPS ? 0 : da / (da - dc)
+    return { fraction: a.fraction + t * (c.fraction - a.fraction), elevation: a.elevation + t * (c.elevation - a.elevation) }
+  }
+  for (let i = 0; i < n; i++) {
+    const cur = poly[i]
+    const prev = poly[(i + n - 1) % n]
+    const curIn = inside(cur)
+    const prevIn = inside(prev)
+    if (curIn) {
+      if (!prevIn) out.push(intersect(prev, cur))
+      out.push(cur)
+    } else if (prevIn) {
+      out.push(intersect(prev, cur))
+    }
+  }
   return dedupeRing(out)
 }
 
