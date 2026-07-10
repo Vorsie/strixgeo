@@ -99,21 +99,37 @@ describe('CS1 tie-cross gate', () => {
 
     const regions = computeSectionFill(columns, raw.edges, undefined, alongM)
 
-    // Column along + per-layer (top/base) elevation, keyed by layerId (== contact id).
-    const alongByCol = new Map<string, number>()
-    const layerElev = new Map<string, { along: number; top: number; base: number; fid: string }>()
+    // Column along + per-layer top/base elevation + the formation of the unit
+    // DIRECTLY BELOW this one (for base-side contacts). Keyed by layerId (== the
+    // contact id a top/base tie references). ``belowFid`` mirrors the app's
+    // lithoByContactId: a base-side contact carries the lithology below it, so a
+    // silt-base tie whose below-material differs across columns (KLEI vs ZAND) is a
+    // cross-lithology surface tie (the tie-hit the owner sees) rather than a band
+    // boundary. Sort each column top→down first so "below" is unambiguous.
+    const layerElev = new Map<
+      string,
+      { along: number; top: number; base: number; topFid: string; belowFid: string | null }
+    >()
     for (const c of nonEmpty) {
       const along = alongById.get(c.investigationId) ?? Number.NaN
-      alongByCol.set(c.investigationId, along)
-      for (const u of c.units) {
+      const sorted = [...c.units].sort((a, b) => a.topDepthM - b.topDepthM)
+      for (let i = 0; i < sorted.length; i++) {
+        const u = sorted[i]
         layerElev.set(u.layerId, {
           along,
           top: c.surfaceElevM - u.topDepthM,
           base: c.surfaceElevM - u.baseDepthM,
-          fid: u.formationId,
+          topFid: u.formationId,
+          belowFid: i + 1 < sorted.length ? sorted[i + 1].formationId : null,
         })
       }
     }
+    // The lithology a tie endpoint sits ON, matching the app's lithoByContactId:
+    // top side → the layer's own formation; base side → the formation below.
+    const sideLitho = (
+      l: { topFid: string; belowFid: string | null },
+      side: string | undefined,
+    ): string | null => (side === 'base' ? l.belowFid : l.topFid)
 
     // Gap along-endpoints, 1:1 with gapIndex (between consecutive non-empty columns).
     const gapAlong: { l: number; r: number }[] = []
@@ -139,6 +155,12 @@ describe('CS1 tie-cross gate', () => {
       const la = layerElev.get(e.a)
       const lb = layerElev.get(e.b)
       if (!la || !lb) continue
+      // Only CROSS-LITHOLOGY surface ties (the app's tie-hit condition). A
+      // same-lithology tie is a band correlation whose band legitimately sits on
+      // one side of it — not a material surface the fill must never cross.
+      const litA = sideLitho(la, e.aSide)
+      const litB = sideLitho(lb, e.bSide)
+      if (litA === null || litB === null || litA === litB) continue
       const e1 = e.aSide === 'base' ? la.base : la.top
       const e2 = e.bSide === 'base' ? lb.base : lb.top
       ties.push({ id: e.id ?? `${e.a.slice(-6)}~${e.b.slice(-6)}`, a1: la.along, e1, a2: lb.along, e2 })
@@ -182,12 +204,21 @@ describe('CS1 tie-cross gate', () => {
           }
         }
         if (above >= 2 && below >= 2) {
+          const src = (r as { debugSrc?: string }).debugSrc ?? '?'
           violations.push(
-            `region ${r.formationId.slice(-6)}/${r.kind} gap ${r.gapIndex} STRADDLES tie ${t.id} (above=${above} below=${below})`,
+            `[${src}] region ${r.formationId.slice(-6)}/${r.kind} gap ${r.gapIndex} STRADDLES tie ${t.id} (above=${above} below=${below})`,
           )
         }
       }
     }
+
+    // eslint-disable-next-line no-console
+    console.error(
+      `\n[gate] ${ties.length} cross-litho surface ties, ${regions.length} regions. Ties:\n  ` +
+        ties
+          .map((t) => `${t.id}: along[${t.a1.toFixed(0)}..${t.a2.toFixed(0)}] elev[${t.e1.toFixed(2)}→${t.e2.toFixed(2)}]`)
+          .join('\n  '),
+    )
 
     if (violations.length) {
       // eslint-disable-next-line no-console
