@@ -1856,6 +1856,28 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     expect(coverAt(regions, 0, 0.02, -16)).toEqual(['CLAY'])
   })
 
+  it('CASE 1b — a bridged deep band is CONTINUOUS: present at the middle column from BOTH gaps', () => {
+    const L = col('L', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 8, f: 'CLAY', b: 'mL' },
+      { top: 8, base: 12, f: 'SAND', b: 'deep' },
+      { top: 12, base: 20, f: 'CLAY', b: 'botL' },
+    ])
+    const M = col('M', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 3.5, f: 'CLAY', b: 'mM' },
+    ])
+    const R = col('R', 0, [
+      { top: 0, base: 2, f: 'SAND', b: 'a' },
+      { top: 2, base: 8, f: 'CLAY', b: 'mR' },
+      { top: 8, base: 12, f: 'SAND', b: 'deep' },
+      { top: 12, base: 20, f: 'CLAY', b: 'botR' },
+    ])
+    const regions = sf(L, M, R)
+    expect(coverAt(regions, 0, 0.98, -10)).toContain('SAND') // M from the left gap
+    expect(coverAt(regions, 1, 0.02, -10)).toContain('SAND') // M from the right gap
+  })
+
   // CASE 2 — a GENUINE pinch-out must still pinch. The facing neighbour REACHES
   // the depth (its TD is below the unit's base) and logs a DIFFERENT lithology
   // there (no correlation) → the deep SAND minority genuinely wedges out as a
