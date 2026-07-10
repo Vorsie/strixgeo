@@ -1495,10 +1495,16 @@ export default function PartitionFillOverlay({
       // the lower region's top-edge screen y shows immediately whether the render
       // (not the data) pushed one band across a tie into its neighbour.
       const gapDump: string[] = []
+      const hostCtm = host?.getScreenCTM()
+      const hostInv = hostCtm?.inverse()
       for (const g of [...hitGaps].sort((a, b) => a - b)) {
         gapDump.push(`  ── GAP ${g} (${nm(g)} → ${nm(g + 1)}) screen polygons ──`)
-        for (const sr of screenRegions) {
-          if ((sr.region as { gapIndex?: number }).gapIndex !== g) continue
+        const gapRegions = screenRegions.filter((sr) => (sr.region as { gapIndex?: number }).gapIndex === g)
+        let gL = Infinity
+        let gR = -Infinity
+        for (const sr of gapRegions) {
+          gL = Math.min(gL, sr.leftX)
+          gR = Math.max(gR, sr.rightX)
           const pts = sr.points
             .map((p) => {
               const e = screenToLevel ? screenToLevel(p.y) : null
@@ -1508,6 +1514,47 @@ export default function PartitionFillOverlay({
           gapDump.push(
             `    ${lith(sr.region.formationId).padEnd(4)} ${sr.region.kind.padEnd(5)} yScreen[${sr.minY.toFixed(0)}..${sr.maxY.toFixed(0)}] ${pts}`,
           )
+        }
+        // CROSS-LITHO SURFACE TIES in this gap — the lines the fill must NOT cross.
+        // Read the actual rendered <line data-testid="tie-hit-*"> geometry, convert
+        // both endpoints into this overlay's user space, and for every region report
+        // whether the tie line passes through the region's interior (the "wedge
+        // crosses a tie" bug the owner sees). No data-model untangling — the DOM line
+        // IS the tie the app painted.
+        if (hostInv) {
+          const ties = Array.from(document.querySelectorAll('line[data-testid^="tie-hit-"]')) as SVGLineElement[]
+          for (const ln of ties) {
+            const lscm = ln.getScreenCTM()
+            if (!lscm) continue
+            const rd = (a: string): number => parseFloat(ln.getAttribute(a) ?? 'NaN')
+            const c1 = new DOMPoint(rd('x1'), rd('y1')).matrixTransform(lscm)
+            const c2 = new DOMPoint(rd('x2'), rd('y2')).matrixTransform(lscm)
+            const h1 = new DOMPoint(c1.x, c1.y).matrixTransform(hostInv)
+            const h2 = new DOMPoint(c2.x, c2.y).matrixTransform(hostInv)
+            const xlo = Math.min(h1.x, h2.x)
+            const xhi = Math.max(h1.x, h2.x)
+            if (xhi < gL - 2 || xlo > gR + 2) continue // tie not in this gap
+            const e1 = screenToLevel ? screenToLevel(h1.y) : null
+            const e2 = screenToLevel ? screenToLevel(h2.y) : null
+            const eid = (ln.getAttribute('data-testid') ?? '').replace('tie-hit-', '').slice(0, 8)
+            // Which regions does this straight tie line pass THROUGH (interior)?
+            const crossed: string[] = []
+            for (const sr of gapRegions) {
+              let inside = 0
+              const N = 24
+              for (let s = 1; s < N; s += 1) {
+                const t = s / N
+                const px = h1.x + (h2.x - h1.x) * t
+                const py = h1.y + (h2.y - h1.y) * t
+                if (px < sr.minX - 0.5 || px > sr.maxX + 0.5) continue
+                if (inPoly(px, py, sr.points)) inside += 1
+              }
+              if (inside >= 2) crossed.push(`${lith(sr.region.formationId)}/${sr.region.kind}`)
+            }
+            gapDump.push(
+              `    TIE ${eid} (${h1.x.toFixed(0)},${h1.y.toFixed(0)}${e1 != null ? `≈${e1.toFixed(2)}m` : ''})→(${h2.x.toFixed(0)},${h2.y.toFixed(0)}${e2 != null ? `≈${e2.toFixed(2)}m` : ''})${crossed.length ? `  ⚠ CROSSES: ${[...new Set(crossed)].join(', ')}` : '  ✓ crosses nothing'}`,
+            )
+          }
         }
       }
       // eslint-disable-next-line no-console
