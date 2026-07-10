@@ -61,7 +61,12 @@ const geotechColumns = new Map(frozen.geotechColumns.map((c) => [c.investigation
 const nadMeta = new Map(Object.entries(frozen.nadFormations))
 const lithoSoil = new Map<string, string | null>(Object.entries(frozen.lithoSoil))
 
-const regions = computeSectionFill(columns, frozen.edges)
+// Pass the REAL along-section spacing (the fixture already carries it, keyed by
+// investigation). Without it computeSectionFill uses uniform spacing and the
+// deep-to-deep substrate geometry diverges from the live render — the same gap
+// that hid the S8 second-pinch. alongM must align 1:1 with ``columns``.
+const alongM = columns.map((c) => frozen.alongM[c.investigationId] ?? 0)
+const regions = computeSectionFill(columns, frozen.edges, undefined, alongM)
 const refined = refineLithoPartition(regions, columnOrder, geotechColumns, nadMeta, lithoSoil)
 
 // A refined polygon's packing identity, for the "one class per point" gate.
