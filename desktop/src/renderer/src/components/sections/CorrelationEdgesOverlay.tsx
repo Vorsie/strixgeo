@@ -489,8 +489,8 @@ export function buildContactScreenMap(
   columns: readonly PlacedColumn[],
   bandMap: BandMap,
   levelToScreen: (level: number) => number,
-): Map<string, { x: number; topY: number; botY: number; halfWidth: number }> {
-  const result = new Map<string, { x: number; topY: number; botY: number; halfWidth: number }>()
+): Map<string, { x: number; along: number; topY: number; botY: number; halfWidth: number }> {
+  const result = new Map<string, { x: number; along: number; topY: number; botY: number; halfWidth: number }>()
   for (const c of contacts) {
     const invId = anchorId(c)
     if (invId === null) continue
@@ -504,6 +504,14 @@ export function buildContactScreenMap(
     if (!col) continue
     result.set(c.id, {
       x: col.nudgedX,
+      // along-section metres of the anchor column — lets a tie that spans
+      // intervening columns BEND at each one (warp-aware), instead of drawing a
+      // single straight screen segment. Under non-uniform column spacing a
+      // straight screen segment between two columns does not pass through the
+      // intervening columns where the fill does, so the fill appears to cross the
+      // tie (dogfeed 2026-07-10). Interpolating the tie by along-fraction and
+      // placing each vertex at the column's nudgedX matches the fill exactly.
+      along: col.proj.along,
       topY: levelToScreen(band.topLevel),
       // botY is the screen Y of the band's base — needed for base-side ties
       // (spec §6 bug 1: a base-side endpoint must render at the band bottom,
@@ -1290,29 +1298,49 @@ export default function CorrelationEdgesOverlay({
                   edge: ce,
                 })
               }
+              // WARP-AWARE tie path: a surface tie that spans intervening columns
+              // must BEND at each one, exactly like the per-gap fill, or a straight
+              // screen segment between the two endpoints diverges from the fill
+              // under non-uniform column spacing and the fill appears to cross the
+              // tie (dogfeed 2026-07-10). The tie is straight in (along, elevation)
+              // space; levelToScreen is affine, so each intervening column's screen
+              // Y is the along-fraction interpolation of the endpoint Ys, placed at
+              // that column's nudgedX. Endpoints keep their inner-edge anchoring
+              // (tieX1/tieX2); intervening vertices sit at column centres.
+              const tieVerts: { x: number; y: number }[] = [{ x: tieX1, y: yA }]
+              if (Math.abs(ptB.along - ptA.along) > 1e-6) {
+                const loA = Math.min(ptA.along, ptB.along)
+                const hiA = Math.max(ptA.along, ptB.along)
+                const mids = placedColumns
+                  .filter(c => c.proj.along > loA + 1e-6 && c.proj.along < hiA - 1e-6)
+                  .sort((a, b) => a.proj.along - b.proj.along)
+                const ordered = ptA.along <= ptB.along ? mids : mids.reverse()
+                for (const c of ordered) {
+                  const f = (c.proj.along - ptA.along) / (ptB.along - ptA.along)
+                  tieVerts.push({ x: c.nudgedX, y: yA + f * (yB - yA) })
+                }
+              }
+              tieVerts.push({ x: tieX2, y: yB })
+              const tiePts = tieVerts.map(p => `${p.x},${p.y}`).join(' ')
               return (
                 <g key={`tie-${ce.id}`}>
                   {/* Transparent wide hit-line so the thin tie is right-clickable
                       to delete, like the ribbon's seam (dogfeed 2026-06-08). */}
-                  <line
+                  <polyline
                     data-testid={`tie-hit-${ce.id}`}
-                    x1={tieX1}
-                    y1={yA}
-                    x2={tieX2}
-                    y2={yB}
+                    points={tiePts}
+                    fill="none"
                     stroke="transparent"
                     strokeWidth={EDGE_DRAG_HIT_WIDTH}
                     style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
                     onContextMenu={openTieMenu}
                   />
-                  <line
+                  <polyline
                     data-testid={`tie-line-${ce.id}`}
                     data-approved={approved ? 'true' : 'false'}
                     data-interpretive={isInterpretive ? 'true' : 'false'}
-                    x1={tieX1}
-                    y1={yA}
-                    x2={tieX2}
-                    y2={yB}
+                    points={tiePts}
+                    fill="none"
                     stroke={tieColor}
                     strokeWidth={CONTACT_EDGE_WIDTH}
                     strokeDasharray={tieDash}
