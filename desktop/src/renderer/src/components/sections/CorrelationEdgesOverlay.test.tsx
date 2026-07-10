@@ -1713,8 +1713,10 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
     // band: topLevel = 10 − 2 = 8 → topY = 20 + (10−8)*10 = 40.
     // band: botLevel = 10 − 20 = −10 → botY = 20 + (10−(−10))*10 = 220.
     const seam = screen.getByTestId('ribbon-seam-e-bb')
-    const y1 = Number(seam.getAttribute('y1'))
-    const y2 = Number(seam.getAttribute('y2'))
+    // Seam is a warp-aware <polyline>; endpoint Ys are the first/last vertices.
+    const pts = (seam.getAttribute('points') ?? '').trim().split(/\s+/)
+    const y1 = Number(pts[0].split(',')[1])
+    const y2 = Number(pts[pts.length - 1].split(',')[1])
     // Both ends should be at the botY (≈220), NOT the topY (≈40).
     expect(y1).toBeCloseTo(220, 0)
     expect(y2).toBeCloseTo(220, 0)
@@ -1732,8 +1734,10 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
       onRequestDeleteEdge: vi.fn(),
     })
     const seam = screen.getByTestId('ribbon-seam-e-tb')
-    const y1 = Number(seam.getAttribute('y1'))
-    const y2 = Number(seam.getAttribute('y2'))
+    // Seam is a warp-aware <polyline>; endpoint Ys are the first/last vertices.
+    const pts = (seam.getAttribute('points') ?? '').trim().split(/\s+/)
+    const y1 = Number(pts[0].split(',')[1])
+    const y2 = Number(pts[pts.length - 1].split(',')[1])
     // A is 'top' → topY ≈ 40; B is 'base' → botY ≈ 220.
     expect(y1).toBeCloseTo(40, 0)
     expect(y2).toBeCloseTo(220, 0)
@@ -1751,8 +1755,10 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
       onRequestDeleteEdge: vi.fn(),
     })
     const seam = screen.getByTestId('ribbon-seam-e-tt')
-    const y1 = Number(seam.getAttribute('y1'))
-    const y2 = Number(seam.getAttribute('y2'))
+    // Seam is a warp-aware <polyline>; endpoint Ys are the first/last vertices.
+    const pts = (seam.getAttribute('points') ?? '').trim().split(/\s+/)
+    const y1 = Number(pts[0].split(',')[1])
+    const y2 = Number(pts[pts.length - 1].split(',')[1])
     expect(y1).toBeCloseTo(40, 0)
     expect(y2).toBeCloseTo(40, 0)
   })
