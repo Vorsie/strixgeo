@@ -2077,9 +2077,8 @@ function emitOneSidedPinch(
   f: number,
   apexElevFloor = -Infinity,
   belowIsTiedBand = false,
+  taperToConvergence = false,
 ): PartitionRegion[] {
-  const apexFraction = side === 'left' ? f : 1 - f
-
   const pinchFrac = side === 'left' ? 0 : 1
   const oppFrac = side === 'left' ? 1 : 0
   const pinchSurface = side === 'left' ? leftSurface : rightSurface
@@ -2099,8 +2098,21 @@ function emitOneSidedPinch(
   //     drooping all the way down to the lower clay's base.)
   const isLens = above !== null && below !== null && above.formationId === below.formationId
 
+  // A mixed-tie WEDGE: the enclosing interfaces CONVERGE on the opposite column
+  // (topOppDepth ≈ baseOppDepth → the two correlation lines meet there). Instead of
+  // pinching to the interior fraction and letting the above matrix flood the wedge,
+  // taper the unit STRAIGHT to that far point — "colour between the two converging
+  // lines" (owner directive 2026-07-10). Gated (taperToConvergence = rewriteB) so the
+  // substrate path's goldens/gate are untouched. A lens keeps its own-elevation apex.
+  const convergesOnOpp =
+    taperToConvergence && !isLens && Math.abs(topOppDepth - baseOppDepth) < EPS
+  const apexFraction = convergesOnOpp ? oppFrac : side === 'left' ? f : 1 - f
+
   let apexElev: number
-  if (isLens) {
+  if (convergesOnOpp) {
+    // The far point where the two interfaces meet on the opposite column.
+    apexElev = oppSurface - (topOppDepth + baseOppDepth) / 2
+  } else if (isLens) {
     // The pinch block's own mid-elevation — the lens tapers horizontally.
     apexElev = pinchSurface - (topPinchDepth + basePinchDepth) / 2
   } else if (above) {
@@ -2118,7 +2130,8 @@ function emitOneSidedPinch(
   // so an interior pinch resting on a real band ABOVE the cap keeps its apex (its
   // elevation exceeds the cap, the clamp does not fire); only a genuinely-below-cap
   // floor pinch is raised. A lens keeps its own mid-elevation apex untouched.
-  if (!isLens && apexElev < apexElevFloor) apexElev = apexElevFloor
+  // A converging wedge apex sits at its real tie point — never clamp it up to the cap.
+  if (!isLens && !convergesOnOpp && apexElev < apexElevFloor) apexElev = apexElevFloor
   const apex: PartitionPoint = { fraction: apexFraction, elevation: apexElev }
 
   // The interval has zero thickness on the OPPOSITE column (the unit is absent
@@ -2143,8 +2156,13 @@ function emitOneSidedPinch(
   // Matrix extensions close the wedge beyond the apex (merged contact apex→conv).
   // A LENS fills from BOTH sides (same material) so the unit keeps its own level;
   // a BOUNDARY pinch fills from the ABOVE side only (the unit below stays flat),
-  // or from BELOW at the surface.
-  if (above && below && above.formationId === below.formationId) {
+  // or from BELOW at the surface. A converging wedge already tapers to conv (apex ===
+  // conv), so its pinch triangles fill the whole wedge — no matrix extension (and any
+  // it emitted would be degenerate / would flood the wedge with the neighbour litho,
+  // the exact spill this fix removes).
+  if (convergesOnOpp) {
+    // nothing to close — the wedge reaches the far tie point on its own.
+  } else if (above && below && above.formationId === below.formationId) {
     // When the interval has zero thickness on the opposite side (topOppDepth ≈
     // baseOppDepth), conv coincides with a corner of the adjacent matched quad.
     // Emitting the two closing triangles in that case creates overlaps — skip.
@@ -2402,6 +2420,12 @@ function emitGap(
   observedLeftTD?: number,
   observedRightTD?: number,
   useTieGestures = false,
+  // Correlate-or-gap only (rewriteB): a one-sided pinch whose enclosing interfaces
+  // CONVERGE on the opposite column (a mixed-tie wedge tapering to its tie point)
+  // tapers straight to that far point instead of pinching to the interior fraction
+  // with the above-matrix flooding the gap. "Colour between the two converging lines"
+  // (owner directive 2026-07-10). Off for the substrate path so its goldens/gate hold.
+  taperWedgesToConvergence = false,
 ): PartitionRegion[] {
   // Local copies — the interval walk appends interval-extracted lenses to these.
   const leftLenses: ExtractedLens[] = [...leftLensesIn]
@@ -2705,6 +2729,7 @@ function emitGap(
             INTERIOR_PINCH_FRACTION,
             capElev,
             belowIsTiedBand,
+            taperWedgesToConvergence,
           ),
         )
       } else {
@@ -4186,6 +4211,10 @@ export function computeSectionFill(
       // engineer's decision NOT to correlate there is meaningful. The gate is
       // the whole SECTION's edge count, not this gap's tie count.
       edges.length > 0,
+      // taperWedgesToConvergence: correlate-or-gap only — a mixed-tie wedge tapers to
+      // its far convergence point instead of pinching mid-gap with the neighbour
+      // lithology flooding it (owner directive 2026-07-10, "colour between the lines").
+      rewriteB,
     )
     for (const r of gapRegions) {
       // rewriteB: no substrate → no cap-clip needed. Push every region as-is so
