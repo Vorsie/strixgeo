@@ -239,6 +239,13 @@ export interface PartitionRegion {
    * deep-to-deep substrate is carved around it. Undefined for every other region.
    */
   tiedBandBase?: number
+  /**
+   * DIAGNOSTIC (owner directive — keep diagnostics): which emission pass produced
+   * this region — ``'emit'`` (per-gap emitGap), ``'span'`` (computeSpanningBands),
+   * or ``'substrate'`` (computeBracketSubstrate deep-to-deep). Lets the CS1
+   * tie-cross gate name the pass responsible for a straddle. Never read by render.
+   */
+  debugSrc?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -4309,7 +4316,7 @@ export function computeSectionFill(
   // mis-classifying a gap as "spanning" when the only non-adjacent edge is a
   // surface unit that doesn't actually reach below the shallow TD (CASE 6 guard).
   const spanningBandRegions: SectionRegion[] = rewriteB
-    ? computeSpanningBands(cols, edges, colsAlong, preInjectionBaseTD)
+    ? computeSpanningBands(cols, edges, colsAlong, preInjectionBaseTD).map((r) => ({ ...r, debugSrc: 'span' }))
     : []
   const spanningGapIndices = new Set(spanningBandRegions.map((r) => r.gapIndex))
 
@@ -4429,7 +4436,7 @@ export function computeSectionFill(
       // lithology flooding it (owner directive 2026-07-10, "colour between the lines").
       rewriteB,
     )
-    for (const r of gapRegions) {
+    for (const r of gapRegions.map((rr) => ({ ...rr, debugSrc: 'emit' }))) {
       // Lens/onlap overlays are observed-region overlays — never clipped at the
       // cap. An extracted overlay CAN extend below the facing column's TD (a
       // deep-column minority lapping a band that dips under the shallow TD —
