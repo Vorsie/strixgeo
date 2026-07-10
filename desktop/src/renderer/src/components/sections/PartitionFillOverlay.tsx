@@ -1937,9 +1937,14 @@ export default function PartitionFillOverlay({
             // convention on both axes — the geotech bodies connect now (backend
             // Tasks 1+2), so no axis-specific opacity override is needed.
             fillOpacity={regionOpacity}
-            stroke={color}
-            strokeOpacity={STROKE_OPACITY}
-            strokeWidth={0.75}
+            // No same-colour stroke: a stroke is centred on the polygon edge and
+            // spills HALF its width across every shared boundary, painting the
+            // region's own colour into its neighbours (a clay band's grey bleeding
+            // over the silt/sand above + below — owner dogfeed 2026-07-10, "clay
+            // spilling over silt/sand from top and bottom"). The regions share exact
+            // edges, so the fills abut cleanly with no stroke. crispEdges is NOT used
+            // (the bands are slanted — it would stair-step them).
+            stroke="none"
             style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
             onContextMenu={
               interactive
