@@ -1285,15 +1285,18 @@ export default function PartitionFillOverlay({
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
     type Fill = { key: string; points: string; color: string; formationId: string }
-    // Correlate-or-gap (rewriteB): the spanning-quad bands (computeSpanningBands) now
-    // carry the correlated bands ACROSS shallow tests directly, so this separate
-    // under-column substrate pass is redundant AND paints grey (#6b7280) into the
-    // intentional gaps → the "still there" spill (owner alt-click 2026-07-10:
-    // partition-undercol is the only element in the void). Gate it off; the below-TD
-    // strip is either covered by a spanning band or is an intentional gap.
-    const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
-    const rewriteB = (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
-    if (rewriteB) return [] as Fill[]
+    // Fill the strip directly UNDER a shallow test's own column footprint, below its
+    // TD — the gap regions run edge→edge between columns, so a shallow test's own
+    // width carries no fill and the correlated bands that continue across it leave a
+    // VOID there (owner dogfeed 2026-07-10: "underneath every shallow test there are
+    // gaps, even though the correlation bands are there"). computeUnderColumnSubstrate
+    // samples the adjacent GAP regions at this column's edges and stacks the below-TD
+    // bands, so it fills ONLY where correlated bands actually exist (a genuine
+    // uncorrelated void stays empty — no gap region to sample) and paints each band
+    // in its own lithology, flat across the footprint (verified on CS1: S8 →
+    // KLEI/SILT/KLEI/ZAND/KLEI, all flat). The earlier "grey spill" was this clay
+    // sitting under a tie drawn CROSSING the silt; the warp-aware tie fix put the
+    // edge flat on the silt base, so the under-column clay now sits correctly below it.
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     // The pure domain pass (regression-tested in partitionFill.test.ts) returns
