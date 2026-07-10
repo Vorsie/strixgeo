@@ -524,6 +524,66 @@ export function buildContactScreenMap(
 }
 
 /**
+ * Warp-aware polyline points for a correlation edge that may span intervening
+ * columns.
+ *
+ * A correlation surface is straight in (along, elevation) space, but the columns
+ * it spans are NOT placed proportionally to along-section distance (spacing nudge
+ * + scroll), so a single straight screen segment between the two endpoints does
+ * not pass through the intervening columns where the per-gap fill does — the fill
+ * then appears to cross the edge (dogfeed 2026-07-10). This returns a polyline
+ * that BENDS at each intervening column, FLAT across that column's width (a column
+ * is one along-point but renders with width, and its own footprint carries no gap
+ * fill), so the edge meets the gap fill exactly at the inner edges and runs
+ * horizontal under a shallow test — matching the fill.
+ *
+ * Used by BOTH the cross-lithology surface tie AND the same-lithology ribbon seam
+ * so every correlation edge flattens under a shallow test identically.
+ *
+ * Parameters
+ * ----------
+ * xStart, yStart, alongStart : the A endpoint's screen x (inner-edge anchored),
+ *     screen y, and along-section metres.
+ * xEnd, yEnd, alongEnd : the B endpoint's screen x, screen y, along metres.
+ * columns : all placed columns (carry ``proj.along`` + ``nudgedX`` + ``width``).
+ *
+ * Returns
+ * -------
+ * string
+ *     ``points`` attribute for an SVG ``<polyline>``.
+ */
+export function warpAwareEdgePoints(
+  xStart: number,
+  yStart: number,
+  alongStart: number,
+  xEnd: number,
+  yEnd: number,
+  alongEnd: number,
+  columns: readonly PlacedColumn[],
+): string {
+  const verts: { x: number; y: number }[] = [{ x: xStart, y: yStart }]
+  if (Math.abs(alongEnd - alongStart) > 1e-6) {
+    const loA = Math.min(alongStart, alongEnd)
+    const hiA = Math.max(alongStart, alongEnd)
+    const mids = columns
+      .filter(c => c.proj.along > loA + 1e-6 && c.proj.along < hiA - 1e-6)
+      .sort((a, b) => a.proj.along - b.proj.along)
+    const ordered = alongStart <= alongEnd ? mids : mids.reverse()
+    const dir = alongStart <= alongEnd ? 1 : -1
+    for (const c of ordered) {
+      const f = (c.proj.along - alongStart) / (alongEnd - alongStart)
+      const yK = yStart + f * (yEnd - yStart)
+      const hw = c.width / 2
+      // A-facing edge first, then B-facing edge → flat across the column width.
+      verts.push({ x: c.nudgedX - dir * hw, y: yK })
+      verts.push({ x: c.nudgedX + dir * hw, y: yK })
+    }
+  }
+  verts.push({ x: xEnd, y: yEnd })
+  return verts.map(p => `${p.x},${p.y}`).join(' ')
+}
+
+/**
  * Resolve the lithology colour above and below each contact, for the
  * gradient correlation ribbon (#131-c).
  *
@@ -1299,41 +1359,10 @@ export default function CorrelationEdgesOverlay({
                 })
               }
               // WARP-AWARE tie path: a surface tie that spans intervening columns
-              // must BEND at each one, exactly like the per-gap fill, or a straight
-              // screen segment between the two endpoints diverges from the fill
-              // under non-uniform column spacing and the fill appears to cross the
-              // tie (dogfeed 2026-07-10). The tie is straight in (along, elevation)
-              // space; levelToScreen is affine, so each intervening column's screen
-              // Y is the along-fraction interpolation of the endpoint Ys, placed at
-              // that column's nudgedX. Endpoints keep their inner-edge anchoring
-              // (tieX1/tieX2); intervening vertices sit at column centres.
-              const tieVerts: { x: number; y: number }[] = [{ x: tieX1, y: yA }]
-              if (Math.abs(ptB.along - ptA.along) > 1e-6) {
-                const loA = Math.min(ptA.along, ptB.along)
-                const hiA = Math.max(ptA.along, ptB.along)
-                const mids = placedColumns
-                  .filter(c => c.proj.along > loA + 1e-6 && c.proj.along < hiA - 1e-6)
-                  .sort((a, b) => a.proj.along - b.proj.along)
-                const ordered = ptA.along <= ptB.along ? mids : mids.reverse()
-                // A column occupies a SINGLE along-position but renders with WIDTH,
-                // and the per-gap fill runs edge→edge (a column's own width carries
-                // no fill — the log glyph sits there). So the tie must be FLAT across
-                // each intervening column at that column's interpolated elevation,
-                // meeting the gap fill exactly at the inner edges. Emit BOTH edge
-                // vertices (A-facing first) — bending at the centre instead leaves the
-                // tie already sloping away by the time it reaches the gap boundary, so
-                // it dips below the band and still appears to cross (dogfeed 2026-07-10).
-                const dir = ptA.along <= ptB.along ? 1 : -1
-                for (const c of ordered) {
-                  const f = (c.proj.along - ptA.along) / (ptB.along - ptA.along)
-                  const yK = yA + f * (yB - yA)
-                  const hw = c.width / 2
-                  tieVerts.push({ x: c.nudgedX - dir * hw, y: yK })
-                  tieVerts.push({ x: c.nudgedX + dir * hw, y: yK })
-                }
-              }
-              tieVerts.push({ x: tieX2, y: yB })
-              const tiePts = tieVerts.map(p => `${p.x},${p.y}`).join(' ')
+              // must BEND at each one (flat across the column), exactly like the
+              // per-gap fill — see warpAwareEdgePoints. Endpoints keep their
+              // inner-edge anchoring (tieX1/tieX2).
+              const tiePts = warpAwareEdgePoints(tieX1, yA, ptA.along, tieX2, yB, ptB.along, placedColumns)
               return (
                 <g key={`tie-${ce.id}`}>
                   {/* Transparent wide hit-line so the thin tie is right-clickable
@@ -1454,19 +1483,27 @@ export default function CorrelationEdgesOverlay({
                   />
                 )}
                 {isInterpretive ? (
-                  /* Interpretive tie: dashed cyan seam, no colour stripes. */
-                  <line
+                  /* Interpretive tie: dashed cyan seam, no colour stripes.
+                     Warp-aware so it runs flat under a shallow test like the fill. */
+                  <polyline
                     data-testid={`ribbon-seam-${ce.id}`}
-                    x1={xA} y1={yA} x2={xB} y2={yB}
+                    points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
+                    fill="none"
                     stroke={BASE_TIE_COLOR}
                     strokeWidth={CONTACT_EDGE_WIDTH}
                     strokeDasharray={BASE_TIE_DASH}
                     pointerEvents="none"
                   />
                 ) : approved ? (
-                  <line
+                  /* Same-lithology band seam — warp-aware (bends flat across each
+                     intervening column) so a correlated band's boundary runs
+                     horizontal under a shallow test, matching the fill and the
+                     cross-lithology tie (owner directive 2026-07-10: flatten ALL
+                     correlation bands below the shallow test). */
+                  <polyline
                     data-testid={`ribbon-seam-${ce.id}`}
-                    x1={xA} y1={yA} x2={xB} y2={yB}
+                    points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
+                    fill="none"
                     stroke={RIBBON_SEAM_COLOR}
                     strokeWidth={1.5}
                     pointerEvents="none"
