@@ -1355,6 +1355,35 @@ export default function PartitionFillOverlay({
       for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
       quads.push({ pass: 'undercol', litho: lith(f.formationId), pts })
     }
+    // CORRELATION RIBBONS (owner's question): a SEPARATE overlay
+    // (CorrelationEdgesOverlay) drawing lithology-coloured ±3px stripes along every
+    // tie, ON TOP of the fill. Queried from the shared section SVG. Ribbon litho comes
+    // from its gradient stop colours mapped back through the formation colour table.
+    const colorToLitho = new Map<string, string>()
+    for (const [fid, color] of formationColorById) colorToLitho.set(color.toLowerCase(), lith(fid))
+    const svgEl = rootRef.current?.ownerSVGElement
+    if (svgEl) {
+      const ribbons = svgEl.querySelectorAll<SVGPolygonElement>(
+        '[data-testid^="ribbon-above-"],[data-testid^="ribbon-below-"]',
+      )
+      for (const rb of Array.from(ribbons)) {
+        const nums = (rb.getAttribute('points')?.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+        const pts: { x: number; y: number }[] = []
+        for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
+        if (pts.length < 3) continue
+        const gid = (rb.getAttribute('fill') ?? '').match(/#([^)]+)\)/)?.[1]
+        let rl = '?'
+        if (gid) {
+          const grad = svgEl.querySelector(`#${CSS.escape(gid)}`)
+          const stops = grad
+            ? Array.from(grad.querySelectorAll('stop')).map((s) => (s.getAttribute('stop-color') ?? '').toLowerCase())
+            : []
+          rl = stops.map((h) => colorToLitho.get(h) ?? h).join('/')
+        }
+        const side = rb.getAttribute('data-testid')?.includes('above') ? 'above' : 'below'
+        quads.push({ pass: `ribbon-${side}`, litho: rl, pts })
+      }
+    }
     const focusXs: number[] = []
     for (const id of orderedInvs) {
       if ((nameByInv.get(id) ?? '').includes(fillLog)) {
@@ -1376,31 +1405,42 @@ export default function PartitionFillOverlay({
       }
       return inside
     }
-    const overlaps: string[] = []
-    const seen = new Set<string>()
+    const fillQuads = quads.filter((q) => q.pass === 'gap' || q.pass === 'undercol')
+    const ribbonQuads = quads.filter((q) => q.pass.startsWith('ribbon'))
+    // Fill-vs-fill overlaps (two different lithology FILLS at a pixel — a real
+    // partition bug) and ribbon-vs-fill spills (a ribbon painting a lithology the
+    // underlying fill is NOT — the "clay over silt/sand" bleed).
+    const fillOverlaps = new Set<string>()
+    const ribbonSpills = new Set<string>()
     for (let x = x0; x <= x1; x += 4) {
       for (let y = plotTop; y <= plotBottom; y += 4) {
-        const hits = quads.filter((q) => inPoly(x, y, q.pts))
-        const lset = new Set(hits.map((h) => h.litho))
-        if (lset.size > 1) {
-          const key = hits.map((h) => `${h.pass}:${h.litho}`).sort().join(' + ')
-          if (!seen.has(key)) {
-            seen.add(key)
-            overlaps.push(`e.g. screen(${x.toFixed(0)},${y.toFixed(0)}) covered by  ${key}`)
+        const fills = fillQuads.filter((q) => inPoly(x, y, q.pts))
+        const fillLithos = new Set(fills.map((h) => h.litho))
+        if (fillLithos.size > 1)
+          fillOverlaps.add(fills.map((h) => `${h.pass}:${h.litho}`).sort().join(' + '))
+        if (fillLithos.size === 0) continue
+        for (const rb of ribbonQuads) {
+          if (!inPoly(x, y, rb.pts)) continue
+          for (const rl of rb.litho.split('/')) {
+            if (rl !== '?' && !fillLithos.has(rl))
+              ribbonSpills.add(`${rb.pass}:${rl}  OVER fill ${[...fillLithos].join(',')}`)
           }
         }
       }
     }
     const lines = [
       `\n\n🟥🟥🟥 OVERLAP LOG (focus "${fillLog}", x[${x0.toFixed(0)}..${x1.toFixed(0)}]) 🟥🟥🟥`,
-      `quads sampled: ${quads.length} (gap ${quads.filter((q) => q.pass === 'gap').length} + undercol ${quads.filter((q) => q.pass === 'undercol').length})`,
-      overlaps.length
-        ? `⚠ OVERLAPS — pixels covered by 2+ lithologies:\n  ${overlaps.join('\n  ')}`
-        : '✓ NO overlaps among gap+undercol quads → the spill is a DIFFERENT overlay (not these passes)',
+      `quads: gap ${quads.filter((q) => q.pass === 'gap').length} + undercol ${quads.filter((q) => q.pass === 'undercol').length} + ribbon ${ribbonQuads.length}`,
+      fillOverlaps.size
+        ? `⚠ FILL-vs-FILL overlaps:\n  ${[...fillOverlaps].join('\n  ')}`
+        : '✓ no fill-vs-fill overlaps',
+      ribbonSpills.size
+        ? `⚠ RIBBON spilling a lithology over a different fill:\n  ${[...ribbonSpills].join('\n  ')}`
+        : '✓ no ribbon-over-different-fill spills',
     ]
     // eslint-disable-next-line no-console
     console.log(lines.join('\n'))
-  }, [screenRegions, underColumnFills, orderedInvs, screenByInv, placedColumns, plotTop, plotBottom])
+  }, [screenRegions, underColumnFills, orderedInvs, screenByInv, placedColumns, plotTop, plotBottom, formationColorById])
 
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
