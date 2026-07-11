@@ -3640,6 +3640,246 @@ export function computeUnderColumnSubstrate(
 }
 
 /**
+ * GEOMETRY-FILL of deep voids by draping the connected body above each void down
+ * to the next region below it (owner's final section-fill step, 2026-07-11).
+ *
+ * After the partition is assembled, a sub-shallow-TD void can remain where a
+ * connected body's spanning band tapers to a point (a mixed-tie wedge: the
+ * connected ZAND on CS1 pinches at S7's clay-base tie, leaving the deep space
+ * down to the basal clay uncovered). The owner's rule: **the connected body
+ * directly ABOVE a void drapes DOWN to fill it, stopping at the next correlated
+ * band below** (or the gap floor).
+ *
+ * This is topology-driven, not heuristic — no per-gap constants, no CS1 magic numbers:
+ *  - Only a CONNECTED body drapes — its ``formationId`` participates in a cross-column
+ *    correlation edge (``bandedFormations``). A lone uncorrelated unit is NOT connected
+ *    → it does NOT fill (it pinches), and its void is LEFT for the engineer to correlate.
+ *  - The drape hangs from a band's OWN (sloping) top edge and reaches DOWN to the next
+ *    region below (the next correlated band) or the gap floor. It fills exactly the empty
+ *    space between existing regions, so it can never cross or overlap a band (band-
+ *    authority holds by construction — the drape lives BETWEEN bands, never inside one).
+ *  - Each column's own drilled lithology is ground truth AT that column (explicit-content
+ *    invariant); a drape never overwrites it.
+ *
+ * Geometry (exact, via polygon subtraction — no rasterisation, no per-gap tuning):
+ * per gap, each connected band is a drape SOURCE. Processed DEEPEST-TOP-FIRST, a
+ * source's downfill = the quad from its own (sloping) TOP EDGE down to the gap floor,
+ * MINUS every original region AND every drape already emitted (deeper bands). The
+ * surviving pieces are exactly the empty space directly below that band; each is
+ * emitted as a drape carrying the band's lithology and is itself added to the
+ * subtrahends, so the next (shallower) source stops on top of it. The deepest
+ * connected band therefore claims the deep void (the sand), and a shallower band fills
+ * only the residual above it (the clay) — a true partition by construction. The top
+ * edge FOLLOWS the band's tie (never poking above it), and where a mixed-tie span
+ * tapered to an apex the edge converges there so the fill still reaches the deep void
+ * the taper left (the CS1 ZAND-under-S7A case). Before the drapes run, each column's
+ * sub-cap observed units are rendered (``debugSrc: 'obs'``) where not already covered,
+ * so a shallow test's own drilled lithology closes its sub-cap void with the correct
+ * colour instead of a lateral band flooding it; those wedges also guard the drapes.
+ *
+ * @param regions - Full assembled region list (all gaps); mutated by APPENDING drapes.
+ * @param bandedFormations - formationIds that participate in a cross-column edge
+ *   (i.e. connected/correlated across columns). Only these drape.
+ * @param gapFloor - per-gap floor elevation (the bottom-tie line's deeper value);
+ *   the drape reaches this when no region sits below the source. ``undefined`` → the
+ *   deepest covered elevation in the gap is used (no floor to reach).
+ * @param columnFloorElev - each filtered column's own deepest-observed-base elevation
+ *   (its TD). Used to find the emit cap (the shallower column's TD) and the deeper-
+ *   drilled column whose sub-cap observed data needs the guard. Index-aligned.
+ * @param columnUnits - each filtered column's observed units (top/base depth + surface).
+ *   A drape must never cover a column's OWN observed lithology (explicit-content
+ *   invariant): a column drilled to its TD, so its observed data is ground truth at
+ *   its own location. The deeper column's sub-cap observed profile is subtracted from
+ *   the drape as a wedge anchored at the column edge and pinching to the gap midpoint.
+ *   Index-aligned to the filtered non-empty columns.
+ */
+function drapeConnectedBodiesIntoVoids(
+  regions: SectionRegion[],
+  bandedFormations: ReadonlySet<string>,
+  gapFloor: ReadonlyMap<number, number | undefined>,
+  columnFloorElev: readonly number[],
+  columnUnits: readonly { surface: number; units: readonly PartitionUnit[] }[],
+): void {
+  // Elevation tolerance for "covered here" / "a is directly above b" tests. Coarser
+  // than SPAN_EPS: real correlated interfaces are shared contact lines and a
+  // sub-millimetre seam between two regions must NOT read as a void.
+  const VOID_EPS = 0.03
+  // Minimum void thickness worth filling (below this it is a rasterisation seam, not
+  // a hole — matches the void gate's ~0.05 m sensitivity floor).
+  const MIN_VOID_M = 0.05
+
+  const byGap = new Map<number, SectionRegion[]>()
+  for (const r of regions) {
+    if (r.kind === 'lens') continue
+    const g = byGap.get(r.gapIndex) ?? []
+    g.push(r)
+    byGap.set(r.gapIndex, g)
+  }
+
+  const drapes: SectionRegion[] = []
+
+  for (const [gap, regs] of byGap) {
+    const floor = gapFloor.get(gap)
+    if (floor === undefined) continue // no bottom-tie floor → no defined fill target
+
+    // The emit cap = the SHALLOWER column's TD (``max`` elevation of the two column TDs).
+    // Above it is the emit pass's domain (real adjacent geometry + correlation bands);
+    // below it is deep fill. The observed-data fill (below) is clipped to this cap so it
+    // can never draw over a near-surface correlation band; the connected-body drape below
+    // hangs from each band's own (sloping) top, so it follows its tie and never pokes
+    // above it (the band-authority edge-on-tie rule).
+    const leftTD = columnFloorElev[gap]
+    const rightTD = columnFloorElev[gap + 1]
+    const capElev = Math.max(leftTD, rightTD)
+
+    // Each column's sub-cap observed data (explicit-content fill). Below the emit cap a
+    // column's observed units are rendered only where they were correlated; that drilled
+    // lithology is ground truth AT the column, so where it is NOT already covered we
+    // render it in its OWN colour, and a lateral drape must never overwrite it. Each such
+    // unit becomes a wedge anchored at the column edge (full observed thickness there)
+    // pinching to the gap midpoint (observed AT the column, unknown in the gap → a
+    // symmetric taper, not a tuned distance), clipped BELOW the emit cap so it never
+    // touches a shallower-zone band. We emit ``wedge \ existing regions`` in the unit's
+    // own lithology and subtract the whole wedge from later drapes so nothing floods that
+    // column's data. Both columns are handled — the shallower one's own units near the cap
+    // (the CS1 S8 SILT case) as well as the deeper one's sub-cap stack.
+    const observedWedges: PartitionPoint[][] = []
+    {
+      const existing = regs.map((r) => r.polygon as PartitionPoint[])
+      for (const side of [0, 1] as const) {
+        const ci = gap + side
+        const col = columnUnits[ci]
+        if (!col || col.units.length === 0) continue
+        const edgeFrac = side
+        for (const u of col.units) {
+          const top = Math.min(col.surface - u.topDepthM, capElev) // only below the emit cap
+          const base = col.surface - u.baseDepthM
+          if (top - base < MIN_VOID_M) continue
+          const wedge: PartitionPoint[] = [
+            { fraction: edgeFrac, elevation: top },
+            { fraction: 0.5, elevation: (top + base) / 2 },
+            { fraction: edgeFrac, elevation: base },
+          ]
+          observedWedges.push(wedge)
+          for (const p of subtractPolygon(wedge, existing)) {
+            if (!hasArea(p)) continue
+            drapes.push({ formationId: u.formationId, bodyId: u.bodyId, kind: 'quad', polygon: p, gapIndex: gap, debugSrc: 'obs' })
+          }
+        }
+      }
+    }
+
+    // Drape-source bands = CONNECTED bodies (their formation crosses columns via an
+    // approved edge). A source drapes its lithology DOWN from its own top edge to the
+    // gap floor, filling every void below it that no other region occupies. Processed
+    // DEEPEST-top-first so a deeper connected body (the sand) claims the deep void
+    // before a shallower one (the overlying clay) can reach past it — the shallower
+    // source's downfill subtracts the deeper drape and therefore stops on top of it
+    // (the "drape stops at the next correlated band below" rule, made exact).
+    //
+    // ``top`` here is the band's MAX elevation across the gap, used only to ORDER the
+    // sources deepest-first; the drape itself hangs from the band's actual (sloping) top
+    // EDGE (see ``topEdgeAt`` below), so it follows its tie and never pokes above it —
+    // and where the band's span tapered to a wedge, the top edge converges to the apex,
+    // so the fill still reaches the deep void the taper left (the CS1 ZAND-under-S7A case).
+    interface Source {
+      region: SectionRegion
+      top: number // max elevation of the band across the gap (ordering key only)
+    }
+    const sources: Source[] = []
+    for (const r of regs) {
+      if (!bandedFormations.has(r.formationId)) continue // uncorrelated → pinches, never drapes
+      let top = -Infinity
+      for (const p of r.polygon) if (p.elevation > top) top = p.elevation
+      if (top - floor > MIN_VOID_M) sources.push({ region: r, top })
+    }
+    if (sources.length === 0) continue
+    // Deepest-top first (ascending top elevation).
+    sources.sort((a, b) => a.top - b.top)
+
+    // Fraction extent of each region (for the downfill rectangle width).
+    const fracExtent = (poly: readonly PartitionPoint[]): [number, number] => {
+      let lo = Infinity
+      let hi = -Infinity
+      for (const p of poly) {
+        if (p.fraction < lo) lo = p.fraction
+        if (p.fraction > hi) hi = p.fraction
+      }
+      return [Math.max(0, lo), Math.min(1, hi)]
+    }
+
+    // Subtrahends accumulate as we go: all ORIGINAL regions + each column's observed-data
+    // wedge (explicit-content guard) + the drapes already emitted in this gap (deeper
+    // bands). A shallower source thus cannot overlap a deeper drape or a column's own
+    // observed lithology — it stops on top of them.
+    const gapSubs: PartitionPoint[][] = [...regs.map((r) => r.polygon as PartitionPoint[]), ...observedWedges]
+
+    // Top-edge elevation of a polygon at fraction f (its UPPER boundary there). Used so
+    // the downfill hangs from the band's OWN top edge, which FOLLOWS its tie — not a flat
+    // line at the band's global max, which would poke above the tie at intervening columns
+    // (the band-authority edge-on-tie rule) AND flood a shallow neighbour's own data.
+    const topEdgeAt = (poly: readonly PartitionPoint[], f: number): number => {
+      let hi = -Infinity
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i]
+        const b = poly[(i + 1) % poly.length]
+        if ((a.fraction <= f && b.fraction >= f) || (b.fraction <= f && a.fraction >= f)) {
+          const df = b.fraction - a.fraction
+          const e = Math.abs(df) < FRAC_EPS ? Math.max(a.elevation, b.elevation) : a.elevation + ((f - a.fraction) / df) * (b.elevation - a.elevation)
+          if (e > hi) hi = e
+        }
+      }
+      return hi
+    }
+
+    for (const src of sources) {
+      const [fLo, fHi] = fracExtent(src.region.polygon)
+      if (fHi - fLo < FRAC_EPS) continue
+      // Downfill quad: from the band's OWN sloping top edge down to the gap floor, over
+      // the band's fraction extent. Subtracting all regions + prior drapes leaves only
+      // the empty space directly reachable below the band — the void it drapes into. The
+      // top follows the tie (band-authority safe); where the band's SPAN tapered to a
+      // wedge (flat top, pinching base) the top stays flat and the fill reaches the deep
+      // void the taper left (the CS1 ZAND-under-S7A case).
+      let topLo = topEdgeAt(src.region.polygon, fLo)
+      let topHi = topEdgeAt(src.region.polygon, fHi)
+      // At the SHALLOWER column's edge (the one whose TD == the emit cap), clamp the
+      // drape top to that column's TD: above it is the column's own observed data, which
+      // the drape must not cover (the CS1 S8 SILT-at-cap case). The deeper column's edge
+      // is not clamped — its own data is emitted and already bounds the drape there.
+      if (Math.abs(leftTD - capElev) < SPAN_EPS && fLo <= FRAC_EPS) topLo = Math.min(topLo, capElev)
+      if (Math.abs(rightTD - capElev) < SPAN_EPS && fHi >= 1 - FRAC_EPS) topHi = Math.min(topHi, capElev)
+      const rect: PartitionPoint[] = [
+        { fraction: fLo, elevation: topLo },
+        { fraction: fHi, elevation: topHi },
+        { fraction: fHi, elevation: floor },
+        { fraction: fLo, elevation: floor },
+      ]
+      const pieces = subtractPolygon(rect, gapSubs)
+      for (const p of pieces) {
+        if (!hasArea(p)) continue
+        // Every surviving piece is empty space directly below this band (all regions +
+        // deeper drapes were subtracted). Because sources drape deepest-first, the deepest
+        // connected band claims the deep void and shallower bands only fill the residual
+        // above it — a true partition by construction (each cell ends up in one drape).
+        const drape: SectionRegion = {
+          formationId: src.region.formationId,
+          bodyId: src.region.bodyId,
+          kind: 'quad',
+          polygon: p,
+          gapIndex: gap,
+          debugSrc: 'drape',
+        }
+        drapes.push(drape)
+        gapSubs.push(p) // later (shallower) sources stop on top of this drape
+      }
+    }
+  }
+
+  if (drapes.length > 0) regions.push(...drapes)
+}
+
+/**
  * Spanning-band pass for the ``rewriteB`` (tie-gesture) model.
  *
  * For every non-adjacent correlation edge (span ≥ 2 in the filtered-column array),
@@ -5017,6 +5257,50 @@ export function computeSectionFill(
     rewriteB ? crossLithoTies : [],
     rewriteB ? cols.map((_, gi) => ({ l: colsAlong[gi], r: colsAlong[gi + 1] })).slice(0, cols.length - 1) : [],
   )
+
+  // Geometry-fill of deep voids (rewriteB only, owner's final section-fill step
+  // 2026-07-11): drape each connected body directly above a void DOWN to the next
+  // correlated band below it. A connected body's mixed-tie spanning band tapers to a
+  // point (the CS1 ZAND wedge at S7's clay-base tie), leaving the deep space down to
+  // the basal clay uncovered; the drape fills exactly that void with the connected
+  // body's lithology, bounded by the surrounding bands (never crossing one). An
+  // UNcorrelated (unbanded) unit above a void does NOT drape — it pinches, and the
+  // void is left for the engineer to correlate. Topology-driven, no per-gap constants.
+  if (rewriteB) {
+    // Connected = a formation whose units on DIFFERENT columns are joined by an
+    // approved edge (a cross-column band). Same signal the CS1 lithology gate uses.
+    const layerToColForm = new Map<string, { colIdx: number; formationId: string }>()
+    cols.forEach((c, ci) => {
+      for (const u of c.units) layerToColForm.set(u.layerId, { colIdx: ci, formationId: u.formationId })
+    })
+    const bandedFormations = new Set<string>()
+    for (const e of edges) {
+      const ua = layerToColForm.get(e.a)
+      const ub = layerToColForm.get(e.b)
+      if (!ua || !ub) continue
+      if (ua.colIdx !== ub.colIdx && ua.formationId === ub.formationId) bandedFormations.add(ua.formationId)
+    }
+    // Per-gap floor = the bottom-tie line's deeper column value (the deepest the fill
+    // reaches), matching the void gate's gapBottom exactly.
+    const tieCols: PartitionColumn[] = cols.map((c, ci) => ({
+      investigationId: String(ci),
+      surfaceElevM: c.surface,
+      units: c.units,
+    }))
+    const baseTiePairs = edges.filter((e) => e.aSide === 'base' && e.bSide === 'base') as { a: string; b: string }[]
+    const bottomTie = computeBottomTieLine(tieCols, baseTiePairs)
+    const gapFloor = new Map<number, number | undefined>()
+    for (let g = 0; g + 1 < cols.length; g++) {
+      const l = bottomTie.tieElev[g]
+      const r = bottomTie.tieElev[g + 1]
+      gapFloor.set(g, l === null && r === null ? undefined : Math.min(l ?? r!, r ?? l!))
+    }
+    // Each filtered column's own TD elevation (surface − pre-injection observed depth).
+    const columnFloorElev = cols.map((c, ci) => c.surface - preInjectionBaseTD[ci])
+    // Pass each filtered column's observed units so the drape never covers a column's
+    // own drilled lithology (explicit-content guard). `cols` carries {surface, units}.
+    drapeConnectedBodiesIntoVoids(out, bandedFormations, gapFloor, columnFloorElev, cols)
+  }
 
   // Final partition guarantee: make same-gap non-lens regions pairwise disjoint.
   // emitGap's independent emit paths compute a shared contact line twice (a
