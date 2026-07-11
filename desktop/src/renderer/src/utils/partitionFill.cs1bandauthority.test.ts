@@ -324,4 +324,85 @@ describe('CS1 real-data band-authority gate', () => {
     }
     expect(offenders, `lithology drawn over a correlation band:\n${offenders.join('\n')}`).toEqual([])
   })
+
+  // ---------------------------------------------------------------------------
+  // EDGE-ON-TIE GATE — a band's OWN top and base edges FOLLOW its tie line at
+  // every intervening column, never drawn FLAT (carried from an adjacent column)
+  // in a way that crosses its own correlation.
+  //
+  // THE RULE (owner): a non-adjacently-correlated band is the tie-interpolated
+  // quad between its two bounding tie-lines. Its top/base at every intervening
+  // column must equal the along-interpolated tie elevation — the top must not sit
+  // ABOVE its tie (the flat adjacent-emit carry pokes above; real CS1 gap-8 SILT
+  // top flat 6.48 vs the tie's ~6.22 at S8), and the band must actually REACH its
+  // tie (a point just below the tie-top is covered by the band's own lithology).
+  //
+  // Proven RED on the pre-fix engine: at S8 (the intervening column of the S11↔S10
+  // SILT band) the SILT covered up to 6.48 (flat), 0.26 m ABOVE its tie top 6.22 —
+  // the merge of the flat emit carry with the sloping span band flattened the top.
+  // ---------------------------------------------------------------------------
+  it("a band's own top and base edges lie ON its tie at every intervening column", () => {
+    // Vertical probe offset off the tie line (m). Smaller than the 0.1 m gate
+    // tolerance so a genuine on-tie edge always passes and a flat carry that
+    // exceeds the tolerance is caught.
+    const PROBE = 0.06
+    // Tolerance (m): how far a band edge may deviate from its tie before it counts
+    // as a violation. The gap-8 defect was 0.26 m — well outside 0.1 m.
+    const TOL = 0.1
+
+    // Covering non-lens region formation at (fraction, elevation) in gap g, or null.
+    const coverAt = (g: number, f: number, e: number): string | null => {
+      const regs = byGap.get(g)
+      if (!regs) return null
+      for (const r of regs) {
+        if (r.kind === 'lens') continue
+        if (inPolygon(f, e, r.polygon)) return r.formationId
+      }
+      return null
+    }
+
+    const offenders: string[] = []
+    for (const band of bands) {
+      // Intervening columns of this band: every column strictly between loCol and
+      // hiCol. Each is the LEFT column (fraction 0) of the gap starting at it.
+      for (let ci = band.loCol + 1; ci < band.hiCol; ci++) {
+        const q = bandQuadAtGap(band, ci) // gap ci starts at column ci
+        if (!q) continue
+        const tieTop = q.top[0] // band top at this column (fraction 0)
+        const tieBase = q.base[0] // band base at this column (fraction 0)
+        if (tieTop - tieBase < 2 * PROBE + TOL) continue // too thin to probe cleanly
+        // Over-match / real-data conflict at this column → out of scope (same
+        // exclusion the authority gate uses); the column's own lithology is drawn.
+        if (columnConflicts(ci, tieBase, tieTop, band.formationId)) continue
+        // Sample slightly inside the gap so we are on the band's rendered geometry,
+        // not exactly on the column seam.
+        const f = F_MARGIN
+        // (1) The band must NOT poke ABOVE its tie top: a point TOL+PROBE above the
+        // tie must NOT be the band's own lithology (the flat-carry-above-tie bug).
+        const above = coverAt(ci, f, tieTop + TOL + PROBE)
+        if (above === band.formationId) {
+          offenders.push(
+            `BAND ${FORMATION_LABEL(band.formationId)} cols[${band.loCol}→${band.hiCol}] ` +
+              `col ${ci}: own lithology drawn ${(TOL + PROBE).toFixed(2)} m ABOVE its tie top ` +
+              `(tieTop=${tieTop.toFixed(2)}, covered at ${(tieTop + TOL + PROBE).toFixed(2)}) — flat carry crossing its own tie`,
+          )
+        }
+        // (2) The band must REACH its tie: a point just BELOW the tie top must be
+        // covered by the band's own lithology (the band edge is on its tie).
+        const justBelowTop = coverAt(ci, f, tieTop - PROBE)
+        if (justBelowTop !== band.formationId && justBelowTop !== null) {
+          offenders.push(
+            `BAND ${FORMATION_LABEL(band.formationId)} cols[${band.loCol}→${band.hiCol}] ` +
+              `col ${ci}: band top NOT on its tie — at ${(tieTop - PROBE).toFixed(2)} (just below tieTop ` +
+              `${tieTop.toFixed(2)}) the cover is ${FORMATION_LABEL(justBelowTop)} not the band lithology`,
+          )
+        }
+      }
+    }
+    if (offenders.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[CS1-EDGE-ON-TIE] offending band edges:\n  ' + offenders.join('\n  '))
+    }
+    expect(offenders, `band edge crosses its own tie:\n${offenders.join('\n')}`).toEqual([])
+  })
 })
