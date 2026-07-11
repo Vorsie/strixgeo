@@ -3709,8 +3709,19 @@ function drapeConnectedBodiesIntoVoids(
   const MIN_VOID_M = 0.05
 
   const byGap = new Map<number, SectionRegion[]>()
+  // Lens regions are never drape SOURCES or void-fill targets, but they ARE occupied
+  // space: a lens (an enclosed pinch-out unit, e.g. the S7 silt/peat wedges) must be
+  // subtracted from every drape and observed wedge, or a connected body drapes its own
+  // colour straight over the lens and the pinch-out reads as colour-striped (the CS1
+  // peat "brown→green→light-brown" artifact). Collect them per gap as subtrahends.
+  const lensByGap = new Map<number, SectionRegion[]>()
   for (const r of regions) {
-    if (r.kind === 'lens') continue
+    if (r.kind === 'lens') {
+      const lg = lensByGap.get(r.gapIndex) ?? []
+      lg.push(r)
+      lensByGap.set(r.gapIndex, lg)
+      continue
+    }
     const g = byGap.get(r.gapIndex) ?? []
     g.push(r)
     byGap.set(r.gapIndex, g)
@@ -3721,6 +3732,10 @@ function drapeConnectedBodiesIntoVoids(
   for (const [gap, regs] of byGap) {
     const floor = gapFloor.get(gap)
     if (floor === undefined) continue // no bottom-tie floor → no defined fill target
+
+    // Lens polygons in this gap — subtracted from every observed wedge and drape below so
+    // an enclosed pinch-out is never over-painted by a draped connected body.
+    const lensPolys = (lensByGap.get(gap) ?? []).map((r) => r.polygon as PartitionPoint[])
 
     // The emit cap = the SHALLOWER column's TD (``max`` elevation of the two column TDs).
     // Above it is the emit pass's domain (real adjacent geometry + correlation bands);
@@ -3745,7 +3760,7 @@ function drapeConnectedBodiesIntoVoids(
     // (the CS1 S8 SILT case) as well as the deeper one's sub-cap stack.
     const observedWedges: PartitionPoint[][] = []
     {
-      const existing = regs.map((r) => r.polygon as PartitionPoint[])
+      const existing = [...regs.map((r) => r.polygon as PartitionPoint[]), ...lensPolys]
       for (const side of [0, 1] as const) {
         const ci = gap + side
         const col = columnUnits[ci]
@@ -3812,7 +3827,7 @@ function drapeConnectedBodiesIntoVoids(
     // wedge (explicit-content guard) + the drapes already emitted in this gap (deeper
     // bands). A shallower source thus cannot overlap a deeper drape or a column's own
     // observed lithology — it stops on top of them.
-    const gapSubs: PartitionPoint[][] = [...regs.map((r) => r.polygon as PartitionPoint[]), ...observedWedges]
+    const gapSubs: PartitionPoint[][] = [...regs.map((r) => r.polygon as PartitionPoint[]), ...observedWedges, ...lensPolys]
 
     // Top-edge elevation of a polygon at fraction f (its UPPER boundary there). Used so
     // the downfill hangs from the band's OWN top edge, which FOLLOWS its tie — not a flat
