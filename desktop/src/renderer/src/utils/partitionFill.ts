@@ -3977,15 +3977,23 @@ function computeSpanningBands(
     if (seen.has(key)) continue
     seen.add(key)
 
-    // Mixed-tie wedge: lo formation continues, converging to hi's top contact.
+    // Mixed-tie wedge: lo formation continues, converging to hi's TIED CONTACT.
+    // For a base-tied hi (aSide/bSide = 'base'), the tied contact is hi.baseElev —
+    // not hi.topElev. Using hi.topElev inflates the convergence point above the real
+    // tie surface, causing the mixed-tie span quad's base to rise above the
+    // authoritative clay-emit-band base, which then subtracts a triangular wedge
+    // from the SAND quad and leaves a gap the clay drapes into (the CS1 clay-splitter
+    // in gap 16: B2 SAND → S7 CLAY, aSide='base', convergence must be 4.23, not 5.05).
+    const hiIsBase = locA.colIndex <= locB.colIndex ? e.bSide === 'base' : e.aSide === 'base'
+    const hiContactElev = hiIsBase ? hi.baseElev : hi.topElev
     const mixedWedge = lo.formationId !== hi.formationId
     bands.push({
       loColIndex: lo.colIndex,
       hiColIndex: hi.colIndex,
       loTopElev: lo.topElev,
       loBaseElev: lo.baseElev,
-      hiTopElev: hi.topElev,
-      hiBaseElev: mixedWedge ? hi.topElev : hi.baseElev,
+      hiTopElev: mixedWedge ? hiContactElev : hi.topElev,
+      hiBaseElev: mixedWedge ? hiContactElev : hi.baseElev,
       formationId: lo.formationId,
       bodyId: lo.bodyId,
     })
