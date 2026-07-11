@@ -4407,6 +4407,12 @@ export function computeSectionFill(
   // *and* its own lenses — is carved around these absolute user correlations so
   // nothing double-draws below the cap (owner directive 2026-07-08).
   const exemptBandsByGap = new Map<number, PartitionPoint[][]>()
+  // Indices into ``out`` of tie-clipped emit regions (rewriteB). These are NOT
+  // registered as exempt bands at emit time — they are first carved by the
+  // authoritative spanning correlation bands (see the block after the spanning
+  // append) and only their surviving remainder becomes an exempt band. Tracking
+  // the out-index lets that block rewrite the exact entry in place.
+  const tieClippedOutIdx: number[] = []
 
   // ---------------------------------------------------------------------------
   // Cross-lithology surface ties (along/elev space) — the "lines" the fill must
@@ -4693,9 +4699,15 @@ export function computeSectionFill(
         let keptMinE = Infinity
         for (const p of poly) if (p.elevation < keptMinE) keptMinE = p.elevation
         out.push({ ...r, polygon: poly, gapIndex: i, tiedBandBase: keptMinE, tieClipped: true })
-        const g = exemptBandsByGap.get(i) ?? []
-        g.push(poly)
-        exemptBandsByGap.set(i, g)
+        // A tie-clipped region is NOT registered as an exempt band up-front: a
+        // spanning correlation band is authoritative and may pass THROUGH the
+        // elevation range this region was kept in (the gap-7 SILT band whose base
+        // dips below the S11 mid-clay's flat kept top). Registering it as exempt
+        // here would let the clay carve the silt band away (clay-over-band bug).
+        // Instead it is carved BY the overlapping spanning bands below and only the
+        // surviving remainder becomes an exempt band. (Marked with the region index
+        // so the carve can rewrite the exact out-entry.)
+        tieClippedOutIdx.push(out.length - 1)
       }
     }
   }
@@ -4706,6 +4718,52 @@ export function computeSectionFill(
   // spanningGapIndices could gate the per-gap uncapped-push and apexElevFloor.
   if (rewriteB) {
     out.push(...spanningBandRegions)
+  }
+
+  // Bands are authoritative (owner directive 2026-07-10, "colour between the lines",
+  // confirmed on the real CS1 S11·S8·S10 SILT band): NO other region may be drawn
+  // inside a correlation band's quad. A tie-clipped emit region was kept ABOVE a
+  // sloping cross-litho tie, but that tie can be the BASE of a spanning correlation
+  // band whose quad dips through the region (gap-7: the S11 mid-clay kept flat at
+  // 5.01 pokes above the SILT band base, which dips 5.01→2.51). Carve every
+  // tie-clipped region by the same-gap spanning bands so the band wins — the clay
+  // pinches out BELOW the band base instead of spilling over it. The surviving
+  // remainder (below the band) is what becomes the exempt band for the deep carve.
+  if (rewriteB && tieClippedOutIdx.length > 0) {
+    const spanByGap = new Map<number, PartitionPoint[][]>()
+    for (const s of spanningBandRegions) {
+      const g = spanByGap.get(s.gapIndex) ?? []
+      g.push(s.polygon)
+      spanByGap.set(s.gapIndex, g)
+    }
+    for (const idx of tieClippedOutIdx) {
+      const r = out[idx]
+      const bands = spanByGap.get(r.gapIndex)
+      let survivors: PartitionPoint[][] = [r.polygon]
+      if (bands && bands.length > 0) {
+        survivors = subtractPolygon(r.polygon, bands).filter((p) => hasArea(p))
+      }
+      // Rewrite the out-entry: keep the largest surviving piece in place (identity
+      // preserved), append any extra pieces, and register the survivors — NOT the
+      // original — as exempt bands so the deep carve stays around the band.
+      if (survivors.length === 0) {
+        // Fully inside the band → the band owns it entirely. Drop the region
+        // (mark it degenerate so the compaction below removes it).
+        out[idx] = { ...r, polygon: [] }
+      } else {
+        out[idx] = { ...r, polygon: survivors[0] }
+        for (let k = 1; k < survivors.length; k++) {
+          out.push({ ...r, polygon: survivors[k] })
+        }
+        const g = exemptBandsByGap.get(r.gapIndex) ?? []
+        for (const s of survivors) g.push(s)
+        exemptBandsByGap.set(r.gapIndex, g)
+      }
+    }
+    // Compact out any zero-area entries left by a fully-carved tie-clipped region.
+    for (let k = out.length - 1; k >= 0; k--) {
+      if (out[k].polygon.length < 3) out.splice(k, 1)
+    }
   }
 
   // The sub-TD region is now EMPTY (voids) after the per-gap cap above. The
