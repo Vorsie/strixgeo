@@ -4731,13 +4731,98 @@ export function computeSectionFill(
   // remainder (below the band) is what becomes the exempt band for the deep carve.
   if (rewriteB && tieClippedOutIdx.length > 0) {
     const spanByGap = new Map<number, PartitionPoint[][]>()
+    // Span bands per gap keyed by bodyId — a tie-clipped emit region sharing a
+    // span band's bodyId is the SAME body's flat adjacent-fill carry (emitGap draws
+    // the deep unit flat across a shallow neighbour). The span band is the
+    // authoritative tie-interpolated shape for that body, so its flat carry above
+    // the band's own sloping top tie must NOT survive AS THAT BODY — it is the space
+    // the OVERLYING unit's base descends into as the band top dips (real CS1 gap-8:
+    // SILT body c3b8d5 flat-carries top 6.48 across S8, but its top tie descends to
+    // 6.22 there; the sliver [6.22..6.48] belongs to the CLAY above, whose base sits
+    // on the silt top). Reassigning the sliver to the overlying region fills it with
+    // the correct lithology AND lets the span band keep its sloping top (rule: a
+    // band's own edges follow its tie).
+    const spanBandsByGapBody = new Map<string, SectionRegion[]>()
     for (const s of spanningBandRegions) {
       const g = spanByGap.get(s.gapIndex) ?? []
       g.push(s.polygon)
       spanByGap.set(s.gapIndex, g)
+      if (s.bodyId) {
+        const k = `${s.gapIndex} ${s.bodyId}`
+        const arr = spanBandsByGapBody.get(k) ?? []
+        arr.push(s)
+        spanBandsByGapBody.set(k, arr)
+      }
+    }
+    // Max elevation of a polygon (its flat carry top on the shallow side).
+    const polyMaxElev = (poly: readonly PartitionPoint[]): number => {
+      let m = -Infinity
+      for (const p of poly) if (p.elevation > m) m = p.elevation
+      return m
+    }
+    // Min elevation of a polygon.
+    const polyMinElev = (poly: readonly PartitionPoint[]): number => {
+      let m = Infinity
+      for (const p of poly) if (p.elevation < m) m = p.elevation
+      return m
     }
     for (const idx of tieClippedOutIdx) {
       const r = out[idx]
+      // Same-body-as-a-spanning-band tie-clipped carry: the sliver above the band's
+      // own top tie belongs to the OVERLYING unit, not this band's body. Find the
+      // same-gap emit region directly above the span band (its base ≈ this sliver's
+      // top) and reassign the sliver to it. The span band then owns the body's top
+      // edge on its tie, and the overlying unit's base descends onto that tie (no
+      // void, correct lithology). If no overlying region is found (edge case), fall
+      // through to the normal carve so the region is not silently lost.
+      if (r.bodyId && spanBandsByGapBody.has(`${r.gapIndex} ${r.bodyId}`)) {
+        // Carve the flat carry by its OWN body's span band → the surviving remainder
+        // is exactly the sliver ABOVE the band's sloping top (the flat carry minus
+        // the band quad). Reassign that sliver to the overlying unit (its base
+        // descends onto the band top). The span band already covers the band's own
+        // shape, so the body is not lost.
+        const ownBands = (spanBandsByGapBody.get(`${r.gapIndex} ${r.bodyId}`) ?? []).map((s) => s.polygon)
+        const sliverPieces = subtractPolygon(r.polygon, ownBands).filter((p) => hasArea(p))
+        if (sliverPieces.length > 0) {
+          const sliverTop = polyMaxElev(r.polygon)
+          let overlying: SectionRegion | undefined
+          for (const o of out) {
+            if (
+              o.gapIndex === r.gapIndex &&
+              o.kind !== 'lens' &&
+              o.bodyId !== r.bodyId &&
+              o.polygon.length >= 3 &&
+              Math.abs(polyMinElev(o.polygon) - sliverTop) < SPAN_EPS
+            ) {
+              overlying = o
+              break
+            }
+          }
+          if (overlying !== undefined) {
+            // The sliver is now the OVERLYING unit's fill, not a kept band — strip
+            // the tie-clip / kept-band markers so the final carves treat it as an
+            // ordinary region (it must be carveable by any authoritative band, and
+            // must not be mistaken for one).
+            const reassigned = {
+              ...r,
+              formationId: overlying.formationId,
+              bodyId: overlying.bodyId,
+              tiedBandBase: undefined,
+              tieClipped: undefined,
+            }
+            out[idx] = { ...reassigned, polygon: sliverPieces[0] }
+            for (let k = 1; k < sliverPieces.length; k++) {
+              out.push({ ...reassigned, polygon: sliverPieces[k] })
+            }
+            continue
+          }
+        } else {
+          // The flat carry is entirely inside its span band (no sliver above the
+          // tie) → the band owns it; drop the flat carry.
+          out[idx] = { ...r, polygon: [] }
+          continue
+        }
+      }
       const bands = spanByGap.get(r.gapIndex)
       let survivors: PartitionPoint[][] = [r.polygon]
       if (bands && bands.length > 0) {
