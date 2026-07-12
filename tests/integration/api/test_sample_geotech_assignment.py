@@ -544,13 +544,41 @@ async def test_sample_geotech_assignment(
         f"SA-4: clay sample nad_class={clay.geotech_nad_class!r} is not in KLEI range [21, 28]"
     )
 
-    # --- SA-5: clay sample body id is None (no CPT backing for this KLEI body) ---
-    # The KLEI body in this fixture has no CPT members — CPT-1 and CPT-2 are
-    # both ZAND 0–8 m with no KLEI correlation.  The borehole's KLEI fill band
-    # is therefore a conservative fallback, and the true geotech body_id is None.
-    assert clay.geotech_body_id is None, (
-        f"SA-5: clay sample geotech_body_id={clay.geotech_body_id!r} should be None "
-        "(no CPT-backed KLEI body in this fixture — conservative fallback path)"
+    # --- SA-5: clay sample body id is the borehole KLEI band's resolver body ---
+    # Since bec4e53ed (2026-07-07, Phase 8.5) DivideBoreholes re-resolves the
+    # geotech model, so borehole bands are first-class members of the body
+    # graph — the KLEI band here becomes a (borehole-only) body and the clay
+    # sample anchors to it. (The original assertion pinned the pre-07-07
+    # "no CPT backing → body_id None" conservative fallback — debt #238.3.)
+    bh_klei_body_ids = {
+        row
+        for row in (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.body_id)
+                    .join(
+                        GeologicalFormationOrm,
+                        LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+                    )
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.borehole_id.is_not(None),
+                        GeologicalFormationOrm.nad_class == clay.geotech_nad_class,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if row is not None
+    }
+    assert clay.geotech_body_id is not None, (
+        "SA-5: clay sample geotech_body_id is None — post-Phase-8.5 the borehole "
+        "KLEI band is re-resolved into the body graph and the sample must anchor to it"
+    )
+    assert clay.geotech_body_id in bh_klei_body_ids, (
+        f"SA-5: clay sample geotech_body_id={clay.geotech_body_id} is not one of the "
+        f"borehole KLEI geotech body ids {bh_klei_body_ids}"
     )
 
     # --- SA-6: clay sample has a non-null source ---
