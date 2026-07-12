@@ -59,7 +59,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from groundmodel.application.load_geo_surfaces import load_geo_surfaces  # noqa: E402
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound  # noqa: E402
+from groundmodel.domain.services.surface_bound import SurfaceBound  # noqa: E402
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (  # noqa: E402
     build_domain_from_sections,
 )

@@ -42,7 +42,7 @@ matching the style used in :mod:`~groundmodel.domain.services.strat_field.geo_bl
 
 from __future__ import annotations
 
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 
 #: Elevations within this margin are treated as coincident (numeric guard,
 #: matching the ``_EPS`` style in ``geo_blocks.py``).

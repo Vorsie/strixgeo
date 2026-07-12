@@ -25,7 +25,7 @@ import random
 
 import pytest
 
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.geo_bands import (
     band_extent,
     band_extent_from_elevs,

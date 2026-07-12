@@ -57,16 +57,14 @@ When the litho model has a parent geological model WITH built, non-stale surface
 
 from __future__ import annotations
 
-import hashlib
 import math
-import struct
 from collections import defaultdict
 from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.load_geo_surfaces import load_geo_surfaces
+from groundmodel.application.load_geo_surfaces import digest_surfaces, load_geo_surfaces
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
 from groundmodel.domain.services.strat_field.control_data import (
@@ -247,50 +245,6 @@ class StratAssemblyPerBand:
     bands: list[BandBuildInput]
     domain: Block
     geo_surface_digest: bytes
-
-
-def _digest_surfaces(surfaces: list[SurfaceBound]) -> bytes:
-    """BLAKE2b-16 digest of the geological surfaces' mesh geometry.
-
-    Covers every vertex triple + triangle triple in sorted surface order (sorted
-    by ``(min_x, min_y)`` of each surface's vertices for determinism when the
-    surface load order is DB-arbitrary).  Folded into the build checksum by
-    ``RecomputeLithoSolids`` so any geo-surface rebuild forces a litho rebuild.
-
-    Parameters
-    ----------
-    surfaces : list[SurfaceBound]
-        The parent geological model's band surfaces.
-
-    Returns
-    -------
-    bytes
-        16-byte BLAKE2b digest.
-    """
-    h = hashlib.blake2b(digest_size=16)
-
-    # Sort surfaces by their vertex centroid for determinism across DB load orders.
-    # The Z centroid is the third key so two flat surfaces tiling the SAME hull
-    # (identical XY centroid) but at different elevations sort deterministically —
-    # without it the sort falls back to DB load order and the digest can drift
-    # across runs with no data change (false checksum-skip / false-rebuild).
-    def _surface_sort_key(s: SurfaceBound) -> tuple[float, float, float]:
-        if not s.vertices:
-            return (0.0, 0.0, 0.0)
-        return (
-            sum(v[0] for v in s.vertices) / len(s.vertices),
-            sum(v[1] for v in s.vertices) / len(s.vertices),
-            sum(v[2] for v in s.vertices) / len(s.vertices),
-        )
-
-    for s in sorted(surfaces, key=_surface_sort_key):
-        h.update(struct.pack("<I", len(s.vertices)))
-        for x, y, z in s.vertices:
-            h.update(struct.pack("<ddd", x, y, z))
-        h.update(struct.pack("<I", len(s.triangles)))
-        for i, j, k in s.triangles:
-            h.update(struct.pack("<III", i, j, k))
-    return h.digest()
 
 
 def _build_stage1_stage2(
@@ -532,7 +486,7 @@ class AssembleStratInputs(GroundModelLogger):
             )
             return None
 
-        geo_surface_digest = _digest_surfaces(surfaces)
+        geo_surface_digest = digest_surfaces(surfaces)
         self.info(
             f"AssembleStratInputs.assemble_with_geo: {len(surfaces)} geological surface(s) loaded"
         )

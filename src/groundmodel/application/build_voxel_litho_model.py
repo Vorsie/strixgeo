@@ -68,15 +68,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.assemble_strat_inputs import _digest_surfaces
 from groundmodel.application.litho_solid_persistence import (
     LithoSolidPersistenceMixin,
     LithoSolidsOutcome,
     storage_body_id,
 )
-from groundmodel.application.load_geo_surfaces import load_geo_surfaces
+from groundmodel.application.load_geo_surfaces import digest_surfaces, load_geo_surfaces
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
     build_domain_from_sections,
 )
@@ -131,7 +130,7 @@ def _partition_checksum(
       :func:`_investigation_columns_checksum`),
     * the parent geological model's band-surface geometry digest (so a geo
       rebuild that moves a band busts the voxel cache — see
-      :func:`~groundmodel.application.assemble_strat_inputs._digest_surfaces`).
+      :func:`~groundmodel.application.load_geo_surfaces.digest_surfaces`).
 
     Parameters
     ----------
@@ -150,7 +149,7 @@ def _partition_checksum(
         rebuilds.
     geo_surfaces : tuple of SurfaceBound, optional
         The parent geological model's built band surfaces.  Folded in (via
-        ``_digest_surfaces``) after a domain-separator byte so a geo-surface
+        ``digest_surfaces``) after a domain-separator byte so a geo-surface
         change forces a rebuild; defaults to ``()`` (un-bounded → digest
         unchanged from the no-geo form, an empty digest appended).
 
@@ -185,7 +184,7 @@ def _partition_checksum(
     # Domain-separator byte before the geo-surface digest so the surface block
     # cannot collide with a trailing investigation-column block.
     h.update(b"\x02")
-    h.update(_digest_surfaces(list(geo_surfaces)))
+    h.update(digest_surfaces(list(geo_surfaces)))
     return h.digest()
 
 
@@ -595,13 +594,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
         )
 
-    # WATCH-LIST (extract on the next copy): this method + ``_read_litho_snap_tolerance_m``
-    # below duplicate ``RecomputeLithoSolids._read_parent_geo_model_id`` /
-    # ``_read_strat_grid_spacing_m``.  Deliberately NOT extracted yet (a shared helper
-    # would touch the strat path + force an integration re-run).  When a third consumer
-    # appears, extract a shared ``litho_model_reads.py`` (parent-id read +
-    # ``read_litho_segmenter_float(session, model_id, key, default)`` knob reader) and
-    # promote ``_digest_surfaces`` to a public shared helper.
+    # ``digest_surfaces`` was promoted to a public shared helper in
+    # ``load_geo_surfaces.py`` when the strat-field builder was retired (#236/#237).
     async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
         """Read the lithostratigraphic model's parent geological model id.
 

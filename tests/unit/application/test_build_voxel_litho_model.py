@@ -28,7 +28,7 @@ from groundmodel.application.build_voxel_litho_model import (
     BuildVoxelLithoModel,
     _partition_checksum,
 )
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     LabelGrid,
     RegionInput,

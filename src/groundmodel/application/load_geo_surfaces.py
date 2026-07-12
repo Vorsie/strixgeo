@@ -2,7 +2,7 @@
 
 Shared application-layer helper: reads the ``formation_surface`` rows for a
 geological model and wraps each built, non-stale surface as a
-:class:`~groundmodel.domain.services.strat_field.strat_types.SurfaceBound`.  Two
+:class:`~groundmodel.domain.services.surface_bound.SurfaceBound`.  Two
 consumers share this loader:
 
 * :meth:`~groundmodel.application.assemble_strat_inputs.AssembleStratInputs.assemble_with_geo`
@@ -20,11 +20,13 @@ contract Task 1's ``geo_bands`` helpers and Task 3's ``label_voxels`` expect.
 
 from __future__ import annotations
 
+import hashlib
+import struct
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -83,3 +85,47 @@ async def load_geo_surfaces(
             f"load_geo_surfaces: {len(bounds)} usable surface(s), {skipped} stale/empty skipped"
         )
     return tuple(bounds)
+
+
+def digest_surfaces(surfaces: list[SurfaceBound]) -> bytes:
+    """BLAKE2b-16 digest of the geological surfaces' mesh geometry.
+
+    Covers every vertex triple + triangle triple in sorted surface order (sorted
+    by ``(min_x, min_y)`` of each surface's vertices for determinism when the
+    surface load order is DB-arbitrary).  Folded into the build checksum so any
+    geo-surface rebuild forces a litho rebuild.
+
+    Parameters
+    ----------
+    surfaces : list[SurfaceBound]
+        The parent geological model's band surfaces.
+
+    Returns
+    -------
+    bytes
+        16-byte BLAKE2b digest.
+    """
+    h = hashlib.blake2b(digest_size=16)
+
+    # Sort surfaces by their vertex centroid for determinism across DB load orders.
+    # The Z centroid is the third key so two flat surfaces tiling the SAME hull
+    # (identical XY centroid) but at different elevations sort deterministically —
+    # without it the sort falls back to DB load order and the digest can drift
+    # across runs with no data change (false checksum-skip / false-rebuild).
+    def _surface_sort_key(s: SurfaceBound) -> tuple[float, float, float]:
+        if not s.vertices:
+            return (0.0, 0.0, 0.0)
+        return (
+            sum(v[0] for v in s.vertices) / len(s.vertices),
+            sum(v[1] for v in s.vertices) / len(s.vertices),
+            sum(v[2] for v in s.vertices) / len(s.vertices),
+        )
+
+    for s in sorted(surfaces, key=_surface_sort_key):
+        h.update(struct.pack("<I", len(s.vertices)))
+        for x, y, z in s.vertices:
+            h.update(struct.pack("<ddd", x, y, z))
+        h.update(struct.pack("<I", len(s.triangles)))
+        for i, j, k in s.triangles:
+            h.update(struct.pack("<III", i, j, k))
+    return h.digest()

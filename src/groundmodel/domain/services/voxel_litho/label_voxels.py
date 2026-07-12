@@ -54,7 +54,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from groundmodel.domain.services.model_domain import ModelDomain
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.geo_bands import (
     band_extent_from_elevs,
     band_of_from_elevs,

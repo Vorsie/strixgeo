@@ -26,7 +26,7 @@ import hashlib
 import numpy as np
 
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
-from groundmodel.domain.services.strat_field.strat_types import SurfaceBound
+from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
