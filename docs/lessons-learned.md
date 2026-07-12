@@ -49,3 +49,23 @@ The geotech-unit restore IDOR fix was correct — but a `security-reviewer` pass
 ### 10. Writing tests for un-tested code is how you find the shipped bugs — but only if you PROVE the failure, not "fix" it.
 Adding a first test suite to `useInvestigationData` (872 LOC, previously zero tests) surfaced a live, shipped bug: `unhideCpts`/`unhideBoreholes` built their `touched` id-list as a **side-effect inside the `setRemovedCptIds` functional updater**, then read `touched.length` **synchronously on the next line**. Under React 18 automatic batching the updater is *deferred to the render phase*, so `touched` was always empty at the synchronous guard → the `is_hidden=false` upsert never fired → a 409-re-imported CPT came back **hidden on the next project load** (the exact failure the code comment says the logic exists to prevent). The local removed-set clear masked it within the session, which is why it shipped. The `testing-reviewer` proposed the test that went RED; the `debugging-scientist` then **proved** (instrumented logs across event-handler, promise-continuation, and effect contexts) that it was a real production bug and not a test-timing artifact — killing the tempting "it's just the test harness" escape hatch. The working sibling `handleRestoreAllCpts` already did it right (compute the list from the closure's current state *before* `setState`); the fix mirrored that.
 **Apply:** (a) the highest-value place to add tests is the large hook/module with *none* — that's where the un-caught bugs are. (b) A React functional `setState(prev => …)` updater runs later; never read a variable it mutates on the following synchronous line. Compute the derived list from current state *before* calling `setState`, and add that state to the dep array. (c) When a new test fails in a way that *could* be "just the harness," don't rationalise — instrument the real code in the real call contexts and prove which it is. A guessed "test artifact" verdict would have buried a real data-loss-shaped bug.
+
+---
+
+## 2026-06-11 — a wasted day (the floor-clip / geo-coupled fill thread, reverted `git reset --hard f66ac920`)
+
+### 11. Establish WHERE before HOW — name the render surface / owning layer FIRST.
+A feature was built in the 2D section render when it belonged in the 3D litho builder. The target was knowable from three ignored signals: the branch name, the memory file, and a same-day approved spec that literally said "no section-lofting, no frontend plumbing."
+**Apply:** before brainstorming any feature, the first paraphrase-back question is *"which surface does this render in / which layer owns it?"* — a hard gate alongside core-problem / who / success / not-do.
+
+### 12. Check done-ness against memory + `git log`, not a spec's status line.
+A spec saying "ready to implement" with unchecked boxes can describe ALREADY-SHIPPED work.
+**Apply:** before acting on any spec/plan, grep the memory and `git log --oneline` for whether it already shipped.
+
+### 13. When the user gives the same correction twice, STOP iterating the implementation and re-locate the target.
+"We've been going in circles all day" / "not even close" are signals the *frame* is wrong, not the *code*.
+**Apply:** re-derive what surface / layer / data the feature lives in before the next edit.
+
+### 14. Don't stack new work on an un-dogfed, unmerged branch foundation without flagging it.
+It compounds the mess and makes the eventual revert bigger.
+**Apply:** flag the shaky foundation before building on it; prefer a clean base.
