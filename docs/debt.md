@@ -5796,7 +5796,43 @@ in `PartitionFillOverlay.underColumnFills` (the recipe already prototyped in the
 geotech-brainstorm `carvePanel` substrate render). Deferred here to avoid editing
 the shared overlay component while the parallel geotech session renders through it.
 
-## 229. Execute the 2026-07-12 audit delete table — 58 verified dead-code candidates (Tier E — cleanup campaign, M)
+## 229. ~~Execute the 2026-07-12 audit delete table~~ — EXECUTED 2026-07-12 (all 58 rows)
+
+**Execution record (same day, batches A–D + Stage-2).** All 58 delete rows
+landed or were deliberately routed to #237:
+* **Batch A (backend, 16 commits `a0a7cb76..9fb0ce14`):** section_partition.py
+  + goldens, domain/models/geology pkg, pinch_out_geometry, dip_extrapolation
+  (Py), lens_pinch_out deads, models/base + models/monitoring, strat_field
+  iso_surface.py + **scikit-image dependency removed**, strat_field preview.py,
+  _materialise_borehole_bands, _load_total_depths, queue/import_progress shims,
+  DovClient legacy path, PostGISService, body-extent bundle scaffolding.
+* **Batch B (API/cross-stack, 12 commits `5cb07476..08a836df`):** jobs
+  import-cpt + 501 stub, 3 litho-geo link/unlink endpoints + FE wrappers,
+  per-body absence recompute + FE pair, always-zero accept fields end-to-end,
+  GeotechnicalUnit CRUD surface (ORM kept → #237.4, since decided: drop),
+  create_formation_only, seed-from-parent FE plumbing, non-streaming DOV FE
+  wrappers + cpt.delete, dead project/review/geotech-ghost/misc client methods.
+* **Batch C (frontend, 14 commits `5c37fd95..cbe77590`, ≈−1,300 lines):**
+  ContactsLayer TIN-slice subsystem, LithoSuggestionLayer unreachable states,
+  no-op "Remove all correlations" item, dead exports/shrapnel, orphaned hook
+  imports/params, dipExtrapolationFrontend.ts, lensLabel + test-only utils,
+  REWRITE_A block, ~307-line TEMP-DEVTOOLS block.
+* **Batch D (tooling, 5 commits):** 3 strat one-shot scripts,
+  diag_section_fill_modea.py, electron-smoke.cjs, 5 dead e2e db_helper
+  exports, showLogsFolder IPC pair.
+* **Stage-2 (#237.5, `7f34247b`):** legacy substrate fill path, −1,636 lines.
+
+**Verification:** desktop tsc clean; full vitest 2,129 green; backend unit
+1,532 green; ruff/mypy at-or-below baseline; **full integration suite 707
+passed / 4 failed / 3 skipped in 7m55s — all 4 failures reproduce identically
+on the pre-batch commit `9c43655e` (pre-existing reds, filed as #238; zero
+regressions from the campaign).** The suite's earlier 2h43m/hung runs were the
+IPv6-loopback connect stall, fixed by the 127.0.0.1 pin (`cdf5b0ad`/`a726ceb5`).
+
+Follow-up candidates left deliberately: `handleUnreject*` hook exports (last
+UI consumer deleted with FE-SECTIONS-02) — next audit pass.
+
+**What (was).**
 
 **What.** The 2026-07-12 redundancy audit (DEBT.md, dated section) produced a
 58-row "delete outright" table, every row adversarially verified as
@@ -6002,6 +6038,36 @@ only instance of a capability.
 **When to revisit.** Next owner session touching the respective area; #237.5
 latest at the full-band pivot brainstorm; #237.1/.2 latest at geotech-stage
 close.
+
+## 238. Four pre-existing RED integration tests, surfaced by the first clean full-suite run (Tier G/E — investigate, S each)
+
+**What.** The 2026-07-12 delete campaign's verification run was the first
+clean full integration pass in a long time (the pre-push gate only fires on
+push; develop is ~280 commits unpushed). It surfaced 4 deterministic reds,
+each verified to fail identically on pre-campaign code (`9c43655e`):
+1. `test_divide_boreholes.py::test_db1_sab_then_divide_boreholes` — DB1-2:
+   DivideBoreholes assigns `body_id` to a BH layer; the test pins that it
+   must not. Either the invariant changed with the litho-confined
+   materialiser or this is a real regression from that work.
+2. `test_litho_solids.py::test_rebuild_produces_solid_with_geometry` —
+   the DORMANT strat_field rebuild path: fixture geo model has no built
+   surfaces → falls back → 0 control points → `bodies_built=0` vs `>=1`.
+   **Moot once #237.1 deletes the strat_field path + its test files** — do
+   not fix, delete with the package.
+3. `test_sample_geotech_assignment.py` — SA-5: a clay sample gets a
+   `geotech_body_id` where the conservative-fallback rule expects None (no
+   CPT-backed KLEI body in the fixture).
+4. `test_project_bundle.py::test_bundle_carries_formation_absences` —
+   **restore loses formation absences (0 of 2 restored)** — data-loss-class
+   for the .strix round-trip; highest priority of the four.
+
+**Why deferred.** Filed at the end of the cleanup session; each needs its
+own investigation (are the tests pinning stale invariants, or is the code
+wrong?). #4 first.
+
+**When to revisit.** #4 (bundle absences) before the next .strix save/open
+dogfeed; #1/#3 at the next geotech backend touch; #2 never — dies with
+#237.1.
 
 ## (end)
 
