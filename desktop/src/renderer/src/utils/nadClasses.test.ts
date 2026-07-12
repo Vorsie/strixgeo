@@ -11,7 +11,6 @@ import {
   NAD_CLASS_ABBR,
   NAD_CLASS_NAMES,
   nadClassColor,
-  nadClassCompactName,
   nadClassName,
   nadColoredFormations,
   nadCompactFromName,
@@ -60,42 +59,9 @@ describe('nadClassName', () => {
   })
 })
 
-// ---- compact class name (geotech band label) -------------------------------
+// ---- compact class-label table (geotech band label) -------------------------
 
-describe('nadClassCompactName', () => {
-  it('class 6 — "SAND·MD" (compact of "SAND, medium dense")', () => {
-    expect(nadClassCompactName(6)).toBe('SAND·MD')
-  })
-
-  it('class 5 — "SAND·L" (loose)', () => {
-    expect(nadClassCompactName(5)).toBe('SAND·L')
-  })
-
-  it('class 8 — "SAND·VD" (very dense)', () => {
-    expect(nadClassCompactName(8)).toBe('SAND·VD')
-  })
-
-  it('class 9 — "SAND(f)·L" (silty/clayey fines marker)', () => {
-    expect(nadClassCompactName(9)).toBe('SAND(f)·L')
-  })
-
-  it('class 24 — "CLAY·F" (firm)', () => {
-    expect(nadClassCompactName(24)).toBe('CLAY·F')
-  })
-
-  it('class 17 — "SILT(s)·SF" (sandy marker)', () => {
-    expect(nadClassCompactName(17)).toBe('SILT(s)·SF')
-  })
-
-  it('null returns empty string (same degenerate path as nadClassName)', () => {
-    expect(nadClassCompactName(null)).toBe('')
-    expect(nadClassCompactName(undefined)).toBe('')
-  })
-
-  it('out-of-range class returns a safe fallback containing the number', () => {
-    expect(nadClassCompactName(99)).toContain('99')
-  })
-
+describe('NAD_CLASS_ABBR', () => {
   it('every compact label is shorter than its full name (the whole point)', () => {
     for (let i = 1; i <= 31; i++) {
       expect(NAD_CLASS_ABBR[i].length).toBeLessThan(NAD_CLASS_NAMES[i].length)
@@ -116,9 +82,9 @@ describe('nadCompactFromName', () => {
     expect(nadCompactFromName('CLAY, firm')).toBe('CLAY·F')
   })
 
-  it('round-trips every NAD class: nadClassName → nadCompactFromName === nadClassCompactName', () => {
+  it('round-trips every NAD class: nadClassName → nadCompactFromName === NAD_CLASS_ABBR', () => {
     for (let i = 1; i <= 31; i++) {
-      expect(nadCompactFromName(nadClassName(i))).toBe(nadClassCompactName(i))
+      expect(nadCompactFromName(nadClassName(i))).toBe(NAD_CLASS_ABBR[i])
     }
   })
 

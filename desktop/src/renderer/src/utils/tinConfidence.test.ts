@@ -1,4 +1,4 @@
-// Unit pins for computeTriangleConfidence + partitionByConfidence (debt #28).
+// Unit pins for computeTriangleConfidence + gradient helpers (debt #28).
 
 import { describe, expect, it } from 'vitest'
 
@@ -9,7 +9,6 @@ import {
   computeVertexConfidence,
   confidenceToAlphaMultiplier,
   LOW_CONFIDENCE_ALPHA_MULTIPLIER,
-  partitionByConfidence,
 } from './tinConfidence'
 
 type V = readonly [number, number, number]
@@ -186,24 +185,6 @@ describe('computeTriangleConfidence (debt #28)', () => {
     // escape hatch returns 1.0. The degeneracy of the zero-edge
     // input never reaches the gradient branch.
     expect(conf).toEqual([1.0])
-  })
-})
-
-describe('partitionByConfidence (debt #28)', () => {
-  it('P1 — empty input → both buckets empty', () => {
-    expect(partitionByConfidence([])).toEqual({ high: [], low: [] })
-  })
-
-  it('P2 — threshold boundary: confidence == threshold → high', () => {
-    const out = partitionByConfidence([CONFIDENCE_THRESHOLD, CONFIDENCE_THRESHOLD - 0.001])
-    expect(out.high).toEqual([0])
-    expect(out.low).toEqual([1])
-  })
-
-  it('P3 — mixed: indices preserved per bucket', () => {
-    const out = partitionByConfidence([1.0, 0.3, 0.9, 0.5, 0.7])
-    expect(out.high).toEqual([0, 2, 4])
-    expect(out.low).toEqual([1, 3])
   })
 })
 

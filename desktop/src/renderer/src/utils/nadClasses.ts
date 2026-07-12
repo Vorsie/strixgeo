@@ -252,22 +252,6 @@ export function nadColoredFormations<T extends { nad_class: number | null; color
   return formations.map(f => ({ ...f, color: nadClassColor(f.nad_class) }))
 }
 
-/**
- * Return the compact ``{LITHO}·{packing-abbr}`` label for a NAD class number.
- *
- * Mirrors ``nadClassName`` but yields the short form ("SAND·MD") for the geotech
- * per-column band label, where the full name truncates to the lithology alone in
- * a narrow column. The full name stays the band's hover tooltip.
- *
- * @param n  NAD class (1..31), null, or undefined.
- * @returns  The compact label for a valid class; ``""`` for null/undefined
- *           (degenerate — no label); or ``"NAD {n}"`` for any out-of-range integer.
- */
-export function nadClassCompactName(n: number | null | undefined): string {
-  if (n == null) return ''
-  return NAD_CLASS_ABBR[n] ?? `NAD ${n}`
-}
-
 // Reverse map full NAD name → compact label, built once from the two parallel
 // 1..31 tables (no string parsing — an exact-name lookup). Lets a render site
 // that holds only the full ``formationName`` string (the section band label)

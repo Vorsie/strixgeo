@@ -6,16 +6,8 @@
  * shipping a curated palette per token. The same string always
  * produces the same colour across reloads + machines.
  *
- * Two flavours:
- *
- *   * ``hashHslColor`` — returns ``hsl(h, 55%, 50%)``. Wider colour
- *     space, browser-native, but unsuitable for inputs that demand
- *     a hex value (HTML5 ``<input type="color">`` only accepts
- *     ``#rrggbb``).
- *   * ``hashHexColor`` — returns ``#rrggbb``. Hex-safe for backends
- *     that store colour as a short string + for ``<input
- *     type="color">``. Produces the same hue as ``hashHslColor``
- *     so the visual identity is preserved.
+ * ``hashHexColor`` returns ``#rrggbb`` — hex-safe for backends that
+ * store colour as a short string + for ``<input type="color">``.
  *
  * The hash itself is DJB2 — fast, stable, no collisions to worry
  * about at the cardinality of tokens we'll see in a project
@@ -30,15 +22,7 @@ function djb2Hash(s: string): number {
   return Math.abs(h)
 }
 
-/** Stable HSL colour for an arbitrary string token. */
-export function hashHslColor(s: string): string {
-  const hue = djb2Hash(s) % 360
-  return `hsl(${hue}, 55%, 50%)`
-}
-
-/** Stable hex colour for an arbitrary string token. Same hue as
- * ``hashHslColor`` so a value rendered in one form looks identical
- * when rendered in the other. */
+/** Stable hex colour for an arbitrary string token. */
 export function hashHexColor(s: string): string {
   const hue = djb2Hash(s) % 360
   return hslToHex(hue, 55, 50)

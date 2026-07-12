@@ -182,32 +182,6 @@ export function computeTriangleConfidence(
 }
 
 /**
- * Partition a triangle list into two index buckets by confidence band.
- *
- * **Deprecated as the primary renderer path 2026-05-21** — the
- * per-vertex gradient renderers (Geology3DViewer + ContactsLayer) now
- * consume continuous confidence directly via
- * ``confidenceToAlphaMultiplier`` instead of binarising into two bins.
- * The binary partition produced a visible cliff at the threshold that
- * the engineer read as "two distinct regions" when the underlying math
- * is a smooth distance signal.
- *
- * Kept exported for back-compat (still referenced by some pin tests +
- * the binary fallback when a renderer can't carry per-vertex alpha).
- */
-export function partitionByConfidence(
-  confidence: readonly number[],
-): { high: number[]; low: number[] } {
-  const high: number[] = []
-  const low: number[] = []
-  for (let i = 0; i < confidence.length; i += 1) {
-    if (confidence[i] >= CONFIDENCE_THRESHOLD) high.push(i)
-    else low.push(i)
-  }
-  return { high, low }
-}
-
-/**
  * Map a triangle's continuous confidence to its render alpha multiplier.
  *
  * Linear lerp from ``LOW_CONFIDENCE_ALPHA_MULTIPLIER`` at
