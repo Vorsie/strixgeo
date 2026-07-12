@@ -5821,9 +5821,16 @@ opportunistically: whenever a session touches a file on the table, delete the
 dead code in the same commit. Work the table top-down; strike rows in DEBT.md is
 NOT allowed (append-only) — track completion here instead.
 
-## 230. Vitest fill-gate inversion — default suite tests the RETIRED !rewriteB path (Tier G — test integrity, S, DO FIRST)
+## 230. ~~Vitest fill-gate inversion~~ — RESOLVED 2026-07-12
 
-**What.** `partitionFill.ts:4215` sets `rewriteB = (env REWRITE_B) || !inVitest`:
+**Resolution.** rewriteB now defaults ON everywhere including vitest
+(`partitionFill.ts` + both test mirrors flipped in one commit, `ce76e885`); the
+retired legacy substrate path runs only under an explicit `REWRITE_B_LEGACY=1`.
+Verified both ways: default full suite 2,172 passed / 13 skipped; legacy run
+100/100 on the mirrored files (skipIf gates invert correctly). Stale
+`REWRITE_B=1` run-comments dropped from the CS1 gate specs (`9950b218`).
+
+**What (was).** `partitionFill.ts:4215` sets `rewriteB = (env REWRITE_B) || !inVitest`:
 production always runs rewriteB, but under vitest the flag is FALSE unless a
 human exports `REWRITE_B=1`. The default suite (and the pre-commit gate) test
 the retired legacy path — `partitionFill.test.ts` even asserts DIFFERENT
