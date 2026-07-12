@@ -21,20 +21,23 @@ behaviour.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.build_geotech_model_from_litho import (
-    BuildGeotechModelFromLitho,
-    _GeoSurface,
-)
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.litho_geo_bounding import BoundarySampler
+from groundmodel.domain.services.tin_surface import evaluate_tin_at
+from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -48,6 +51,26 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # Read from ``view_state["geotech_subdivision"]``, kept separate from the litho
 # stage's ``litho_segmenter.litho_snap_tolerance_m``.
 _DEFAULT_GEOTECH_SNAP_TOLERANCE_M: float = 0.30
+
+
+@dataclass
+class _GeoSurface:
+    """A parent-geology band surface kept WITH its geological formation id.
+
+    ``load_geo_surfaces`` drops the formation id; the geotech builders need it
+    so a cut can be attributed to its geological formation and matched to a
+    geological contact row for provenance.
+
+    Attributes
+    ----------
+    formation_id : UUID
+        The geological formation whose top this surface is.
+    tin : TinSurface
+        The cached interpolated surface mesh.
+    """
+
+    formation_id: UUID
+    tin: TinSurface
 
 
 class GeotechBoreholeMaterialiser(GroundModelLogger):
@@ -69,9 +92,7 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         super().__init__(name)
         self._session = session
         self._litho_repo = LithoLayerRepository(session)
-        # Delegate geo-surface loading + geo-bounding helpers to C1's class.
-        # We instantiate C1 for its helper methods without calling execute().
-        self._c1 = BuildGeotechModelFromLitho(session)
+        self._repo = GeologyRepository(session)
 
     # ------------------------------------------------------------------
     # Grouping helper
@@ -98,9 +119,193 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         """
         groups: dict[tuple[str, UUID | None], list[BodyLayerPick]] = defaultdict(list)
         for seg in divided:
-            geo_fid = self._c1._geo_formation_at_midpoint(seg, geo_surfaces)
+            geo_fid = self._geo_formation_at_midpoint(seg, geo_surfaces)
             groups[(seg.body_id, geo_fid)].append(seg)
         return dict(groups)
+
+    # ------------------------------------------------------------------
+    # Geotech model ensure-or-create
+    # ------------------------------------------------------------------
+
+    async def _ensure_geotech_model(
+        self, litho_model: GeologicalModelOrm
+    ) -> tuple[GeologicalModelOrm, bool]:
+        """Find the geotech child of *litho_model* or create one.
+
+        The geotech model is the single ``kind='geotechnical'`` model whose parent
+        is the litho model.  When one already exists it is reused (idempotent
+        re-build); otherwise a new one is created via the repository, satisfying
+        the ``REQUIRED_PARENT_KIND['geotechnical'] == 'lithostratigraphic'``
+        invariant the ``POST /models`` endpoint normally enforces.
+
+        Parameters
+        ----------
+        litho_model : GeologicalModelOrm
+            The lithostratigraphic parent model.
+
+        Returns
+        -------
+        tuple[GeologicalModelOrm, bool]
+            ``(geotech_model, created)`` — ``created`` is ``True`` when a new row
+            was inserted.
+        """
+        existing = (
+            (
+                await self._session.execute(
+                    select(GeologicalModelOrm).where(
+                        GeologicalModelOrm.parent_geological_model_id == litho_model.id,
+                        GeologicalModelOrm.kind == "geotechnical",
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            # Ensure the reused model is active — the frontend derives
+            # ``activeGeotechModel`` via ``find(m => m.is_active && m.kind
+            # === 'geotechnical')``, so an inactive reused model would be
+            # invisible to the UI after the first build.  A model may become
+            # inactive if ``activateModel`` was called for a different model
+            # of the same kind (unlikely for geotech which allows only one
+            # child, but defensive correctness matters here).
+            if not existing.is_active:
+                existing.is_active = True
+                self.info(
+                    f"_ensure_geotech_model: re-activated inactive geotech model {existing.id}"
+                )
+            else:
+                self.debug(f"_ensure_geotech_model: reusing existing geotech model {existing.id}")
+            return existing, False
+
+        model = await self._repo.create_model(
+            litho_model.app_project_id,
+            name=f"{litho_model.name} — geotechnical",
+            is_active=True,
+            kind="geotechnical",
+            parent_geological_model_id=litho_model.id,
+        )
+        self.info(f"_ensure_geotech_model: created geotech model {model.id}")
+        return model, True
+
+    # ------------------------------------------------------------------
+    # Geo surfaces + boundary samplers
+    # ------------------------------------------------------------------
+
+    async def _load_geo_surfaces_with_formation(
+        self, parent_geo_model_id: UUID | None
+    ) -> list[_GeoSurface]:
+        """Load the parent geo model's built, non-stale surfaces WITH formation id.
+
+        Unlike ``load_geo_surfaces`` (which returns ``SurfaceBound`` and drops the
+        geological ``formation_id``), this keeps the formation id so a cut can be
+        attributed to its geological formation.  Stale, vertex-less, or
+        triangle-less surfaces are skipped — a surface with vertices but no
+        triangles (e.g. a 2-contact formation) would produce a ``TinSurface``
+        whose ``evaluate_tin_at`` always returns ``None``, silently degrading
+        every evaluation to the nearest-vertex fallback.
+
+        Parameters
+        ----------
+        parent_geo_model_id : UUID | None
+            The parent geological model id; ``None`` (a litho model with no geo
+            parent) yields an empty list (no geology to bound against).
+
+        Returns
+        -------
+        list[_GeoSurface]
+            Built, non-stale surfaces with their geological formation id.
+        """
+        if parent_geo_model_id is None:
+            return []
+        rows = await self._repo.list_surfaces(parent_geo_model_id)
+        out: list[_GeoSurface] = []
+        for row in rows:
+            if row.is_stale or not row.vertices or not row.triangles:
+                continue
+            tin = TinSurface(
+                vertices=[tuple(v) for v in row.vertices],
+                triangles=[tuple(t) for t in row.triangles],
+            )
+            out.append(_GeoSurface(formation_id=row.formation_id, tin=tin))
+        self.debug(
+            f"_load_geo_surfaces_with_formation: {len(out)} usable surface(s) "
+            f"of {len(rows)} for geo model {parent_geo_model_id}"
+        )
+        return out
+
+    @staticmethod
+    def _evaluate(surface: _GeoSurface, x: float, y: float) -> float:
+        """Elevation of *surface* at ``(x, y)``; nearest-vertex fallback off-footprint.
+
+        Mirrors ``SurfaceBound.evaluate`` so the band logic matches the pure
+        geo-bounding functions exactly.
+        """
+        elevation = evaluate_tin_at(surface.tin, x, y)
+        if elevation is not None:
+            return elevation
+        nearest = min(surface.tin.vertices, key=lambda v: (v[0] - x) ** 2 + (v[1] - y) ** 2)
+        return nearest[2]
+
+    def _make_boundary_sampler(self, geo_surfaces: list[_GeoSurface]) -> BoundarySampler:
+        """Build the ``(x, y) -> [(formation_id, elevation), ...]`` sampler.
+
+        The list is sorted by elevation DESCENDING (top surface first) — the shape
+        ``divide_picks_by_geology`` expects.  The geological ``formation_id`` is
+        carried as a string so it round-trips back to a UUID in the segment loop.
+        """
+
+        def sample(x: float, y: float) -> list[tuple[str, float]]:
+            pairs = [(str(s.formation_id), self._evaluate(s, x, y)) for s in geo_surfaces]
+            pairs.sort(key=lambda fe: fe[1], reverse=True)
+            return pairs
+
+        return sample
+
+    def _make_lowest_boundary_sampler(
+        self, geo_surfaces: list[_GeoSurface]
+    ) -> Callable[[float, float], float | None]:
+        """Build the ``(x, y) -> lowest elevation | None`` sampler for shallow-test marking."""
+
+        def sample(x: float, y: float) -> float | None:
+            if not geo_surfaces:
+                return None
+            return min(self._evaluate(s, x, y) for s in geo_surfaces)
+
+        return sample
+
+    def _geo_formation_at_midpoint(
+        self, seg: BodyLayerPick, geo_surfaces: list[_GeoSurface]
+    ) -> UUID | None:
+        """Geological formation the segment sits within = lowest surface above its midpoint.
+
+        Mirrors ``divide_picks_by_geology``'s ``band_key`` rule: the segment's
+        geological band is the formation of the lowest geological surface still
+        ABOVE the segment midpoint; ``None`` (the open shallow band) when no
+        surface is above it.
+
+        Parameters
+        ----------
+        seg : BodyLayerPick
+            One geo-bounded segment (already divided).
+        geo_surfaces : list[_GeoSurface]
+            The parent geology band surfaces.
+
+        Returns
+        -------
+        UUID | None
+            The geological formation id, or ``None`` for the open shallow band.
+        """
+        if not geo_surfaces:
+            return None
+        top_e = seg.surface_elev_m - seg.top_depth_m
+        base_e = seg.surface_elev_m - seg.base_depth_m
+        mid = 0.5 * (top_e + base_e)
+        above = [(s.formation_id, self._evaluate(s, seg.x_m, seg.y_m)) for s in geo_surfaces]
+        above = [(fid, elev) for fid, elev in above if elev > mid]
+        if not above:
+            return None
+        return min(above, key=lambda fe: fe[1])[0]
 
     # ------------------------------------------------------------------
     # Formation find-or-create helpers

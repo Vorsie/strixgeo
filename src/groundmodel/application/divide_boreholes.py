@@ -251,11 +251,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
 
         snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
-        geo_surfaces = await self._c1._load_geo_surfaces_with_formation(
+        geo_surfaces = await self._load_geo_surfaces_with_formation(
             litho_model.parent_geological_model_id
         )
-        boundary_sampler = self._c1._make_boundary_sampler(geo_surfaces)
-        lowest_sampler = self._c1._make_lowest_boundary_sampler(geo_surfaces)
+        boundary_sampler = self._make_boundary_sampler(geo_surfaces)
+        lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
         divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)

@@ -317,7 +317,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         )
 
         # Phase 1 — ensure the geotech model + resolve litho body_id stamps.
-        geotech_model, _ = await self._c1._ensure_geotech_model(litho_model)
+        geotech_model, _ = await self._ensure_geotech_model(litho_model)
         await ResolveLithoInstances(self._session).execute(model_id=litho_model_id, commit=False)
         self.info(f"SubdivideAllBodies: geotech_model={geotech_model.id} (litho bodies resolved)")
 
@@ -344,11 +344,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # snap tolerance so true near-coincident geo slivers snap to the litho
         # contact instead of carving thin geotech sub-units).
         snap_tol = await self._read_geotech_snap_tolerance_m(geotech_model.app_project_id)
-        geo_surfaces = await self._c1._load_geo_surfaces_with_formation(
+        geo_surfaces = await self._load_geo_surfaces_with_formation(
             litho_model.parent_geological_model_id
         )
-        boundary_sampler = self._c1._make_boundary_sampler(geo_surfaces)
-        lowest_sampler = self._c1._make_lowest_boundary_sampler(geo_surfaces)
+        boundary_sampler = self._make_boundary_sampler(geo_surfaces)
+        lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
         if shallow.marked_investigation_ids:
