@@ -1239,8 +1239,20 @@ async def test_bundle_carries_formation_absences(db_session: AsyncSession) -> No
     db_session.add(formation)
     await db_session.flush()
 
-    inv_inferred = _u()
-    inv_manual = _u()
+    # Anchor the absences at the project's REAL investigations. The restore
+    # IDOR guard (commit 101676ca8, 2026-07-01) drops any absence whose
+    # investigation_id is not a CPT/borehole of this project — correct for
+    # crafted bundles, and real bundles always carry the anchoring
+    # investigations. The fixture's original random-UUID anchors pinned the
+    # pre-guard behaviour and made this test the attack case by accident.
+    inv_inferred = (
+        await db_session.execute(
+            select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == source.id)
+        )
+    ).scalar_one()
+    inv_manual = (
+        await db_session.execute(select(CptOrm.id).where(CptOrm.app_project_id == source.id))
+    ).scalar_one()
 
     absence_inferred = FormationAbsenceOrm(
         id=_u(),
