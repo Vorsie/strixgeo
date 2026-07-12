@@ -738,9 +738,6 @@ interface BodyContextMenuState {
 interface BodyContextMenuProps {
   menu: BodyContextMenuState
   onEditAdmixtures: () => void
-  /** Removes every edge in the body's correlation graph. Caller fans the
-   *  per-edge ``onUncorrelate`` calls and refreshes once on completion. */
-  onRemoveAll: () => void
   /** Opens the InspectLensBodyPanel for this body (#101 Blocker 1). */
   onInspect?: () => void
   onClose: () => void
@@ -749,7 +746,6 @@ interface BodyContextMenuProps {
 function BodyContextMenu({
   menu,
   onEditAdmixtures,
-  onRemoveAll,
   onInspect,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
@@ -759,7 +755,7 @@ function BodyContextMenu({
       x={menu.x}
       y={menu.y}
       width={220}
-      height={96}
+      height={64}
       minWidth={220}
       testid="body-context-menu"
       onClose={onClose}
@@ -770,11 +766,6 @@ function BodyContextMenu({
           testid: 'body-context-inspect',
         },
         { label: 'Edit admixtures for this body', onClick: onEditAdmixtures },
-        {
-          label: 'Remove all correlations for this body',
-          onClick: onRemoveAll,
-          danger: true,
-        },
       ]}
     />
   )
@@ -1176,13 +1167,6 @@ export default function CorrelationEdgesOverlay({
       initialAdmixtures: (seedFormation?.litho_admixtures ?? []) as GhostAdmixtureItem[],
     })
   }, [bodyContextMenu, formationById])
-
-  const handleBodyContextRemoveAll = useCallback(() => {
-    // Formation-level edges and their uncorrelate path were removed in
-    // Task 21 (#133 Phase 2+3). The contact-level remove path will replace
-    // this gesture when contact-edge uncorrelation is wired (post-Task 21).
-    setBodyContextMenu(null)
-  }, [])
 
   // Compute drag ghost anchor + cursor positions in SVG-local coords.
   // The SVG has no viewBox scaling — viewport px and SVG px are 1:1 after
@@ -1889,7 +1873,6 @@ export default function CorrelationEdgesOverlay({
         <BodyContextMenu
           menu={bodyContextMenu}
           onEditAdmixtures={handleBodyContextEditAdmixtures}
-          onRemoveAll={() => void handleBodyContextRemoveAll()}
           onInspect={
             onInspectLensBody
               ? () => {

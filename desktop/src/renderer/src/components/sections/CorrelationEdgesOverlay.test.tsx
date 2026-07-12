@@ -233,7 +233,7 @@ describe('CorrelationEdgesOverlay', () => {
   // CE14 — debt #100: right-click on a body chip opens the body-level
   // context menu. onPropagateAdmixtures is now a direct prop (not nested
   // inside a gesture state).
-  it('CE14: right-click body chip opens body context menu (edit admixtures + remove all)', () => {
+  it('CE14: right-click body chip opens body context menu (edit admixtures)', () => {
     const fA = {
       ...makeFormation('f-a', 'Zand', 1),
       litho_main_soil_code: 'ZAND',
@@ -257,7 +257,6 @@ describe('CorrelationEdgesOverlay', () => {
     fireEvent.contextMenu(chip)
     expect(screen.getByTestId('body-context-menu')).not.toBeNull()
     expect(screen.getByText(/Edit admixtures for this body/i)).not.toBeNull()
-    expect(screen.getByText(/Remove all correlations for this body/i)).not.toBeNull()
   })
 
   it('CE15: chip menu "Edit admixtures for this body" opens the admixture editor', () => {
