@@ -231,16 +231,19 @@ Flanders launch demo but not a gate.
 
 ### Open commercial concerns (tracked as debt, not blocking the MVP)
 
-* **License key / activation system** — none today; needed before any
-  paid distribution. Likely shape: signed offline license tokens
-  (machine-bound or floating per-user), no phone-home dependency for
-  daily use. See debt section.
+* **Subscription activation system** *(re-scoped 2026-06-25 from
+  "license keys" — the commercial model pivoted to annual
+  subscription + 30-day trial; see CLAUDE.local.md → Commercial
+  planning)* — none today; needed before any paid distribution.
+  Likely shape: a subscription/activation check tied to the Stripe
+  subscription state, with an offline grace window so daily on-site
+  use never phones home. See debt #3.
 * **Code-signing the installer** — Windows SmartScreen will reject
   unsigned installers and signal "untrusted" to users. EV
   certificate required (~€200–400/year).
 * **Hardening against tampering / reverse engineering** — modest
   posture, not paranoid. Geotech isn't a target-rich threat
-  environment; goals are mostly to prevent casual license-key
+  environment; goals are mostly to prevent casual activation
   bypass and keep our user data import paths safe from malformed
   files. NOT trying to defeat dedicated reverse engineers — that's a
   losing arms race for a solo dev.
