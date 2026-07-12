@@ -14,7 +14,4 @@ Modules
 -------
 strat_types
     Frozen value objects shared across all stages.
-preview
-    Write a self-contained Three.js HTML preview of a set of meshes and
-    control points (dev/debug helper, not part of the production pipeline).
 """
