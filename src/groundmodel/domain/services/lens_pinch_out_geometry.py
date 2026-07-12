@@ -66,43 +66,6 @@ class LensPinchGeometryError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def _interp_elevation(polyline: list[tuple[float, float]], along_m: float) -> float | None:
-    """Linearly interpolate ``elevation_m`` from a sorted polyline at ``along_m``.
-
-    Parameters
-    ----------
-    polyline : list[tuple[float, float]]
-        List of ``(along_m, elevation_m)`` points sorted ascending by ``along_m``.
-    along_m : float
-        The query position along the section line.
-
-    Returns
-    -------
-    float or None
-        Interpolated elevation, or ``None`` when ``along_m`` is outside
-        the polyline's extent (extrapolation is not performed).
-    """
-    if not polyline:
-        return None
-    if len(polyline) == 1:
-        # Single point: exact match only, no interpolation range.
-        if math.isclose(polyline[0][0], along_m, abs_tol=1e-9):
-            return polyline[0][1]
-        return None
-
-    # Walk segments — linear interpolation inside [first, last].
-    for i in range(len(polyline) - 1):
-        a0, e0 = polyline[i]
-        a1, e1 = polyline[i + 1]
-        if a0 <= along_m <= a1:
-            if math.isclose(a0, a1, abs_tol=1e-12):
-                return e0
-            t = (along_m - a0) / (a1 - a0)
-            return e0 + t * (e1 - e0)
-
-    return None  # outside extent
-
-
 def _gradient_from_two_points(
     p_near: tuple[float, float],
     p_far: tuple[float, float],

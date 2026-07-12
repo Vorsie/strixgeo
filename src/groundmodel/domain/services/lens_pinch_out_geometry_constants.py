@@ -32,10 +32,3 @@ MIN_CONTACT_DELTA_ALONG_M: float = 1e-3  # 1 mm
 # geologically meaningless (the lines meet at a theoretically infinite
 # distance).
 PARALLEL_GRADIENT_EPSILON: float = 1e-9
-
-# Relative-density interpolation step (metres along-section) used when
-# walking the target polyline to find where the extrapolated pinching
-# surface crosses it.  Not actually used in the closed-form algebraic
-# solver (which finds the exact crossing), but kept here as a named
-# constant for any future numerical fallback path.
-_WALK_STEP_M: float = 0.05  # 5 cm — sub-sample precision
