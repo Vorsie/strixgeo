@@ -290,54 +290,6 @@ describe('useProject', () => {
     )
   })
 
-  it('openProjectFile: restore payload carries geotechnical_units (regression pin)', async () => {
-    // Geotechnical units were silently dropped from the restore
-    // payload before this fix — every unit saved in a .strix
-    // disappeared on a 404→restore open. Same shape of bug as the
-    // pre-fix save flow that lost contacts. This pins the
-    // geotechnical_units key on the api.project.restore call so
-    // the next refactor can't regress it.
-    const { api } = await import('../api/client')
-    const ghostFile = {
-      format_version: 3,
-      project: {
-        id: '01k-WITH-UNITS',
-        name: 'WithUnits',
-        status: 'active',
-        tags: [],
-      },
-      cpts: [],
-      boreholes: [],
-      geological_formations: [{ id: 'f-1', name: 'Boom Klei' }],
-      geotechnical_units: [
-        { id: 'u-1', geological_formation_id: 'f-1', name: 'Weathered crust' },
-      ],
-      geological_models: [],
-      cross_sections: [],
-      investigation_reviews: [],
-    }
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
-      JSON.stringify(ghostFile),
-    )
-    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('GET /projects/01k-WITH-UNITS → 404'),
-    )
-    const restored = { ...created, id: '01k-WITH-UNITS', name: 'WithUnits' }
-    ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
-
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/with-units.gmproj')
-    })
-
-    expect(api.project.restore).toHaveBeenCalledWith(
-      '01k-WITH-UNITS',
-      expect.objectContaining({
-        geotechnical_units: ghostFile.geotechnical_units,
-      }),
-    )
-  })
-
   it('openProjectFile: returns null for pre-v3 files (legacy formats no longer accepted)', async () => {
     // Pre-shipping, we explicitly dropped v1/v2 readers — anyone
     // holding an old dev .gmproj has to re-save from a current build.
@@ -480,7 +432,6 @@ describe('useProject', () => {
       cpts: [],
       boreholes: [],
       geological_formations: [],
-      geotechnical_units: [],
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],
@@ -670,7 +621,6 @@ describe('useProject', () => {
       cpts: [{ id: 'cpt-keep' }, { id: 'cpt-orphan' }],
       boreholes: [{ id: 'bh-orphan' }],
       geological_formations: [],
-      geotechnical_units: [],
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],

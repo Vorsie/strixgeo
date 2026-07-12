@@ -77,7 +77,6 @@ function bundleToProjectFile(bundle: any): string {
         cpts: bundle.cpts ?? [],
         boreholes: bundle.boreholes ?? [],
         geological_formations: bundle.geological_formations ?? [],
-        geotechnical_units: bundle.geotechnical_units ?? [],
         geological_models: bundle.geological_models ?? [],
         cross_sections: bundle.cross_sections ?? [],
         investigation_reviews: bundle.investigation_reviews ?? [],

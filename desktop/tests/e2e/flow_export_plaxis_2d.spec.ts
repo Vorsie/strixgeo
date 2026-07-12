@@ -163,7 +163,6 @@ test.describe('flow_export_plaxis_2d (#130)', () => {
           },
         ],
         geological_formations: [],
-        geotechnical_units: [],
         geological_models: [],
         cross_sections: [],
         investigation_reviews: [],

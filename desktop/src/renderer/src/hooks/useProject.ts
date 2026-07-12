@@ -370,12 +370,6 @@ export function useProject(): UseProject {
               cpts: parsed.cpts,
               boreholes: parsed.boreholes,
               geological_formations: parsed.geological_formations,
-              // geotechnical_units was added to the v3 schema after
-              // the initial restore wiring landed; omitting it here
-              // silently drops every saved unit on a 404→restore
-              // open. Backend defaults to empty list if missing,
-              // which is exactly the data-loss path we want to avoid.
-              geotechnical_units: parsed.geotechnical_units,
               geological_models: parsed.geological_models,
               cross_sections: parsed.cross_sections,
               investigation_reviews: parsed.investigation_reviews,
@@ -407,7 +401,6 @@ export function useProject(): UseProject {
               `restored ${restored.name} from ${path} ` +
                 `(+${parsed.cpts.length} CPTs, +${parsed.boreholes.length} boreholes, ` +
                 `+${parsed.geological_formations.length} formations, ` +
-                `+${parsed.geotechnical_units.length} geotech units, ` +
                 `+${parsed.geological_models.length} models ` +
                 `(+${contactCount} contacts), ` +
                 `+${parsed.cross_sections.length} sections, ` +
@@ -695,7 +688,6 @@ export function useProject(): UseProject {
           cpts: parsed.cpts,
           boreholes: parsed.boreholes,
           geological_formations: parsed.geological_formations,
-          geotechnical_units: parsed.geotechnical_units,
           geological_models: parsed.geological_models,
           cross_sections: parsed.cross_sections,
           investigation_reviews: parsed.investigation_reviews,

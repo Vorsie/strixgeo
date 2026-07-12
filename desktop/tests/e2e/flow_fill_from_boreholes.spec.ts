@@ -155,7 +155,6 @@ test.describe('flow_fill_from_boreholes (#130)', () => {
         },
       ],
       geological_formations: [],
-      geotechnical_units: [],
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],

@@ -12,7 +12,6 @@
 //     "cpts":                  [ ...full CPT + series payload per row ],
 //     "boreholes":             [ ...full borehole tree per row ],
 //     "geological_formations": [ ... ],
-//     "geotechnical_units":    [ ...subdivision of formations (structure-only) ],
 //     "geological_models":     [ { ...model, contacts: [...] } ],
 //     "cross_sections":        [ ... ],
 //     "investigation_reviews": [ ...per-(project, investigation) decisions ]
@@ -61,7 +60,6 @@ export interface ProjectFileV3 {
   cpts: Record<string, unknown>[]
   boreholes: Record<string, unknown>[]
   geological_formations: Record<string, unknown>[]
-  geotechnical_units: Record<string, unknown>[]
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
@@ -108,7 +106,6 @@ export function buildProjectFile(
     cpts: bundle.cpts,
     boreholes: bundle.boreholes,
     geological_formations: bundle.geological_formations ?? [],
-    geotechnical_units: bundle.geotechnical_units ?? [],
     geological_models: bundle.geological_models ?? [],
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
@@ -149,9 +146,6 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   // result always matches the interface contract — older files saved
   // before the field landed would otherwise carry ``undefined`` for
   // these keys and crash downstream array consumers.
-  if (candidate.geotechnical_units === undefined) {
-    candidate.geotechnical_units = []
-  }
   if (candidate.litho_contact_correlation_edges === undefined) {
     candidate.litho_contact_correlation_edges = []
   }
@@ -187,11 +181,6 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     Array.isArray(v.cpts) &&
     Array.isArray(v.boreholes) &&
     Array.isArray(v.geological_formations) &&
-    // ``geotechnical_units`` was added after the v3 floor was set; tolerate
-    // its absence on read so projects saved before this build still open,
-    // and normalise to an empty array in the parsed result. New saves
-    // always emit the field.
-    (v.geotechnical_units === undefined || Array.isArray(v.geotechnical_units)) &&
     Array.isArray(v.geological_models) &&
     Array.isArray(v.cross_sections) &&
     Array.isArray(v.investigation_reviews) &&

@@ -171,7 +171,6 @@ test.describe('flow_section_seed_from_stratigraphy (#130)', () => {
         },
       ],
       geological_formations: [],
-      geotechnical_units: [],
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],

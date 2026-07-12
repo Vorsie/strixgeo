@@ -56,7 +56,6 @@ export interface ProjectBundleResponse {
   cpts: Record<string, unknown>[]
   boreholes: Record<string, unknown>[]
   geological_formations: Record<string, unknown>[]
-  geotechnical_units: Record<string, unknown>[]
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]

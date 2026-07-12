@@ -89,7 +89,6 @@ test.describe('flow_open_recent', () => {
       cpts: [],
       boreholes: [],
       geological_formations: [],
-      geotechnical_units: [],
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],
