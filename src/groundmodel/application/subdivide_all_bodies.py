@@ -124,6 +124,10 @@ from groundmodel.application.geotech_edge_derivation import (
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.application.view_state_helpers import (
+    load_project_view_state,
+    read_view_state_float,
+)
 from groundmodel.domain.services.geotech_body_aggregation import (
     BandProfile,
     plan_body_subdivision,
@@ -146,7 +150,6 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 
 # Minimum geotech sub-unit thickness when the view-state knob is absent.
@@ -836,14 +839,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             ``_DEFAULT_MIN_THICKNESS_M`` (0.35 m) when absent, non-positive, or
             non-numeric.
         """
-        project = await ProjectRepository(self._session).get_by_id(project_id)
-        view_state = project.view_state if project is not None else None
-        seg = (view_state or {}).get("geotech_subdivision") or {}
-        try:
-            val = float(seg.get("minimum_layer_thickness_m", _DEFAULT_MIN_THICKNESS_M))
-            return val if val > 0 else _DEFAULT_MIN_THICKNESS_M
-        except (TypeError, ValueError):
-            return _DEFAULT_MIN_THICKNESS_M
+        view_state = await load_project_view_state(self._session, project_id)
+        return read_view_state_float(
+            view_state,
+            "geotech_subdivision",
+            "minimum_layer_thickness_m",
+            _DEFAULT_MIN_THICKNESS_M,
+        )
 
     async def _read_gradient_snap(self, project_id: UUID) -> tuple[bool, float]:
         """Read the geotech gradient-snap knobs from the project view-state.
@@ -862,16 +864,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         tuple[bool, float]
             ``(gradient_snap_enabled, gradient_snap_window_m)``.
         """
-        project = await ProjectRepository(self._session).get_by_id(project_id)
-        seg = ((project.view_state if project is not None else None) or {}).get(
-            "geotech_subdivision"
-        ) or {}
-        enabled = seg.get("gradient_snap_enabled", True)
-        try:
-            window = float(seg.get("gradient_snap_window_m", 0.5))
-        except (TypeError, ValueError):
-            window = 0.5
-        return (bool(enabled), window if window > 0 else 0.5)
+        view_state = await load_project_view_state(self._session, project_id)
+        bag = (view_state or {}).get("geotech_subdivision") or {}
+        enabled = bool(bag.get("gradient_snap_enabled", True))
+        window = read_view_state_float(
+            view_state, "geotech_subdivision", "gradient_snap_window_m", 0.5
+        )
+        return (enabled, window)
 
     # ------------------------------------------------------------------
     # Formation attribute helpers

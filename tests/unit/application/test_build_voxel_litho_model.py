@@ -124,7 +124,6 @@ async def _run(
     anisotropy pass-through can be asserted.
     """
     view_state = {"litho_segmenter": {"litho_snap_tolerance_m": snap_tol}} if snap_tol else {}
-    project = SimpleNamespace(view_state=view_state)
 
     def _capture_label(*args: Any, **kwargs: Any) -> LabelGrid:
         captured["args"] = args
@@ -133,13 +132,11 @@ async def _run(
 
     repo = AsyncMock()
     repo.load_body_picks = AsyncMock(return_value=[])
-    proj_repo = AsyncMock()
-    proj_repo.get_by_id = AsyncMock(return_value=project)
 
     with (
         patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=surfaces)) as load_mock,
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
-        patch(f"{_PATH}.ProjectRepository", return_value=proj_repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value=view_state)),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0))),

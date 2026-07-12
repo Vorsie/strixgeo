@@ -74,6 +74,10 @@ from groundmodel.application.litho_solid_persistence import (
     storage_body_id,
 )
 from groundmodel.application.load_geo_surfaces import digest_surfaces, load_geo_surfaces
+from groundmodel.application.view_state_helpers import (
+    load_project_view_state,
+    read_view_state_float,
+)
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
@@ -87,7 +91,6 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
-from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.shared.timing import phase_timer
 
 # Default litho↔geology snap tolerance (metres) when the project view-state does
@@ -635,11 +638,10 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         model = await self._session.get(GeologicalModelOrm, model_id)
         if model is None:
             return _DEFAULT_LITHO_SNAP_TOLERANCE_M
-        project = await ProjectRepository(self._session).get_by_id(model.app_project_id)
-        view_state = project.view_state if project is not None else None
-        seg = (view_state or {}).get("litho_segmenter") or {}
-        try:
-            tol = float(seg.get("litho_snap_tolerance_m", _DEFAULT_LITHO_SNAP_TOLERANCE_M))
-            return tol if tol > 0 else _DEFAULT_LITHO_SNAP_TOLERANCE_M
-        except (TypeError, ValueError):
-            return _DEFAULT_LITHO_SNAP_TOLERANCE_M
+        view_state = await load_project_view_state(self._session, model.app_project_id)
+        return read_view_state_float(
+            view_state,
+            "litho_segmenter",
+            "litho_snap_tolerance_m",
+            _DEFAULT_LITHO_SNAP_TOLERANCE_M,
+        )

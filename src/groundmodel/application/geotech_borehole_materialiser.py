@@ -29,6 +29,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.view_state_helpers import (
+    load_project_view_state,
+    read_view_state_float,
+)
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import BoundarySampler
 from groundmodel.domain.services.tin_surface import evaluate_tin_at
@@ -39,7 +43,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
-from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Geo↔litho snap tolerance for the geotech geo-bounding.  When a geological
@@ -607,11 +610,10 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             ``_DEFAULT_GEOTECH_SNAP_TOLERANCE_M`` (0.30 m) when absent,
             non-positive, or non-numeric.
         """
-        project = await ProjectRepository(self._session).get_by_id(project_id)
-        view_state = project.view_state if project is not None else None
-        seg = (view_state or {}).get("geotech_subdivision") or {}
-        try:
-            val = float(seg.get("litho_snap_tolerance_m", _DEFAULT_GEOTECH_SNAP_TOLERANCE_M))
-            return val if val > 0 else _DEFAULT_GEOTECH_SNAP_TOLERANCE_M
-        except (TypeError, ValueError):
-            return _DEFAULT_GEOTECH_SNAP_TOLERANCE_M
+        view_state = await load_project_view_state(self._session, project_id)
+        return read_view_state_float(
+            view_state,
+            "geotech_subdivision",
+            "litho_snap_tolerance_m",
+            _DEFAULT_GEOTECH_SNAP_TOLERANCE_M,
+        )
