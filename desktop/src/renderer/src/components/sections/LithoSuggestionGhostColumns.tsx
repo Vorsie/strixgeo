@@ -490,7 +490,6 @@ export default function LithoSuggestionGhostColumns({
     onEdit,
     onReject,
     onMergeLayers,
-    investigationId,
     committedContactsForAnchor,
     contactIdsByAcceptedIdx,
     onUpdateContactDepth,

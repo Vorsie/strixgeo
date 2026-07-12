@@ -152,13 +152,6 @@ export interface UseBoundaryDragParams {
    *  absent (backwards-compat for callers that haven't opted in). */
   onMergeLayers?: (upperIdx: number) => void
   /**
-   * Slice 3 — investigation id for the focused anchor, used to scope
-   * the committed-contact lookup to this column. The contacts list
-   * passed in is already filtered, but the id is kept around for
-   * defensive logging + future cross-column work.
-   */
-  investigationId?: string
-  /**
    * Slice 3 — committed litho contacts for the focused anchor,
    * pre-filtered by the caller. When a pending drag's mouseup lands
    * at an accepted neighbour's boundary, the hook scans this list
@@ -242,7 +235,6 @@ export function useBoundaryDrag(
     onEdit,
     onReject,
     onMergeLayers,
-    investigationId,
     committedContactsForAnchor,
     contactIdsByAcceptedIdx,
     onUpdateContactDepth,
