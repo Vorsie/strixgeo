@@ -23,9 +23,7 @@ atomic transaction as the approval flip.
 Body detection is NOT fired here (owner directive 2026-05-31): body
 membership is managed by :class:`ResolveLithoInstances` and stale
 ``BodyOrm`` rows are reconciled by the startup / bundle-restore body
-sweep.  The ``bodies_created`` and ``bodies_removed`` fields on
-:class:`AcceptResult` stay on the response shape for client
-compatibility but are always ``0`` from this flow.
+sweep.
 """
 
 from __future__ import annotations
@@ -54,22 +52,12 @@ class AcceptResult:
     ----------
     edges_accepted : int
         Number of edge rows whose ``user_approved`` flipped from False to True.
-    bodies_created : int
-        Always ``0`` — kept on the response for client compatibility.
-        Body materialisation now runs only on the explicit
-        ``POST .../bodies/detect`` verb (owner directive 2026-05-31).
-        Renamed from ``lenses_created`` in Slice 3.3 (2026-06-01).
-    bodies_removed : int
-        Always ``0`` — see ``bodies_created`` above.
-        Renamed from ``lenses_removed`` in Slice 3.3 (2026-06-01).
     ordinals_changed : int
         Number of formations whose ``instance_ordinal`` changed during the
         resolver step (from ``ResolveLithoInstances``).
     """
 
     edges_accepted: int
-    bodies_created: int
-    bodies_removed: int
     ordinals_changed: int
 
 
@@ -225,12 +213,9 @@ class AcceptContactCorrelations(GroundModelLogger):
 
         self.success(
             f"AcceptContactCorrelations: accepted={edges_accepted} "
-            f"ordinals_changed={ordinals_changed} "
-            f"bodies_created=0 bodies_removed=0"
+            f"ordinals_changed={ordinals_changed}"
         )
         return AcceptResult(
             edges_accepted=edges_accepted,
-            bodies_created=0,
-            bodies_removed=0,
             ordinals_changed=ordinals_changed,
         )

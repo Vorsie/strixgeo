@@ -967,13 +967,6 @@ async def accept_litho_suggestions(
     re-accepting the same suggestions for the same investigation is a
     read-heavy no-op (find-or-create key matches → existing rows returned).
 
-    Suggestions whose depth interval spans a geological-formation boundary
-    are automatically split into two contacts — one per parent formation —
-    using the parent model's cached TIN surfaces to locate the boundary.
-    When the TIN is stale/absent the boundary is approximated from
-    depth-ordered contacts on the investigation (``stale_tin_fallback_count``
-    in the response; rebuild the geological model to improve precision).
-
     When ``section_id`` is provided, all created + found contact ids are
     unioned into the section's ``seeded_formation_contact_ids`` so they
     appear on the section immediately (explicit-content invariant). The caller
@@ -1002,8 +995,8 @@ async def accept_litho_suggestions(
     Returns
     -------
     AcceptLithoSuggestionsResponse
-        Created/found formation + contact ids, straddle statistics, and
-        optionally the updated section.
+        Created/found formation + contact ids and optionally the updated
+        section.
 
     Raises
     ------
@@ -1107,10 +1100,6 @@ async def accept_litho_suggestions(
         found_formation_ids=result.found_formation_ids,
         created_contact_ids=result.created_contact_ids,
         found_contact_ids=result.found_contact_ids,
-        straddle_split_count=result.straddle_split_count,
-        stale_tin_fallback_count=result.stale_tin_fallback_count,
-        extrapolated_formation_ids=result.extrapolated_formation_ids,
-        orphan_formation_ids=result.orphan_formation_ids,
         updated_section=updated_section_response,
     )
 
@@ -1234,10 +1223,6 @@ async def batch_accept_litho_suggestions(
         "created_contacts": 0,
         "found_contacts": 0,
         "created_formations": 0,
-        "straddle": 0,
-        "stale_tin": 0,
-        "extrapolated": 0,
-        "orphan": 0,
         "failed": 0,
     }
     for outcome in batch_result.outcomes:
@@ -1259,10 +1244,6 @@ async def batch_accept_litho_suggestions(
         totals["created_contacts"] += len(r.created_contact_ids)
         totals["found_contacts"] += len(r.found_contact_ids)
         totals["created_formations"] += len(r.created_formation_ids)
-        totals["straddle"] += r.straddle_split_count
-        totals["stale_tin"] += r.stale_tin_fallback_count
-        totals["extrapolated"] += len(r.extrapolated_formation_ids)
-        totals["orphan"] += len(r.orphan_formation_ids)
         anchor_results.append(
             BatchAcceptLithoAnchorResult(
                 cpt_id=outcome.cpt_id,
@@ -1271,10 +1252,6 @@ async def batch_accept_litho_suggestions(
                 found_formation_ids=r.found_formation_ids,
                 created_contact_ids=r.created_contact_ids,
                 found_contact_ids=r.found_contact_ids,
-                straddle_split_count=r.straddle_split_count,
-                stale_tin_fallback_count=r.stale_tin_fallback_count,
-                extrapolated_formation_ids=r.extrapolated_formation_ids,
-                orphan_formation_ids=r.orphan_formation_ids,
             )
         )
 
@@ -1318,10 +1295,6 @@ async def batch_accept_litho_suggestions(
         total_created_contacts=totals["created_contacts"],
         total_found_contacts=totals["found_contacts"],
         total_created_formations=totals["created_formations"],
-        total_straddle_splits=totals["straddle"],
-        total_stale_tin_fallbacks=totals["stale_tin"],
-        total_extrapolated_formations=totals["extrapolated"],
-        total_orphan_formations=totals["orphan"],
         failed_anchor_count=totals["failed"],
         inference_ran=inference_ran,
         updated_section=updated_section_response,

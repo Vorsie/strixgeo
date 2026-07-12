@@ -28,14 +28,6 @@ class BatchAcceptLithoAnchorResult(BaseModel):
         Contact rows newly inserted for this anchor.
     found_contact_ids : list[UUID]
         Contact rows already present (idempotent path).
-    straddle_split_count : int
-        Suggestions split across a geological-formation boundary.
-    stale_tin_fallback_count : int
-        Straddle splits that fell back to depth-ordering (debt #68).
-    extrapolated_formation_ids : list[UUID]
-        Formation rows whose parent was inferred via TIN extrapolation (#87).
-    orphan_formation_ids : list[UUID]
-        Formation rows created with ``parent_formation_id=NULL`` (#87).
     error : str | None
         When non-null, this anchor was skipped — the accept raised a
         ``ValueError`` (e.g. investigation not in project) and the rest of the
@@ -48,8 +40,4 @@ class BatchAcceptLithoAnchorResult(BaseModel):
     found_formation_ids: list[UUID] = []
     created_contact_ids: list[UUID] = []
     found_contact_ids: list[UUID] = []
-    straddle_split_count: int = 0
-    stale_tin_fallback_count: int = 0
-    extrapolated_formation_ids: list[UUID] = []
-    orphan_formation_ids: list[UUID] = []
     error: str | None = None

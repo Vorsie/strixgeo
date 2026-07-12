@@ -264,8 +264,6 @@ async def test_a1_within_formation_creates_one_contact() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    assert result.straddle_split_count == 0
-    assert result.stale_tin_fallback_count == 0
     # One formation created (no pre-existing), one contact created.
     assert len(result.created_formation_ids) == 1
     assert len(result.created_contact_ids) == 1
@@ -356,12 +354,6 @@ async def test_a2_crossing_suggestion_stays_one_contact() -> None:
     # A2: straddle-split removed → exactly ONE contact for the full [0, 6] interval.
     assert len(result.created_contact_ids) == 1
     assert result.found_contact_ids == []
-    # Deprecated straddle counters are always zero under A2.
-    assert result.straddle_split_count == 0
-    assert result.stale_tin_fallback_count == 0
-    # Deprecated parent lists are always empty under A2.
-    assert result.extrapolated_formation_ids == []
-    assert result.orphan_formation_ids == []
 
 
 # ---------------------------------------------------------------------------

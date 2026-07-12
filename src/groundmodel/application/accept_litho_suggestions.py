@@ -165,24 +165,6 @@ class AcceptLithoResult:
         ``FormationContact`` rows inserted in this call.
     found_contact_ids : list[UUID]
         ``FormationContact`` rows that already existed (idempotent re-accept).
-    straddle_split_count : int
-        A2-deprecated, always zero.  Retained for API / client compat.
-        Previously counted suggestions split across a geological-formation
-        boundary.  Straddle-split was removed under A2.
-    stale_tin_fallback_count : int
-        A2-deprecated, always zero.  Retained for API / client compat.
-        Previously counted straddle splits that fell back to depth-ordering
-        because the geology TIN was stale/absent.
-    extrapolated_formation_ids : list[UUID]
-        A2-deprecated, always empty.  Retained for API / client compat.
-        Previously listed litho formations whose parent was inferred via TIN
-        extrapolation (debt #87).  Under A2 all litho units are geo-agnostic
-        (``parent_formation_id=None``).
-    orphan_formation_ids : list[UUID]
-        A2-deprecated, always empty.  Retained for API / client compat.
-        Previously listed litho formations with ``parent_formation_id=NULL``
-        that could not be parented.  Under A2 all units are geo-agnostic
-        and ``parent_formation_id`` is always ``None``.
     updated_section_id : UUID | None
         The section whose seeded set was updated, or ``None`` when no
         ``section_id`` was provided.
@@ -197,10 +179,6 @@ class AcceptLithoResult:
     found_formation_ids: list[UUID]
     created_contact_ids: list[UUID]
     found_contact_ids: list[UUID]
-    straddle_split_count: int
-    stale_tin_fallback_count: int
-    extrapolated_formation_ids: list[UUID]
-    orphan_formation_ids: list[UUID]
     updated_section_id: UUID | None
     touched_geo_formation_ids: list[UUID] = field(default_factory=list)
 
@@ -655,10 +633,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
             found_formation_ids=found_formation_ids,
             created_contact_ids=created_contact_ids,
             found_contact_ids=found_contact_ids,
-            straddle_split_count=0,  # A2: deprecated, always zero
-            stale_tin_fallback_count=0,  # A2: deprecated, always zero
-            extrapolated_formation_ids=[],  # A2: deprecated, always empty
-            orphan_formation_ids=[],  # A2: deprecated, always empty
             updated_section_id=section_id,
             touched_geo_formation_ids=touched_geo_formation_ids,
         )

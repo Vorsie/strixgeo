@@ -6,7 +6,7 @@ Seven cases:
 2. Model-scoped accept (section_id=None) flips every unapproved edge in
    the model.
 3. Accept does NOT auto-fire body/lens detection (owner directive 2026-05-31):
-   bodies_created and bodies_removed are always 0 on the AcceptResult.
+   no body rows appear or disappear as a side effect of the accept.
 4. Accept is idempotent when nothing is unapproved: edges_accepted=0,
    downstream resolver still runs (no-op).
 5. Edge-scoped accept flips only the named edge.
@@ -403,15 +403,6 @@ async def test_accept_does_not_auto_fire_lens_detection(
     )
 
     assert result.edges_accepted == 4, f"Expected 4 edges accepted; got {result.edges_accepted}"
-    # AcceptResult.bodies_created / .bodies_removed are kept on the
-    # response shape for client compatibility but are ALWAYS 0 since
-    # 2026-05-31 (renamed from lenses_created/lenses_removed in Slice 3.3).
-    assert result.bodies_created == 0, (
-        f"Accept must not auto-fire body detection; got {result.bodies_created}"
-    )
-    assert result.bodies_removed == 0, (
-        f"Accept must not auto-fire body detection; got {result.bodies_removed}"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -461,9 +452,6 @@ async def test_accept_is_idempotent_when_nothing_unapproved(
     assert result.edges_accepted == 0, (
         f"Expected edges_accepted=0 (nothing to flip); got {result.edges_accepted}"
     )
-    # Downstream calls must have run without raising.
-    assert result.bodies_created == 0
-    assert result.bodies_removed == 0
     # The edge remains approved.
     row = await db_session.get(LithoContactCorrelationEdgeOrm, edge.id)
     assert row is not None

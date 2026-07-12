@@ -11,7 +11,7 @@
  *    state in the UI).
  * 3. POST .../contact-correlations/accept (section-scoped) → flips
  *    ``user_approved=true`` on edges in scope; reports
- *    ``bodies_created``/``bodies_removed``/``ordinals_changed``; DB shows
+ *    ``edges_accepted``/``ordinals_changed``; DB shows
  *    the user-approved flip (the "solid emerald" state).
  * 4. POST .../body-companions/materialise → returns 200 with the
  *    counters; if companion sections were created they're visible in
@@ -310,11 +310,6 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const accept = acceptRes.json as any
       expect(typeof accept.edges_accepted).toBe('number')
-      // Post-2026-05-31 the accept response reports bodies, not lenses
-      // (lens entity retired -> BodyOrm; lens detection is now an explicit
-      // verb and no longer auto-fires on accept, so these are typically 0).
-      expect(typeof accept.bodies_created).toBe('number')
-      expect(typeof accept.bodies_removed).toBe('number')
       expect(typeof accept.ordinals_changed).toBe('number')
       expect(accept.edges_accepted).toBeGreaterThanOrEqual(0)
 

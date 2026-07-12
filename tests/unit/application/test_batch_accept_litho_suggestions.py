@@ -37,10 +37,6 @@ def _accept_result(created_contact: object) -> AcceptLithoResult:
         found_formation_ids=[],
         created_contact_ids=[created_contact],
         found_contact_ids=[],
-        straddle_split_count=0,
-        stale_tin_fallback_count=0,
-        extrapolated_formation_ids=[],
-        orphan_formation_ids=[],
         updated_section_id=None,
     )
 

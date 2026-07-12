@@ -24,14 +24,6 @@ class BatchAcceptLithoSuggestionsResponse(BaseModel):
         Sum of found (idempotent) contacts across all anchors.
     total_created_formations : int
         Sum of created litho formations across all anchors.
-    total_straddle_splits : int
-        Sum of straddle splits across all anchors.
-    total_stale_tin_fallbacks : int
-        Sum of stale-TIN straddle fallbacks across all anchors (debt #68).
-    total_extrapolated_formations : int
-        Sum of TIN-extrapolated-parent formations across all anchors (#87).
-    total_orphan_formations : int
-        Sum of orphan-parent formations across all anchors (#87).
     failed_anchor_count : int
         Number of anchors skipped due to a ValueError (their ``error`` is set).
     inference_ran : bool
@@ -46,10 +38,6 @@ class BatchAcceptLithoSuggestionsResponse(BaseModel):
     total_created_contacts: int
     total_found_contacts: int
     total_created_formations: int
-    total_straddle_splits: int = 0
-    total_stale_tin_fallbacks: int = 0
-    total_extrapolated_formations: int = 0
-    total_orphan_formations: int = 0
     failed_anchor_count: int = 0
     inference_ran: bool = False
     updated_section: CrossSectionResponse | None = None
