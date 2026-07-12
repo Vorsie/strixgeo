@@ -7,16 +7,10 @@
 
 import { describe, expect, it } from 'vitest'
 
-// Mirror of the production rewriteB flag: ON by default, matching the app (debt
-// #230 — the default suite tests the path production runs). The retired legacy
-// substrate path runs only under an explicit REWRITE_B_LEGACY=1.
-const rewriteB = !(typeof process !== 'undefined' && !!process.env?.REWRITE_B_LEGACY)
-
 import {
   classifyTermination,
   collapseAdjacentSameFormation,
   computeBottomTieLine,
-  computeBracketSubstrate,
   computePartitionFill,
   computeSectionFill,
   computeUnderColumnSubstrate,
@@ -1078,11 +1072,11 @@ describe('computePartitionFill', () => {
   //
   // This pins the "no cap-breaking apex" property: the lens stays within SILT's
   // own depth range and never extends below elev −8 (the shallow-TD cap).  The
-  // pre-2/1/0 bug (apexElevFloor=-Infinity in rewriteB non-spanning gaps) cannot
+  // pre-2/1/0 bug (apexElevFloor=-Infinity in non-spanning gaps) cannot
   // produce a below-cap vertex for a lens — the lens geometry is depth-bounded by
   // its own unit range, so the fix is structural, not a clamp.
   // -----------------------------------------------------------------------
-  it('PINCH-POINT: a 0-tie straddle at the shallow column becomes a right-anchored lens at its own level (rewriteB) or a pinch (old path)', () => {
+  it('PINCH-POINT: a 0-tie straddle at the shallow column becomes a right-anchored lens at its own level', () => {
     const left = col('L', 0, [
       { top: 0, base: 4, f: 'SAND', b: 'band' }, // matched band (correlated)
       { top: 4, base: 12, f: 'KLEI', b: 'kd' }, // deep — reaches below the shallow TD
@@ -1092,27 +1086,17 @@ describe('computePartitionFill', () => {
       { top: 4, base: 8, f: 'SILT', b: 'ss' }, // R's deepest: 0 ties toward L
     ])
     const regions = sf(left, right).filter((r) => r.gapIndex === 0)
-    if (rewriteB) {
-      // New 2/1/0 path (taperWedgesToConvergence=true): SILT has 0 ties → right-anchored lens.
-      const siltLens = regions.find((r) => r.formationId === 'SILT' && r.kind === 'lens')
-      expect(siltLens).toBeDefined()
-      const siltElevs = siltLens!.polygon.map((p) => p.elevation)
-      const siltFracs = siltLens!.polygon.map((p) => p.fraction)
-      // Stays within SILT's own depth range — no vertex below elev −8 (the cap).
-      expect(Math.min(...siltElevs)).toBeGreaterThanOrEqual(-8 - 1e-6)
-      expect(Math.max(...siltElevs)).toBeLessThanOrEqual(-4 + 1e-6)
-      // Right-anchored: reaches fraction 1 and stays in the right half.
-      expect(Math.max(...siltFracs)).toBeGreaterThanOrEqual(1 - 1e-6)
-      expect(Math.min(...siltFracs)).toBeGreaterThanOrEqual(0.5 - 1e-6)
-    } else {
-      // Old path (taperWedgesToConvergence=false): Fix 1 does not fire.
-      // KLEI (left, 0-tie) and SILT (right, 0-tie) both go to pendingPinches and
-      // are emitted via emitInterval (two-sided pool) → meeting vertex at the floor
-      // level; SILT's polygon can extend below -8 (the floor line at -10). This is
-      // the OLD geometry that the rewriteB path improves. Just assert SILT exists.
-      const siltRegions = regions.filter((r) => r.formationId === 'SILT')
-      expect(siltRegions.length).toBeGreaterThan(0)
-    }
+    // 2/1/0 model: SILT has 0 ties → right-anchored lens.
+    const siltLens = regions.find((r) => r.formationId === 'SILT' && r.kind === 'lens')
+    expect(siltLens).toBeDefined()
+    const siltElevs = siltLens!.polygon.map((p) => p.elevation)
+    const siltFracs = siltLens!.polygon.map((p) => p.fraction)
+    // Stays within SILT's own depth range — no vertex below elev −8 (the cap).
+    expect(Math.min(...siltElevs)).toBeGreaterThanOrEqual(-8 - 1e-6)
+    expect(Math.max(...siltElevs)).toBeLessThanOrEqual(-4 + 1e-6)
+    // Right-anchored: reaches fraction 1 and stays in the right half.
+    expect(Math.max(...siltFracs)).toBeGreaterThanOrEqual(1 - 1e-6)
+    expect(Math.min(...siltFracs)).toBeGreaterThanOrEqual(0.5 - 1e-6)
   })
 
   // -----------------------------------------------------------------------
@@ -1848,12 +1832,11 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
     // The bottom CLAY (12-20 m → elev -16) has DIFFERENT body IDs on L (botL)
     // and R (botR) — no user correlation → no bridging band. Under the continuous-fill
     // model (spec 2026-07-10) fill comes ONLY from real correlations; a genuinely
-    // UNcorrelated deep unit does not bridge, so on rewriteB it is a void left for
-    // manual correlation (the engineer draws the tie), NOT interpolated. The old
-    // non-rewriteB substrate path fills it via the deep-to-deep bracket → CLAY. This
-    // is path-aware, like the rest of CASE 1. The "matrix does not flood OVER the
-    // correlated deep SAND" invariant (the -10 assertion above) is what has teeth.
-    expect(coverAt(regions, 0, 0.02, -16)).toEqual(rewriteB ? [] : ['CLAY'])
+    // UNcorrelated deep unit does not bridge — it is a void left for manual
+    // correlation (the engineer draws the tie), NOT interpolated. The "matrix does
+    // not flood OVER the correlated deep SAND" invariant (the -10 assertion above)
+    // is what has teeth.
+    expect(coverAt(regions, 0, 0.02, -16)).toEqual([])
   })
 
   it('CASE 1b — a bridged deep band is CONTINUOUS: present at the middle column from BOTH gaps', () => {
@@ -2181,13 +2164,9 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
   // boundary pinch tapers DOWN to its base interface (toward the floor); a lens
   // tapers to its own enclosed mid-level. They must not be confused.
   //
-  // Two modes:
-  //   rewriteB=false (old substrate path): SILT is a genuine pinch that tapers
-  //     toward the base interface; the isLens spurious-fire is prevented by not
-  //     supplying a below-matrix from the sideways unit.
-  //   rewriteB=true (new 2/1/0 path): SILT has 0 ties toward R → becomes a
-  //     left-anchored LENS at its own level. The spurious-isLens code path is
-  //     bypassed entirely (SILT never reaches emitOneSidedPinch).
+  // 2/1/0 model: SILT has 0 ties toward R → becomes a left-anchored LENS at its
+  // own level. The spurious-isLens code path is bypassed entirely (SILT never
+  // reaches emitOneSidedPinch).
   it('SW-3: a sideways unit flushing a pinch does not trigger a false enclosed-lens', () => {
     // Matched KLEI band on top. The LEFT deepest SILT (8-10) has 0 ties toward R
     // (different formation; uncorrelated). The RIGHT deepest KLEI (12-18) is
@@ -2202,34 +2181,18 @@ describe('reduceColumn reach guard — a too-shallow neighbour does not pinch a 
       { top: 12, base: 18, f: 'KLEI', b: 'sideways' }, // R deepest → sideways, SAME formation as the band
     ])
     const regions = sf(left, right)
-    if (rewriteB) {
-      // New 2/1/0 path: SILT has 0 ties toward R → left-anchored lens at its own level.
-      // The spurious-isLens code path is bypassed (SILT → leftLenses, not emitOneSidedPinch).
-      const siltLens = regions.find((r) => r.formationId === 'SILT' && r.kind === 'lens')
-      expect(siltLens).toBeDefined()
-      const siltFracs = siltLens!.polygon.map((p) => p.fraction)
-      // Left-anchored: reaches fraction 0 (left column) and stays in the left half.
-      expect(Math.min(...siltFracs)).toBeLessThanOrEqual(1e-6)
-      expect(Math.max(...siltFracs)).toBeLessThanOrEqual(0.5 + 1e-6)
-      // Stays within its own depth range (elev -8 to -10).
-      const siltElevs = siltLens!.polygon.map((p) => p.elevation)
-      expect(Math.min(...siltElevs)).toBeGreaterThanOrEqual(-10 - 1e-6)
-      expect(Math.max(...siltElevs)).toBeLessThanOrEqual(-8 + 1e-6)
-    } else {
-      // Old substrate path: SILT is a genuine pinch. The deep-to-deep substrate cap
-      // splits a pinch that crosses the gap's shallow TD into an above-TD piece and a
-      // sub-TD piece (the substrate pass). The boundary pinch tapers to ≈ -12 in the
-      // sub-TD piece; the above-TD piece's apex is exactly -10 (the SILT's base).
-      // A leaked below-matrix would make isLens fire at -10, not below -11.
-      const siltPinches = regions.filter((r) => r.formationId === 'SILT' && r.kind === 'pinch')
-      expect(siltPinches.length).toBeGreaterThan(0)
-      const deepestApex = siltPinches
-        .map((r) => r.polygon.reduce((m, p) => (p.fraction > m.fraction ? p : m), r.polygon[0]))
-        .reduce((m, p) => (p.elevation < m.elevation ? p : m))
-      // Behaviour: a boundary pinch tapers toward the base interface (deeper than the
-      // SILT's own base at -10). The lens bug would tip at the SILT's own mid (-10).
-      expect(deepestApex.elevation).toBeLessThan(-11)
-    }
+    // SILT has 0 ties toward R → left-anchored lens at its own level.
+    // The spurious-isLens code path is bypassed (SILT → leftLenses, not emitOneSidedPinch).
+    const siltLens = regions.find((r) => r.formationId === 'SILT' && r.kind === 'lens')
+    expect(siltLens).toBeDefined()
+    const siltFracs = siltLens!.polygon.map((p) => p.fraction)
+    // Left-anchored: reaches fraction 0 (left column) and stays in the left half.
+    expect(Math.min(...siltFracs)).toBeLessThanOrEqual(1e-6)
+    expect(Math.max(...siltFracs)).toBeLessThanOrEqual(0.5 + 1e-6)
+    // Stays within its own depth range (elev -8 to -10).
+    const siltElevs = siltLens!.polygon.map((p) => p.elevation)
+    expect(Math.min(...siltElevs)).toBeGreaterThanOrEqual(-10 - 1e-6)
+    expect(Math.max(...siltElevs)).toBeLessThanOrEqual(-8 + 1e-6)
   })
 
   // ---------------------------------------------------------------------------
@@ -3019,193 +2982,6 @@ describe('computeUnderColumnSubstrate (under-column substrate fill)', () => {
     const fills = computeUnderColumnSubstrate(columns, regions)
     expect(fills.find((f) => f.columnIndex === 1)?.quads.length).toBeGreaterThan(0)
     expect(fills.find((f) => f.columnIndex === 2)?.quads.length).toBeGreaterThan(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// computeBracketSubstrate — the deep-to-deep substrate pass (Task 3).
-//
-// Below a shallow test's TD, the deep stratigraphy must run as STRAIGHT lines
-// from one deep anchor to the next: sand owns its space, no clay flooded over
-// sand. The helper runs the same reduce/match/emitGap machinery on the
-// non-adjacent deep-anchor pair (L, R), clips below the shallowest TD in the
-// run, and slices per intervening shallow gap.
-// ---------------------------------------------------------------------------
-describe('computeBracketSubstrate (deep-to-deep substrate)', () => {
-  /** Standard even-odd point-in-polygon test in (fraction, elevation) space. */
-  const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
-    let inside = false
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const xi = poly[i].fraction
-      const yi = poly[i].elevation
-      const xj = poly[j].fraction
-      const yj = poly[j].elevation
-      const hit = yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi
-      if (hit) inside = !inside
-    }
-    return inside
-  }
-
-  /** The non-lens lithologies covering (fraction f, elevation e). */
-  const coverAt = (regions: SectionRegion[], f: number, e: number): string[] =>
-    regions.filter((r) => r.kind !== 'lens' && inPoly(r.polygon, f, e)).map((r) => r.formationId)
-
-  const EMPTY_CTX = {
-    correlated: (() => false) as Correlated,
-    baseTied: undefined,
-    mixedTiedTopToBase: new Map<string, string>(),
-    allEdgedLayerIds: new Set<string>(),
-  }
-
-  // RUN-2: two consecutive shallow tests between two deep anchors → the deep sand
-  // runs STRAIGHT behind both (no step, no clay flood).
-  it('draws a deep band straight behind a run of 2 shallow tests', () => {
-    const L = col('L', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' },
-    ])
-    const M1 = col('M1', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }]) // TD -4, shallow
-    const M2 = col('M2', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c2' }]) // TD -4, shallow
-    const R = col('R', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' },
-    ])
-    const regions = computeBracketSubstrate([L, M1, M2, R], [], [0, 100, 200, 300], EMPTY_CTX)
-    // Below each shallow TD (-4), at the sand's own depth, cover is SAND only — never CLAY.
-    for (const gap of [0, 1, 2]) {
-      expect(coverAt(regions.filter((r) => r.gapIndex === gap), 0.5, -8)).toEqual(['SAND'])
-    }
-  })
-
-  // FACIES: the deep anchors disagree (SAND left, SILT right) → they meet at a
-  // facies seam, never overlapping.
-  it('meets at a facies seam where the bracketing anchors differ', () => {
-    const L = col('L', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' },
-    ])
-    const M = col('M', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }])
-    const R = col('R', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SILT', b: 't' },
-    ])
-    const regions = computeBracketSubstrate([L, M, R], [], [0, 100, 200], EMPTY_CTX)
-    // No point INSIDE A GAP is covered by both SAND and SILT — they meet at the
-    // facies seam, never overlap. (Checked per gap: the seam sits between the two
-    // gaps, so gap 0 carries SAND and gap 1 carries SILT — combining them across
-    // gaps at one gap-local fraction is two different places, not an overlap.)
-    for (const gap of [0, 1]) {
-      const sub = regions.filter((r) => r.gapIndex === gap)
-      for (let f = 0.1; f <= 0.9; f += 0.1) {
-        const cov = new Set(coverAt(sub, f, -8))
-        expect(cov.has('SAND') && cov.has('SILT'), `overlap in gap ${gap} at f=${f}`).toBe(false)
-      }
-    }
-  })
-
-  // OPEN bracket: the shallow test sits at the SECTION END, with the only deep
-  // anchor beside it. There is no deep anchor to bracket on the open side, so the
-  // deep anchor's sub-TD stack must run STRAIGHT SIDEWAYS behind the shallow
-  // column — the deep band continues flat past the section edge. Below the shallow
-  // TD the deep lithology fills (no void, no wrong formation), and the shallow
-  // CLAY that lives ABOVE the TD never bleeds down into the substrate.
-  it('continues the deep stack flat sideways behind a shallow section-end test', () => {
-    // Shallow column is the OUTERMOST (left end); the deep anchor is inside it.
-    const Mshallow = col('Msh', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'c1' }]) // TD -4
-    const Ldeep = col('Ldeep', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' }, // deep SAND to TD -15
-    ])
-    const regions = computeBracketSubstrate([Mshallow, Ldeep], [], [0, 100], EMPTY_CTX)
-    const gap0 = regions.filter((r) => r.gapIndex === 0)
-    // Below the shallow TD (-4), at the deep SAND's own depth, the cover is SAND
-    // only — the deep band ran straight sideways. Nothing wrong, nothing void.
-    expect(coverAt(gap0, 0.5, -8)).toEqual(['SAND'])
-    expect(coverAt(gap0, 0.2, -12)).toEqual(['SAND'])
-    expect(coverAt(gap0, 0.8, -12)).toEqual(['SAND'])
-    // The shallow CLAY ends at -4: just below the TD there is no CLAY in the
-    // substrate (the shallow column's lithology does not flood down past its TD).
-    expect(coverAt(gap0, 0.5, -5)).not.toContain('CLAY')
-  })
-
-  // MULTI-RUN: five columns deep/shallow/deep/shallow/deep form TWO distinct
-  // brackets — (D1,D2) over the first shallow gap pair and (D2,D3) over the
-  // second. Each shallow region must carry the lithology of the deep band that
-  // owns its space, and within any single gap two formations never overlap (the
-  // deep bands are straight, so each gap belongs to exactly one of them).
-  it('carries the correct deep lithology per shallow run with no cross-formation overlap', () => {
-    const D1 = col('D1', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' },
-    ])
-    const S1 = col('S1', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'a' }]) // TD -4
-    const D2 = col('D2', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SILT', b: 't' },
-    ])
-    const S2 = col('S2', 0, [{ top: 0, base: 4, f: 'CLAY', b: 'd' }]) // TD -4
-    const D3 = col('D3', 0, [
-      { top: 0, base: 3, f: 'CLAY', b: 'c' },
-      { top: 3, base: 15, f: 'SAND', b: 's' },
-    ])
-    const regions = computeBracketSubstrate(
-      [D1, S1, D2, S2, D3],
-      [],
-      [0, 100, 200, 300, 400],
-      EMPTY_CTX,
-    )
-    // Gap 0 hugs D1 (SAND) and gap 1 hugs D2 (SILT) — the first bracket's facies
-    // seam falls between them. Gap 2 hugs D2 (SILT), gap 3 hugs D3 (SAND).
-    const expected: Record<number, string> = { 0: 'SAND', 1: 'SILT', 2: 'SILT', 3: 'SAND' }
-    for (const gap of [0, 1, 2, 3]) {
-      const sub = regions.filter((r) => r.gapIndex === gap)
-      // The correct deep lithology appears below the shallow TD (-4).
-      expect(coverAt(sub, 0.5, -8)).toEqual([expected[gap]])
-      // No two different formations cover the same point inside this gap.
-      for (let f = 0.1; f <= 0.9; f += 0.2) {
-        const cov = new Set(coverAt(sub, f, -10))
-        expect(cov.size, `cross-formation overlap in gap ${gap} at f=${f}`).toBeLessThanOrEqual(1)
-      }
-    }
-  })
-
-  // BANDLENS — a lens that pinches out within the deep-to-deep substrate band must
-  // pinch at LENS_PINCH_FRACTION inside its OWN gap, not be scaled by the band's
-  // width. The deep anchor L carries an enclosed sand lens BELOW a shallow middle
-  // column's TD, so the lens reaches the deep-anchor band slice. The band L→R spans
-  // BOTH gaps (each gap is HALF the band), so the buggy linear remap would push the
-  // intra-gap apex from 0.45 to 0.45/0.5 = 0.90 (past halfway). The re-anchor keeps
-  // it at LENS_PINCH_FRACTION in the gap it belongs to.
-  // BANDLENS tests computeBracketSubstrate behaviour that is intentionally
-  // disabled in rewriteB mode (owner directive 2026-07-09: no automatic
-  // interpolation — only manual correlation bands). Skip when REWRITE_B=1.
-  it.skipIf(rewriteB)('BANDLENS: a band-path lens pinches at LENS_PINCH_FRACTION in its own gap, not scaled by band width', () => {
-    // L (deep): clay | sand (enclosed lens, no edges → geometric matrix) | clay.
-    // M (shallow, TD elev 9 — above the sand at elev 5..1): forces the sand into the
-    //   deep-to-deep band, and makes the band L→R twice the width of gap 0 (L→M).
-    // R (deep): a single deep clay (the band's far anchor).
-    const L = col('L', 10, [
-      { top: 0, base: 5, f: 'clay', b: 'cTop-L' },
-      { top: 5, base: 9, f: 'sand', b: 'sandL' },
-      { top: 9, base: 25, f: 'clay', b: 'cBot-L' },
-    ])
-    const M = col('M', 10, [{ top: 0, base: 1, f: 'clay', b: 'cM' }])
-    const R = col('R', 10, [{ top: 0, base: 25, f: 'clay', b: 'cR' }])
-    const regions = computeSectionFill([L, M, R], [], undefined, [0, 100, 200])
-
-    // The sand lens lives in gap 0 (L→M), anchored on the LEFT column edge (L is the
-    // source). It pinches at LENS_PINCH_FRACTION, NOT 0.90.
-    const sandLens = regions.filter((r) => r.formationId === 'sand' && r.kind === 'lens')
-    expect(sandLens).toHaveLength(1)
-    const lens = sandLens[0]
-    expect(lens.gapIndex).toBe(0)
-    const apex = lens.polygon.find((p) => p.fraction > 0 && p.fraction < 1)!
-    expect(apex.fraction).toBeCloseTo(LENS_PINCH_FRACTION, 6)
-    // The lens's vertical extent (its own depth) is preserved — apex at the sand's
-    // mid-elevation (depth 7 → elev 3), corners on the source edge at elev 5 / 1.
-    expect(apex.elevation).toBeCloseTo(3, 6)
-    const corners = lens.polygon.filter((p) => Math.abs(p.fraction) < 1e-6)
-    expect(corners.map((p) => p.elevation).sort((a, b) => a - b)).toEqual([1, 5])
   })
 })
 

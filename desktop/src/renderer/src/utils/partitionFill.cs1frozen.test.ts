@@ -66,13 +66,6 @@ import {
 } from './partitionFill'
 import { findNonLensOverlaps, formatOverlapReports } from './partitionOverlapCheck'
 
-// Mirror of the production rewriteB flag: ON by default, matching the app (debt
-// #230). With rewriteB=true the substrate-bracket pass is disabled, so gaps that
-// only receive coverage from computeBracketSubstrate (e.g. gaps 7, 8, 14–22 on
-// CS1) report interior voids — the two substrate-dependent tests are skipped by
-// default and run only under an explicit REWRITE_B_LEGACY=1 legacy run.
-const rewriteB = !(typeof process !== 'undefined' && !!process.env?.REWRITE_B_LEGACY)
-
 // ---------------------------------------------------------------------------
 // Fixture loading
 // ---------------------------------------------------------------------------
@@ -280,35 +273,6 @@ describe('CS1 frozen real-data partition gate (always-on)', () => {
     // The load-bearing guard: no gap may silently drop ALL its regions, which
     // would make the void/overlap/lithology tests vacuously green for that gap.
     expect(byGap.size).toBe(23)
-  })
-
-  it.skipIf(rewriteB)('GAP-19 over-match is absent in this frozen slice (the carve-out is a no-op here)', () => {
-    // The interior-void + lithology tests keep a GAP-19 carve-out for parity
-    // with the env-gated companion (which DOES see the live over-match). This
-    // frozen 2026-07-01 slice is cleaner — gap 19 has NO above-tie void — so the
-    // carve-out excludes nothing here. Pin that, so: (a) the carve-out isn't
-    // silently masking a real gap-19 substrate regression (a substrate void sits
-    // BELOW the tie line and is NOT excluded), and (b) if a regeneration ever
-    // reintroduces the over-match, this goes RED and flags it for review.
-    const v19 = largestInteriorVoid(byGap.get(GAP19_KNOWN_ABOVE_TIE) ?? [], gapBottom(19))
-    expect(v19.cells).toBeLessThan(CELL_THRESHOLD)
-  })
-
-  it.skipIf(rewriteB)('has no interior voids in any gap (true partition, no uncovered space)', () => {
-    const offenders: string[] = []
-    for (const [gap, regs] of [...byGap.entries()].sort((a, b) => a[0] - b[0])) {
-      const gb = gapBottom(gap)
-      const v = largestInteriorVoid(regs, gb)
-      if (v.cells >= CELL_THRESHOLD) {
-        // Exclude the known GAP-19 over-match void (sits far above the tie
-        // line; not a substrate-pass issue).
-        if (gap === GAP19_KNOWN_ABOVE_TIE && gb !== undefined && v.topElev > gb + 1) continue
-        offenders.push(
-          `GAP-${gap}: ${v.cells} cells, elev [${v.baseElev.toFixed(2)}..${v.topElev.toFixed(2)}]`,
-        )
-      }
-    }
-    expect(offenders, `interior voids found:\n${offenders.join('\n')}`).toEqual([])
   })
 
   it('has no cross-formation overlap in any gap (one lithology per point)', () => {
