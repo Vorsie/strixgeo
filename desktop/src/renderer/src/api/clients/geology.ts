@@ -1343,23 +1343,6 @@ export const geologyClient = {
     return JSON.parse(text)
   },
 
-  /** POST /models/{mid}/layers/{lid}/unlink-geo — clears parent_geo_contact_id. */
-  unlinkLayerFromGeo: async (
-    projectId: string,
-    modelId: string,
-    layerId: string,
-  ): Promise<LithoLayerResponse> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/unlink-geo`,
-      { method: 'POST' },
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `unlinkLayerFromGeo failed (${res.status})`)
-    }
-    return res.json()
-  },
-
   createContact: async (
     projectId: string,
     modelId: string,
@@ -1423,33 +1406,6 @@ export const geologyClient = {
 
   deleteContact: (projectId: string, modelId: string, contactId: string): Promise<void> =>
     del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
-
-  // Break the litho↔geo coupling on a single contact. Nulls
-  // parent_geo_contact_id; does NOT move/delete either contact or
-  // rebuild surfaces (geometry is unchanged — only the coupling label is cleared).
-  unlinkLithoFromGeo: (
-    projectId: string,
-    modelId: string,
-    contactId: string,
-  ): Promise<FormationContactResponse> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}/unlink-geo`,
-      {},
-    ),
-
-  // Establish a litho↔geo coupling on a single lithostratigraphic contact.
-  // Sets parent_geo_contact_id to the nearest geological contact within
-  // the snap tolerance and snaps geo→litho. Returns null when no geological
-  // contact is within tolerance.
-  linkLithoToGeo: (
-    projectId: string,
-    modelId: string,
-    contactId: string,
-  ): Promise<FormationContactResponse | null> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}/link-geo`,
-      {},
-    ),
 
   // Clear ALL content from a lithostratigraphic model (debt #94 fix).
   clearLithoModel: async (

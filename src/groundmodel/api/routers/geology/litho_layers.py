@@ -328,36 +328,6 @@ async def link_layer_to_geo(
     return layer
 
 
-@router.post(
-    "/models/{model_id}/layers/{layer_id}/unlink-geo",
-    response_model=LithoLayerResponse,
-)
-async def unlink_layer_from_geo(
-    project_id: UUID,
-    model_id: UUID,
-    layer_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> LithoLayerOrm:
-    """Clear the litho↔geo coupling on a single layer (A4 cleanup).
-
-    Thin wrapper over ``UpdateLithoLayer`` with ``parent_geo_contact_id``
-    set to NULL. Provided alongside ``link-geo`` so the FE has a
-    consistent layer-shaped pair for the coupling toggle (parity with
-    the contact-side unlink endpoint).
-    """
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Model not found",
-    )
-    updated = await UpdateLithoLayer(session).execute(
-        layer_id, {"parent_geo_contact_id": None}, model_id=model_id
-    )
-    if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
-    return updated
-
-
 @router.delete(
     "/models/{model_id}/layers/{layer_id}",
     status_code=status.HTTP_204_NO_CONTENT,

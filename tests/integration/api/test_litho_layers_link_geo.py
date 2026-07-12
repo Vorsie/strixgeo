@@ -1,18 +1,17 @@
-"""HTTP-level tests for /layers/{lid}/link-geo + /unlink-geo (A4 cleanup).
+"""HTTP-level tests for /layers/{lid}/link-geo (A4 cleanup).
 
-Layer-shape mirror of the existing /contacts/{cid}/link-geo + /unlink-geo
-pair. UUIDs preserved between LL and FC, so the existing LinkLithoToGeo
+UUIDs preserved between LL and FC, so the existing LinkLithoToGeo
 use case is reused; the layer endpoint just exposes it via a layer-id
 URL and refreshes the LL row so the response carries the updated
 parent_geo_contact_id (which the FC→LL trigger UPSERTs in lockstep).
+Unlink is a plain PATCH {parent_geo_contact_id: null} on the layer —
+the dedicated unlink-geo endpoints were removed as dead (#229).
 
 Covered:
 * link-geo with a geo contact in range → 200, layer's parent_geo_contact_id set
 * link-geo when no geo contact within tolerance → 200 + null body
 * link-geo on a non-existent layer → 404
 * link-geo on a layer that lives in a different model → 404
-* unlink-geo clears parent_geo_contact_id
-* unlink-geo is idempotent on an already-unlinked layer
 """
 
 from __future__ import annotations
@@ -173,39 +172,3 @@ async def test_link_geo_404_when_layer_in_different_model(
         f"/layers/{p['layer'].id}/link-geo",
     )
     assert resp.status_code == 404
-
-
-async def test_unlink_geo_clears_parent_geo_contact_id(
-    async_client: AsyncClient,
-    project_with_coupled_pair: dict,
-    db_session: AsyncSession,
-) -> None:
-    """First link, then unlink, then verify parent_geo_contact_id is NULL."""
-    p = project_with_coupled_pair
-    # Link first.
-    link_resp = await async_client.post(
-        f"/projects/{p['project'].id}/geology/models/{p['litho_model'].id}"
-        f"/layers/{p['layer'].id}/link-geo",
-    )
-    assert link_resp.status_code == 200
-    assert link_resp.json()["parent_geo_contact_id"] == str(p["geo_contact"].id)
-    # Unlink.
-    unlink_resp = await async_client.post(
-        f"/projects/{p['project'].id}/geology/models/{p['litho_model'].id}"
-        f"/layers/{p['layer'].id}/unlink-geo",
-    )
-    assert unlink_resp.status_code == 200, unlink_resp.text
-    assert unlink_resp.json()["parent_geo_contact_id"] is None
-
-
-async def test_unlink_geo_is_idempotent(
-    async_client: AsyncClient, project_with_coupled_pair: dict
-) -> None:
-    """Unlinking an already-unlinked layer is a no-op that still returns 200."""
-    p = project_with_coupled_pair
-    resp = await async_client.post(
-        f"/projects/{p['project'].id}/geology/models/{p['litho_model'].id}"
-        f"/layers/{p['layer'].id}/unlink-geo",
-    )
-    assert resp.status_code == 200
-    assert resp.json()["parent_geo_contact_id"] is None
