@@ -33,9 +33,6 @@ vi.mock('../api/client', () => ({
     review: {
       list: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined),
-      // Exists on the real client — spy it so the "hide, never delete"
-      // assertion has teeth instead of relying on a missing-method TypeError.
-      delete: vi.fn(),
     },
     cpt: {
       list: vi.fn().mockResolvedValue([]),
@@ -143,7 +140,6 @@ describe('handleRemoveCpts — remove is a hide, never a DB delete', () => {
     // The no-delete invariant: the hide mechanism is the review flag, NOT row
     // removal — a DB delete would break re-import cache warmth (memory:
     // project_no_db_delete_on_rollback).
-    expect(api.review.delete).not.toHaveBeenCalled()
     // Local removed-set updated too (not just the API side-effect).
     expect(h.result.current.removedCptIds.has('a')).toBe(true)
     expect(h.result.current.removedCptIds.has('b')).toBe(true)
@@ -200,7 +196,6 @@ describe('handleRemoveBoreholes — mirror of the CPT hide path', () => {
     await flush()
 
     expect(reviewUpsert).toHaveBeenCalledWith('P1', 'borehole', 'bh1', { is_hidden: true })
-    expect(api.review.delete).not.toHaveBeenCalled()
     expect(h.result.current.removedBoreholeIds.has('bh1')).toBe(true)
   })
 

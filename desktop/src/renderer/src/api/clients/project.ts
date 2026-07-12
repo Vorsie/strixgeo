@@ -2,12 +2,12 @@
  * Project API client — typed wrappers for ``/projects/*`` endpoints,
  * plus the investigation-review sub-resource.
  *
- * Covers project CRUD, archive/unarchive, duplicate, bundle get/restore,
+ * Covers project CRUD, archive, duplicate, bundle get/restore,
  * view-state PATCH, and the per-investigation review upsert/delete.
  *
  * @module clients/project
  */
-import { del, get, patch, post, put } from './shared'
+import { get, patch, post, put } from './shared'
 
 // ---------------------------------------------------------------------------
 // Project types
@@ -142,11 +142,6 @@ export interface InvestigationReviewUpsertPayload {
 
 /** Typed wrappers for all ``/projects/*`` endpoints. */
 export const projectClient = {
-  list: (includeArchived = false): Promise<ProjectResponse[]> =>
-    get(`/projects/${includeArchived ? '?include_archived=true' : ''}`),
-
-  listArchived: (): Promise<ProjectResponse[]> => get('/projects/archived'),
-
   get: (id: string): Promise<ProjectResponse> => get(`/projects/${id}`),
 
   create: (body: ProjectCreatePayload): Promise<ProjectResponse> =>
@@ -157,9 +152,6 @@ export const projectClient = {
 
   archive: (id: string): Promise<ProjectResponse> =>
     post(`/projects/${id}/archive`),
-
-  unarchive: (id: string): Promise<ProjectResponse> =>
-    post(`/projects/${id}/unarchive`),
 
   duplicate: (id: string, name?: string): Promise<ProjectResponse> =>
     post(`/projects/${id}/duplicate`, { name: name ?? null }),
@@ -215,7 +207,4 @@ export const reviewClient = {
   ): Promise<InvestigationReviewResponse> =>
     put(`/projects/${projectId}/reviews/${kind}/${targetId}`, body),
 
-  // Idempotent — silently returns when no row exists for the target.
-  delete: (projectId: string, kind: 'cpt' | 'borehole', targetId: string): Promise<void> =>
-    del(`/projects/${projectId}/reviews/${kind}/${targetId}`),
 }

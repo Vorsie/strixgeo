@@ -35,7 +35,6 @@ vi.mock('../api/client', () => ({
       create: vi.fn(),
       update: vi.fn(),
       archive: vi.fn(),
-      unarchive: vi.fn(),
       duplicate: vi.fn(),
       restore: vi.fn(),
       bundle: vi.fn(),
