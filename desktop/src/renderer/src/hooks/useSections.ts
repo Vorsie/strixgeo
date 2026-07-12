@@ -193,6 +193,45 @@ interface CptAnchor {
 }
 
 /**
+ * Build the section-create payload for one accepted tie suggestion —
+ * shared by the single accept and accept-all paths so the field set
+ * cannot drift between them. Only the ordinal (name suffix) differs
+ * per caller.
+ *
+ * @param tie - The accepted tie-section suggestion.
+ * @param ordinal - 1-based ordinal used in the "Tie-section N" name.
+ * @param epsg - Effective horizontal CRS for the new section.
+ * @param verticalExaggeration - Default vertical exaggeration from settings.
+ * @returns Payload for ``api.section.create`` / ``createBatch``.
+ */
+function tieToCreatePayload(
+  tie: SuggestedTie,
+  ordinal: number,
+  epsg: number,
+  verticalExaggeration: number,
+): {
+  name: string
+  epsg: number
+  start_x: number
+  start_y: number
+  end_x: number
+  end_y: number
+  projection_buffer_m: number
+  vertical_exaggeration: number
+} {
+  return {
+    name: `Tie-section ${ordinal}`,
+    epsg,
+    start_x: tie.start.x,
+    start_y: tie.start.y,
+    end_x: tie.end.x,
+    end_y: tie.end.y,
+    projection_buffer_m: tie.bufferM,
+    vertical_exaggeration: verticalExaggeration,
+  }
+}
+
+/**
  * React hook that manages cross-section state and handlers.
  *
  * Parameters
@@ -813,16 +852,12 @@ export function useSections({
       // WHY visibleSections, not sections: same reason as handleSectionLineDrawn —
       // the manifest-gated count reflects what the user sees, not raw DB rows.
       const ordinal = visibleSections.length + 1
-      const createPayload = {
-        name: `Tie-section ${ordinal}`,
+      const createPayload = tieToCreatePayload(
+        tie,
+        ordinal,
         epsg,
-        start_x: tie.start.x,
-        start_y: tie.start.y,
-        end_x: tie.end.x,
-        end_y: tie.end.y,
-        projection_buffer_m: tie.bufferM,
-        vertical_exaggeration: readSectionDefaults(project.view_state ?? null).verticalExaggeration,
-      }
+        readSectionDefaults(project.view_state ?? null).verticalExaggeration,
+      )
       try {
         // No undo push (unlike handleSectionLineDrawn): an accepted tie is removed
         // from the ghost list on success; re-running Suggest re-proposes it, and the
@@ -852,16 +887,9 @@ export function useSections({
     if (ties.length === 0) return
     const vexag = readSectionDefaults(project.view_state ?? null).verticalExaggeration
     const baseOrdinal = visibleSections.length
-    const payloads = ties.map((tie, i) => ({
-      name: `Tie-section ${baseOrdinal + i + 1}`,
-      epsg,
-      start_x: tie.start.x,
-      start_y: tie.start.y,
-      end_x: tie.end.x,
-      end_y: tie.end.y,
-      projection_buffer_m: tie.bufferM,
-      vertical_exaggeration: vexag,
-    }))
+    const payloads = ties.map((tie, i) =>
+      tieToCreatePayload(tie, baseOrdinal + i + 1, epsg, vexag),
+    )
     try {
       const { sections: created } = await api.section.createBatch(project.id, { sections: payloads })
       setSections(prev => [...prev, ...created])
