@@ -204,6 +204,40 @@ async def load_observation_layers(
     return records
 
 
+async def load_project_sections(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+) -> list[CrossSectionOrm]:
+    """Return all cross-sections that belong to ``project_id``.
+
+    Ordered by ``display_order`` — the stable UI ordering every caller
+    iterates in.  Module-level beside :func:`load_corridor_investigations`
+    because the same SELECT was copy-pasted by three use cases
+    (``RecomputeAllAbsencesForModel``, ``RecomputeFormationAbsencesForFormation``,
+    ``MaterializeWedgeTipsForFormation``) — extracted per the project's
+    "extract on second copy" rule once the third copy landed.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope.
+
+    Returns
+    -------
+    list[CrossSectionOrm]
+        All sections for the project, ordered by ``display_order``.
+    """
+    stmt = (
+        select(CrossSectionOrm)
+        .where(CrossSectionOrm.app_project_id == project_id)
+        .order_by(CrossSectionOrm.display_order)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
 class RecomputeFormationAbsencesForBody(GroundModelLogger):
     """Run the inference engine for one body and apply the delta to the DB.
 

@@ -55,6 +55,7 @@ from groundmodel.application.pinch_out_constants import (
     PINCH_OUT_CONFIDENCE,
     PINCH_OUT_SOURCE,
 )
+from groundmodel.application.recompute_formation_absences_for_body import load_project_sections
 from groundmodel.domain.services.lens_pinch_out_geometry import (
     LensPinchGeometryError,
     LensPinchTip,
@@ -228,12 +229,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 2. Load all project cross-sections.                                 #
         # ------------------------------------------------------------------ #
-        sections_stmt = (
-            select(CrossSectionOrm)
-            .where(CrossSectionOrm.app_project_id == project_id)
-            .order_by(CrossSectionOrm.display_order)
-        )
-        sections = list((await self._session.execute(sections_stmt)).scalars().all())
+        sections = await load_project_sections(self._session, project_id=project_id)
         self.debug(f"MaterializeWedgeTipsForFormation: {len(sections)} section(s) in project")
 
         if not sections:

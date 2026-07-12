@@ -45,13 +45,13 @@ from groundmodel.application.materialize_wedge_tips_for_formation import (
 from groundmodel.application.recompute_formation_absences_for_body import (
     load_corridor_investigations,
     load_observation_layers,
+    load_project_sections,
 )
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
     SectionInferenceData,
 )
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
@@ -205,17 +205,7 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
         #     redundant corridor/observation scans the per-formation path would
         #     otherwise issue.
         # ------------------------------------------------------------------
-        section_rows = list(
-            (
-                await self._session.execute(
-                    select(CrossSectionOrm)
-                    .where(CrossSectionOrm.app_project_id == project_id)
-                    .order_by(CrossSectionOrm.display_order)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        section_rows = await load_project_sections(self._session, project_id=project_id)
         section_cache: dict[UUID, SectionInferenceData] = {}
         for section in section_rows:
             corridor = await load_corridor_investigations(

@@ -25,12 +25,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
     RecomputeFormationAbsencesResult,
+    load_project_sections,
 )
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.lens_inference import ObservationLayerRecord
@@ -167,7 +167,7 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
                 section_cache.values()
             )
         else:
-            sections = await self._load_project_sections(project_id=project_id)
+            sections = await load_project_sections(self._session, project_id=project_id)
             entries = [(section, None, None) for section in sections]
         self.debug(
             f"Found {len(entries)} section(s) in project {project_id} for absence recompute "
@@ -251,37 +251,3 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
             total_retracted=total_retracted,
             total_skipped_no_data=total_skipped_no_data,
         )
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    async def _load_project_sections(
-        self,
-        *,
-        project_id: UUID,
-    ) -> list[CrossSectionOrm]:
-        """Return all cross-sections that belong to ``project_id``.
-
-        For v1.0 the typical project has 1–5 sections.  Loading all of them
-        and letting the per-body use case handle corridor membership is
-        simpler and correct; the per-section inference engine call is cheap
-        (it returns immediately when the corridor has no relevant contacts).
-
-        Parameters
-        ----------
-        project_id : UUID
-            Project scope.
-
-        Returns
-        -------
-        list[CrossSectionOrm]
-            All sections for the project, ordered by display_order.
-        """
-        stmt = (
-            select(CrossSectionOrm)
-            .where(CrossSectionOrm.app_project_id == project_id)
-            .order_by(CrossSectionOrm.display_order)
-        )
-        rows = list((await self._session.execute(stmt)).scalars().all())
-        return rows
