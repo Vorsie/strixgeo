@@ -336,10 +336,9 @@ export default function SectionsToolbar(): JSX.Element {
         activeLithoModel.id,
         selectedSectionId,
       )
-      // ``bodies_created`` / ``bodies_removed`` are always 0 since the
-      // 2026-05-31 explicit-detect switch; the toast only reports the
-      // accept count.  Engineer runs "Detect lenses" separately when
-      // they actually want lens rows materialised.
+      // The toast only reports the accept count.  Engineer runs
+      // "Detect lenses" separately when they actually want lens rows
+      // materialised (explicit-detect switch, 2026-05-31).
       log.success(
         'sections',
         `acceptCorrelations: ${result.edges_accepted} accepted`,

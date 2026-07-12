@@ -522,10 +522,6 @@ export interface AcceptLithoSuggestionsResponse {
   found_formation_ids: string[]
   created_contact_ids: string[]
   found_contact_ids: string[]
-  straddle_split_count: number
-  stale_tin_fallback_count: number
-  extrapolated_formation_ids?: string[]
-  orphan_formation_ids?: string[]
   updated_section: CrossSectionResponse | null
 }
 
@@ -552,10 +548,6 @@ export interface BatchAcceptLithoAnchorResult {
   found_formation_ids: string[]
   created_contact_ids: string[]
   found_contact_ids: string[]
-  straddle_split_count: number
-  stale_tin_fallback_count: number
-  extrapolated_formation_ids: string[]
-  orphan_formation_ids: string[]
   error: string | null
 }
 
@@ -565,10 +557,6 @@ export interface BatchAcceptLithoSuggestionsResponse {
   total_created_contacts: number
   total_found_contacts: number
   total_created_formations: number
-  total_straddle_splits: number
-  total_stale_tin_fallbacks: number
-  total_extrapolated_formations: number
-  total_orphan_formations: number
   failed_anchor_count: number
   inference_ran: boolean
   updated_section: CrossSectionResponse | null
@@ -1851,8 +1839,6 @@ export const geologyClient = {
     sectionId?: string | null,
   ): Promise<{
     edges_accepted: number
-    bodies_created: number
-    bodies_removed: number
     ordinals_changed: number
   }> =>
     post(
@@ -1867,8 +1853,6 @@ export const geologyClient = {
     edgeId: string,
   ): Promise<{
     edges_accepted: number
-    bodies_created: number
-    bodies_removed: number
     ordinals_changed: number
   }> =>
     post(

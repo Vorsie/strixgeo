@@ -221,7 +221,6 @@ function makeCtx(overrides: {
       lithoFormations: [],
       lithoSurfacesByFormationId: new Map(),
       lithoStaleSurfaceCount: 0,
-      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,

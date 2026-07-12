@@ -298,7 +298,6 @@ function makeCtx(overrides: {
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
       lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
-      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: overrides.handleRebuildLithoSurfaces ?? noopAsync,
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,

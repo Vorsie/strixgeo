@@ -5,12 +5,12 @@
  * covers litho-model-level mutations: rebuild litho surfaces, clear litho
  * model, create/activate/delete lithostratigraphic model.
  *
- * The shared state (ghost overlay, focused-anchor flag, stale-TIN counter,
- * the model list, and the refetch helpers) lives in the composer and is
- * passed in; this hook owns only the five operation callbacks.
+ * The shared state (ghost overlay, focused-anchor flag, the model list,
+ * and the refetch helpers) lives in the composer and is passed in; this
+ * hook owns only the five operation callbacks.
  *
  * Dep-array convention: ``set*`` setters (``setGhostsByAnchor``,
- * ``setFocusedSuggestAnchorId``, ``setLithoStaleTinSessionCount``) are
+ * ``setFocusedSuggestAnchorId``) are
  * omitted from dep arrays — they are stable-by-construction useState
  * setters. Unlike the modelOps cluster, ``toast`` IS listed in dep arrays
  * for this cluster (carried verbatim from the composer — the original
@@ -58,11 +58,6 @@ export interface UseLithoModelOpsParams {
    * Cleared by handleClearLithoModel alongside the ghost Map.
    */
   setFocusedSuggestAnchorId: Dispatch<SetStateAction<string | null>>
-  /**
-   * Setter for the stale-TIN session counter. Stable — omitted from dep
-   * arrays. Cleared by handleClearLithoModel to reset the inspector pill.
-   */
-  setLithoStaleTinSessionCount: Dispatch<SetStateAction<number>>
   /** Mark the project dirty after a mutation of pre-existing rows. */
   markMutated: () => void
   /** Surface a toast to the user. Listed in dep arrays for this cluster. */
@@ -102,7 +97,6 @@ export function useLithoModelOps({
   refetchLithoSurfaces,
   setGhostsByAnchor,
   setFocusedSuggestAnchorId,
-  setLithoStaleTinSessionCount,
   markMutated,
   toast,
 }: UseLithoModelOpsParams): UseLithoModelOpsResult {
@@ -172,7 +166,6 @@ export function useLithoModelOps({
       // closure resolves them at call time, well after declaration.)
       setGhostsByAnchor(new Map())
       setFocusedSuggestAnchorId(null)
-      setLithoStaleTinSessionCount(0)
       const total = result.contacts + result.formations
       // Rows were deleted — mark dirty so a close-without-save reverts.
       if (total > 0) markMutated()

@@ -284,7 +284,6 @@ function makeGeotechCtx(): ShellContextValue {
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
       lithoStaleSurfaceCount: 0,
-      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,

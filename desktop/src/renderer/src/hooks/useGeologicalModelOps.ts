@@ -18,7 +18,7 @@
  * ref-stable function from ``useToasts`` that never goes stale) and all
  * ``set*`` setters from ``useState`` (``setFormations``,
  * ``setContacts``, ``setSurfacesByFormationId``, ``setActiveGeologicalModel``,
- * ``setFormationsRefreshCounter``, ``setLithoStaleTinSessionCount``) are
+ * ``setFormationsRefreshCounter``) are
  * intentionally omitted from the ``useCallback`` dep arrays — all are
  * stable-by-construction references, so listing them would only churn callback
  * identities. Varying values (``project``, ``activeGeologicalModel``,
@@ -75,12 +75,6 @@ export interface UseGeologicalModelOpsParams {
   setActiveGeologicalModel: Dispatch<SetStateAction<GeologicalModelResponse | null>>
   /** Setter for the formations-refresh counter (InterpretationPane signal). Stable — omitted from dep arrays. */
   setFormationsRefreshCounter: Dispatch<SetStateAction<number>>
-  /**
-   * Setter for the stale-TIN session counter. Stable — omitted from dep
-   * arrays. Used by handleRebuildSurfaces to clear the counter after a
-   * successful geometry rebuild.
-   */
-  setLithoStaleTinSessionCount: Dispatch<SetStateAction<number>>
   /** Resync the formation list from the server. */
   refetchFormations: () => void
   /** Refetch the geological surface TIN cache from the server. */
@@ -140,7 +134,6 @@ export function useGeologicalModelOps({
   setSurfacesByFormationId,
   setActiveGeologicalModel,
   setFormationsRefreshCounter,
-  setLithoStaleTinSessionCount,
   refetchFormations,
   refetchSurfaces,
   refetchLithoContacts,
@@ -468,10 +461,6 @@ export function useGeologicalModelOps({
       // Refetch the cache so the section view's slice render uses
       // the freshly-computed TINs even when the checksum matched.
       refetchSurfaces()
-      // Stale-TIN diagnostic: a fresh geology build invalidates the
-      // session counter — every subsequent accept-litho-suggestions
-      // call uses non-stale TINs, so the inspector pill should clear.
-      setLithoStaleTinSessionCount(0)
       // Build also auto-reorders display_order to match the data —
       // refetch formations so the InterpretationPane list reflects
       // the new age order without a window reload.

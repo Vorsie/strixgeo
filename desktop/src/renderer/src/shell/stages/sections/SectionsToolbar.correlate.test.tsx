@@ -68,8 +68,6 @@ vi.mock('../../../api/client', async () => {
         }),
         acceptContactCorrelations: vi.fn().mockResolvedValue({
           edges_accepted: 0,
-          bodies_created: 0,
-          bodies_removed: 0,
           ordinals_changed: 0,
         }),
         materialiseBodyCompanions: vi.fn().mockResolvedValue({
@@ -362,7 +360,6 @@ function makeCtx(overrides: {
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
       lithoStaleSurfaceCount: 0,
-      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
       handleClearSuggestions: overrides.handleClearSuggestions ?? noopAsync,
@@ -1007,8 +1004,6 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
   it('S5-4: clicking Accept calls acceptContactCorrelations(projectId, modelId, sectionId), toasts success, and refetches edges', async () => {
     vi.mocked(api.geology.acceptContactCorrelations).mockResolvedValueOnce({
       edges_accepted: 3,
-      bodies_created: 1,
-      bodies_removed: 0,
       ordinals_changed: 2,
     })
     const toast = vi.fn()

@@ -27,9 +27,9 @@
 // Strategy: useLithoSuggestions takes every dependency as a param, so we render
 // it directly with vi.fn() spies + a mocked api.geology, drive the returned
 // handlers, and assert on the calls + on the state updater functions passed to
-// the setGhostsByAnchor spy. The real lithoAccept / acceptLithoSummary /
-// lithoSegmenterPrefs utils are NOT mocked, so the real body-building and
-// dirty-flag recording run end-to-end.
+// the setGhostsByAnchor spy. The real lithoAccept / lithoSegmenterPrefs
+// utils are NOT mocked, so the real body-building and dirty-flag recording
+// run end-to-end.
 
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -117,10 +117,6 @@ function makeAcceptResponse(
     found_formation_ids: [],
     created_contact_ids: ['C-new-1'],
     found_contact_ids: [],
-    straddle_split_count: 0,
-    stale_tin_fallback_count: 0,
-    extrapolated_formation_ids: [],
-    orphan_formation_ids: [],
     updated_section: SECTION,
     ...over,
   }
@@ -160,7 +156,6 @@ function makeParams(over: Partial<UseLithoSuggestionsParams> = {}): UseLithoSugg
     setLithoSuggesting: vi.fn(),
     setBulkLithoSuggesting: vi.fn(),
     setLithoCrossingPinchOuts: vi.fn(),
-    setLithoStaleTinSessionCount: vi.fn(),
     ghostsByAnchor: new Map(),
     focusedSuggestAnchorId: ANCHOR_ID,
     focusedSuggestAnchorIdRef: { current: ANCHOR_ID },

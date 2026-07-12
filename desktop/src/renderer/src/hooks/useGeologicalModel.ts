@@ -41,7 +41,6 @@ import type {
   ProjectResponse,
   SubdivideAllBodiesResponse,
 } from '../api/client'
-import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { clearBoreholesStale, markBoreholesStale } from '../utils/boreholesStaleStore'
@@ -234,14 +233,6 @@ export interface UseGeologicalModelResult {
    * Zero when no litho model is active or no surfaces exist yet.
    */
   lithoStaleSurfaceCount: number
-  /**
-   * Cumulative count of stale-TIN straddle fallbacks across every
-   * accept-litho-suggestions response in the current session.  Drives
-   * the amber pill in ``LithologyInspector`` that asks the engineer
-   * to rebuild the geology model for precision.  Cleared on (a) a
-   * successful geology rebuild + (b) ``clearLithoSuggestions``.
-   */
-  lithoStaleTinSessionCount: number
   /**
    * Rebuild TIN surfaces for the active lithostratigraphic model.
    *
@@ -1296,7 +1287,6 @@ export function useGeologicalModel({
       setLithoSurfacesByFormationId(new Map())
       setGhostsByAnchor(new Map())
       setFocusedSuggestAnchorId(null)
-      setLithoStaleTinSessionCount(0)
       return
     }
     // Debt #147 — clear stale state IMMEDIATELY when activeLithoModel
@@ -1311,10 +1301,9 @@ export function useGeologicalModel({
     // (typically 0 for a freshly-created model).
     //
     // Debt #147 follow-up (2026-05-27): also reset the suggestion-ghost
-    // bundle + focused-anchor pointer + stale-TIN session counter so a
-    // freshly-created model presents a clean section canvas (no leftover
-    // pending ghost columns from the prior model's "Suggest litho"
-    // sweep, no stale fallback counter).  Mirrors the same triad
+    // bundle + focused-anchor pointer so a freshly-created model presents
+    // a clean section canvas (no leftover pending ghost columns from the
+    // prior model's "Suggest litho" sweep).  Mirrors the same triad
     // ``handleClearLithoModel`` resets — the architectural reasoning is
     // identical (these are ephemeral overlays scoped to the model the
     // user is currently editing).
@@ -1322,7 +1311,6 @@ export function useGeologicalModel({
     setLithoSurfacesByFormationId(new Map())
     setGhostsByAnchor(new Map())
     setFocusedSuggestAnchorId(null)
-    setLithoStaleTinSessionCount(0)
     let cancelled = false
     const projectId = project.id
     const modelId = activeLithoModel.id
@@ -1640,21 +1628,8 @@ export function useGeologicalModel({
     [lithoSurfacesByFormationId],
   )
 
-  // Debt: stale-TIN straddle fallback diagnostic. AcceptLithoSuggestions'
-  // straddle-split path falls back to depth-ordered contacts when the
-  // geology TIN is stale or absent; the response carries
-  // ``stale_tin_fallback_count``. This session counter accumulates that
-  // across every accept in the current dogfeed session so the
-  // LithologyInspector can render an amber pill telling the engineer
-  // to rebuild the geology model for precision. Cleared on (a) a
-  // successful geology rebuild + (b) ``clearLithoSuggestions``.
-  const [lithoStaleTinSessionCount, setLithoStaleTinSessionCount] = useState(0)
-
   // Geological-model operation handlers — extracted to useGeologicalModelOps
-  // (debt #201 Move 5, cluster 3). Call site is placed AFTER
-  // lithoStaleTinSessionCount (line above) because handleRebuildSurfaces
-  // passes setLithoStaleTinSessionCount as an arg — placing it before that
-  // useState would be a TDZ violation. handleDeleteModel is non-contiguous in
+  // (debt #201 Move 5, cluster 3). handleDeleteModel is non-contiguous in
   // the original file but belongs in this cluster logically.
   const {
     handleAutoPopulateFromStratigraphy,
@@ -1682,7 +1657,6 @@ export function useGeologicalModel({
     setSurfacesByFormationId,
     setActiveGeologicalModel,
     setFormationsRefreshCounter,
-    setLithoStaleTinSessionCount,
     refetchFormations,
     refetchSurfaces,
     refetchLithoContacts,
@@ -2076,7 +2050,6 @@ export function useGeologicalModel({
     refetchLithoSurfaces,
     setGhostsByAnchor,
     setFocusedSuggestAnchorId,
-    setLithoStaleTinSessionCount,
     markMutated,
     toast,
   })
@@ -2168,7 +2141,6 @@ export function useGeologicalModel({
     setLithoSuggesting,
     setBulkLithoSuggesting,
     setLithoCrossingPinchOuts,
-    setLithoStaleTinSessionCount,
     ghostsByAnchor,
     focusedSuggestAnchorId,
     focusedSuggestAnchorIdRef,
@@ -2358,7 +2330,6 @@ export function useGeologicalModel({
     lithoFormations,
     lithoSurfacesByFormationId,
     lithoStaleSurfaceCount,
-    lithoStaleTinSessionCount,
     handleRebuildLithoSurfaces,
     refetchLithoContacts,
     handleCreateLithoContact,

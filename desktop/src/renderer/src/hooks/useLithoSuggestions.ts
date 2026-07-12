@@ -10,8 +10,8 @@
 //
 // Dep-array convention:
 //   Stable React setState setters (setGhostsByAnchor, setFocusedSuggestAnchorId,
-//   setLithoSuggesting, setBulkLithoSuggesting, setLithoCrossingPinchOuts,
-//   setLithoStaleTinSessionCount) are intentionally omitted from dep arrays —
+//   setLithoSuggesting, setBulkLithoSuggesting, setLithoCrossingPinchOuts)
+//   are intentionally omitted from dep arrays —
 //   React guarantees their identity is stable across renders. The same applies
 //   to ``toast`` and other stable callbacks passed by reference; individual
 //   handlers carry verbatim dep arrays from the composer, including any
@@ -46,7 +46,6 @@ import {
   recordCreatedRows,
 } from '../utils/lithoAccept'
 import { readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
-import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
@@ -74,7 +73,6 @@ export interface UseLithoSuggestionsParams {
   setLithoSuggesting: Dispatch<SetStateAction<boolean>>
   setBulkLithoSuggesting: Dispatch<SetStateAction<boolean>>
   setLithoCrossingPinchOuts: Dispatch<SetStateAction<CrossingPinchOut[]>>
-  setLithoStaleTinSessionCount: Dispatch<SetStateAction<number>>
   ghostsByAnchor: ReadonlyMap<string, BulkAnchorGhost>
   focusedSuggestAnchorId: string | null
   focusedSuggestAnchorIdRef: MutableRefObject<string | null>
@@ -206,7 +204,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     setLithoSuggesting,
     setBulkLithoSuggesting,
     setLithoCrossingPinchOuts,
-    setLithoStaleTinSessionCount,
     ghostsByAnchor,
     focusedSuggestAnchorId,
     focusedSuggestAnchorIdRef,
@@ -392,9 +389,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     // is hit while a suggest fetch is in flight, the spinner would
     // otherwise stay stuck until the orphaned fetch settles.
     setLithoSuggesting(false)
-    // Stale-TIN diagnostic: clearing the suggestions ends the session,
-    // so reset the cumulative counter for the inspector pill.
-    setLithoStaleTinSessionCount(0)
     // The old burst-safe refs (acceptedFormationByLithoRef,
     // lithoFormationInFlightRef) were removed in Phase 1 — the bulk
     // endpoint is idempotent server-side (find-or-create), so the
@@ -991,8 +985,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   )
 
   // Accept one suggestion layer via the bulk endpoint (one-item payload).
-  // The server handles formation find-or-create, straddle splits, and
-  // section seeding atomically. The caller MUST forward onSectionUpdated
+  // The server handles formation find-or-create and section seeding
+  // atomically. The caller MUST forward onSectionUpdated
   // with the response's updated_section — explicit-content invariant (#57).
   const handleAcceptLithoSuggestion = useCallback(
     async (
@@ -1037,22 +1031,13 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         )
         log.success(
           'geology',
-          `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
+          `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
 
         // Debt #144: an accept writes to the DB immediately but must also
         // land its created rows in the session-imports manifest, or the amber
         // dirty flag never lights and the .gmproj goes silently stale on close.
         recordCreatedRows(addToSessionImports, result)
-        // Debt #87: surface a warning toast when any created unit needs
-        // engineer review (TIN-extrapolated parent or fully unassigned).
-        const summary = formatAcceptParentSummary(result)
-        if (summary !== null) toast(summary.kind, summary.message)
-        // Stale-TIN diagnostic: aggregate the response's count into
-        // the session counter so the inspector pill picks it up.
-        if (result.stale_tin_fallback_count > 0) {
-          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
-        }
         // Forward updated_section so the section's explicit-content filter
         // includes the newly seeded contacts — #57 class trap.
         if (result.updated_section != null && onSectionUpdated != null) {
@@ -1193,22 +1178,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         )
         log.success(
           'geology',
-          `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count} stale_tin_fallback=${result.stale_tin_fallback_count}`,
+          `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
         // Debt #144: record created rows so accept-all lights the dirty flag.
         recordCreatedRows(addToSessionImports, result)
-        // Debt #87: see acceptLithoSuggestion site above.
-        const summary = formatAcceptParentSummary(result)
-        if (summary !== null) toast(summary.kind, summary.message)
-        // Debt #76: surface straddle-split count so the user understands why
-        // "accept all" produced more contacts than ghost layers were visible.
-        const straddleMsg = formatStraddleSummary(result)
-        if (straddleMsg !== null) toast('warning', straddleMsg)
-        // Stale-TIN diagnostic: aggregate the response's count into
-        // the session counter so the inspector pill picks it up.
-        if (result.stale_tin_fallback_count > 0) {
-          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
-        }
         // Forward updated_section — #57 invariant.
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
@@ -1496,15 +1469,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         )
         // Debt #144: record created rows so this bulk accept lights the dirty flag.
         recordCreatedRows(addToSessionImports, result)
-        // Debt #87: warn when this single bulk accept produced any unit
-        // needing review.
-        const summary = formatAcceptParentSummary(result)
-        if (summary !== null) toast(summary.kind, summary.message)
-        // Stale-TIN diagnostic: aggregate the response's count into
-        // the session counter so the inspector pill picks it up.
-        if (result.stale_tin_fallback_count > 0) {
-          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
-        }
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
@@ -1649,10 +1613,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       if (resp.updated_section != null && onSectionUpdated != null) {
         onSectionUpdated(resp.updated_section)
       }
-      if (resp.total_stale_tin_fallbacks > 0) {
-        setLithoStaleTinSessionCount(c => c + resp.total_stale_tin_fallbacks)
-      }
-
       // Mark accepted indices for every committed anchor in a single setState,
       // and collect one undo op per committed anchor.
       const collectedOps: AcceptLithoUndoOp[] = []
@@ -1702,8 +1662,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         'geology',
         `acceptAllBulkLitho done anchors=${plans.length} committed=${committedCount} ` +
           `contacts=${resp.total_created_contacts} failures=${failures.length} ` +
-          `inference_ran=${resp.inference_ran} extrapolated=${resp.total_extrapolated_formations} ` +
-          `orphan=${resp.total_orphan_formations}`,
+          `inference_ran=${resp.inference_ran}`,
       )
       toast(
         'success',
@@ -1716,20 +1675,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       // the user runs Auto-correlate explicitly from the correlation toolbar
       // when they want it, so accepting suggestions never surprises them with
       // amber edges. (handleAutoCorrelate remains the manual entry point.)
-
-      // Debt #87: ONE aggregated warning naming the total units needing review.
-      const aggSummary = formatAcceptParentSummary({
-        created_formation_ids: [],
-        found_formation_ids: [],
-        created_contact_ids: [],
-        found_contact_ids: [],
-        straddle_split_count: 0,
-        stale_tin_fallback_count: 0,
-        extrapolated_formation_ids: new Array(resp.total_extrapolated_formations).fill(''),
-        orphan_formation_ids: new Array(resp.total_orphan_formations).fill(''),
-        updated_section: null,
-      })
-      if (aggSummary !== null) toast(aggSummary.kind, aggSummary.message)
       if (failures.length > 0) {
         toast('error', `Accepted ${committedCount}/${plans.length} — ${failures.length} failed.`)
       }

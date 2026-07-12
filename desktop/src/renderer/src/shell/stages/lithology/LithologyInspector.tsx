@@ -72,7 +72,6 @@ export default function LithologyInspector(): JSX.Element {
       formations,
       lithoFormations,
       lithoContacts,
-      lithoStaleTinSessionCount,
       refetchFormations,
       handleClearLithoModel,
       lithoSolids,
@@ -265,24 +264,6 @@ export default function LithologyInspector(): JSX.Element {
         />
       ) : (
         <>
-          {/* Stale-TIN straddle-fallback pill. AcceptLithoSuggestions
-              falls back to depth-ordered geology contacts when the
-              parent geology TIN is stale or absent — geometrically
-              correct but less precise than a fresh TIN sample.  The
-              pill accumulates across the current dogfeed session and
-              clears on (a) successful geology rebuild + (b) Clear
-              suggestions. */}
-          {lithoStaleTinSessionCount > 0 && (
-            <div
-              className="text-[11px] leading-snug rounded px-2 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300"
-              data-testid="litho-stale-tin-pill"
-            >
-              {lithoStaleTinSessionCount} stale-TIN straddle fallback
-              {lithoStaleTinSessionCount === 1 ? '' : 's'} this session — rebuild
-              geology for precision.
-            </div>
-          )}
-
           {/* Debt #94 fix: clear-model pill + action.
               Surfaces the persistent state so the user understands why
               there are polylines on section before they have clicked
