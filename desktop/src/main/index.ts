@@ -837,12 +837,6 @@ ipcMain.handle(
   },
 )
 
-// Open the logs directory in the OS file explorer (Help → Show log file).
-ipcMain.handle('app:show-logs-folder', async (): Promise<void> => {
-  const logsDir = app.getPath('logs')
-  await shell.openPath(logsDir)
-})
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------

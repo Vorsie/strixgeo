@@ -127,9 +127,4 @@ contextBridge.exposeInMainWorld('electron', {
   // process logs the line and continues.
   logRendererError: (message: string, componentStack: string): Promise<void> =>
     ipcRenderer.invoke('app:log-renderer-error', message, componentStack),
-
-  // Trigger the main process to open the logs directory in the OS file
-  // explorer. Used by Help → "Show log file" menu item.
-  showLogsFolder: (): Promise<void> =>
-    ipcRenderer.invoke('app:show-logs-folder'),
 })

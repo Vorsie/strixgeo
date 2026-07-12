@@ -231,7 +231,6 @@ function installElectronStub(): void {
     onAppBackendFailed: vi.fn().mockReturnValue(noopUnsubscribe),
     getLogsPath: vi.fn().mockResolvedValue('/tmp/strix-logs'),
     logRendererError: vi.fn().mockResolvedValue(undefined),
-    showLogsFolder: vi.fn().mockResolvedValue(undefined),
   }
 }
 

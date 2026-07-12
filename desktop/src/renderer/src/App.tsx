@@ -98,7 +98,6 @@ declare global {
       onAppBackendFailed: (cb: () => void) => () => void
       getLogsPath: () => Promise<string>
       logRendererError: (message: string, componentStack: string) => Promise<void>
-      showLogsFolder: () => Promise<void>
     }
   }
 }
