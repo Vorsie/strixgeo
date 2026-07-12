@@ -256,25 +256,26 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             f"{len(bh_locs)} borehole location(s) loaded"
         )
 
-        # 5. Build the adjacency gate.  When a section is given, pair each
-        #    in-corridor, contact-bearing investigation only with its immediate
-        #    along-section neighbours (consecutive projected columns) so
-        #    correlations follow the section's left-to-right order.  Map-plane
-        #    RNG (the domain default) does NOT match the section's column order
-        #    for off-line tests — a map-adjacent pair crosses an intervening
-        #    column and renders as a spaghetti ribbon on the section
-        #    (dogfeed 2026-05-29).  No section → adjacency=None → model-wide RNG.
-        section_adjacency: set[frozenset[UUID]] | None = None
-        if section_id is not None:
-            section_adjacency = await self._section_along_adjacency(
-                project_id=project_id,
-                section_id=section_id,
-                participant_ids={r.investigation_id for r in contact_records},
-            )
-            self.debug(
-                f"AutoCorrelateContactEdges: section {section_id} → "
-                f"{len(section_adjacency)} consecutive along-section pair(s)"
-            )
+        # 5. Build the adjacency gate: pair each in-corridor, contact-bearing
+        #    investigation only with its immediate along-section neighbours
+        #    (consecutive projected columns) so correlations follow the
+        #    section's left-to-right order.  Map-plane RNG (the domain
+        #    default) does NOT match the section's column order for off-line
+        #    tests — a map-adjacent pair crosses an intervening column and
+        #    renders as a spaghetti ribbon on the section (dogfeed
+        #    2026-05-29).  ``section_id`` is guaranteed non-None here (step 0
+        #    raises otherwise); the domain algorithm's adjacency=None
+        #    model-wide-RNG mode remains, exercised only by domain unit tests
+        #    and scripts/diagnose_auto_correlate.py — never from production.
+        section_adjacency: set[frozenset[UUID]] = await self._section_along_adjacency(
+            project_id=project_id,
+            section_id=section_id,
+            participant_ids={r.investigation_id for r in contact_records},
+        )
+        self.debug(
+            f"AutoCorrelateContactEdges: section {section_id} → "
+            f"{len(section_adjacency)} consecutive along-section pair(s)"
+        )
 
         # 6. Run the pure-domain algorithm.
         candidates = auto_correlate_contact_edges(
