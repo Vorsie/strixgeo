@@ -195,7 +195,17 @@ before the first clean-box coworker install. Build the Fork A
 prototype on a clean Windows machine without Docker per the
 decision doc's "proposed build step".
 
-## 3. License key + activation system (medium → blocking before paid release)
+## 3. Subscription activation system (medium → blocking before paid release) — re-scoped 2026-06-25 from "license keys"
+
+**Re-scope 2026-06-25.** The commercial model pivoted from perpetual
+license to annual subscription + 30-day trial (owner directive; see
+CLAUDE.local.md → Commercial planning). When this item is picked up,
+build a **subscription/activation check** (activation tied to Stripe
+subscription state, offline grace window for on-site use) rather than
+the perpetual license-token shape sketched below — the token
+machinery below stays useful as the offline-verification layer, but
+expiry follows the subscription, not a perpetual grant.
+`docs/commercial-direction.md` framing updated in lockstep.
 
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
@@ -248,6 +258,9 @@ scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
 ## 5. Tamper / reverse-engineering hardening (low — pragmatic posture, residual)
+
+**Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
+check, not perpetual license keys — see #3's re-scope note.
 
 **What's still open.** The malformed-input audit pass landed: every
 DOV XML parser uses ``defusedxml`` (billion-laughs + external DTD
@@ -3130,7 +3143,23 @@ requirement. Tier-1 backfill happens immediately after #127.
 Pre-distribution sweep closes residuals before any external
 user sees the build.
 
-## 131. Ribbon: lens-aware variant + pinch-out terminus (Tier G — unshipped half of #121)
+## 131. ~~Ribbon: lens-aware variant + pinch-out terminus~~ — CLOSED-MOOT 2026-07-12 (unshipped halves structurally superseded)
+
+**Closure 2026-07-12.** Verified nothing of #131 remains actionable:
+* **#131-c** (lithology-coloured gradient seam ribbon) SHIPPED 2026-05-28
+  and dogfeed-confirmed (see below).
+* **#131-a** (lens-aware opacity/dash variant) required a `lens_id` FK on
+  correlation edges backed by `LithoLensOrm` — the lens entity was retired
+  2026-06-21 (#124 MOOT, #217 lens→body rename); bodies are now resolver
+  connected-components and lens signalling is carried by the partition
+  fill's LENS classification (docs/design/section-fill.md), not ribbon
+  styling. The plumbing this half waited on no longer exists.
+* **#131-b** (pinch-out terminus taper) required `litho_lens.wedge_tip_along_m`
+  threaded into `CorrelationEdgesOverlay` — same retirement; the partition
+  fill renders pinch-out wedges as first-class geometry now, so a ribbon
+  taper would duplicate it.
+Re-open only if a future design puts lens/pinch-out signalling back on the
+ribbon layer instead of the partition fill.
 
 **What.** #121 shipped 2026-05-25 with the basic ribbon shape: continuous
 polygon ribbons per body ordinal, replacing per-edge dashed lines (CE-R1/R2/
@@ -5115,6 +5144,14 @@ console):
   would render a local file. Very low risk today — no user content renders as
   HTML (no raw-HTML injection sink in the UI) — but it widens if free-text
   fields ever render markup. (`desktop/src/main/security.ts:169`).
+
+**Remaining scope (merged 2026-07-12 from the CLAUDE.md prune):** besides F6,
+two more pre-distribution items ride under this number:
+* **Menu roles** — DevTools + Reload roles live in the *packaged* View menu;
+  gate them on `!app.isPackaged` before distribution.
+* **Electron pin** — pinned at the first `42.x` patch via caret, with the
+  EOL/support window unverified; bump to latest 42.x, pin exact, and verify
+  the support window.
 
 **Why deferred.** Requires a renderer compromise — does not exist on the
 single-machine dogfeed. Pre-distribution concern.
