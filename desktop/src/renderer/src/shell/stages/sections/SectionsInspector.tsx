@@ -40,6 +40,7 @@ import CrossingSectionPickerDialog from '../../../components/CrossingSectionPick
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
 import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
 import { isGeologicalFormation } from '../../../utils/formationKind'
+import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilter'
 import { hashHexColor } from '../../../utils/hashColor'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
@@ -1234,11 +1235,7 @@ function ModelActions({
   // accepted boreholes.
   const newTestBoreholeIds = useMemo(() => {
     if (!activeGeologicalModel) return [] as string[]
-    const seen = new Set<string>()
-    for (const c of contacts) {
-      if (c.borehole_id !== null) seen.add(c.borehole_id)
-    }
-    return visibleBoreholes.filter(b => !seen.has(b.id)).map(b => b.id)
+    return filterBoreholesWithNoGeologyContacts(visibleBoreholes, contacts)
   }, [contacts, visibleBoreholes, activeGeologicalModel])
 
   async function handleBuild(): Promise<void> {

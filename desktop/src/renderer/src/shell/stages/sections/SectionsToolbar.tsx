@@ -18,6 +18,7 @@ import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { investigationsOnSection } from '../../../utils/sectionProjection'
+import { filterAnchorsWithNoLithoContacts } from '../../../utils/newTestFilter'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { log } from '../../../utils/log'
@@ -617,12 +618,7 @@ export default function SectionsToolbar(): JSX.Element {
   // already-handled CPT/borehole.
   const newTestAnchors = useMemo(() => {
     if (!activeLithoModel) return [] as typeof bulkAnchors
-    const lithoSeenAnchorIds = new Set<string>()
-    for (const c of lithoContacts) {
-      if (c.cpt_id !== null) lithoSeenAnchorIds.add(c.cpt_id)
-      if (c.borehole_id !== null) lithoSeenAnchorIds.add(c.borehole_id)
-    }
-    return bulkAnchors.filter(a => !lithoSeenAnchorIds.has(a.id))
+    return filterAnchorsWithNoLithoContacts(bulkAnchors, lithoContacts)
   }, [bulkAnchors, lithoContacts, activeLithoModel])
 
   async function handleSuggestNewTests(): Promise<void> {

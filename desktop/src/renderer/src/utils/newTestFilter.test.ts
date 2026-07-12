@@ -4,42 +4,20 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   BoreholeListItem,
-  CptListItem,
   FormationContactResponse,
 } from '../api/client'
 import {
   filterAnchorsWithNoLithoContacts,
   filterBoreholesWithNoGeologyContacts,
+  type LithoAnchor,
 } from './newTestFilter'
 
-function cpt(id: string, elev: number | null = 10): CptListItem {
-  return {
-    id,
-    project_id: 'p',
-    test_id: id,
-    cpt_type: 'CPTU',
-    location_x: 0,
-    location_y: 0,
-    epsg: 31370,
-    elevation_m: elev,
-    elevation_source: elev !== null ? 'survey' : null,
-    z_epsg: null,
-    max_depth_m: 20,
-    n_rows: 100,
-    water_depth_m: null,
-    cone_area_ratio: null,
-    cone_type: null,
-    test_date: null,
-    original_elevation_m: null,
-    original_z_epsg: null,
-    original_elevation_source: null,
-    name: id,
-    app_project_id: 'app-p',
-    dov_permkey: null,
-    fiche_url: null,
-    created_at: '2026-05-21T00:00:00Z',
-    updated_at: '2026-05-21T00:00:00Z',
-  } as unknown as CptListItem
+function anchor(
+  id: string,
+  kind: 'cpt' | 'borehole' = 'cpt',
+  elev: number | null = 10,
+): LithoAnchor {
+  return { kind, id, surfaceElevationM: elev }
 }
 
 function bh(id: string, elev: number | null = 12): BoreholeListItem {
@@ -93,56 +71,49 @@ function contact(
 }
 
 describe('filterAnchorsWithNoLithoContacts', () => {
-  it('F1 — empty contacts: every investigation is "new"', () => {
+  it('F1 — empty contacts: every anchor is "new"', () => {
     const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c1'), cpt('c2')],
-      [bh('b1')],
+      [anchor('c1'), anchor('c2'), anchor('b1', 'borehole')],
       [],
     )
     expect(out.map(a => a.id)).toEqual(['c1', 'c2', 'b1'])
   })
 
-  it('F2 — excludes investigations with at least one contact in the model', () => {
+  it('F2 — excludes anchors with at least one contact in the model', () => {
     const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c1'), cpt('c2')],
-      [bh('b1'), bh('b2')],
+      [anchor('c1'), anchor('c2'), anchor('b1', 'borehole'), anchor('b2', 'borehole')],
       [contact('ct1', { cpt_id: 'c1' }), contact('ct2', { borehole_id: 'b1' })],
     )
     expect(out.map(a => a.id)).toEqual(['c2', 'b2'])
   })
 
-  it('F3 — synthetic contacts (no anchor) are ignored — never make any investigation non-new', () => {
+  it('F3 — synthetic contacts (no anchor) are ignored — never make any anchor non-new', () => {
     const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c1')],
-      [bh('b1')],
+      [anchor('c1'), anchor('b1', 'borehole')],
       [contact('ct1', {})], // both ids null
     )
     expect(out.map(a => a.id)).toEqual(['c1', 'b1'])
   })
 
-  it('F4 — preserves input order (CPTs first, then boreholes)', () => {
+  it('F4 — preserves input order', () => {
     const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c2'), cpt('c1')],
-      [bh('b2'), bh('b1')],
+      [anchor('c2'), anchor('c1'), anchor('b2', 'borehole'), anchor('b1', 'borehole')],
       [],
     )
     expect(out.map(a => a.id)).toEqual(['c2', 'c1', 'b2', 'b1'])
   })
 
-  it('F5 — propagates each investigation\'s elevation_m', () => {
-    const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c1', 5.5)],
-      [bh('b1', null)],
-      [],
-    )
-    expect(out[0].surfaceElevationM).toBe(5.5)
-    expect(out[1].surfaceElevationM).toBeNull()
+  it('F5 — passes anchor objects through unchanged (caller owns the shape)', () => {
+    const a1 = anchor('c1', 'cpt', 5.5)
+    const a2 = anchor('b1', 'borehole', null)
+    const out = filterAnchorsWithNoLithoContacts([a1, a2], [])
+    expect(out[0]).toBe(a1)
+    expect(out[1]).toBe(a2)
   })
 
-  it('F6 — empty result when every investigation has a contact', () => {
+  it('F6 — empty result when every anchor has a contact', () => {
     const out = filterAnchorsWithNoLithoContacts(
-      [cpt('c1')],
-      [bh('b1')],
+      [anchor('c1'), anchor('b1', 'borehole')],
       [
         contact('ct1', { cpt_id: 'c1' }),
         contact('ct2', { borehole_id: 'b1' }),
