@@ -176,7 +176,7 @@ DOV e2e specs or fixtures.
 2. `uv run ruff check --fix <file>` — auto-fix lint issues
 3. Add complete numpy style docstrings to all public modules, classes, methods, and functions that lack one
 
-A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enforced by code review.
+A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enforced by code review. A second PostToolUse hook (`desktop_ts_check.py`) fires on `desktop/**/*.ts(x)` writes: runs `eslint --fix` if an eslint install ever lands in `desktop/` (none today), and warns when the edited file exceeds 500 lines (god-component pressure, debt #201). The git pre-commit hook also blocks any staged CLAUDE.md over the 40 KB budget.
 
 **Git pre-commit hook:** the repo ships a pre-commit hook in
 `.githooks/pre-commit` that runs `uv run pytest tests/unit -q` whenever
