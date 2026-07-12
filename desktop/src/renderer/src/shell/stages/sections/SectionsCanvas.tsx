@@ -114,13 +114,11 @@ export default function SectionsCanvas(): JSX.Element {
       handleEditLithoSuggestion,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
-      handleUnrejectLithoSuggestion,
       handleSuggestAllLitho,
       handleAcceptBulkLitho,
       refetchLithoContacts,
       handleAcceptAllBulkLitho,
       handleRejectBulkLitho,
-      handleUnrejectBulkLitho,
       handleEditBulkLitho,
       handleInsertLithoLayer,
       handleSplitLithoLayer,
@@ -2183,7 +2181,6 @@ export default function SectionsCanvas(): JSX.Element {
       rejectedIndices: entry.rejected,
       onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
-      onUnreject: handleUnrejectLithoSuggestion,
       // Drag-resize edits — the user's depth modifications per ghost
       // index (Phase 2). LithoSuggestionGhostColumns reads `edits` at
       // render time so the ghost rect tracks the live drag commit.
@@ -2262,7 +2259,6 @@ export default function SectionsCanvas(): JSX.Element {
     lithoGhostSurfaceElevationM,
     sectionAwareAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
-    handleUnrejectLithoSuggestion,
     handleEditLithoSuggestion,
     handleEditBulkLitho,
     handleInsertLithoLayer,
@@ -2306,7 +2302,6 @@ export default function SectionsCanvas(): JSX.Element {
       anchorGhosts: bulkAnchorGhosts,
       onAccept: sectionAwareAcceptBulkLitho,
       onReject: handleRejectBulkLitho,
-      onUnreject: handleUnrejectBulkLitho,
       onEdit: handleEditBulkLitho,
       // Debt #86: same handler — works for any target anchor in the Map.
       onCrossColumnPaste: handleEditBulkLitho,
@@ -2330,7 +2325,6 @@ export default function SectionsCanvas(): JSX.Element {
     bulkAnchorGhosts,
     sectionAwareAcceptBulkLitho,
     handleRejectBulkLitho,
-    handleUnrejectBulkLitho,
     handleEditBulkLitho,
     handleInsertLithoLayer,
     handleSplitLithoLayer,

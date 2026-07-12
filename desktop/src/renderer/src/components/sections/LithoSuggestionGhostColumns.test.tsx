@@ -118,7 +118,6 @@ function renderGhost(
     ) => void
     onReject?: (idx: number) => void
     onAccept?: (idx: number) => void
-    onUnreject?: (idx: number) => void
     onCrossColumnPaste?: (
       targetAnchorId: string,
       idx: number,
@@ -164,7 +163,6 @@ function renderGhost(
         rejectedIndices={opts.rejectedIndices ?? new Set()}
         onAccept={opts.onAccept ?? vi.fn()}
         onReject={opts.onReject ?? vi.fn()}
-        onUnreject={opts.onUnreject}
         formations={opts.formations}
         edits={opts.edits}
         onEdit={opts.onEdit}
@@ -339,13 +337,11 @@ describe('LithoSuggestionGhostColumns', () => {
     // consult it), only the rendering is hidden.
     const { container } = renderGhost([makeSuggestion()], {
       rejectedIndices: new Set([0]),
-      onUnreject: vi.fn(),
     })
     // No rect for the rejected layer.
     expect(container.querySelector('[data-testid="litho-band-group-0"] rect')).toBeNull()
-    // No pending hatch, no undo icon, no reject (×) icon.
+    // No pending hatch, no reject (×) icon.
     expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).toBeNull()
-    expect(container.querySelector('[data-testid="litho-unreject-0"]')).toBeNull()
     expect(container.querySelector('[data-testid="litho-reject-0"]')).toBeNull()
   })
 
@@ -638,9 +634,8 @@ describe('LithoSuggestionGhostColumns', () => {
   // layer up to merge into the upper one" gesture that the initial
   // kill-multi-cascade pass left as a zero-thickness zombie. The
   // merge-confirm dialog stays gone — the auto-reject is silent but
-  // the snap indicator's "release to merge" amber text + the ↻
-  // unreject icon on the freshly-rejected layer give the user the
-  // affordance + an undo path. Multi-layer cascade (3+ same-parent)
+  // the snap indicator's "release to merge" amber text gives the
+  // user the affordance. Multi-layer cascade (3+ same-parent)
   // is still gone — exactly one neighbour absorbed per gesture.
 
   it('G32 — base-drag past pending neighbour: primary onEdit commits at far edge, secondary + chain skipped', () => {
@@ -1695,8 +1690,8 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onReject).toHaveBeenCalledWith(0)
   })
 
-  // W3: × is absent on ACCEPTED layers (✓ takes the slot) and on
-  // REJECTED layers (↻ takes the slot when wired).
+  // W3: × is absent on ACCEPTED layers (parent renders nothing) and
+  // on REJECTED layers (rejected layers render nothing).
   it('W3 — × is absent on accepted and rejected layers', () => {
     const accepted = renderGhost([makeSuggestion()], {
       acceptedIndices: new Set([0]),
@@ -1705,7 +1700,6 @@ describe('LithoSuggestionGhostColumns', () => {
     cleanup()
     const rejected = renderGhost([makeSuggestion()], {
       rejectedIndices: new Set([0]),
-      onUnreject: vi.fn(),
     })
     expect(rejected.container.querySelector('[data-testid="litho-reject-0"]')).toBeNull()
   })
