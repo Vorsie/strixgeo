@@ -14,12 +14,30 @@
 import type { GeologicalFormationResponse } from '../api/client'
 
 /**
+ * Oldest-first comparator: ascending ``display_order``, name as a
+ * case-insensitive stable tiebreak. The single source of the formation
+ * sort — ``GeologyInspector``'s ascending list uses it directly and
+ * ``formationsYoungestFirst`` reverses it.
+ *
+ * @param a - First formation.
+ * @param b - Second formation.
+ * @returns Negative when ``a`` is older (sorts first), positive when younger.
+ */
+export function compareFormationsOldestFirst(
+  a: GeologicalFormationResponse,
+  b: GeologicalFormationResponse,
+): number {
+  if (a.display_order !== b.display_order) return a.display_order - b.display_order
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+}
+
+/**
  * Return a copy of *rows* ordered youngest-first (descending ``display_order``).
  *
- * Mirrors ``GeologyInspector``'s "sort ascending, then reverse": formations are
- * first ordered ascending by ``display_order`` (name as a stable tiebreak),
- * then reversed, so equal-``display_order`` rows fall in the same order the
- * inspector shows. Pure — does not mutate the input.
+ * "Sort ascending, then reverse" — formations are first ordered by
+ * ``compareFormationsOldestFirst``, then reversed, so equal-``display_order``
+ * rows fall in the same relative order as the ascending inspector list.
+ * Pure — does not mutate the input.
  *
  * @param rows - Formations in any order (the model bus delivers ascending).
  * @returns A new array, youngest formation first.
@@ -27,10 +45,5 @@ import type { GeologicalFormationResponse } from '../api/client'
 export function formationsYoungestFirst<T extends GeologicalFormationResponse>(
   rows: readonly T[],
 ): T[] {
-  return [...rows]
-    .sort((a, b) => {
-      if (a.display_order !== b.display_order) return a.display_order - b.display_order
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-    })
-    .reverse()
+  return [...rows].sort(compareFormationsOldestFirst).reverse()
 }

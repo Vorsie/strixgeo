@@ -50,6 +50,7 @@ import CrossingSectionPickerDialog from '../../../components/CrossingSectionPick
 import FormationDialog from '../../../components/interpretation/FormationDialog'
 import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
 import { isGeologicalFormation } from '../../../utils/formationKind'
+import { compareFormationsOldestFirst } from '../../../utils/formationOrder'
 import { useShell } from '../../ShellContext'
 
 // ---------------------------------------------------------------------------
@@ -1192,7 +1193,8 @@ function FormationRow({
 }
 
 /**
- * Sort formations by ``display_order`` ascending then name ascending.
+ * Sort formations oldest-first (``display_order`` ascending, name tiebreak)
+ * via the shared ``compareFormationsOldestFirst`` comparator.
  *
  * Parameters
  * ----------
@@ -1207,8 +1209,5 @@ function FormationRow({
 function sortFormations(
   rows: GeologicalFormationResponse[],
 ): GeologicalFormationResponse[] {
-  return [...rows].sort((a, b) => {
-    if (a.display_order !== b.display_order) return a.display_order - b.display_order
-    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-  })
+  return [...rows].sort(compareFormationsOldestFirst)
 }
