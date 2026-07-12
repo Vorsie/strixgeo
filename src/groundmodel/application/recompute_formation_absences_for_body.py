@@ -4,8 +4,8 @@ Position 4 architecture (#101 R3).  Called after every correlation-edge
 mutation and observation-data mutation that affects a formation.
 
 Atomically:
-1. Load all contacts for ``(model_id, formation_id)`` that belong to the
-   target body (``body_ordinal``).
+1. Load all contacts for ``(model_id, formation_id)`` — MVP treats them all
+   as the target body's contacts (multi-body disambiguation is Phase 5).
 2. Load all in-corridor investigations for the given section.
 3. Load all observation layers for those investigations.
 4. Load existing absence rows for this formation + corridor.
@@ -258,7 +258,6 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         project_id: UUID,
         model_id: UUID,
         formation_id: UUID,
-        body_ordinal: int,
         section_id: UUID,
         commit: bool = True,
         corridor_investigations: list[tuple[UUID, str]] | None = None,
@@ -274,9 +273,6 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
             Lithostratigraphic model that owns the correlation graph.
         formation_id : UUID
             The geological formation whose body is being re-evaluated.
-        body_ordinal : int
-            Zero-based ordinal identifying which body of this formation to
-            process (from the ``ResolveLithoInstances`` resolver).
         section_id : UUID
             The cross-section that defines the corridor of investigations.
         commit : bool
@@ -310,7 +306,7 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         self.info(
             f"RecomputeFormationAbsencesForBody.execute: "
             f"project={project_id} model={model_id} "
-            f"formation={formation_id} ordinal={body_ordinal} "
+            f"formation={formation_id} "
             f"section={section_id}"
         )
 
@@ -334,18 +330,14 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         # 2. Load contacts for this body (model_id + formation_id).
         #    Body identity is stored on BodyOrm.body_ordinal but contacts
         #    themselves don't carry it — the resolver assigns ordinals globally.
-        #    We load ALL contacts for (model, formation) and use the provided
-        #    body_ordinal as a filter via the correlation graph.  For MVP the
-        #    simplest correct approach: load ALL contacts for (model, formation)
-        #    since at inference-time the caller already resolved which body the
-        #    contacts belong to and passes body_ordinal for scoping metadata only.
-        #    The inference engine computes the depth-band from whatever contacts
-        #    it receives, so the caller must pre-filter to the specific body.
-        #
-        #    For Position 4 MVP: we treat ALL contacts for (model, formation) as
-        #    the body's contacts.  Multi-body disambiguation (ordinal > 1) is a
-        #    Phase 5 refinement — the inference engine design already supports it
-        #    via its pure-function interface.
+        #    For Position 4 MVP we treat ALL contacts for (model, formation) as
+        #    the body's contacts.  Multi-body disambiguation is a Phase 5
+        #    refinement — the inference engine computes the depth-band from
+        #    whatever contacts it receives, so a future multi-body caller must
+        #    pre-filter to the specific body (the engine's pure-function
+        #    interface already supports it).  The old ``body_ordinal``
+        #    parameter was a phantom (log-string-only, always 0 from the sole
+        #    caller) and was dropped (audit BE-APPLICATION-LITHO-09).
         # ------------------------------------------------------------------
         contact_rows = (
             await self._session.execute(
@@ -504,7 +496,7 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
 
         self.success(
             f"RecomputeFormationAbsencesForBody done: "
-            f"formation={formation_id} ordinal={body_ordinal} "
+            f"formation={formation_id} "
             f"written={written_count} retracted={retracted_count} "
             f"skipped_no_data={len(result.skipped_no_data)}"
         )

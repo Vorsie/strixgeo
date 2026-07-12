@@ -205,7 +205,6 @@ class RecomputeFormationAbsencesForFormation(GroundModelLogger):
                     project_id=project_id,
                     model_id=model_id,
                     formation_id=formation_id,
-                    body_ordinal=0,
                     section_id=section.id,
                     commit=False,
                     corridor_investigations=corridor,
