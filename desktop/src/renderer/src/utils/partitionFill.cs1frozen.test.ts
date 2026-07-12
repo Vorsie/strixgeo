@@ -66,11 +66,12 @@ import {
 } from './partitionFill'
 import { findNonLensOverlaps, formatOverlapReports } from './partitionOverlapCheck'
 
-// Mirror of the production rewriteB flag: true when REWRITE_B=1 is set (or in-app).
-// With rewriteB=true the substrate-bracket pass is disabled, so gaps that only
-// receive coverage from computeBracketSubstrate (e.g. gaps 7, 8, 14–22 on CS1)
-// report interior voids. The two substrate-dependent tests are skipped in that mode.
-const rewriteB = typeof process !== 'undefined' && !!process.env?.REWRITE_B
+// Mirror of the production rewriteB flag: ON by default, matching the app (debt
+// #230). With rewriteB=true the substrate-bracket pass is disabled, so gaps that
+// only receive coverage from computeBracketSubstrate (e.g. gaps 7, 8, 14–22 on
+// CS1) report interior voids — the two substrate-dependent tests are skipped by
+// default and run only under an explicit REWRITE_B_LEGACY=1 legacy run.
+const rewriteB = !(typeof process !== 'undefined' && !!process.env?.REWRITE_B_LEGACY)
 
 // ---------------------------------------------------------------------------
 // Fixture loading

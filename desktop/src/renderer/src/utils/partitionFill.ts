@@ -4204,16 +4204,13 @@ export function computeSectionFill(
       last.baseDepthM = Math.max(last.baseDepthM, c.surface - bottom)
     }
   }
-  // THROWAWAY REWRITE_B prototype flag (owner 2026-07-09): correlate-or-gap model —
-  // uncapped emitGap (no apex-clamp-to-shallow-TD), no substrate. Remove after build.
-  // DOGFEED TOGGLE (uncommitted, 2026-07-09): the app (Electron renderer) has no
-  // process.env.REWRITE_B, so to let the owner dogfeed the new model LIVE it is ON
-  // by default EVERYWHERE EXCEPT under vitest (process.env.VITEST), where the gates
-  // still need the old substrate path. A test can force the new path with REWRITE_B=1.
-  // Stage 2 makes this the permanent default and deletes the flag + substrate.
-  const inVitest = typeof process !== 'undefined' && !!process.env?.VITEST
-  const rewriteB =
-    (typeof process !== 'undefined' && !!process.env?.REWRITE_B) || !inVitest
+  // rewriteB (owner 2026-07-09): correlate-or-gap model — uncapped emitGap (no
+  // apex-clamp-to-shallow-TD), no substrate. This is the model the app runs.
+  // Default ON everywhere INCLUDING vitest (debt #230 — the default suite must
+  // test the path production executes). The retired legacy substrate path stays
+  // reachable only via an explicit REWRITE_B_LEGACY=1 test run until the Stage-2
+  // deletion (debt #237.5) removes the flag + the !rewriteB code entirely.
+  const rewriteB = !(typeof process !== 'undefined' && !!process.env?.REWRITE_B_LEGACY)
   // Margin (m) below a cross-litho tie line at which an emitGap region is treated as
   // straddling it and clipped to the above-tie part (gap-void fill, 2026-07-10).
   const TIE_CLIP_MARGIN = 0.02

@@ -7,9 +7,10 @@
 
 import { describe, expect, it } from 'vitest'
 
-// Mirror of the production rewriteB flag: true when REWRITE_B=1 is set (or in-app).
-// Used to skip substrate-bracket tests that are intentionally disabled in the new path.
-const rewriteB = typeof process !== 'undefined' && !!process.env?.REWRITE_B
+// Mirror of the production rewriteB flag: ON by default, matching the app (debt
+// #230 — the default suite tests the path production runs). The retired legacy
+// substrate path runs only under an explicit REWRITE_B_LEGACY=1.
+const rewriteB = !(typeof process !== 'undefined' && !!process.env?.REWRITE_B_LEGACY)
 
 import {
   classifyTermination,
