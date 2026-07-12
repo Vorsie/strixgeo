@@ -49,17 +49,6 @@ import {
 // Visual constants
 // ---------------------------------------------------------------------------
 
-/** Width of the suggestion ghost column in pixels. */
-/**
- * Width retained for backwards-compat with external imports (none in
- * the current tree). The ghost column now uses ``bandHalfWidth * 2``
- * to match the focused investigation's data band; this constant is
- * the historical default that was used before the overlay change.
- */
-export const LITHO_GHOST_COLUMN_WIDTH_PX = 48
-/** Gap between the data band and the ghost column. */
-export const LITHO_GHOST_GAP_FROM_BAND_PX = 6
-
 const GHOST_OPACITY_DEFAULT = 0.55
 const GHOST_OPACITY_ACCEPTED = 0.85
 const GHOST_OPACITY_REJECTED = 0.2
