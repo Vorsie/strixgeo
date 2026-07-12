@@ -32,6 +32,7 @@ import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
+import MultiLineLabel from './MultiLineLabel'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
@@ -1635,58 +1636,8 @@ function LithoSuggestionLayer({
           rectHeight={height}
           fontSize={LABEL_FONT_SIZE}
           tooltip={tooltip}
-          onClick={handleClick}
-          onContextMenu={handleContextMenu}
         />
       )}
     </g>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Multi-line label helper (mirrors VirtueleBoringGhostColumns)
-// ---------------------------------------------------------------------------
-
-function MultiLineLabel({
-  lines,
-  centerX,
-  rectTopY,
-  rectHeight,
-  fontSize,
-  tooltip,
-  onClick,
-  onContextMenu,
-}: {
-  lines: readonly string[]
-  centerX: number
-  rectTopY: number
-  rectHeight: number
-  fontSize: number
-  tooltip: string
-  onClick: (e: React.MouseEvent) => void
-  onContextMenu: (e: React.MouseEvent) => void
-}): JSX.Element {
-  const lineHeight = fontSize * 1.15
-  const blockHeight = lineHeight * lines.length
-  const firstBaselineY =
-    rectTopY + rectHeight / 2 - blockHeight / 2 + fontSize * 0.8
-  return (
-    <text
-      x={centerX}
-      y={firstBaselineY}
-      textAnchor="middle"
-      fontSize={fontSize}
-      fill="#111827"
-      style={{ pointerEvents: 'none', userSelect: 'none' }}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-    >
-      {lines.map((line, i) => (
-        <tspan key={i} x={centerX} dy={i === 0 ? 0 : lineHeight}>
-          {line}
-        </tspan>
-      ))}
-      <title>{tooltip}</title>
-    </text>
   )
 }
