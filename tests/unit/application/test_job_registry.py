@@ -139,6 +139,77 @@ async def test_multiple_jobs_are_independent() -> None:
     assert len(registry) == 0
 
 
+@pytest.mark.asyncio
+async def test_consumer_disconnect_cancels_running_task() -> None:
+    """Abandoning the stream mid-import cancels the background task.
+
+    Rule (#237.3): when the SSE consumer disconnects before the stream is
+    finished, the import must NOT keep running to completion server-side —
+    the registry cancels the job's task on the disconnect path.
+    """
+    registry = JobRegistry()
+    cancelled = asyncio.Event()
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            try:
+                await queue.put({"phase": "wfs", "done": 0, "total": 5})
+                await asyncio.sleep(3600)  # the long-running import body
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        return run()
+
+    job_id = registry.start(factory)
+
+    stream = registry.stream(job_id)
+    first = await stream.__anext__()
+    assert first == {"phase": "wfs", "done": 0, "total": 5}
+
+    # Consumer bails early — aclose() throws GeneratorExit into the
+    # generator at its suspension point, the same path an SSE client
+    # abort takes through StreamingResponse.
+    await stream.aclose()
+
+    # The still-running task must be cancelled, not left running.
+    await asyncio.wait_for(cancelled.wait(), timeout=1.0)
+    assert job_id not in registry._jobs  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_normal_completion_does_not_cancel_task() -> None:
+    """Draining the stream to the sentinel leaves the finished task alone.
+
+    Rule (#237.3): the disconnect-cancel must not fire on the happy path —
+    the stream ended because the task itself completed (sentinel received),
+    so no cancellation is issued.
+    """
+    registry = JobRegistry()
+    tasks: list[asyncio.Task] = []
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            tasks.append(asyncio.current_task())
+            await queue.put({"type": "done", "imported": 1})
+            await queue.put(None)  # sentinel
+
+        return run()
+
+    job_id = registry.start(factory)
+
+    collected: list[dict] = []
+    async for ev in registry.stream(job_id):
+        collected.append(ev)
+
+    # Let the task run to completion after the sentinel was consumed.
+    await asyncio.sleep(0)
+
+    assert collected == [{"type": "done", "imported": 1}]
+    assert tasks[0].done()
+    assert tasks[0].cancelled() is False
+
+
 def _raising_factory(exc: Exception) -> callable:
     """Return a factory whose coroutine raises *exc* without emitting a sentinel."""
 

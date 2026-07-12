@@ -128,7 +128,11 @@ class JobRegistry(GroundModelLogger):
 
         Yields each event dict in order.  Returns when the sentinel
         ``None`` is received (the task finished) or when the caller
-        abandons the generator (SSE client disconnect).
+        abandons the generator (SSE client disconnect).  On the disconnect
+        path the still-running background task is CANCELLED — an abandoned
+        stream must not leave a ~60 s cold-cache import running to
+        completion server-side (#237.3).  XML files already written to the
+        on-disk DOV cache are preserved, so a re-import is cache-warm.
 
         Parameters
         ----------
@@ -146,15 +150,28 @@ class JobRegistry(GroundModelLogger):
             If no job with that id exists.
         """
         entry = self._jobs[job_id]
+        finished = False
         try:
             while True:
                 event = await entry.queue.get()
                 if event is None:
+                    finished = True
                     break
                 yield event
         finally:
             # Clean up regardless of normal exit or client disconnect.
             self._jobs.pop(job_id, None)
+            # Consumer bailed early (SSE client abort) while the producer is
+            # still running → cancel the import.  Gated on task-not-done so
+            # the happy path where the client closes the stream right after
+            # the final "done" event (task already finished, sentinel still
+            # unread) never cancels a completed task.
+            if not finished and not entry.task.done():
+                entry.task.cancel()
+                self.info(
+                    f"job {job_id}: SSE consumer disconnected before the stream "
+                    "finished — background task cancelled"
+                )
 
     def cancel(self, job_id: UUID) -> bool:
         """Cancel a background task and remove it from the registry.
