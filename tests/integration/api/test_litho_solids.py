@@ -1,26 +1,23 @@
-"""Integration tests for the litho-3D solid API endpoints (Task 5, litho-3D).
+"""Integration tests for the litho-3D solid API endpoints.
 
 Coverage
 --------
-LS-1  GET .../litho-solids returns an empty list when no rebuild has run.
-LS-2  POST .../litho-solids/rebuild builds at least one solid for a model
-      that has a valid body (3 non-collinear boreholes with accepted layers +
-      approved correlation edges).  The rebuilt list contains one row with
-      non-empty ``vertices`` and ``triangles`` and ``is_stale=False``.
-LS-3  GET .../litho-solids after the rebuild returns the same solid(s) as
-      the ``solids`` key in the rebuild response — confirming the DB write.
+LS-1  GET .../litho-solids returns an empty list when no build has run.
+LS-2  GET .../litho-solids returns seeded solid rows with the joined
+      ``display_color`` / ``body_ordinal`` body attributes.
 LS-4  PATCH .../bodies/{body_id}/color persists ``display_color`` and a
       subsequent GET returns the updated colour in the solid response.
-LS-5  A flagged body (only 2 picks — cannot form a watertight solid) is
-      returned without error: ``is_flagged=True`` and
-      ``vertices``/``triangles`` are non-empty (a degenerate slab, not
-      empty lists) — the response schema must tolerate this shape without
-      FastAPI ResponseValidationError.
 LS-6  GET .../litho-solids returns 404 when the model belongs to a
       different project (cross-project IDOR guard).
-LS-7  POST .../litho-solids/rebuild returns 404 on wrong-project model.
 LS-8  PATCH .../bodies/{body_id}/color returns 404 when body belongs to a
       different project.
+
+The scenes seed ``BodyOrm`` + ``LithoBodySolidOrm`` rows directly — the
+build path itself (``POST .../litho-solids/build-voxel``) has its own
+end-to-end coverage in ``test_build_voxel.py``.  (The retired implicit
+strat-field ``POST .../litho-solids/rebuild`` endpoint and its LS-2/3/5/7
+tests were deleted with the strat_field builder — #237; git history has
+them.)
 """
 
 from __future__ import annotations
@@ -33,104 +30,53 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
-    LithoContactCorrelationEdgeOrm,
-)
-from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
-# ---------------------------------------------------------------------------
-# Builder helpers (mirror test_recompute_litho_solids.py)
-# ---------------------------------------------------------------------------
+# A minimal watertight-ish mesh payload — the API passes the JSONB arrays
+# through verbatim, so a single triangle is enough to exercise the shape.
+_VERTICES = [[150000.0, 200000.0, 5.0], [150010.0, 200000.0, 5.0], [150005.0, 200010.0, 5.0]]
+_TRIANGLES = [[0, 1, 2]]
 
 
-def _borehole(
+def _body(
     project_id: UUID,
+    model_id: UUID,
+    formation_id: UUID,
     *,
-    suffix: str,
-    x: float,
-    y: float = 200000.0,
-    elev: float = 5.0,
-) -> BoreholeOrm:
-    """Unsaved borehole with valid coordinates."""
-    return BoreholeOrm(
-        id=uuid7(),
-        name=f"BH-LS-{suffix}",
-        app_project_id=project_id,
-        project_id="LS",
-        test_id=f"BH-LS-{suffix}",
-        location_x=x,
-        location_y=y,
-        elevation_m=elev,
-        epsg=31370,
-        total_depth_m=20.0,
-    )
-
-
-def _layer(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
-    *,
-    top: float,
-    base: float,
-    status: str = "accepted",
-) -> LithoLayerOrm:
-    """Unsaved ``LithoLayerOrm`` anchored to *borehole*."""
-    return LithoLayerOrm(
-        id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=top,
-        depth_base_m=base,
-        status=status,
-        source="manual",
-        confidence="medium",
-    )
-
-
-def _edge(
-    model: GeologicalModelOrm,
-    layer_a: LithoLayerOrm,
-    layer_b: LithoLayerOrm,
-    section_id: UUID,
-) -> LithoContactCorrelationEdgeOrm:
-    """Approved correlation edge between two layers."""
-    return LithoContactCorrelationEdgeOrm(
-        id=uuid7(),
-        model_id=model.id,
-        section_id=section_id,
-        contact_a_id=layer_a.id,
-        contact_b_id=layer_b.id,
-        source="manual",
-        user_approved=True,
-    )
-
-
-async def _seed_section(db_session: AsyncSession, project_id: UUID) -> UUID:
-    """Insert a minimal cross-section row and return its id."""
-    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
-
-    sec = CrossSectionOrm(
+    ordinal: int = 0,
+) -> BodyOrm:
+    """Unsaved ``BodyOrm`` row (the resolver's product, seeded directly)."""
+    return BodyOrm(
         id=uuid7(),
         app_project_id=project_id,
-        name="S-LS",
-        start_x=149000.0,
-        start_y=200000.0,
-        end_x=151000.0,
-        end_y=200000.0,
-        epsg=31370,
-        projection_buffer_m=200.0,
+        model_id=model_id,
+        formation_id=formation_id,
+        body_ordinal=ordinal,
+        source_investigation_id=uuid7(),
     )
-    db_session.add(sec)
-    await db_session.flush()
-    return sec.id
+
+
+def _solid(model_id: UUID, body: BodyOrm, formation_id: UUID) -> LithoBodySolidOrm:
+    """Unsaved cached solid row for *body* (method ``voxel``)."""
+    return LithoBodySolidOrm(
+        id=uuid7(),
+        model_id=model_id,
+        body_id=body.id,
+        formation_id=formation_id,
+        method="voxel",
+        vertices=_VERTICES,
+        triangles=_TRIANGLES,
+        source_pick_count=3,
+        source_pick_checksum=b"\x00" * 16,
+        is_stale=False,
+        is_flagged=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -173,92 +119,42 @@ async def scene(db_session: AsyncSession) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Scene with a valid 3-borehole body (can form a real solid)
+# Scene with a seeded body + cached solid row
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture
 async def solid_scene(db_session: AsyncSession, scene: dict) -> dict:
-    """Extends ``scene`` with 3 non-collinear boreholes + accepted layers +
-    approved correlation edges so ``RecomputeLithoSolids`` produces one
-    real (non-flagged) solid.
+    """Extends ``scene`` with one ``BodyOrm`` + one cached ``LithoBodySolidOrm``.
 
-    Returns the ``scene`` dict extended with keys: bh_a, bh_b, bh_c,
-    la, lb, lc, section_id.
+    Returns the ``scene`` dict extended with keys: body, solid.
     """
     proj = scene["project"]
     litho = scene["litho"]
     f = scene["formation"]
-    section_id = await _seed_section(db_session, proj.id)
 
-    # Non-collinear anchors — y differs so the 3 points are not coplanar
-    # in the horizontal projection → compute_tin produces a real surface.
-    bh_a = _borehole(proj.id, suffix="A", x=150000.0, y=200000.0, elev=5.0)
-    bh_b = _borehole(proj.id, suffix="B", x=150200.0, y=200000.0, elev=4.8)
-    bh_c = _borehole(proj.id, suffix="C", x=150100.0, y=200080.0, elev=5.2)
-    db_session.add_all([bh_a, bh_b, bh_c])
+    body = _body(proj.id, litho.id, f.id)
+    db_session.add(body)
     await db_session.flush()
 
-    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
-    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
-    lc = _layer(litho, f, bh_c, top=1.9, base=4.9)
-    db_session.add_all([la, lb, lc])
-    await db_session.flush()
-
-    edge_ab = _edge(litho, la, lb, section_id)
-    edge_bc = _edge(litho, lb, lc, section_id)
-    db_session.add_all([edge_ab, edge_bc])
+    solid = _solid(litho.id, body, f.id)
+    db_session.add(solid)
     await db_session.commit()
 
-    return {**scene, "bh_a": bh_a, "bh_b": bh_b, "bh_c": bh_c, "la": la, "lb": lb, "lc": lc}
+    return {**scene, "body": body, "solid": solid}
 
 
 # ---------------------------------------------------------------------------
-# Scene with an under-constrained 2-borehole body (flagged slab)
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture
-async def flagged_scene(db_session: AsyncSession, scene: dict) -> dict:
-    """Extends ``scene`` with 2 boreholes + accepted layers + one edge.
-
-    A 2-pick body cannot form a valid TIN; the builder emits a flagged
-    slab (``is_flagged=True``).  Tests that the API does not blow up on
-    this shape (ResponseValidationError trap).
-    """
-    proj = scene["project"]
-    litho = scene["litho"]
-    f = scene["formation"]
-    section_id = await _seed_section(db_session, proj.id)
-
-    bh_a = _borehole(proj.id, suffix="F1", x=150000.0, elev=5.0)
-    bh_b = _borehole(proj.id, suffix="F2", x=150200.0, elev=4.8)
-    db_session.add_all([bh_a, bh_b])
-    await db_session.flush()
-
-    la = _layer(litho, f, bh_a, top=2.0, base=5.0)
-    lb = _layer(litho, f, bh_b, top=2.1, base=5.1)
-    db_session.add_all([la, lb])
-    await db_session.flush()
-
-    edge_ab = _edge(litho, la, lb, section_id)
-    db_session.add(edge_ab)
-    await db_session.commit()
-
-    return {**scene, "bh_a": bh_a, "bh_b": bh_b}
-
-
-# ---------------------------------------------------------------------------
-# LS-1: empty list before rebuild
+# LS-1: empty list before any build
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_list_litho_solids_empty_before_rebuild(
+async def test_list_litho_solids_empty_before_build(
     async_client: AsyncClient,
     scene: dict,
 ) -> None:
-    """GET .../litho-solids must return an empty list when no rebuild has run."""
+    """GET .../litho-solids must return an empty list when no build has run."""
     proj = scene["project"]
     litho = scene["litho"]
 
@@ -268,76 +164,35 @@ async def test_list_litho_solids_empty_before_rebuild(
 
 
 # ---------------------------------------------------------------------------
-# LS-2: rebuild produces at least one solid with geometry
+# LS-2: seeded solid rows come back with joined body attributes
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_rebuild_produces_solid_with_geometry(
+async def test_list_litho_solids_returns_seeded_rows(
     async_client: AsyncClient,
     solid_scene: dict,
 ) -> None:
-    """POST .../litho-solids/rebuild must return ≥1 solid with non-empty
-    vertices + triangles and ``is_stale=False`` for a valid 3-borehole body.
-    """
+    """GET .../litho-solids returns the cached rows + BodyOrm join columns."""
     proj = solid_scene["project"]
     litho = solid_scene["litho"]
+    body = solid_scene["body"]
+    solid = solid_scene["solid"]
 
-    resp = await async_client.post(
-        f"/projects/{proj.id}/geology/models/{litho.id}/litho-solids/rebuild"
-    )
+    resp = await async_client.get(f"/projects/{proj.id}/geology/models/{litho.id}/litho-solids")
     assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    assert data["bodies_considered"] >= 1
-    assert data["bodies_built"] >= 1
-    assert data["bodies_flagged"] == 0, "3 non-collinear boreholes must produce a non-flagged solid"
-
-    solids = data["solids"]
-    assert len(solids) >= 1, "At least one solid must be in the response"
-
-    solid = solids[0]
-    assert solid["is_stale"] is False
-    assert solid["is_flagged"] is False
-    assert len(solid["vertices"]) > 0
-    assert len(solid["triangles"]) > 0
-    # body_ordinal must be present and be an integer (resolver assigns 0 for
-    # the first body per formation in a fresh model).
-    assert isinstance(solid["body_ordinal"], int), (
-        f"body_ordinal must be an int; got {solid['body_ordinal']!r}"
-    )
-    assert solid["body_ordinal"] == 0, "Only one body in this formation → ordinal must be 0"
-
-
-# ---------------------------------------------------------------------------
-# LS-3: GET after rebuild returns same solids as rebuild response
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_get_after_rebuild_returns_persisted_solids(
-    async_client: AsyncClient,
-    solid_scene: dict,
-) -> None:
-    """GET .../litho-solids after a rebuild must return the same solid(s) that
-    the rebuild response included — confirming the DB write persisted.
-    """
-    proj = solid_scene["project"]
-    litho = solid_scene["litho"]
-    base = f"/projects/{proj.id}/geology/models/{litho.id}"
-
-    rebuild_resp = await async_client.post(f"{base}/litho-solids/rebuild")
-    assert rebuild_resp.status_code == 200, rebuild_resp.text
-    rebuild_solids = rebuild_resp.json()["solids"]
-
-    get_resp = await async_client.get(f"{base}/litho-solids")
-    assert get_resp.status_code == 200, get_resp.text
-    get_solids = get_resp.json()
-
-    # Same ids — order may differ.
-    rebuild_ids = {s["id"] for s in rebuild_solids}
-    get_ids = {s["id"] for s in get_solids}
-    assert rebuild_ids == get_ids, f"Rebuild returned ids {rebuild_ids}; GET returned {get_ids}"
+    rows = resp.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["id"] == str(solid.id)
+    assert row["body_id"] == str(body.id)
+    assert row["method"] == "voxel"
+    assert row["is_stale"] is False
+    assert row["is_flagged"] is False
+    assert row["body_ordinal"] == 0
+    assert row["display_color"] is None
+    assert len(row["vertices"]) == 3
+    assert len(row["triangles"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -356,15 +211,8 @@ async def test_patch_body_color_persists_and_appears_in_get(
     """
     proj = solid_scene["project"]
     litho = solid_scene["litho"]
+    body_id = str(solid_scene["body"].id)
     base = f"/projects/{proj.id}/geology/models/{litho.id}"
-
-    # Rebuild first so solid rows exist.
-    rebuild_resp = await async_client.post(f"{base}/litho-solids/rebuild")
-    assert rebuild_resp.status_code == 200, rebuild_resp.text
-    solids = rebuild_resp.json()["solids"]
-    assert solids, "Precondition: at least one solid must exist after rebuild"
-
-    body_id = solids[0]["body_id"]
 
     # Patch the colour.
     patch_resp = await async_client.patch(
@@ -400,40 +248,7 @@ async def test_patch_body_color_persists_and_appears_in_get(
 
 
 # ---------------------------------------------------------------------------
-# LS-5: flagged body does not cause ResponseValidationError
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_flagged_body_returned_without_error(
-    async_client: AsyncClient,
-    flagged_scene: dict,
-) -> None:
-    """POST .../litho-solids/rebuild on a 2-pick body must return 200 with
-    ``is_flagged=True`` — not a 500 ResponseValidationError.
-
-    The response schema must tolerate non-empty lists for a flagged slab
-    (the builder emits a degenerate slab with vertices + triangles even
-    for flagged bodies; the important check is that the endpoint does not
-    crash on this shape).
-    """
-    proj = flagged_scene["project"]
-    litho = flagged_scene["litho"]
-
-    resp = await async_client.post(
-        f"/projects/{proj.id}/geology/models/{litho.id}/litho-solids/rebuild"
-    )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    assert data["bodies_flagged"] >= 1
-    solids = data["solids"]
-    assert solids, "A flagged solid row must be written"
-    assert solids[0]["is_flagged"] is True
-
-
-# ---------------------------------------------------------------------------
-# LS-6 / LS-7 / LS-8: cross-project IDOR guards
+# LS-6 / LS-8: cross-project IDOR guards
 # ---------------------------------------------------------------------------
 
 
@@ -441,7 +256,7 @@ async def test_flagged_body_returned_without_error(
 async def idor_scene(db_session: AsyncSession) -> dict:
     """Two independent projects.
 
-    project_a: litho model + 3 boreholes + solid body.
+    project_a: litho model + seeded body + cached solid.
     project_b: litho model (empty).
 
     IDOR tests hit project_a endpoints using project_b's id.
@@ -472,22 +287,10 @@ async def idor_scene(db_session: AsyncSession) -> dict:
     db_session.add(formation_a)
     await db_session.flush()
 
-    section_id = await _seed_section(db_session, proj_a.id)
-    bh_a = _borehole(proj_a.id, suffix="IA", x=150000.0, y=200000.0, elev=5.0)
-    bh_b = _borehole(proj_a.id, suffix="IB", x=150200.0, y=200000.0, elev=4.8)
-    bh_c = _borehole(proj_a.id, suffix="IC", x=150100.0, y=200080.0, elev=5.2)
-    db_session.add_all([bh_a, bh_b, bh_c])
+    body_a = _body(proj_a.id, litho_a.id, formation_a.id)
+    db_session.add(body_a)
     await db_session.flush()
-
-    la = _layer(litho_a, formation_a, bh_a, top=2.0, base=5.0)
-    lb = _layer(litho_a, formation_a, bh_b, top=2.1, base=5.1)
-    lc = _layer(litho_a, formation_a, bh_c, top=1.9, base=4.9)
-    db_session.add_all([la, lb, lc])
-    await db_session.flush()
-
-    edge_ab = _edge(litho_a, la, lb, section_id)
-    edge_bc = _edge(litho_a, lb, lc, section_id)
-    db_session.add_all([edge_ab, edge_bc])
+    db_session.add(_solid(litho_a.id, body_a, formation_a.id))
 
     # ---- project B ---------------------------------------------------------
     proj_b = ProjectOrm(id=uuid7(), name="LS-IDOR-B", status="active")
@@ -508,9 +311,9 @@ async def idor_scene(db_session: AsyncSession) -> dict:
     return {
         "proj_a": proj_a,
         "litho_a": litho_a,
+        "body_a": body_a,
         "proj_b": proj_b,
         "litho_b": litho_b,
-        "bh_a": bh_a,
     }
 
 
@@ -528,42 +331,14 @@ async def test_get_litho_solids_wrong_project_returns_404(
 
 
 @pytest.mark.asyncio
-async def test_rebuild_litho_solids_wrong_project_returns_404(
-    async_client: AsyncClient,
-    idor_scene: dict,
-) -> None:
-    """LS-7: POST .../litho-solids/rebuild with mismatched project_id must return 404."""
-    proj_b = idor_scene["proj_b"]
-    litho_a = idor_scene["litho_a"]
-
-    resp = await async_client.post(
-        f"/projects/{proj_b.id}/geology/models/{litho_a.id}/litho-solids/rebuild"
-    )
-    assert resp.status_code == 404, resp.text
-
-
-@pytest.mark.asyncio
 async def test_patch_body_color_wrong_project_returns_404(
     async_client: AsyncClient,
     idor_scene: dict,
 ) -> None:
-    """LS-8: PATCH .../bodies/{body_id}/color with mismatched project_id must return 404.
-
-    First rebuild in project_a to materialise a body row, then attempt the
-    PATCH using project_b's id in the URL.
-    """
-    proj_a = idor_scene["proj_a"]
+    """LS-8: PATCH .../bodies/{body_id}/color with mismatched project_id must return 404."""
     proj_b = idor_scene["proj_b"]
     litho_a = idor_scene["litho_a"]
-
-    # Build a solid in project_a so a body row exists.
-    rebuild_resp = await async_client.post(
-        f"/projects/{proj_a.id}/geology/models/{litho_a.id}/litho-solids/rebuild"
-    )
-    assert rebuild_resp.status_code == 200, rebuild_resp.text
-    solids = rebuild_resp.json()["solids"]
-    assert solids, "Precondition: rebuild must produce at least one solid"
-    body_id = solids[0]["body_id"]
+    body_id = str(idor_scene["body_a"].id)
 
     # PATCH using project_b's id — must be 404, not 200.
     patch_resp = await async_client.patch(

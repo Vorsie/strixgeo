@@ -8,11 +8,13 @@ from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodyS
 
 
 class RebuildLithoSolidsResponse(BaseModel):
-    """Result of ``POST .../litho-solids/rebuild``.
+    """Result of ``POST .../litho-solids/build-voxel``.
 
     Mirrors the shape of :class:`RebuildSurfacesResponse` for the
     geological TIN pipeline, extended with the freshly rebuilt solid
     list so the frontend can update its cache in a single round-trip.
+    (The name predates the voxel builder: the retired strat-field
+    ``rebuild`` endpoint returned the same shape.)
 
     Attributes
     ----------

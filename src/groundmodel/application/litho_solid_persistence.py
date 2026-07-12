@@ -1,32 +1,29 @@
 """Shared persistence for the litho-3D solid cache (``litho_body_solid``).
 
-Both builders that materialise the 3-D model — the implicit-stratigraphic
-:class:`~groundmodel.application.recompute_litho_solids.RecomputeLithoSolids`
-and the voxel
-:class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel` —
-write watertight :class:`~groundmodel.domain.value_objects.litho_body_mesh.LithoBodyMesh`
-objects into the SAME ``litho_body_solid`` cache table with the SAME upsert /
-orphan-delete / model-level-checksum semantics.  Only the build INPUT differs
-(picks → implicit field vs. section partitions → voxel labelling); the
-persistence is identical, so it lives here as one shared implementation rather
-than two drifting copies.
+The voxel builder
+(:class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`)
+writes watertight
+:class:`~groundmodel.domain.value_objects.litho_body_mesh.LithoBodyMesh`
+objects into the ``litho_body_solid`` cache table with upsert /
+orphan-delete / model-level-checksum semantics.
 
 This module carries:
 
-* :class:`LithoSolidsOutcome` — the per-phase count summary both use cases
-  return (the API maps it onto ``RebuildLithoSolidsResponse``).
+* :class:`LithoSolidsOutcome` — the per-phase count summary the use case
+  returns (the API maps it onto ``RebuildLithoSolidsResponse``).
 * :func:`storage_body_id` — maps a mesh ``body_id`` token to the stored UUID
   (real UUIDs pass through; synthetic tokens get a deterministic ``uuid5``).
 * :class:`LithoSolidPersistenceMixin` — the upsert / load-existing /
   digest-compare / orphan-delete / mesh-row helpers, parameterised by the
-  ``_solid_method`` class attribute (``"strat"`` / ``"voxel"``) each use case
-  sets.  A use case mixes it in alongside its build logic.
+  ``_solid_method`` class attribute (``"voxel"``) the use case sets.  A use
+  case mixes it in alongside its build logic.
 
-Pre-extraction history: these helpers lived inline on ``RecomputeLithoSolids``
-(method ``"strat"`` hard-coded).  Promoted to a shared mixin when the voxel
-builder became a second caller of the byte-identical upsert path (the
-"extract on the second copy" rule); the only per-builder difference — the
-``method`` column value — is parameterised, not duplicated.
+Pre-extraction history: these helpers lived inline on the retired implicit
+strat-field builder (``RecomputeLithoSolids``, method ``"strat"``
+hard-coded; deleted with the strat_field package — git history has it).
+Promoted to a shared mixin when the voxel builder became a second caller of
+the byte-identical upsert path; the mixin stays because it keeps the
+persistence contract separable from the build logic.
 """
 
 from __future__ import annotations

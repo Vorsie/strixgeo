@@ -7,9 +7,12 @@ Endpoints
 GET  /models/{mid}/litho-solids
     List all cached ``LithoBodySolidOrm`` rows for the model.
 
-POST /models/{mid}/litho-solids/rebuild
-    Trigger ``RecomputeLithoSolids`` (on-click build) and return the
-    freshly rebuilt solid list alongside outcome counts.
+POST /models/{mid}/litho-solids/build-voxel
+    Trigger ``BuildVoxelLithoModel`` (on-click build) from the frontend's
+    validated 2-D partitions and return the freshly built solid list
+    alongside outcome counts.  (The retired implicit strat-field
+    ``POST .../litho-solids/rebuild`` sibling was deleted with the
+    strat_field builder — #237; git history has it.)
 
 PATCH /models/{mid}/bodies/{body_id}/color
     Update ``BodyOrm.display_color`` for a body.  Additive endpoint —
@@ -41,11 +44,9 @@ from groundmodel.api.schemas.project.rebuild_litho_solids_response import (
 from groundmodel.api.schemas.project.voxel_build_request import VoxelBuildRequest
 from groundmodel.application.build_voxel_litho_model import BuildVoxelLithoModel
 from groundmodel.application.litho_solid_persistence import LithoSolidsOutcome
-from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
-from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
@@ -175,8 +176,8 @@ async def list_litho_solids(
     Returns
     -------
     list[LithoBodySolidResponse]
-        All cached solid rows for this model (may be empty when
-        ``RecomputeLithoSolids`` has not run yet).
+        All cached solid rows for this model (may be empty when no
+        build has run yet).
 
     Raises
     ------
@@ -204,74 +205,6 @@ async def list_litho_solids(
     return result
 
 
-# ---------------------------------------------------------------------------
-# POST /models/{model_id}/litho-solids/rebuild
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/litho-solids/rebuild",
-    response_model=RebuildLithoSolidsResponse,
-)
-async def rebuild_litho_solids(
-    project_id: UUID,
-    model_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> RebuildLithoSolidsResponse:
-    """Recompute the 3-D solid cache for every body in this lithostratigraphic model.
-
-    The PRIMARY way the user materialises the lithostratigraphic model
-    into a 3-D solid mesh.  Per-contact mutations flip ``is_stale=True``
-    (cheap DB flag, no triangulation); only this endpoint re-triangulates.
-    Calling on a clean model is idempotent (``bodies_built=0``).
-
-    Runs ``RecomputeLithoSolids`` with ``force=True`` so an explicit Build
-    always re-triangulates even when the pick-set checksum has not changed
-    (a TIN-algorithm update would otherwise be invisible to the user).
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        The lithostratigraphic model — must belong to ``project_id``.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    RebuildLithoSolidsResponse
-        Outcome counts + the freshly rebuilt solid list (equivalent to
-        calling ``GET .../litho-solids`` immediately after, bundled here
-        to save a round-trip).
-
-    Raises
-    ------
-    HTTPException(404)
-        When the model does not belong to the project.
-    """
-    logger.info(f"POST /projects/{project_id}/geology/models/{model_id}/litho-solids/rebuild")
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Model not found",
-    )
-
-    # Read the per-project snap tolerance so geological bounding uses the
-    # same threshold the user configured in Settings → Litho segmenter.
-    project = await session.get(ProjectOrm, project_id)
-    view_state = project.view_state if project is not None else {}
-    snap_tol = float((view_state.get("litho_segmenter") or {}).get("litho_snap_tolerance_m", 0.20))
-
-    outcome = await RecomputeLithoSolids(session).execute(
-        model_id, force=True, litho_snap_tolerance_m=snap_tol
-    )
-
-    return await _build_rebuild_response(
-        session, project_id, model_id, outcome, log_label="rebuild"
-    )
-
-
 async def _build_rebuild_response(
     session: AsyncSession,
     project_id: UUID,
@@ -282,11 +215,10 @@ async def _build_rebuild_response(
 ) -> RebuildLithoSolidsResponse:
     """Load the rebuilt solid list + assemble the bundled rebuild response.
 
-    Shared tail of both the strat ``rebuild`` and the ``build-voxel`` endpoints:
-    after a build use case commits, both load the freshly persisted solid rows
-    (joining ``display_color`` / ``body_ordinal`` from ``BodyOrm``) and bundle
-    them with the outcome counts so the frontend updates its cache in one
-    round-trip.
+    Tail of the ``build-voxel`` endpoint: after the build use case commits,
+    load the freshly persisted solid rows (joining ``display_color`` /
+    ``body_ordinal`` from ``BodyOrm``) and bundle them with the outcome
+    counts so the frontend updates its cache in one round-trip.
 
     Parameters
     ----------
@@ -355,12 +287,12 @@ async def build_voxel_litho_solids(
 ) -> RebuildLithoSolidsResponse:
     """Build the 3-D litho-solid cache from the validated 2-D voxel partitions.
 
-    The voxel sibling of ``POST .../litho-solids/rebuild``.  Where ``rebuild``
-    fits an implicit field through the DB picks, this endpoint takes the
-    frontend's validated ``computeSectionFill`` partitions (the source of truth)
-    and labels a 3-D voxel grid from them, then extracts each body's watertight
-    greedy-meshed boundary — watertight AND faithful by construction (a labelling
-    of space is a partition, so interfingering / pinch-out is representable).
+    The PRIMARY way the user materialises the lithostratigraphic model into a
+    3-D solid mesh.  Takes the frontend's validated ``computeSectionFill``
+    partitions (the source of truth) and labels a 3-D voxel grid from them,
+    then extracts each body's watertight greedy-meshed boundary — watertight
+    AND faithful by construction (a labelling of space is a partition, so
+    interfingering / pinch-out is representable).
 
     The Pydantic request is converted to the frozen domain value objects before
     the use case runs (the clean-architecture boundary).  ``force`` defaults to
@@ -383,8 +315,9 @@ async def build_voxel_litho_solids(
     Returns
     -------
     RebuildLithoSolidsResponse
-        Outcome counts + the freshly built solid list (same shape as
-        ``rebuild`` so the frontend consumes both identically).
+        Outcome counts + the freshly built solid list (equivalent to calling
+        ``GET .../litho-solids`` immediately after, bundled to save a
+        round-trip).
 
     Raises
     ------

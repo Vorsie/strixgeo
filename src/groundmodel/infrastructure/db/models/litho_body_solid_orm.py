@@ -34,9 +34,9 @@ class LithoBodySolidOrm(Base):
     the solid for this body" without re-running the triangulation on
     every render.
 
-    Recomputed by the ``RecomputeLithoSolids`` use case, which is
-    triggered explicitly (on-click build) or as part of bundle
-    restore. The ``source_pick_checksum`` enables a short-circuit:
+    Recomputed by the ``BuildVoxelLithoModel`` use case, which is
+    triggered explicitly (on-click build). The
+    ``source_pick_checksum`` enables a short-circuit:
     if the pick-set hash matches the stored hash the solid is already
     current and the triangulation is skipped, mirroring exactly the
     ``RecomputeFormationSurface`` pattern.
@@ -89,8 +89,8 @@ class LithoBodySolidOrm(Base):
         ForeignKey("geological_model.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # NOT an FK: the litho-3D build (RecomputeLithoSolids) may store geology-split
-    # bodies under synthesized uuid5(parent_body_id, band) ids that are NOT rows in
+    # NOT an FK: the litho-3D build may store geology-split bodies under
+    # synthesized uuid5(parent_body_id, band) ids that are NOT rows in
     # the `body` table (build-only 3D cache; the geological/body model is untouched).
     # The (model_id, body_id) unique constraint + idx_litho_body_solid_model stay.
     body_id: Mapped[UUID] = mapped_column(

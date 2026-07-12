@@ -42,7 +42,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     SectionColumnInput,
     SectionPartitionInput,
 )
-from tests.unit.domain.services.strat_field.strat_invariants import (
+from tests.unit.domain.services.voxel_litho.strat_invariants import (
     assert_closed_manifold,
     assert_no_overlap_sampled,
     vertical_ray_intervals,

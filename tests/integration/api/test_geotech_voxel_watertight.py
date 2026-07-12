@@ -73,7 +73,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from tests.unit.domain.services.strat_field.strat_invariants import (
+from tests.unit.domain.services.voxel_litho.strat_invariants import (
     assert_no_overlap_sampled,
     vertical_ray_intervals,
 )

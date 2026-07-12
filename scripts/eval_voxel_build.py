@@ -71,7 +71,7 @@ from groundmodel.infrastructure.db.models.litho_body_solid_orm import (  # noqa:
 )
 from groundmodel.shared.config import settings  # noqa: E402
 from scripts.eval_voxel_label import _load_sections  # noqa: E402
-from tests.unit.domain.services.strat_field.strat_invariants import (  # noqa: E402
+from tests.unit.domain.services.voxel_litho.strat_invariants import (  # noqa: E402
     assert_no_overlap_sampled,
 )
 

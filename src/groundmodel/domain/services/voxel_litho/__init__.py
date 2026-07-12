@@ -5,8 +5,8 @@ voxel grid from the frontend's validated 2-D section partition
 (``computeSectionFill``), then extracting each body's greedy-meshed
 cell-boundary.  Watertight + faithful by construction: a labelling of
 space IS a partition, and a voxel may carry any body, so interfingering
-is representable (unlike the implicit ``strat_field`` builder, which
-monotone-clamps to a layer-cake).
+is representable (unlike the retired implicit strat-field builder, which
+monotone-clamped to a layer-cake; deleted 2026-07-12 — git history has it).
 
 Modules
 -------

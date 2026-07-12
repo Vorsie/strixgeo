@@ -16,10 +16,9 @@ Notes
 -----
 The approved exception to "one class per file" applies here: all four
 value objects are grouped in this single module because they form a
-single cohesive vocabulary (the build-request contract), matching the
-sibling ``strat_field/strat_types.py`` and ``strat_field/lens_types.py``
-pattern (analogous to ``shared/exceptions.py``).  Constants (if needed
-later) go in a sibling ``voxel_constants.py``.
+single cohesive vocabulary (the build-request contract), analogous to
+``shared/exceptions.py``.  Constants (if needed later) go in a sibling
+``voxel_constants.py``.
 """
 
 from __future__ import annotations

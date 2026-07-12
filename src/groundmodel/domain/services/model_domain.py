@@ -1,7 +1,7 @@
 """Model-domain geometry: alpha hull, deep-base surface, and ModelDomain.
 
 This module provides the lateral and vertical bounds of the 3-D litho model
-domain used by the implicit stratigraphic builder (``strat_field/``):
+domain used by the voxel litho builder (``voxel_litho/``):
 
 * ``alpha_hull_polygon`` — the concave footprint of the participating tests.
 * ``deep_reaching_mask`` — which tests reach the deepest stratigraphic band
@@ -14,8 +14,9 @@ domain used by the implicit stratigraphic builder (``strat_field/``):
     through the DEEPEST-reaching tests only; shallow tests do not locally
     truncate the domain)?
 
-``build_model_domain`` is called by ``AssembleStratInputs`` to frame the
-``Block`` passed to ``build_strat_model``.
+``build_model_domain`` is called by
+``voxel_litho.build_domain_from_sections`` to frame the voxel grid's
+footprint and vertical extent.
 
 Domain-layer purity
 -------------------

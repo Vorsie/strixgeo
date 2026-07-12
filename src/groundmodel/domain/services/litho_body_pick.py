@@ -1,9 +1,9 @@
 """Shared ``BodyLayerPick`` dataclass used across the litho-3D builder pipeline.
 
-Each pick is one body member-layer at one investigation.  The watertight-loft
-pipeline loads these (``LithoLayerRepository.load_body_picks``) for the geology
-bounding transforms (:mod:`litho_geo_bounding`) and the section-less / no-picks
-short-circuit in ``RecomputeLithoSolids``.  Lives in its own module so the
+Each pick is one body member-layer at one investigation.  The builders load
+these (``LithoLayerRepository.load_body_picks``) for the geology bounding
+transforms (:mod:`litho_geo_bounding`), the voxel builder's honor-borehole
+columns, and the geotech subdivision.  Lives in its own module so the
 repository and the geo-bounding service can both import it without a cycle.
 """
 

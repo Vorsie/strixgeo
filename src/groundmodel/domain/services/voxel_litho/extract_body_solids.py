@@ -10,9 +10,10 @@ each body's voxel-set boundary is closed, and because any voxel can carry any
 body the extracted geometry represents interfingering / pinch-out exactly (the
 implicit field could not).
 
-The boundary is the 3-D analogue of the 2-D-raster XOR-mask boundary in
-``strat_field.body_assembly._build_component_mesh``: a voxel face appears in the
-mesh iff the body is present on one side of the face and absent on the other (the
+The boundary is the 3-D analogue of the 2-D-raster XOR-mask boundary the
+retired strat-field builder used (``body_assembly._build_component_mesh`` —
+git history has it): a voxel face appears in the mesh iff the body is present
+on one side of the face and absent on the other (the
 ``present & ~shift(present)`` rule).  Every interior face cancels (present on
 both sides), every boundary face appears once → closed by construction.
 

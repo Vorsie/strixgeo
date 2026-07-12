@@ -14,8 +14,8 @@ per-voxel geo-band-aware labeller) consumes:
 
 Design notes
 ------------
-* **Band-index rule** — ported verbatim from
-  :func:`~groundmodel.domain.services.strat_field.geo_blocks._band_index`:
+* **Band-index rule** — ported verbatim from the retired strat-field
+  builder's ``geo_blocks._band_index`` (deleted — git history has it):
   band index = number of surfaces whose elevation at ``(x, y)`` is strictly
   ABOVE the query elevation ``z``.  Strict ``>`` means a point exactly on a
   surface belongs to the deeper band.
@@ -29,23 +29,20 @@ Design notes
   assumption), so a local sort at the query point is well-defined.
 * **Pure module** — no I/O, no logging, no framework dependencies.
 * **``tuple`` vs ``list``** — all three functions take
-  ``tuple[SurfaceBound, ...]`` rather than the ``list[SurfaceBound]`` that
-  :func:`~groundmodel.domain.services.strat_field.geo_blocks._band_index`
-  accepts.  This is a deliberate match for the voxel builder's
+  ``tuple[SurfaceBound, ...]`` rather than the ``list[SurfaceBound]`` the
+  ported original accepted.  This is a deliberate match for the voxel builder's
   frozen-dataclass style: callers assemble surface sets once at build time
   and never mutate them, so the immutable tuple is the natural type at that
   call site.
 
-All three functions share a small internal ``_EPS = 1e-6`` numeric guard,
-matching the style used in :mod:`~groundmodel.domain.services.strat_field.geo_blocks`.
+All three functions share a small internal ``_EPS = 1e-6`` numeric guard.
 """
 
 from __future__ import annotations
 
 from groundmodel.domain.services.surface_bound import SurfaceBound
 
-#: Elevations within this margin are treated as coincident (numeric guard,
-#: matching the ``_EPS`` style in ``geo_blocks.py``).
+#: Elevations within this margin are treated as coincident (numeric guard).
 _EPS: float = 1e-6
 
 

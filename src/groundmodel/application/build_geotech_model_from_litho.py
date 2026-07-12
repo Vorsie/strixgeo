@@ -883,9 +883,9 @@ class BuildGeotechModelFromLitho(GroundModelLogger):
     async def _read_litho_snap_tolerance_m(self, model_id: UUID) -> float:
         """Read the project's ``litho_snap_tolerance_m`` from its view-state.
 
-        Mirrors ``BuildVoxelLithoModel._read_litho_snap_tolerance_m`` /
-        ``RecomputeLithoSolids._read_strat_grid_spacing_m``: model → its project →
-        the JSON knob, guarding bad / non-positive values back to the 0.20 m default.
+        Mirrors ``BuildVoxelLithoModel._read_litho_snap_tolerance_m``: model →
+        its project → the JSON knob, guarding bad / non-positive values back to
+        the 0.20 m default.
 
         Parameters
         ----------

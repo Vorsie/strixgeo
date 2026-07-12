@@ -65,7 +65,7 @@ from scripts.eval_voxel_label import (  # noqa: E402
     _load_sections,
     _region_interior_samples,
 )
-from tests.unit.domain.services.strat_field.strat_invariants import (  # noqa: E402
+from tests.unit.domain.services.voxel_litho.strat_invariants import (  # noqa: E402
     assert_closed_manifold,
     assert_no_overlap_sampled,
     vertical_ray_intervals,

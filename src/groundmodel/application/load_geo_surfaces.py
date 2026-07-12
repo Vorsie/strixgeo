@@ -2,20 +2,19 @@
 
 Shared application-layer helper: reads the ``formation_surface`` rows for a
 geological model and wraps each built, non-stale surface as a
-:class:`~groundmodel.domain.services.surface_bound.SurfaceBound`.  Two
-consumers share this loader:
-
-* :meth:`~groundmodel.application.assemble_strat_inputs.AssembleStratInputs.assemble_with_geo`
-  — the implicit-strat per-band builder, which partitions picks by these band
-  surfaces.
-* :class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`
-  — the voxel builder, which bounds the labelled voxel grid by these surfaces.
+:class:`~groundmodel.domain.services.surface_bound.SurfaceBound`.  Consumed by
+:class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`
+— the voxel builder, which bounds the labelled voxel grid by these surfaces.
 
 The free function takes its ``session`` explicitly and an OPTIONAL
 :class:`~groundmodel.shared.logging.ground_model_logger.GroundModelLogger` (so a
 ``GroundModelLogger`` subclass can pass ``self`` to preserve the original
 debug/info log lines; ``None`` is a no-op).  It returns a ``tuple`` — the
-contract Task 1's ``geo_bands`` helpers and Task 3's ``label_voxels`` expect.
+contract the ``geo_bands`` helpers and ``label_voxels`` expect.
+
+This module also carries :func:`digest_surfaces`, the BLAKE2b digest of a
+surface set that the voxel build checksum folds in so a geo-surface rebuild
+busts the litho 3-D cache.
 """
 
 from __future__ import annotations
@@ -52,8 +51,7 @@ async def load_geo_surfaces(
         The parent geological model's id.
     logger : GroundModelLogger or None, optional
         When provided, the per-surface skip reasons are logged at DEBUG and a
-        summary at INFO (preserving the log lines from the original method on
-        ``AssembleStratInputs``).  ``None`` (the default) means no logging.
+        summary at INFO.  ``None`` (the default) means no logging.
 
     Returns
     -------

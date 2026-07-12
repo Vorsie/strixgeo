@@ -17,7 +17,7 @@ edge abuts perpendicular wall faces whose corner vertices land in the MIDDLE of
 that long edge.  A naive 2-triangle-per-rectangle emission then leaves that long
 edge shared by 2 triangles while each perpendicular sub-segment is shared by only
 1 → a **T-junction**, which
-:func:`~tests.unit.domain.services.strat_field.strat_invariants.assert_closed_manifold`
+:func:`~tests.unit.domain.services.voxel_litho.strat_invariants.assert_closed_manifold`
 rejects (it requires EXACTLY two triangles per undirected edge).  Synthetic clean
 boxes never hit this; real blobby bodies hit it in their hundreds (the un-handled
 naive merge left 1137 one-triangle edges on a single real ``test.strix`` body).

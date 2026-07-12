@@ -1,16 +1,13 @@
 """Integration tests for litho body solids in the .strix bundle round-trip.
 
-Task 9 of the watertight-loft body builder (spec
-``2026-06-12-watertight-loft-body-builder-design.md`` §7). These pin that a
-project carrying BUILT ``litho_body_solid`` rows serialises them into the
-bundle under a top-level ``litho_solids`` array, and that a fresh restore
-materialises the rows back byte-for-byte — so a freshly-opened .strix can
-export geometry without paying the rebuild cost.
+These pin that a project carrying BUILT ``litho_body_solid`` rows serialises
+them into the bundle under a top-level ``litho_solids`` array, and that a
+fresh restore materialises the rows back byte-for-byte — so a freshly-opened
+.strix can export geometry without paying the rebuild cost.
 
-The scene mirrors ``test_recompute_litho_solids_loft``'s ``loft_scene``:
-two parallel sections, three tests each, one correlated ZAND band per
-section. ``RecomputeLithoSolids`` lofts that into real solids before the
-bundle is taken, so the round-trip carries genuine watertight meshes.
+The scene seeds ``litho_body_solid`` rows directly (method ``voxel``) — the
+bundle round-trip is the feature under test, not the builder; the voxel
+build path has its own end-to-end coverage in ``test_build_voxel.py``.
 
 Requires the Docker DB on localhost:5433 (run via
 ``scripts/run-integration-tests.ps1``).
@@ -25,7 +22,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.recompute_litho_solids import RecomputeLithoSolids
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -33,10 +29,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
-from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
-    LithoContactCorrelationEdgeOrm,
-)
-from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     build_project_bundle,
@@ -44,90 +36,40 @@ from groundmodel.infrastructure.db.repositories.project_bundle import (
 )
 
 
-def _borehole(
-    project_id: UUID, *, suffix: str, x: float, y: float, elev: float = 5.0
-) -> BoreholeOrm:
-    """Unsaved borehole with valid (x, y, elevation_m) so picks are loadable."""
-    return BoreholeOrm(
-        id=uuid7(),
-        name=f"BH-SOLID-{suffix}",
-        app_project_id=project_id,
-        project_id="SOLID",
-        test_id=f"BH-SOLID-{suffix}",
-        location_x=x,
-        location_y=y,
-        elevation_m=elev,
-        epsg=31370,
-        total_depth_m=20.0,
-    )
-
-
-def _layer(
-    model: GeologicalModelOrm,
-    formation: GeologicalFormationOrm,
-    borehole: BoreholeOrm,
+def _solid(
+    model_id: UUID,
+    formation_id: UUID,
     *,
-    top: float,
-    base: float,
-) -> LithoLayerOrm:
-    """Unsaved accepted ``LithoLayerOrm`` anchored to *borehole*."""
-    return LithoLayerOrm(
+    z: float,
+    checksum: bytes,
+) -> LithoBodySolidOrm:
+    """Unsaved cached solid row with a small distinct mesh at elevation ``z``."""
+    return LithoBodySolidOrm(
         id=uuid7(),
-        model_id=model.id,
-        formation_id=formation.id,
-        borehole_id=borehole.id,
-        depth_top_m=top,
-        depth_base_m=base,
-        status="accepted",
-        source="manual",
-        confidence="medium",
-    )
-
-
-def _edge(
-    model: GeologicalModelOrm,
-    layer_a: LithoLayerOrm,
-    layer_b: LithoLayerOrm,
-    section_id: UUID,
-) -> LithoContactCorrelationEdgeOrm:
-    """Approved correlation edge between two layers (canonical a < b)."""
-    a, b = sorted([layer_a.id, layer_b.id])
-    return LithoContactCorrelationEdgeOrm(
-        id=uuid7(),
-        model_id=model.id,
-        section_id=section_id,
-        contact_a_id=a,
-        contact_b_id=b,
-        source="manual",
-        user_approved=True,
-    )
-
-
-def _section(
-    project_id: UUID, *, name: str, sx: float, sy: float, ex: float, ey: float
-) -> CrossSectionOrm:
-    """Unsaved cross-section line with a generous projection buffer."""
-    return CrossSectionOrm(
-        id=uuid7(),
-        app_project_id=project_id,
-        name=name,
-        start_x=sx,
-        start_y=sy,
-        end_x=ex,
-        end_y=ey,
-        epsg=31370,
-        projection_buffer_m=200.0,
+        model_id=model_id,
+        body_id=uuid7(),  # body_id is intentionally NOT an FK — any UUID rides
+        formation_id=formation_id,
+        method="voxel",
+        vertices=[
+            [150000.0, 200000.0, z],
+            [150010.0, 200000.0, z],
+            [150005.0, 200010.0, z],
+            [150005.0, 200005.0, z - 2.0],
+        ],
+        triangles=[[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]],
+        source_pick_count=3,
+        source_pick_checksum=checksum,
+        is_stale=False,
+        is_flagged=False,
     )
 
 
 @pytest_asyncio.fixture
 async def built_solid_scene(db_session: AsyncSession) -> dict:
-    """Project + litho model + 6 tests on 2 parallel sections, solids BUILT.
+    """Project + litho model + two formations, with two seeded solid rows.
 
-    The six boreholes carry an INTERBEDDED ZAND/KLEI/ZAND stack on a compact
-    (~8 m) grid so the implicit strat field fits cleanly; after the rows are
-    committed ``RecomputeLithoSolids`` is run so the project carries real
-    ``litho_body_solid`` rows ready to ride in the bundle.
+    The two ``litho_body_solid`` rows carry distinct meshes + checksums so
+    the round-trip assertions can tell the rows apart byte-for-byte.
     """
     proj = ProjectOrm(id=uuid7(), name="Solid bundle source", status="active")
     db_session.add(proj)
@@ -144,10 +86,6 @@ async def built_solid_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([geo, litho])
     await db_session.flush()
 
-    # Two formations for an INTERBEDDED ZAND/KLEI/ZAND stack — the implicit strat
-    # field needs ≥1 internal contact to interpolate, so a single-formation column
-    # has nothing to build.  Two formations + the repeated ZAND gives three
-    # stratigraphic instances (top ZAND, KLEI, bottom ZAND) → real solids.
     zand = GeologicalFormationOrm(
         id=uuid7(),
         app_project_id=proj.id,
@@ -167,50 +105,12 @@ async def built_solid_scene(db_session: AsyncSession) -> dict:
     db_session.add_all([zand, klei])
     await db_session.flush()
 
-    # Sections + boreholes are spaced ~8 m apart: the v1 RBF is well-constrained
-    # between closely-spaced columns (widely-spaced picks make the field bubble —
-    # the documented Stage-3 limitation).
-    s1 = _section(proj.id, name="S1", sx=149996.0, sy=200000.0, ex=150012.0, ey=200000.0)
-    s2 = _section(proj.id, name="S2", sx=149996.0, sy=200008.0, ex=150012.0, ey=200008.0)
-    db_session.add_all([s1, s2])
-    await db_session.flush()
-
-    bh = {
-        "A": _borehole(proj.id, suffix="A", x=150000.0, y=200000.0, elev=5.0),
-        "B": _borehole(proj.id, suffix="B", x=150004.0, y=200000.0, elev=4.9),
-        "C": _borehole(proj.id, suffix="C", x=150008.0, y=200000.0, elev=5.1),
-        "D": _borehole(proj.id, suffix="D", x=150000.0, y=200008.0, elev=5.0),
-        "E": _borehole(proj.id, suffix="E", x=150004.0, y=200008.0, elev=4.8),
-        "F": _borehole(proj.id, suffix="F", x=150008.0, y=200008.0, elev=5.2),
-    }
-    # total_depth_m=6 so the FC↔LL trigger sets the LAST layer's base to 6.
-    for v in bh.values():
-        v.total_depth_m = 6.0
-    db_session.add_all(list(bh.values()))
-    await db_session.flush()
-
-    # Three layers per borehole: ZAND 0-2, KLEI 2-4, ZAND 4-6.
-    top_layers = {k: _layer(litho, zand, v, top=0.0, base=2.0) for k, v in bh.items()}
-    mid_layers = {k: _layer(litho, klei, v, top=2.0, base=4.0) for k, v in bh.items()}
-    bot_layers = {k: _layer(litho, zand, v, top=4.0, base=6.0) for k, v in bh.items()}
     db_session.add_all(
-        list(top_layers.values()) + list(mid_layers.values()) + list(bot_layers.values())
+        [
+            _solid(litho.id, zand.id, z=5.0, checksum=b"\x01" * 16),
+            _solid(litho.id, klei.id, z=1.0, checksum=b"\x02" * 16),
+        ]
     )
-    await db_session.flush()
-
-    # Correlate each level along each section so the resolver makes multi-test bodies.
-    edges = []
-    for level in (top_layers, mid_layers, bot_layers):
-        edges.append(_edge(litho, level["A"], level["B"], s1.id))
-        edges.append(_edge(litho, level["B"], level["C"], s1.id))
-        edges.append(_edge(litho, level["D"], level["E"], s2.id))
-        edges.append(_edge(litho, level["E"], level["F"], s2.id))
-    db_session.add_all(edges)
-    await db_session.commit()
-
-    # Build the solids so the project carries real litho_body_solid rows.
-    outcome = await RecomputeLithoSolids(db_session).execute(litho.id, force=True)
-    assert outcome.bodies_built >= 1
     await db_session.commit()
 
     return {"project": proj, "litho": litho}

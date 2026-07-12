@@ -1,10 +1,10 @@
 """Build the 3-D litho-solid cache from the validated 2-D voxel partitions.
 
-This use case is the voxel sibling of
-:class:`~groundmodel.application.recompute_litho_solids.RecomputeLithoSolids`.
-Where ``RecomputeLithoSolids`` fits an implicit stratigraphic field through the
-DB picks, this builder takes the frontend's already-validated 2-D section
-partitions (``computeSectionFill``) as the SOURCE OF TRUTH and:
+This use case replaced the retired implicit strat-field builder
+(``RecomputeLithoSolids``, deleted with the ``strat_field`` package — #237;
+git history has both).  Where the implicit builder fit a stratigraphic field
+through the DB picks, this builder takes the frontend's already-validated 2-D
+section partitions (``computeSectionFill``) as the SOURCE OF TRUTH and:
 
 1. Builds a :class:`~groundmodel.domain.services.model_domain.ModelDomain` from
    the section columns' world positions (the footprint that gates labelling) —
@@ -46,8 +46,8 @@ the matching section-partition bodies.
 
 What this use case deliberately does NOT do
 ------------------------------------------
-* It does NOT run ``ResolveLithoInstances`` (unlike ``RecomputeLithoSolids``):
-  the payload's ``body_id`` values — and the picks' ``body_id`` (which
+* It does NOT run ``ResolveLithoInstances`` (unlike the retired implicit
+  builder): the payload's ``body_id`` values — and the picks' ``body_id`` (which
   ``load_body_picks`` reflects from the resolver) — ALREADY reflect the resolved
   state, so re-resolving could desync the 3-D model from the 2-D partition the
   user validated.  The frontend is the single source of body identity here.
@@ -91,8 +91,8 @@ from groundmodel.infrastructure.db.repositories.project_repository import Projec
 from groundmodel.shared.timing import phase_timer
 
 # Default litho↔geology snap tolerance (metres) when the project view-state does
-# not configure one — mirrors ``AssembleStratInputs._GEO_SNAP_TOLERANCE_M`` and the
-# section editor's ``view_state.litho_segmenter.litho_snap_tolerance_m`` default.
+# not configure one — mirrors the section editor's
+# ``view_state.litho_segmenter.litho_snap_tolerance_m`` default.
 _DEFAULT_LITHO_SNAP_TOLERANCE_M: float = 0.20
 
 
@@ -282,13 +282,11 @@ def _investigation_columns_checksum(
 class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
     """Build + persist the litho 3-D solids from the validated 2-D voxel partitions.
 
-    Mirrors the persistence contract of
-    :class:`~groundmodel.application.recompute_litho_solids.RecomputeLithoSolids`
-    (same ``litho_body_solid`` cache, same upsert / orphan / model-checksum
-    semantics, inherited from
-    :class:`~groundmodel.application.litho_solid_persistence.LithoSolidPersistenceMixin`),
-    but takes the frontend section partitions as its input instead of fitting a
-    field through the DB picks.  The ``method`` column is stamped ``"voxel"``.
+    Persists into the ``litho_body_solid`` cache with the upsert / orphan /
+    model-checksum semantics inherited from
+    :class:`~groundmodel.application.litho_solid_persistence.LithoSolidPersistenceMixin`,
+    taking the frontend section partitions as its input.  The ``method``
+    column is stamped ``"voxel"``.
 
     The caller owns the session; this use case commits once at the end.
 
@@ -541,7 +539,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # bodies_flagged is structurally zero on the voxel path: every labelled
         # voxel belongs to a real body (the label grid is a partition by
         # construction), so no empty placeholder rows are written; the field
-        # exists for API-shape parity with RecomputeLithoSolids.
+        # stays for API-shape stability (the retired strat path could flag).
         self.success(
             f"BuildVoxelLithoModel: model={model_id} — "
             f"considered={bodies_considered} built={bodies_built} "
@@ -563,8 +561,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         """Clear every solid row for the model and return a zero outcome.
 
         Used when the payload is empty / degenerate (no sections, an unbuildable
-        footprint, or a labelling with no body).  Mirrors
-        ``RecomputeLithoSolids._handle_no_picks``: an empty model is a valid
+        footprint, or a labelling with no body).  An empty model is a valid
         "nothing to build" state, so the cache is emptied (orphan-deleting every
         stored row) rather than raising.
 
@@ -599,8 +596,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
     async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
         """Read the lithostratigraphic model's parent geological model id.
 
-        Mirrors ``RecomputeLithoSolids._read_parent_geo_model_id``: a single
-        scalar SELECT of the self-FK column.
+        A single scalar SELECT of the self-FK column.
 
         Parameters
         ----------
@@ -623,9 +619,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
 
         The model's project owns the ``litho_segmenter`` view-state bag; the knob
         is the litho↔geology snap tolerance the section editor defaults to (0.20
-        m).  Mirrors ``RecomputeLithoSolids._read_strat_grid_spacing_m``: get the
-        model → its project → read the JSON knob, guarding bad / non-positive
-        values back to the default.
+        m).  Gets the model → its project → reads the JSON knob, guarding bad /
+        non-positive values back to the default.
 
         Parameters
         ----------

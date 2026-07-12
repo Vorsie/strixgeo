@@ -246,7 +246,7 @@ class LithoLayerRepository(GroundModelLogger):
         return list((await self._session.execute(stmt)).scalars().all())
 
     # -----------------------------------------------------------------
-    # Litho-3D solid cache support (Task 4 — RecomputeLithoSolids)
+    # Litho-3D solid cache support (voxel builder + geotech subdivision)
     # -----------------------------------------------------------------
 
     async def load_body_picks(
@@ -463,8 +463,8 @@ class LithoLayerRepository(GroundModelLogger):
         Returns
         -------
         list[LithoBodySolidOrm]
-            All cached solid rows for the model (may be empty when
-            ``RecomputeLithoSolids`` has not run yet).
+            All cached solid rows for the model (may be empty when no
+            build has run yet).
         """
         stmt = select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())

@@ -57,7 +57,7 @@ from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E
 from groundmodel.shared.config import settings  # noqa: E402
 
 # The ray-cast + interval helpers (the single home for this geometry).
-from tests.unit.domain.services.strat_field.strat_invariants import (  # type: ignore[import-not-found]  # noqa: E402
+from tests.unit.domain.services.voxel_litho.strat_invariants import (  # type: ignore[import-not-found]  # noqa: E402
     TOL,
     _union_intervals,
     vertical_ray_intervals,
