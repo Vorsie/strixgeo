@@ -175,12 +175,6 @@ vi.mock('./api/client', async () => {
         validateBorehole: stub(),
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
       },
-      geotechnicalUnit: {
-        list: stubArr(),
-        create: stub(),
-        update: stub(),
-        delete: stub(),
-      },
       review: {
         list: stubArr(),
         upsert: stub(),

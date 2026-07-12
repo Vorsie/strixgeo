@@ -71,7 +71,6 @@ vi.mock('../api/client', () => ({
     borehole: { list: vi.fn(), get: vi.fn() },
     section: { list: vi.fn() },
     project: { get: vi.fn(), update: vi.fn() },
-    geotechnicalUnit: { list: vi.fn(), create: vi.fn() },
   },
   DuplicateContactError: class DuplicateContactError extends Error {
     existingContactId: string

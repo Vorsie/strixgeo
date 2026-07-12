@@ -142,9 +142,6 @@ export type {
   GapValidationResponse,
   CrossingValidationResponse,
   GroundSurfaceBuildResponse,
-  GeotechnicalUnitResponse,
-  GeotechnicalUnitCreatePayload,
-  GeotechnicalUnitUpdatePayload,
   LithoContactCorrelationEdge,
   ResolveInstancesResponse,
   CrossingPinchOut,
@@ -197,7 +194,7 @@ import { cptClient } from './clients/cpt'
 import { boreholeClient } from './clients/borehole'
 import { projectClient, reviewClient } from './clients/project'
 import { demClient, sectionClient } from './clients/section'
-import { geologyClient, geotechnicalUnitClient } from './clients/geology'
+import { geologyClient } from './clients/geology'
 import { codelistClient, virtueleboringClient } from './clients/codelist'
 
 /** Structured API client — use ``api.<domain>.<method>(...)`` at call sites. */
@@ -207,7 +204,6 @@ export const api = {
   project: projectClient,
   dem: demClient,
   geology: geologyClient,
-  geotechnicalUnit: geotechnicalUnitClient,
   review: reviewClient,
   section: sectionClient,
   codelists: codelistClient,
