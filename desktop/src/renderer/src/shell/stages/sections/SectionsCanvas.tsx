@@ -177,7 +177,6 @@ export default function SectionsCanvas(): JSX.Element {
       demSource,
       demOverlay,
       handleDemOverlayChange,
-      showConfidenceFade,
     },
     coordinator: {
       selectedId,
@@ -2406,7 +2405,6 @@ export default function SectionsCanvas(): JSX.Element {
           surfacesByFormationId={axisSurfacesByFormationId}
           focusedContactIds={focusedContactIds}
           excludedBoreholeIds={axisExcludedBoreholeIds}
-          showConfidenceFade={showConfidenceFade}
           // On the litho axis, left-click must never open the formation
           // picker — the right-click ghost flow is the intended entry point
           // (dogfeed 2026-05-26). Passing undefined here prevents

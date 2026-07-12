@@ -54,10 +54,6 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
-import {
-  computeTriangleConfidence,
-  confidenceToAlphaMultiplier,
-} from '../../utils/tinConfidence'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
@@ -283,39 +279,26 @@ interface Props {
    */
   referenceContacts?: readonly FormationContactResponse[]
   /** Whether to draw the ACTIVE model's cross-column formation surfaces —
-   *  the TIN-slice polylines (`formation-surface-*`) and the connect-the-dots
-   *  fallback (`formation-polyline-*`).  Both group contacts BY FORMATION and
-   *  auto-join every same-formation contact across columns, ignoring the
-   *  explicit contact-correlation graph.  That is correct on the geological
-   *  axis (formations are laterally continuous) but wrong on the litho axis,
-   *  where cross-column connectivity is the user's explicit correlations, not
-   *  an auto-join-by-lithology (#159-followup, owner dogfeed 2026-05-29 —
-   *  confirmed via the dashed-inventory diagnostic: 13 spurious connect-the-
-   *  dots lines on a litho section).  Defaults to true (geological axis
-   *  unchanged); SectionPanel passes false on the litho axis. */
+   *  the through-picks polylines (`formation-polyline-*`).  These group
+   *  contacts BY FORMATION and auto-join every same-formation contact
+   *  across columns, ignoring the explicit contact-correlation graph.
+   *  That is correct on the geological axis (formations are laterally
+   *  continuous) but wrong on the litho axis, where cross-column
+   *  connectivity is the user's explicit correlations, not an
+   *  auto-join-by-lithology (#159-followup, owner dogfeed 2026-05-29 —
+   *  confirmed via the dashed-inventory diagnostic: 13 spurious connect-
+   *  the-dots lines on a litho section).  Defaults to true (geological
+   *  axis unchanged); SectionPanel passes false on the litho axis.
+   *
+   *  The surface line always passes through the on-section
+   *  investigations' PLACED contacts (a chord through each pick), never
+   *  through a TIN slice at the section line: investigations are
+   *  projected onto the section from their perpendicular offset, so a
+   *  slice elevation at the projected X diverges from the user's actual
+   *  contact depth (≈1 m for a 17 m-off borehole on a dipping surface;
+   *  dogfeed 2026-05-29).  The polyline is restyled by surface state so
+   *  a BUILT model reads as solid, not as the dashed "unbuilt" fallback. */
   renderFormationSurfaces?: boolean
-  /** Render the active formation surface as a polyline through the
-   *  on-section investigations' PLACED contacts (a chord through each
-   *  pick) instead of slicing the cached TIN against the section line.
-   *
-   *  Why: investigations are projected onto the section from their
-   *  perpendicular offset, but a TIN slice samples the surface AT the
-   *  section line — so for an off-line investigation the slice elevation
-   *  at the projected X diverges from the user's actual contact depth
-   *  (≈1 m for a 17 m-off borehole on a dipping surface; dogfeed
-   *  2026-05-29).  The user's placed boundaries are the single source of
-   *  truth on the section, so the line must pass exactly through them.
-   *
-   *  Implementation: when true, ``slicedPolylines`` returns empty, which
-   *  cascades correctly — the slice line is not drawn, the connect-the-
-   *  dots skip-range is empty (so the contact polyline draws through
-   *  every pick), and ``formationFillBands`` falls back to the anchor
-   *  geometry while still reading staleness from ``surfacesByFormationId``
-   *  (the faded-stale fill cue survives).  The contact polyline is
-   *  restyled by surface state so a BUILT model still reads as solid,
-   *  not as the dashed "unbuilt" fallback.  Defaults to false (legacy
-   *  TIN-slice render); SectionPanel passes true for the active surface. */
-  surfaceThroughPicks?: boolean
   /** Correlate mode is active (dogfeed 2026-05-29).  When true the depth-drag
    *  hit-strip is suppressed so it can't intercept or compete with the
    *  CorrelationEdgesOverlay's boundary-select clicks — in correlate mode the
@@ -444,13 +427,6 @@ interface Props {
    *     Formation the contact belongs to.
    */
   onEditInGeologyStage?: (contactId: string, formationId: string) => void
-  /**
-   * Per-project "show confidence fade" toggle (debt #94 follow-up).
-   * When true (default), low-confidence segments render at the reduced
-   * ``LOW_CONFIDENCE_ALPHA_MULTIPLIER``.  When false, the multiplier
-   * is 1.0 — high/low are visually identical, the fade is disabled.
-   */
-  showConfidenceFade?: boolean
   /** Section-line endpoints in the project's horizontal CRS. The
    * slice projects each TIN vertex against this line, so its
    * coordinate frame must match the surface vertices' frame. Both
@@ -653,7 +629,6 @@ export default function ContactsLayer({
   referenceSurfacesByFormationId,
   referenceContacts,
   renderFormationSurfaces = true,
-  surfaceThroughPicks = false,
   correlateMode = false,
   axisMode = 'geological',
   bandFillOpacity = 0.18,
@@ -668,7 +643,6 @@ export default function ContactsLayer({
   plotLeft,
   plotRight,
   focusedContactIds,
-  showConfidenceFade = true,
   onEditInGeologyStage,
 }: Props): JSX.Element | null {
   // P1b — apply the live cross-store-drag preview override to the
@@ -938,163 +912,10 @@ export default function ContactsLayer({
     return { layers: layersOut, polylines: polylinesOut }
   }, [slabs, polylineData, levelToScreen, plotTop, plotBottom])
 
-  // Slice-of-TIN polylines. One per formation that (a) has a cached
-  // surface with triangles and (b) the caller has wired both
-  // ``sectionLine`` and ``alongMToScreenX``. Off-line picks contribute
-  // via their triangle's intersection with the section plane, so a
-  // borehole 50 m off-section still shapes the surface line — the
-  // payoff vs. the connect-the-dots fallback (which only "knew" about
-  // picks projected straight-down onto the line).
-  //
-  // Formations rendered here are EXCLUDED from the connect-the-dots
-  // polylines render below to avoid double-painting. Drag previews
-  // intentionally don't redraw the slice live — surfaces auto-
-  // recompute on commit, so the slice snaps into place as soon as the
-  // PATCH lands. The connect-the-dots fallback retains the live
-  // preview because that's the only render available for sparse data.
-  const slicedPolylines = useMemo(() => {
-    // surfaceThroughPicks short-circuits the whole slice subsystem: an
-    // empty result cascades through every consumer — the slice line isn't
-    // drawn, slicedXRangeByFormationId is empty (so the contact polyline
-    // draws through every pick), and formationFillBands falls back to the
-    // anchor geometry. surfacesByFormationId stays wired so the fill's
-    // stale cue + the polyline restyle below still read surface state.
-    if (surfaceThroughPicks || !surfacesByFormationId || !sectionLine || !alongMToScreenX) {
-      return [] as {
-        formationId: string
-        color: string
-        name: string
-        // Per-segment list: each entry is one M-L pair with its own
-        // opacity (continuous gradient via per-vertex confidence,
-        // debt #28 follow-up 2026-05-21).
-        segments: readonly { d: string; opacity: number }[]
-        // Concatenated single-path fallback for the toggle-off path
-        // (no fade → uniform opacity).  Same shape as the legacy
-        // dHigh string but for ALL segments at base opacity.
-        dUniform: string
-        screenPoints: readonly { x: number; y: number }[]
-        isStale: boolean
-      }[]
-    }
-    const out: {
-      formationId: string
-      color: string
-      name: string
-      segments: readonly { d: string; opacity: number }[]
-      dUniform: string
-      screenPoints: readonly { x: number; y: number }[]
-      isStale: boolean
-    }[] = []
-    // Iterate ``polylineData`` rather than the ``surfacesByFormationId``
-    // Map — polylineData is already sorted by stratigraphic order
-    // (display_order ASC), so older formations land first in ``out``
-    // and younger ones paint on top. Iterating the Map directly would
-    // give us insertion order from the API response, which doesn't
-    // respect the age axis.
-    for (const line of polylineData) {
-      const surface = surfacesByFormationId.get(line.formationId)
-      if (!surface || surface.triangles.length === 0) continue
-      const points = sliceTin(surface, sectionLine)
-      if (points.length < 2) continue
-      const meta = { color: line.color, name: line.name }
-      const formationId = line.formationId
-      // Debt #28 follow-up (2026-05-21): per-segment opacity for a
-      // true gradient on the section view.  Each segment between two
-      // consecutive slice points sits inside ONE triangle, so the
-      // segment's confidence is the triangle's; we map that confidence
-      // to a continuous alpha multiplier via ``confidenceToAlphaMultiplier``
-      // and emit one ``<path>`` per segment.  Across the polyline, the
-      // opacity varies smoothly — same continuous distance-to-data
-      // signal the 3D viewer uses.
-      const confidence = computeTriangleConfidence(surface.vertices, surface.triangles)
-      // Project each (alongM, elevationM) into screen space; clip
-      // segments that leave the plot area in Y. Raw screen points are
-      // retained for the formation-fill band builder downstream.
-      const screenPoints: { x: number; y: number }[] = []
-      const segments: { d: string; opacity: number }[] = []
-      let dUniform = ''
-      let prevX: number | null = null
-      let prevY: number | null = null
-      let prevTriIdx: number | undefined = undefined
-      for (const p of points) {
-        const x = alongMToScreenX(p.alongM)
-        const y = levelToScreen(p.elevationM)
-        if (y < plotTop || y > plotBottom) {
-          prevX = null
-          prevY = null
-          prevTriIdx = undefined
-          continue
-        }
-        screenPoints.push({ x, y })
-        if (prevX === null || prevY === null) {
-          prevX = x
-          prevY = y
-          prevTriIdx = p.triangleIdx
-          continue
-        }
-        const tri = p.triangleIdx ?? prevTriIdx
-        const segConfidence = tri !== undefined ? confidence[tri] : 1.0
-        const opacity = confidenceToAlphaMultiplier(segConfidence)
-        const seg = `M ${prevX.toFixed(2)} ${prevY.toFixed(2)} L ${x.toFixed(2)} ${y.toFixed(2)}`
-        segments.push({ d: seg, opacity })
-        dUniform += seg + ' '
-        prevX = x
-        prevY = y
-        prevTriIdx = p.triangleIdx
-      }
-      if (segments.length === 0) continue
-      out.push({
-        formationId,
-        color: meta.color,
-        name: meta.name,
-        segments,
-        dUniform,
-        screenPoints,
-        isStale: surface.is_stale === true,
-      })
-    }
-    return out
-  }, [
-    surfaceThroughPicks,
-    surfacesByFormationId,
-    sectionLine,
-    alongMToScreenX,
-    polylineData,
-    levelToScreen,
-    plotTop,
-    plotBottom,
-  ])
-
-  // For each formation that has a TIN slice, the screen-X extent the
-  // slice actually covers. Used in the connect-the-dots render below
-  // to draw extrapolation segments only where they reach BEYOND the
-  // slice — anchors outside the TIN's hull (typically the leftmost or
-  // rightmost columns when the slice ends before them) keep their
-  // contact line connected. A single [min, max] range is a deliberate
-  // simplification: a slice with internal gaps (path 'M' breaks
-  // because the section line exits the plot box vertically) is treated
-  // as continuous between its endpoints, so we never extrapolate
-  // INSIDE that span. Refine if dogfeed shows wrong gaps.
-  const slicedXRangeByFormationId = useMemo(() => {
-    const out = new Map<string, { minX: number; maxX: number }>()
-    for (const line of slicedPolylines) {
-      if (line.screenPoints.length === 0) continue
-      let minX = Infinity
-      let maxX = -Infinity
-      for (const p of line.screenPoints) {
-        if (p.x < minX) minX = p.x
-        if (p.x > maxX) maxX = p.x
-      }
-      out.set(line.formationId, { minX, maxX })
-    }
-    return out
-  }, [slicedPolylines])
-
   // Geological backdrop — read-only slice-of-TIN for the REFERENCE
   // (geological) model rendered under the active litho contacts.
   //
-  // Mirroring the ``slicedPolylines`` memo above: iterates
-  // ``referenceSurfacesByFormationId`` in the order imposed by
+  // Iterates ``referenceSurfacesByFormationId`` in the order imposed by
   // ``referenceFormations`` (ascending display_order = older first,
   // so older formations paint first and younger paint on top —
   // geological superposition rule).  Gated entirely on the two
@@ -1132,7 +953,7 @@ export default function ContactsLayer({
     const colorById = new Map<string, string>()
     // Ascending display_order = older paints first (geological
     // superposition rule — same convention as the active-contacts
-    // slicedPolylines above).
+    // polylines render below).
     const sortedFormations = [...referenceFormations].sort(
       (a, b) => a.display_order - b.display_order,
     )
@@ -1302,17 +1123,11 @@ export default function ContactsLayer({
   // inverted from convention.
   //
   // Geometry source = per-contact polyline (``polylines.vertices``),
-  // NOT the TIN slice (``slicedPolylines``). The TIN slice's
-  // X-extent is bounded by the formation's convex hull in (x, y),
-  // so on a section that runs out toward boreholes near the hull
-  // edge the slice may end before the section's last column —
-  // leaving the outer columns without a fill even though they have
-  // a contact for the formation. The contact polyline visits EVERY
-  // column with a contact regardless of TIN hull, so the fill
-  // covers them all. Visual cost: between contacts the fill uses
-  // straight-line interpolation rather than Delaunay-smooth, which
-  // is geologically honest (we don't really know the surface
-  // between picks). The crisp TIN slice line still paints on top.
+  // never a TIN slice at the section line. The contact polyline
+  // visits EVERY column with a contact, so the fill covers them all.
+  // Visual cost: between contacts the fill uses straight-line
+  // interpolation rather than Delaunay-smooth, which is geologically
+  // honest (we don't really know the surface between picks).
   //
   // Pinch-out handling: when the immediate-next-older formation
   // has no data at some X — e.g. KoAa pinches out east of
@@ -1528,22 +1343,6 @@ export default function ContactsLayer({
         isStale: boolean
       }[]
     }
-    // Prefer the TIN-slice polyline (which incorporates off-section
-    // anchors via Delaunay triangulation) over the connect-the-dots
-    // polyline for the fill-band geometry. Otherwise the rendered
-    // surface line (TIN slice) and the fill bottom (connect-the-dots
-    // through on-section picks only) diverge laterally — leaving an
-    // unfilled wedge between a younger formation's fill bottom and the
-    // older formation's visible surface where the TIN dips below the
-    // straight inter-pick interpolation. Connect-the-dots stays as
-    // the fallback when no cached surface is wired.
-    const slicedByFormationId = new Map<
-      string,
-      readonly { x: number; y: number }[]
-    >()
-    for (const s of slicedPolylines) {
-      slicedByFormationId.set(s.formationId, s.screenPoints)
-    }
     // Project each per-formation polyline into the (x, y) screen
     // tuples buildFillBand expects, sorted ascending by X so the
     // helper can index into them safely. Pad ±fillBufferPx on the
@@ -1551,34 +1350,9 @@ export default function ContactsLayer({
     // (flat horizontal extrapolation — same Y as the endpoint).
     const projected = polylines
       .map(line => {
-        const sliced = slicedByFormationId.get(line.formationId)
-        const anchorPoints = line.vertices
+        const points = line.vertices
           .map(v => ({ x: v.screenX, y: v.screenY }))
           .sort((a, b) => a.x - b.x)
-        // Merge slice + anchors:
-        //   * Slice points (smooth TIN curve) in the X range the TIN
-        //     actually covers.
-        //   * Anchor points OUTSIDE that range — so the fill reaches
-        //     every column with a contact, even when alpha-trim has
-        //     shaved the TIN inward from a real anchor (e.g. a long
-        //     unobserved gap forces the trim and the rightmost anchor
-        //     drops out of the slice's convex hull).
-        // Without this merge, the fill ends at the slice edge and the
-        // halfspace extension below propagates at the slice's edge
-        // elevation, which silently misses any anchor sitting at a
-        // different depth past the trim line — surfaces as a missing
-        // band between the slice end and the outlying anchor.
-        let points: { x: number; y: number }[]
-        if (sliced && sliced.length >= 2) {
-          const sortedSliced = [...sliced].sort((a, b) => a.x - b.x)
-          const sliceMinX = sortedSliced[0].x
-          const sliceMaxX = sortedSliced[sortedSliced.length - 1].x
-          const leftAnchors = anchorPoints.filter(p => p.x < sliceMinX)
-          const rightAnchors = anchorPoints.filter(p => p.x > sliceMaxX)
-          points = [...leftAnchors, ...sortedSliced, ...rightAnchors]
-        } else {
-          points = anchorPoints
-        }
         if (points.length >= 2) {
           // Halfspace extrapolation — extend the band laterally to the
           // section's plot bounds when those are available (gINT /
@@ -1662,7 +1436,6 @@ export default function ContactsLayer({
     return out
   }, [
     polylines,
-    slicedPolylines,
     surfacesByFormationId,
     dataExtentFloor,
     fillBufferPx,
@@ -2821,73 +2594,12 @@ export default function ContactsLayer({
             data-testid={`formation-fill-${band.formationId}`}
           />
         ))}
-      {/* Slice-of-TIN polylines. Drawn first (under everything else)
-          so the per-column tops + name labels paint on top. Solid
-          stroke distinguishes them from the dashed connect-the-dots
-          fallback — the user sees at a glance which formations have a
-          full surface vs. which are still 2-pick tie-lines. */}
-      {renderFormationSurfaces && slicedPolylines.map(line => {
-        // On-click build pivot: stale TINs render dashed + faded so
-        // the engineer can see "this is your last build, refresh to
-        // update". Distinct from the connect-the-dots fallback (also
-        // dashed but with a longer pattern + different opacity).
-        //
-        // Debt #28 follow-up (2026-05-21): true per-segment gradient.
-        // Each segment renders as its own ``<path>`` with continuous
-        // strokeOpacity derived from the underlying triangle confidence.
-        // When the confidence-fade toggle is OFF, fall back to a single
-        // concatenated path with uniform opacity (zero rendering cost
-        // overhead vs the gradient path, and visually disables the fade).
-        const baseOpacity = line.isStale ? 0.35 : 0.7
-        const dash = line.isStale ? '6 3' : undefined
-        return (
-          <g
-            key={`slice-${line.formationId}`}
-            data-testid={`formation-surface-${line.formationId}`}
-            data-stale={line.isStale ? 'true' : undefined}
-          >
-            {showConfidenceFade ? (
-              line.segments.map((seg, i) => (
-                <path
-                  key={i}
-                  d={seg.d}
-                  stroke={line.color}
-                  strokeWidth={1.25}
-                  strokeOpacity={baseOpacity * seg.opacity}
-                  strokeDasharray={dash}
-                  fill="none"
-                  pointerEvents="none"
-                />
-              ))
-            ) : (
-              <path
-                d={line.dUniform}
-                stroke={line.color}
-                strokeWidth={1.25}
-                strokeOpacity={baseOpacity}
-                strokeDasharray={dash}
-                fill="none"
-                pointerEvents="none"
-              />
-            )}
-          </g>
-        )
-      })}
-      {/* Cross-column polylines (formation surfaces).
-          Two roles in one renderer:
-          1. No TIN slice for the formation → render every segment
-             (legacy connect-the-dots fallback).
-          2. TIN slice exists → render only the segments that REACH
-             BEYOND the slice's screen-X coverage. The TIN slice
-             stops at its hull; anchors outside that hull keep their
-             contact line via these extrapolation segments. Segments
-             fully inside the slice's X span are skipped so the slice
-             paints alone in its covered region (no visible chord
-             under a curving slice). The user's "lines should draw
-             through" requirement is satisfied by these segments. */}
+      {/* Cross-column polylines (formation surfaces) — the surface
+          line drawn through every placed pick, restyled by surface
+          state so a BUILT model reads solid and an unbuilt one reads
+          as the dashed connect-the-dots fallback. */}
       {renderFormationSurfaces && polylines.map(line => {
         if (line.vertices.length < 2) return null
-        const sliceRange = slicedXRangeByFormationId.get(line.formationId)
         // Project each vertex with the same drag-override logic as
         // before so multi-drag previews stay coherent.
         const projected = line.vertices.map(v => {
@@ -2924,9 +2636,7 @@ export default function ContactsLayer({
         // at the section's plot bounds with the leftmost / rightmost
         // real vertex's Y, so the formation line extends LATERALLY
         // past the last anchor that has a contact (gINT / LeapFrog
-        // convention: formations are presumed continuous). Synthetic
-        // vertices fall well outside any slice's X range so they
-        // always render (segment to/from them is "outside slice").
+        // convention: formations are presumed continuous).
         // Guarded by both plotLeft/plotRight being wired and the
         // synthetic point being strictly outside the real range so
         // we don't insert a duplicate at the same X.
@@ -2940,61 +2650,18 @@ export default function ContactsLayer({
             projected.push({ x: plotRight, y: rightmost.y })
           }
         }
-        // Build the path with M/L commands, emitting `M` (start a new
-        // sub-path) when the previous segment was skipped. A segment
-        // is skipped only when BOTH endpoints fall inside the slice's
-        // X span — anything that reaches outside renders, so a vertex
-        // at the slice's edge connects to the next outside vertex.
+        // Build the path with M/L commands.
         let path = ''
-        let prevDrawn = false
         for (let i = 0; i < projected.length; i += 1) {
           const cur = projected[i]
-          if (i === 0) {
-            path += `M ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
-            prevDrawn = true
-            continue
-          }
-          const prev = projected[i - 1]
-          const segmentInsideSlice =
-            sliceRange !== undefined &&
-            prev.x >= sliceRange.minX &&
-            prev.x <= sliceRange.maxX &&
-            cur.x >= sliceRange.minX &&
-            cur.x <= sliceRange.maxX
-          if (segmentInsideSlice) {
-            // Skip this segment — slice covers it. Next vertex needs
-            // a fresh M so any subsequent drawn segment doesn't drag
-            // a line back into the slice region.
-            path += `M ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
-            prevDrawn = false
-          } else {
-            path += `L ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
-            prevDrawn = true
-          }
+          path += `${i === 0 ? 'M' : 'L'} ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
         }
-        // If every segment was skipped (entire range inside slice),
-        // there's nothing to draw — the path is just `M` moves and
-        // SVG would render nothing anyway, but emitting null is
-        // cleaner and saves the DOM node.
-        if (!prevDrawn && sliceRange !== undefined) {
-          // Walked through and every segment was inside the slice.
-          // (prevDrawn === false here can also mean only the final
-          // segment was skipped; the `M` would have set it false but
-          // earlier `L`s might have set it true. Cheap check: did we
-          // emit any `L`?)
-          if (!path.includes('L')) return null
-        }
-        // In surfaceThroughPicks mode this polyline IS the surface line
-        // (the slice render is suppressed), so it must carry the slice's
-        // built/stale semantics: a built surface reads solid like the old
-        // slice (0.7, no dash), a stale one dashed + faded (0.35, '6 3').
-        // Without a surface row it stays the dashed connect-the-dots
-        // fallback (0.55, '4 3'). When surfaceThroughPicks is false the
-        // styling is unchanged (legacy fallback) so existing behaviour and
-        // the slice render are untouched.
-        const polySurface = surfaceThroughPicks
-          ? surfacesByFormationId?.get(line.formationId)
-          : undefined
+        // This polyline IS the surface line, so it carries the
+        // built/stale semantics: a built surface reads solid (0.7, no
+        // dash), a stale one dashed + faded (0.35, '6 3'). Without a
+        // surface row it stays the dashed connect-the-dots fallback
+        // (0.55, '4 3').
+        const polySurface = surfacesByFormationId?.get(line.formationId)
         const polyBuilt = polySurface !== undefined && polySurface.triangles.length > 0
         const polyStale = polySurface?.is_stale === true
         const polyStrokeWidth = polyBuilt ? 1.25 : 1

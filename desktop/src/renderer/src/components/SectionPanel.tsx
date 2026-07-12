@@ -391,10 +391,6 @@ interface Props {
     depthM: number,
     formationId: string,
   ) => Promise<void>
-  /** Per-project confidence-fade toggle (debt #94 follow-up).  When
-   *  false, the low-confidence stroke opacity multiplier becomes 1.0
-   *  so the uncertainty cue disappears.  Defaults to true. */
-  showConfidenceFade?: boolean
   /**
    * Geotech axis only — when true the geotech model for this section has
    * not yet been built, so the NAD subdivision suggestion flow is
@@ -827,7 +823,6 @@ export default function SectionPanel({
   openExtentLengthM,
   onManualLithoUnitCreate,
   onLithoExistingUnitPick,
-  showConfidenceFade = true,
   geotechNotReconciled = false,
   activeLithoModelId,
   onEditInGeologyStage,
@@ -2954,13 +2949,6 @@ export default function SectionPanel({
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
               surfacesByFormationId={surfacesByFormationId}
-              // The user's placed contacts are the single source of truth on
-              // the section: draw the active surface as a chord through every
-              // pick rather than a TIN slice along the section line (which
-              // diverges from off-line investigations' actual contact depth —
-              // dogfeed 2026-05-29). The backdrop already does this via
-              // referenceContacts; this brings the active surface in line.
-              surfaceThroughPicks
               // Suppress the depth-drag hit-strip while correlating so it can't
               // intercept boundary-select clicks (dogfeed 2026-05-29).
               correlateMode={contactGestureState?.contactCorrelateMode ?? false}
@@ -2972,7 +2960,6 @@ export default function SectionPanel({
                   ? new Set(focusedContactIds)
                   : undefined
               }
-              showConfidenceFade={showConfidenceFade}
               sectionLine={{
                 startX: section.start_x,
                 startY: section.start_y,

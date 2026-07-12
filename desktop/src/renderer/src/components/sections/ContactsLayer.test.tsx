@@ -144,7 +144,6 @@ function renderLayer(
     onUnlinkLithoFromGeo?: (id: string) => Promise<void>
     onLinkLithoToGeo?: (id: string) => Promise<void>
     renderFormationSurfaces?: boolean
-    surfaceThroughPicks?: boolean
     axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     correlateMode?: boolean
   } = {},
@@ -178,7 +177,6 @@ function renderLayer(
         contactDragClampMinThicknessM={extras.contactDragClampMinThicknessM}
         onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
         renderFormationSurfaces={extras.renderFormationSurfaces}
-        surfaceThroughPicks={extras.surfaceThroughPicks}
         axisMode={extras.axisMode}
         correlateMode={extras.correlateMode}
       />
@@ -1520,76 +1518,15 @@ describe('ContactsLayer', () => {
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
   })
 
-  it('renders fresh slice-of-TIN solid + opacity 0.7', () => {
-    // Three contacts on three boreholes — enough for a Delaunay
-    // triangle. Surface is fresh (is_stale=false). Section cuts
-    // horizontally through y=0; alongMToScreenX is identity for the
-    // test.
-    const formation = makeFormation({ id: 'f', color: '#ff0000' })
-    const contacts = [
-      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
-      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
-      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
-    ]
-    const surface: FormationSurfaceResponse = {
-      id: 's',
-      model_id: 'm',
-      formation_id: 'f',
-      method: 'tin',
-      vertices: [
-        [0, -2, 9],
-        [100, -2, 9],
-        [50, 5, 9],
-      ],
-      triangles: [[0, 1, 2]],
-      source_contact_count: 3,
-      is_stale: false,
-      created_at: '2026-05-14T00:00:00Z',
-      updated_at: '2026-05-14T00:00:00Z',
-    }
-    const surfacesByFormationId = new Map<string, FormationSurfaceResponse>([
-      ['f', surface],
-    ])
-    const { container } = renderLayer(
-      contacts,
-      [formation],
-      [
-        makeBoreholePlaced('bh-1', 0),
-        makeBoreholePlaced('bh-2', 100),
-        makeBoreholePlaced('bh-3', 50),
-      ],
-      undefined,
-      {
-        surfacesByFormationId,
-        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
-        alongMToScreenX: along => along + 10,
-      },
-    )
-    // Debt #28 follow-up: the slice is now a <g> wrapper around per-
-    // segment paths (per-vertex gradient renderer).  The wrapper carries
-    // the testid + data-stale; opacity + dasharray live on the child
-    // segment paths.  For this fixture the TIN is a single triangle
-    // (escape-hatch path → confidence 1.0 everywhere), so the per-
-    // segment opacity equals the base opacity.
-    const slice = container.querySelector('[data-testid="formation-surface-f"]')
-    expect(slice).not.toBeNull()
-    expect(slice!.getAttribute('data-stale')).toBeNull()
-    const seg = slice!.querySelector('path')
-    expect(seg).not.toBeNull()
-    expect(seg!.getAttribute('stroke-opacity')).toBe('0.7')
-    expect(seg!.getAttribute('stroke-dasharray')).toBeNull()
-  })
-
-  it('surfaceThroughPicks draws the surface through placed picks, not the TIN slice', () => {
-    // Same fixture as the fresh-slice test but the middle/right picks
-    // sit at DIFFERENT depths than the flat z=9 TIN surface, so a slice
-    // (flat at screenY 11) and a chord-through-picks line diverge: the
-    // pick at depth 4 lands at screenY 14 (flipped = 20-(10-4)). With
-    // surfaceThroughPicks the line must pass through 14 (the pick), the
-    // TIN-slice element must NOT render, and the polyline must read as a
-    // BUILT surface (solid, opacity 0.7) — not the dashed "unbuilt"
-    // fallback. Mirrors the placed-boundaries-are-truth rule the backdrop
-    // already follows via referenceContacts (dogfeed 2026-05-29).
+  it('draws the surface through placed picks, not a TIN slice at the section line', () => {
+    // The middle/right picks sit at DIFFERENT depths than the flat z=9
+    // TIN surface, so a slice (flat at screenY 11) and a chord-through-
+    // picks line diverge: the pick at depth 4 lands at screenY 14
+    // (flipped = 20-(10-4)). The line must pass through 14 (the pick)
+    // and the polyline must read as a BUILT surface (solid, opacity
+    // 0.7) — not the dashed "unbuilt" fallback. Mirrors the placed-
+    // boundaries-are-truth rule the backdrop already follows via
+    // referenceContacts (dogfeed 2026-05-29).
     const formation = makeFormation({ id: 'f', color: '#ff0000' })
     const contacts = [
       makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
@@ -1625,12 +1562,9 @@ describe('ContactsLayer', () => {
         surfacesByFormationId: new Map([['f', surface]]),
         sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
         alongMToScreenX: along => along + 10,
-        surfaceThroughPicks: true,
       },
     )
-    // Slice line suppressed.
-    expect(container.querySelector('[data-testid="formation-surface-f"]')).toBeNull()
-    // The surface is now the through-picks contact polyline.
+    // The surface IS the through-picks contact polyline.
     const poly = container.querySelector('[data-testid="formation-polyline-f"]')
     expect(poly).not.toBeNull()
     // It passes through the depth-4 pick at screenY 14 — a flat TIN
@@ -1642,8 +1576,9 @@ describe('ContactsLayer', () => {
     expect(poly!.getAttribute('stroke-dasharray')).toBeNull()
   })
 
-  it('renders stale slice-of-TIN dashed + opacity 0.35', () => {
-    // Same setup but is_stale=true → demoted style.
+  it('renders the stale-surface polyline dashed + opacity 0.35', () => {
+    // Same setup but is_stale=true → demoted style on the
+    // through-picks polyline.
     const formation = makeFormation({ id: 'f', color: '#ff0000' })
     const contacts = [
       makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
@@ -1684,149 +1619,30 @@ describe('ContactsLayer', () => {
         alongMToScreenX: along => along + 10,
       },
     )
-    const slice = container.querySelector('[data-testid="formation-surface-f"]')
-    expect(slice).not.toBeNull()
-    expect(slice!.getAttribute('data-stale')).toBe('true')
-    const seg = slice!.querySelector('path')
-    expect(seg).not.toBeNull()
-    expect(seg!.getAttribute('stroke-opacity')).toBe('0.35')
-    expect(seg!.getAttribute('stroke-dasharray')).toBe('6 3')
-  })
-
-  it('renders the polyline to anchors beyond the TIN slice extent (draw-through)', () => {
-    // The TIN slice covers along ∈ [0, 50]; the third borehole sits at
-    // along=100, well outside the slice. Previously the polyline was
-    // suppressed entirely when any slice existed → the rightmost
-    // contact had no connecting line. The fix renders polyline
-    // segments that REACH beyond the slice's X span, so the formation
-    // line "draws through" to the outlying column.
-    const formation = makeFormation({ id: 'f', color: '#ff0000' })
-    const contacts = [
-      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
-      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
-      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
-    ]
-    // Triangulation spans along ∈ [0, 50] only — well short of bh-3
-    // at along=100. The slice computed from this surface bounds at
-    // screen-X ≈ [10, 60] (alongMToScreenX = along + 10).
-    const surface: FormationSurfaceResponse = {
-      id: 's',
-      model_id: 'm',
-      formation_id: 'f',
-      method: 'tin',
-      vertices: [
-        [0, -2, 9],
-        [50, -2, 9],
-        [25, 5, 9],
-      ],
-      triangles: [[0, 1, 2]],
-      source_contact_count: 3,
-      is_stale: false,
-      created_at: '2026-05-14T00:00:00Z',
-      updated_at: '2026-05-14T00:00:00Z',
-    }
-    const surfacesByFormationId = new Map<string, FormationSurfaceResponse>([
-      ['f', surface],
-    ])
-    const { container } = renderLayer(
-      contacts,
-      [formation],
-      [
-        makeBoreholePlaced('bh-1', 0),
-        makeBoreholePlaced('bh-2', 50),
-        makeBoreholePlaced('bh-3', 100),
-      ],
-      undefined,
-      {
-        surfacesByFormationId,
-        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
-        alongMToScreenX: along => along + 10,
-      },
-    )
-    // The slice renders as before.
-    expect(
-      container.querySelector('[data-testid="formation-surface-f"]'),
-    ).not.toBeNull()
-    // The polyline now ALSO renders — used to be null when any slice
-    // existed for this formation. The path must contain at least one
-    // L command (otherwise nothing draws), proving we connected the
-    // outside-slice anchor.
     const poly = container.querySelector('[data-testid="formation-polyline-f"]')
     expect(poly).not.toBeNull()
-    expect(poly!.getAttribute('d')).toMatch(/L /)
-  })
-
-  it('skips polyline render when slice fully covers every anchor', () => {
-    // Mirror of the above with the slice spanning beyond every anchor.
-    // Every segment is inside the slice's X span → polyline is
-    // suppressed (path would be only M commands). Pins the no-double-
-    // paint guarantee so the slice paints alone in covered regions.
-    //
-    // Geometry: a wide triangle (-50,-2)→(150,-2)→(50,5) intersected
-    // by the section line Y=0 crosses the triangle edges at
-    // world-X ≈ -21.4 and ≈ 121.4 — slice along ≈ [-11.4, 131.4]
-    // (sectionLine startX=-10), screen-X ≈ [-1.4, 141.4]
-    // (alongMToScreenX = along + 10). Both anchor screen-Xs (10, 110)
-    // sit comfortably inside that range.
-    const formation = makeFormation({ id: 'f', color: '#ff0000' })
-    const contacts = [
-      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
-      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
-    ]
-    const surface: FormationSurfaceResponse = {
-      id: 's',
-      model_id: 'm',
-      formation_id: 'f',
-      method: 'tin',
-      vertices: [
-        [-50, -2, 9],
-        [150, -2, 9],
-        [50, 5, 9],
-      ],
-      triangles: [[0, 1, 2]],
-      source_contact_count: 2,
-      is_stale: false,
-      created_at: '2026-05-14T00:00:00Z',
-      updated_at: '2026-05-14T00:00:00Z',
-    }
-    const { container } = renderLayer(
-      contacts,
-      [formation],
-      [makeBoreholePlaced('bh-1', 0), makeBoreholePlaced('bh-2', 100)],
-      undefined,
-      {
-        surfacesByFormationId: new Map([['f', surface]]),
-        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
-        alongMToScreenX: along => along + 10,
-      },
-    )
-    expect(
-      container.querySelector('[data-testid="formation-surface-f"]'),
-    ).not.toBeNull()
-    expect(
-      container.querySelector('[data-testid="formation-polyline-f"]'),
-    ).toBeNull()
+    expect(poly!.getAttribute('stroke-opacity')).toBe('0.35')
+    expect(poly!.getAttribute('stroke-dasharray')).toBe('6 3')
   })
 
   // -------------------------------------------------------------------------
   // renderFormationSurfaces gate (#159-followup, owner dogfeed 2026-05-29).
-  // The active model's cross-column formation surfaces (TIN slice +
-  // connect-the-dots) group BY FORMATION, auto-joining same-lithology
+  // The active model's cross-column formation surfaces (through-picks
+  // polylines) group BY FORMATION, auto-joining same-lithology
   // contacts across columns regardless of the explicit correlation graph.
   // Correct on the geological axis; clutter on the litho axis (a real
   // section produced 13 spurious connect-the-dots lines). SectionPanel
   // passes renderFormationSurfaces=false on the litho axis.
   // -------------------------------------------------------------------------
 
-  it('FS1 — suppresses active-model surfaces (slice + connect-the-dots) when renderFormationSurfaces=false', () => {
+  it('FS1 — suppresses active-model surface polylines when renderFormationSurfaces=false', () => {
     const formation = makeFormation({ id: 'f', color: '#ff0000' })
     const contacts = [
       makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 2 }),
       makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 3 }),
       makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 3 }),
     ]
-    // A TIN slice bounded short of bh-3 → both renderers would normally
-    // fire (slice for bh-1/2, connect-the-dots extrapolation to bh-3).
+    // A built surface exists → the surface polyline would normally fire.
     const surface: FormationSurfaceResponse = {
       id: 's',
       model_id: 'm',
@@ -1859,8 +1675,7 @@ describe('ContactsLayer', () => {
         alongMToScreenX: along => along + 10,
       },
     )
-    // Both active-model surface renderers are gated off.
-    expect(container.querySelector('[data-testid="formation-surface-f"]')).toBeNull()
+    // The active-model surface renderer is gated off.
     expect(container.querySelector('[data-testid="formation-polyline-f"]')).toBeNull()
   })
 
@@ -1903,18 +1718,15 @@ describe('ContactsLayer', () => {
         alongMToScreenX: along => along + 10,
       },
     )
-    expect(container.querySelector('[data-testid="formation-surface-f"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="formation-polyline-f"]')).not.toBeNull()
   })
 
-  it('fill band reaches anchors beyond a trim-shaved TIN slice', () => {
+  it('fill band reaches every anchor with a contact', () => {
     // Real-world dogfeed: Paleogeen has contacts on cols 1, 2, 3, 5;
-    // col 4 has no contact (unobserved). Alpha-trim shaves the TIN
-    // hull inward → slice ends near col 3 → previous fill builder
-    // stopped there and halfspace extended at col 3's Y, silently
-    // missing col 5's anchor at a different (lower) elevation. With
-    // the merge fix, anchors OUTSIDE the slice's X span are included
-    // so the fill reaches col 5 too.
+    // col 4 has no contact (unobserved). The fill geometry comes from
+    // the through-picks polyline, which visits EVERY column with a
+    // contact — so the fill must reach col 5's anchor even across the
+    // unobserved gap.
     const formation = makeFormation({ id: 'f', color: '#ff8800' })
     const contacts = [
       makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 3 }),
@@ -1964,10 +1776,7 @@ describe('ContactsLayer', () => {
     const d = fill!.getAttribute('d')!
     // The fill's path must include the bh-5 anchor X (screen-x = 110,
     // ``makeBoreholePlaced`` takes screen-X directly so anchors are
-    // not shifted by alongMToScreenX) on the top edge. The previous
-    // (slice-only) builder produced a path that stopped near the
-    // slice end (~71) and the halfspace extended at slice's edge Y,
-    // silently missing bh-5's lower-Y anchor.
+    // not shifted by alongMToScreenX) on the top edge.
     expect(d).toMatch(/[ML] 110\.00 /)
   })
 
@@ -2753,7 +2562,6 @@ describe('ContactsLayer', () => {
     const activeLayers = allPaths.filter(
       p =>
         p.getAttribute('data-testid')?.startsWith('formation-polyline-') ||
-        p.getAttribute('data-testid')?.startsWith('formation-surface-') ||
         p.getAttribute('data-testid')?.startsWith('formation-fill-'),
     )
     // Backdrop must exist.
