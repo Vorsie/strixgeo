@@ -18,6 +18,7 @@ import type {
   GeologicalFormationResponse,
   LithoLayerResponse,
 } from '../../../api/client'
+import { formatNadClass } from '../../../utils/formatNadClass'
 import { nadClassColor, nadClassName } from '../../../utils/nadClasses'
 import {
   useGeotechBodySelection,
@@ -148,7 +149,7 @@ function GeotechnicalUnitRow({
   // are the UI lookup fns; the raw nad_class integer is domain truth.
   const color = nadClassColor(f.nad_class)
   const label = nadClassName(f.nad_class)
-  const nadLabel = f.nad_class !== null ? `NAD ${f.nad_class}` : undefined
+  const nadLabel = formatNadClass(null, f.nad_class) ?? undefined
 
   // S2: blue tint + ring when this row's formation matches the selected body.
   const selectedClass = isSelected

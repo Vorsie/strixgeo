@@ -27,6 +27,7 @@ import type {
 } from '../../api/client'
 import { useBoundaryDrag } from '../../hooks/useBoundaryDrag'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { formatNadClass } from '../../utils/formatNadClass'
 import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
@@ -1441,14 +1442,8 @@ function LithoSuggestionLayer({
   // Build the tooltip with all segmenter metadata.
   // nad_class_range is present on merged layers (debt #119); fall back to
   // the scalar suggested_nad_class for un-merged / borehole-path layers.
-  const nadNote = (() => {
-    const range = layer.nad_class_range
-    if (range != null) {
-      const [lo, hi] = range
-      return lo === hi ? ` · NAD ${lo}` : ` · NAD ${lo}–${hi}`
-    }
-    return layer.suggested_nad_class != null ? ` · NAD ${layer.suggested_nad_class}` : ''
-  })()
+  const nadLabel = formatNadClass(layer.nad_class_range, layer.suggested_nad_class)
+  const nadNote = nadLabel != null ? ` · ${nadLabel}` : ''
   const qcNote = layer.mean_qc_mpa != null ? ` · qc ${layer.mean_qc_mpa.toFixed(2)} MPa` : ''
   const drNote = layer.dr_pct != null ? ` · Dr ${layer.dr_pct.toFixed(0)}%` : ''
   const statusNote = accepted ? ' ✓ accepted' : rejected ? ' ✗ rejected' : ' (click to accept)'
