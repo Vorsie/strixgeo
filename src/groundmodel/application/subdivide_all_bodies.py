@@ -138,8 +138,6 @@ from groundmodel.domain.services.litho_geo_bounding import (
 )
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
-from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -818,40 +816,6 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             .all()
         )
         return {s.cpt_id: s for s in rows}
-
-    async def _load_total_depths(self, investigation_ids: set[UUID]) -> dict[UUID, float]:
-        """Load total depth for each investigation.
-
-        Parameters
-        ----------
-        investigation_ids : set[UUID]
-            Investigation UUIDs.
-
-        Returns
-        -------
-        dict[UUID, float]
-            ``investigation_id -> total_depth_m``.
-        """
-        total_depths: dict[UUID, float] = {}
-        cpt_rows = (
-            await self._session.execute(
-                select(CptOrm.id, CptOrm.max_depth_m).where(CptOrm.id.in_(investigation_ids))
-            )
-        ).all()
-        for row in cpt_rows:
-            if row.max_depth_m is not None:
-                total_depths[row.id] = row.max_depth_m
-        bh_rows = (
-            await self._session.execute(
-                select(BoreholeOrm.id, BoreholeOrm.total_depth_m).where(
-                    BoreholeOrm.id.in_(investigation_ids)
-                )
-            )
-        ).all()
-        for row in bh_rows:
-            if row.total_depth_m is not None:
-                total_depths[row.id] = row.total_depth_m
-        return total_depths
 
     async def _read_min_thickness_m(self, project_id: UUID) -> float:
         """Read the geotech minimum sub-unit thickness from the project view-state.
