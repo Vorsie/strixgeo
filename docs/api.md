@@ -136,28 +136,7 @@ GET    /projects/{pid}/geology/formations           List project formations
                                                     (display order, then name).
 PATCH  /projects/{pid}/geology/formations/{fid}     Partial update.
 DELETE /projects/{pid}/geology/formations/{fid}     Cascade-removes every
-                                                    contact pointing at it,
-                                                    plus every geotechnical
-                                                    unit hanging off it.
-
-POST   /projects/{pid}/geology/formations/{fid}/units
-                                                    Create a geotechnical unit
-                                                    under a formation. Structure
-                                                    only in v1 (name / code /
-                                                    color / display_order /
-                                                    description) — parameter
-                                                    values are Phase 5.
-GET    /projects/{pid}/geology/formations/{fid}/units
-                                                    List units under the
-                                                    formation (display order,
-                                                    then name).
-PATCH  /projects/{pid}/geology/formations/{fid}/units/{uid}
-                                                    Partial update. Parent
-                                                    formation_id NOT updatable —
-                                                    delete + recreate to
-                                                    re-parent.
-DELETE /projects/{pid}/geology/formations/{fid}/units/{uid}
-                                                    Delete a geotechnical unit.
+                                                    contact pointing at it.
 
 POST   /projects/{pid}/geology/models               Create a model.
 GET    /projects/{pid}/geology/models               List models (active first).

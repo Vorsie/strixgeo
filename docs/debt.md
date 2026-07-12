@@ -91,7 +91,7 @@ subdivision is built on top of it. Priority order:
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
-  * **#224 — Geotech formation find-or-create DRY pass.** What: `_find_or_create_classified` / `_find_or_create_skeleton` now have a 3rd/4th copy across `accept_geotech_suggestions.py` (C2b) + `subdivide_all_bodies.py`, and `_read_min_thickness_m` a 3rd copy vs `suggest_geotech_subdivision.py`. These should be extracted to a shared `geotech_formation_helpers` / `litho_model_reads` module; that extraction also covers the view-state float-knob readers in the voxel/strat builders (the pre-existing watch-list on `build_voxel_litho_model.py`). Why deferred: a multi-file cross-module extraction that would bloat the Slice 1 commit set. When to revisit: next geotech backend touch, or when the voxel/strat-builder watch-list is addressed — whichever comes first; the three-copy threshold is now met. **Audit 2026-07-12: confirmed + grown** — find-or-create ~95-line bodies ×2 each + a 3rd skeleton variant, plus `_resolve_anchor_kinds` ×3 verbatim and the nearest-geo-contact loop ×3 (DEBT.md BE-APPLICATION-GEOTECH-IMPORT-03/04/07); fold those into the same extraction.
+  * **#224 — Geotech formation find-or-create DRY pass.** What: `_find_or_create_classified` / `_find_or_create_skeleton` now have a 3rd/4th copy across the materialiser + its C2b twin (C2b deleted 2026-07-13 by #237.2 — recount before extracting), and `_read_min_thickness_m` (now 1 copy — the C2a copy died with #237.2). These should be extracted to a shared `geotech_formation_helpers` / `litho_model_reads` module; that extraction also covers the view-state float-knob readers in the voxel/strat builders (the pre-existing watch-list on `build_voxel_litho_model.py`). Why deferred: a multi-file cross-module extraction that would bloat the Slice 1 commit set. When to revisit: next geotech backend touch, or when the voxel/strat-builder watch-list is addressed — whichever comes first; the three-copy threshold is now met. **Audit 2026-07-12: confirmed + grown** — find-or-create ~95-line bodies ×2 each + a 3rd skeleton variant, plus `_resolve_anchor_kinds` ×3 verbatim and the nearest-geo-contact loop ×3 (DEBT.md BE-APPLICATION-GEOTECH-IMPORT-03/04/07); fold those into the same extraction.
 * **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222, #229, #232, #234, #235, #236 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231/#233 are Tier-G/pre-gate; #237 is the owner-decision batch)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -5988,7 +5988,7 @@ byte-identical; unit suite green). The router's dead `litho_snap_tolerance_m`
 read died with the rebuild endpoint itself in #237.1 (`4523edb18`) rather
 than as a separate step.
 
-## 237. 2026-07-12 owner-decision batch — DECIDED 2026-07-12, execution in progress
+## 237. 2026-07-12 owner-decision batch — DECIDED 2026-07-12, ALL FIVE EXECUTED 2026-07-13
 
 **Owner decisions (2026-07-12, all five):**
 1. ~~strat_field → DELETE after #236~~ → **DONE 2026-07-12** (`788a789a3` +
@@ -6005,12 +6005,29 @@ than as a separate step.
    Owner note recorded: fill-bands are the ground truth and the voxel builder
    itself may need revisiting later (post-pivot) — deletion of the implicit
    builder does not pre-empt that.
-2. C1/C2a/C2b skeleton flow → **DELETE** (body-centric is final).
-3. Import cancel → **cancel-on-disconnect**: JobRegistry.stream() cancels the
-   task in its finally-block on SSE disconnect; DELETE /jobs/{job_id} then goes
-   (the jobs router empties out entirely).
-4. GeotechnicalUnitOrm → **DROP** table + ORM + migration + bundle round-trip
-   (debt #13 will use the model-kind path).
+2. ~~C1/C2a/C2b skeleton flow~~ → **DONE 2026-07-13** (`59dad12a1` +
+   `6e45ced0d`): the five live-path helpers (`_ensure_geotech_model`,
+   `_load_geo_surfaces_with_formation`, `_make_boundary_sampler`,
+   `_make_lowest_boundary_sampler`, `_geo_formation_at_midpoint` +
+   `_GeoSurface`/`_evaluate`) moved verbatim from C1 into
+   `GeotechBoreholeMaterialiser` first (GEOTECH-IMPORT-06), then the 3
+   endpoints, 10 schema modules, 3 use cases, their integration tests and
+   the eval script's C1 step were deleted (−5.5k lines). SAB endpoint tests
+   now obtain the geotech model from subdivide-all-bodies itself; the Bug-2
+   C1-interplay regression died with C1. `_read_min_thickness_m` copy count
+   2 → 1 (#224 shrinks).
+3. ~~Import cancel~~ → **DONE 2026-07-13** (`6b6464049` + `5e20d5770`):
+   cancel-on-disconnect in `JobRegistry.stream()`'s finally-block, gated on
+   task-not-done so closing right after the final "done" event never cancels
+   a completed task (TDD: disconnect test RED first). The emptied /jobs
+   router + the now-caller-less `JobRegistry.cancel()` deleted.
+4. ~~GeotechnicalUnitOrm~~ → **DONE 2026-07-13** (`5bd5cfbb7` + `407716ef3` +
+   `6a09d8f3b`): ORM + formation relationship + bundle build/restore
+   round-trip (`_restore_geotech_units` + payload plumbing + schema fields +
+   IDOR/bundle/cascade tests) dropped; migration `v6w7x8y9z0a1` drops the
+   table (downgrade recreates the `f4b2c91e5a78` shape); FE `.strix`
+   round-trip key removed end-to-end (backwards-compat SUSPENDED — no
+   format bump). Debt #13 uses the model-kind path.
 5. ~~rewriteB Stage-2~~ → **DONE 2026-07-12** (`7f34247b`): flag +
    REWRITE_B_LEGACY + SUBSTRATE_CONTINUITY + bridge pass +
    computeBracketSubstrate cluster + legacy-only tests deleted (−1,636 lines
@@ -6038,9 +6055,8 @@ Original context below; strike items here as they land.
 **Why deferred.** Each either reverses a recorded owner decision or deletes the
 only instance of a capability.
 
-**When to revisit.** Next owner session touching the respective area; #237.5
-latest at the full-band pivot brainstorm; #237.1/.2 latest at geotech-stage
-close.
+**When to revisit.** Closed — all five executed (items 1/5 on 2026-07-12,
+items 2/3/4 on 2026-07-13). Kept for the decision record.
 
 ## 238. Four pre-existing RED integration tests, surfaced by the first clean full-suite run (Tier G/E — investigate, S each)
 

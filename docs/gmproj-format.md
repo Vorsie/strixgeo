@@ -30,7 +30,6 @@ metadata editor.
   "cpts": [ ],
   "boreholes": [ ],
   "geological_formations": [ ],
-  "geotechnical_units": [ ],
   "geological_models": [
     {
       "id": "<uuid>",
@@ -61,8 +60,7 @@ metadata editor.
   (with its full child tree: drill segments, field log intervals,
   observations + layers + admixtures, samples + 6 lab-test families)
   under ``boreholes``; the interpretation arrays
-  (``geological_formations``, ``geotechnical_units``,
-  ``geological_models``); the project-scoped cross-section definitions
+  (``geological_formations``, ``geological_models``); the project-scoped cross-section definitions
   (``cross_sections``); and per-(project, investigation) decisions
   (``investigation_reviews``).
 * **Per-model litho payload (v4):** each ``geological_models[]`` entry
