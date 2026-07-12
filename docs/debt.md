@@ -91,8 +91,8 @@ subdivision is built on top of it. Priority order:
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
-  * **#224 — Geotech formation find-or-create DRY pass.** What: `_find_or_create_classified` / `_find_or_create_skeleton` now have a 3rd/4th copy across `accept_geotech_suggestions.py` (C2b) + `subdivide_all_bodies.py`, and `_read_min_thickness_m` a 3rd copy vs `suggest_geotech_subdivision.py`. These should be extracted to a shared `geotech_formation_helpers` / `litho_model_reads` module; that extraction also covers the view-state float-knob readers in the voxel/strat builders (the pre-existing watch-list on `build_voxel_litho_model.py`). Why deferred: a multi-file cross-module extraction that would bloat the Slice 1 commit set. When to revisit: next geotech backend touch, or when the voxel/strat-builder watch-list is addressed — whichever comes first; the three-copy threshold is now met.
-* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222 *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+  * **#224 — Geotech formation find-or-create DRY pass.** What: `_find_or_create_classified` / `_find_or_create_skeleton` now have a 3rd/4th copy across `accept_geotech_suggestions.py` (C2b) + `subdivide_all_bodies.py`, and `_read_min_thickness_m` a 3rd copy vs `suggest_geotech_subdivision.py`. These should be extracted to a shared `geotech_formation_helpers` / `litho_model_reads` module; that extraction also covers the view-state float-knob readers in the voxel/strat builders (the pre-existing watch-list on `build_voxel_litho_model.py`). Why deferred: a multi-file cross-module extraction that would bloat the Slice 1 commit set. When to revisit: next geotech backend touch, or when the voxel/strat-builder watch-list is addressed — whichever comes first; the three-copy threshold is now met. **Audit 2026-07-12: confirmed + grown** — find-or-create ~95-line bodies ×2 each + a 3rd skeleton variant, plus `_resolve_anchor_kinds` ×3 verbatim and the nearest-geo-contact loop ×3 (DEBT.md BE-APPLICATION-GEOTECH-IMPORT-03/04/07); fold those into the same extraction.
+* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222, #229, #232, #234, #235, #236 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231/#233 are Tier-G/pre-gate; #237 is the owner-decision batch)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5795,6 +5795,187 @@ cluster): clip each strip's `leftX/rightX` to the midpoints toward its neighbour
 in `PartitionFillOverlay.underColumnFills` (the recipe already prototyped in the
 geotech-brainstorm `carvePanel` substrate render). Deferred here to avoid editing
 the shared overlay component while the parallel geotech session renders through it.
+
+## 229. Execute the 2026-07-12 audit delete table — 58 verified dead-code candidates (Tier E — cleanup campaign, M)
+
+**What.** The 2026-07-12 redundancy audit (DEBT.md, dated section) produced a
+58-row "delete outright" table, every row adversarially verified as
+zero-production-caller (independent re-grep incl. dynamic dispatch). Headliners:
+`section_partition.py` (2,449-line dead Python port of partitionFill.ts) + its
+goldens harness, the `domain/models/geology` dataclass package (458 lines, false
+docstrings), the dead `pinch_out_geometry`/`dip_extrapolation` orphans (Py+TS
+mirror both test-only), ContactsLayer's TIN-slice subsystem (~180 lines,
+`surfaceThroughPicks` hardwired true), ~25 dead FE client methods + types regrown
+since #207, dead endpoints (litho-geo link/unlink ×3, per-body absence recompute,
+jobs import-cpt + 501 stub), the CPT DovClient legacy download path, the
+`queue.py`/`import_progress.py` re-export shims, and the ~307-line TEMP-DEVTOOLS
+block in PartitionFillOverlay. Excluded from the mechanical batch: the five
+owner-decision items tracked in #237.
+
+**Why deferred.** A few focused hours of deletion + test-file migration; the
+audit landed at the end of a long housekeeping session and each deletion should
+run the affected test suites individually (one file per commit).
+
+**When to revisit.** Next cleanup window between geotech dogfeed rounds — or
+opportunistically: whenever a session touches a file on the table, delete the
+dead code in the same commit. Work the table top-down; strike rows in DEBT.md is
+NOT allowed (append-only) — track completion here instead.
+
+## 230. Vitest fill-gate inversion — default suite tests the RETIRED !rewriteB path (Tier G — test integrity, S, DO FIRST)
+
+**What.** `partitionFill.ts:4215` sets `rewriteB = (env REWRITE_B) || !inVitest`:
+production always runs rewriteB, but under vitest the flag is FALSE unless a
+human exports `REWRITE_B=1`. The default suite (and the pre-commit gate) test
+the retired legacy path — `partitionFill.test.ts` even asserts DIFFERENT
+expected outputs per path (`expect(...).toEqual(rewriteB ? [] : ['CLAY'])`),
+and `cs1frozen` skips gates when rewriteB is on. Green checks currently pin
+behaviour the app never executes — the same class of hazard as the CM1
+test-shaped-by-impl lesson.
+
+**Why deferred.** Filed from the 2026-07-12 audit (FE-PARTITION-FILL-02);
+flipping the default requires migrating/splitting the legacy expectations
+behind an explicit `LEGACY=1` run and re-baselining the CS1 gates on the
+rewriteB path.
+
+**When to revisit.** BEFORE any further partitionFill.ts change and before the
+full-band pivot brainstorm — this is the first artifact of that work, not an
+afterthought. Pairs with #237's rewriteB Stage-2 decision.
+
+## 231. Wedge-tip stale-delete is not section-scoped — multi-section projects keep only the last section's tips (Tier G — correctness, S)
+
+**What.** `materialize_wedge_tips_for_formation.py`: step 7a calls
+`_find_existing_synthetic_ids(model_id, formation_id)` INSIDE the per-section
+loop (line ~391), but the SELECT (line ~538) has no section filter. New tips
+are inserted + flushed per section, so section k+1's pass deletes section k's
+fresh tips, and `_remove_from_seeded_ids` prunes only the CURRENT section's
+seeded array — earlier sections keep dangling seeded UUIDs. Net: only the LAST
+section's tips survive. Single-section projects (the common dogfeed case) are
+unaffected, which is why it went unnoticed. Orchestrator-verified 2026-07-12.
+
+**Why deferred.** Bug-adjacent redundancy found by the audit; the fix (hoist
+the stale-delete + prune above the section loop, or section-scope the
+synthetic contacts) needs a 2-section integration fixture to pin RED first.
+
+**When to revisit.** Next litho backend touch, or before dogfeeding wedge tips
+on any project with 2+ sections.
+
+## 232. Post-accept pipeline ×4 in useLithoSuggestions — extract the shared tail (Tier E — frontend DRY, M)
+
+**What.** Prior-audit DRY-07 grown: four accept handlers repeat the same 9-step
+tail (accept call → recordCreatedRows → parent-summary toast → stale-TIN
+aggregation → onSectionUpdated → accepted-mark → refetches → undo push), already
+drifted. Verifier-corrected scope (2026-07-12, FE-HOOKS-04): extract one
+`commitAcceptResult` helper; populate `contactIdsByAcceptedIdx` in BOTH
+one-layer paths (single already does; add bulk-single); leave the accept-all /
+batch multi-layer population as the documented `useBoundaryDrag` fallback OR
+design the idx→contact association deliberately (needs a backend ordering
+contract — not a free side effect). Fix the stale `BulkAnchorGhost` doc at
+`useGeologicalModel.ts:180-186` claiming three handlers populate the map.
+
+**Why deferred.** M-effort refactor in the most-mocked hook; must not land
+under a live dogfeed.
+
+**When to revisit.** Next useLithoSuggestions feature touch — the fifth copy is
+the hard trigger.
+
+## 233. Geotech/Litho/Geology canvas triplication — extract the shared 3D-view plumbing (Tier G — frontend DRY, M)
+
+**What.** `GeotechnicalCanvas` is a ~350-line admitted-verbatim copy of
+`LithologyCanvas` (module-ref trio, split state, ground-surface fetch effect,
+fence-edge fetch, voxel-build callback, view-pill JSX — byte-equal modulo
+identifiers); `GeologyCanvas` carries a third copy of the split-state +
+ground-surface blocks. Every fence/voxel fix currently needs 2–3 synchronized
+edits (audit 2026-07-12, FE-SHELL-CLIENTS-10 + -11: the per-section edge fetch
+is also duplicated twice WITHIN each canvas — 4 copies total). Fix shape: a
+`useBody3DViewState` hook + `<BodyViewModePills>` component + a
+`makeVoxelRequestBuilder` factory.
+
+**Why deferred.** Geotech stage is mid-dogfeed; canvas extraction under a live
+visual-verification cycle risks masking render regressions.
+
+**When to revisit.** First fence/voxel bug that needs the same fix in two
+canvases — do the extraction as the fix.
+
+## 234. DHMVII dual WCS client — route the section line-profile through the provider stack (Tier E — backend, M)
+
+**What.** Two parallel httpx/WCS stacks hit the same DHMVII endpoint:
+`DhmviiSampler` (line profile, `api/routers/dem.py`) vs
+`WcsDemProvider`/`DhmviiDemProvider` (grid). Identical client construction,
+GetCoverage params, padding, NoData handling; the sampler predates the provider
+ABC its own docstring predicted, and bypasses `DemTileCache` — every section
+elevation-profile re-downloads its strip. Verifier-corrected fix (2026-07-12,
+BE-INFRASTRUCTURE-15): add a sample-along-line path ON WcsDemProvider reusing
+the cache + `_extract_tiff` + `_is_nodata` but sampling the PIL image at the
+~200 profile points directly — do NOT materialise `fetch_grid`'s full
+DemZGrid for a line (O(length²) cells on a long diagonal section). Bonus: NL
+AHN4 line profiles come free via the factory.
+
+**Why deferred.** M-effort; DEM profile is working, just cache-less.
+
+**When to revisit.** Next DEM touch, or when a dogfeed complains section
+profiles feel slow on repeat views.
+
+## 235. Extraction backsliding — wire or delete the orphaned extracted utils (Tier E — frontend hygiene, S)
+
+**What.** Audit 2026-07-12 found the "extract on second copy" rule applied and
+then bypassed: a 4th byte-identical `isTypingTarget` accreted AFTER the
+extraction that killed copies 1–3 (FE-UTILS-06); `newTestFilter.ts` exports are
+test-only while the toolbar/inspector re-inline the same bodies — and the
+toolbar variant must NOT be blindly substituted (the util lacks the
+corridor/exclusion/elevation scoping; wire the inspector one, reshape or delete
+the toolbar one, FE-UTILS-02 verifier note); `formatNadClass` and
+`assembleSectionPartitionInput` same pattern (FE-UTILS-01/-08); 5 copies of the
+useSyncExternalStore boolean-store boilerplate (FE-UTILS-04); 27 copies of the
+non-2xx error block across API clients (FE-SHELL-CLIENTS-08).
+
+**Why deferred.** Individually trivial; batched they're an afternoon.
+
+**When to revisit.** Fold into #229's cleanup campaign, or per-file on touch.
+
+## 236. Decouple the live voxel path from the dormant strat_field package (Tier E — backend, S)
+
+**What.** The LIVE voxel builder imports the PRIVATE `_digest_surfaces` from
+`assemble_strat_inputs` and `SurfaceBound` from `strat_field/strat_types`
+(build_voxel_litho_model.py:71/79, load_geo_surfaces, label_voxels, geo_bands).
+Extract both into a neutral module (`litho_model_reads.py` /
+`surface_bound.py`) so the current path stops depending on the dormant
+superseded package — justified regardless of #237's keep/delete call on
+strat_field, and it unblocks that deletion later. Also per the audit's
+BE-3D-BUILDERS-05 verifier note: delete the router's dead
+`litho_snap_tolerance_m` read first (passed to a parameter RecomputeLithoSolids
+documents as UNUSED), which drops the knob-reader copy count below the
+extraction threshold.
+
+**Why deferred.** Small but touches the voxel build — verify with the
+label-grid SHA-256 byte-identical check after.
+
+**When to revisit.** Next voxel-builder touch, or as the first step of #237's
+strat_field decision.
+
+## 237. 2026-07-12 owner-decision batch — five audit items that must not be executed mechanically (owner)
+
+**What.** Five verified findings need an owner call (full evidence in DEBT.md
+§4, 2026-07-12 section):
+1. **strat_field dormant package** (~290 KB + 4 integration-test files per
+   pre-push + the scikit-image dep via dead `iso_surface.py`): keep dormant or
+   delete; `eval_strat_builder.py` + `profile_strat_build.py` ride along.
+2. **C1/C2a/C2b geotech skeleton flow** (3 endpoints, ~9 schemas, 3 use cases,
+   3 FE fns, zero FE callers) — delete if body-centric is final.
+3. **DELETE /jobs/{job_id}** — the only server-side import cancel; FE's SSE
+   abort leaves cold-cache imports running to completion. Wire into
+   `useDovImportStream` cancel or delete deliberately.
+4. **GeotechnicalUnit ORM + migration** — endpoints/client deletable now (#229);
+   confirm debt #13 uses the model-kind path before dropping the table.
+5. **rewriteB Stage-2** — conflicting in-code comments (07-09 "Stage 2 deletes
+   this" vs 07-10 "kept for A/B"); recommended: #230 first, then fold the
+   flag+bridge+substrate deletion into the full-band pivot.
+
+**Why deferred.** Each either reverses a recorded owner decision or deletes the
+only instance of a capability.
+
+**When to revisit.** Next owner session touching the respective area; #237.5
+latest at the full-band pivot brainstorm; #237.1/.2 latest at geotech-stage
+close.
 
 ## (end)
 
