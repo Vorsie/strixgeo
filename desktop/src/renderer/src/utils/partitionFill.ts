@@ -4191,19 +4191,6 @@ export function computeSectionFill(
     .filter((c) => c.units.length > 0)
     .map((c) => ({ surface: c.surfaceElevM, units: c.units.map((u) => ({ ...u })) }))
   if (cols.length < 2) return []
-  // THROWAWAY REWRITE_A prototype (owner 2026-07-09 "colour between the lines, no
-  // interpolation"): extend every column's deepest unit FLAT to the section's deepest
-  // TD. That makes the shallow-TD cap uniform (= the bottom), so the deep-to-deep
-  // substrate has nothing to fill, and the whole section is pure per-adjacent-gap
-  // emitGap. Option A = a shallow test's deepest lithology extends flat + neighbours
-  // pinch toward it. Remove after the owner picks A vs B.
-  if (typeof process !== 'undefined' && process.env?.REWRITE_A) {
-    const bottom = Math.min(...cols.map((c) => c.surface - c.units[c.units.length - 1].baseDepthM))
-    for (const c of cols) {
-      const last = c.units[c.units.length - 1]
-      last.baseDepthM = Math.max(last.baseDepthM, c.surface - bottom)
-    }
-  }
   // rewriteB (owner 2026-07-09): correlate-or-gap model — uncapped emitGap (no
   // apex-clamp-to-shallow-TD), no substrate. This is the model the app runs.
   // Default ON everywhere INCLUDING vitest (debt #230 — the default suite must
