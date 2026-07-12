@@ -578,13 +578,6 @@ const LITHO_CONTACT_HALO_COLOR = '#f8fafc'
 // no-op rule on the depth-only drag.
 const CLICK_TO_DRAG_THRESHOLD_PX = 3
 
-// ---------------------------------------------------------------------------
-// computeSlabsAndPolylines re-exported from contactsLayerGeometry.ts so
-// callers that import from './ContactsLayer' continue to work unchanged.
-// The implementation now lives in contactsLayerGeometry.ts.
-// ---------------------------------------------------------------------------
-export { computeSlabsAndPolylines }
-
 export default function ContactsLayer({
   contacts: rawContacts,
   liveContactDepthOverride,
