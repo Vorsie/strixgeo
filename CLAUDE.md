@@ -501,7 +501,7 @@ Format conventions for debt items:
 
 Priority is **milestone-gated** — the current milestone is the **Geotech-subdivision stage**. Open index (one-liners only; details in docs/debt.md):
 
-**Tier G — finish the litho stage:** #123 clay→silt correlation suggestion bug (needs owner repro; diagnostic SQL in debt entry) · #149 double SAND/SILT units after Accept (narrowed 2026-06-22 to the find-or-create `(soil_code, sig)` key incl. admixture `amount`; next dogfeed = enable DEBUG + read the two `sig=` values) · #134-C-bulk SHELVED (owner: build nothing; revisit placement at geotech-inspector design) · #163(f) split-suggestion-into-2-for-lenses (needs design; Ctrl-drag offers a complementary path) · #230 vitest fill-gate inversion (default suite pins the RETIRED !rewriteB path — fix before any partitionFill change / the full-band pivot) · #231 wedge-tip stale-delete not section-scoped (multi-section bug) · #233 geotech/litho/geology canvas triplication.
+**Tier G — finish the litho stage:** #123 clay→silt correlation suggestion bug (needs owner repro; diagnostic SQL in debt entry) · #149 double SAND/SILT units after Accept (narrowed 2026-06-22 to the find-or-create `(soil_code, sig)` key incl. admixture `amount`; next dogfeed = enable DEBUG + read the two `sig=` values) · #134-C-bulk SHELVED (owner: build nothing; revisit placement at geotech-inspector design) · #163(f) split-suggestion-into-2-for-lenses (needs design; Ctrl-drag offers a complementary path) · #231 wedge-tip stale-delete not section-scoped (multi-section bug) · #233 geotech/litho/geology canvas triplication.
 
 **═══ GEOTECH-STAGE GATE — everything below waits ═══**
 
