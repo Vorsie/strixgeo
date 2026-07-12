@@ -14,7 +14,7 @@
  * gate encodes that as a lithology invariant on the real CS1 data: in the sand
  * body's own depth window, every painted point must be the SAND formation.
  *
- * Run:  REWRITE_B=1 CS1_GATE=1 npx vitest run \
+ * Run:  CS1_GATE=1 npx vitest run \
  *         src/renderer/src/utils/partitionFill.cs1sandbody.test.ts
  */
 

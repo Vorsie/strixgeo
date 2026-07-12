@@ -26,7 +26,7 @@
  *   mid-clay INSIDE the sloping silt quad (a KLEI region above the silt-base
  *   tie) — clay over the band.
  *
- * Run:  REWRITE_B=1 CS1_GATE=1 npx vitest run \
+ * Run:  CS1_GATE=1 npx vitest run \
  *         src/renderer/src/utils/partitionFill.cs1bandauthority.test.ts
  */
 
@@ -82,7 +82,7 @@ const FORMATION_LABEL = (f: string): string =>
 describe('CS1 real-data band-authority gate', () => {
   // Dormant unless explicitly activated (needs the dev-DB-derived CS1 input).
   //   uv run python scripts/throwaway_cs1_partition_extract.py
-  //   REWRITE_B=1 CS1_GATE=1 npx vitest run src/renderer/src/utils/partitionFill.cs1bandauthority.test.ts
+  //   CS1_GATE=1 npx vitest run src/renderer/src/utils/partitionFill.cs1bandauthority.test.ts
   if (process.env.CS1_GATE !== '1') {
     it.skip('CS1 band-authority gate dormant (set CS1_GATE=1 to run)', () => {})
     return

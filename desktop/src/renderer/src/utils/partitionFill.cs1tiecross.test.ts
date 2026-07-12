@@ -13,7 +13,7 @@
  * in-app alt-click tie-cross diagnostic, but on the real CS1 input, in the same
  * ``computeSectionFill`` code the app runs (REWRITE_B path).
  *
- * Run:  REWRITE_B=1 CS1_TIECROSS=1 npx vitest run \
+ * Run:  CS1_TIECROSS=1 npx vitest run \
  *         src/renderer/src/utils/partitionFill.cs1tiecross.test.ts
  */
 
