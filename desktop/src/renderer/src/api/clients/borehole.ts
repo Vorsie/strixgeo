@@ -211,28 +211,6 @@ export interface BoreholeDetailResponse {
   samples: SampleResponse[]
 }
 
-/** Response from ``POST /borehole/import-dov``. */
-export interface ImportBoreholeDovResponse {
-  imported: number
-  duplicates: number
-  failed: number
-  interpretations_attached: number
-  interpretations_failed: number
-  samples_attached: number
-  samples_failed: number
-  grain_sizes_attached: number
-  grain_sizes_failed: number
-  atterberg_attached: number
-  atterberg_failed: number
-  caco3_attached: number
-  caco3_failed: number
-  organic_attached: number
-  organic_failed: number
-  water_content_attached: number
-  water_content_failed: number
-  borehole_ids: string[]
-}
-
 // Shared elevation-patch payload — the backend accepts the same shape for
 // CPT and borehole, so the API surface mirrors that. ``elevation_m: null``
 // clears a previously-entered value (returns the row to the "needs Z"
@@ -300,22 +278,4 @@ export const boreholeClient = {
     body: ElevationPatchBody,
   ): Promise<BoreholeListItem> =>
     patch(`/borehole/${id}/elevation?project_id=${projectId}`, body),
-
-  importDov: async (
-    bbox: { west: number; south: number; east: number; north: number },
-    projectId?: string,
-  ): Promise<ImportBoreholeDovResponse> => {
-    const res = await fetch(`${_base}/borehole/import-dov`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
-    })
-    if (!res.ok) {
-      // Same upstream-error → message mapping as the CPT side
-      // (502/503/504 surfaced by the FastAPI router).
-      const body = await res.json().catch(() => ({}))
-      throw new Error(body.detail ?? `DOV borehole import failed (HTTP ${res.status})`)
-    }
-    return res.json()
-  },
 }

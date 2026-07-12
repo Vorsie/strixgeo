@@ -86,14 +86,6 @@ export interface ImportCptResponse {
   issues: { level: string; code: string; message: string; rows: number[] }[]
 }
 
-/** Response from ``POST /cpt/import-dov`` (DOV bbox import). */
-export interface ImportDovResponse {
-  imported: number
-  duplicates: number
-  failed: number
-  cpt_ids: string[]
-}
-
 /** Thrown when ``POST /cpt/import`` returns HTTP 409. */
 export class DuplicateCptError extends Error {
   cptId: string
@@ -136,34 +128,13 @@ export const cptClient = {
   plotBatch: (ids: string[], appProjectId: string): Promise<CptPlotResponse[]> =>
     post(`/cpt/plot-batch`, { ids, app_project_id: appProjectId }),
 
-  // ``projectId`` is required — scope guard ensures a caller cannot
-  // delete or patch a CPT from a foreign project (VULN-2/3).
-  delete: (id: string, projectId: string): Promise<void> =>
-    del(`/cpt/${id}?project_id=${projectId}`),
-
+  // ``projectId`` is required on patch — scope guard ensures a caller
+  // cannot patch a CPT from a foreign project (VULN-2/3).
   patchElevation: (
     id: string,
     projectId: string,
     body: ElevationPatchBody,
   ): Promise<CptResponse> => patch(`/cpt/${id}/elevation?project_id=${projectId}`, body),
-
-  importDov: async (
-    bbox: { west: number; south: number; east: number; north: number },
-    projectId?: string,
-  ): Promise<ImportDovResponse> => {
-    const res = await fetch(`${_base}/cpt/import-dov`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
-    })
-    if (!res.ok) {
-      // FastAPI surfaces specific reasons (network down, timeout, upstream error)
-      // in body.detail; fall back to status code if the body is unparseable.
-      const body = await res.json().catch(() => ({}))
-      throw new Error(body.detail ?? `DOV import failed (HTTP ${res.status})`)
-    }
-    return res.json()
-  },
 
   import: async (filePath: string, projectId?: string): Promise<ImportCptResponse> => {
     // Read via IPC — fetch('file://') is blocked in the renderer sandbox.

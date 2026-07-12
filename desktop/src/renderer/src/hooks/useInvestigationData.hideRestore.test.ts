@@ -41,7 +41,6 @@ vi.mock('../api/client', () => ({
       list: vi.fn().mockResolvedValue([]),
       get: vi.fn().mockResolvedValue({ id: 'c', depth_top_m: 0 }),
       plot: vi.fn().mockResolvedValue({ id: 'c', series: [] }),
-      delete: vi.fn(),
     },
     borehole: {
       list: vi.fn().mockResolvedValue([]),
@@ -145,7 +144,6 @@ describe('handleRemoveCpts — remove is a hide, never a DB delete', () => {
     // removal — a DB delete would break re-import cache warmth (memory:
     // project_no_db_delete_on_rollback).
     expect(api.review.delete).not.toHaveBeenCalled()
-    expect(api.cpt.delete).not.toHaveBeenCalled()
     // Local removed-set updated too (not just the API side-effect).
     expect(h.result.current.removedCptIds.has('a')).toBe(true)
     expect(h.result.current.removedCptIds.has('b')).toBe(true)

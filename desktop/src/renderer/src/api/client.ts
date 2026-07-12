@@ -31,7 +31,6 @@ export type {
   CptResponse,
   CptPlotResponse,
   ImportCptResponse,
-  ImportDovResponse,
   ElevationPatchBody,
 } from './clients/cpt'
 export { DuplicateCptError } from './clients/cpt'
@@ -56,7 +55,6 @@ export type {
   WaterContentResponse,
   ScalarLabTestResponse,
   SampleResponse,
-  ImportBoreholeDovResponse,
 } from './clients/borehole'
 
 // ---------------------------------------------------------------------------
