@@ -26,7 +26,6 @@ import type { UseLithoSolidsResult } from './useLithoSolids'
 import { useLithoSolids } from './useLithoSolids'
 import type {
   AcceptLithoSuggestionsResponse,
-  BatchAcceptLithoSuggestionsResponse,
   CrossingPinchOut,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
@@ -42,12 +41,7 @@ import type {
   SubdivideAllBodiesResponse,
 } from '../api/client'
 import { lithoLayersToContacts } from '../utils/lithoLayerToContact'
-import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { clearBoreholesStale, markBoreholesStale } from '../utils/boreholesStaleStore'
-import { splitLithoLayer } from '../utils/lithoLayerSplit'
-import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
-import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
-import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import type { UndoCommand } from './useUndoStack'
 import { useFormationCrud } from './useFormationCrud'
 import { useContactCrud } from './useContactCrud'
@@ -56,14 +50,7 @@ import { useLithoModelOps } from './useLithoModelOps'
 import { useLithoSuggestions } from './useLithoSuggestions'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit, isGeotechUnit } from '../utils/formationKind'
-import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
-import {
-  buildLithoAcceptBody,
-  lithoAcceptTuningParams,
-  recordCreatedRows,
-} from '../utils/lithoAccept'
-import { readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
 
