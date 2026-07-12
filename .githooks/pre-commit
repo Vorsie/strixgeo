@@ -25,6 +25,20 @@ fi
 py_changed="$(echo "$staged" | grep -E '\.py$' || true)"
 ts_changed="$(echo "$staged" | grep -E '^desktop/.*\.(ts|tsx)$' || true)"
 
+# CLAUDE.md size budget — the file auto-loads into every session, so
+# every byte is paid for on every conversation (see CLAUDE.md →
+# "Maintaining this file"). History belongs in docs/debt.md or
+# docs/design/*.md, not here.
+if echo "$staged" | grep -qx 'CLAUDE.md'; then
+  claude_md_size="$(wc -c < CLAUDE.md)"
+  budget=$((40 * 1024))
+  if [ "$claude_md_size" -gt "$budget" ]; then
+    echo "[pre-commit] CLAUDE.md is $((claude_md_size / 1024)) KB (> 40 KB budget)."
+    echo "[pre-commit] Extract history to docs/debt.md or docs/design/*.md instead (see 'Maintaining this file')."
+    exit 1
+  fi
+fi
+
 if [ -n "$py_changed" ]; then
   echo "[pre-commit] Running Python unit tests…"
   uv run pytest tests/unit -q --tb=no
