@@ -167,7 +167,6 @@ vi.mock('./api/client', async () => {
         dedupeContacts: stub(),
         rebuildSurfaces: stub(),
         exportPlaxis3d: stub(),
-        validateBorehole: stub(),
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
       },
       review: {

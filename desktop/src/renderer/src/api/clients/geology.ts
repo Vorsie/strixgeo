@@ -387,18 +387,6 @@ export interface LithoLayerBoundaryMoveResponse {
   lower: LithoLayerResponse
 }
 
-/** Request body for ``POST .../layers/batch-status``. */
-export interface LithoLayerBatchStatusPayload {
-  layer_ids: readonly string[]
-  status: LithoLayerStatus
-}
-
-/** Response from ``POST .../layers/batch-status``. */
-export interface LithoLayerBatchStatusResponse {
-  updated_count: number
-  layers: LithoLayerResponse[]
-}
-
 /** One per-row patch in a layer batch update (A4 slice 4b). */
 export interface LithoLayerBatchUpdateItem {
   layer_id: string
@@ -726,13 +714,6 @@ export interface GapIssueResponse {
   contact_ids: string[]
   /** Populated for ``formation_crossing`` kind. */
   formation_ids: string[]
-}
-
-/** Response from ``GET .../boreholes/{bid}/validate``. */
-export interface GapValidationResponse {
-  model_id: string
-  borehole_id: string
-  issues: GapIssueResponse[]
 }
 
 /** Response from ``GET .../validate/crossings``. */
@@ -1143,27 +1124,6 @@ export const geologyClient = {
     return res.json()
   },
 
-  /** POST /models/{mid}/layers/batch-status — accept-all / reject-all. */
-  batchUpdateLayerStatus: async (
-    projectId: string,
-    modelId: string,
-    payload: LithoLayerBatchStatusPayload,
-  ): Promise<LithoLayerBatchStatusResponse> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/layers/batch-status`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `batchUpdateLayerStatus failed (${res.status})`)
-    }
-    return res.json()
-  },
-
   /** POST /models/{mid}/layers/{lid}/link-geo — link layer to nearest geo contact. */
   linkLayerToGeo: async (
     projectId: string,
@@ -1417,16 +1377,6 @@ export const geologyClient = {
     }
     return res.json()
   },
-
-  // --- Gap validator (per borehole) ------------------------------------
-  validateBorehole: (
-    projectId: string,
-    modelId: string,
-    boreholeId: string,
-  ): Promise<GapValidationResponse> =>
-    get(
-      `/projects/${projectId}/geology/models/${modelId}/boreholes/${boreholeId}/validate`,
-    ),
 
   validateCrossings: (
     projectId: string,
@@ -1695,18 +1645,6 @@ export const geologyClient = {
   }> =>
     post(
       `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/accept`,
-      {},
-    ),
-
-  // Fuse host halves split by a local lens.
-  mergeEnclosedLenses: (
-    projectId: string,
-    modelId: string,
-    sectionId: string,
-  ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/merge-enclosed-lenses` +
-        `?section_id=${sectionId}`,
       {},
     ),
 
