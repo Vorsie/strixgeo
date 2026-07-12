@@ -22,7 +22,6 @@
  *     ``truncateToWidth``   — ellipsis-truncate a label to a pixel budget.
  *     ``columnUnderCursor`` — nearest PlacedColumn within attraction hysteresis.
  *     ``surfaceYForColumn`` — derive screenY + pxPerMetre + elevationM for a column.
- *     ``isTypingTarget``    — returns true when a DOM target is a text-input element.
  *
  * Main function
  *     ``computeSlabsAndPolylines`` — Stage-A classification pass; pure of vertical axis.
@@ -271,30 +270,6 @@ export function surfaceYForColumn(
     pxPerMetre,
     surfaceElevationM: item.elevation_m,
   }
-}
-
-/**
- * Return ``true`` when ``target`` is a text-input-like element.
- *
- * The section panel's selection shortcuts must not fire when the user
- * is typing in a formation-rename input, the search box, or any other
- * text field.  Mirrors the same guard in Sidebar and BoreholeLog.
- *
- * Parameters
- * ----------
- * target
- *     The ``EventTarget`` from a keyboard event (may be null).
- *
- * Returns
- * -------
- * boolean
- *     True when the target is INPUT, TEXTAREA, SELECT, or contenteditable.
- */
-export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  return target.isContentEditable
 }
 
 // ---------------------------------------------------------------------------

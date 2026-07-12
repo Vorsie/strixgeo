@@ -61,11 +61,11 @@ import ContactContextMenu from './ContactContextMenu'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 import { nadClassColor, nadClassName, nadCompactFromName } from '../../utils/nadClasses'
+import { isTypingTarget } from '../../utils/keyboard'
 import {
   clamp,
   columnUnderCursor,
   computeSlabsAndPolylines,
-  isTypingTarget,
   surfaceYForColumn,
   truncateToWidth,
   type LayerSlabData,
