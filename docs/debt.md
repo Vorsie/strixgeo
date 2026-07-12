@@ -6058,9 +6058,27 @@ only instance of a capability.
 **When to revisit.** Closed — all five executed (items 1/5 on 2026-07-12,
 items 2/3/4 on 2026-07-13). Kept for the decision record.
 
-## 238. Four pre-existing RED integration tests, surfaced by the first clean full-suite run (Tier G/E — investigate, S each)
+## 238. ~~Four pre-existing RED integration tests~~ — RESOLVED 2026-07-13 (all four were stale tests, not bugs)
 
-**What.** The 2026-07-12 delete campaign's verification run was the first
+**Resolution.** Diagnosed same-session; the full integration suite is now
+fully green:
+1. DB1-2 → pinned the pre-`bec4e53ed` (07-07) skip-the-resolver contract;
+   updated to assert the Phase-8.5 re-resolve stamps body_id (`7802a1d23`).
+2. strat-rebuild red → died with the #237.1 strat_field deletion.
+3. SA-5 → same 07-07 root cause: borehole bands are now first-class
+   body-graph members, so the clay sample anchors to the borehole KLEI body;
+   provenance-checked assertion mirrors SA-8 (`95cbaf7a6`).
+4. bundle absences → NOT data loss: the restore IDOR guard (`101676ca8`,
+   07-01) correctly drops dangling investigation anchors; the 05-24 fixture
+   used random UUIDs (the attack case by accident). Fixture now anchors at
+   the project's real CPT/borehole (`5c339e87e`).
+
+**Lesson.** Behaviour-changing commits (07-01 guard, 07-07 re-resolve)
+shipped without updating the integration tests that pinned the old
+behaviour, and the suite ran nowhere for weeks — the visibility gap, not the
+code, was the bug.
+
+**What (was).** The 2026-07-12 delete campaign's verification run was the first
 clean full integration pass in a long time (the pre-push gate only fires on
 push; develop is ~280 commits unpushed). It surfaced 4 deterministic reds,
 each verified to fail identically on pre-campaign code (`9c43655e`):
