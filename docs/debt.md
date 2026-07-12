@@ -5975,33 +5975,36 @@ non-2xx error block across API clients (FE-SHELL-CLIENTS-08).
 
 **When to revisit.** Fold into #229's cleanup campaign, or per-file on touch.
 
-## 236. Decouple the live voxel path from the dormant strat_field package (Tier E — backend, S)
+## 236. ~~Decouple the live voxel path from the dormant strat_field package~~ — RESOLVED 2026-07-12
 
-**What.** The LIVE voxel builder imports the PRIVATE `_digest_surfaces` from
+**Was.** The LIVE voxel builder imported the PRIVATE `_digest_surfaces` from
 `assemble_strat_inputs` and `SurfaceBound` from `strat_field/strat_types`
-(build_voxel_litho_model.py:71/79, load_geo_surfaces, label_voxels, geo_bands).
-Extract both into a neutral module (`litho_model_reads.py` /
-`surface_bound.py`) so the current path stops depending on the dormant
-superseded package — justified regardless of #237's keep/delete call on
-strat_field, and it unblocks that deletion later. Also per the audit's
-BE-3D-BUILDERS-05 verifier note: delete the router's dead
-`litho_snap_tolerance_m` read first (passed to a parameter RecomputeLithoSolids
-documents as UNUSED), which drops the knob-reader copy count below the
-extraction threshold.
+(build_voxel_litho_model, load_geo_surfaces, label_voxels, geo_bands).
 
-**Why deferred.** Small but touches the voxel build — verify with the
-label-grid SHA-256 byte-identical check after.
-
-**When to revisit.** Next voxel-builder touch, or as the first step of #237's
-strat_field decision.
+**Resolution (`788a789a3`).** `SurfaceBound` moved to
+`domain/services/surface_bound.py`; `_digest_surfaces` promoted to the public
+`digest_surfaces` in `load_geo_surfaces.py` (pure moves, behaviour
+byte-identical; unit suite green). The router's dead `litho_snap_tolerance_m`
+read died with the rebuild endpoint itself in #237.1 (`4523edb18`) rather
+than as a separate step.
 
 ## 237. 2026-07-12 owner-decision batch — DECIDED 2026-07-12, execution in progress
 
 **Owner decisions (2026-07-12, all five):**
-1. strat_field → **DELETE after #236** lands (extraction first, byte-identical
-   voxel verify). Owner note recorded: fill-bands are the ground truth and the
-   voxel builder itself may need revisiting later (post-pivot) — deletion of
-   the implicit builder does not pre-empt that.
+1. ~~strat_field → DELETE after #236~~ → **DONE 2026-07-12** (`788a789a3` +
+   `4523edb18` + `acae1010d`): #236 extraction first (SurfaceBound →
+   `surface_bound.py`, `_digest_surfaces` → public `digest_surfaces` in
+   `load_geo_surfaces.py`), then deleted `strat_field/` (12 modules),
+   `AssembleStratInputs`, `RecomputeLithoSolids`, the `POST
+   .../litho-solids/rebuild` endpoint (+ dead `litho_snap_tolerance_m` read),
+   strat unit/integration tests + benchmarks + `eval_strat_builder.py` /
+   `profile_strat_build.py`, and the FE `rebuildLithoSolids` client fn
+   (−17k lines). `strat_invariants.py` (load-bearing voxel gate) relocated to
+   `tests/unit/domain/services/voxel_litho/`; `test_litho_solids.py` +
+   `test_project_bundle_litho_solids.py` reseeded via direct ORM rows.
+   Owner note recorded: fill-bands are the ground truth and the voxel builder
+   itself may need revisiting later (post-pivot) — deletion of the implicit
+   builder does not pre-empt that.
 2. C1/C2a/C2b skeleton flow → **DELETE** (body-centric is final).
 3. Import cancel → **cancel-on-disconnect**: JobRegistry.stream() cancels the
    task in its finally-block on SSE disconnect; DELETE /jobs/{job_id} then goes
@@ -6049,11 +6052,9 @@ each verified to fail identically on pre-campaign code (`9c43655e`):
    DivideBoreholes assigns `body_id` to a BH layer; the test pins that it
    must not. Either the invariant changed with the litho-confined
    materialiser or this is a real regression from that work.
-2. `test_litho_solids.py::test_rebuild_produces_solid_with_geometry` —
-   the DORMANT strat_field rebuild path: fixture geo model has no built
-   surfaces → falls back → 0 control points → `bodies_built=0` vs `>=1`.
-   **Moot once #237.1 deletes the strat_field path + its test files** — do
-   not fix, delete with the package.
+2. ~~`test_litho_solids.py::test_rebuild_produces_solid_with_geometry`~~ —
+   GONE 2026-07-12: deleted with the strat_field path in #237.1
+   (`4523edb18`). Three reds remain (#1/#3/#4).
 3. `test_sample_geotech_assignment.py` — SA-5: a clay sample gets a
    `geotech_body_id` where the conservative-fallback rule expects None (no
    CPT-backed KLEI body in the fixture).
