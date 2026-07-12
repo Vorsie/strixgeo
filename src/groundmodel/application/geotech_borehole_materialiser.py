@@ -379,8 +379,8 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         """Find-or-create a classified geotech formation by the full triple.
 
         The triple ``(nad_class, source_litho_formation_id,
-        source_geo_formation_id)`` is the stable find-or-create key shared
-        with C2b's ``AcceptGeotechSuggestions._find_or_create_classified``.
+        source_geo_formation_id)`` is the stable find-or-create key for
+        classified geotech formations.
 
         Parameters
         ----------

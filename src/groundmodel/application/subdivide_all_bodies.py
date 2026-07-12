@@ -3,8 +3,8 @@
 Geotechnical stage — Slice B (spec
 ``docs/superpowers/specs/2026-06-23-geotech-stage-slice-1-design.md`` §0.1).
 
-``SubdivideAllBodies`` is the **classify-and-materialise** step that follows
-``BuildGeotechModelFromLitho`` (Task C1).  It groups the geo-bounded litho
+``SubdivideAllBodies`` is the **classify-and-materialise** step of the
+body-centric geotech flow.  It groups the geo-bounded litho
 picks by ``(body_id, source_geo_formation_id)``, runs the A3 segmenter per
 CPT member, applies the B-policy aggregator to decide consistent-split vs
 one-class, interpolates split surfaces onto every column (CPTs + boreholes),
@@ -243,8 +243,7 @@ class _ColumnPlan:
 class SubdivideAllBodies(GeotechBoreholeMaterialiser):
     """Classify + materialise geotech spatial bodies for the whole litho model.
 
-    Runs after ``BuildGeotechModelFromLitho`` (C1) has ensured the geotech
-    model exists.  Does NOT assume C1 contacts exist — it works from the litho
+    Find-or-creates the geotech sibling model itself and works from the litho
     model's accepted layers + body resolver directly.
 
     Key design: geotech *layers* are materialised model-wide (one per
@@ -680,8 +679,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         )
 
         # 2b. Delete any remaining FormationContact rows for the geotech model.
-        # BuildGeotechModelFromLitho (C1) writes FC rows DIRECTLY (not via the
-        # LL→FC trigger), so step 2's trigger-based cleanup does not remove them.
+        # The retired C1 skeleton flow wrote FC rows DIRECTLY (not via the
+        # LL→FC trigger), so step 2's trigger-based cleanup does not remove
+        # them; projects built before #237.2 may still carry such rows.
         # Without this step a subsequent SAB run fires the LL→FC trigger which
         # tries to INSERT the same FC row again →
         # uq_formation_contact_model_formation_borehole_depth violation.

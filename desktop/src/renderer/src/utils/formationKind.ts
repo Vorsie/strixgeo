@@ -14,8 +14,8 @@
  *
  * Correct discriminator: ``source_litho_formation_id``
  * -----------------------------------------------------
- * The geotech-stage backend (``BuildGeotechModelFromLitho``,
- * ``SubdivideAllBodies``) stamps ``source_litho_formation_id`` on every
+ * The geotech-stage backend (``SubdivideAllBodies``, ``DivideBoreholes``)
+ * stamps ``source_litho_formation_id`` on every
  * geotech formation row — both classified units (``nad_class !== null``)
  * and borehole-only skeleton units (``nad_class === null``, no CPT qc
  * available). This FK is null on every geological and litho formation.

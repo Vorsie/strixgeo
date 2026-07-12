@@ -3,12 +3,11 @@
 Connects to the dev ``groundmodel`` DB, resolves the known lithostratigraphic
 model ``019e934c-...``, and for each of its cross-sections runs:
 
-1. ``BuildGeotechModelFromLitho.execute(...)`` — ensures the geotech model +
-   geo-bounded skeleton contacts exist.
-2. ``SubdivideAllBodies.execute(...)`` — classify bodies into NAD sub-units and
-   materialise geotech layers + edges + bodies.
+``SubdivideAllBodies.execute(...)`` — classify bodies into NAD sub-units and
+materialise geotech layers + edges + bodies (the use case find-or-creates the
+geotech sibling model itself).
 
-Both use cases commit to the dev DB, so after this script runs the owner can
+The use case commits to the dev DB, so after this script runs the owner can
 dogfeed the built geotech model in the desktop app.
 
 The script reports, per section and aggregated:
@@ -48,9 +47,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 from sqlalchemy import select  # noqa: E402
 
-from groundmodel.application.build_geotech_model_from_litho import (  # noqa: E402
-    BuildGeotechModelFromLitho,
-)
 from groundmodel.application.subdivide_all_bodies import (  # noqa: E402
     SubdivideAllBodies,
     SubdivideAllBodiesResult,
@@ -179,70 +175,8 @@ async def _list_sections(session, project_id: UUID) -> list[CrossSectionOrm]:
 
 
 # ---------------------------------------------------------------------------
-# Per-section runner
+# Model-wide runner
 # ---------------------------------------------------------------------------
-
-
-async def _build_section(
-    *,
-    project_id: UUID,
-    litho_model_id: UUID,
-    section: CrossSectionOrm,
-    dry_run: bool,
-) -> tuple[bool, str]:
-    """Build the geo-bounded geotech skeleton for ONE section corridor.
-
-    The NAD subdivision itself is model-wide and runs ONCE after every section's
-    skeleton exists (see :func:`_run_subdivide`) — this step only ensures the
-    geotech model + per-section geo-bounded contacts are present. Opens a fresh
-    session per section so an error on one section leaves the others unaffected.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    litho_model_id : UUID
-        Lithostratigraphic model id.
-    section : CrossSectionOrm
-        The cross-section to build the skeleton for.
-    dry_run : bool
-        When True, roll back rather than committing — no persistent DB writes.
-
-    Returns
-    -------
-    tuple[bool, str]
-        ``(errored, error_summary)`` — ``(False, "")`` on success.
-    """
-    section_name = section.name
-    print(f"\n  [{section_name}]  id={section.id}")
-
-    try:
-        async with AsyncSessionFactory() as session:
-            c1 = BuildGeotechModelFromLitho(session)
-            c1_result = await c1.execute(
-                project_id=project_id,
-                litho_model_id=litho_model_id,
-                section_id=section.id,
-            )
-            if dry_run:
-                await session.rollback()
-            print(
-                f"    C1 BuildGeotechModelFromLitho: "
-                f"geotech_model={c1_result.geotech_model_id} "
-                f"created_model={c1_result.created_model} "
-                f"skeleton_formations={len(c1_result.created_formation_ids)} "
-                f"contacts={len(c1_result.created_contact_ids)} "
-                f"geo_cuts={c1_result.divided_contact_count}"
-                f"{'  (DRY RUN — rolled back)' if dry_run else ''}"
-            )
-        return False, ""
-    except Exception as exc:  # noqa: BLE001
-        tb = traceback.format_exc()
-        summary = f"{type(exc).__name__}: {exc}"
-        print(f"    ERROR: {summary}")
-        for line in tb.splitlines():
-            print(f"    {line}")
-        return True, summary
 
 
 async def _run_subdivide(
@@ -448,20 +382,8 @@ async def main() -> None:
     if args.dry_run:
         print("  DRY RUN: changes will NOT be committed.\n")
 
-    # Step A — build every section's geo-bounded skeleton (per-section commit).
-    _print_section_header("PER-SECTION SKELETON BUILDS")
-    sections_errored: list[str] = []
-    for section in sections:
-        errored, _summary = await _build_section(
-            project_id=project_id,
-            litho_model_id=litho_model_id,
-            section=section,
-            dry_run=args.dry_run,
-        )
-        if errored:
-            sections_errored.append(section.name)
-
-    # Step B — model-wide NAD subdivision, ONCE (geotech layers are model-wide).
+    # Model-wide NAD subdivision, ONCE (geotech layers are model-wide; the
+    # use case find-or-creates the geotech sibling model itself).
     _print_section_header("MODEL-WIDE SUBDIVISION")
     sab_result = await _run_subdivide(
         project_id=project_id,
@@ -473,7 +395,7 @@ async def main() -> None:
     _aggregate_and_report(
         sab_result,
         sections_run=len(sections),
-        sections_errored=sections_errored,
+        sections_errored=[],
     )
     print("\n=== EVAL COMPLETE ===\n")
 

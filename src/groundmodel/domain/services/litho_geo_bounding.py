@@ -1,8 +1,8 @@
 """Geology-bounding transforms on the litho-3D pick list.
 
 Two pure transforms applied to the ``BodyLayerPick`` list by the
-geotech-model builders (``BuildGeotechModelFromLitho``, ``DivideBoreholes``,
-``SubdivideAllBodies``) before their per-band work:
+geotech-model builders (``SubdivideAllBodies``, ``DivideBoreholes``)
+before their per-band work:
 
 1. :func:`mark_and_truncate_shallow_tests` — FLAG any test whose deepest point
    sits above the lowest geological boundary (it cannot floor the model). The

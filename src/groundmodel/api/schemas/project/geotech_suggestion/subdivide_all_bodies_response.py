@@ -13,8 +13,8 @@ class SubdivideAllBodiesResponse(BaseModel):
     Parameters
     ----------
     geotech_model_id : UUID
-        The geotechnical model used (created by an earlier ``geotech/build``
-        call or reused when it already exists).
+        The geotechnical model used (find-or-created by the use case
+        itself; reused when it already exists).
     created_formation_ids : list[UUID]
         Classified geotech ``geological_formation`` rows created in this call.
         Find-or-create is DB-backed, so a re-run returns only newly created

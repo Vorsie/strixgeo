@@ -279,9 +279,9 @@ class LithoLayerRepository(GroundModelLogger):
             The lithostratigraphic model to scope the query to.
         restrict_to_investigation_ids : set[UUID] | None, optional
             When given, only layers anchored to a CPT/borehole whose id is in
-            this set are loaded — the section-scoped path used by
-            ``BuildGeotechModelFromLitho`` (in-corridor investigations resolved
-            via ``project_investigations_onto_section``).  ``None`` (the
+            this set are loaded — the section-scoped path (in-corridor
+            investigations resolved via
+            ``project_investigations_onto_section``).  ``None`` (the
             default) is the model-wide load every other caller uses.  An empty
             set returns no picks (no in-corridor investigations).
 

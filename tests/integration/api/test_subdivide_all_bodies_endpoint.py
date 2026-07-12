@@ -175,21 +175,12 @@ async def test_sab_it1_subdivide_all_bodies_happy_path(
     project: ProjectOrm,
     scene: dict,
 ) -> None:
-    """SAB-IT-1: build skeleton → subdivide-all-bodies → 200 + non-zero layer_count."""
+    """SAB-IT-1: subdivide-all-bodies → 200 + non-zero layer_count."""
     pid = project.id
     litho_id = scene["litho_model_id"]
-    section_id = scene["section_id"]
 
-    # Step 1: build the geotech skeleton (prerequisite — ensures geotech model exists).
-    build_resp = await async_client.post(
-        f"/projects/{pid}/geology/models/{litho_id}/geotech/build",
-        json={"section_id": section_id},
-    )
-    assert build_resp.status_code == 200, build_resp.text
-    geotech_model_id = build_resp.json()["geotech_model_id"]
-    assert geotech_model_id, "Build must return a geotech_model_id"
-
-    # Step 2: subdivide all bodies.
+    # Subdivide all bodies — the use case ensures the geotech sibling model
+    # itself (find-or-create), no prior build step exists since #237.2.
     sab_resp = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
         json={"litho_model_id": litho_id},
@@ -197,10 +188,8 @@ async def test_sab_it1_subdivide_all_bodies_happy_path(
     assert sab_resp.status_code == 200, sab_resp.text
     body = sab_resp.json()
 
-    # The response must carry the same geotech_model_id the build step created.
-    assert body["geotech_model_id"] == geotech_model_id, (
-        "subdivide-all-bodies must reuse the geotech model the build step created"
-    )
+    geotech_model_id = body["geotech_model_id"]
+    assert geotech_model_id, "subdivide-all-bodies must return a geotech_model_id"
     assert isinstance(body["created_formation_ids"], list)
     assert isinstance(body["layer_count"], int)
     assert body["layer_count"] >= 1, (
@@ -249,15 +238,15 @@ async def test_sab_it3_kind_guard_rejects_geotech_model(
     """SAB-IT-3: POST subdivide-all-bodies with the geotech model id → 422."""
     pid = project.id
     litho_id = scene["litho_model_id"]
-    section_id = scene["section_id"]
 
-    # Build first to obtain the geotech model id.
-    build_resp = await async_client.post(
-        f"/projects/{pid}/geology/models/{litho_id}/geotech/build",
-        json={"section_id": section_id},
+    # Run subdivide-all-bodies once to obtain the geotech model id (the use
+    # case find-or-creates the geotech sibling model itself).
+    first_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
+        json={"litho_model_id": litho_id},
     )
-    assert build_resp.status_code == 200, build_resp.text
-    geotech_model_id = build_resp.json()["geotech_model_id"]
+    assert first_resp.status_code == 200, first_resp.text
+    geotech_model_id = first_resp.json()["geotech_model_id"]
 
     # Now pass the GEOTECH model id to subdivide-all-bodies — must reject.
     resp = await async_client.post(
