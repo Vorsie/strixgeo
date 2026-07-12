@@ -31,9 +31,10 @@ Separating borehole division from SAB allows the engineer to:
 Architecture
 ------------
 The use case inherits :class:`GeotechBoreholeMaterialiser` for the shared
-formation find-or-create logic.  The TIN-interpolation step is re-implemented
-here with the litho-extent filter; the base-class
-``_materialise_borehole_bands`` (used by SAB) is left unchanged.
+formation find-or-create logic.  The TIN-interpolation step is implemented
+here (``_materialise_borehole_bands_litho_confined``) with the litho-extent
+filter — this is the ONLY borehole TIN-division path; SubdivideAllBodies
+materialises CPT bands only.
 
 What it persists (one transaction, single commit)
 -------------------------------------------------
