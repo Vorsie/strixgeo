@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     secrets — always provide them through the environment.
     """
 
-    database_url: str = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel"
+    database_url: str = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel"
     debug: bool = False
     # SQLAlchemy engine echo. OFF by default and decoupled from `debug`
     # because echo logs every statement WITH the bound DSN — leaking the DB
