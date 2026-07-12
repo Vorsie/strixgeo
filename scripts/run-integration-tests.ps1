@@ -8,7 +8,7 @@
 #     -c "CREATE DATABASE groundmodel_integration;"
 #   docker exec strix-db-1 psql -U groundmodel -d groundmodel_integration `
 #     -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-#   $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel_integration"
+#   $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 #   uv run alembic upgrade head
 #
 # Per-run flow:
@@ -25,7 +25,10 @@
 # wrapped as an ErrorRecord and aborts the script. Check $LASTEXITCODE
 # explicitly instead — that's the real native-program success signal.
 
-$env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel_integration"
+# 127.0.0.1, NOT localhost: docker publishes 5433 on IPv4 only; a localhost
+# resolution can pick ::1 first and asyncpg's connect then wedges in SynSent
+# with no timeout (hung the 2026-07-12 suite for hours). Keep it IPv4-pinned.
+$env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 
 Write-Host "==> alembic upgrade head (integration DB)"
 uv run alembic upgrade head

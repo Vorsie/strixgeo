@@ -31,7 +31,7 @@
 # gets wrapped as an ErrorRecord and aborts the script. Check $LASTEXITCODE
 # explicitly instead.
 
-$env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@localhost:5433/groundmodel_integration"
+$env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 
 # node-postgres (the e2e db_helper) tolerates the +asyncpg suffix; the
 # backend REQUIRES it. One value serves both -- see the e2e specs' DATABASE_URL
