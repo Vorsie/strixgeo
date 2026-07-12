@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.litho_layer_helpers import repopulate_layers_after_commit
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -137,9 +138,9 @@ class BulkCreateLithoLayers(GroundModelLogger):
         await self._session.flush()
         await self._session.commit()
         # server_default=func.now() on created_at / updated_at expires
-        # the in-memory values at flush; refresh so Pydantic's response
-        # serializer doesn't lazy-load outside the greenlet.
-        for row in rows:
-            await self._session.refresh(row)
+        # the in-memory values at flush; repopulate in one round-trip so
+        # Pydantic's response serializer doesn't lazy-load outside the
+        # greenlet.
+        await repopulate_layers_after_commit(self._session, rows)
         self.success(f"BulkCreateLithoLayers ok model={model_id} created={len(rows)}")
         return rows

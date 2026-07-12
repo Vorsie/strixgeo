@@ -17,6 +17,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.litho_layer_helpers import repopulate_layers_after_commit
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
@@ -92,10 +93,9 @@ class BatchUpdateLithoLayers(GroundModelLogger):
         await self._repo.mark_litho_solids_stale(out[0].model_id)
         await self._session.flush()
         await self._session.commit()
-        # See UpdateLithoLayer / BatchUpdateLithoLayerStatus: refresh
-        # so Pydantic doesn't lazy-load the server-side onupdate
-        # ``updated_at`` outside the greenlet.
-        for row in out:
-            await self._session.refresh(row)
+        # See UpdateLithoLayer: repopulate so Pydantic doesn't lazy-load
+        # the server-side onupdate ``updated_at`` outside the greenlet —
+        # one batched SELECT instead of a refresh per row.
+        await repopulate_layers_after_commit(self._session, out)
         self.success(f"BatchUpdateLithoLayers ok count={len(out)}")
         return BatchUpdateResult(updated_count=len(out), layers=out)
