@@ -148,6 +148,27 @@ class MaterialiseBodyCompanions(GroundModelLogger):
             "contact(s) covered by approved edges"
         )
 
+        # 2b. Batch-load the primary sections' seeded-contact lists once —
+        #     bodies share primary sections heavily, and the previous per-body
+        #     session.get was one awaited round-trip per body (audit
+        #     BE-APPLICATION-LITHO-17).  Plain column values (not ORM rows) so
+        #     the per-body commits/rollbacks below can never expire them.
+        primary_section_ids = {
+            body.primary_section_id for body in bodies if body.primary_section_id is not None
+        }
+        seeded_by_section_id: dict[UUID, list[UUID]] = {}
+        if primary_section_ids:
+            section_rows = (
+                await self._session.execute(
+                    select(
+                        CrossSectionOrm.id,
+                        CrossSectionOrm.seeded_formation_contact_ids,
+                    ).where(CrossSectionOrm.id.in_(primary_section_ids))
+                )
+            ).all()
+            for row in section_rows:
+                seeded_by_section_id[row.id] = list(row.seeded_formation_contact_ids or [])
+
         created = 0
         skipped_no_primary = 0
         skipped_unfinished = 0
@@ -162,8 +183,7 @@ class MaterialiseBodyCompanions(GroundModelLogger):
                 self.debug(f"{prefix} skipped — no primary_section_id")
                 continue
 
-            sec = await self._session.get(CrossSectionOrm, body.primary_section_id)
-            if sec is None:
+            if body.primary_section_id not in seeded_by_section_id:
                 # Section was deleted between BodyOrm creation and now.
                 skipped_no_primary += 1
                 self.debug(
@@ -172,13 +192,13 @@ class MaterialiseBodyCompanions(GroundModelLogger):
                 continue
 
             # 4. Gate: every seeded contact must have at least one approved edge.
-            contact_ids: list[UUID] = sec.seeded_formation_contact_ids or []
+            contact_ids: list[UUID] = seeded_by_section_id[body.primary_section_id]
             if contact_ids:
                 unfinished = [cid for cid in contact_ids if cid not in approved_contact_ids]
                 if unfinished:
                     skipped_unfinished += 1
                     self.debug(
-                        f"{prefix} skipped — section {sec.id} has "
+                        f"{prefix} skipped — section {body.primary_section_id} has "
                         f"{len(unfinished)} uncorrelated contact(s)"
                     )
                     continue
