@@ -134,25 +134,6 @@ interface Props {
    * contact within snap tolerance.  When absent the item is hidden.
    */
   onLinkLithoToGeo?: (contactId: string) => Promise<void>
-  /**
-   * Right-click → "Extrapolate pinch-out…" menu item.
-   *
-   * Fires with the id, formation id, anchor kind, and anchor id of the
-   * right-clicked contact so the caller can open the formation + direction
-   * picker and call the backend's dry_run path.  When absent the menu item
-   * is hidden.
-   *
-   * Parameters
-   * ----------
-   * contactId
-   *     The id of the right-clicked contact.
-   * formationId
-   *     Formation the contact belongs to.
-   * anchorKind
-   *     ``'cpt'`` or ``'borehole'``.
-   * anchorId
-   *     Id of the CPT or borehole the contact is anchored to.
-   */
   /** All-or-nothing batch UPDATE commit. Used for:
    *
    * * Same-column multi-drag (every selected contact's depth shifts
@@ -667,9 +648,8 @@ export default function ContactsLayer({
   }, [rawContacts, liveContactDepthOverride])
 
   // ---- Contact context-menu state --------------------------------
-  // Small two-item menu triggered by right-click on a contact
-  // hit-strip.  Replaces the naked window.confirm approach so both
-  // "Delete" and "Extrapolate pinch-out…" can live in the same menu.
+  // Small menu triggered by right-click on a contact hit-strip.
+  // Replaces the naked window.confirm approach for "Delete".
   // Rendered via a portal to document.body with position:fixed using
   // the event's clientX/Y — avoids nesting a <div> inside the SVG.
   const [contactMenu, setContactMenu] = useState<{
@@ -3364,8 +3344,8 @@ export default function ContactsLayer({
           clientY={contactMenu.clientY}
           formationName={contactMenu.formationName}
           // Reference contacts (geological backdrop on the litho axis)
-          // only show "Edit in Geology stage".  Delete + pinch-out
-          // belong on the geological axis, not the litho view.
+          // only show "Edit in Geology stage".  Delete belongs on the
+          // geological axis, not the litho view.
           onEditInGeologyStage={
             onEditInGeologyStage &&
             (contactMenu.isReferenceContact ||
