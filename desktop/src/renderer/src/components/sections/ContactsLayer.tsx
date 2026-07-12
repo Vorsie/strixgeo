@@ -66,6 +66,7 @@ import {
   clamp,
   columnUnderCursor,
   computeSlabsAndPolylines,
+  subtractGhosts,
   surfaceYForColumn,
   truncateToWidth,
   type LayerSlabData,
@@ -1189,35 +1190,6 @@ export default function ContactsLayer({
         axisMode === 'geotechnical' ? nadClassName(f.nad_class ?? null) || f.name : f.name,
       ]),
     )
-    // Subtract pending-ghost depth ranges from a band's [top, base]
-    // interval, producing zero or more sub-bands (debt #151 dogfeed
-    // refinement 2026-05-27 — split the accepted band where a ghost
-    // is being inserted so the ghost is visible on top).
-    const subtractGhosts = (
-      bandTopM: number,
-      bandBaseM: number,
-      holes: readonly { depth_top_m: number; depth_base_m: number }[],
-    ): Array<{ topM: number; baseM: number }> => {
-      let pieces: Array<{ topM: number; baseM: number }> = [
-        { topM: bandTopM, baseM: bandBaseM },
-      ]
-      for (const hole of holes) {
-        pieces = pieces.flatMap(p => {
-          if (hole.depth_base_m <= p.topM || hole.depth_top_m >= p.baseM) {
-            return [p]
-          }
-          const out: Array<{ topM: number; baseM: number }> = []
-          if (hole.depth_top_m > p.topM) {
-            out.push({ topM: p.topM, baseM: hole.depth_top_m })
-          }
-          if (hole.depth_base_m < p.baseM) {
-            out.push({ topM: hole.depth_base_m, baseM: p.baseM })
-          }
-          return out
-        })
-      }
-      return pieces
-    }
     const out: LithoBand[] = []
     for (const col of placedColumns) {
       const item = col.proj.item as { id: string; name: string; elevation_m: number | null }
@@ -2679,18 +2651,7 @@ export default function ContactsLayer({
           // surviving piece back to screen y.
           const topDepthM = (layer.bodyTopY - layer.surfaceY) / layer.pxPerMetre
           const baseDepthM = (layer.bodyBottomY - layer.surfaceY) / layer.pxPerMetre
-          let pieces: Array<{ topM: number; baseM: number }> = [
-            { topM: topDepthM, baseM: baseDepthM },
-          ]
-          for (const hole of ghostHoles) {
-            pieces = pieces.flatMap(p => {
-              if (hole.depth_base_m <= p.topM || hole.depth_top_m >= p.baseM) return [p]
-              const out: Array<{ topM: number; baseM: number }> = []
-              if (hole.depth_top_m > p.topM) out.push({ topM: p.topM, baseM: hole.depth_top_m })
-              if (hole.depth_base_m < p.baseM) out.push({ topM: hole.depth_base_m, baseM: p.baseM })
-              return out
-            })
-          }
+          const pieces = subtractGhosts(topDepthM, baseDepthM, ghostHoles)
           if (pieces.length > 0) {
             // Pick the tallest surviving piece.
             const best = pieces.reduce((a, b) =>

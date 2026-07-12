@@ -22,6 +22,7 @@
  *     ``truncateToWidth``   — ellipsis-truncate a label to a pixel budget.
  *     ``columnUnderCursor`` — nearest PlacedColumn within attraction hysteresis.
  *     ``surfaceYForColumn`` — derive screenY + pxPerMetre + elevationM for a column.
+ *     ``subtractGhosts``    — subtract ghost depth ranges from a band interval.
  *
  * Main function
  *     ``computeSlabsAndPolylines`` — Stage-A classification pass; pure of vertical axis.
@@ -270,6 +271,56 @@ export function surfaceYForColumn(
     pxPerMetre,
     surfaceElevationM: item.elevation_m,
   }
+}
+
+/**
+ * Subtract pending-ghost depth ranges from a band's ``[top, base]``
+ * interval, producing zero or more surviving sub-intervals (debt #151
+ * dogfeed refinement 2026-05-27 — split the accepted band where a
+ * ghost is being inserted so the ghost is visible on top).
+ *
+ * Pure interval subtraction in depth-metres space; shared by the
+ * per-column litho-band memo and the slab label-shift render path.
+ *
+ * Parameters
+ * ----------
+ * bandTopM
+ *     Band top depth (m below surface).
+ * bandBaseM
+ *     Band base depth (m below surface).
+ * holes
+ *     Ghost depth ranges to cut out of the band.
+ *
+ * Returns
+ * -------
+ * Array<{ topM, baseM }>
+ *     The surviving pieces, in top-to-base order (empty when the
+ *     ghosts cover the whole band).
+ */
+export function subtractGhosts(
+  bandTopM: number,
+  bandBaseM: number,
+  holes: readonly { depth_top_m: number; depth_base_m: number }[],
+): Array<{ topM: number; baseM: number }> {
+  let pieces: Array<{ topM: number; baseM: number }> = [
+    { topM: bandTopM, baseM: bandBaseM },
+  ]
+  for (const hole of holes) {
+    pieces = pieces.flatMap(p => {
+      if (hole.depth_base_m <= p.topM || hole.depth_top_m >= p.baseM) {
+        return [p]
+      }
+      const out: Array<{ topM: number; baseM: number }> = []
+      if (hole.depth_top_m > p.topM) {
+        out.push({ topM: p.topM, baseM: hole.depth_top_m })
+      }
+      if (hole.depth_base_m < p.baseM) {
+        out.push({ topM: hole.depth_base_m, baseM: p.baseM })
+      }
+      return out
+    })
+  }
+  return pieces
 }
 
 // ---------------------------------------------------------------------------
