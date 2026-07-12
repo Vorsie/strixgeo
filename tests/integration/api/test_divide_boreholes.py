@@ -478,11 +478,16 @@ async def test_db1_sab_then_divide_boreholes(
         f"got {len(bh_sorted)}: {[(ll.depth_top_m, ll.depth_base_m) for ll in bh_sorted]}"
     )
 
-    # DB1-2: body_id stays None (DivideBoreholes skips the resolver).
+    # DB1-2: body_id is resolver-stamped. Since bec4e53ed (2026-07-07,
+    # Phase 8.5) DivideBoreholes derives borehole-mediated geotech edges and
+    # RE-RESOLVES the model, so divided borehole layers join the geotech body
+    # graph instead of staying body-less. (The original assertion pinned the
+    # pre-07-07 skip-the-resolver contract — debt #238.1.)
     for ll in bh_sorted:
-        assert ll.body_id is None, (
+        assert ll.body_id is not None, (
             f"DB1-2: BH-S layer [{ll.depth_top_m}, {ll.depth_base_m}] "
-            f"has body_id={ll.body_id} — DivideBoreholes must not assign body_id"
+            f"has body_id=None — DivideBoreholes must re-resolve borehole "
+            f"layers into the geotech body graph (Phase 8.5, bec4e53ed)"
         )
 
     # DB1-3: split depth in [3.5, 5.5] m.
