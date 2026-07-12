@@ -5182,8 +5182,9 @@ under a live dogfeed. The client split is low-risk and bankable next.
 
 **When to revisit.** After the current dogfeed pass. A full lowest-risk →
 highest-risk decomposition plan (5 ordered moves, per-move verification bar,
-constraints) lives at
-`docs/superpowers/plans/2026-06-04-god-component-decomposition.md`. Move 1
+constraints) lives in git history at
+`docs/superpowers/plans/2026-06-04-god-component-decomposition.md` (purged
+2026-07-12 — resolve via docs/superpowers/README.md). Move 1
 (backend) done. Move 2 (`client.ts` per-domain split) **RESOLVED 2026-06-06:**
 `api/client.ts` (was 3,201 lines) replaced by a 211-line barrel re-exporting
 from 7 `api/clients/` domain modules (shared.ts, borehole.ts, codelist.ts,
